@@ -1057,100 +1057,37 @@ class GraniteForSamplingNoEmbeddingHlo:
 
             if context is None:
                 if self.neuron_config.enable_chunked_prefill:
-                    if self.neuron_config.shard_over_sequence:
-                        # Communication 1: all-gather query from cores
-                        if not self.neuron_config.duplicate_q_weight_sos:
-                            query = flash_decoding.gather_query_group(query, self.cores_per_kv_head, n_head, tp_degree)
-                        # S = Q @ K (This matmul wastes some computation)
-                        contexted_keys = attention_utils.gather_sharded_kv(
-                            cached_keys,
-                            active_idx=cached_to_contexted,
-                            active_tokens=key,
-                            active_token_idx=active_to_contexted,
-                        )
-                        score = attention.score(
-                            query,
-                            contexted_keys,
-                            n_kv_heads=self.config.num_key_value_heads,
-                            tp_degree=tp_degree,
-                            neuron_config=self.neuron_config,
-                        )
-                        score = attention.mask(score, mask, tp_degree=tp_degree)
-                        # FlashAttention-Style Communication
-                        f32 = score.scribe.f32
-                        score = hlo.cast(score, f32)
-                        max_score_local = hlo.reduce_max(score, dim=3)
-                        max_score_local_br = hlo.broadcast(max_score_local, score.sizes, [0, 1, 2])
-                        score = hlo.exp(hlo.subtract(score, max_score_local_br))
-                        l_sum_score_local = hlo.reduce_sum(score, dim=3)
+                    # S = Q @ K
+                    cached_keys_gathered = attention_utils.gather_blocks(
+                        cached_keys, block_tables=block_tables, neuron_config=self.neuron_config
+                    )
+                    contexted_keys = attention_utils.contexted_kv(
+                        cached_keys_gathered, key, cached_mask, cached_to_contexted, active_to_contexted
+                    )
+                    score = attention.score(
+                        query,
+                        contexted_keys,
+                        n_kv_heads=self.config.num_key_value_heads,
+                        tp_degree=tp_degree,
+                        neuron_config=self.neuron_config,
+                    )
 
-                        # Value Combination
-                        score = hlo.cast(score, cached_values.dtype)
-                        contexted_values = attention_utils.gather_sharded_kv(
-                            cached_values,
-                            active_idx=cached_to_contexted,
-                            active_tokens=value,
-                            active_token_idx=active_to_contexted,
-                        )
-                        context = attention.context_combined(
-                            score,
-                            contexted_values,
-                            n_kv_heads=self.config.num_key_value_heads,
-                            dtype=score.scribe.f32,
-                            tp_degree=tp_degree,
-                            neuron_config=self.neuron_config,
-                            skip_softmax=True,
-                        )
-                        # Communication 2: softmax correction
-                        context = attention_utils.sharded_softmax_correction(
-                            context,
-                            max_score_local,
-                            l_sum_score_local,
-                            core_id,
-                            tp_degree=tp_degree,
-                            sos_degree=self.cores_per_kv_head,
-                        )
-                        # Communication 3: reduce-scatter partial context
-                        num_groups = tp_degree // self.cores_per_kv_head
-                        replica_groups = utils.build_replica_groups(
-                            num_groups=num_groups, group_size=self.cores_per_kv_head, interleave=False
-                        )
-                        context = hlo.reduce_scatter_sum(
-                            context, tp_degree=self.cores_per_kv_head, dim=2, replica_groups=replica_groups
-                        )
-                        context = hlo.cast(context, hidden.dtype)
-                    else:
-                        # S = Q @ K
-                        cached_keys_gathered = attention_utils.gather_blocks(
-                            cached_keys, block_tables=block_tables, neuron_config=self.neuron_config
-                        )
-                        contexted_keys = attention_utils.contexted_kv(
-                            cached_keys_gathered, key, cached_mask, cached_to_contexted, active_to_contexted
-                        )
-                        score = attention.score(
-                            query,
-                            contexted_keys,
-                            n_kv_heads=self.config.num_key_value_heads,
-                            tp_degree=tp_degree,
-                            neuron_config=self.neuron_config,
-                        )
+                    score = attention.mask(score, mask, tp_degree=tp_degree)
 
-                        score = attention.mask(score, mask, tp_degree=tp_degree)
-
-                        # C = softmax(Sa, Sp) @ (Va, Vp)
-                        cached_values_gathered = attention_utils.gather_blocks(
-                            cached_values, block_tables=block_tables, neuron_config=self.neuron_config
-                        )
-                        contexted_values = attention_utils.contexted_kv(
-                            cached_values_gathered, value, cached_mask, cached_to_contexted, active_to_contexted
-                        )
-                        context = attention.context_combined(
-                            score,
-                            contexted_values,
-                            n_kv_heads=self.config.num_key_value_heads,
-                            tp_degree=tp_degree,
-                            neuron_config=self.neuron_config,
-                        )
+                    # C = softmax(Sa, Sp) @ (Va, Vp)
+                    cached_values_gathered = attention_utils.gather_blocks(
+                        cached_values, block_tables=block_tables, neuron_config=self.neuron_config
+                    )
+                    contexted_values = attention_utils.contexted_kv(
+                        cached_values_gathered, value, cached_mask, cached_to_contexted, active_to_contexted
+                    )
+                    context = attention.context_combined(
+                        score,
+                        contexted_values,
+                        n_kv_heads=self.config.num_key_value_heads,
+                        tp_degree=tp_degree,
+                        neuron_config=self.neuron_config,
+                    )
                 else:
                     # S = Q @ K
 
