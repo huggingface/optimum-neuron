@@ -321,35 +321,26 @@ class GraniteForSamplingNoEmbeddingHlo:
         pre_attn_ln_weight,
         pre_attn_ln_bias,
         attn_q_weight,
-        attn_q_scales,
         attn_q_bias,
         attn_k_weight,
-        attn_k_scales,
         attn_k_bias,
         attn_v_weight,
-        attn_v_scales,
         attn_v_bias,
         attn_out_weight,
-        attn_out_scales,
         attn_out_bias,
         post_attn_ln_weight,
         post_attn_ln_bias,
         pre_mlp_ln_weight,
         pre_mlp_ln_bias,
         mlp_in_weight,
-        mlp_in_scales,
         mlp_in_bias,
         mlp_out_weight,
-        mlp_out_scales,
         mlp_out_bias,
         post_mlp_ln_weight,
         post_mlp_ln_bias,
         in0_weight=None,
-        in0_scales=None,
         in1_weight=None,
-        in1_scales=None,
         out_weight=None,
-        out_scales=None,
         is_first_last_layer=False,
     ):
         local_args = {**locals()}
@@ -400,35 +391,26 @@ class GraniteForSamplingNoEmbeddingHlo:
         pre_attn_ln_weight,
         pre_attn_ln_bias,
         attn_q_weight,
-        attn_q_scales,
         attn_q_bias,
         attn_k_weight,
-        attn_k_scales,
         attn_k_bias,
         attn_v_weight,
-        attn_v_scales,
         attn_v_bias,
         attn_out_weight,
-        attn_out_scales,
         attn_out_bias,
         post_attn_ln_weight,
         post_attn_ln_bias,
         pre_mlp_ln_weight,
         pre_mlp_ln_bias,
         mlp_in_weight,
-        mlp_in_scales,
         mlp_in_bias,
         mlp_out_weight,
-        mlp_out_scales,
         mlp_out_bias,
         post_mlp_ln_weight,
         post_mlp_ln_bias,
         in0_weight=None,
-        in0_scales=None,
         in1_weight=None,
-        in1_scales=None,
         out_weight=None,
-        out_scales=None,
         is_first_last_layer=False,
     ):
         eps = self.config.rms_norm_eps
@@ -467,16 +449,12 @@ class GraniteForSamplingNoEmbeddingHlo:
             attn_k_cache,
             attn_v_cache,
             attn_q_weight,
-            attn_q_scales,
             attn_q_bias,
             attn_k_weight,
-            attn_k_scales,
             attn_k_bias,
             attn_v_weight,
-            attn_v_scales,
             attn_v_bias,
             attn_out_weight,
-            attn_out_scales,
             attn_out_bias,
         )
         # Granite specific: attention output is multiplied by residual multiplier
@@ -494,19 +472,16 @@ class GraniteForSamplingNoEmbeddingHlo:
         )
         if self.neuron_config.fuse_mlp:
             assert all(
-                (not (x) for x in [in0_weight, in1_weight, out_weight, in0_scales, in1_scales, out_scales])
+                (not (x) for x in [in0_weight, in1_weight, out_weight])
             ), "in0, in1 and out weights have to be None"
-            in0_weight, in0_scales = mlp_in_weight, mlp_in_scales
-            out_weight, out_scales = mlp_out_weight, mlp_out_scales
+            in0_weight = mlp_in_weight
+            out_weight = mlp_out_weight
 
         mlp_hidden = gated_mlp(
             norm_hidden,
             in0_weight,
             in1_weight,
             out_weight,
-            in0_scales=in0_scales,
-            in1_scales=in1_scales,
-            out_scales=out_scales,
             activation_function="silu",
             tp_degree=self.config.tp_degree,
             neuron_config=self.neuron_config,
@@ -536,35 +511,26 @@ class GraniteForSamplingNoEmbeddingHlo:
         pre_attn_ln_weight,
         pre_attn_ln_bias,
         attn_q_weight,
-        attn_q_scales,
         attn_q_bias,
         attn_k_weight,
-        attn_k_scales,
         attn_k_bias,
         attn_v_weight,
-        attn_v_scales,
         attn_v_bias,
         attn_out_weight,
-        attn_out_scales,
         attn_out_bias,
         post_attn_ln_weight,
         post_attn_ln_bias,
         pre_mlp_ln_weight,
         pre_mlp_ln_bias,
         mlp_in_weight,
-        mlp_in_scales,
         mlp_in_bias,
         mlp_out_weight,
-        mlp_out_scales,
         mlp_out_bias,
         post_mlp_ln_weight,
         post_mlp_ln_bias,
         in0_weight=None,
-        in0_scales=None,
         in1_weight=None,
-        in1_scales=None,
         out_weight=None,
-        out_scales=None,
         is_first_last_layer=False,
         enable_qkv_kernel=False,
         enable_mlp_kernel=False,
@@ -605,16 +571,12 @@ class GraniteForSamplingNoEmbeddingHlo:
                 attn_k_cache,
                 attn_v_cache,
                 attn_q_weight,
-                attn_q_scales,
                 attn_q_bias,
                 attn_k_weight,
-                attn_k_scales,
                 attn_k_bias,  # should be none
                 attn_v_weight,
-                attn_v_scales,
                 attn_v_bias,  # should be none
                 attn_out_weight,
-                attn_out_scales,
                 attn_out_bias,
             )
             if len(fused_out) == 3:
@@ -653,16 +615,12 @@ class GraniteForSamplingNoEmbeddingHlo:
                 attn_k_cache,
                 attn_v_cache,
                 attn_q_weight,
-                attn_q_scales,
                 attn_q_bias,
                 attn_k_weight,
-                attn_k_scales,
                 attn_k_bias,
                 attn_v_weight,
-                attn_v_scales,
                 attn_v_bias,
                 attn_out_weight,
-                attn_out_scales,
                 attn_out_bias,
             )
 
@@ -735,9 +693,6 @@ class GraniteForSamplingNoEmbeddingHlo:
                 in0_weight,
                 in1_weight,
                 out_weight,
-                in0_scales=in0_scales,
-                in1_scales=in1_scales,
-                out_scales=out_scales,
                 activation_function="silu",
                 tp_degree=self.config.tp_degree,
                 neuron_config=self.neuron_config,
@@ -782,16 +737,12 @@ class GraniteForSamplingNoEmbeddingHlo:
         attn_k_cache,
         attn_v_cache,
         attn_q_weight,
-        attn_q_scales,
         attn_q_bias,
         attn_k_weight,
-        attn_k_scales,
         attn_k_bias,  # should be none
         attn_v_weight,
-        attn_v_scales,
         attn_v_bias,  # should be none
         attn_out_weight,
-        attn_out_scales,
         attn_out_bias,
     ):
         from neuronxcc.nki._private_kernels.qkv import rmsnorm_qkv_isa_fused_add_kernel, rmsnorm_qkv_isa_kernel
@@ -862,13 +813,10 @@ class GraniteForSamplingNoEmbeddingHlo:
         value = hlo.reshape(value, active_kv_sizes)
         assert all(
             [
-                attn_q_scales is None,
                 attn_q_bias is None,
                 attn_k_weight is None,
-                attn_k_scales is None,
                 attn_k_bias is None,
                 attn_v_weight is None,
-                attn_v_scales is None,
                 attn_v_bias is None,
             ]
         )
@@ -900,7 +848,6 @@ class GraniteForSamplingNoEmbeddingHlo:
             None,
             None,
             attn_out_weight,
-            attn_out_scales,
             attn_out_bias,
             qkv_tuple=(query, key, value),
         )
@@ -926,16 +873,12 @@ class GraniteForSamplingNoEmbeddingHlo:
         cached_keys,
         cached_values,
         q_weight,
-        q_scales,
         q_bias,
         k_weight,
-        k_scales,
         k_bias,
         v_weight,
-        v_scales,
         v_bias,
         out_weight,
-        out_scales,
         out_bias,
         qkv_tuple: tuple = None,
     ):
@@ -961,13 +904,10 @@ class GraniteForSamplingNoEmbeddingHlo:
             query, key, value = attention.query_key_value(
                 hidden,
                 q_weight,
-                q_scales,
                 q_bias,
                 k_weight,
-                k_scales,
                 k_bias,
                 v_weight,
-                v_scales,
                 v_bias,
                 d_head,
                 neuron_config=self.neuron_config,
@@ -1239,8 +1179,5 @@ class GraniteForSamplingNoEmbeddingHlo:
                 )
 
         # O = (C @ wO) + bO
-        output = attention.output(context, out_weight, out_scales, out_bias, tp_degree, self.neuron_config)
-        # we do zero padding so disable now
-        #  if cores_per_attn_head and not self.neuron_config.shard_over_sequence:
-        #      output = hlo.divide(output, cores_per_attn_head)
+        output = attention.output(context, out_weight, out_bias, tp_degree, self.neuron_config)
         return output, updated_keys, updated_values
