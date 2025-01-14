@@ -71,8 +71,6 @@ class GraniteForSampling(base.NeuronModelBase):
             self.config.n_positions = npos
             config.n_positions = npos
             n_positions = npos
-        if self.neuron_config.on_device_generation:
-            self.neuron_config.on_device_generation.vocab_size = self.config.vocab_size
 
         self.layers_after_partition = self.neuron_config.auto_layer_partition(config.num_hidden_layers)
         self.prefixed_length = prefixed_length
