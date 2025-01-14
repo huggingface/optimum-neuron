@@ -17,7 +17,7 @@ from typing import Optional
 from transformers_neuronx import constants, hlo, utils
 from transformers_neuronx.config import NeuronConfig
 from transformers_neuronx.constants import LAYOUT_BSH, LAYOUT_HSB
-from transformers_neuronx.layers import attention, attention_utils, flash_decoding, rotary, transformer
+from transformers_neuronx.layers import attention, attention_utils, rotary, transformer
 from transformers_neuronx.nki.compile import nki_call
 
 from optimum.utils import logging
@@ -113,12 +113,7 @@ class GraniteForSamplingNoEmbeddingHlo:
 
     def embedding(self, input_ids, cache_ids, start_ids, last_token_id, block_tables, context_lens, *weights):
         core_id = None
-        if (
-            self.neuron_config.shard_over_sequence or self.neuron_config.sequence_parallel_norm
-        ) and self.neuron_config.on_device_embedding:
-            core_id, embed_weight, *rst = weights
-        else:
-            embed_weight, *rst = weights
+        embed_weight, *rst = weights
         dtype = getattr(input_ids.scribe, self.config.amp)
         if self.neuron_config.on_device_embedding and self.neuron_config.sequence_parallel_norm:
             hidden = hlo.embedding(
@@ -249,37 +244,15 @@ class GraniteForSamplingNoEmbeddingHlo:
         )
 
         # flash decoding
-        if self.neuron_config.shard_over_sequence and not self.neuron_config.enable_chunked_prefill:
-            cache_ids, mask, active_mask = flash_decoding.convert_attn_mask_and_cache_id(
-                cache_ids, start_ids, core_id, self.n_positions, cores_per_kv_head=self.cores_per_kv_head
-            )
-        elif self.neuron_config.shard_over_sequence and self.neuron_config.enable_chunked_prefill:
-            _, n_active_tokens = cache_ids.sizes
-            batch_size = self.neuron_config.continuous_batching.max_num_seqs
-            mask, active_mask = hlo.sharded_decoder_attention_block_diagonal_causal_from_bottomright_mask(
-                last_token_id,
-                seq_lens,
-                n_active_tokens,
-                max_num_keys,
-                batch_size,
-                cache_ids,
-                sharded_seq_lens,
-                cached_to_contexted_idx,
-                self.num_active_blocks + 1,
-                block_size,
-                core_sos_rank,
-                cores_per_kv_head,
-            )
-        else:
-            mask, active_mask = hlo.attention_mask(
-                cache_ids,
-                start_ids,
-                self.n_positions,
-                last_token_id=last_token_id,
-                num_active_blocks=self.num_active_blocks,
-                neuron_config=self.neuron_config,
-                context_lens=context_lens,
-            )
+        mask, active_mask = hlo.attention_mask(
+            cache_ids,
+            start_ids,
+            self.n_positions,
+            last_token_id=last_token_id,
+            num_active_blocks=self.num_active_blocks,
+            neuron_config=self.neuron_config,
+            context_lens=context_lens,
+        )
 
         return (
             hidden,
@@ -1083,14 +1056,6 @@ class GraniteForSamplingNoEmbeddingHlo:
             else:
                 cached_keys_s = cached_keys
                 cached_values_s = cached_values
-            # Communication 1: all-gather query from cores
-            # skip all-gather if query weight is already duplicated
-            if (
-                (n_active_tokens != self.n_positions)
-                and self.neuron_config.shard_over_sequence
-                and not self.neuron_config.duplicate_q_weight_sos
-            ):
-                query = flash_decoding.gather_query_group(query, self.cores_per_kv_head, n_head, tp_degree)
 
             # Sp = Q @ Kp
             prior_scores = attention.score(
@@ -1118,40 +1083,18 @@ class GraniteForSamplingNoEmbeddingHlo:
             )
 
             # C = softmax(Sa, Sp) @ (Va, Vp)
-            if self.neuron_config.shard_over_sequence:
-                dtype = query.dtype
-                context = flash_decoding.context(
-                    prior_scores,
-                    active_score,
-                    cached_values_s,
-                    value,
-                    core_id,
-                    mask,
-                    active_mask,
-                    n_kv_heads=self.config.num_key_value_heads,
-                    n_heads=n_head,
-                    dtype=dtype,
-                    tp_degree=tp_degree,
-                    neuron_config=self.neuron_config,
-                    shard_over_batch=self.shard_over_batch,
-                )
-                cache_ids, value, key = flash_decoding.select_values_within_bound(
-                    cache_ids, value, key, self.cores_per_kv_head, core_id, dim=0, n_positions=self.n_positions
-                )
-
-            else:
-                context = attention.context(
-                    prior_scores,
-                    active_score,
-                    cached_values_s,
-                    value,
-                    n_kv_heads=self.config.num_key_value_heads,
-                    tp_degree=tp_degree,
-                    context_lens=cache_ids,
-                    num_active_blocks=self.num_active_blocks,
-                    block_to_seq=block_to_seq,
-                    neuron_config=self.neuron_config,
-                )
+            context = attention.context(
+                prior_scores,
+                active_score,
+                cached_values_s,
+                value,
+                n_kv_heads=self.config.num_key_value_heads,
+                tp_degree=tp_degree,
+                context_lens=cache_ids,
+                num_active_blocks=self.num_active_blocks,
+                block_to_seq=block_to_seq,
+                neuron_config=self.neuron_config,
+            )
 
             # KCache[I], VCache[I] = K, V
             updated_keys, updated_values = attention.fused_kv_update_cache(
@@ -1287,10 +1230,6 @@ class GraniteForSamplingNoEmbeddingHlo:
                         neuron_config=self.neuron_config,
                     )
 
-            if self.neuron_config.shard_over_sequence and not self.neuron_config.enable_chunked_prefill:
-                cache_ids, value, key = flash_decoding.select_values_within_bound(
-                    cache_ids, value, key, self.cores_per_kv_head, core_id, dim=0, n_positions=self.n_positions
-                )
             # KCache, VCache = K, V
             if cached_keys.sizes == key.sizes:
                 updated_keys, updated_values = key, value
