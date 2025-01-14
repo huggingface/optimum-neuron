@@ -12,13 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import warnings
-
 import torch
 from transformers import PretrainedConfig
 from transformers_neuronx import base, bucket, decoder, utils
 from transformers_neuronx.config import NeuronConfig
-from transformers_neuronx.constants import KV_SHARD_PAD, LAYOUT_HSB
+from transformers_neuronx.constants import LAYOUT_HSB
 
 from .config import GraniteConfig
 from .hlo import GraniteForSamplingNoEmbeddingHlo
@@ -58,20 +56,6 @@ class GraniteForSampling(base.NeuronModelBase):
         self.context_hook = None
         self.config = config
         self.neuron_config = neuron_config if neuron_config else NeuronConfig()
-        if self.neuron_config.shard_over_sequence:
-            n_kv_head = self.config.num_key_value_heads
-            kv_shard_degree = self.config.tp_degree // n_kv_head
-            assert kv_shard_degree <= KV_SHARD_PAD, "increase kv_shard degree is higher than default 128"
-            warnings.warn(f"shard over sequence enabled, increasing n_positions {n_positions} by 128")
-            if isinstance(n_positions, list):
-                npos = sorted(n_positions)
-                npos[-1] += KV_SHARD_PAD
-            else:
-                npos = n_positions + KV_SHARD_PAD
-            self.config.n_positions = npos
-            config.n_positions = npos
-            n_positions = npos
-
         self.layers_after_partition = self.neuron_config.auto_layer_partition(config.num_hidden_layers)
         self.prefixed_length = prefixed_length
 
@@ -220,9 +204,7 @@ class GraniteForSampling(base.NeuronModelBase):
             layer.nullify()
 
         # Adding core_id for sos or seq-norm (vocab parallel is used as default with seq-par norm)
-        add_core_id = self.neuron_config.shard_over_sequence or (
-            self.neuron_config.sequence_parallel_norm and self.neuron_config.on_device_embedding
-        )
+        add_core_id = self.neuron_config.sequence_parallel_norm and self.neuron_config.on_device_embedding
         if add_core_id:
             self.decoder_lm_head.add_pre_layer_parameter(torch.arange(self.config.tp_degree), sharding=0)
         # For pipeline parallel, we need to load ln and lm_head for now even if the pipeline stage doesn't compute the, because
