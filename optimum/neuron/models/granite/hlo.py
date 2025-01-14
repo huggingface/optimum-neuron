@@ -148,22 +148,6 @@ class GraniteForSamplingNoEmbeddingHlo:
         cached_to_contexted = None
         active_to_contexted = None
         core_id = None
-        if self.neuron_config.shard_over_sequence or (
-            self.neuron_config.sequence_parallel_norm and self.neuron_config.on_device_embedding
-        ):
-            core_id, *rst = weights
-        if self.neuron_config.shard_over_sequence:
-            n_kv_heads = (
-                self.config.num_key_value_heads
-                if hasattr(self.config, "num_key_value_heads")
-                else self.config.num_attention_heads
-            )
-            cores_per_kv_head = self.config.tp_degree // n_kv_heads
-            self.cores_per_kv_head = cores_per_kv_head if cores_per_kv_head > 1 else self.config.tp_degree
-            cores_per_q_head = self.config.tp_degree // self.config.num_attention_heads
-            self.cores_per_kv_head = (
-                self.cores_per_kv_head // cores_per_q_head if cores_per_q_head else self.cores_per_kv_head
-            )
         if self.neuron_config.optimized_paged_attention and len(last_token_id.sizes) == 2:
             # For decoding with multiple KV cache blocks:
             # - cache_ids are used as context_lens
@@ -188,46 +172,16 @@ class GraniteForSamplingNoEmbeddingHlo:
             context_lens_2d = hlo.unsqueeze(context_lens, 1)
             seq_lens = hlo.add(context_lens, last_token_id)
             block_size = self.neuron_config.continuous_batching.block_size
-            if self.neuron_config.shard_over_sequence:
-                core_sos_rank = hlo.remainder(core_id, cores_per_kv_head)
-                core_sos_rank = hlo.cast(core_sos_rank, seq_lens.scribe.s32)
-                sharded_block_size = block_size // cores_per_kv_head
-                block_tables = attention_utils.active_block_tables(
-                    block_tables=block_tables,
-                    context_lens=hlo.unsqueeze(seq_lens, 1),
-                    num_active_blocks=self.num_active_blocks,
-                    neuron_config=self.neuron_config,
-                )
-                start_ids, active_token_mask = attention_utils.sharded_slot_mapping(
-                    start_ids, cache_ids, block_size, core_sos_rank, sos_degree=cores_per_kv_head
-                )
-                max_num_keys = (self.num_active_blocks + 1) * sharded_block_size
-                _, n_active_tokens = cache_ids.sizes
-                cached_to_contexted, cached_to_contexted_idx, active_to_contexted, sharded_seq_lens = (
-                    attention_utils.sharded_kv_indexing(
-                        seq_lens,
-                        last_token_id,
-                        cache_ids,
-                        max_num_keys,
-                        n_active_tokens,
-                        block_size,
-                        block_tables,
-                        core_sos_rank,
-                        active_token_mask,
-                        sos_degree=cores_per_kv_head,
-                    )
-                )
-            else:
-                block_tables = attention_utils.active_block_tables(
-                    block_tables=block_tables,
-                    context_lens=context_lens_2d,
-                    num_active_blocks=self.num_active_blocks,
-                    neuron_config=self.neuron_config,
-                )
-                max_num_keys = self.num_active_blocks * block_size + self.n_positions
-                cached_mask, cached_to_contexted, active_to_contexted = attention_utils.contexted_kv_indexing(
-                    query_lens=last_token_id, key_lens=seq_lens, max_num_keys=max_num_keys, block_size=block_size
-                )
+            block_tables = attention_utils.active_block_tables(
+                block_tables=block_tables,
+                context_lens=context_lens_2d,
+                num_active_blocks=self.num_active_blocks,
+                neuron_config=self.neuron_config,
+            )
+            max_num_keys = self.num_active_blocks * block_size + self.n_positions
+            cached_mask, cached_to_contexted, active_to_contexted = attention_utils.contexted_kv_indexing(
+                query_lens=last_token_id, key_lens=seq_lens, max_num_keys=max_num_keys, block_size=block_size
+            )
 
         # Granite specific: embeddings are multiplied by embedding_multiplier
         hidden = scale_mul(hidden, self.config.embedding_multiplier)
@@ -268,37 +222,6 @@ class GraniteForSamplingNoEmbeddingHlo:
             cached_mask,
             cached_to_contexted,
             active_to_contexted,
-        )
-
-    def eagle_draft_pre_layer(
-        self, hidden, cache_ids, start_ids, last_token_id, block_tables, context_lens, *weights, position_ids=None
-    ):
-
-        if (
-            self.neuron_config.shard_over_sequence or self.neuron_config.sequence_parallel_norm
-        ) and self.neuron_config.on_device_embedding:
-            core_id, embed_weight, *rst = weights
-        else:
-            embed_weight, *rst = weights
-
-        if self.config.bias:
-            fc_weight, fc_bias, *rst = rst
-        else:
-            fc_weight, *rst = rst
-            fc_bias = None
-        hidden = hlo.dot_add(fc_weight, hidden, fc_bias, 0, 2, 0)
-        hidden = hlo.permute(hidden, [1, 2, 0])
-        hidden = hlo.all_gather(hidden, 2, self.config.tp_degree)
-        # hidden = hlo.dot_add(hidden, fc_weight, fc_bias, 2, 0, 2)
-        return self.pre_layer(
-            hidden,
-            cache_ids,
-            start_ids,
-            last_token_id,
-            block_tables,
-            context_lens,
-            *weights,
-            position_ids=position_ids,
         )
 
     def layer(
@@ -915,25 +838,6 @@ class GraniteForSamplingNoEmbeddingHlo:
                 shard_over_batch=self.shard_over_batch,
                 n_kv_heads_tp=n_kv_heads_tp,
             )
-
-        if (
-            (active_mask is None and not self.neuron_config.enable_chunked_prefill)
-            and self.neuron_config.shard_over_sequence
-            and self.neuron_config.duplicate_q_weight_sos
-        ):
-            # slice on computed qeury when sos and duplicate Q weights is on
-
-            # q / kv -> number of q per core after replication
-            # core_id % tp/kv -> kv replication degree on cores
-            # q / tp -> actual q per core before replication
-            slice_start = hlo.remainder(
-                hlo.reshape(core_id, []), core_id.dtype.Constant(constant_value=self.neuron_config.kv_replication)
-            )
-            slice_size = self.neuron_config.n_head_padded // tp_degree
-
-            slice_start = hlo.multiply(slice_start, slice_start.dtype.Constant(constant_value=slice_size))
-
-            query = hlo.dynamic_slice_along(query, 2, start=slice_start, size=slice_size)
 
         # Q = Rotate(Q)
         # K = Rotate(K)
