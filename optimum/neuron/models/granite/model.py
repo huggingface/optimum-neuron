@@ -212,11 +212,10 @@ class GraniteForSampling(base.NeuronModelBase):
         # 2) we don't needs these for intermediate pp stages, but to keep things simple, just include ln_lm_head for all pp stages for now
         # 3) to get ln_lm_head hlo, we need to do weight loading and sharding
         # 4) this will introduce extra memory allocation, but ln_lm_head i/o tensor is much smaller and we can get rid of it when we can construct hlo in init
-        if not self.neuron_config.is_eagle_draft:
-            ln_f = self.chkpt_model.model.norm
-            ln_f.materialize()
-            self.decoder_lm_head.add_final_layer_norm(ln_f.weight.detach(), None)
-            ln_f.nullify()
+        ln_f = self.chkpt_model.model.norm
+        ln_f.materialize()
+        self.decoder_lm_head.add_final_layer_norm(ln_f.weight.detach(), None)
+        ln_f.nullify()
 
         lm_head = self.chkpt_model.lm_head
         lm_head.materialize()
@@ -232,16 +231,6 @@ class GraniteForSampling(base.NeuronModelBase):
                 self.decoder_lm_head.add_pre_layer_parameter(
                     self.chkpt_model.model.embed_tokens.weight, sharding=1, allow_pad=True
                 )
-        if self.neuron_config.is_eagle_draft:
-            self.chkpt_model.model.fc.materialize()
-            self.decoder_lm_head.add_pre_layer_parameter(
-                self.chkpt_model.model.fc.weight.detach().T, sharding=1, allow_pad=True
-            )
-            if self.chkpt_model.model.fc.bias is not None:
-                self.decoder_lm_head.add_pre_layer_parameter(
-                    self.chkpt_model.model.fc.bias.detach(), sharding=0, allow_pad=True
-                )
-            self.chkpt_model.model.fc.nullify()
 
         self.decoder_lm_head.to_neuron()
         self.init_rest_of_model()
@@ -319,10 +308,4 @@ class GraniteForSampling(base.NeuronModelBase):
         logits = self._forward(inputs, *rst)
         # Granite specific: divide logits by scaling factor
         logits = logits / self.config.logits_scaling
-        if self.neuron_config.is_eagle_target:
-            logits, hidden = logits
-            logits = self._postprocess(original_input_ids, logits, start_ids=start_ids, **kwargs)
-            return logits, hidden
-        else:
-            return self._postprocess(original_input_ids, logits, start_ids=start_ids, **kwargs)
-        return logits
+        return self._postprocess(original_input_ids, logits, start_ids=start_ids, **kwargs)
