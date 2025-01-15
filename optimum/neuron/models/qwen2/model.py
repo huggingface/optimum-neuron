@@ -56,15 +56,14 @@ class Qwen2ForSampling(base.NeuronModelBase):
         self.context_hook = None
         self.config = config
         self.neuron_config = neuron_config if neuron_config else NeuronConfig()
-        self.layers_after_partition = self.neuron_config.auto_layer_partition(config.num_hidden_layers)
         self.prefixed_length = prefixed_length
 
         if context_unroll is None:
-            context_unroll = len(self.layers_after_partition)
+            context_unroll = config.num_hidden_layers
         self.context_unroll = context_unroll
 
         if unroll is None:
-            unroll = len(self.layers_after_partition)
+            unroll = config.num_hidden_layers
         self.unroll = unroll
 
         self.token_buckets = token_sizes(n_positions)
@@ -97,7 +96,7 @@ class Qwen2ForSampling(base.NeuronModelBase):
             batch_size=self.batch_sizes,
             attention_head_size=config.attention_head_size,
             amp=amp,
-            num_layers=len(self.layers_after_partition),
+            num_layers=self.config.num_hidden_layers,
             n_head=config.num_attention_heads,
             n_kv_head=config.num_key_value_heads,
             unroll=unroll,
@@ -118,9 +117,7 @@ class Qwen2ForSampling(base.NeuronModelBase):
         self.materialize_embeddings()
         init_neuron()
 
-        for layer_id, layer in enumerate(self.chkpt_model.model.layers):
-            if layer_id not in self.layers_after_partition:
-                continue
+        for layer in self.chkpt_model.model.layers:
             layer.materialize()
             attn = layer.self_attn
             mlp = layer.mlp
@@ -193,8 +190,7 @@ class Qwen2ForSampling(base.NeuronModelBase):
 
     def init_rest_of_model(self):
         # Pipeline sparallel deosn't support executor right now
-        if not self.neuron_config.is_pp():
-            self.decoder_lm_head.use_executor = True
+        self.decoder_lm_head.use_executor = True
 
         if self.context_buckets:
             for context_length_estimate in self.context_buckets:
@@ -204,7 +200,7 @@ class Qwen2ForSampling(base.NeuronModelBase):
                     )
                     # PERF: No latency improvement seen in multi-layer models from executor
                     # Pipeline parallel deosn't support executor right now
-                    if self.context_unroll == self.config.num_hidden_layers and not self.neuron_config.is_pp():
+                    if self.context_unroll == self.config.num_hidden_layers:
                         model.use_executor = True
                     self.decoder_lm_head_for_context[context_length_estimate, batch_size] = model
 
