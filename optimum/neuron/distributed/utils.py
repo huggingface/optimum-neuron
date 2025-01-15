@@ -187,8 +187,8 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
         keep_master_weight: bool = False,
         kv_size_multiplier: int = 1,
     ):
-        from neuronx_distributed.parallel_layers.utils import set_tensor_model_parallel_attributes
         from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+        from neuronx_distributed.parallel_layers.utils import set_tensor_model_parallel_attributes
 
         super().__init__(
             input_size,
@@ -784,7 +784,7 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
     # proj_name = weight_name[-1]
     if layer.fuse_qkv:
         weight = getattr(layer, "weight_qkv")
-        bias = getattr(layer, f"bias_qkv")
+        bias = getattr(layer, "bias_qkv")
     else:
         weight = getattr(layer, weight_name)
         bias = getattr(layer, f"bias_{proj_name}")
@@ -814,7 +814,10 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                     if proj_name == "q":
                         s = slice(0, layer.q_output_size_per_partition)
                     elif proj_name == "k":
-                        s = slice(layer.q_output_size_per_partition, layer.q_output_size_per_partition + layer.kv_output_size_per_partition)
+                        s = slice(
+                            layer.q_output_size_per_partition,
+                            layer.q_output_size_per_partition + layer.kv_output_size_per_partition,
+                        )
                     else:
                         s = slice(layer.q_output_size_per_partition + layer.kv_output_size_per_partition, None)
                     weight[s, :] = weight_data
