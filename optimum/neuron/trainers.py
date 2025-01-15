@@ -1510,13 +1510,13 @@ class _TrainerForNeuron:
 
 class NeuronTrainer(_TrainerForNeuron, Trainer):
     """
-    Trainer that is suited for performing training on AWS Tranium instances.
+    Trainer that is suited for performing training on AWS Trainium instances.
     """
 
 
 class Seq2SeqNeuronTrainer(_TrainerForNeuron, Seq2SeqTrainer):
     """
-    Seq2SeqTrainer that is suited for performing training on AWS Tranium instances.
+    Seq2SeqTrainer that is suited for performing training on AWS Trainium instances.
     """
 
 
