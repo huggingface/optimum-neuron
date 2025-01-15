@@ -78,6 +78,7 @@ if is_diffusers_available():
         LatentConsistencyModelPipeline,
         LCMScheduler,
         PixArtAlphaPipeline,
+        PixArtSigmaPipeline,
         StableDiffusionControlNetPipeline,
         StableDiffusionImg2ImgPipeline,
         StableDiffusionInpaintPipeline,
@@ -1498,6 +1499,15 @@ class NeuronStableDiffusionControlNetPipeline(
 class NeuronPixArtAlphaPipeline(NeuronDiffusionPipelineBase, PixArtAlphaPipeline):
     main_input_name = "prompt"
     auto_model_class = PixArtAlphaPipeline
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.image_processor = PixArtImageProcessor(vae_scale_factor=self.vae_scale_factor)
+
+
+class NeuronPixArtSigmaPipeline(NeuronDiffusionPipelineBase, PixArtSigmaPipeline):
+    main_input_name = "prompt"
+    auto_model_class = PixArtSigmaPipeline
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

@@ -557,8 +557,7 @@ def export_neuronx(
     compiler_args.extend(["--optlevel", optlevel])
     logger.info(f"Using Neuron: --optlevel {optlevel}")
 
-    if getattr(config._config, "is_encoder_decoder", False):
-        compiler_args.extend(["--model-type", "transformer"])
+    compiler_args.extend(["--model-type", "transformer"])
 
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)  # diffusers specific
 
