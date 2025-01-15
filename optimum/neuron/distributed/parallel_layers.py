@@ -375,8 +375,8 @@ class ParallelSelfAttention(ParallelLayer):
         key_linear = getattr(attention_layer, cls.KEYS_NAME)
 
         hidden_size = query_linear.weight.size(1)
-        query_in_features = query_linear.weight.size(0)
-        key_value_in_features = key_linear.weight.size(0)
+        query_out_features = query_linear.out_features
+        key_value_out_features = key_linear.out_features
 
         if kv_size_multiplier is None:
             kv_size_multiplier = get_tensor_model_parallel_size() // num_key_value_heads
@@ -393,7 +393,7 @@ class ParallelSelfAttention(ParallelLayer):
             num_attention_heads,
             num_key_value_heads,
             hidden_size,
-            [query_in_features, key_value_in_features],
+            [query_out_features, key_value_out_features],
             gather_output=False,
             bias=query_linear.bias is not None,
             sequence_parallel_enabled=sequence_parallel_enabled,

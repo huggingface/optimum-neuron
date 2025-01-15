@@ -484,7 +484,7 @@ class Parallelizer(ABC):
                             else:
                                 # TODO: change kv heads.
                                 maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
-                                    mod, f"weight_{proj_name}", linear_layer=fake_linear_mod
+                                    mod, proj_name, f"weight_{proj_name}", linear_layer=fake_linear_mod
                                 )
                             del fake_linear_mod
 
@@ -678,6 +678,9 @@ class Parallelizer(ABC):
             "num_attention_heads": None,
             "num_key_value_heads": None,
             "kv_size_multiplier": None,
+            "fuse_qkv": None,
+            "q_output_size_per_partition": None,
+            "kv_output_size_per_partition": None ,
         }
         for mod in model.modules():
             if isinstance(mod, OptimumGQAQKVColumnParallelLinear):
@@ -690,6 +693,9 @@ class Parallelizer(ABC):
                     "num_attention_heads": num_attention_heads,
                     "num_key_value_heads": num_key_value_heads,
                     "kv_size_multiplier": kv_size_multiplier,
+                    "fuse_qkv": mod.fuse_qkv,
+                    "q_output_size_per_partition": mod.q_output_size_per_partition,
+                    "kv_output_size_per_partition": mod.kv_output_size_per_partition,
                 }
                 break
 
