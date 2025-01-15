@@ -159,7 +159,7 @@ class TestExportCLI(unittest.TestCase):
                         "--width",
                         "64",
                         "--num_images_per_prompt",
-                        "4",
+                        "1",
                         "--auto_cast",
                         "matmul",
                         "--auto_cast_type",

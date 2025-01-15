@@ -48,7 +48,7 @@ optimum-cli export neuron --model stabilityai/stable-diffusion-2-1-base \
   --batch_size 1 \
   --height 512 `# height in pixels of generated image, eg. 512, 768` \
   --width 512 `# width in pixels of generated image, eg. 512, 768` \
-  --num_images_per_prompt 4 `# number of images to generate per prompt, defaults to 1` \
+  --num_images_per_prompt 1 `# number of images to generate per prompt, defaults to 1` \
   --auto_cast matmul `# cast only matrix multiplication operations` \
   --auto_cast_type bf16 `# cast operations from FP32 to BF16` \
   sd_neuron/
@@ -231,7 +231,7 @@ optimum-cli export neuron --model stabilityai/stable-diffusion-xl-base-1.0 \
   --batch_size 1 \
   --height 1024 `# height in pixels of generated image, eg. 768, 1024` \
   --width 1024 `# width in pixels of generated image, eg. 768, 1024` \
-  --num_images_per_prompt 4 `# number of images to generate per prompt, defaults to 1` \
+  --num_images_per_prompt 1 `# number of images to generate per prompt, defaults to 1` \
   --auto_cast matmul `# cast only matrix multiplication operations` \
   --auto_cast_type bf16 `# cast operations from FP32 to BF16` \
   sd_neuron_xl/
@@ -340,7 +340,6 @@ prompt = "A majestic lion jumping from a big stone at night"
 base = NeuronStableDiffusionXLPipeline.from_pretrained("sd_neuron_xl/")
 image = base(
     prompt=prompt,
-    num_images_per_prompt=num_images_per_prompt,
     num_inference_steps=40,
     denoising_end=0.8,
     output_type="latent",
