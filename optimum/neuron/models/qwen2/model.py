@@ -14,10 +14,13 @@
 # ==============================================================================
 
 from transformers import PretrainedConfig
-from transformers_neuronx import base, bucket, decoder, ops, utils
+from transformers_neuronx import base, decoder
+from transformers_neuronx.bucket import batch_sizes, context_sizes, token_sizes
 from transformers_neuronx.config import NeuronConfig
 from transformers_neuronx.constants import LAYOUT_HSB
 from transformers_neuronx.llama.hlo import LlamaForSamplingNoEmbeddingHlo
+from transformers_neuronx.ops import init_neuron
+from transformers_neuronx.utils import interleave_mlp
 
 from .config import Qwen2Config
 from .modules import Qwen2ForCausalLM
@@ -64,8 +67,8 @@ class Qwen2ForSampling(base.NeuronModelBase):
             unroll = len(self.layers_after_partition)
         self.unroll = unroll
 
-        self.token_buckets = bucket.token_sizes(n_positions)
-        self.context_buckets = bucket.context_sizes(context_length_estimate, self.token_buckets)
+        self.token_buckets = token_sizes(n_positions)
+        self.context_buckets = context_sizes(context_length_estimate, self.token_buckets)
         # input length should be  divisable by tp_degree to activate seq paralle
         if neuron_config and neuron_config.sequence_parallel_norm:
             for bucket_size in self.context_buckets:
@@ -82,7 +85,7 @@ class Qwen2ForSampling(base.NeuronModelBase):
                 self.context_buckets.append(prefixed_length)
                 self.context_buckets = sorted(self.context_buckets)
 
-        self.batch_sizes = bucket.batch_sizes(batch_size)
+        self.batch_sizes = batch_sizes(batch_size)
         self.context_batch_sizes = (
             [1] if self.neuron_config and self.neuron_config.continuous_batching else self.batch_sizes
         )
@@ -113,7 +116,7 @@ class Qwen2ForSampling(base.NeuronModelBase):
 
     def load_weights(self):
         self.materialize_embeddings()
-        ops.init()
+        init_neuron()
 
         for layer_id, layer in enumerate(self.chkpt_model.model.layers):
             if layer_id not in self.layers_after_partition:
@@ -142,7 +145,7 @@ class Qwen2ForSampling(base.NeuronModelBase):
                     getattr(mlp, attr, None).weight.shape[0] % self.config.tp_degree == 0
                     for attr in ["gate_proj", "up_proj"]
                 ), f" mlp weights are not  divisible tp_degree {self.config.tp_degree}"
-                mlp_in_weight = utils.interleave_mlp(
+                mlp_in_weight = interleave_mlp(
                     mlp.gate_proj.weight, mlp.up_proj.weight, tp_degree=self.config.tp_degree, dim=0
                 )
                 new_layer.add_mlp_input(mlp_in_weight.T.detach(), None)
