@@ -624,8 +624,7 @@ def create_kv_proj_local_weight_from_regular_weight(
     tp_rank = get_tensor_model_parallel_rank()
     repeated_weight = weight_data.repeat(kv_size_multiplier, 1)
     split = torch.split(repeated_weight, output_size_per_partition, dim=0)
-    res = torch.cat(split[tp_rank::tp_size], dim=0)
-    return res
+    return torch.cat(split[tp_rank::tp_size], dim=0)
 
 
 def compute_query_indices_for_rank(
