@@ -203,6 +203,8 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
             kv_size_multiplier=kv_size_multiplier,
         )
 
+        # This is a bug from neuronx_distributed: self.weight_qkv has no parallel attributes, which are actually needed.
+        # It should be fixed at the next release.
         if self.fuse_qkv:
             set_tensor_model_parallel_attributes(
                 tensor=self.weight_qkv,
@@ -801,9 +803,8 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                 weight_data = linear_layer.weight.data
             if weight_data is not None:
                 if proj_name in "kv":
-                    output_size = layer.kv_output_size_per_partition
                     weight_data = create_kv_proj_local_weight_from_regular_weight(
-                        weight_data, kv_size_multiplier, output_size
+                        weight_data, kv_size_multiplier, layer.kv_output_size_per_partition
                     )
                 else:
                     weight_data = create_query_or_output_projection_local_weight_from_regular_weight(
