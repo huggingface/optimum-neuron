@@ -1078,6 +1078,7 @@ def _peft_tuner_linear_to_parallel_linear(
                 config.init_lora_weights,
                 config.use_rslora,
                 config.use_dora,
+                config.lora_bias,
             )
             if axis == "row":
                 layer_to_parallelize = parent.lora_A[adapter_name]
