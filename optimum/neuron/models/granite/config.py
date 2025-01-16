@@ -18,7 +18,10 @@ from transformers_neuronx.llama.config import LlamaConfig
 
 
 class GraniteConfig(LlamaConfig):
-    """The Granite model uses the same configuration as the TnX LLama model"""
+    """The Granite model uses the same base configuration as the TnX LLama model
+
+    It simply includes in addition the granite specific scaling factors.
+    """
 
     def __init__(
         self, config: PretrainedConfig, n_positions: int, batch_size: int, amp: str, tp_degree: int, **kwargs
