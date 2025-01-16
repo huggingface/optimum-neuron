@@ -158,7 +158,7 @@ class TestPeft(DistributedTest):
                 print(f"Checking that the parameter {name} matches")
                 torch.testing.assert_close(tensor, state_dict[name])
 
-    def test_peft_training(self, parallel_sizes, tmpdir):
+    def test_training_peft_model(self, parallel_sizes, tmpdir):
         _, tp_size, pp_size = parallel_sizes
 
         per_device_train_batch_size = 1
@@ -177,6 +177,8 @@ class TestPeft(DistributedTest):
         )
 
         tokenizer, model = get_tokenizer_and_tiny_llama_model()
+        peft_config = get_peft_config()
+        peft_model = get_peft_model(model, peft_config)
 
         num_train_samples = num_eval_samples = 50
         datasets = create_dummy_causal_lm_dataset(
@@ -184,7 +186,7 @@ class TestPeft(DistributedTest):
         )
 
         trainer = NeuronTrainer(
-            model,
+            peft_model,
             args,
             tokenizer=tokenizer,
             train_dataset=datasets["train"],

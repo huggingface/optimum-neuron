@@ -434,6 +434,7 @@ def _peft_tuner_embedding_to_parallel_embedding(
                     config.init_lora_weights,
                     config.use_rslora,
                     config.use_dora,
+                    config.lora_bias,
                 )
                 mark_parameter_init_status_during_parallelization(parent.lora_embedding_A[adapter_name], True)
                 mark_parameter_init_status_during_parallelization(parent.lora_embedding_B[adapter_name], True)
@@ -1124,6 +1125,7 @@ def _peft_tuner_linear_to_parallel_linear(
                 config.init_lora_weights,
                 config.use_rslora,
                 config.use_dora,
+                config.lora_bias,
             )
             if axis == "row":
                 layer_to_parallelize = parent.lora_A[adapter_name]
