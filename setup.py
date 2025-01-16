@@ -32,7 +32,7 @@ TESTS_REQUIRE = [
     "diffusers>=0.28.0, <=0.30.3",
     "safetensors",
     "sentence-transformers >= 2.2.0",
-    "peft",
+    "peft>=0.14.0",
     "trl==0.11.4",
     "compel",
     "rjieba",
@@ -72,7 +72,7 @@ EXTRAS_REQUIRE = {
         "neuronx_distributed==0.9.0",
         "libneuronxla==2.0.5347.0",
     ],
-    "diffusers": ["diffusers>=0.28.0, <=0.30.3", "peft"],
+    "diffusers": ["diffusers>=0.28.0, <=0.30.3", "peft>=0.14.0"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
 }
 

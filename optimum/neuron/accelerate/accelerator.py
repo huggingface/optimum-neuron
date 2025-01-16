@@ -33,7 +33,6 @@ from accelerate.utils.operations import gather_object, recursively_apply
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from transformers import PreTrainedModel
-from transformers.utils import is_peft_available
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
@@ -47,6 +46,7 @@ from ..utils import (
     patch_within_function,
     replace_class_in_inheritance_hierarchy,
 )
+from ..utils.import_utils import is_peft_available
 from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
 from ..utils.model_utils import get_tied_parameters_dict, tie_parameters
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
