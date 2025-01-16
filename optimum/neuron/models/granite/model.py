@@ -44,8 +44,6 @@ class GraniteForSampling(base.NeuronModelBase):
         amp: str = "f32",
         tp_degree: int = 2,
         context_length_estimate: int = None,
-        context_unroll: int = None,
-        unroll: int = None,
         neuron_config: NeuronConfig = None,
         prefixed_length: int = 0,
         **kwargs,
@@ -57,14 +55,6 @@ class GraniteForSampling(base.NeuronModelBase):
         self.config = config
         self.neuron_config = neuron_config if neuron_config else NeuronConfig()
         self.prefixed_length = prefixed_length
-
-        if context_unroll is None:
-            context_unroll = config.num_hidden_layers
-        self.context_unroll = context_unroll
-
-        if unroll is None:
-            unroll = config.num_hidden_layers
-        self.unroll = unroll
 
         self.token_buckets = bucket.token_sizes(n_positions)
         self.context_buckets = bucket.context_sizes(context_length_estimate, self.token_buckets)
@@ -100,16 +90,12 @@ class GraniteForSampling(base.NeuronModelBase):
             num_layers=self.config.num_hidden_layers,
             n_head=config.num_attention_heads,
             n_kv_head=config.num_key_value_heads,
-            unroll=unroll,
             neuron_config=self.neuron_config,
             allow_pad=True,
             builder=hlo_builder,
         )
-        self.decoder_lm_head = self.decoder_param_set.init_token_decoder(
-            unroll=self.unroll, buckets=self.token_buckets, model_obj=self
-        )
+        self.decoder_lm_head = self.decoder_param_set.init_token_decoder(buckets=self.token_buckets, model_obj=self)
         self.decoder_lm_head_for_context = self.decoder_param_set.init_context_decoder(
-            unroll=self.context_unroll,
             buckets=self.context_buckets,
             model_obj=self,
             context_batch_sizes=self.context_batch_sizes,
@@ -238,10 +224,7 @@ class GraniteForSampling(base.NeuronModelBase):
                     model = self.decoder_lm_head.build_weight_shared(
                         share_caches=True, new=self.decoder_lm_head_for_context[context_length_estimate, batch_size]
                     )
-                    # PERF: No latency improvement seen in multi-layer models from executor
-                    # Pipeline parallel deosn't support executor right now
-                    if self.context_unroll == self.config.num_hidden_layers:
-                        model.use_executor = True
+                    model.use_executor = True
                     self.decoder_lm_head_for_context[context_length_estimate, batch_size] = model
 
         if self.decoder_lm_head_for_speculation:
