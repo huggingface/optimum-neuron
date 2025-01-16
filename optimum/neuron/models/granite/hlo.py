@@ -136,52 +136,11 @@ class GraniteForSamplingNoEmbeddingHlo:
     def pre_layer(
         self, hidden, cache_ids, start_ids, last_token_id, block_tables, context_lens, *weights, position_ids=None
     ):
-        # TODO: move this fallback calculation to decoder.py
-        if self.num_active_blocks is None and self.neuron_config.optimized_paged_attention:
-            max_model_len = self.neuron_config.continuous_batching.max_model_len
-            max_num_seqs = self.neuron_config.continuous_batching.max_num_seqs
-            block_size = self.neuron_config.continuous_batching.block_size
-            self.num_active_blocks = (max_model_len * max_num_seqs // block_size) - 2
-
         block_to_seq = None
         cached_mask = None
         cached_to_contexted = None
         active_to_contexted = None
         core_id = None
-        if self.neuron_config.optimized_paged_attention and len(last_token_id.sizes) == 2:
-            # For decoding with multiple KV cache blocks:
-            # - cache_ids are used as context_lens
-            # - start_ids are used as slot_mapping
-            # - last_token_id is used as block_tables
-            # The function below transforms 2D block_tables into 1D active block table
-            last_token_id = attention_utils.active_block_tables(
-                block_tables=last_token_id,
-                context_lens=cache_ids,
-                num_active_blocks=self.num_active_blocks,
-                neuron_config=self.neuron_config,
-            )
-            max_num_seqs = self.neuron_config.continuous_batching.max_num_seqs
-            block_size = self.neuron_config.continuous_batching.block_size
-            block_to_seq = attention_utils.block_to_seq_indexing(
-                context_lens=cache_ids, num_seqs=max_num_seqs, num_blocks=self.num_active_blocks, block_size=block_size
-            )
-        elif self.neuron_config.enable_chunked_prefill:
-            # - cache_ids are used as position_ids of each token
-            # - start_ids are used as slot_mapping
-            # - last_token_id is used as new token length for each sequence
-            context_lens_2d = hlo.unsqueeze(context_lens, 1)
-            seq_lens = hlo.add(context_lens, last_token_id)
-            block_size = self.neuron_config.continuous_batching.block_size
-            block_tables = attention_utils.active_block_tables(
-                block_tables=block_tables,
-                context_lens=context_lens_2d,
-                num_active_blocks=self.num_active_blocks,
-                neuron_config=self.neuron_config,
-            )
-            max_num_keys = self.num_active_blocks * block_size + self.n_positions
-            cached_mask, cached_to_contexted, active_to_contexted = attention_utils.contexted_kv_indexing(
-                query_lens=last_token_id, key_lens=seq_lens, max_num_keys=max_num_keys, block_size=block_size
-            )
 
         # Granite specific: embeddings are multiplied by embedding_multiplier
         hidden = scale_mul(hidden, self.config.embedding_multiplier)
@@ -889,14 +848,6 @@ class GraniteForSamplingNoEmbeddingHlo:
                     # need to use start_ids size to determine if we want to select kv cache.
                     cached_keys_s = hlo.index_select(cached_keys, batch_dim, start_ids)
                     cached_values_s = hlo.index_select(cached_values, batch_dim, start_ids)
-            elif self.neuron_config and self.neuron_config.paged_attention:
-                # For decoding with multiple KV cache blocks, start_ids are used as block_tables
-                cached_keys_s = attention_utils.gather_blocks(
-                    cached_keys, block_tables=last_token_id, neuron_config=self.neuron_config
-                )
-                cached_values_s = attention_utils.gather_blocks(
-                    cached_values, block_tables=last_token_id, neuron_config=self.neuron_config
-                )
             else:
                 cached_keys_s = cached_keys
                 cached_values_s = cached_values
@@ -948,11 +899,7 @@ class GraniteForSamplingNoEmbeddingHlo:
         # Multi-Token Context Encoding
         else:
             batch_size = query.sizes[batch_dim]
-            if (
-                (self.neuron_config.lhs_aligned or batch_size == 1)
-                and not self.neuron_config.enable_chunked_prefill
-                and not self.neuron_config.bsh_cache_layout
-            ):
+            if (self.neuron_config.lhs_aligned or batch_size == 1) and not self.neuron_config.bsh_cache_layout:
                 context = attention.flash_attention(query, key, value)
             else:
                 # do not use flash attention for lhs padded (right aligned) batch > 1 case
@@ -960,56 +907,23 @@ class GraniteForSamplingNoEmbeddingHlo:
                 context = None
 
             if context is None:
-                if self.neuron_config.enable_chunked_prefill:
-                    # S = Q @ K
-                    cached_keys_gathered = attention_utils.gather_blocks(
-                        cached_keys, block_tables=block_tables, neuron_config=self.neuron_config
-                    )
-                    contexted_keys = attention_utils.contexted_kv(
-                        cached_keys_gathered, key, cached_mask, cached_to_contexted, active_to_contexted
-                    )
-                    score = attention.score(
-                        query,
-                        contexted_keys,
-                        n_kv_heads=self.config.num_key_value_heads,
-                        tp_degree=tp_degree,
-                        neuron_config=self.neuron_config,
-                    )
+                # S = Q @ K
 
-                    score = attention.mask(score, mask, tp_degree=tp_degree)
-
-                    # C = softmax(Sa, Sp) @ (Va, Vp)
-                    cached_values_gathered = attention_utils.gather_blocks(
-                        cached_values, block_tables=block_tables, neuron_config=self.neuron_config
-                    )
-                    contexted_values = attention_utils.contexted_kv(
-                        cached_values_gathered, value, cached_mask, cached_to_contexted, active_to_contexted
-                    )
-                    context = attention.context_combined(
-                        score,
-                        contexted_values,
-                        n_kv_heads=self.config.num_key_value_heads,
-                        tp_degree=tp_degree,
-                        neuron_config=self.neuron_config,
-                    )
-                else:
-                    # S = Q @ K
-
-                    score = attention.score(
-                        query,
-                        key,
-                        n_kv_heads=self.config.num_key_value_heads,
-                        tp_degree=tp_degree,
-                        neuron_config=self.neuron_config,
-                    )
-                    score = attention.mask(score, mask, tp_degree=tp_degree, shard_over_batch=self.shard_over_batch)
-                    context = attention.context_combined(
-                        score,
-                        value,
-                        n_kv_heads=self.config.num_key_value_heads,
-                        tp_degree=tp_degree,
-                        neuron_config=self.neuron_config,
-                    )
+                score = attention.score(
+                    query,
+                    key,
+                    n_kv_heads=self.config.num_key_value_heads,
+                    tp_degree=tp_degree,
+                    neuron_config=self.neuron_config,
+                )
+                score = attention.mask(score, mask, tp_degree=tp_degree, shard_over_batch=self.shard_over_batch)
+                context = attention.context_combined(
+                    score,
+                    value,
+                    n_kv_heads=self.config.num_key_value_heads,
+                    tp_degree=tp_degree,
+                    neuron_config=self.neuron_config,
+                )
 
             # KCache, VCache = K, V
             if cached_keys.sizes == key.sizes:
