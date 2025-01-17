@@ -58,16 +58,6 @@ class GraniteForSampling(base.NeuronModelBase):
 
         self.token_buckets = bucket.token_sizes(n_positions)
         self.context_buckets = bucket.context_sizes(context_length_estimate, self.token_buckets)
-        # input length should be  divisable by tp_degree to activate seq paralle
-        if neuron_config and neuron_config.sequence_parallel_norm:
-            for bucket_size in self.context_buckets:
-                if (
-                    bucket_size > neuron_config.sequence_parallel_norm_threshold
-                    and bucket_size % self.config.tp_degree != 0
-                ):
-                    raise ValueError(
-                        f"Sequence parallel normalization requires the bucket size ({bucket_size}) to be divisible by the tensor parallel degree ({self.config.tp_degree})"
-                    )
         self.window_context_buckets = []
         if prefixed_length:
             if prefixed_length not in self.context_buckets:
@@ -100,8 +90,6 @@ class GraniteForSampling(base.NeuronModelBase):
             model_obj=self,
             context_batch_sizes=self.context_batch_sizes,
         )
-        self.decoder_lm_head_for_speculation = {}
-        self.decoder_lm_head_for_window_context = {}
 
     def load_weights(self):
         self.materialize_embeddings()
@@ -173,15 +161,6 @@ class GraniteForSampling(base.NeuronModelBase):
             new_layer.to_neuron()
             layer.nullify()
 
-        # Adding core_id for sos or seq-norm (vocab parallel is used as default with seq-par norm)
-        add_core_id = self.neuron_config.sequence_parallel_norm and self.neuron_config.on_device_embedding
-        if add_core_id:
-            self.decoder_lm_head.add_pre_layer_parameter(torch.arange(self.config.tp_degree), sharding=0)
-        # For pipeline parallel, we need to load ln and lm_head for now even if the pipeline stage doesn't compute the, because
-        # 1) we need the ln_lm_head hlo for pp0 to get the logits shape and dtype
-        # 2) we don't needs these for intermediate pp stages, but to keep things simple, just include ln_lm_head for all pp stages for now
-        # 3) to get ln_lm_head hlo, we need to do weight loading and sharding
-        # 4) this will introduce extra memory allocation, but ln_lm_head i/o tensor is much smaller and we can get rid of it when we can construct hlo in init
         ln_f = self.chkpt_model.model.norm
         ln_f.materialize()
         self.decoder_lm_head.add_final_layer_norm(ln_f.weight.detach(), None)
@@ -191,16 +170,6 @@ class GraniteForSampling(base.NeuronModelBase):
         lm_head.materialize()
         self.decoder_lm_head.add_lm_head(lm_head.weight.detach().T)
         lm_head.nullify()
-
-        if self.neuron_config.on_device_embedding:
-            if self.neuron_config.sequence_parallel_norm:
-                self.decoder_lm_head.add_pre_layer_parameter(
-                    self.chkpt_model.model.embed_tokens.weight, sharding=0, allow_pad=True
-                )
-            else:
-                self.decoder_lm_head.add_pre_layer_parameter(
-                    self.chkpt_model.model.embed_tokens.weight, sharding=1, allow_pad=True
-                )
 
         self.decoder_lm_head.to_neuron()
         self.init_rest_of_model()
@@ -226,22 +195,6 @@ class GraniteForSampling(base.NeuronModelBase):
                     )
                     model.use_executor = True
                     self.decoder_lm_head_for_context[context_length_estimate, batch_size] = model
-
-        if self.decoder_lm_head_for_speculation:
-            for i, k in enumerate(self.decoder_lm_head_for_speculation):
-                model = self.decoder_lm_head.build_weight_shared(
-                    share_caches=True,
-                    new=self.decoder_lm_head_for_speculation[k],
-                    embed_weight=self.chkpt_model.model.embed_tokens.weight,
-                )
-                self.decoder_lm_head_for_speculation[k] = model
-
-        if self.decoder_lm_head_for_window_context:
-            for i, k in enumerate(self.decoder_lm_head_for_window_context):
-                model = self.decoder_lm_head.build_weight_shared(
-                    share_caches=True, new=self.decoder_lm_head_for_window_context[k]
-                )
-                self.decoder_lm_head_for_window_context[k] = model
 
     def set_prefixed(self, input_ids):
         self.prefixed_input_ids = input_ids[:, : self.prefixed_length]

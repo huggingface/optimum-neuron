@@ -112,21 +112,9 @@ class GraniteForSamplingNoEmbeddingHlo:
         ), (*dims, 1, 1, 1, 1, 1, 1, 1, 1)
 
     def embedding(self, input_ids, cache_ids, start_ids, last_token_id, block_tables, context_lens, *weights):
-        core_id = None
         embed_weight, *rst = weights
         dtype = getattr(input_ids.scribe, self.config.amp)
-        if self.neuron_config.on_device_embedding and self.neuron_config.sequence_parallel_norm:
-            hidden = hlo.embedding(
-                embed_weight,
-                input_ids,
-                tp_degree=self.config.tp_degree,
-                dim=0,
-                dtype=dtype,
-                core_id=core_id,
-                sequence_parallel=self.neuron_config.is_sequence_parallel,
-            )
-        else:
-            hidden = hlo.embedding(embed_weight, input_ids, tp_degree=self.config.tp_degree, dtype=dtype)
+        hidden = hlo.embedding(embed_weight, input_ids, tp_degree=self.config.tp_degree, dtype=dtype)
         if self.config.hidden_size % self.config.tp_degree != 0:
             hidden = hlo.slice_along(hidden, dim=-1, limit=self.config.hidden_size, start=0)
         if self.neuron_config.attention_layout == LAYOUT_HSB:
@@ -510,34 +498,6 @@ class GraniteForSamplingNoEmbeddingHlo:
             hidden = hidden[0]
 
         if enable_mlp_kernel:
-            if self.neuron_config.is_sequence_parallel:
-                # In sequence parallel, we cannot fuse residual add and rms norm into the kernel
-                hidden = hlo.add(attn_output, hidden)
-                norm_hidden = hlo.rms_norm(
-                    hidden,
-                    pre_mlp_ln_weight,
-                    eps,
-                    dim=rms_norm_dim,
-                    neuron_config=self.neuron_config,
-                    tp_degree=self.config.tp_degree,
-                )
-                mlp_result = nki_call(
-                    _mlp_kernel,
-                    norm_hidden,
-                    pre_mlp_ln_weight,
-                    in0_weight,
-                    in1_weight,
-                    out_weight,
-                    output_HloShapes=[
-                        norm_hidden.dtype[norm_hidden.sizes[0], norm_hidden.sizes[1], norm_hidden.sizes[2]]
-                    ],
-                )
-                dtype, replica_groups = utils.parse_dtype_replica_groups(self.neuron_config, self.config.tp_degree)
-                mlp_hidden = hlo.reduce_scatter_sum(
-                    mlp_result, tp_degree=self.config.tp_degree, dim=1, replica_groups=replica_groups, dtype=dtype
-                )
-                return hlo.add(mlp_hidden, hidden), out_attn_k_cache, out_attn_v_cache
-
             # In TP, we can fuse residual add and rms norm into the kernel
             if is_first_last_layer or not enable_qkv_kernel:
                 hidden_add = hlo.add(attn_output, hidden)
