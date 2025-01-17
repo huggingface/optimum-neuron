@@ -57,16 +57,6 @@ class Qwen2ForSampling(base.NeuronModelBase):
 
         self.token_buckets = token_sizes(n_positions)
         self.context_buckets = context_sizes(context_length_estimate, self.token_buckets)
-        # input length should be  divisable by tp_degree to activate seq paralle
-        if neuron_config and neuron_config.sequence_parallel_norm:
-            for bucket_size in self.context_buckets:
-                if (
-                    bucket_size > neuron_config.sequence_parallel_norm_threshold
-                    and bucket_size % self.config.tp_degree != 0
-                ):
-                    raise ValueError(
-                        f"Sequence parallel normalization requires the bucket size ({bucket_size}) to be divisible by the tensor parallel degree ({self.config.tp_degree})"
-                    )
         self.window_context_buckets = []
         if prefixed_length:
             if prefixed_length not in self.context_buckets:
@@ -96,8 +86,6 @@ class Qwen2ForSampling(base.NeuronModelBase):
         self.decoder_lm_head_for_context = self.decoder_param_set.init_context_decoder(
             buckets=self.context_buckets, model_obj=self
         )
-        self.decoder_lm_head_for_speculation = {}
-        self.decoder_lm_head_for_window_context = {}
 
     def load_weights(self):
         self.materialize_embeddings()
@@ -144,11 +132,6 @@ class Qwen2ForSampling(base.NeuronModelBase):
                 new_layer.add_parameter(mlp.down_proj.weight, sharding=1, allow_pad=True)
             new_layer.to_neuron()
             layer.nullify()
-        # For pipeline parallel, we need to load ln and lm_head for now even if the pipeline stage doesn't compute the, because
-        # 1) we need the ln_lm_head hlo for pp0 to get the logits shape and dtype
-        # 2) we don't needs these for intermediate pp stages, but to keep things simple, just include ln_lm_head for all pp stages for now
-        # 3) to get ln_lm_head hlo, we need to do weight loading and sharding
-        # 4) this will introduce extra memory allocation, but ln_lm_head i/o tensor is much smaller and we can get rid of it when we can construct hlo in init
         ln_f = self.chkpt_model.model.norm
         ln_f.materialize()
         self.decoder_lm_head.add_final_layer_norm(ln_f.weight.detach(), None)
@@ -156,15 +139,6 @@ class Qwen2ForSampling(base.NeuronModelBase):
         lm_head = self.chkpt_model.lm_head
         lm_head.materialize()
         self.decoder_lm_head.add_lm_head(lm_head.weight.detach().T)
-        if self.neuron_config.on_device_embedding:
-            if self.neuron_config.sequence_parallel_norm:
-                self.decoder_lm_head.add_pre_layer_parameter(
-                    self.chkpt_model.model.embed_tokens.weight, sharding=None, allow_pad=True
-                )
-            else:
-                self.decoder_lm_head.add_pre_layer_parameter(
-                    self.chkpt_model.model.embed_tokens.weight, sharding=1, allow_pad=True
-                )
         lm_head.nullify()
 
         self.decoder_lm_head.to_neuron()
@@ -186,19 +160,3 @@ class Qwen2ForSampling(base.NeuronModelBase):
                     )
                     model.use_executor = True
                     self.decoder_lm_head_for_context[context_length_estimate, batch_size] = model
-
-        if self.decoder_lm_head_for_speculation:
-            for i, k in enumerate(self.decoder_lm_head_for_speculation):
-                model = self.decoder_lm_head.build_weight_shared(
-                    share_caches=True,
-                    new=self.decoder_lm_head_for_speculation[k],
-                    embed_weight=self.chkpt_model.model.embed_tokens.weight,
-                )
-                self.decoder_lm_head_for_speculation[k] = model
-
-        if self.decoder_lm_head_for_window_context:
-            for i, k in enumerate(self.decoder_lm_head_for_window_context):
-                model = self.decoder_lm_head.build_weight_shared(
-                    share_caches=True, new=self.decoder_lm_head_for_window_context[k]
-                )
-                self.decoder_lm_head_for_window_context[k] = model
