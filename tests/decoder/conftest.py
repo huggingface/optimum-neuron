@@ -48,6 +48,10 @@ DECODER_MODEL_CONFIGURATIONS = {
         "model_id": "dacorvo/Mixtral-tiny",
         "export_kwargs": {"batch_size": 4, "sequence_length": 1024, "num_cores": 2, "auto_cast_type": "fp16"},
     },
+    "phi4": {
+        "model_id": "microsoft/phi-4",
+        "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "bf16"},
+    },
 }
 
 
