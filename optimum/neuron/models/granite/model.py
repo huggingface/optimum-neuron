@@ -14,7 +14,7 @@
 # ==============================================================================
 import torch
 from transformers import PretrainedConfig
-from transformers_neuronx import base, bucket, decoder, utils
+from transformers_neuronx import base, decoder, utils
 from transformers_neuronx.config import NeuronConfig
 from transformers_neuronx.constants import LAYOUT_HSB
 
@@ -43,7 +43,6 @@ class GraniteForSampling(base.NeuronModelBase):
         batch_size: int = 1,
         amp: str = "f32",
         tp_degree: int = 2,
-        context_length_estimate: int = None,
         neuron_config: NeuronConfig = None,
         **kwargs,
     ):
@@ -53,22 +52,14 @@ class GraniteForSampling(base.NeuronModelBase):
         self.context_hook = None
         self.config = config
         self.neuron_config = neuron_config if neuron_config else NeuronConfig()
-
-        self.token_buckets = bucket.token_sizes(n_positions)
-        self.context_buckets = bucket.context_sizes(context_length_estimate, self.token_buckets)
-        self.window_context_buckets = []
-
-        self.batch_sizes = bucket.batch_sizes(batch_size)
-        self.context_batch_sizes = (
-            [1] if self.neuron_config and self.neuron_config.continuous_batching else self.batch_sizes
-        )
+        self.batch_size = batch_size
         hlo_builder = GraniteForSamplingNoEmbeddingHlo(config, neuron_config=self.neuron_config)
 
         self.decoder_param_set = decoder.DecoderLmHeadForSamplingNoEmbedding(
             tp_degree=tp_degree,
-            n_positions_list=self.token_buckets,
+            n_positions=n_positions,
             n_active_tokens=1,
-            batch_size=self.batch_sizes,
+            batch_size=self.batch_size,
             attention_head_size=config.attention_head_size,
             amp=amp,
             num_layers=self.config.num_hidden_layers,
@@ -78,12 +69,8 @@ class GraniteForSampling(base.NeuronModelBase):
             allow_pad=True,
             builder=hlo_builder,
         )
-        self.decoder_lm_head = self.decoder_param_set.init_token_decoder(buckets=self.token_buckets, model_obj=self)
-        self.decoder_lm_head_for_context = self.decoder_param_set.init_context_decoder(
-            buckets=self.context_buckets,
-            model_obj=self,
-            context_batch_sizes=self.context_batch_sizes,
-        )
+        self.decoder_lm_head = self.decoder_param_set.init_token_decoder(model_obj=self)
+        self.decoder_lm_head_for_context = self.decoder_param_set.init_context_decoder(model_obj=self)
 
     def load_weights(self):
         self.materialize_embeddings()
@@ -180,15 +167,6 @@ class GraniteForSampling(base.NeuronModelBase):
     def init_rest_of_model(self):
         # Pipeline sparallel deosn't support executor right now
         self.decoder_lm_head.use_executor = True
-
-        if self.context_buckets:
-            for context_length_estimate in self.context_buckets:
-                for batch_size in self.context_batch_sizes:
-                    model = self.decoder_lm_head.build_weight_shared(
-                        share_caches=True, new=self.decoder_lm_head_for_context[context_length_estimate, batch_size]
-                    )
-                    model.use_executor = True
-                    self.decoder_lm_head_for_context[context_length_estimate, batch_size] = model
 
     def preprocess_and_embed(self, input_ids, cache_ids=None, start_ids=None, **kwargs):
         padded_inputs, *rst = self._preprocess(input_ids, start_ids=start_ids, cache_ids=cache_ids, **kwargs)
