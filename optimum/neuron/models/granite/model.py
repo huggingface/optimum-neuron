@@ -55,15 +55,6 @@ class GraniteForSampling(base.NeuronModelBase):
         self.config = config
         self.neuron_config = neuron_config if neuron_config else NeuronConfig()
         self.prefixed_length = prefixed_length
-
-        self.token_buckets = bucket.token_sizes(n_positions)
-        self.context_buckets = bucket.context_sizes(context_length_estimate, self.token_buckets)
-        self.window_context_buckets = []
-        if prefixed_length:
-            if prefixed_length not in self.context_buckets:
-                self.context_buckets.append(prefixed_length)
-                self.context_buckets = sorted(self.context_buckets)
-
         self.batch_sizes = bucket.batch_sizes(batch_size)
         self.context_batch_sizes = (
             [1] if self.neuron_config and self.neuron_config.continuous_batching else self.batch_sizes
@@ -84,12 +75,8 @@ class GraniteForSampling(base.NeuronModelBase):
             allow_pad=True,
             builder=hlo_builder,
         )
-        self.decoder_lm_head = self.decoder_param_set.init_token_decoder(buckets=self.token_buckets, model_obj=self)
-        self.decoder_lm_head_for_context = self.decoder_param_set.init_context_decoder(
-            buckets=self.context_buckets,
-            model_obj=self,
-            context_batch_sizes=self.context_batch_sizes,
-        )
+        self.decoder_lm_head = self.decoder_param_set.init_token_decoder(model_obj=self)
+        self.decoder_lm_head_for_context = self.decoder_param_set.init_context_decoder(model_obj=self)
 
     def load_weights(self):
         self.materialize_embeddings()
@@ -186,15 +173,6 @@ class GraniteForSampling(base.NeuronModelBase):
     def init_rest_of_model(self):
         # Pipeline sparallel deosn't support executor right now
         self.decoder_lm_head.use_executor = True
-
-        if self.context_buckets:
-            for context_length_estimate in self.context_buckets:
-                for batch_size in self.context_batch_sizes:
-                    model = self.decoder_lm_head.build_weight_shared(
-                        share_caches=True, new=self.decoder_lm_head_for_context[context_length_estimate, batch_size]
-                    )
-                    model.use_executor = True
-                    self.decoder_lm_head_for_context[context_length_estimate, batch_size] = model
 
     def set_prefixed(self, input_ids):
         self.prefixed_input_ids = input_ids[:, : self.prefixed_length]
