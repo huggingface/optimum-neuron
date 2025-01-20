@@ -17,7 +17,7 @@ from typing import Optional
 from transformers_neuronx import constants, hlo, utils
 from transformers_neuronx.config import NeuronConfig
 from transformers_neuronx.constants import LAYOUT_BSH, LAYOUT_HSB
-from transformers_neuronx.layers import attention, attention_utils, rotary, transformer
+from transformers_neuronx.layers import attention, rotary, transformer
 from transformers_neuronx.nki.compile import nki_call
 
 from optimum.utils import logging
@@ -772,19 +772,11 @@ class GraniteForSamplingNoEmbeddingHlo:
         # Granite specific: instead of dividing the QK product, multiply it by the attention_multiplier
         query = scale_mul(query, self.config.attention_multiplier)
 
-        # In BSH cache layout, the output of QKV linear projection is still kept as SBH for all QKV.
-        bsh_cache_layout = False
         batch_dim = 1
-        if self.neuron_config is not None:
-            bsh_cache_layout = self.neuron_config.cache_layout == constants.LAYOUT_BSH
-        if bsh_cache_layout:
-            query, key, value = attention_utils.transpose_qkv(query, key, value)
-            batch_dim = 0
-
         # Single Token Generation ("Prefetch"-style) ans speculative forward
         if active_mask is not None:
 
-            n_active_tokens = key.sizes[1] if bsh_cache_layout else key.sizes[0]
+            n_active_tokens = key.sizes[0]
             if n_active_tokens > 1 and self.neuron_config and self.neuron_config.continuous_batching:
                 # For speculative forward + continuous batching, slice out samples in the batch size
                 # corresponding to the batch size of the speculative head
@@ -859,7 +851,7 @@ class GraniteForSamplingNoEmbeddingHlo:
         # Multi-Token Context Encoding
         else:
             batch_size = query.sizes[batch_dim]
-            if (self.neuron_config.lhs_aligned or batch_size == 1) and not self.neuron_config.bsh_cache_layout:
+            if self.neuron_config.lhs_aligned or batch_size == 1:
                 context = attention.flash_attention(query, key, value)
             else:
                 # do not use flash attention for lhs padded (right aligned) batch > 1 case
