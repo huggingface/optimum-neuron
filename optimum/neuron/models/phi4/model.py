@@ -26,7 +26,7 @@ from .modules import Phi4ForCausalLM
 
 
 class Phi4ForSampling(base.NeuronModelBase):
-    """The Phi4 model is essentially a LLama model with bias in linear projections.
+    """The Phi4 model is essentially a LLama model with fused qkv and gate_up projections.
 
     The implementation in this class is very similar to the one used for Llama in Tnx.
     The only differences are:
