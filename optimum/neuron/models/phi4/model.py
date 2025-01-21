@@ -163,7 +163,9 @@ class Phi4ForSampling(base.NeuronModelBase):
 
             # Note: Automatic MLP padding is safe since zeros are *only* introduced to intermediary state
             if self.neuron_config.fuse_mlp:
-                assert fused_gate_up.shape[0] % self.config.tp_degree == 0, f"mlp weights are not divisible by tp_degree {self.config.tp_degree}"
+                assert (
+                    fused_gate_up.shape[0] % self.config.tp_degree == 0
+                ), f"mlp weights are not divisible by tp_degree {self.config.tp_degree}"
                 new_layer.add_mlp_input(fused_gate_up)
                 if self.neuron_config.mlp_out_weight_transpose:
                     new_layer.add_mlp_output(
