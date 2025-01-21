@@ -71,3 +71,8 @@ class Qwen2NeuronConfig(TextNeuronDecoderConfig):
 class GraniteNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = GraniteForSampling
     CONTINUOUS_BATCHING = True
+
+@register_in_tasks_manager("phi4", "text-generation")
+class Phi4NeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = Phi4ForSampling
+    CONTINUOUS_BATCHING = True
