@@ -19,6 +19,7 @@ from optimum.exporters.tasks import TasksManager
 
 from ....neuron.models.granite.model import GraniteForSampling
 from ....neuron.models.qwen2.model import Qwen2ForSampling
+from ....neuron.models.phi4.model import Phi4ForSampling
 from ..config import TextNeuronDecoderConfig
 
 
