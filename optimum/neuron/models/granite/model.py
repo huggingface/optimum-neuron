@@ -45,7 +45,6 @@ class GraniteForSampling(base.NeuronModelBase):
         tp_degree: int = 2,
         context_length_estimate: int = None,
         neuron_config: NeuronConfig = None,
-        prefixed_length: int = 0,
         **kwargs,
     ):
         config = GraniteConfig(config, n_positions, batch_size, amp, tp_degree)
@@ -54,15 +53,10 @@ class GraniteForSampling(base.NeuronModelBase):
         self.context_hook = None
         self.config = config
         self.neuron_config = neuron_config if neuron_config else NeuronConfig()
-        self.prefixed_length = prefixed_length
 
         self.token_buckets = bucket.token_sizes(n_positions)
         self.context_buckets = bucket.context_sizes(context_length_estimate, self.token_buckets)
         self.window_context_buckets = []
-        if prefixed_length:
-            if prefixed_length not in self.context_buckets:
-                self.context_buckets.append(prefixed_length)
-                self.context_buckets = sorted(self.context_buckets)
 
         self.batch_sizes = bucket.batch_sizes(batch_size)
         self.context_batch_sizes = (
@@ -195,13 +189,6 @@ class GraniteForSampling(base.NeuronModelBase):
                     )
                     model.use_executor = True
                     self.decoder_lm_head_for_context[context_length_estimate, batch_size] = model
-
-    def set_prefixed(self, input_ids):
-        self.prefixed_input_ids = input_ids[:, : self.prefixed_length]
-        prefixed_length = self.prefixed_length
-        self.prefixed_length = 0
-        self.forward(self.prefixed_input_ids)
-        self.prefixed_length = prefixed_length
 
     def preprocess_and_embed(self, input_ids, cache_ids=None, start_ids=None, **kwargs):
         padded_inputs, *rst = self._preprocess(input_ids, start_ids=start_ids, cache_ids=cache_ids, **kwargs)

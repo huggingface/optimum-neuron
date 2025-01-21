@@ -44,7 +44,6 @@ class Qwen2ForSampling(base.NeuronModelBase):
         tp_degree: int = 2,
         context_length_estimate: int = None,
         neuron_config: NeuronConfig = None,
-        prefixed_length: int = 0,
         **kwargs,
     ):
         config = Qwen2Config(config, n_positions, batch_size, amp, tp_degree)
@@ -53,15 +52,10 @@ class Qwen2ForSampling(base.NeuronModelBase):
         self.context_hook = None
         self.config = config
         self.neuron_config = neuron_config if neuron_config else NeuronConfig()
-        self.prefixed_length = prefixed_length
 
         self.token_buckets = token_sizes(n_positions)
         self.context_buckets = context_sizes(context_length_estimate, self.token_buckets)
         self.window_context_buckets = []
-        if prefixed_length:
-            if prefixed_length not in self.context_buckets:
-                self.context_buckets.append(prefixed_length)
-                self.context_buckets = sorted(self.context_buckets)
 
         self.batch_sizes = batch_sizes(batch_size)
         self.context_batch_sizes = (
