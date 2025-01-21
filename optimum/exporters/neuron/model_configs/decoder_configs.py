@@ -26,7 +26,8 @@ from ....neuron.backends.hlo.decoder import NeuronHloDecoderModel
 from ....neuron.models.granite.model import GraniteForSampling
 from ....neuron.models.llama.model import LlamaHloModel
 from ....neuron.models.qwen2.model import Qwen2ForSampling
-from ..base import NeuronExportConfig
+from ....neuron.models.phi4.model import Phi4ForSampling
+from ..config import TextNeuronDecoderConfig
 
 
 register_in_tasks_manager = TasksManager.create_register("neuron")
