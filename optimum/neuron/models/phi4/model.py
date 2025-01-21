@@ -189,12 +189,8 @@ class Phi4ForSampling(base.NeuronModelBase):
                         transposed=False,
                     )
             else:
-                new_layer.add_parameter(
-                    gate, sharding=1, allow_pad=True, allow_quantize=True, allow_transform=True
-                )
-                new_layer.add_parameter(
-                    up, sharding=1, allow_pad=True, allow_quantize=True, allow_transform=True
-                )
+                new_layer.add_parameter(gate, sharding=1, allow_pad=True, allow_quantize=True, allow_transform=True)
+                new_layer.add_parameter(up, sharding=1, allow_pad=True, allow_quantize=True, allow_transform=True)
                 if self.neuron_config.weight_tiling:
                     new_layer.add_parameter(
                         mlp.down_proj.weight.T, sharding=0, allow_pad=True, allow_quantize=True, allow_transform=True
