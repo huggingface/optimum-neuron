@@ -45,6 +45,10 @@ MODEL_CONFIGURATIONS = {
         "model_id": "ibm-granite/granite-3.1-2b-instruct",
         "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "bf16"},
     },
+    "phi4": {
+        "model_id": "microsoft/phi-4",
+        "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "bf16"},
+    },
 }
 
 
