@@ -22,11 +22,17 @@ This tutorial will teach you how to fine-tune open source LLMs like [Llama 3](ht
 
 You will learn how to:
 
-1. [Setup AWS Environment](#1-setup-aws-environment)
-2. [Load and process the dataset](#2-load-and-prepare-the-dataset)
-3. [Supervised Fine-Tuning of Llama on AWS Trainium with the `NeuronSFTTrainer`](#3-supervised-fined-tuning-of-llama-on-aws-trainium-with-the-neuronsfttrainer)
-4. [Launch Training](#4-launch-training)
-5. [Evaluate and test fine-tuned Llama model](#5-evaluate-and-test-fine-tuned-llama-model)
+- [Supervised Fine-Tuning of Llama 3 8B on one AWS Trainium instance](#supervised-fine-tuning-of-llama-3-8b-on-one-aws-trainium-instance)
+  - [1. Setup AWS Environment](#1-setup-aws-environment)
+  - [2. Load and prepare the dataset](#2-load-and-prepare-the-dataset)
+  - [3. Supervised Fine-Tuning of Llama on AWS Trainium with the `NeuronSFTTrainer`](#3-supervised-fine-tuning-of-llama-on-aws-trainium-with-the-neuronsfttrainer)
+    - [Formatting our dataset](#formatting-our-dataset)
+    - [Preparing the model](#preparing-the-model)
+  - [4. Launch Training](#4-launch-training)
+    - [Precompilation](#precompilation)
+    - [Actual Training](#actual-training)
+    - [Consolidate the Checkpoint](#consolidate-the-checkpoint)
+  - [5. Evaluate and test fine-tuned Llama model](#5-evaluate-and-test-fine-tuned-llama-model)
 
 <Tip>
 
