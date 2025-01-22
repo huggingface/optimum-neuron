@@ -50,6 +50,11 @@ huggingface-cli login --token YOUR_TOKEN
 ```bash
 git clone https://github.com/huggingface/optimum-neuron.git
 ```
+5. Install trl using:
+```bash
+pip install trl==0.11.4
+```
+
 
 ## 2. Load and prepare the dataset
 
@@ -230,13 +235,8 @@ BS=1
 GRADIENT_ACCUMULATION_STEPS=8
 LOGGING_STEPS=1
 MODEL_NAME="meta-llama/Meta-Llama-3-8B"
-OUTPUT_DIR=output-$SLURM_JOB_ID
+OUTPUT_DIR=dolly_llama
 
-if [ "$NEURON_EXTRACT_GRAPHS_ONLY" = "1" ]; then
-    MAX_STEPS=$((LOGGING_STEPS + 5))
-else
-    MAX_STEPS=-1
-fi
 
 
 XLA_USE_BF16=1 neuron_parallel_compile torchrun --nproc_per_node $PROCESSES_PER_NODE docs/source/training_tutorials/sft_lora_finetune_llm.py \
@@ -245,7 +245,7 @@ XLA_USE_BF16=1 neuron_parallel_compile torchrun --nproc_per_node $PROCESSES_PER_
   --do_train \
   --learning_rate 5e-5 \
   --warmup_ratio 0.03 \
-  --max_steps $MAX_STEPS \
+  --max_steps 11 \ #changed max_steps to 11 so that it can have enough cycles to run
   --per_device_train_batch_size $BS \
   --per_device_eval_batch_size $BS \
   --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
