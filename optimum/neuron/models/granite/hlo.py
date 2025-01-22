@@ -542,7 +542,7 @@ class GraniteForSamplingNoEmbeddingHlo:
             return (hidden, mlp_hidden, attn_output), out_attn_k_cache, out_attn_v_cache
 
     def ln_lm_head(
-        self, hidden, last_token_id, rms_weight, unused_bias, lm_head_weight, lm_head_bias, return_all_outputs=True
+        self, hidden, last_token_id, rms_weight, unused_bias, lm_head_weight, lm_head_bias, is_prefill=True
     ):
         logits = transformer.rms_lm_head(
             self.config.tp_degree,
@@ -551,7 +551,7 @@ class GraniteForSamplingNoEmbeddingHlo:
             rms_weight,
             lm_head_weight,
             lm_head_bias,
-            return_all_outputs,
+            is_prefill,
             eps=self.config.rms_norm_eps,
             neuron_config=self.neuron_config,
         )
