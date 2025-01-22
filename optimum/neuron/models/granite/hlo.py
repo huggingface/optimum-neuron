@@ -44,7 +44,6 @@ class GraniteForSamplingNoEmbeddingHlo:
         self.config = config
         self.neuron_config = neuron_config
         self.n_positions = None
-        self.num_active_blocks = None
 
     @property
     def shard_over_batch(self):
@@ -150,7 +149,6 @@ class GraniteForSamplingNoEmbeddingHlo:
             start_ids,
             self.n_positions,
             last_token_id=last_token_id,
-            num_active_blocks=self.num_active_blocks,
             neuron_config=self.neuron_config,
             context_lens=context_lens,
         )
@@ -837,9 +835,6 @@ class GraniteForSamplingNoEmbeddingHlo:
                 value,
                 n_kv_heads=self.config.num_key_value_heads,
                 tp_degree=tp_degree,
-                context_lens=cache_ids,
-                num_active_blocks=self.num_active_blocks,
-                block_to_seq=block_to_seq,
                 neuron_config=self.neuron_config,
             )
 
