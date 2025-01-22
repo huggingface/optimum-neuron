@@ -208,7 +208,7 @@ PyTorch Neuron uses `torch_xla`. It evaluates operations lazily during the execu
 
 When training models on AWS Trainium we first need to compile our model with our training arguments. 
 
-To ease this step, we added a [model cache repository](https://huggingface.co/aws-neuron/optimum-neuron-cache), which allows us to use precompiled models from the Hugging Face Hub to skip the compilation step. But be careful: every change in the model configuration might lead to a new compilation, which could result in some cache misses.
+To ease this step, we added a [model cache repository](https://huggingface.co/aws-neuron/optimum-neuron-cache), which allows us to use precompiled models from the Hugging Face Hub to skip the compilation step. This is useful because it will allow to compile models much faster than what it would do when doing the actual training, because compilation can be parallelized. But be careful: every change in the model configuration might lead to a new compilation, which could result in some cache misses.
 
 <Tip>
 
@@ -239,13 +239,13 @@ MODEL_NAME="meta-llama/Meta-Llama-3-8B"
 OUTPUT_DIR=output
 
 if [ "$NEURON_EXTRACT_GRAPHS_ONLY" = "1" ]; then
-    MAX_STEPS=$((LOGGING_STEPS + 5))
+    MAX_STEPS=$((LOGGING_STEPS + 10))
 else
     MAX_STEPS=-1
 fi
 
 
-XLA_USE_BF16=1 neuron_parallel_compile torchrun --nproc_per_node $PROCESSES_PER_NODE docs/source/training_tutorials/sft_lora_finetune_llm.py \
+XLA_USE_BF16=1 torchrun --nproc_per_node $PROCESSES_PER_NODE docs/source/training_tutorials/sft_lora_finetune_llm.py \
   --model_id $MODEL_NAME \
   --num_train_epochs $NUM_EPOCHS \
   --do_train \
@@ -267,9 +267,11 @@ XLA_USE_BF16=1 neuron_parallel_compile torchrun --nproc_per_node $PROCESSES_PER_
   --overwrite_output_dir
 ```
 
+Save this script to a file, for instance `sft_lora_finetune_llm.sh`, and pass it to the `neuron_parallel_compile` tool to trigger the compilation.
+
 <Tip>
 
-Make sure to run this precompilation phase for around 10 training steps. It is usually enough to accumulate and compile all the graphs that will be needed during the actual training.
+Make sure to run this precompilation phase for around 10 training steps to ensure that the compiler has compiled all the necessary graphs. It is usually enough to accumulate and compile all the graphs that will be needed during the actual training.
 
 </Tip>
 
@@ -309,12 +311,7 @@ GRADIENT_ACCUMULATION_STEPS=8
 LOGGING_STEPS=1
 MODEL_NAME="meta-llama/Meta-Llama-3-8B"
 OUTPUT_DIR=output
-
-if [ "$NEURON_EXTRACT_GRAPHS_ONLY" = "1" ]; then
-    MAX_STEPS=$((LOGGING_STEPS + 5))
-else
-    MAX_STEPS=-1
-fi
+MAX_STEPS=-1
 
 
 XLA_USE_BF16=1 torchrun --nproc_per_node $PROCESSES_PER_NODE docs/source/training_tutorials/sft_lora_finetune_llm.py \
