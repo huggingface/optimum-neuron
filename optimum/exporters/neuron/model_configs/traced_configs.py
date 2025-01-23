@@ -244,6 +244,19 @@ class CLIPNormalizedConfig(NormalizedTextAndVisionConfig):
     VISION_CONFIG = "vision_config"
 
 
+@register_in_tasks_manager("clip-vision-with-projection", *["feature-extraction"], library_name="diffusers")
+class CLIPVisionWithProjectionModelNeuronConfig(VisionNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedVisionConfig
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["pixel_values"]
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["image_embeds", "last_hidden_state", "hidden_states"]
+
+
 @register_in_tasks_manager("clip", *["feature-extraction", "zero-shot-image-classification"])
 class CLIPNeuronConfig(TextAndVisionNeuronConfig):
     NORMALIZED_CONFIG_CLASS = CLIPNormalizedConfig

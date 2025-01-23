@@ -166,6 +166,39 @@ class DummyControNetInputGenerator(DummyInputGenerator):
             return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
 
 
+class DummyIPAdapterInputGenerator(DummyInputGenerator):
+    SUPPORTED_INPUT_NAMES = (
+        # Unet extra inputs
+        "image_embeds",
+        "ip_adapter_masks",
+    )
+
+    def __init__(
+        self,
+        task: str,
+        normalized_config: NormalizedTextConfig,
+        batch_size: int,
+        image_encoder_sequence_length: Optional[int] = None,
+        image_encoder_hidden_size: Optional[int] = None,
+        **kwargs,
+    ):
+        self.task = task
+        self.normalized_config = normalized_config
+        self.batch_size = batch_size
+        self.image_encoder_sequence_length = image_encoder_sequence_length
+        self.image_encoder_hidden_size = image_encoder_hidden_size
+
+    def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
+        if input_name == "image_embeds":
+            shape = [self.batch_size, 1, self.image_encoder_sequence_length, self.image_encoder_hidden_size]
+            return self.random_float_tensor(shape, max_value=999, framework=framework, dtype=float_dtype)
+        elif input_name == "ip_adapter_masks":
+            # TODO: support IP-Adapter masking
+            raise ValueError("IP-Adapter masking is not yet supported, please open an issue to request the feature.")
+            shape = [self.batch_size, 1, self.image_encoder_sequence_length, self.image_encoder_hidden_size]
+            return self.random_int_tensor(shape, framework=framework, dtype=int_dtype)
+
+
 # copied from https://github.com/huggingface/optimum/blob/171020c775cec6ff77826c3f5f5e5c1498b23f81/optimum/exporters/onnx/model_configs.py#L1363C1-L1368C111
 class ASTDummyAudioInputGenerator(DummyAudioInputGenerator):
     def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):

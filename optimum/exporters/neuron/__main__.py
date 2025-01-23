@@ -272,6 +272,22 @@ def infer_stable_diffusion_shapes_from_diffusers(
             "encoder_hidden_size": encoder_hidden_size,
         }
 
+    # IP-Adapter
+    if getattr(model, "image_encoder", None):
+        input_shapes["image_encoder"] = {
+            "batch_size": input_shapes[unet_or_transformer_name]["batch_size"],
+            "num_channels": model.image_encoder.config.num_channels,
+            "width": model.image_encoder.config.image_size,
+            "height": model.image_encoder.config.image_size,
+        }
+        # unet has `ip_adapter_image_embeds` with shape [batch_size, 1, (self.image_encoder.config.image_size//patch_size)**2+1, self.image_encoder.config.hidden_size] as input
+        input_shapes[unet_or_transformer_name]["image_encoder_sequence_length"] = (
+            model.image_encoder.vision_model.embeddings.position_embedding.weight.shape[0]
+        )
+        input_shapes[unet_or_transformer_name]["image_encoder_hidden_size"] = (
+            model.image_encoder.vision_model.embeddings.position_embedding.weight.shape[1]
+        )
+
     return input_shapes
 
 
@@ -424,6 +440,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         lora_scales=lora_scales,
         controlnet_ids=controlnet_ids,
         controlnet_input_shapes=input_shapes.get("controlnet", None),
+        image_encoder_input_shapes=input_shapes.get("image_encoder", None),
     )
     output_model_names = {
         DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
@@ -443,6 +460,8 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         output_model_names[DIFFUSION_MODEL_TRANSFORMER_NAME] = os.path.join(
             DIFFUSION_MODEL_TRANSFORMER_NAME, NEURON_FILE_NAME
         )
+    if getattr(model, "image_encoder", None) is not None:
+        output_model_names["image_encoder"] = os.path.join("image_encoder", NEURON_FILE_NAME)
 
     # ControlNet models
     if controlnet_ids:
@@ -516,6 +535,10 @@ def load_models_and_neuron_configs(
     torch_dtype: Optional[Union[str, torch.dtype]] = None,
     tensor_parallel_size: int = 1,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
+    ip_adapter_ids: Optional[Union[str, List[str]]] = None,
+    ip_adapter_subfolders: Optional[Union[str, List[str]]] = None,
+    ip_adapter_weight_names: Optional[Union[str, List[str]]] = None,
+    ip_adapter_scales: Optional[Union[float, List[float]]] = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     **input_shapes,
@@ -536,6 +559,10 @@ def load_models_and_neuron_configs(
     }
     if model is None:
         model = TasksManager.get_model_from_task(**model_kwargs)
+        # Load IP-Adapter if it exists
+        if ip_adapter_ids:
+            model.load_ip_adapter(ip_adapter_ids, subfolder=ip_adapter_subfolders, weight_name=ip_adapter_weight_names)
+            model.set_ip_adapter_scale(ip_adapter_scales)
 
     models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
         model=model,
@@ -591,6 +618,10 @@ def main_export(
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
     lora_scales: Optional[Union[float, List[float]]] = None,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
+    ip_adapter_ids: Optional[Union[str, List[str]]] = None,
+    ip_adapter_subfolders: Optional[Union[str, List[str]]] = None,
+    ip_adapter_weight_names: Optional[Union[str, List[str]]] = None,
+    ip_adapter_scales: Optional[Union[float, List[float]]] = None,
     **input_shapes,
 ):
     output = Path(output)
@@ -628,8 +659,15 @@ def main_export(
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
         controlnet_ids=controlnet_ids,
+        ip_adapter_ids=ip_adapter_ids,
+        ip_adapter_subfolders=ip_adapter_subfolders,
+        ip_adapter_weight_names=ip_adapter_weight_names,
+        ip_adapter_scales=ip_adapter_scales,
         **input_shapes,
     )
+    import pdb
+
+    pdb.set_trace()
 
     _, neuron_outputs = export_models(
         models_and_neuron_configs=models_and_neuron_configs,
@@ -772,6 +810,10 @@ def main():
         lora_adapter_names=getattr(args, "lora_adapter_names", None),
         lora_scales=getattr(args, "lora_scales", None),
         controlnet_ids=getattr(args, "controlnet_ids", None),
+        ip_adapter_ids=getattr(args, "ip_adapter_ids", None),
+        ip_adapter_subfolders=getattr(args, "ip_adapter_subfolders", None),
+        ip_adapter_weight_names=getattr(args, "ip_adapter_weight_names", None),
+        ip_adapter_scales=getattr(args, "ip_adapter_scales", None),
         **optional_outputs,
         **input_shapes,
     )

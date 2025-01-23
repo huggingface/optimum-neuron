@@ -1240,7 +1240,10 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
         if added_cond_kwargs:
             text_embeds = added_cond_kwargs.pop("text_embeds", None)
             time_ids = added_cond_kwargs.pop("time_ids", None)
+            image_embeds = added_cond_kwargs.pop("image_embeds", None)
             inputs = inputs + (text_embeds, time_ids)
+            if image_embeds:
+                inputs.append(image_embeds)
 
         outputs = self.model(*inputs)
         if return_dict:

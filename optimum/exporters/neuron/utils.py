@@ -129,6 +129,7 @@ def get_diffusion_models_for_export(
     lora_scales: Optional[List[float]] = None,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
     controlnet_input_shapes: Optional[Dict[str, int]] = None,
+    image_encoder_input_shapes: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronDefaultConfig"]]:
     """
     Returns the components of a Stable Diffusion model and their subsequent neuron configs.
@@ -166,6 +167,8 @@ def get_diffusion_models_for_export(
             ControlNets as a list, the outputs from each ControlNet are added together to create one combined additional conditioning.
         controlnet_input_shapes (`Optional[Dict[str, int]]`, defaults to `None`):
             Static shapes used for compiling ControlNets.
+        image_encoder_input_shapes (`Optional[Dict[str, int]]`, defaults to `None`):
+            Static shapes used for compiling the image encoder.
 
     Returns:
         `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronDefaultConfig`]`: A Dict containing the model and
@@ -326,6 +329,24 @@ def get_diffusion_models_for_export(
                 controlnet,
                 controlnet_neuron_config,
             )
+
+    # IP-Adapter: need to compile the image encoder
+    if "image_encoder" in models_for_export:
+        image_encoder = models_for_export["image_encoder"]
+        image_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
+            model=image_encoder,
+            exporter="neuron",
+            task="feature-extraction",
+            model_type="clip-vision-with-projection",
+            library_name=library_name,
+        )
+        image_encoder_neuron_config = image_encoder_config_constructor(
+            image_encoder.config,
+            task="feature-extraction",
+            dynamic_batch_size=dynamic_batch_size,
+            **image_encoder_input_shapes,
+        )
+        models_for_export["image_encoder"] = (image_encoder, image_encoder_neuron_config)
 
     return models_for_export
 
@@ -493,6 +514,11 @@ def get_submodels_for_export_diffusion(
             controlnet.config.requires_aesthetics_score = pipeline.unet.config.requires_aesthetics_score
             controlnet.config.time_cond_proj_dim = pipeline.unet.config.time_cond_proj_dim
             models_for_export.append((DIFFUSION_MODEL_CONTROLNET_NAME + "_" + str(idx), controlnet))
+
+    # Image Encoder
+    image_encoder = getattr(pipeline, "image_encoder", None)
+    if image_encoder is not None:
+        models_for_export.append(("image_encoder", copy.deepcopy(image_encoder)))
 
     return OrderedDict(models_for_export)
 
