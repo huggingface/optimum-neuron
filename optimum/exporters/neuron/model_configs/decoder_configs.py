@@ -126,7 +126,7 @@ class GPT2NeuronConfig(NeuronDecoderExportConfig):
 
 @register_in_tasks_manager("llama", "text-generation")
 class LLamaNeuronConfig(NeuronDecoderExportConfig):
-    NEURONX_CLASS = "llama.model.LlamaForSampling"
+    NEURONX_CLASS = "llama.model.LlamaHloModel"
     CONTINUOUS_BATCHING = True
     ATTENTION_lAYOUT = "BSH"
 

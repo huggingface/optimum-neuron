@@ -14,7 +14,8 @@
 # ==============================================================================
 
 from transformers import PretrainedConfig
-from transformers_neuronx import base, decoder
+from transformers_neuronx import decoder
+from transformers_neuronx.base import NeuronHloDecoderModel
 from transformers_neuronx.config import NeuronConfig
 from transformers_neuronx.llama.hlo import LlamaForSamplingNoEmbeddingHlo
 from transformers_neuronx.ops import init_neuron
@@ -24,7 +25,7 @@ from .config import Qwen2Config
 from .modules import Qwen2ForCausalLM
 
 
-class Qwen2ForSampling(base.NeuronModelBase):
+class Qwen2ForSampling(NeuronHloDecoderModel):
     """The Qwen2 model is essentially a LLama model with bias in linear projections.
 
     The implementation in this class is very similar to the one used for Llama in Tnx.
@@ -134,3 +135,7 @@ class Qwen2ForSampling(base.NeuronModelBase):
     def init_rest_of_model(self):
         # Pipeline sparallel deosn't support executor right now
         self.decoder_lm_head.use_executor = True
+
+        model = self.decoder_lm_head.build_weight_shared(share_caches=True, new=self.decoder_lm_head_for_context)
+        model.use_executor = True
+        self.decoder_lm_head_for_context = model

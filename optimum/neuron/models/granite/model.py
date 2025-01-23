@@ -14,7 +14,8 @@
 # ==============================================================================
 import torch
 from transformers import PretrainedConfig
-from transformers_neuronx import base, decoder, utils
+from transformers_neuronx import decoder, utils
+from transformers_neuronx.base import NeuronHloDecoderModel
 from transformers_neuronx.config import NeuronConfig
 from transformers_neuronx.constants import LAYOUT_HSB
 
@@ -23,7 +24,7 @@ from .hlo import GraniteForSamplingNoEmbeddingHlo
 from .modules import GraniteForCausalLM
 
 
-class GraniteForSampling(base.NeuronModelBase):
+class GraniteForSampling(NeuronHloDecoderModel):
     """The Granite model is a LLama model with 4 scalar multpliers that are applied to:
     - the embeddings,
     - the QK product in the attention (instead of the static 1/sqrt(num_heads))
@@ -167,6 +168,10 @@ class GraniteForSampling(base.NeuronModelBase):
     def init_rest_of_model(self):
         # Pipeline sparallel deosn't support executor right now
         self.decoder_lm_head.use_executor = True
+
+        model = self.decoder_lm_head.build_weight_shared(share_caches=True, new=self.decoder_lm_head_for_context)
+        model.use_executor = True
+        self.decoder_lm_head_for_context = model
 
     def preprocess_and_embed(self, input_ids, cache_ids=None, start_ids=None, **kwargs):
         padded_inputs, *rst = self._preprocess(input_ids, start_ids=start_ids, cache_ids=cache_ids, **kwargs)
