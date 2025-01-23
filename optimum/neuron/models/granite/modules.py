@@ -12,17 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from transformers_neuronx import dtypes, module
 
-from .config import GraniteConfig
+from transformers.models.granite import GraniteConfig
+from transformers_neuronx import module
+from transformers_neuronx.llama.modules import LlamaRMSNorm
 
 
 class GraniteForCausalLM(module.PretrainedModel):
 
-    def __init__(self, config: GraniteConfig):
+    def __init__(self, config: GraniteConfig, dtype):
         super().__init__()
-        dtype = dtypes.to_torch_dtype(config.amp)
-        self.model = GraniteModel(config)
+        self.model = GraniteModel(config, dtype)
         self.lm_head = module.LowMemoryLazyLinear(config.vocab_size, dtype=dtype, bias=False)
 
     def get_tied_parameters(self):
@@ -34,40 +34,32 @@ class GraniteForCausalLM(module.PretrainedModel):
 
 class GraniteModel(module.LowMemoryModule):
 
-    def __init__(self, config: GraniteConfig):
+    def __init__(self, config: GraniteConfig, dtype):
         super().__init__()
         self.embed_tokens = module.LowMemoryEmbedding(config.vocab_size, config.hidden_size)
         self.layers = module.LowMemoryModuleList(
-            [GraniteDecoderLayer(config) for _ in range(config.num_hidden_layers)]
+            [GraniteDecoderLayer(config, dtype) for _ in range(config.num_hidden_layers)]
         )
-        self.norm = GraniteRMSNorm(config)
-
-
-class GraniteRMSNorm(module.LowMemoryModule):
-
-    def __init__(self, config: GraniteConfig) -> None:
-        super().__init__()
-        self.weight = module.UninitializedParameter()
+        self.norm = LlamaRMSNorm()
 
 
 class GraniteDecoderLayer(module.LowMemoryModule):
 
-    def __init__(self, config: GraniteConfig):
+    def __init__(self, config: GraniteConfig, dtype):
         super().__init__()
-        self.self_attn = GraniteAttention(config)
-        self.mlp = GraniteMLP(config)
-        self.input_layernorm = GraniteRMSNorm(config)
-        self.post_attention_layernorm = GraniteRMSNorm(config)
+        self.self_attn = GraniteAttention(config, dtype)
+        self.mlp = GraniteMLP(config, dtype)
+        self.input_layernorm = LlamaRMSNorm()
+        self.post_attention_layernorm = LlamaRMSNorm()
 
 
 class GraniteAttention(module.LowMemoryModule):
 
-    def __init__(self, config: GraniteConfig):
+    def __init__(self, config: GraniteConfig, dtype):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_attention_heads
         self.head_dim = self.hidden_size // self.num_heads
-        dtype = dtypes.to_torch_dtype(config.amp)
         self.q_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=False, dtype=dtype)
         self.k_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=False, dtype=dtype)
         self.v_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=False, dtype=dtype)
@@ -76,9 +68,8 @@ class GraniteAttention(module.LowMemoryModule):
 
 class GraniteMLP(module.LowMemoryModule):
 
-    def __init__(self, config: GraniteConfig):
+    def __init__(self, config: GraniteConfig, dtype):
         super().__init__()
-        dtype = dtypes.to_torch_dtype(config.amp)
         self.gate_proj = module.LowMemoryLazyLinear(config.intermediate_size, bias=False, dtype=dtype)
         self.up_proj = module.LowMemoryLazyLinear(config.intermediate_size, bias=False, dtype=dtype)
         self.down_proj = module.LowMemoryLazyLinear(config.hidden_size, bias=False, dtype=dtype)

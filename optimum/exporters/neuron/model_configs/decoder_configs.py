@@ -16,6 +16,7 @@
 
 import importlib
 
+from transformers_neuronx.base import NeuronHloDecoderModel
 from transformers_neuronx.config import ContinuousBatchingConfig, NeuronConfig
 
 from optimum.exporters.base import ExportConfig
@@ -67,10 +68,6 @@ class NeuronDecoderExportConfig(ExportConfig):
                 )
 
     @property
-    def use_legacy(self):
-        return True
-
-    @property
     def neuronx_class(self):
         return self._neuronx_class
 
@@ -104,15 +101,15 @@ class NeuronDecoderExportConfig(ExportConfig):
             # is broken for these models:  see https://github.com/aws-neuron/transformers-neuronx/issues/79
             neuron_kwargs["continuous_batching"] = ContinuousBatchingConfig(batch_size_for_shared_caches=batch_size)
         export_kwargs = {}
-        if self.use_legacy:
+        if issubclass(self.neuronx_class, NeuronHloDecoderModel):
+            # For new models, all export kwargs are integrated into NeuronConfig
+            neuron_kwargs.update(base_kwargs)
+        else:
             # For legacy models, base kwargs are passed individually
             export_kwargs.update(base_kwargs)
             if continuous_batching:
                 export_kwargs["n_positions"] = [sequence_length]
                 export_kwargs["context_length_estimate"] = [sequence_length]
-        else:
-            # For new models, all export kwargs are integrated into NeuronConfig
-            neuron_kwargs.update(base_kwargs)
         # The only parameter common to both invocation styles is the neuron config
         export_kwargs["neuron_config"] = NeuronConfig(**neuron_kwargs)
 

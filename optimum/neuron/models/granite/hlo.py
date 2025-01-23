@@ -14,6 +14,7 @@
 # ==============================================================================
 from typing import Optional
 
+from transformers.models.granite import GraniteConfig
 from transformers_neuronx import constants, hlo, utils
 from transformers_neuronx.config import NeuronConfig
 from transformers_neuronx.constants import LAYOUT_BSH, LAYOUT_HSB
@@ -21,8 +22,6 @@ from transformers_neuronx.layers import attention, rotary, transformer
 from transformers_neuronx.nki.compile import nki_call
 
 from optimum.utils import logging
-
-from .config import GraniteConfig
 
 
 logger = logging.get_logger()
@@ -61,60 +60,16 @@ class GraniteForSamplingNoEmbeddingHlo:
             n_active_tokens,
             self.config.hidden_size,
             self.neuron_config,
-            self.config.tp_degree,
+            self.neuron_config.tp_degree,
         )
 
         return tensors, dims
 
-    def eagle_draft_inputs(
-        self,
-        scribe,
-        dtype,
-        n_active_tokens,
-        batch_size,
-        token_tree=False,
-        k=0,
-        n_leaves=0,
-        depth=0,
-        n_entrees=0,
-        width=0,
-    ):
-        tensors, dims = self.inputs(scribe, dtype, n_active_tokens, batch_size)
-        hidden_sizes = batch_size, n_active_tokens, self.config.hidden_size
-        prev_hidden = dtype[hidden_sizes].Parameter(parameter_number=6)
-        if not token_tree:
-            return (*tensors, prev_hidden), (*dims, 1)
-        s32 = scribe.s32
-        tree_mask_sizes = k, k
-        tree_mask = s32[tree_mask_sizes].Parameter(parameter_number=7)
-        indices_sizes = batch_size, k - 1
-        update_indices = s32[indices_sizes].Parameter(parameter_number=8)
-        hidden_update_sizes = batch_size, k - 1
-        hidden_update_indices = s32[hidden_update_sizes].Parameter(parameter_number=9)
-        cache_update_sizes = batch_size, depth
-        cache_gather_indices = s32[cache_update_sizes].Parameter(parameter_number=10)
-        cache_scatter_indices = s32[cache_update_sizes].Parameter(parameter_number=11)
-        pos_sizes = batch_size, k
-        position_ids = s32[pos_sizes].Parameter(parameter_number=12)
-        path_sizes = n_leaves, depth
-        all_paths = s32[path_sizes].Parameter(parameter_number=13)
-        return (
-            *tensors,
-            prev_hidden,
-            tree_mask,
-            update_indices,
-            hidden_update_indices,
-            cache_gather_indices,
-            cache_scatter_indices,
-            position_ids,
-            all_paths,
-        ), (*dims, 1, 1, 1, 1, 1, 1, 1, 1)
-
     def embedding(self, input_ids, cache_ids, start_ids, last_token_id, block_tables, context_lens, *weights):
         embed_weight, *rst = weights
-        dtype = getattr(input_ids.scribe, self.config.amp)
-        hidden = hlo.embedding(embed_weight, input_ids, tp_degree=self.config.tp_degree, dtype=dtype)
-        if self.config.hidden_size % self.config.tp_degree != 0:
+        dtype = getattr(input_ids.scribe, self.neuron_config.amp)
+        hidden = hlo.embedding(embed_weight, input_ids, tp_degree=self.neuron_config.tp_degree, dtype=dtype)
+        if self.config.hidden_size % self.neuron_config.tp_degree != 0:
             hidden = hlo.slice_along(hidden, dim=-1, limit=self.config.hidden_size, start=0)
         if self.neuron_config.attention_layout == LAYOUT_HSB:
             hidden = hlo.transpose210(hidden)
@@ -132,14 +87,13 @@ class GraniteForSamplingNoEmbeddingHlo:
         # Granite specific: embeddings are multiplied by embedding_multiplier
         hidden = scale_mul(hidden, self.config.embedding_multiplier)
 
-        head_dim = self.config.attention_head_size
+        head_dim = self.config.hidden_size // self.config.num_attention_heads
         position_ids = cache_ids if position_ids is None else position_ids
         pos_embed = rotary.hlo_rotary_embedding(
             hidden.dtype,
-            int(head_dim * self.config.rotary_percentage),
+            head_dim,
             position_ids,
             base=self.config.rope_theta,
-            interpolation_factor=self.config.position_interpolation_factor,
             rope_scaling=self.config.rope_scaling,
         )
 
@@ -286,7 +240,11 @@ class GraniteForSamplingNoEmbeddingHlo:
         if self.neuron_config.has_pre_attention_norm:
             ln_hidden = (
                 hlo.rms_norm(
-                    hidden, pre_attn_ln_weight, eps, neuron_config=self.neuron_config, tp_degree=self.config.tp_degree
+                    hidden,
+                    pre_attn_ln_weight,
+                    eps,
+                    neuron_config=self.neuron_config,
+                    tp_degree=self.neuron_config.tp_degree,
                 )
                 if is_bsh
                 else hlo.rms_norm(
@@ -295,7 +253,7 @@ class GraniteForSamplingNoEmbeddingHlo:
                     eps,
                     dim=0,
                     neuron_config=self.neuron_config,
-                    tp_degree=self.config.tp_degree,
+                    tp_degree=self.neuron_config.tp_degree,
                 )
             )
         else:
@@ -336,7 +294,7 @@ class GraniteForSamplingNoEmbeddingHlo:
             eps,
             dim=rms_norm_dim,
             neuron_config=self.neuron_config,
-            tp_degree=self.config.tp_degree,
+            tp_degree=self.neuron_config.tp_degree,
         )
         if self.neuron_config.fuse_mlp:
             assert all(
@@ -351,7 +309,7 @@ class GraniteForSamplingNoEmbeddingHlo:
             in1_weight,
             out_weight,
             activation_function="silu",
-            tp_degree=self.config.tp_degree,
+            tp_degree=self.neuron_config.tp_degree,
             neuron_config=self.neuron_config,
         )
         # Granite specific: MLP output is multiplied by residual_multiplier
@@ -454,7 +412,11 @@ class GraniteForSamplingNoEmbeddingHlo:
         else:
             ln_hidden = (
                 hlo.rms_norm(
-                    hidden, pre_attn_ln_weight, eps, neuron_config=self.neuron_config, tp_degree=self.config.tp_degree
+                    hidden,
+                    pre_attn_ln_weight,
+                    eps,
+                    neuron_config=self.neuron_config,
+                    tp_degree=self.neuron_config.tp_degree,
                 )
                 if is_bsh
                 else hlo.rms_norm(
@@ -463,7 +425,7 @@ class GraniteForSamplingNoEmbeddingHlo:
                     eps,
                     dim=0,
                     neuron_config=self.neuron_config,
-                    tp_degree=self.config.tp_degree,
+                    tp_degree=self.neuron_config.tp_degree,
                 )
             )
             attn_output, out_attn_k_cache, out_attn_v_cache = self.attention(
@@ -509,9 +471,9 @@ class GraniteForSamplingNoEmbeddingHlo:
                 out_weight,
                 output_HloShapes=[hidden.dtype[hidden.sizes[0], hidden.sizes[1], hidden.sizes[2]]],
             )
-            dtype, replica_groups = utils.parse_dtype_replica_groups(self.neuron_config, self.config.tp_degree)
+            dtype, replica_groups = utils.parse_dtype_replica_groups(self.neuron_config, self.neuron_config.tp_degree)
             mlp_hidden = hlo.all_reduce_sum(
-                mlp_result, self.config.tp_degree, dtype=dtype, replica_groups=replica_groups
+                mlp_result, self.neuron_config.tp_degree, dtype=dtype, replica_groups=replica_groups
             )
             if is_first_last_layer or not enable_qkv_kernel:
                 return hlo.add(mlp_hidden, hidden_add), out_attn_k_cache, out_attn_v_cache
@@ -526,7 +488,7 @@ class GraniteForSamplingNoEmbeddingHlo:
                 eps,
                 dim=rms_norm_dim,
                 neuron_config=self.neuron_config,
-                tp_degree=self.config.tp_degree,
+                tp_degree=self.neuron_config.tp_degree,
             )
             mlp_hidden = gated_mlp(
                 norm_hidden,
@@ -534,7 +496,7 @@ class GraniteForSamplingNoEmbeddingHlo:
                 in1_weight,
                 out_weight,
                 activation_function="silu",
-                tp_degree=self.config.tp_degree,
+                tp_degree=self.neuron_config.tp_degree,
                 neuron_config=self.neuron_config,
             )
             if is_first_last_layer or not enable_qkv_kernel:
@@ -545,7 +507,7 @@ class GraniteForSamplingNoEmbeddingHlo:
         self, hidden, last_token_id, rms_weight, unused_bias, lm_head_weight, lm_head_bias, is_prefill=True
     ):
         logits = transformer.rms_lm_head(
-            self.config.tp_degree,
+            self.neuron_config.tp_degree,
             hidden,
             last_token_id,
             rms_weight,
@@ -601,8 +563,8 @@ class GraniteForSamplingNoEmbeddingHlo:
             hidden, mlp_out, attn_out = hidden
 
         n_seqs, n_active_tokens, _ = hidden.sizes
-        d_head = self.config.attention_head_size
-        tp_degree = self.config.tp_degree
+        d_head = self.config.hidden_size // self.config.num_attention_heads
+        tp_degree = self.neuron_config.tp_degree
 
         # Compute the expected number of KV heads (Used in case fused QKV is used)
         n_kv_heads_tp = None
@@ -722,8 +684,8 @@ class GraniteForSamplingNoEmbeddingHlo:
         out_bias,
         qkv_tuple: tuple = None,
     ):
-        d_head = self.config.attention_head_size
-        tp_degree = self.config.tp_degree
+        d_head = self.config.hidden_size // self.config.num_attention_heads
+        tp_degree = self.neuron_config.tp_degree
 
         # Compute the expected number of KV heads (Used in case fused QKV is used)
         n_kv_heads_tp = None
@@ -762,7 +724,6 @@ class GraniteForSamplingNoEmbeddingHlo:
             query,
             key,
             pos_embed,
-            self.config.rotary_percentage,
             tp_degree=tp_degree,
             shard_over_batch=self.shard_over_batch,
         )

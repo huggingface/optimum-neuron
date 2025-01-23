@@ -17,11 +17,11 @@ from transformers import PretrainedConfig
 from transformers_neuronx import decoder
 from transformers_neuronx.base import NeuronHloDecoderModel
 from transformers_neuronx.config import NeuronConfig
+from transformers_neuronx.dtypes import to_torch_dtype
 from transformers_neuronx.llama.hlo import LlamaForSamplingNoEmbeddingHlo
 from transformers_neuronx.ops import init_neuron
 from transformers_neuronx.utils import interleave_mlp
 
-from .config import Qwen2Config
 from .modules import Qwen2ForCausalLM
 
 
@@ -37,34 +37,20 @@ class Qwen2ForSampling(NeuronHloDecoderModel):
     def __init__(
         self,
         config: PretrainedConfig,
-        *,
-        n_positions: int = 2048,
-        batch_size: int = 1,
-        amp: str = "f32",
-        tp_degree: int = 2,
-        neuron_config: NeuronConfig = None,
-        **kwargs,
+        neuron_config: NeuronConfig,
     ):
-        config = Qwen2Config(config, n_positions, batch_size, amp, tp_degree)
-        super().__init__(Qwen2ForCausalLM, config)
+        dtype = to_torch_dtype(neuron_config.amp)
+        super().__init__(Qwen2ForCausalLM, config, dtype)
         self.context_pre_hook = None
         self.context_hook = None
         self.config = config
         self.neuron_config = neuron_config if neuron_config else NeuronConfig()
 
-        self.batch_size = batch_size
         hlo_builder = LlamaForSamplingNoEmbeddingHlo(config, neuron_config=self.neuron_config)
         self.decoder_param_set = decoder.DecoderLmHeadForSamplingNoEmbedding(
-            tp_degree=tp_degree,
-            n_positions=n_positions,
+            config=config,
+            neuron_config=neuron_config,
             n_active_tokens=1,
-            batch_size=self.batch_size,
-            attention_head_size=config.attention_head_size,
-            amp=amp,
-            num_layers=self.config.num_hidden_layers,
-            n_head=config.num_attention_heads,
-            n_kv_head=config.num_key_value_heads,
-            neuron_config=self.neuron_config,
             allow_pad=True,
             builder=hlo_builder,
         )
