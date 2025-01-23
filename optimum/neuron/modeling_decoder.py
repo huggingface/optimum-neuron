@@ -31,7 +31,7 @@ from transformers import AutoConfig, AutoModel, GenerationConfig
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from .modeling_base import NeuronModel
-from .utils import ModelCacheEntry, hub_neuronx_cache, is_transformers_neuronx_available
+from .utils import ModelCacheEntry, hub_neuronx_cache
 from .utils.require_utils import requires_transformers_neuronx
 from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
 
@@ -39,9 +39,6 @@ from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_ver
 NEURON_DEV_PATTERN = re.compile(r"^neuron\d+$", re.IGNORECASE)
 MAJORS_FILE = "/proc/devices"
 NEURON_MAJOR_LINE = re.compile(r"^\s*(\d+)\s+neuron\s*$")
-
-if is_transformers_neuronx_available():
-    from transformers_neuronx.config import ContinuousBatchingConfig, NeuronConfig
 
 
 if TYPE_CHECKING:
@@ -169,31 +166,16 @@ class NeuronDecoderModel(NeuronModel):
 
         exporter = get_exporter(config, task)
 
-        tnx_kwargs = {
-            "batch_size": batch_size,
-            "tp_degree": num_cores,
-            # transformers-neuronx uses f32/f16 instead of fp32/fp16
-            "amp": auto_cast_type.replace("p", ""),
-        }
-        if batch_size > 1 and exporter.continuous_batching:
-            # Continuous batching is always enabled for models that support it because static batching
-            # is broken for these models:  see https://github.com/aws-neuron/transformers-neuronx/issues/79
-            tnx_kwargs["neuron_config"] = NeuronConfig(
-                continuous_batching=ContinuousBatchingConfig(batch_size_for_shared_caches=batch_size),
-                attention_layout=exporter.attention_layout,
-                fuse_qkv=exporter.fuse_qkv,
-            )
-            tnx_kwargs["n_positions"] = [sequence_length]
-            tnx_kwargs["context_length_estimate"] = [sequence_length]
-        else:
-            tnx_kwargs["neuron_config"] = NeuronConfig(
-                attention_layout=exporter.attention_layout, fuse_qkv=exporter.fuse_qkv
-            )
-            tnx_kwargs["n_positions"] = sequence_length
+        export_kwargs = exporter.get_export_kwargs(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            tensor_parallel_size=num_cores,
+            auto_cast_type=auto_cast_type,
+        )
 
         # Instantiate neuronx model
         checkpoint_path = checkpoint_dir.name if isinstance(checkpoint_dir, TemporaryDirectory) else checkpoint_dir
-        neuronx_model = exporter.neuronx_class.from_pretrained(checkpoint_path, **tnx_kwargs)
+        neuronx_model = exporter.neuronx_class.from_pretrained(checkpoint_path, **export_kwargs)
 
         if compiled_dir is not None:
             # Specify the path where compiled artifacts are stored before conversion
