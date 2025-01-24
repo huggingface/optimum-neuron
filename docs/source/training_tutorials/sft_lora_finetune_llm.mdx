@@ -198,9 +198,9 @@ The key points here are:
 - We create a [`~optimum.neuron.NeuronSFTConfig`] from regular `NeuronTrainingArguments`. Here we specify that we do not want to pack our examples, and that the max sequence length should be `1024`, meaning that every example will be either padded or truncated to a length of `1024`.
 - We use the [`~optimum.neuron.NeuronSFTTrainer`] to perform training. It will take the lazily loaded model, along with `lora_config`, `sft_config` and `format_dolly` and prepare the dataset and model for supervised fine-tuning.
 
-## 4. Launch Training 
+## 4. Launch Training
 
-We prepared a script called [sft_lora_finetune_llm.py](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/lora_finetune_llm.py) summing up everything mentioned in this tutorial.
+We prepared a script called [sft_lora_finetune_llm.py](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/sft_lora_finetune_llm.py) summing up everything mentioned in this tutorial.
 
 PyTorch Neuron uses `torch_xla`. It evaluates operations lazily during the execution of the training loops, which means it builds a symbolic graph in the background, and the graph is executed on the hardware only when the tensor is printed, transferred to CPU, or when `xm.mark_step()` is called. During execution, multiple graphs can be built depending on control-flow, and it can take time to compile each graph sequentially. To alleviate that, the Neuron SDK provides `neuron_parallel_compile`, a tool which performs a fast trial run that builds all the graphs and compile them in parallel. This step is usually called precompilation.
 
