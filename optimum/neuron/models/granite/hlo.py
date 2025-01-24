@@ -237,27 +237,14 @@ class GraniteForSamplingNoEmbeddingHlo:
     ):
         eps = self.config.rms_norm_eps
         is_bsh = self.neuron_config and self.neuron_config.attention_layout == LAYOUT_BSH
-        if self.neuron_config.has_pre_attention_norm:
-            ln_hidden = (
-                hlo.rms_norm(
-                    hidden,
-                    pre_attn_ln_weight,
-                    eps,
-                    neuron_config=self.neuron_config,
-                    tp_degree=self.neuron_config.tp_degree,
-                )
-                if is_bsh
-                else hlo.rms_norm(
-                    hidden,
-                    pre_attn_ln_weight,
-                    eps,
-                    dim=0,
-                    neuron_config=self.neuron_config,
-                    tp_degree=self.neuron_config.tp_degree,
-                )
-            )
-        else:
-            ln_hidden = hidden
+        ln_hidden = hlo.rms_norm(
+            hidden,
+            pre_attn_ln_weight,
+            eps,
+            dim=2 if is_bsh else 0,
+            neuron_config=self.neuron_config,
+            tp_degree=self.neuron_config.tp_degree,
+        )
         attn_output, out_attn_k_cache, out_attn_v_cache = self.attention(
             ln_hidden,
             cache_ids,
