@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, List, Optional, Type, Union
 import pytest
 import torch
 import torch.utils._pytree as pytree
+from peft import LoraConfig
+from peft import get_peft_model as orig_get_peft_model
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.models.auto.modeling_auto import (
@@ -54,6 +56,7 @@ from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
 )
+from optimum.neuron.utils.peft_utils import get_peft_model
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .. import DistributedTest
@@ -430,6 +433,76 @@ class TestModelParallelization(DistributedTest):
         return self._parallel_model_matches_original_model(
             model_class, model_name_or_path, config_overwrite, parallel_sizes, False, True, False, False
         )
+
+    @pytest.mark.parallel_sizes((8, 8, 1))
+    def test_llama_v2_gqa_and_lora(self, lazy_load, tmpdir):
+        tp_size = get_tensor_model_parallel_size()
+        tp_group = get_tensor_model_parallel_group()
+
+        static_seed_patcher = StaticSeedPatcher(42)
+
+        # First we create and save a modified version of the model that is suited for our test case.
+        config = AutoConfig.from_pretrained(LLAMA_V2_MODEL_NAME)
+        config.num_hidden_layers = 2
+        config.num_key_value_heads = 2
+        config.hidden_size = 128
+        modified_model = AutoModelForCausalLM.from_pretrained(
+            LLAMA_V2_MODEL_NAME, config=config, ignore_mismatched_sizes=True
+        )
+        if xm.get_ordinal() == 0:
+            modified_model.save_pretrained(tmpdir)
+        xm.rendezvous("Saved modified model")
+
+        lora_config = LoraConfig(
+            r=64,
+            lora_alpha=128,
+            lora_dropout=0.0,
+            target_modules=["q_proj", "v_proj"],
+            task_type="CAUSAL_LM",
+        )
+
+        orig_model = AutoModelForCausalLM.from_pretrained(tmpdir)
+        orig_model.eval()
+
+        with static_seed_patcher:
+            orig_model = orig_get_peft_model(orig_model, lora_config)
+
+        orig_model.to("xla")
+
+        ctx = lazy_load_for_parallelism(tensor_parallel_size=tp_size) if lazy_load else nullcontext()
+        with ctx:
+            model = AutoModelForCausalLM.from_pretrained(tmpdir)
+            model.eval()
+
+        with static_seed_patcher:
+            model = get_peft_model(model, lora_config)
+
+        accelerator = create_accelerator(
+            tp_size,
+            1,
+            parallelize_embeddings=True,
+            sequence_parallel_enabled=True,
+        )
+        with static_seed_patcher:
+            model = accelerator.prepare_model(model)
+
+        tok = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
+        tok.pad_token = tok.eos_token
+
+        inputs = tok("This is a curious test.", padding="max_length", max_length=24, return_tensors="pt")
+        inputs = {k: v.to("xla") for k, v in inputs.items()}
+
+        orig_logits = orig_model(**inputs).logits
+        xm.mark_step()
+
+        logits = model(**inputs).logits
+        xm.mark_step()
+
+        gathered = [torch.empty_like(logits) for _ in range(tp_size)]
+        torch.distributed.all_gather(gathered, logits, group=tp_group)
+        gathered_logits = torch.cat(gathered, dim=2)
+        xm.mark_step()
+        torch.testing.assert_close(orig_logits, gathered_logits)
 
     @pytest.mark.skipif(
         NUM_NEURON_CORES_AVAILABLE < 32,
