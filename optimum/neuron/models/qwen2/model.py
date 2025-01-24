@@ -51,7 +51,6 @@ class Qwen2ForSampling(NeuronHloDecoderModel):
             config=config,
             neuron_config=neuron_config,
             n_active_tokens=1,
-            allow_pad=True,
             builder=hlo_builder,
         )
         self.decoder_lm_head = self.decoder_param_set.init_token_decoder(model_obj=self)
@@ -97,9 +96,9 @@ class Qwen2ForSampling(NeuronHloDecoderModel):
                     transposed=False,
                 )
             else:
-                new_layer.add_parameter(mlp.gate_proj.weight.T, sharding=1, allow_pad=True, allow_transform=True)
-                new_layer.add_parameter(mlp.up_proj.weight.T, sharding=1, allow_pad=True, allow_transform=True)
-                new_layer.add_parameter(mlp.down_proj.weight, sharding=1, allow_pad=True)
+                new_layer.add_parameter(mlp.gate_proj.weight.T, sharding=1, allow_transform=True)
+                new_layer.add_parameter(mlp.up_proj.weight.T, sharding=1, allow_transform=True)
+                new_layer.add_parameter(mlp.down_proj.weight, sharding=1)
             new_layer.to_neuron()
             layer.nullify()
         ln_f = self.chkpt_model.model.norm

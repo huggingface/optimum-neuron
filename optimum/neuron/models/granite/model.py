@@ -53,7 +53,6 @@ class GraniteForSampling(NeuronHloDecoderModel):
             config=config,
             neuron_config=self.neuron_config,
             n_active_tokens=1,
-            allow_pad=True,
             builder=hlo_builder,
         )
         self.decoder_lm_head = self.decoder_param_set.init_token_decoder(model_obj=self)
@@ -90,16 +89,12 @@ class GraniteForSampling(NeuronHloDecoderModel):
                     mlp.gate_proj.weight
                     * layer.post_attention_layernorm.weight.detach().to(dtype=mlp.gate_proj.weight.dtype)
                 )
-                new_layer.add_parameter(
-                    fused_pre_mlp_ln_gate_weight.T, sharding=1, allow_pad=True, allow_quantize=True
-                )
+                new_layer.add_parameter(fused_pre_mlp_ln_gate_weight.T, sharding=1, allow_quantize=True)
                 fused_pre_mlp_ln_up_weight = mlp.up_proj.weight * layer.post_attention_layernorm.weight.detach().to(
                     dtype=mlp.up_proj.weight.dtype
                 )
-                new_layer.add_parameter(fused_pre_mlp_ln_up_weight.T, sharding=1, allow_pad=True, allow_quantize=True)
-                new_layer.add_parameter(
-                    mlp.down_proj.weight.T, sharding=0, allow_pad=True, allow_quantize=True, out_feature_dim=0
-                )
+                new_layer.add_parameter(fused_pre_mlp_ln_up_weight.T, sharding=1, allow_quantize=True)
+                new_layer.add_parameter(mlp.down_proj.weight.T, sharding=0, allow_quantize=True, out_feature_dim=0)
             elif self.neuron_config.fuse_mlp:
                 assert all(
                     getattr(mlp, attr, None) for attr in ["gate_proj", "up_proj"]
@@ -119,12 +114,11 @@ class GraniteForSampling(NeuronHloDecoderModel):
                     transposed=False,
                 )
             else:
-                new_layer.add_parameter(mlp.gate_proj.weight.T, sharding=1, allow_pad=True, allow_transform=True)
-                new_layer.add_parameter(mlp.up_proj.weight.T, sharding=1, allow_pad=True, allow_transform=True)
+                new_layer.add_parameter(mlp.gate_proj.weight.T, sharding=1, allow_transform=True)
+                new_layer.add_parameter(mlp.up_proj.weight.T, sharding=1, allow_transform=True)
                 new_layer.add_parameter(
                     mlp.down_proj.weight,
                     sharding=1,
-                    allow_pad=True,
                 )
             new_layer.to_neuron()
             layer.nullify()
