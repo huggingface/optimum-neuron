@@ -665,9 +665,6 @@ def main_export(
         ip_adapter_scales=ip_adapter_scales,
         **input_shapes,
     )
-    import pdb
-
-    pdb.set_trace()
 
     _, neuron_outputs = export_models(
         models_and_neuron_configs=models_and_neuron_configs,

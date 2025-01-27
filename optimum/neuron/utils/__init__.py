@@ -48,6 +48,7 @@ _import_structure = {
         "DummyMaskedPosGenerator",
         "DummyControNetInputGenerator",
         "ASTDummyAudioInputGenerator",
+        "DummyIPAdapterInputGenerator",
     ],
     "misc": [
         "DiffusersPretrainedConfig",
@@ -110,6 +111,7 @@ if TYPE_CHECKING:
         DummyBeamValuesGenerator,
         DummyControNetInputGenerator,
         DummyMaskedPosGenerator,
+        DummyIPAdapterInputGenerator,
     )
     from .misc import (
         DiffusersPretrainedConfig,
