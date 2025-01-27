@@ -16,7 +16,7 @@ import warnings
 
 import torch
 from transformers import PretrainedConfig
-from transformers_neuronx import base, bucket, decoder, ops, utils
+from transformers_neuronx import base, bucket, decoder, utils
 from transformers_neuronx.config import NeuronConfig
 from transformers_neuronx.constants import KV_SHARD_PAD, LAYOUT_HSB
 
@@ -108,6 +108,20 @@ class GraniteForSampling(base.NeuronModelBase):
             [1] if self.neuron_config and self.neuron_config.continuous_batching else self.batch_sizes
         )
         hlo_builder = GraniteForSamplingNoEmbeddingHlo(config, neuron_config=self.neuron_config)
+        if self.neuron_config.enable_chunked_prefill:
+            max_num_seqs = self.neuron_config.continuous_batching.max_num_seqs
+            block_size = self.neuron_config.continuous_batching.block_size
+            num_blocks = self.neuron_config.continuous_batching.num_blocks
+
+            # define block buckets based on the n_positions
+            block_sizes = [n_pos * max_num_seqs // block_size for n_pos in self.token_buckets]
+            assert (
+                max(block_sizes) <= num_blocks
+            ), "Too few blocks allocated, consider increasing gpu_memory_utilization or override"
+            # for chunked prefill we set the context batch sizes to the block sizes (we use the batch size bucketing
+            # for KV cache active blocks and the context length estimate bucket for number of queries)
+            self.context_batch_sizes = block_sizes
+
         self.decoder_param_set = decoder.DecoderLmHeadForSamplingNoEmbedding(
             tp_degree=tp_degree,
             n_positions_list=self.token_buckets,
@@ -127,14 +141,16 @@ class GraniteForSampling(base.NeuronModelBase):
             unroll=self.unroll, buckets=self.token_buckets, model_obj=self
         )
         self.decoder_lm_head_for_context = self.decoder_param_set.init_context_decoder(
-            unroll=self.context_unroll, buckets=self.context_buckets, model_obj=self
+            unroll=self.context_unroll,
+            buckets=self.context_buckets,
+            model_obj=self,
+            context_batch_sizes=self.context_batch_sizes,
         )
         self.decoder_lm_head_for_speculation = {}
         self.decoder_lm_head_for_window_context = {}
 
     def load_weights(self):
         self.materialize_embeddings()
-        ops.init()
 
         for layer_id, layer in enumerate(self.chkpt_model.model.layers):
             if layer_id not in self.layers_after_partition:
@@ -147,7 +163,8 @@ class GraniteForSampling(base.NeuronModelBase):
             else:
                 is_unit_scale = False
             new_layer = self.decoder_lm_head.new_layer(is_unit_scale=is_unit_scale)
-            new_layer.add_pre_attention_layer_norm(layer.input_layernorm.weight.detach(), None)
+            if self.neuron_config.has_pre_attention_norm:
+                new_layer.add_pre_attention_layer_norm(layer.input_layernorm.weight.detach(), None)
             new_layer.add_attention_query(attn.q_proj.weight.detach().T, None)
             new_layer.add_attention_key(attn.k_proj.weight.detach().T, None)
             new_layer.add_attention_value(attn.v_proj.weight.detach().T, None)
@@ -155,10 +172,30 @@ class GraniteForSampling(base.NeuronModelBase):
                 new_layer.add_attention_output(attn.o_proj.weight.T.detach(), None, sharding=0, transposed=True)
             else:
                 new_layer.add_attention_output(attn.o_proj.weight.detach(), None, sharding=1, transposed=False)
-            new_layer.add_pre_mlp_layer_norm(layer.post_attention_layernorm.weight.detach(), None)
+
+            if self.neuron_config.fused_rmsnorm_mlp:
+                dummy_post_attention_ln_weight = torch.ones_like(layer.post_attention_layernorm.weight.detach())
+                new_layer.add_pre_mlp_layer_norm(dummy_post_attention_ln_weight, None)
+            else:
+                new_layer.add_pre_mlp_layer_norm(layer.post_attention_layernorm.weight.detach(), None)
 
             # Note: Automatic MLP padding is safe since zeros are *only* introduced to intermediary state
-            if self.neuron_config.fuse_mlp:
+            if self.neuron_config.fused_rmsnorm_mlp:
+                fused_pre_mlp_ln_gate_weight = (
+                    mlp.gate_proj.weight
+                    * layer.post_attention_layernorm.weight.detach().to(dtype=mlp.gate_proj.weight.dtype)
+                )
+                new_layer.add_parameter(
+                    fused_pre_mlp_ln_gate_weight.T, sharding=1, allow_pad=True, allow_quantize=True
+                )
+                fused_pre_mlp_ln_up_weight = mlp.up_proj.weight * layer.post_attention_layernorm.weight.detach().to(
+                    dtype=mlp.up_proj.weight.dtype
+                )
+                new_layer.add_parameter(fused_pre_mlp_ln_up_weight.T, sharding=1, allow_pad=True, allow_quantize=True)
+                new_layer.add_parameter(
+                    mlp.down_proj.weight.T, sharding=0, allow_pad=True, allow_quantize=True, out_feature_dim=0
+                )
+            elif self.neuron_config.fuse_mlp:
                 assert all(
                     getattr(mlp, attr, None) for attr in ["gate_proj", "up_proj"]
                 ), "fuse_mlp need to have gate and up proj weights"
@@ -179,8 +216,6 @@ class GraniteForSampling(base.NeuronModelBase):
                     )
                 else:
                     new_layer.add_mlp_output(
-                        mlp.down_proj.weight.detach(),
-                        None,
                         sharding=1,
                         transposed=False,
                     )
@@ -206,37 +241,60 @@ class GraniteForSampling(base.NeuronModelBase):
                         )
             new_layer.to_neuron()
             layer.nullify()
-        if self.neuron_config.shard_over_sequence:
+
+        # Adding core_id for sos or seq-norm (vocab parallel is used as default with seq-par norm)
+        add_core_id = self.neuron_config.shard_over_sequence or (
+            self.neuron_config.sequence_parallel_norm and self.neuron_config.on_device_embedding
+        )
+        if add_core_id:
             self.decoder_lm_head.add_pre_layer_parameter(torch.arange(self.config.tp_degree), sharding=0)
         # For pipeline parallel, we need to load ln and lm_head for now even if the pipeline stage doesn't compute the, because
         # 1) we need the ln_lm_head hlo for pp0 to get the logits shape and dtype
         # 2) we don't needs these for intermediate pp stages, but to keep things simple, just include ln_lm_head for all pp stages for now
         # 3) to get ln_lm_head hlo, we need to do weight loading and sharding
         # 4) this will introduce extra memory allocation, but ln_lm_head i/o tensor is much smaller and we can get rid of it when we can construct hlo in init
-        ln_f = self.chkpt_model.model.norm
-        ln_f.materialize()
-        self.decoder_lm_head.add_final_layer_norm(ln_f.weight.detach(), None)
+        if not self.neuron_config.is_eagle_draft:
+            ln_f = self.chkpt_model.model.norm
+            ln_f.materialize()
+            self.decoder_lm_head.add_final_layer_norm(ln_f.weight.detach(), None)
+            ln_f.nullify()
 
         lm_head = self.chkpt_model.lm_head
         lm_head.materialize()
         self.decoder_lm_head.add_lm_head(lm_head.weight.detach().T)
+        lm_head.nullify()
+
         if self.neuron_config.on_device_embedding:
             if self.neuron_config.sequence_parallel_norm:
                 self.decoder_lm_head.add_pre_layer_parameter(
-                    self.chkpt_model.model.embed_tokens.weight, sharding=None, allow_pad=True
+                    self.chkpt_model.model.embed_tokens.weight, sharding=0, allow_pad=True
                 )
             else:
                 self.decoder_lm_head.add_pre_layer_parameter(
                     self.chkpt_model.model.embed_tokens.weight, sharding=1, allow_pad=True
                 )
-        lm_head.nullify()
+        if self.neuron_config.is_eagle_draft:
+            self.chkpt_model.model.fc.materialize()
+            self.decoder_lm_head.add_pre_layer_parameter(
+                self.chkpt_model.model.fc.weight.detach().T, sharding=1, allow_pad=True
+            )
+            if self.chkpt_model.model.fc.bias is not None:
+                self.decoder_lm_head.add_pre_layer_parameter(
+                    self.chkpt_model.model.fc.bias.detach(), sharding=0, allow_pad=True
+                )
+            self.chkpt_model.model.fc.nullify()
 
         self.decoder_lm_head.to_neuron()
         self.init_rest_of_model()
+        self.maybe_nullify_embeddings()
 
     def materialize_embeddings(self):
         # Materialize the embedding to CPU
         self.chkpt_model.model.embed_tokens.materialize()
+
+    def maybe_nullify_embeddings(self):
+        if self.neuron_config.on_device_embedding:
+            self.chkpt_model.model.embed_tokens.nullify()
 
     def init_rest_of_model(self):
         # Pipeline sparallel deosn't support executor right now
@@ -290,14 +348,22 @@ class GraniteForSampling(base.NeuronModelBase):
         return padded_inputs, input_embeddings, *rst
 
     def forward(self, input_ids, cache_ids=None, start_ids=None, last_token_id=None, input_embeddings=None, **kwargs):
+        original_input_ids = input_ids
         if last_token_id is not None:  # preprocess_and_embed() has already been invoked
             rst = cache_ids, start_ids, last_token_id
         else:  # invoke preprocess_and_embed()
             input_ids, input_embeddings, *rst = self.preprocess_and_embed(input_ids, cache_ids, start_ids, **kwargs)
         # either input_embeddings are generated (off device embedding), or input_ids will be padded from preprocess_and_embed (on device embedding)
         inputs = input_embeddings if input_embeddings is not None else input_ids
+        if "prev_hidden" in kwargs:
+            rst = *rst, kwargs["prev_hidden"]
         logits = self._forward(inputs, *rst)
         # Granite specific: divide logits by scaling factor
         logits = logits / self.config.logits_scaling
-        logits = self._postprocess(logits, start_ids=start_ids, **kwargs)
+        if self.neuron_config.is_eagle_target:
+            logits, hidden = logits
+            logits = self._postprocess(original_input_ids, logits, start_ids=start_ids, **kwargs)
+            return logits, hidden
+        else:
+            return self._postprocess(original_input_ids, logits, start_ids=start_ids, **kwargs)
         return logits

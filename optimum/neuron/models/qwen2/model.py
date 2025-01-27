@@ -287,6 +287,7 @@ class Qwen2ForSampling(base.NeuronModelBase):
         return padded_inputs, input_embeddings, *rst
 
     def forward(self, input_ids, cache_ids=None, start_ids=None, last_token_id=None, input_embeddings=None, **kwargs):
+        original_input_ids = input_ids
         if last_token_id is not None:  # preprocess_and_embed() has already been invoked
             rst = cache_ids, start_ids, last_token_id
         else:  # invoke preprocess_and_embed()
@@ -294,5 +295,5 @@ class Qwen2ForSampling(base.NeuronModelBase):
         # either input_embeddings are generated (off device embedding), or input_ids will be padded from preprocess_and_embed (on device embedding)
         inputs = input_embeddings if input_embeddings is not None else input_ids
         logits = self._forward(inputs, *rst)
-        logits = self._postprocess(logits, start_ids=start_ids, **kwargs)
+        logits = self._postprocess(original_input_ids, logits, start_ids=start_ids, **kwargs)
         return logits
