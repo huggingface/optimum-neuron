@@ -235,7 +235,7 @@ BS=1
 GRADIENT_ACCUMULATION_STEPS=8
 LOGGING_STEPS=1
 MODEL_NAME="meta-llama/Meta-Llama-3-8B"
-OUTPUT_DIR=dolly_llama
+OUTPUT_DIR=dolly_llama_output
 
 if [ "$NEURON_EXTRACT_GRAPHS_ONLY" = "1" ]; then
     MAX_STEPS=10
@@ -280,11 +280,11 @@ This precompilation phase runs for 10 training steps to ensure that the compiler
 
 </Tip>
 
-_Note: Compiling without a cache can take a while. It will also create dummy files in the `dolly_llama` during compilation you will have to remove them afterwards._
+_Note: Compiling without a cache can take a while. It will also create dummy files in the `dolly_llama_output` directory during compilation you will have to remove them afterwards._
 
 ```bash
 # remove dummy artifacts which are created by the precompilation command
-rm -rf dolly_llama
+rm -rf dolly_llama_output
 ```
 
 ### Actual Training
@@ -311,7 +311,7 @@ But before we can share and test our model we need to consolidate our model. Sin
 The Optimum CLI provides a way of doing that very easily via the `optimum neuron consolidate [sharded_checkpoint] [output_dir]` command:
 
 ```bash
-optimum-cli neuron consolidate dolly_llama dolly_llama
+optimum-cli neuron consolidate dolly_llama_output dolly_llama_output
 ```
 
 This will create an `adapter_model.safetensors` file, the LoRA adapter weights that we trained in the previous step. We can now reload the model and merge it, so it can be loaded for evaluation:
@@ -344,7 +344,7 @@ This step can take few minutes. We now have a directory with all the files neede
 
 ## 5. Evaluate and test fine-tuned Llama model
 
-As for training, to be able to run inference on AWS Trainium or AWS Inferentia2 we need to compile our model. In this case, we will use our Trainium instance for the inference test, but we recommend customer to switch to Inferentia2 (`inf2.24xlarge`) for inference.
+As for training, to be able to run inference on AWS Trainium or AWS Inferentia2 we need to compile our model. In this case, we will use our Trainium instance for the inference test, but you can switch to Inferentia2 (`inf2.24xlarge`) for inference.
 
 Optimum Neuron implements similar to Transformers AutoModel classes for easy inference use. We will use the `NeuronModelForCausalLM` class to load our vanilla transformers checkpoint and convert it to neuron.
 
@@ -363,11 +363,11 @@ model = NeuronModelForCausalLM.from_pretrained(
         **input_shapes)
 ```
 
-_Note: Inference compilation can take ~25minutes. Luckily, you need to only run this once. You need to run this compilation step also if you change the hardware where you run the inference, e.g. if you move from Trainium to Inferentia2. The compilation is parameter and hardware specific._
+_Note: Inference compilation can take up to 25 minutes. Luckily, you need to only run this once. As in the precompilation step done before training, you need to run this compilation step also if you change the hardware where you run the inference, e.g. if you move from Trainium to Inferentia2. The compilation is parameter and hardware specific._
 
 ```python
 # COMMENT IN if you want to save the compiled model
-# model.save_pretrained("compiled_dolly_llama")
+# model.save_pretrained("compiled_dolly_llama_output")
 ```
 
 We can now test inference, but have to make sure we format our input to our prompt format we used for fine-tuning. Therefore we created a helper method, which accepts a `dict` with our `instruction` and optionally a `context`.
