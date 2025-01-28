@@ -182,12 +182,6 @@ class GraniteForSamplingNoEmbeddingHlo:
             dim=rms_norm_dim,
             neuron_config=self.neuron_config,
         )
-        if self.neuron_config.fuse_mlp:
-            assert all(
-                (not (x) for x in [in0_weight, in1_weight, out_weight])
-            ), "in0, in1 and out weights have to be None"
-            in0_weight = mlp_in_weight
-            out_weight = mlp_out_weight
 
         mlp_hidden = gated_mlp(
             norm_hidden,

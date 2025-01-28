@@ -20,7 +20,6 @@ from transformers_neuronx.config import NeuronConfig
 from transformers_neuronx.dtypes import to_torch_dtype
 from transformers_neuronx.llama.hlo import LlamaForSamplingNoEmbeddingHlo
 from transformers_neuronx.ops import init_neuron
-from transformers_neuronx.utils import interleave_mlp
 
 from .modules import Qwen2ForCausalLM
 
@@ -74,29 +73,9 @@ class Qwen2ForSampling(NeuronHloDecoderModel):
                 new_layer.add_attention_output(attn.o_proj.weight.detach(), None, sharding=1, transposed=False)
             new_layer.add_pre_mlp_layer_norm(layer.post_attention_layernorm.weight.detach(), None)
 
-            # Note: Automatic MLP padding is safe since zeros are *only* introduced to intermediary state
-            if self.neuron_config.fuse_mlp:
-                assert all(
-                    getattr(mlp, attr, None) for attr in ["gate_proj", "up_proj"]
-                ), "fuse_mlp need to have gate and up proj weights"
-                assert all(
-                    getattr(mlp, attr, None).weight.shape[0] % self.config.tp_degree == 0
-                    for attr in ["gate_proj", "up_proj"]
-                ), f" mlp weights are not  divisible tp_degree {self.config.tp_degree}"
-                mlp_in_weight = interleave_mlp(
-                    mlp.gate_proj.weight, mlp.up_proj.weight, tp_degree=self.config.tp_degree, dim=0
-                )
-                new_layer.add_mlp_input(mlp_in_weight.T.detach(), None)
-                new_layer.add_mlp_output(
-                    mlp.down_proj.weight.detach(),
-                    None,
-                    sharding=1,
-                    transposed=False,
-                )
-            else:
-                new_layer.add_parameter(mlp.gate_proj.weight.T, sharding=1, allow_transform=True)
-                new_layer.add_parameter(mlp.up_proj.weight.T, sharding=1, allow_transform=True)
-                new_layer.add_parameter(mlp.down_proj.weight, sharding=1)
+            new_layer.add_parameter(mlp.gate_proj.weight.T, sharding=1, allow_transform=True)
+            new_layer.add_parameter(mlp.up_proj.weight.T, sharding=1, allow_transform=True)
+            new_layer.add_parameter(mlp.down_proj.weight, sharding=1)
             new_layer.to_neuron()
             layer.nullify()
         ln_f = self.chkpt_model.model.norm
