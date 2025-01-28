@@ -71,10 +71,6 @@ class GraniteForSamplingNoEmbeddingHlo:
         self, hidden, cache_ids, start_ids, last_token_id, block_tables, context_lens, *weights, position_ids=None
     ):
         block_to_seq = None
-        cached_mask = None
-        cached_to_contexted = None
-        active_to_contexted = None
-        core_id = None
 
         # Granite specific: embeddings are multiplied by embedding_multiplier
         hidden = scale_mul(hidden, self.config.embedding_multiplier)
@@ -108,11 +104,6 @@ class GraniteForSamplingNoEmbeddingHlo:
             block_to_seq,
             mask,
             active_mask,
-            core_id,
-            block_tables,
-            cached_mask,
-            cached_to_contexted,
-            active_to_contexted,
         )
 
     def layer(
@@ -125,11 +116,6 @@ class GraniteForSamplingNoEmbeddingHlo:
         block_to_seq,
         mask,
         active_mask,
-        core_id,
-        block_tables,
-        cached_mask,
-        cached_to_contexted,
-        active_to_contexted,
         attn_k_cache,
         attn_v_cache,
         pre_attn_ln_weight,
@@ -195,11 +181,6 @@ class GraniteForSamplingNoEmbeddingHlo:
         block_to_seq,
         mask,
         active_mask,
-        core_id,
-        block_tables,
-        cached_mask,
-        cached_to_contexted,
-        active_to_contexted,
         attn_k_cache,
         attn_v_cache,
         pre_attn_ln_weight,
@@ -301,11 +282,6 @@ class GraniteForSamplingNoEmbeddingHlo:
         block_to_seq,
         mask,
         active_mask,
-        core_id,
-        block_tables,
-        cached_mask,
-        cached_to_contexted,
-        active_to_contexted,
         attn_k_cache,
         attn_v_cache,
         pre_attn_ln_weight,
@@ -363,11 +339,6 @@ class GraniteForSamplingNoEmbeddingHlo:
                 pos_embed,
                 mask,
                 active_mask,
-                core_id,
-                block_tables,
-                cached_mask,
-                cached_to_contexted,
-                active_to_contexted,
                 attn_k_cache,
                 attn_v_cache,
                 attn_q_weight,
@@ -500,11 +471,6 @@ class GraniteForSamplingNoEmbeddingHlo:
         pos_embed,
         mask,
         active_mask,
-        core_id,
-        block_tables,
-        cached_mask,
-        cached_to_contexted,
-        active_to_contexted,
         attn_k_cache,
         attn_v_cache,
         attn_q_weight,
