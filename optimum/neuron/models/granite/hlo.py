@@ -15,7 +15,7 @@
 from typing import Optional
 
 from transformers.models.granite import GraniteConfig
-from transformers_neuronx import constants, hlo, utils
+from transformers_neuronx import hlo, utils
 from transformers_neuronx.config import NeuronConfig
 from transformers_neuronx.constants import LAYOUT_BSH, LAYOUT_HSB
 from transformers_neuronx.layers import attention, rotary, transformer
@@ -43,14 +43,6 @@ class GraniteForSamplingNoEmbeddingHlo:
         self.config = config
         self.neuron_config = neuron_config
         self.n_positions = None
-
-    @property
-    def shard_over_batch(self):
-        # Property access allows fallback configuration to be enabled after construction
-        return (
-            self.neuron_config is not None
-            and self.neuron_config.group_query_attention == constants.GQA.SHARD_OVER_BATCH
-        )
 
     def inputs(self, scribe, dtype, n_active_tokens, batch_size):
         tensors, dims = transformer.inputs(
@@ -701,7 +693,6 @@ class GraniteForSamplingNoEmbeddingHlo:
                 d_head,
                 neuron_config=self.neuron_config,
                 tp_degree=tp_degree,  # TODO: include tp_degree into neuron_config
-                shard_over_batch=self.shard_over_batch,
                 n_kv_heads_tp=n_kv_heads_tp,
             )
 
@@ -712,7 +703,6 @@ class GraniteForSamplingNoEmbeddingHlo:
             key,
             pos_embed,
             tp_degree=tp_degree,
-            shard_over_batch=self.shard_over_batch,
         )
 
         # Granite specific: instead of dividing the QK product, multiply it by the attention_multiplier
@@ -759,9 +749,7 @@ class GraniteForSamplingNoEmbeddingHlo:
                 block_to_seq=block_to_seq,
                 neuron_config=self.neuron_config,
             )
-            prior_scores = attention.mask(
-                prior_scores, mask, tp_degree=tp_degree, shard_over_batch=self.shard_over_batch
-            )
+            prior_scores = attention.mask(prior_scores, mask, tp_degree=tp_degree)
 
             # Sa = Q @ Ka
             active_score = attention.score(
@@ -771,9 +759,7 @@ class GraniteForSamplingNoEmbeddingHlo:
                 tp_degree=tp_degree,
                 neuron_config=self.neuron_config,
             )
-            active_score = attention.mask(
-                active_score, active_mask, tp_degree=tp_degree, shard_over_batch=self.shard_over_batch
-            )
+            active_score = attention.mask(active_score, active_mask, tp_degree=tp_degree)
 
             # C = softmax(Sa, Sp) @ (Va, Vp)
             context = attention.context(
@@ -811,7 +797,7 @@ class GraniteForSamplingNoEmbeddingHlo:
                     tp_degree=tp_degree,
                     neuron_config=self.neuron_config,
                 )
-                score = attention.mask(score, mask, tp_degree=tp_degree, shard_over_batch=self.shard_over_batch)
+                score = attention.mask(score, mask, tp_degree=tp_degree)
                 context = attention.context_combined(
                     score,
                     value,
