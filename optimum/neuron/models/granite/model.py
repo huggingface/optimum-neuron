@@ -12,9 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import torch
 from transformers import PretrainedConfig
-from transformers_neuronx import decoder, utils
+from transformers_neuronx import decoder
 from transformers_neuronx.base import NeuronHloDecoderModel
 from transformers_neuronx.config import NeuronConfig
 from transformers_neuronx.constants import LAYOUT_HSB
@@ -76,49 +75,13 @@ class GraniteForSampling(NeuronHloDecoderModel):
             else:
                 new_layer.add_attention_output(attn.o_proj.weight.detach(), None, sharding=1, transposed=False)
 
-            if self.neuron_config.fused_rmsnorm_mlp:
-                dummy_post_attention_ln_weight = torch.ones_like(layer.post_attention_layernorm.weight.detach())
-                new_layer.add_pre_mlp_layer_norm(dummy_post_attention_ln_weight, None)
-            else:
-                new_layer.add_pre_mlp_layer_norm(layer.post_attention_layernorm.weight.detach(), None)
-
-            # Note: Automatic MLP padding is safe since zeros are *only* introduced to intermediary state
-            if self.neuron_config.fused_rmsnorm_mlp:
-                fused_pre_mlp_ln_gate_weight = (
-                    mlp.gate_proj.weight
-                    * layer.post_attention_layernorm.weight.detach().to(dtype=mlp.gate_proj.weight.dtype)
-                )
-                new_layer.add_parameter(fused_pre_mlp_ln_gate_weight.T, sharding=1, allow_quantize=True)
-                fused_pre_mlp_ln_up_weight = mlp.up_proj.weight * layer.post_attention_layernorm.weight.detach().to(
-                    dtype=mlp.up_proj.weight.dtype
-                )
-                new_layer.add_parameter(fused_pre_mlp_ln_up_weight.T, sharding=1, allow_quantize=True)
-                new_layer.add_parameter(mlp.down_proj.weight.T, sharding=0, allow_quantize=True, out_feature_dim=0)
-            elif self.neuron_config.fuse_mlp:
-                assert all(
-                    getattr(mlp, attr, None) for attr in ["gate_proj", "up_proj"]
-                ), "fuse_mlp need to have gate and up proj weights"
-                assert all(
-                    getattr(mlp, attr, None).weight.shape[0] % self.config.tp_degree == 0
-                    for attr in ["gate_proj", "up_proj"]
-                ), f" mlp weights are not  divisible tp_degree {self.config.tp_degree}"
-                mlp_in_weight = utils.interleave_mlp(
-                    mlp.gate_proj.weight, mlp.up_proj.weight, tp_degree=self.config.tp_degree, dim=0
-                )
-                new_layer.add_mlp_input(mlp_in_weight.T.detach(), None)
-                new_layer.add_mlp_output(
-                    mlp.down_proj.weight.detach(),
-                    None,
-                    sharding=1,
-                    transposed=False,
-                )
-            else:
-                new_layer.add_parameter(mlp.gate_proj.weight.T, sharding=1, allow_transform=True)
-                new_layer.add_parameter(mlp.up_proj.weight.T, sharding=1, allow_transform=True)
-                new_layer.add_parameter(
-                    mlp.down_proj.weight,
-                    sharding=1,
-                )
+            new_layer.add_pre_mlp_layer_norm(layer.post_attention_layernorm.weight.detach(), None)
+            new_layer.add_parameter(mlp.gate_proj.weight.T, sharding=1, allow_transform=True)
+            new_layer.add_parameter(mlp.up_proj.weight.T, sharding=1, allow_transform=True)
+            new_layer.add_parameter(
+                mlp.down_proj.weight,
+                sharding=1,
+            )
             new_layer.to_neuron()
             layer.nullify()
 
