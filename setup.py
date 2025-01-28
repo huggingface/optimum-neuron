@@ -19,8 +19,6 @@ INSTALL_REQUIRES = [
     "huggingface_hub >= 0.20.1",
     "numpy>=1.22.2, <=1.25.2",
     "protobuf>=3.20.3, <4",
-    "trl == 0.11.4",
-    "peft == 0.14.0",
 ]
 
 TESTS_REQUIRE = [
@@ -34,6 +32,8 @@ TESTS_REQUIRE = [
     "diffusers>=0.28.0, <=0.30.3",
     "safetensors",
     "sentence-transformers >= 2.2.0",
+    "peft>=0.14.0",
+    "trl==0.11.4",
     "compel",
     "rjieba",
     "soundfile",
@@ -49,9 +49,15 @@ QUALITY_REQUIRES = [
     "hf_doc_builder @ git+https://github.com/huggingface/doc-builder.git",
 ]
 
+TRAINING_REQUIRES = [
+    "trl == 0.11.4",
+    "peft == 0.14.0",
+]
+
 EXTRAS_REQUIRE = {
     "tests": TESTS_REQUIRE,
     "quality": QUALITY_REQUIRES,
+    "training": TRAINING_REQUIRES,
     "neuron": [
         "wheel",
         "torch-neuron==1.13.1.2.9.74.0",
