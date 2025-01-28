@@ -41,8 +41,6 @@ class Qwen2ForSampling(NeuronHloDecoderModel):
     ):
         dtype = to_torch_dtype(neuron_config.amp)
         super().__init__(Qwen2ForCausalLM, config, dtype)
-        self.context_pre_hook = None
-        self.context_hook = None
         self.config = config
         self.neuron_config = neuron_config if neuron_config else NeuronConfig()
 
