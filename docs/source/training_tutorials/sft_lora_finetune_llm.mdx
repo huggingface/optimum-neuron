@@ -31,7 +31,7 @@ You will learn how to:
   - [4. Launch Training](#4-launch-training)
     - [Precompilation](#precompilation)
     - [Actual Training](#actual-training)
-    - [Consolidate the Checkpoint](#consolidate-the-checkpoint)
+    - [Consolidate the checkpoint and merge model](#consolidate-the-checkpoint-and-merge-model)
   - [5. Evaluate and test fine-tuned Llama model](#5-evaluate-and-test-fine-tuned-llama-model)
 
 <Tip>
@@ -306,13 +306,41 @@ That's it, we successfully trained Llama-3 8B on AWS Trainium!
 
 But before we can share and test our model we need to consolidate our model. Since we used tensor parallelism during training, we saved sharded versions of the checkpoints. We need to consolidate them now.
 
-### Consolidate the Checkpoint
+### Consolidate the checkpoint and merge model
 
 The Optimum CLI provides a way of doing that very easily via the `optimum neuron consolidate [sharded_checkpoint] [output_dir]` command:
 
 ```bash
 optimum-cli neuron consolidate dolly_llama dolly_llama
 ```
+
+This will create an `adapter_model.safetensors` file, the LoRA adapter weights that we trained in the previous step. We can now reload the model and merge it, so it can be loaded for evaluation:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel, PeftConfig
+
+MODEL_NAME = 'meta-llama/Meta-Llama-3-8B'
+ADAPTER_PATH = 'dolly_llama_output'
+MERGED_MODEL_PATH = 'dolly_llama'
+
+# Load base odel
+model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+
+# Load adapter configuration and model
+adapter_config = PeftConfig.from_pretrained(ADAPTER_PATH)
+finetuned_model = PeftModel.from_pretrained(model, ADAPTER_PATH, config=adapter_config)
+
+print("Saving tokenizer")
+tokenizer.save_pretrained(MERGED_MODEL_PATH)
+print("Saving model")
+finetuned_model = finetuned_model.merge_and_unload()
+finetuned_model.save_pretrained(MERGED_MODEL_PATH)
+
+```
+
+This step can take few minutes. We now have a directory with all the files needed to evaluate the fine-tuned model.
 
 ## 5. Evaluate and test fine-tuned Llama model
 
