@@ -52,7 +52,6 @@ class GraniteForSamplingNoEmbeddingHlo:
             n_active_tokens,
             self.config.hidden_size,
             self.neuron_config,
-            self.neuron_config.tp_degree,
         )
 
         return tensors, dims
@@ -216,7 +215,6 @@ class GraniteForSamplingNoEmbeddingHlo:
             eps,
             dim=2 if is_bsh else 0,
             neuron_config=self.neuron_config,
-            tp_degree=self.neuron_config.tp_degree,
         )
         attn_output, out_attn_k_cache, out_attn_v_cache = self.attention(
             ln_hidden,
@@ -249,7 +247,6 @@ class GraniteForSamplingNoEmbeddingHlo:
             eps,
             dim=rms_norm_dim,
             neuron_config=self.neuron_config,
-            tp_degree=self.neuron_config.tp_degree,
         )
         if self.neuron_config.fuse_mlp:
             assert all(
@@ -264,7 +261,6 @@ class GraniteForSamplingNoEmbeddingHlo:
             in1_weight,
             out_weight,
             activation_function="silu",
-            tp_degree=self.neuron_config.tp_degree,
             neuron_config=self.neuron_config,
         )
         # Granite specific: MLP output is multiplied by residual_multiplier
@@ -361,7 +357,6 @@ class GraniteForSamplingNoEmbeddingHlo:
                     pre_attn_ln_weight,
                     eps,
                     neuron_config=self.neuron_config,
-                    tp_degree=self.neuron_config.tp_degree,
                 )
                 if is_bsh
                 else hlo.rms_norm(
@@ -370,7 +365,6 @@ class GraniteForSamplingNoEmbeddingHlo:
                     eps,
                     dim=0,
                     neuron_config=self.neuron_config,
-                    tp_degree=self.neuron_config.tp_degree,
                 )
             )
             attn_output, out_attn_k_cache, out_attn_v_cache = self.attention(
@@ -428,7 +422,6 @@ class GraniteForSamplingNoEmbeddingHlo:
                 eps,
                 dim=rms_norm_dim,
                 neuron_config=self.neuron_config,
-                tp_degree=self.neuron_config.tp_degree,
             )
             mlp_hidden = gated_mlp(
                 norm_hidden,
@@ -436,7 +429,6 @@ class GraniteForSamplingNoEmbeddingHlo:
                 in1_weight,
                 out_weight,
                 activation_function="silu",
-                tp_degree=self.neuron_config.tp_degree,
                 neuron_config=self.neuron_config,
             )
             if is_first_last_layer or not enable_qkv_kernel:
@@ -638,7 +630,6 @@ class GraniteForSamplingNoEmbeddingHlo:
                 v_bias,
                 d_head,
                 neuron_config=self.neuron_config,
-                tp_degree=tp_degree,  # TODO: include tp_degree into neuron_config
                 n_kv_heads_tp=n_kv_heads_tp,
             )
 
@@ -691,9 +682,6 @@ class GraniteForSamplingNoEmbeddingHlo:
                 query,
                 cached_keys_s,
                 n_kv_heads=self.config.num_key_value_heads,
-                tp_degree=tp_degree,
-                block_to_seq=block_to_seq,
-                neuron_config=self.neuron_config,
             )
             prior_scores = attention.mask(prior_scores, mask, tp_degree=tp_degree)
 
@@ -702,8 +690,6 @@ class GraniteForSamplingNoEmbeddingHlo:
                 query,
                 key,
                 n_kv_heads=self.config.num_key_value_heads,
-                tp_degree=tp_degree,
-                neuron_config=self.neuron_config,
             )
             active_score = attention.mask(active_score, active_mask, tp_degree=tp_degree)
 
@@ -714,8 +700,7 @@ class GraniteForSamplingNoEmbeddingHlo:
                 cached_values_s,
                 value,
                 n_kv_heads=self.config.num_key_value_heads,
-                tp_degree=tp_degree,
-                neuron_config=self.neuron_config,
+                tp_degree=self.neuron_config.tp_degree,
             )
 
             # KCache[I], VCache[I] = K, V
@@ -740,16 +725,12 @@ class GraniteForSamplingNoEmbeddingHlo:
                     query,
                     key,
                     n_kv_heads=self.config.num_key_value_heads,
-                    tp_degree=tp_degree,
-                    neuron_config=self.neuron_config,
                 )
                 score = attention.mask(score, mask, tp_degree=tp_degree)
                 context = attention.context_combined(
                     score,
                     value,
                     n_kv_heads=self.config.num_key_value_heads,
-                    tp_degree=tp_degree,
-                    neuron_config=self.neuron_config,
                 )
 
             # KCache, VCache = K, V
