@@ -37,7 +37,6 @@ XLA_USE_BF16=1 torchrun --nproc_per_node $PROCESSES_PER_NODE docs/source/trainin
   --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
   --gradient_checkpointing true \
   --bf16 \
-  --zero_1 false \
   --tensor_parallel_size $TP_DEGREE \
   --pipeline_parallel_size $PP_DEGREE \
   --logging_steps $LOGGING_STEPS \
