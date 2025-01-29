@@ -25,7 +25,7 @@ limitations under the License.
 To get started, make sure you have [configured your inf2 / trn1 instance](../installation), and installed optimum:
 
 ```bash
-pip install "optimum[neuronx, diffusers]"
+pip install optimum-neuron[neuronx] diffusers
 ```
 
 ### Compile Stable Diffusion
@@ -585,7 +585,7 @@ pipe.save_pretrained("sd_neuron_controlnet")
 
 ### Text-to-Image
 
-For text-to-image, we can specify an additional conditioning input. 
+For text-to-image, we can specify an additional conditioning input.
 
 Here is an example with a canny image, a white outline of an image on a black background. The ControlNet will use the canny image as a control to guide the model to generate an image with the same outline.
 
