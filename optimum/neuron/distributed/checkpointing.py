@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Union
 
 import torch
-from transformers.modeling_utils import shard_checkpoint
+from huggingface_hub import split_torch_state_dict_into_shards
 from transformers.utils import (
     SAFE_WEIGHTS_INDEX_NAME,
     SAFE_WEIGHTS_NAME,
@@ -255,16 +255,27 @@ def consolidate_model_parallel_checkpoints_to_unified_checkpoint(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     state_dict = consolidate_model_parallel_checkpoints(checkpoint_dir)
-    shards, index = shard_checkpoint(
-        state_dict, weights_name=safe_weights_name if save_format == "safetensors" else weights_name
+    state_dict_split = split_torch_state_dict_into_shards(
+        state_dict, filename_pattern=safe_weights_name if save_format == "safetensors" else weights_name
     )
-    for shard_file, shard in shards.items():
-        if save_format == "safetensors":
-            save_file(shard, output_dir / shard_file, metadata={"format": "pt"})
-        else:
-            torch.save(shard, output_dir / shard_file)
-    if index is not None:
+    # Save index if sharded
+    if state_dict_split.is_sharded:
+        index = {
+            "metadata": state_dict_split.metadata,
+            "weight_map": state_dict_split.tensor_to_filename,
+        }
         save_index_file = SAFE_WEIGHTS_INDEX_NAME if save_format == "safetensors" else WEIGHTS_INDEX_NAME
         with open(output_dir / save_index_file, "w") as fp:
             content = json.dumps(index, indent=2, sort_keys=True) + "\n"
             fp.write(content)
+    # Save the model
+    filename_to_tensors = state_dict_split.filename_to_tensors.items()
+    for shard_file, tensors in filename_to_tensors:
+        shard = {}
+        for tensor in tensors:
+            shard[tensor] = state_dict[tensor].contiguous()
+            del state_dict[tensor]
+        if save_format == "safetensors":
+            save_file(shard, output_dir / shard_file, metadata={"format": "pt"})
+        else:
+            torch.save(shard, output_dir / shard_file)
