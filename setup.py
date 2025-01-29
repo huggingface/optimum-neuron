@@ -52,6 +52,7 @@ QUALITY_REQUIRES = [
 TRAINING_REQUIRES = [
     "trl == 0.11.4",
     "peft == 0.14.0",
+    "neuronx-distributed == 0.9.0",
 ]
 
 EXTRAS_REQUIRE = {
