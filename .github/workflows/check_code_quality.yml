@@ -48,4 +48,5 @@ jobs:
     - name: Check style with ruff
       run: |
         source venv/bin/activate
+        ruff format . --diff
         ruff check .

@@ -108,7 +108,7 @@ class ParallelLayer(ABC):
                 name for name in parallel_layer_specific_kwargs if name not in default_parallel_layer_specific_kwargs
             ]
             logger.debug(
-                f'The following arguments are not allowed for {cls.__name__}: {", ".join(wrong_argument_names)}, they '
+                f"The following arguments are not allowed for {cls.__name__}: {', '.join(wrong_argument_names)}, they "
                 "will be ignored."
             )
 

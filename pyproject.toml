@@ -24,6 +24,9 @@ ignore = ["C901", "E501", "E741", "W605"]
 select = ["C", "E", "F", "I", "W"]
 exclude = ["*.ipynb"]
 
+[tool.ruff.format]
+exclude = ["*.ipynb"]
+
 # Ignore import violations in all `__init__.py` files.
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["E402", "F401", "F403", "F811"]

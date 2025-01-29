@@ -267,12 +267,12 @@ class TestNeuronTrainer(DistributedTest):
 
         # TODO: investigate that, not urgent.
         assert files_in_repo == last_files_in_repo, "No file should have been added to the Hub after first training."
-        assert (
-            files_in_cache == last_files_in_cache
-        ), "No file should have been added to the cache after first training."
-        assert (
-            second_training_duration < first_training_duration
-        ), "Second training should be faster because cached graphs can be used."
+        assert files_in_cache == last_files_in_cache, (
+            "No file should have been added to the cache after first training."
+        )
+        assert second_training_duration < first_training_duration, (
+            "Second training should be faster because cached graphs can be used."
+        )
 
     @pytest.mark.skip("Test in later release")
     def test_save_and_resume_from_checkpoint(self, parallel_sizes, tmpdir):

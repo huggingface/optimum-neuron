@@ -18,7 +18,6 @@ from .config import GraniteConfig
 
 
 class GraniteForCausalLM(module.PretrainedModel):
-
     def __init__(self, config: GraniteConfig):
         super().__init__()
         dtype, _, _ = utils.parse_amp(config.amp)
@@ -34,7 +33,6 @@ class GraniteForCausalLM(module.PretrainedModel):
 
 
 class GraniteModel(module.LowMemoryModule):
-
     def __init__(self, config: GraniteConfig):
         super().__init__()
         self.embed_tokens = module.LowMemoryEmbedding(config.vocab_size, config.hidden_size)
@@ -45,14 +43,12 @@ class GraniteModel(module.LowMemoryModule):
 
 
 class GraniteRMSNorm(module.LowMemoryModule):
-
     def __init__(self, config: GraniteConfig) -> None:
         super().__init__()
         self.weight = module.UninitializedParameter()
 
 
 class GraniteDecoderLayer(module.LowMemoryModule):
-
     def __init__(self, config: GraniteConfig):
         super().__init__()
         self.self_attn = GraniteAttention(config)
@@ -62,7 +58,6 @@ class GraniteDecoderLayer(module.LowMemoryModule):
 
 
 class GraniteAttention(module.LowMemoryModule):
-
     def __init__(self, config: GraniteConfig):
         super().__init__()
         self.hidden_size = config.hidden_size
@@ -77,7 +72,6 @@ class GraniteAttention(module.LowMemoryModule):
 
 
 class GraniteMLP(module.LowMemoryModule):
-
     def __init__(self, config: GraniteConfig):
         super().__init__()
         dtype, _, _ = utils.parse_amp(config.amp)

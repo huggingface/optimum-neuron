@@ -28,7 +28,7 @@ _PARALLELIZER_CLASSES_MODULE_NAMES = ["encoder_models", "decoder_models", "encod
 
 
 def parallelizer_classes_resolver(
-    model_type_to_parallelizer_class_name: Dict[str, str]
+    model_type_to_parallelizer_class_name: Dict[str, str],
 ) -> Dict[str, Type[Parallelizer]]:
     modules = []
     for module_name in _PARALLELIZER_CLASSES_MODULE_NAMES:
