@@ -62,7 +62,7 @@ if _DISABLE_IS_PRIVATE_REPO_CHECK:
 
 
 def load_custom_cache_repo_name_from_hf_home(
-    hf_home_cache_repo_file: Union[str, Path] = HF_HOME_CACHE_REPO_FILE
+    hf_home_cache_repo_file: Union[str, Path] = HF_HOME_CACHE_REPO_FILE,
 ) -> Optional[str]:
     if Path(hf_home_cache_repo_file).exists():
         with open(hf_home_cache_repo_file, "r") as fp:

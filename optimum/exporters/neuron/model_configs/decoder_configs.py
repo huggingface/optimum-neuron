@@ -14,7 +14,6 @@
 # limitations under the License.
 """Neuron export configurations for models using transformers_neuronx."""
 
-
 from optimum.exporters.tasks import TasksManager
 
 from ....neuron.models.granite.model import GraniteForSampling

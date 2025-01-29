@@ -247,13 +247,13 @@ class T5EncoderForSeq2SeqLMWrapper(torch.nn.Module):
         batch_size = input_ids.shape[0]
         sequence_length = input_ids.shape[1]
         if self.sequence_length is not None:
-            assert (
-                self.sequence_length
-            ), f"Different sequence length for the parallel partition({self.sequence_length}) and for dummy inputs({sequence_length}). Make sure that they have the same value."
+            assert self.sequence_length, (
+                f"Different sequence length for the parallel partition({self.sequence_length}) and for dummy inputs({sequence_length}). Make sure that they have the same value."
+            )
         if self.batch_size is not None:
-            assert (
-                self.batch_size
-            ), f"Different batch size for the parallel partition({self.batch_size}) and for dummy inputs({batch_size}). Make sure that they have the same value."
+            assert self.batch_size, (
+                f"Different batch size for the parallel partition({self.batch_size}) and for dummy inputs({batch_size}). Make sure that they have the same value."
+            )
 
         encoder_output = self.model.encoder(
             input_ids=input_ids, attention_mask=attention_mask, output_attentions=False, output_hidden_states=False

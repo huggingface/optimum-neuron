@@ -14,7 +14,6 @@
 # limitations under the License.
 """Custom operations related to accelerate for Neuron."""
 
-
 import torch
 from accelerate.utils.operations import recursively_apply
 

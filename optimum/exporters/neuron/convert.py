@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Neuron compiled model check and export functions."""
+
 import copy
 import time
 from collections import OrderedDict
@@ -282,7 +283,7 @@ def validate_model_outputs(
 
     if shape_failures:
         msg = "\n".join(f"- {t[0]}: got {t[1]} (reference) and {t[2]} (neuron)" for t in shape_failures)
-        raise ShapeError("Output shapes do not match between reference model and the Neuron exported model:\n" "{msg}")
+        raise ShapeError("Output shapes do not match between reference model and the Neuron exported model:\n{msg}")
 
     if value_failures:
         msg = "\n".join(f"- {t[0]}: max diff = {t[1]}" for t in value_failures)

@@ -35,7 +35,6 @@ def scale_mul(t, scale):
 
 
 class GraniteForSamplingNoEmbeddingHlo:
-
     def __init__(self, config: GraniteConfig, neuron_config: Optional[NeuronConfig] = None):
         self.config = config
         self.neuron_config = neuron_config
@@ -324,9 +323,9 @@ class GraniteForSamplingNoEmbeddingHlo:
             tp_degree=self.config.tp_degree,
         )
         if self.neuron_config.fuse_mlp:
-            assert all(
-                (not (x) for x in [in0_weight, in1_weight, out_weight, in0_scales, in1_scales, out_scales])
-            ), "in0, in1 and out weights have to be None"
+            assert all((not (x) for x in [in0_weight, in1_weight, out_weight, in0_scales, in1_scales, out_scales])), (
+                "in0, in1 and out weights have to be None"
+            )
             in0_weight, in0_scales = mlp_in_weight, mlp_in_scales
             out_weight, out_scales = mlp_out_weight, mlp_out_scales
 
@@ -688,7 +687,6 @@ class GraniteForSamplingNoEmbeddingHlo:
 
         # Single Token Generation ("Prefetch"-style) ans speculative forward
         if active_mask is not None:
-
             n_active_tokens = key.sizes[1] if bsh_cache_layout else key.sizes[0]
             if n_active_tokens > 1 and self.neuron_config and self.neuron_config.continuous_batching:
                 # For speculative forward + continuous batching, slice out samples in the batch size

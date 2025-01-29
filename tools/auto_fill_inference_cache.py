@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Script to cache models for inference."""
+
 import argparse
 import json
 import logging

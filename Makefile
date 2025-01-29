@@ -60,9 +60,11 @@ transformers_examples:
 # Run code quality checks
 style_check:
 	ruff check .
+	ruff format . --diff
 
 style:
 	ruff check . --fix
+	ruff format .
 
 # Utilities to release to PyPi
 build_dist_install_tools:
