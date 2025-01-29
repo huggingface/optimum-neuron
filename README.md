@@ -26,13 +26,13 @@ To install the latest release of this package:
 * For AWS Trainium (trn1) or AWS inferentia2 (inf2)
 
 ```bash
-pip install --upgrade-strategy eager optimum[neuronx]
+pip install --upgrade-strategy eager optimum-neuron[neuronx]
 ```
 
 * For AWS inferentia (inf1)
 
 ```bash
-pip install --upgrade-strategy eager optimum[neuron]
+pip install --upgrade-strategy eager optimum-neuron[neuron]
 ```
 
 Optimum Neuron is a fast-moving project, and you may want to install it from source:

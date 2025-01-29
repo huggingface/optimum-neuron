@@ -458,7 +458,7 @@ class NeuronDecoderConfig(NeuronConfig):
     def __init__(self, task: str):
         if not is_transformers_neuronx_available():
             raise ModuleNotFoundError(
-                "The mandatory transformers-neuronx package is missing. Please install optimum[neuronx]."
+                "The mandatory transformers-neuronx package is missing. Please install optimum-neuron[neuronx]."
             )
         if isinstance(self.NEURONX_CLASS, type):
             self._neuronx_class = self.NEURONX_CLASS
