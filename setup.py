@@ -41,6 +41,7 @@ TESTS_REQUIRE = [
     "opencv-python-headless",
     "controlnet-aux",
     "mediapipe",
+    "timm >= 1.0.0",
 ]
 
 QUALITY_REQUIRES = [
