@@ -15,11 +15,6 @@
 requires = ["setuptools==69.5.1"]
 build-backend = "setuptools.build_meta"
 
-[tool.black]
-line-length = 119
-target-version = ['py38']
-extend-exclude = '.ipynb'
-
 [tool.ruff]
 line-length = 119
 

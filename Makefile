@@ -59,11 +59,9 @@ transformers_examples:
 
 # Run code quality checks
 style_check:
-	black --check .
 	ruff check .
 
 style:
-	black .
 	ruff check . --fix
 
 # Utilities to release to PyPi
