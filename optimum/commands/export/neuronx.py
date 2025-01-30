@@ -187,6 +187,36 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help="List of model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`) of ControlNet models.",
     )
     optional_group.add_argument(
+        "--ip_adapter_ids",
+        default=None,
+        nargs="*",
+        type=str,
+        help=(
+            "Model ids (eg. `h94/IP-Adapter`) of IP-Adapter models hosted on the Hub or paths to local directories containing the IP-Adapter weights."
+        ),
+    )
+    optional_group.add_argument(
+        "--ip_adapter_subfolders",
+        default=None,
+        nargs="*",
+        type=str,
+        help="The subfolder location of a model file within a larger model repository on the Hub or locally. If a list is passed, it should have the same length as `ip_adapter_weight_names`.",
+    )
+    optional_group.add_argument(
+        "--ip_adapter_weight_names",
+        default=None,
+        nargs="*",
+        type=str,
+        help="",
+    )
+    optional_group.add_argument(
+        "--ip_adapter_scales",
+        default=None,
+        nargs="*",
+        type=float,
+        help="Scaling factors for the IP-Adapters.",
+    )
+    optional_group.add_argument(
         "--output_attentions",
         action="store_true",
         help="Whether or not for the traced model to return the attentions tensors of all attention layers.",

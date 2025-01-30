@@ -167,6 +167,8 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         num_beams: Optional[int] = None,
         vae_scale_factor: Optional[int] = None,
         encoder_hidden_size: Optional[int] = None,
+        image_encoder_sequence_length: Optional[int] = None,
+        image_encoder_hidden_size: Optional[int] = None,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
         int_dtype: Union[str, torch.dtype] = "int64",
@@ -206,6 +208,8 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
             "patch_size": patch_size or getattr(self._config, "patch_size", None),
             "vae_scale_factor": vae_scale_factor,
             "encoder_hidden_size": encoder_hidden_size,
+            "image_encoder_sequence_length": image_encoder_sequence_length,
+            "image_encoder_hidden_size": image_encoder_hidden_size,
         }
         input_shapes = {}
         for name, value in axes_values.items():
