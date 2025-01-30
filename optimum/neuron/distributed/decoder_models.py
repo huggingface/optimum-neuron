@@ -834,6 +834,10 @@ class MistralParallelizer(Parallelizer):
                 **parallel_layer_specific_kwargs,
             )
         for layer in model.model.layers:
+            # FIXME: temporary workaround to avoid too many changes in the transformation code
+            layer.self_attn.num_heads = layer.self_attn.config.num_attention_heads
+            layer.self_attn.num_key_value_heads = layer.self_attn.config.num_key_value_heads
+            layer.self_attn.hidden_size = layer.self_attn.config.hidden_size
             layer.self_attn = MistralParallelSelfAttention.transform(
                 model,
                 layer.self_attn,
