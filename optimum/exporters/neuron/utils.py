@@ -241,8 +241,8 @@ def get_diffusion_models_for_export(
             pipeline, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline, StableDiffusionXLPipeline)
         )
         unet_neuron_config.is_sdxl = is_stable_diffusion_xl
-
         unet_neuron_config.with_controlnet = True if controlnet_ids else False
+        unet_neuron_config.with_ip_adapter = getattr(unet.config, "encoder_hid_dim_type", None)=="ip_image_proj"
 
         models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
 

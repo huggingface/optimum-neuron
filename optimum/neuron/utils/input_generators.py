@@ -191,10 +191,8 @@ class DummyIPAdapterInputGenerator(DummyInputGenerator):
     def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
         if input_name == "image_embeds":
             shape = [self.batch_size, 1, self.image_encoder_sequence_length, self.image_encoder_hidden_size]
-            return self.random_float_tensor(shape, max_value=999, framework=framework, dtype=float_dtype)
+            return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
         elif input_name == "ip_adapter_masks":
-            # TODO: support IP-Adapter masking
-            raise ValueError("IP-Adapter masking is not yet supported, please open an issue to request the feature.")
             shape = [self.batch_size, 1, self.image_encoder_sequence_length, self.image_encoder_hidden_size]
             return self.random_int_tensor(shape, framework=framework, dtype=int_dtype)
 

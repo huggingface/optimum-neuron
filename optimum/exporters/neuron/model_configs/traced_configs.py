@@ -41,6 +41,7 @@ from ....neuron.utils import (
     ASTDummyAudioInputGenerator,
     DummyBeamValuesGenerator,
     DummyControNetInputGenerator,
+    DummyIPAdapterInputGenerator,
     DummyMaskedPosGenerator,
     is_neuronx_distributed_available,
 )
@@ -594,7 +595,7 @@ class WavLMNeuronConfig(Wav2Vec2NeuronConfig):
 @register_in_tasks_manager("unet", *["semantic-segmentation"], library_name="diffusers")
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "width", "height", "vae_scale_factor")
+    INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "width", "height", "vae_scale_factor", "image_encoder_sequence_length", "image_encoder_hidden_size")
     MODEL_TYPE = "unet"
     CUSTOM_MODEL_WRAPPER = UnetNeuronWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
@@ -611,6 +612,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
         DummyTimestepInputGenerator,
         DummySeq2SeqDecoderTextInputGenerator,
         DummyControNetInputGenerator,
+        DummyIPAdapterInputGenerator,
     )
 
     @property
@@ -628,6 +630,10 @@ class UNetNeuronConfig(VisionNeuronConfig):
         if self.with_controlnet:
             # outputs of controlnet
             common_inputs += ["down_block_additional_residuals", "mid_block_additional_residual"]
+            
+        if self.with_ip_adapter:
+            # add output of image encoder
+            common_inputs += ["image_embeds"]
 
         return common_inputs
 
@@ -679,6 +685,14 @@ class UNetNeuronConfig(VisionNeuronConfig):
     @with_controlnet.setter
     def with_controlnet(self, with_controlnet: bool):
         self._with_controlnet = with_controlnet
+    
+    @property
+    def with_ip_adapter(self) -> bool:
+        return self._with_ip_adapter
+
+    @with_ip_adapter.setter
+    def with_ip_adapter(self, with_ip_adapter: bool):
+        self._with_ip_adapter = with_ip_adapter
 
 
 @register_in_tasks_manager("pixart-transformer-2d", *["semantic-segmentation"], library_name="diffusers")
