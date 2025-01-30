@@ -23,7 +23,7 @@ import sys
 import warnings
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union, Dict
 
 import torch
 from accelerate import Accelerator
@@ -81,6 +81,7 @@ else:
     xm = None
 
 if is_neuronx_distributed_available():
+    import neuronx_distributed as nxd
     from neuronx_distributed.utils.model_utils import move_model_to_device
 
 
@@ -98,6 +99,7 @@ NxDPPMODEL_PATCHING_SPECS = []
 class NeuronAccelerator(Accelerator):
     def __init__(
         self,
+        nxd_config: Dict[str, Any],
         *args,
         mp_plugin: Optional[ModelParallelismPlugin] = None,
         zero_1: bool = False,
@@ -146,13 +148,17 @@ class NeuronAccelerator(Accelerator):
 
         accelerate.state.is_torch_xla_available = patched_is_torch_xla_available
 
-        patched_accelerator_state = partial(
-            NeuronAcceleratorState, mp_plugin=mp_plugin, autocast_backend=autocast_backend
-        )
-        with Patcher([("accelerate.accelerator.AcceleratorState", patched_accelerator_state)]):
+        self.mp_plugin = mp_plugin
+        self.nxd_config = nxd_config
+
+        # patched_accelerator_state = partial(
+        #     NeuronAcceleratorState, mp_plugin=mp_plugin, autocast_backend=autocast_backend
+        # )
+        # with Patcher([("accelerate.accelerator.AcceleratorState", patched_accelerator_state)]):
+        with Patcher([("accelerate.accelerator.AcceleratorState", NeuronAcceleratorState)]):
             super().__init__(**full_kwargs)
 
-        self.zero_1 = zero_1
+        self.zero_1 = self.nxd_config["optimizer_config"]["zero_one_enabled"]
 
         if self.autocast_handler is None:
             enabled = self.state.mixed_precision == "bf16" and autocast_backend is AutocastBackend.AMP
@@ -300,17 +306,32 @@ class NeuronAccelerator(Accelerator):
             )
         return zero_1_optimizer
 
+    @requires_neuronx_distributed
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement: Optional[bool] = None):
-        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            optimizer = self._prepare_optimizer_for_mp(optimizer, device_placement=device_placement)
-        if self.zero_1:
-            optimizer = self._prepare_optimizer_for_zero_1(optimizer, device_placement=device_placement)
+        import neuronx_distributed as nxd
+
+        #cpu_parameters_to_xla = collections.ChainMap(*self._model_cpu_parameters_to_xla.values())
+        #xla_parameters, _ = Parallelizer.optimizer_cpu_params_to_xla_params(optimizer, cpu_parameters_to_xla)
+        #print(xla_parameters)
+
+        optimizer = nxd.initialize_parallel_optimizer(
+            self.nxd_config,
+            optimizer.__class__,
+            # xla_parameters,
+            optimizer.param_groups,
+            **optimizer.defaults,
+        )
+        optimizer.zero_grad()
+        # if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+        #     optimizer = self._prepare_optimizer_for_mp(optimizer, device_placement=device_placement)
+        # if self.zero_1:
+        #     optimizer = self._prepare_optimizer_for_zero_1(optimizer, device_placement=device_placement)
         # Edge case: if the optimizer was created lazily outside of the Model Parallelism and/or ZeRO-1 setting, we make
         # sure to actually load the proper parameters.
-        if hasattr(optimizer, "_args_to_recreate"):
-            args, kwargs = optimizer._args_to_recreate
-            optimizer = optimizer.__class__(*args, **kwargs)
+        # if hasattr(optimizer, "_args_to_recreate"):
+        #     args, kwargs = optimizer._args_to_recreate
+        #     optimizer = optimizer.__class__(*args, **kwargs)
 
         return super().prepare_optimizer(optimizer, device_placement=device_placement)
 
@@ -449,6 +470,7 @@ class NeuronAccelerator(Accelerator):
     def prepare_model(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
+        print("Prepare model")
         # If the model was already prepared, we skip.
         if model in self._models:
             return model
@@ -500,7 +522,26 @@ class NeuronAccelerator(Accelerator):
             self.scaler.scale(loss).backward(**kwargs)
         else:
             loss.backward(**kwargs)
-
+            # vector_norm = [torch.vector_norm(p.grad, 2) for p in self._models[0].parameters() if p.requires_grad]
+            # norm = torch.nn.utils.clip_grad_norm_([p for p in self._models[0].parameters() if p.requires_grad], 1.0)
+            # xm.mark_step()
+            # print(vector_norm)
+            # self._models[0].to("cpu")
+            # print(self._models[0])
+            # print(norm)
+            # for n, p in self._models[0].named_parameters():
+            #     if not p.requires_grad or p.grad is None:
+            #         continue
+            #     p = p.grad
+            #     print(f"Gradient of {n}")
+            #     print(f"Min: {p.min():.3f}")
+            #     print(f"Max: {p.max():.3f}")
+            #     print(f"Mean: {p.mean():.3f}")
+            #     print(f"Std: {p.std():.3f}")
+            #     print(f"L1 norm: {p.norm(p=1):.3f}")
+            #     print(f"L2 norm: {p.norm(p=2):.3f}")
+            # assert 3==2
+                
     @contextlib.contextmanager
     def autocast(self, cache_enabled: bool = False, autocast_handler: Optional[AutocastKwargs] = None):
         if cache_enabled:

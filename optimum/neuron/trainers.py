@@ -245,9 +245,10 @@ class _TrainerForNeuron:
                 logger.info("Disabling prediction during precompilation as this is not well supported yet.")
             args.do_predict = False
 
+    @requires_neuronx_distributed
     def create_accelerator_and_postprocess(self):
         grad_acc_kwargs = {}
-        if is_accelerate_available("0.28.0") and self.args.accelerator_config.gradient_accumulation_kwargs is not None:
+        if self.args.accelerator_config.gradient_accumulation_kwargs is not None:
             grad_acc_kwargs = self.args.accelerator_config.gradient_accumulation_kwargs
 
         # check if num_steps is attempted to be passed in gradient_accumulation_kwargs
@@ -260,6 +261,8 @@ class _TrainerForNeuron:
         elif "num_steps" not in grad_acc_kwargs:
             # take the gradient_accumulation_steps setting from TrainingArguments.
             grad_acc_kwargs["num_steps"] = self.args.gradient_accumulation_steps
+        else:
+            self.args.gradient_accumulation_steps = grad_acc_kwargs["num_steps"]
 
         grad_acc_kwargs["sync_with_dataloader"] = False
 
@@ -267,32 +270,47 @@ class _TrainerForNeuron:
 
         accelerator_config = self.args.accelerator_config.to_dict()
 
-        if is_accelerate_available("0.28.0"):
-            dataloader_config = DataLoaderConfiguration(
-                split_batches=accelerator_config.pop("split_batches"),
-                dispatch_batches=accelerator_config.pop("dispatch_batches"),
-                even_batches=accelerator_config.pop("even_batches"),
-                use_seedable_sampler=accelerator_config.pop("use_seedable_sampler"),
-            )
+        dataloader_config = DataLoaderConfiguration(
+            split_batches=accelerator_config.pop("split_batches"),
+            dispatch_batches=accelerator_config.pop("dispatch_batches"),
+            even_batches=accelerator_config.pop("even_batches"),
+            use_seedable_sampler=accelerator_config.pop("use_seedable_sampler"),
+        )
+
         # this would have been updated above, no need for it anymore
         accelerator_config.pop("gradient_accumulation_kwargs")
 
-        args = {
+        kwargs = {
             "deepspeed_plugin": self.args.deepspeed_plugin,
             "gradient_accumulation_plugin": gradient_accumulation_plugin,
+            "dataloader_config": dataloader_config,
         }
-        if is_accelerate_available("0.28.0"):
-            args["dataloader_config"] = dataloader_config
-        else:
-            args.update(accelerator_config)
 
         # create accelerator object
+        import neuronx_distributed as nxd
+        optimizer_config = {
+            "zero_one_enabled": self.args.zero_1,
+            "grad_clipping": self.args.max_grad_norm is not None and self.args.max_grad_norm > 0,
+            "max_grad_norm": self.args.max_grad_norm,
+        }
+        nxd_config = nxd.neuronx_distributed_config(
+            tensor_parallel_size=self.args.mp_plugin.tensor_parallel_size,
+            pipeline_parallel_size=self.args.mp_plugin.pipeline_parallel_size,
+            expert_parallel_size=1, # TODO: enable that once MOE is supported
+            pipeline_config=None, # TODO: integrate support for Pipeline with the NxD config
+            optimizer_config=optimizer_config,
+            activation_checkpoint_config=None, # TODO: integrate support for activation checkpointing with the NxD config
+            pad_model=False,
+            sequence_parallel=not self.args.disable_sequence_parallel,
+            # TODO: integrate other parameters as well.
+        )
         self.accelerator = NeuronAccelerator(
-            *args,
+            nxd_config,
             mp_plugin=self.args.mp_plugin,
             zero_1=self.args.zero_1,
             mixed_precision="bf16" if self.args.bf16 else "no",
             autocast_backend=self.args.half_precision_backend,
+            **kwargs,
         )
 
         # some Trainer classes need to use `gather` instead of `gather_for_metrics`, thus we store a flag
@@ -373,6 +391,7 @@ class _TrainerForNeuron:
         args: TrainingArguments, model: Optional[PreTrainedModel] = None
     ) -> Tuple[Any, Any]:
         optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args, model=model)
+        print(optimizer_kwargs)
         lazy_load = args.mp_plugin.should_parallelize or args.zero_1
         if lazy_load:
             optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)
@@ -380,6 +399,7 @@ class _TrainerForNeuron:
 
     @patch_within_function(("transformers.Trainer.get_optimizer_cls_and_kwargs", get_optimizer_cls_and_kwargs))
     def create_optimizer(self):
+        print("Create optimizer")
         return super().create_optimizer()
 
     def _prepare_input(self, data: Union[torch.Tensor, Any]) -> Union[torch.Tensor, Any]:
@@ -483,7 +503,9 @@ class _TrainerForNeuron:
         if self.args.mp_plugin.should_parallelize:
             # It works even for PP because under PP we make it so that the main process to log for callbacks is
             # the one on dp_rank = tp_rank = 0 and pp_rank = pp_size -1.
+            # print("before",tr_loss_div)
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
+            # print("after", reduced_tr_loss, xm.get_ordinal())
         else:
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div)
 
@@ -499,6 +521,7 @@ class _TrainerForNeuron:
                 with torch.no_grad():
                     if isinstance(getattr(self, "_zero_loss_value"), torch.Tensor):
                         tr_loss.data = self._zero_loss_value.data
+                        # tr_loss.zero_()
                     else:
                         tr_loss.zero_()
 
@@ -522,6 +545,7 @@ class _TrainerForNeuron:
                                 if isinstance(grad_norm, torch.Tensor)
                                 else grad_norm
                             )
+
 
                         self._total_loss_scalar += tr_loss_scalar
                         self.store_flos()
@@ -796,14 +820,12 @@ class _TrainerForNeuron:
                 debug_overflow = DebugUnderflowOverflow(self.model)  # noqa
 
         delay_optimizer_creation = is_sagemaker_mp_enabled() or self.is_fsdp_xla_enabled or self.is_fsdp_enabled
+        delay_optimizer_creation = True
 
         # We need to reset the scheduler, as its parameters may be different on subsequent calls
         if self._created_lr_scheduler:
             self.lr_scheduler = None
             self._created_lr_scheduler = False
-
-        if not delay_optimizer_creation:
-            self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
         self.state = TrainerState()
         self.state.is_hyper_param_search = trial is not None
@@ -840,26 +862,28 @@ class _TrainerForNeuron:
         # as the model is wrapped, don't use `accelerator.prepare`
         # this is for unhandled cases such as
         # FSDP-XLA, SageMaker MP/DP, DataParallel, IPEX
-        use_accelerator_prepare = True if model is self.model else False
+        # use_accelerator_prepare = True if model is self.model else False
 
-        if delay_optimizer_creation:
-            if use_accelerator_prepare:
-                self.model = self.accelerator.prepare(self.model)
-            self.create_optimizer_and_scheduler(num_training_steps=max_steps)
+        self.model = self.accelerator.prepare(self.model)
+        self.model.train()
+
+        self.create_optimizer_and_scheduler(num_training_steps=max_steps)
+        self.optimizer, self.lr_scheduler = self.accelerator.prepare(self.optimizer, self.lr_scheduler)
+
 
         # prepare using `accelerator` prepare
-        if use_accelerator_prepare:
-            self.model.train()
-            if hasattr(self.lr_scheduler, "step"):
-                if self.use_apex:
-                    model = self.accelerator.prepare(self.model)
-                else:
-                    model, self.optimizer = self.accelerator.prepare(self.model, self.optimizer)
-            else:
-                # to handle cases wherein we pass "DummyScheduler" such as when it is specified in DeepSpeed config.
-                model, self.optimizer, self.lr_scheduler = self.accelerator.prepare(
-                    self.model, self.optimizer, self.lr_scheduler
-                )
+        # if use_accelerator_prepare:
+        #     self.model.train()
+        #     if hasattr(self.lr_scheduler, "step"):
+        #         if self.use_apex:
+        #             model = self.accelerator.prepare(self.model)
+        #         else:
+        #             model, self.optimizer = self.accelerator.prepare(self.model, self.optimizer)
+        #     else:
+        #         # to handle cases wherein we pass "DummyScheduler" such as when it is specified in DeepSpeed config.
+        #         model, self.optimizer, self.lr_scheduler = self.accelerator.prepare(
+        #             self.model, self.optimizer, self.lr_scheduler
+        #         )
 
         if isinstance(model, NxDPPModel):
             self.model = model
@@ -1097,20 +1121,42 @@ class _TrainerForNeuron:
                                 args.max_grad_norm,
                             )
                         else:
-                            _grad_norm = self.accelerator.clip_grad_norm_(
-                                model.parameters(),
-                                args.max_grad_norm,
-                            )
+                            _grad_norm = None
+                            # _grad_norm = self.accelerator.clip_grad_norm_(
+                            #     model.parameters(),
+                            #     args.max_grad_norm,
+                            # )
                         grad_norm = _grad_norm
+
+                    old_weights = {}
+                    for name, param in model.named_parameters():
+                        if not param.requires_grad:
+                            continue
+                        old_weights[name] = param.clone().detach()
 
                     # Optimizer step
                     self.optimizer.step()
+                    grad_norm = self.optimizer.optimizer.grad_norm
+
+                    for name, param in model.named_parameters():
+                        continue
+                        if not param.requires_grad:
+                            continue
+                        diff = (param - old_weights[name]).abs().mean()
+                        xm.master_print(f"Layer {name} weight change: {diff.item()}, {diff.device}")
+
+                    # for n, p in model.named_parameters():
+                    #     if p.requires_grad and p.grad is not None:
+                    #         print(f"{n} => {p.grad.norm().item()}, {p.grad.min()}, {p.grad.max()}")
+
                     optimizer_was_run = not self.accelerator.optimizer_step_was_skipped
                     if optimizer_was_run:
                         # Delay optimizer scheduling until metrics are generated
                         if not isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                             self.lr_scheduler.step()
                     self.optimizer.zero_grad()
+                    if isinstance(grad_norm, list) and len(grad_norm) > 0:
+                        grad_norm = grad_norm[0]
 
                     self.state.global_step += 1
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
