@@ -441,12 +441,11 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
         def attention_forward(
             self,
             hidden_states: torch.Tensor,
+            position_embeddings: Tuple[torch.Tensor, torch.Tensor],
             attention_mask: Optional[torch.Tensor] = None,
-            position_ids: Optional[torch.LongTensor] = None,
             past_key_value: Optional[Cache] = None,
-            output_attentions: bool = False,
-            use_cache: bool = False,
             cache_position: Optional[torch.LongTensor] = None,
+            output_attentions: Optional[bool] = False,
             **kwargs,
         ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
             if self.config.pretraining_tp > 1:
@@ -489,8 +488,8 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
                 value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
             past_key_value = getattr(self, "past_key_value", past_key_value)
-            cos, sin = self.rotary_emb(value_states, position_ids)
-            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+            cos, sin = position_embeddings
+            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
             if past_key_value is not None:
                 # sin and cos are specific to RoPE models; cache_position needed for the static cache
@@ -539,7 +538,7 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
             if not output_attentions:
                 attn_weights = None
 
-            return attn_output, attn_weights, past_key_value
+            return attn_output, attn_weights
 
         for module in model.modules():
             if isinstance(module, LlamaAttention):
