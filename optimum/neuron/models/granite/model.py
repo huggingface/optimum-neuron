@@ -95,15 +95,10 @@ class GraniteForSampling(NeuronHloDecoderModel):
 
         self.decoder_lm_head.to_neuron()
         self.init_rest_of_model()
-        self.maybe_nullify_embeddings()
 
     def materialize_embeddings(self):
         # Materialize the embedding to CPU
         self.chkpt_model.model.embed_tokens.materialize()
-
-    def maybe_nullify_embeddings(self):
-        if self.neuron_config.on_device_embedding:
-            self.chkpt_model.model.embed_tokens.nullify()
 
     def init_rest_of_model(self):
         # Pipeline sparallel deosn't support executor right now
@@ -115,13 +110,9 @@ class GraniteForSampling(NeuronHloDecoderModel):
 
     def preprocess_and_embed(self, input_ids, cache_ids=None, start_ids=None, **kwargs):
         padded_inputs, *rst = self._preprocess(input_ids, start_ids=start_ids, cache_ids=cache_ids, **kwargs)
-        if not self.neuron_config.on_device_embedding:
-            input_embeddings = self.chkpt_model.model.embed_tokens(padded_inputs)
-            if self.neuron_config.attention_layout == LAYOUT_HSB:
-                input_embeddings = input_embeddings.transpose(0, -1).contiguous()
-        else:
-            # embedding layer is on device and will be computed as part of self._forward(), so don't compute here
-            input_embeddings = None
+        input_embeddings = self.chkpt_model.model.embed_tokens(padded_inputs)
+        if self.neuron_config.attention_layout == LAYOUT_HSB:
+            input_embeddings = input_embeddings.transpose(0, -1).contiguous()
         return input_embeddings, *rst
 
     def forward(self, input_ids, cache_ids, start_ids):
