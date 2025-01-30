@@ -630,7 +630,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
         if self.with_controlnet:
             # outputs of controlnet
             common_inputs += ["down_block_additional_residuals", "mid_block_additional_residual"]
-            
+
         if self.with_ip_adapter:
             # add output of image encoder
             common_inputs += ["image_embeds"]
@@ -685,7 +685,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
     @with_controlnet.setter
     def with_controlnet(self, with_controlnet: bool):
         self._with_controlnet = with_controlnet
-    
+
     @property
     def with_ip_adapter(self) -> bool:
         return self._with_ip_adapter

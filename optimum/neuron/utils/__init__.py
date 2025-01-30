@@ -110,8 +110,8 @@ if TYPE_CHECKING:
         ASTDummyAudioInputGenerator,
         DummyBeamValuesGenerator,
         DummyControNetInputGenerator,
-        DummyMaskedPosGenerator,
         DummyIPAdapterInputGenerator,
+        DummyMaskedPosGenerator,
     )
     from .misc import (
         DiffusersPretrainedConfig,
