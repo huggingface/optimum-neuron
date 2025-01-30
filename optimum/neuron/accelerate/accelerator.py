@@ -224,8 +224,8 @@ class NeuronAccelerator(Accelerator):
                 data_loader, num_replicas=num_replicas, rank=rank, force_drop_last=force_drop_last
             )
             # No need to wrap the dataloader if we are using pipeline parallelism.
-            if self.state.mp_plugin.pipeline_parallel_size == 1:
-                data_loader = MpDeviceLoader(data_loader, self.device)
+            # if self.state.mp_plugin.pipeline_parallel_size == 1:
+            #     data_loader = MpDeviceLoader(data_loader, self.device)
         return data_loader
         # TODO: fix that.
         # return super().prepare_data_loader(data_loader, device_placement=device_placement)
