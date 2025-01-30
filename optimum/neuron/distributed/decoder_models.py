@@ -441,12 +441,11 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
         def attention_forward(
             self,
             hidden_states: torch.Tensor,
+            position_embeddings: Tuple[torch.Tensor, torch.Tensor],
             attention_mask: Optional[torch.Tensor] = None,
-            position_ids: Optional[torch.LongTensor] = None,
             past_key_value: Optional[Cache] = None,
-            output_attentions: bool = False,
-            use_cache: bool = False,
             cache_position: Optional[torch.LongTensor] = None,
+            output_attentions: Optional[bool] = False,
             **kwargs,
         ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
             if self.config.pretraining_tp > 1:
@@ -489,8 +488,8 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
                 value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
             past_key_value = getattr(self, "past_key_value", past_key_value)
-            cos, sin = self.rotary_emb(value_states, position_ids)
-            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+            cos, sin = position_embeddings
+            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
             if past_key_value is not None:
                 # sin and cos are specific to RoPE models; cache_position needed for the static cache
@@ -539,7 +538,7 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
             if not output_attentions:
                 attn_weights = None
 
-            return attn_output, attn_weights, past_key_value
+            return attn_output, attn_weights
 
         for module in model.modules():
             if isinstance(module, LlamaAttention):
@@ -588,6 +587,10 @@ class LlamaParallelizer(Parallelizer):
             layers = model.model.layers
 
         for layer in layers:
+            # FIXME: temporary workaround to avoid too many changes in the transformation code
+            layer.self_attn.num_heads = layer.self_attn.config.num_attention_heads
+            layer.self_attn.num_key_value_heads = layer.self_attn.config.num_key_value_heads
+            layer.self_attn.hidden_size = layer.self_attn.config.hidden_size
             layer.self_attn = LlamaParallelSelfAttention.transform(
                 model,
                 layer.self_attn,
@@ -717,12 +720,10 @@ class MistralSequenceParallelismSpecs(SequenceParallelismSpecs):
         def attention_forward(
             self,
             hidden_states: torch.Tensor,
+            position_embeddings: Tuple[torch.Tensor, torch.Tensor],
             attention_mask: Optional[torch.Tensor] = None,
-            position_ids: Optional[torch.LongTensor] = None,
             past_key_value: Optional[Cache] = None,
             output_attentions: bool = False,
-            use_cache: bool = False,
-            cache_position: Optional[torch.LongTensor] = None,
         ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
             query_states = self.q_proj(hidden_states)
             key_states = self.k_proj(hidden_states)
@@ -745,12 +746,8 @@ class MistralSequenceParallelismSpecs(SequenceParallelismSpecs):
                 key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
                 value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
-            kv_seq_len = key_states.shape[-2]
-            if past_key_value is not None:
-                kv_seq_len += cache_position[0]
-
-            cos, sin = self.rotary_emb(value_states, position_ids)
-            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+            cos, sin = position_embeddings
+            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
             if past_key_value is not None:
                 cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
@@ -764,18 +761,7 @@ class MistralSequenceParallelismSpecs(SequenceParallelismSpecs):
 
             attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
 
-            if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
-                raise ValueError(
-                    f"Attention weights should be of size {(bsz, self.num_heads, q_len, kv_seq_len)}, but is"
-                    f" {attn_weights.size()}"
-                )
-
             if attention_mask is not None:
-                if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
-                    raise ValueError(
-                        f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
-                    )
-
                 attn_weights = attn_weights + attention_mask
 
             # upcast attention to fp32
@@ -801,7 +787,7 @@ class MistralSequenceParallelismSpecs(SequenceParallelismSpecs):
             if not output_attentions:
                 attn_weights = None
 
-            return attn_output, attn_weights, past_key_value
+            return attn_output, attn_weights
 
         for module in model.modules():
             if isinstance(module, MistralAttention):
@@ -831,6 +817,10 @@ class MistralParallelizer(Parallelizer):
                 **parallel_layer_specific_kwargs,
             )
         for layer in model.model.layers:
+            # FIXME: temporary workaround to avoid too many changes in the transformation code
+            layer.self_attn.num_heads = layer.self_attn.config.num_attention_heads
+            layer.self_attn.num_key_value_heads = layer.self_attn.config.num_key_value_heads
+            layer.self_attn.hidden_size = layer.self_attn.config.hidden_size
             layer.self_attn = MistralParallelSelfAttention.transform(
                 model,
                 layer.self_attn,

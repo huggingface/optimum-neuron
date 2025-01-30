@@ -179,9 +179,7 @@ class NeuronModelForFeatureExtraction(NeuronTracedModel):
             # last_hidden_state -> (batch_size, sequencen_len, hidden_size)
             last_hidden_state = self.remove_padding(
                 [outputs[0]], dims=[0, 1], indices=[input_ids.shape[0], input_ids.shape[1]]
-            )[
-                0
-            ]  # Remove padding on batch_size(0), and sequence_length(1)
+            )[0]  # Remove padding on batch_size(0), and sequence_length(1)
             if len(outputs) > 1:
                 # pooler_output -> (batch_size, hidden_size)
                 pooler_output = self.remove_padding([outputs[1]], dims=[0], indices=[input_ids.shape[0]])[
@@ -264,9 +262,7 @@ class NeuronModelForSentenceTransformers(NeuronTracedModel):
                 # token_embeddings -> (batch_size, sequencen_len, hidden_size)
                 token_embeddings = self.remove_padding(
                     [outputs[0]], dims=[0, 1], indices=[input_ids.shape[0], input_ids.shape[1]]
-                )[
-                    0
-                ]  # Remove padding on batch_size(0), and sequence_length(1)
+                )[0]  # Remove padding on batch_size(0), and sequence_length(1)
                 # sentence_embedding -> (batch_size, hidden_size)
                 sentence_embedding = self.remove_padding([outputs[1]], dims=[0], indices=[input_ids.shape[0]])[
                     0

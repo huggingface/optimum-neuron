@@ -15,11 +15,6 @@
 requires = ["setuptools==69.5.1"]
 build-backend = "setuptools.build_meta"
 
-[tool.black]
-line-length = 119
-target-version = ['py38']
-extend-exclude = '.ipynb'
-
 [tool.ruff]
 line-length = 119
 
@@ -27,6 +22,9 @@ line-length = 119
 # Never enforce `E501` (line length violations).
 ignore = ["C901", "E501", "E741", "W605"]
 select = ["C", "E", "F", "I", "W"]
+exclude = ["*.ipynb"]
+
+[tool.ruff.format]
 exclude = ["*.ipynb"]
 
 # Ignore import violations in all `__init__.py` files.

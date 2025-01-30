@@ -16,6 +16,7 @@
 Common Neuron configuration classes that handle most of the features for building model specific
 configurations.
 """
+
 from typing import List
 
 from ...utils import (

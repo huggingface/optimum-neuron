@@ -280,7 +280,6 @@ def main():
                     fp.write(processed_content)
 
     # Linting and styling.
-    subprocess.run(["black", f"{args.dest}"])
     subprocess.run(["ruff", f"{args.dest}", "--fix"])
 
 

@@ -22,11 +22,17 @@ This tutorial will teach you how to fine-tune open source LLMs like [Llama 3](ht
 
 You will learn how to:
 
-1. [Setup AWS Environment](#1-setup-aws-environment)
-2. [Load and process the dataset](#2-load-and-prepare-the-dataset)
-3. [Supervised Fine-Tuning of Llama on AWS Trainium with the `NeuronSFTTrainer`](#3-supervised-fined-tuning-of-llama-on-aws-trainium-with-the-neuronsfttrainer)
-4. [Launch Training](#4-launch-training)
-5. [Evaluate and test fine-tuned Llama model](#5-evaluate-and-test-fine-tuned-llama-model)
+- [Supervised Fine-Tuning of Llama 3 8B on one AWS Trainium instance](#supervised-fine-tuning-of-llama-3-8b-on-one-aws-trainium-instance)
+  - [1. Setup AWS Environment](#1-setup-aws-environment)
+  - [2. Load and prepare the dataset](#2-load-and-prepare-the-dataset)
+  - [3. Supervised Fine-Tuning of Llama on AWS Trainium with the `NeuronSFTTrainer`](#3-supervised-fine-tuning-of-llama-on-aws-trainium-with-the-neuronsfttrainer)
+    - [Formatting our dataset](#formatting-our-dataset)
+    - [Preparing the model](#preparing-the-model)
+  - [4. Launch Training](#4-launch-training)
+    - [Precompilation](#precompilation)
+    - [Actual Training](#actual-training)
+    - [Consolidate the checkpoint and merge model](#consolidate-the-checkpoint-and-merge-model)
+  - [5. Evaluate and test fine-tuned Llama model](#5-evaluate-and-test-fine-tuned-llama-model)
 
 <Tip>
 
@@ -50,6 +56,10 @@ huggingface-cli login --token YOUR_TOKEN
 ```bash
 git clone https://github.com/huggingface/optimum-neuron.git
 ```
+5. Make sure you have the `training` extra installed, to get all the necessary dependencies:
+```bash
+python -m pip install .[training]
+```
 
 ## 2. Load and prepare the dataset
 
@@ -63,7 +73,7 @@ Example:
   "context": "",
   "response": (
         "World of warcraft is a massive online multi player role playing game. "
-        "It was released in 2004 by blizarre entertainment"
+        "It was released in 2004 by bizarre entertainment"
     )
 }
 ```
@@ -124,7 +134,7 @@ If you want to know more about distributed training you can take a look at the [
 
 </Tip>
 
-Here, we will use tensor parallelism in conjuction with LoRA.
+Here, we will use tensor parallelism in conjunction with LoRA.
 Our training code will look as follows:
 
 ```python
@@ -192,9 +202,9 @@ The key points here are:
 - We create a [`~optimum.neuron.NeuronSFTConfig`] from regular `NeuronTrainingArguments`. Here we specify that we do not want to pack our examples, and that the max sequence length should be `1024`, meaning that every example will be either padded or truncated to a length of `1024`.
 - We use the [`~optimum.neuron.NeuronSFTTrainer`] to perform training. It will take the lazily loaded model, along with `lora_config`, `sft_config` and `format_dolly` and prepare the dataset and model for supervised fine-tuning.
 
-## 4. Launch Training 
+## 4. Launch Training
 
-We prepared a script called [sft_lora_finetune_llm.py](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/lora_finetune_llm.py) summing up everything mentioned in this tutorial.
+We prepared a script called [sft_lora_finetune_llm.py](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/sft_lora_finetune_llm.py) summing up everything mentioned in this tutorial.
 
 PyTorch Neuron uses `torch_xla`. It evaluates operations lazily during the execution of the training loops, which means it builds a symbolic graph in the background, and the graph is executed on the hardware only when the tensor is printed, transferred to CPU, or when `xm.mark_step()` is called. During execution, multiple graphs can be built depending on control-flow, and it can take time to compile each graph sequentially. To alleviate that, the Neuron SDK provides `neuron_parallel_compile`, a tool which performs a fast trial run that builds all the graphs and compile them in parallel. This step is usually called precompilation.
 
@@ -202,7 +212,7 @@ PyTorch Neuron uses `torch_xla`. It evaluates operations lazily during the execu
 
 When training models on AWS Trainium we first need to compile our model with our training arguments. 
 
-To ease this step, we added a [model cache repository](https://huggingface.co/aws-neuron/optimum-neuron-cache), which allows us to use precompiled models from the Hugging Face Hub to skip the compilation step. But be careful: every change in the model configuration might lead to a new compilation, which could result in some cache misses.
+To ease this step, we added a [model cache repository](https://huggingface.co/aws-neuron/optimum-neuron-cache), which allows us to use precompiled models from the Hugging Face Hub to skip the compilation step. This is useful because it will allow to compile models much faster than what it would do when doing the actual training, because compilation can be parallelized. But be careful: every change in the model configuration might lead to a new compilation, which could result in some cache misses.
 
 <Tip>
 
@@ -218,96 +228,25 @@ set -ex
 
 export NEURON_FUSE_SOFTMAX=1
 export NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS=3
-export MALLOC_ARENA_MAX=64
+export MALLOC_ARENA_MAX=64 # limit the CPU allocation to avoid potential crashes
 export NEURON_CC_FLAGS="--model-type=transformer --distribution-strategy=llm-training --enable-saturate-infinity --cache_dir=/home/ubuntu/cache_dir_neuron/"
 
 PROCESSES_PER_NODE=8
 
-NUM_EPOCHS=1
 TP_DEGREE=2
 PP_DEGREE=1
 BS=1
 GRADIENT_ACCUMULATION_STEPS=8
 LOGGING_STEPS=1
 MODEL_NAME="meta-llama/Meta-Llama-3-8B"
-OUTPUT_DIR=output-$SLURM_JOB_ID
+OUTPUT_DIR=dolly_llama_output
 
 if [ "$NEURON_EXTRACT_GRAPHS_ONLY" = "1" ]; then
-    MAX_STEPS=$((LOGGING_STEPS + 5))
+    MAX_STEPS=10
+    NUM_EPOCHS=1
 else
     MAX_STEPS=-1
-fi
-
-
-XLA_USE_BF16=1 neuron_parallel_compile torchrun --nproc_per_node $PROCESSES_PER_NODE docs/source/training_tutorials/sft_lora_finetune_llm.py \
-  --model_id $MODEL_NAME \
-  --num_train_epochs $NUM_EPOCHS \
-  --do_train \
-  --learning_rate 5e-5 \
-  --warmup_ratio 0.03 \
-  --max_steps $MAX_STEPS \
-  --per_device_train_batch_size $BS \
-  --per_device_eval_batch_size $BS \
-  --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
-  --gradient_checkpointing true \
-  --bf16 \
-  --zero_1 false \
-  --tensor_parallel_size $TP_DEGREE \
-  --pipeline_parallel_size $PP_DEGREE \
-  --logging_steps $LOGGING_STEPS \
-  --save_total_limit 1 \
-  --output_dir $OUTPUT_DIR \
-  --lr_scheduler_type "constant" \
-  --overwrite_output_dir
-```
-
-<Tip>
-
-Make sure to run this precompilation phase for around 10 training steps. It is usually enough to accumulate and compile all the graphs that will be needed during the actual training.
-
-</Tip>
-
-_Note: Compiling without a cache can take a while. It will also create dummy files in the `dolly_llama_sharded` during compilation you will have to remove them afterwards. We also need to add `MALLOC_ARENA_MAX=64` to limit the CPU allocation to avoid potential crashes, don't remove it for now._
-
-```bash
-# remove dummy artifacts which are created by the precompilation command
-rm -rf dolly_llama
-```
-
-### Actual Training
-
-After compilation is done we can start our actual training with a similar command, we just need to remove the use of `neuron_parallel_compile`. 
-
-We will use `torchrun` to launch our training script. `torchrun` is a tool that automatically distributes a PyTorch model across multiple accelerators. We can pass the number of accelerators as `nproc_per_node` arguments alongside our hyperparameters.
-
-The difference to the compilation command is that we changed from `max_steps=10` to `num_train_epochs=3`.
-
-Launch the training, with the following command.
-
-```bash
-#!/bin/bash
-set -ex
-
-export NEURON_FUSE_SOFTMAX=1
-export NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS=3
-export MALLOC_ARENA_MAX=64
-export NEURON_CC_FLAGS="--model-type=transformer --distribution-strategy=llm-training --enable-saturate-infinity --cache_dir=/home/ubuntu/cache_dir_neuron/"
-
-PROCESSES_PER_NODE=8
-
-NUM_EPOCHS=1
-TP_DEGREE=2
-PP_DEGREE=1
-BS=1
-GRADIENT_ACCUMULATION_STEPS=8
-LOGGING_STEPS=1
-MODEL_NAME="meta-llama/Meta-Llama-3-8B"
-OUTPUT_DIR=output-$SLURM_JOB_ID
-
-if [ "$NEURON_EXTRACT_GRAPHS_ONLY" = "1" ]; then
-    MAX_STEPS=$((LOGGING_STEPS + 5))
-else
-    MAX_STEPS=-1
+    NUM_EPOCHS=3
 fi
 
 
@@ -323,7 +262,6 @@ XLA_USE_BF16=1 torchrun --nproc_per_node $PROCESSES_PER_NODE docs/source/trainin
   --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
   --gradient_checkpointing true \
   --bf16 \
-  --zero_1 false \
   --tensor_parallel_size $TP_DEGREE \
   --pipeline_parallel_size $PP_DEGREE \
   --logging_steps $LOGGING_STEPS \
@@ -333,21 +271,82 @@ XLA_USE_BF16=1 torchrun --nproc_per_node $PROCESSES_PER_NODE docs/source/trainin
   --overwrite_output_dir
 ```
 
+For convenience, we saved this shell script to a file, [sft_lora_finetune_llm.sh](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/sft_lora_finetune_llm.sh). You can now pass it to the `neuron_parallel_compile` tool to trigger the compilation:
+
+```bash
+neuron_parallel_compile bash docs/source/training_tutorials/sft_lora_finetune_llm.sh
+```
+
+_Note: at the end of compilation, a `FileNotFoundError` message can appear. You can safely ignore it, as some compilation cache has been created._
+
+This precompilation phase runs for 10 training steps to ensure that the compiler has compiled all the necessary graphs. It is usually enough to accumulate and compile all the graphs that will be needed during the actual training.
+
+
+_Note: Compiling without a cache can take a while. It will also create dummy files in the `dolly_llama_output` directory during compilation you will have to remove them afterwards._
+
+```bash
+# remove dummy artifacts which are created by the precompilation command
+rm -rf dolly_llama_output
+```
+
+### Actual Training
+
+After compilation is done we can start our actual training with a similar command, we just need to remove the use of `neuron_parallel_compile`. 
+
+We will use `torchrun` to launch our training script. `torchrun` is a tool that automatically distributes a PyTorch model across multiple accelerators. We can pass the number of accelerators as `nproc_per_node` arguments alongside our hyperparameters.
+
+The difference to the compilation command is that we changed variables `max_steps=10` and `num_train_epochs=3`.
+
+Launch the training, with the same command used in the precompilation step, but without `neuron_parallel_compile`:
+
+```bash
+bash docs/source/training_tutorials/sft_lora_finetune_llm.sh
+
+```
+
 That's it, we successfully trained Llama-3 8B on AWS Trainium!
 
 But before we can share and test our model we need to consolidate our model. Since we used tensor parallelism during training, we saved sharded versions of the checkpoints. We need to consolidate them now.
 
-### Consolidate the Checkpoint
+### Consolidate the checkpoint and merge model
 
 The Optimum CLI provides a way of doing that very easily via the `optimum neuron consolidate [sharded_checkpoint] [output_dir]` command:
 
 ```bash
-optimum-cli neuron consolidate dolly_llama dolly_llama
+optimum-cli neuron consolidate dolly_llama_output dolly_llama_output
 ```
+
+This will create an `adapter_model.safetensors` file, the LoRA adapter weights that we trained in the previous step. We can now reload the model and merge it, so it can be loaded for evaluation:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel, PeftConfig
+
+MODEL_NAME = 'meta-llama/Meta-Llama-3-8B'
+ADAPTER_PATH = 'dolly_llama_output'
+MERGED_MODEL_PATH = 'dolly_llama'
+
+# Load base odel
+model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+
+# Load adapter configuration and model
+adapter_config = PeftConfig.from_pretrained(ADAPTER_PATH)
+finetuned_model = PeftModel.from_pretrained(model, ADAPTER_PATH, config=adapter_config)
+
+print("Saving tokenizer")
+tokenizer.save_pretrained(MERGED_MODEL_PATH)
+print("Saving model")
+finetuned_model = finetuned_model.merge_and_unload()
+finetuned_model.save_pretrained(MERGED_MODEL_PATH)
+
+```
+
+This step can take few minutes. We now have a directory with all the files needed to evaluate the fine-tuned model.
 
 ## 5. Evaluate and test fine-tuned Llama model
 
-As for training, to be able to run inference on AWS Trainium or AWS Inferentia2 we need to compile our model. In this case, we will use our Trainium instance for the inference test, but we recommend customer to switch to Inferentia2 (`inf2.24xlarge`) for inference.
+As for training, to be able to run inference on AWS Trainium or AWS Inferentia2 we need to compile our model. In this case, we will use our Trainium instance for the inference test, but you can switch to Inferentia2 (`inf2.24xlarge`) for inference.
 
 Optimum Neuron implements similar to Transformers AutoModel classes for easy inference use. We will use the `NeuronModelForCausalLM` class to load our vanilla transformers checkpoint and convert it to neuron.
 
@@ -366,11 +365,11 @@ model = NeuronModelForCausalLM.from_pretrained(
         **input_shapes)
 ```
 
-_Note: Inference compilation can take ~25minutes. Luckily, you need to only run this onces. Since you can save the model afterwards. If you are going to run on Inferentia2 you need to recompile again. The compilation is parameter and hardware specific._
+_Note: Inference compilation can take up to 25 minutes. Luckily, you need to only run this once. As in the precompilation step done before training, you need to run this compilation step also if you change the hardware where you run the inference, e.g. if you move from Trainium to Inferentia2. The compilation is parameter and hardware specific._
 
 ```python
 # COMMENT IN if you want to save the compiled model
-# model.save_pretrained("compiled_dolly_llama")
+# model.save_pretrained("compiled_dolly_llama_output")
 ```
 
 We can now test inference, but have to make sure we format our input to our prompt format we used for fine-tuning. Therefore we created a helper method, which accepts a `dict` with our `instruction` and optionally a `context`.

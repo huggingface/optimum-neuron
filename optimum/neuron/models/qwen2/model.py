@@ -156,9 +156,9 @@ class Qwen2ForSampling(base.NeuronModelBase):
 
             # Note: Automatic MLP padding is safe since zeros are *only* introduced to intermediary state
             if self.neuron_config.fuse_mlp:
-                assert all(
-                    getattr(mlp, attr, None) for attr in ["gate_proj", "up_proj"]
-                ), "fuse_mlp need to have gate and up proj weights"
+                assert all(getattr(mlp, attr, None) for attr in ["gate_proj", "up_proj"]), (
+                    "fuse_mlp need to have gate and up proj weights"
+                )
                 assert all(
                     getattr(mlp, attr, None).weight.shape[0] % self.config.tp_degree == 0
                     for attr in ["gate_proj", "up_proj"]

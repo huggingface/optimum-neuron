@@ -50,7 +50,7 @@ def parse_cmdline_and_set_env(argv: List[str] = None) -> argparse.Namespace:
     args = parser.parse_known_args(argv)[0]
 
     if not args.model_id:
-        raise Exception("No model id provided ! Either specify it using --model-id cmdline " "or MODEL_ID env var")
+        raise Exception("No model id provided ! Either specify it using --model-id cmdline or MODEL_ID env var")
 
     # Override env with cmdline params
     os.environ["MODEL_ID"] = args.model_id
@@ -109,7 +109,7 @@ def lookup_compatible_cached_model(model_id: str, revision: Optional[str]) -> Op
 
     if not all_compatible:
         logger.debug(
-            "No compatible cached entry found for model %s, env %s, available cores %s, " "neuronxcc version %s",
+            "No compatible cached entry found for model %s, env %s, available cores %s, neuronxcc version %s",
             model_id,
             get_env_dict(),
             available_cores,
@@ -139,7 +139,7 @@ def check_env_and_neuron_config_compatibility(neuron_config: Dict[str, Any], che
 
     if check_compiler_version and neuron_config["compiler_version"] != neuronxcc_version:
         logger.debug(
-            "Compiler version conflict, the local one " "(%s) differs from the one used to compile the model (%s)",
+            "Compiler version conflict, the local one (%s) differs from the one used to compile the model (%s)",
             neuronxcc_version,
             neuron_config["compiler_version"],
         )
@@ -163,7 +163,7 @@ def check_env_and_neuron_config_compatibility(neuron_config: Dict[str, Any], che
         sequence_length = neuron_config["sequence_length"]
         if max_input_tokens >= sequence_length:
             logger.debug(
-                "Specified max input tokens is not compatible with config sequence length " "( %s >= %s)",
+                "Specified max input tokens is not compatible with config sequence length ( %s >= %s)",
                 max_input_tokens,
                 sequence_length,
             )
@@ -205,7 +205,7 @@ def main():
         if not compatible:
             env_dict = get_env_dict()
             msg = (
-                "Invalid neuron config and env. Config {}, env {}, available cores {}, " "neuronxcc version {}"
+                "Invalid neuron config and env. Config {}, env {}, available cores {}, neuronxcc version {}"
             ).format(neuron_config, env_dict, available_cores, neuronxcc_version)
             logger.error(msg)
             raise Exception(msg)
@@ -213,9 +213,9 @@ def main():
         neuron_config = lookup_compatible_cached_model(args.model_id, args.revision)
 
     if not neuron_config:
-        msg = (
-            "No compatible neuron config found. Provided env {}, " "available cores {}, neuronxcc version {}"
-        ).format(get_env_dict(), available_cores, neuronxcc_version)
+        msg = ("No compatible neuron config found. Provided env {}, available cores {}, neuronxcc version {}").format(
+            get_env_dict(), available_cores, neuronxcc_version
+        )
         logger.error(msg)
         raise Exception(msg)
 

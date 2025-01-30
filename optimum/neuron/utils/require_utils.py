@@ -17,10 +17,11 @@
 import functools
 from typing import Any, Callable, Dict
 
-from transformers.utils import is_peft_available, is_safetensors_available
+from transformers.utils import is_safetensors_available
 
 from .import_utils import (
     is_neuronx_distributed_available,
+    is_peft_available,
     is_torch_neuronx_available,
     is_torch_xla_available,
     is_transformers_neuronx_available,
