@@ -43,9 +43,7 @@ class GraniteForSamplingNoEmbeddingHlo(DecoderGraphBuilder):
         self.neuron_config = neuron_config
         self.n_positions = None
 
-    def pre_layer(
-        self, hidden, cache_ids, start_ids, last_token_id, block_tables, context_lens, *weights, position_ids=None
-    ):
+    def pre_layer(self, hidden, cache_ids, start_ids, last_token_id, *weights, position_ids=None):
         block_to_seq = None
 
         # Granite specific: embeddings are multiplied by embedding_multiplier
