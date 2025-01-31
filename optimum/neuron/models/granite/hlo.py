@@ -17,8 +17,8 @@ from typing import Optional
 from transformers.models.granite import GraniteConfig
 from transformers_neuronx import hlo, utils
 from transformers_neuronx.config import Layout, NeuronConfig
-from transformers_neuronx.decoder import DecoderGraphBuilder
 from transformers_neuronx.layers import attention, rotary, transformer
+from transformers_neuronx.llama.hlo import LlamaGraphBuilder
 
 from optimum.utils import logging
 
@@ -36,48 +36,22 @@ def scale_mul(t, scale):
     return dtype[t.sizes].Multiply(t, scale_br_t)
 
 
-class GraniteGraphBuilder(DecoderGraphBuilder):
+class GraniteGraphBuilder(LlamaGraphBuilder):
 
     def __init__(self, config: GraniteConfig, neuron_config: Optional[NeuronConfig] = None):
-        self.config = config
-        self.neuron_config = neuron_config
-        self.n_positions = None
+        super().__init__(config, neuron_config)
 
     def pre_layer(self, hidden, cache_ids, start_ids):
-
         # Granite specific: embeddings are multiplied by embedding_multiplier
         hidden = scale_mul(hidden, self.config.embedding_multiplier)
-
-        head_dim = self.config.hidden_size // self.config.num_attention_heads
-        pos_embed = rotary.hlo_rotary_embedding(
-            hidden.dtype,
-            head_dim,
-            cache_ids,
-            base=self.config.rope_theta,
-            rope_scaling=self.config.rope_scaling,
-        )
-
-        # flash decoding
-        mask, active_mask = hlo.attention_mask(
-            cache_ids,
-            start_ids,
-            self.n_positions,
-        )
-
-        return hidden, (
-            pos_embed,
-            cache_ids,
-            start_ids,
-            mask,
-            active_mask,
-        )
+        return super().pre_layer(hidden, cache_ids, start_ids)
 
     def layer(
         self,
         hidden,
-        pos_embed,
         cache_ids,
         start_ids,
+        pos_embed,
         mask,
         active_mask,
         attn_k_cache,
