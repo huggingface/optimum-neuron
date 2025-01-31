@@ -107,7 +107,9 @@ class NeuronDecoderExportConfig(ExportConfig):
             # For legacy models, base kwargs are passed individually
             export_kwargs.update(base_kwargs)
             if continuous_batching:
-                neuron_kwargs["continuous_batching"] = ContinuousBatchingConfig(batch_size_for_shared_caches=batch_size)
+                neuron_kwargs["continuous_batching"] = ContinuousBatchingConfig(
+                    batch_size_for_shared_caches=batch_size
+                )
                 export_kwargs["n_positions"] = [sequence_length]
                 export_kwargs["context_length_estimate"] = [sequence_length]
         # The only parameter common to both invocation styles is the neuron config

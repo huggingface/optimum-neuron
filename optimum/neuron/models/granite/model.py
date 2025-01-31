@@ -15,8 +15,7 @@
 from transformers import PretrainedConfig
 from transformers_neuronx import decoder
 from transformers_neuronx.base import NeuronHloDecoderModel
-from transformers_neuronx.config import NeuronConfig
-from transformers_neuronx.constants import LAYOUT_HSB
+from transformers_neuronx.config import Layout, NeuronConfig
 from transformers_neuronx.dtypes import to_torch_dtype
 
 from .hlo import GraniteForSamplingNoEmbeddingHlo
@@ -111,7 +110,7 @@ class GraniteForSampling(NeuronHloDecoderModel):
     def preprocess_and_embed(self, input_ids, cache_ids=None, start_ids=None, **kwargs):
         padded_inputs, *rst = self._preprocess(input_ids, start_ids=start_ids, cache_ids=cache_ids, **kwargs)
         input_embeddings = self.chkpt_model.model.embed_tokens(padded_inputs)
-        if self.neuron_config.attention_layout == LAYOUT_HSB:
+        if self.neuron_config.attention_layout == Layout.HSB:
             input_embeddings = input_embeddings.transpose(0, -1).contiguous()
         return input_embeddings, *rst
 

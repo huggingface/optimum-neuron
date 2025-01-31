@@ -16,8 +16,7 @@ from typing import Optional
 
 from transformers.models.granite import GraniteConfig
 from transformers_neuronx import hlo, utils
-from transformers_neuronx.config import NeuronConfig
-from transformers_neuronx.constants import LAYOUT_BSH, LAYOUT_HSB
+from transformers_neuronx.config import Layout, NeuronConfig
 from transformers_neuronx.layers import attention, rotary, transformer
 
 from optimum.utils import logging
@@ -61,7 +60,7 @@ class GraniteForSamplingNoEmbeddingHlo:
         hidden = hlo.embedding(embed_weight, input_ids, tp_degree=self.neuron_config.tp_degree, dtype=dtype)
         if self.config.hidden_size % self.neuron_config.tp_degree != 0:
             hidden = hlo.slice_along(hidden, dim=-1, limit=self.config.hidden_size, start=0)
-        if self.neuron_config.attention_layout == LAYOUT_HSB:
+        if self.neuron_config.attention_layout == Layout.HSB:
             hidden = hlo.transpose210(hidden)
         return hidden
 
@@ -142,7 +141,7 @@ class GraniteForSamplingNoEmbeddingHlo:
         is_first_last_layer=False,
     ):
         eps = self.config.rms_norm_eps
-        is_bsh = self.neuron_config and self.neuron_config.attention_layout == LAYOUT_BSH
+        is_bsh = self.neuron_config and self.neuron_config.attention_layout == Layout.BSH
         ln_hidden = hlo.rms_norm(
             hidden,
             pre_attn_ln_weight,
