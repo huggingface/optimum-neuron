@@ -43,18 +43,17 @@ class GraniteForSamplingNoEmbeddingHlo(DecoderGraphBuilder):
         self.neuron_config = neuron_config
         self.n_positions = None
 
-    def pre_layer(self, hidden, cache_ids, start_ids, last_token_id, *weights, position_ids=None):
+    def pre_layer(self, hidden, cache_ids, start_ids, last_token_id):
         block_to_seq = None
 
         # Granite specific: embeddings are multiplied by embedding_multiplier
         hidden = scale_mul(hidden, self.config.embedding_multiplier)
 
         head_dim = self.config.hidden_size // self.config.num_attention_heads
-        position_ids = cache_ids if position_ids is None else position_ids
         pos_embed = rotary.hlo_rotary_embedding(
             hidden.dtype,
             head_dim,
-            position_ids,
+            cache_ids,
             base=self.config.rope_theta,
             rope_scaling=self.config.rope_scaling,
         )
@@ -66,8 +65,7 @@ class GraniteForSamplingNoEmbeddingHlo(DecoderGraphBuilder):
             self.n_positions,
         )
 
-        return (
-            hidden,
+        return hidden, (
             last_token_id,
             pos_embed,
             cache_ids,
