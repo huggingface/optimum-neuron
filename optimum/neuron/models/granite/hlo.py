@@ -43,8 +43,7 @@ class GraniteForSamplingNoEmbeddingHlo(DecoderGraphBuilder):
         self.neuron_config = neuron_config
         self.n_positions = None
 
-    def pre_layer(self, hidden, cache_ids, start_ids, last_token_id):
-        block_to_seq = None
+    def pre_layer(self, hidden, cache_ids, start_ids):
 
         # Granite specific: embeddings are multiplied by embedding_multiplier
         hidden = scale_mul(hidden, self.config.embedding_multiplier)
@@ -66,11 +65,9 @@ class GraniteForSamplingNoEmbeddingHlo(DecoderGraphBuilder):
         )
 
         return hidden, (
-            last_token_id,
             pos_embed,
             cache_ids,
             start_ids,
-            block_to_seq,
             mask,
             active_mask,
         )
@@ -78,11 +75,9 @@ class GraniteForSamplingNoEmbeddingHlo(DecoderGraphBuilder):
     def layer(
         self,
         hidden,
-        last_token_id,
         pos_embed,
         cache_ids,
         start_ids,
-        block_to_seq,
         mask,
         active_mask,
         attn_k_cache,
@@ -124,8 +119,6 @@ class GraniteForSamplingNoEmbeddingHlo(DecoderGraphBuilder):
             ln_hidden,
             cache_ids,
             start_ids,
-            last_token_id,
-            block_to_seq,
             pos_embed,
             mask,
             active_mask,
@@ -187,8 +180,6 @@ class GraniteForSamplingNoEmbeddingHlo(DecoderGraphBuilder):
         hidden,
         cache_ids,
         start_ids,
-        last_token_id,
-        block_to_seq,
         pos_embed,
         mask,
         active_mask,
