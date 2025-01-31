@@ -42,18 +42,6 @@ class GraniteForSamplingNoEmbeddingHlo:
         self.neuron_config = neuron_config
         self.n_positions = None
 
-    def inputs(self, scribe, dtype, n_active_tokens, batch_size):
-        tensors, dims = transformer.inputs(
-            scribe,
-            dtype,
-            batch_size,
-            n_active_tokens,
-            self.config.hidden_size,
-            self.neuron_config,
-        )
-
-        return tensors, dims
-
     def embedding(self, input_ids, cache_ids, start_ids, last_token_id, block_tables, context_lens, *weights):
         embed_weight, *rst = weights
         dtype = getattr(input_ids.scribe, self.neuron_config.amp)
@@ -87,9 +75,6 @@ class GraniteForSamplingNoEmbeddingHlo:
             cache_ids,
             start_ids,
             self.n_positions,
-            last_token_id=last_token_id,
-            neuron_config=self.neuron_config,
-            context_lens=context_lens,
         )
 
         return (
