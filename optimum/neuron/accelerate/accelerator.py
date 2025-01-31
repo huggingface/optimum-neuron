@@ -202,7 +202,7 @@ class NeuronAccelerator(Accelerator):
         distributed_dataloader._is_accelerate_prepared = True
         return distributed_dataloader
 
-    def prepare_data_loader(self, data_loader: DataLoader, device_placement: Optional[bool] = None):
+    def prepare_data_loader(self, data_loader: DataLoader, device_placement: Optional[bool] = None, use_mp_device_loader: bool = False):
         force_drop_last = False
         if self.state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             from neuronx_distributed import parallel_layers
@@ -223,8 +223,8 @@ class NeuronAccelerator(Accelerator):
                 data_loader, num_replicas=num_replicas, rank=rank, force_drop_last=force_drop_last
             )
             # No need to wrap the dataloader if we are using pipeline parallelism.
-            # if self.state.mp_plugin.pipeline_parallel_size == 1:
-            #     data_loader = MpDeviceLoader(data_loader, self.device)
+            if use_mp_device_loader and self.state.mp_plugin.pipeline_parallel_size == 1:
+                data_loader = MpDeviceLoader(data_loader, self.device)
         return data_loader
         # TODO: fix that.
         # return super().prepare_data_loader(data_loader, device_placement=device_placement)
