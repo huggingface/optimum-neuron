@@ -14,8 +14,10 @@
 # limitations under the License.
 """Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
+import contextlib
 import copy
 import dataclasses
+import functools
 import inspect
 import math
 import os
@@ -23,8 +25,6 @@ import shutil
 import sys
 import time
 import warnings
-import functools
-import contextlib
 from collections import defaultdict
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -33,7 +33,7 @@ import datasets
 import numpy as np
 import torch
 from accelerate import __version__ as accelerate_version
-from accelerate.utils import AutocastKwargs, DataLoaderConfiguration, GradientAccumulationPlugin
+from accelerate.utils import AutocastKwargs, DataLoaderConfiguration
 from packaging import version
 from torch import nn
 from torch.utils.data import Dataset
@@ -81,7 +81,6 @@ from transformers.trainer_utils import (
 from transformers.utils import (
     WEIGHTS_NAME,
     is_accelerate_available,
-    is_apex_available,
     is_sagemaker_mp_enabled,
 )
 
@@ -117,9 +116,6 @@ from .utils.training_utils import (
 from .utils.trl_utils import NeuronSFTConfig
 from .utils.version_utils import get_neuronxcc_version
 
-
-if is_apex_available():
-    from apex import amp
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
@@ -483,41 +479,27 @@ class _TrainerForNeuron:
             return (loss, None, None)
         return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
 
-    def _reduce_loss(self, tr_loss: torch.Tensor) -> torch.Tensor:
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_data_parallel_group,
-            get_data_parallel_size,
-            model_parallel_is_initialized,
-        )
-
-        if model_parallel_is_initialized():
-            dp_size = get_data_parallel_size()
-        else:
-            dp_size = xm.xrt_world_size()
-
-        tr_loss_div = tr_loss / dp_size
-
-        # if self.args.mp_plugin.should_parallelize:
-            # It works even for PP because under PP we make it so that the main process to log for callbacks is
-            # the one on dp_rank = tp_rank = 0 and pp_rank = pp_size -1.
-        reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
-        # else:
-        #     reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div)
-
-        return reduced_tr_loss
-
     def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time):
         # We always reduce the loss, even when we do not use it to avoid a new graph.
         # This communication is not costly.
         if self.state.global_step > self._globalstep_last_logged:
-            reduced_tr_loss = self._reduce_loss(tr_loss)
+            from neuronx_distributed.parallel_layers.parallel_state import (
+                get_data_parallel_group,
+                get_data_parallel_size,
+                model_parallel_is_initialized,
+            )
+
+            if model_parallel_is_initialized():
+                dp_size = get_data_parallel_size()
+            else:
+                dp_size = xm.xrt_world_size()
+
+            tr_loss_div = tr_loss / dp_size
+            reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
 
             if self.control.should_log:
                 with torch.no_grad():
-                    if isinstance(getattr(self, "_zero_loss_value"), torch.Tensor):
-                        tr_loss.data = self._zero_loss_value.data
-                    else:
-                        tr_loss.zero_()
+                    tr_loss.zero_()
 
                 def log_closure(self, reduced_tr_loss, grad_norm):
                     # We need to check that self.state.global_step > self._globalstep_last_logged because if two
@@ -685,22 +667,6 @@ class _TrainerForNeuron:
         if not self.args.save_only_model:
             # Save RNG state
             self._save_rng_state(output_dir)
-
-        # Determine the new best metric / best model checkpoint
-        if metrics is not None and self.args.metric_for_best_model is not None:
-            metric_to_check = self.args.metric_for_best_model
-            if not metric_to_check.startswith("eval_"):
-                metric_to_check = f"eval_{metric_to_check}"
-            metric_value = metrics[metric_to_check]
-
-            operator = np.greater if self.args.greater_is_better else np.less
-            if (
-                self.state.best_metric is None
-                or self.state.best_model_checkpoint is None
-                or operator(metric_value, self.state.best_metric)
-            ):
-                self.state.best_metric = metric_value
-                self.state.best_model_checkpoint = output_dir
 
         # Save the Trainer state
         if self.args.should_save:
@@ -1106,35 +1072,23 @@ class _TrainerForNeuron:
 
                     if do_sync_step:
                         # Since we perform prefetching, we need to manually set sync_gradients to True
-                        self.accelerator.gradient_state._set_sync_gradients(True)
-
+                        # self.accelerator.gradient_state._set_sync_gradients(True)
+                        self.accelerator.gradient_state.sync_gradients = True
                         xm.mark_step()
 
                         # Gradient clipping
                         if args.max_grad_norm is not None and args.max_grad_norm > 0:
-                            if is_sagemaker_mp_enabled() and args.fp16:
-                                self.optimizer.clip_master_grads(args.max_grad_norm)
-                                _grad_norm = self.optimizer.clip_master_grads(args.max_grad_norm)
-                            elif self.use_apex:
-                                # Revert to normal clipping otherwise, handling Apex or full precision
-                                torch.nn.utils.clip_grad_norm_(
-                                    amp.master_params(self.optimizer),
-                                    args.max_grad_norm,
-                                )
-                                _grad_norm = torch.nn.utils.clip_grad_norm_(
-                                    amp.master_params(self.optimizer),
-                                    args.max_grad_norm,
-                                )
-                            else:
-                                _grad_norm = self.accelerator.clip_grad_norm_(
-                                    model.parameters(),
-                                    args.max_grad_norm,
-                                )
-                            grad_norm = _grad_norm
+                            parameters = model.local_parameters() if isinstance(model, NxDPPModel) else model.parameters()
+                            self.accelerator.clip_grad_norm_(
+                                parameters,
+                                args.max_grad_norm,
+                                postpone_clipping_to_optimizer_step=True,
+                            )
 
                         self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
 
                         self.optimizer.step()
+                        grad_norm = self.optimizer.grad_norm
 
                         self.control = self.callback_handler.on_optimizer_step(args, self.state, self.control)
 
@@ -1149,15 +1103,6 @@ class _TrainerForNeuron:
                         self.state.global_step += 1
                         self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                         self.control = self.callback_handler.on_step_end(args, self.state, self.control)
-
-                        # `_zero_loss_value` is used to reset the value of `tr_loss`.
-                        # By doing that, we do not have to do `tr_loss.zero_()` when logging the loss.
-                        # This way we do not insert a new op in the XLA graph (for `tr_loss.zero_()`) which woud create
-                        # multiple graphs depending on the fact that we are logging or not.
-                        # Here we always create a scalar whose value is `0.0`, this way the graph stays the same whether or
-                        # not we are logging. The only difference when logging is that we set
-                        # `tr_loss.data = self._zero_loss_value.data`, which should not create new graph ops.
-                        self._zero_loss_value = torch.tensor(0.0, device=args.device)
                         self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
                     else:
                         self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
