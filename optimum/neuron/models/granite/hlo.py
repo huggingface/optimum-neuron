@@ -17,6 +17,7 @@ from typing import Optional
 from transformers.models.granite import GraniteConfig
 from transformers_neuronx import hlo, utils
 from transformers_neuronx.config import Layout, NeuronConfig
+from transformers_neuronx.decoder import DecoderGraphBuilder
 from transformers_neuronx.layers import attention, rotary, transformer
 
 from optimum.utils import logging
@@ -35,7 +36,7 @@ def scale_mul(t, scale):
     return dtype[t.sizes].Multiply(t, scale_br_t)
 
 
-class GraniteForSamplingNoEmbeddingHlo:
+class GraniteForSamplingNoEmbeddingHlo(DecoderGraphBuilder):
 
     def __init__(self, config: GraniteConfig, neuron_config: Optional[NeuronConfig] = None):
         self.config = config
