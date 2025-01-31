@@ -76,6 +76,7 @@ if TYPE_CHECKING:
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+    from torch_xla.distributed.parallel_loader import MpDeviceLoader
 else:
     xm = None
 
@@ -226,8 +227,6 @@ class NeuronAccelerator(Accelerator):
             if use_mp_device_loader and self.state.mp_plugin.pipeline_parallel_size == 1:
                 data_loader = MpDeviceLoader(data_loader, self.device)
         return data_loader
-        # TODO: fix that.
-        # return super().prepare_data_loader(data_loader, device_placement=device_placement)
 
     def _prepare_optimizer_for_mp(self, optimizer: torch.optim.Optimizer, device_placement=None):
         cpu_parameters_to_xla = collections.ChainMap(*self._model_cpu_parameters_to_xla.values())
@@ -537,7 +536,8 @@ class NeuronAccelerator(Accelerator):
                     "prepared by the NeuronAccelerator."
                 )
             self._optimizers[0].prepare_clip_grad_norm(parameters, max_norm, norm_type=norm_type)
-        return super().clip_grad_norm_(parameters, max_norm, norm_type=norm_type)
+        else:
+            return super().clip_grad_norm_(parameters, max_norm, norm_type=norm_type)
 
     def _custom_save_state(
         self,
