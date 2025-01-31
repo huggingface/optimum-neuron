@@ -14,11 +14,11 @@
 # ==============================================================================
 
 from transformers import PretrainedConfig
-from transformers_neuronx import decoder
 from transformers_neuronx.base import NeuronHloDecoderModel
 from transformers_neuronx.config import NeuronConfig
+from transformers_neuronx.decoder import DecoderGraph
 from transformers_neuronx.dtypes import to_torch_dtype
-from transformers_neuronx.llama.hlo import LlamaForSamplingNoEmbeddingHlo
+from transformers_neuronx.llama.hlo import LlamaGraphBuilder
 from transformers_neuronx.ops import init_neuron
 
 from .modules import Qwen2ForCausalLM
@@ -43,8 +43,8 @@ class Qwen2ForSampling(NeuronHloDecoderModel):
         self.config = config
         self.neuron_config = neuron_config if neuron_config else NeuronConfig()
 
-        hlo_builder = LlamaForSamplingNoEmbeddingHlo(config, neuron_config=self.neuron_config)
-        self.decoder_param_set = decoder.DecoderLmHeadForSamplingNoEmbedding(
+        hlo_builder = LlamaGraphBuilder(config, neuron_config=self.neuron_config)
+        self.decoder_param_set = DecoderGraph(
             config=config,
             neuron_config=neuron_config,
             n_active_tokens=1,

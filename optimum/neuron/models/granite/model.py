@@ -13,12 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 from transformers import PretrainedConfig
-from transformers_neuronx import decoder
 from transformers_neuronx.base import NeuronHloDecoderModel
 from transformers_neuronx.config import Layout, NeuronConfig
+from transformers_neuronx.decoder import DecoderGraph
 from transformers_neuronx.dtypes import to_torch_dtype
 
-from .hlo import GraniteForSamplingNoEmbeddingHlo
+from .hlo import GraniteGraphBuilder
 from .modules import GraniteForCausalLM
 
 
@@ -43,9 +43,9 @@ class GraniteForSampling(NeuronHloDecoderModel):
         super().__init__(GraniteForCausalLM, config, dtype)
         self.config = config
         self.neuron_config = neuron_config if neuron_config else NeuronConfig()
-        hlo_builder = GraniteForSamplingNoEmbeddingHlo(config, neuron_config=self.neuron_config)
+        hlo_builder = GraniteGraphBuilder(config, neuron_config=self.neuron_config)
 
-        self.decoder_param_set = decoder.DecoderLmHeadForSamplingNoEmbedding(
+        self.decoder_param_set = DecoderGraph(
             config=config,
             neuron_config=self.neuron_config,
             n_active_tokens=1,

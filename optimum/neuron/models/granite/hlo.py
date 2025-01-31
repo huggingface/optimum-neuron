@@ -36,7 +36,7 @@ def scale_mul(t, scale):
     return dtype[t.sizes].Multiply(t, scale_br_t)
 
 
-class GraniteForSamplingNoEmbeddingHlo(DecoderGraphBuilder):
+class GraniteGraphBuilder(DecoderGraphBuilder):
 
     def __init__(self, config: GraniteConfig, neuron_config: Optional[NeuronConfig] = None):
         self.config = config
