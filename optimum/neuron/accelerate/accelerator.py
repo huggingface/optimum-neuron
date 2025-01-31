@@ -76,7 +76,6 @@ if TYPE_CHECKING:
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
-    from torch_xla.distributed.parallel_loader import MpDeviceLoader
 else:
     xm = None
 
@@ -529,23 +528,15 @@ class NeuronAccelerator(Accelerator):
         yield
         autocast_context.__exit__(*sys.exc_info())
 
-    @requires_neuronx_distributed
-    def _prepare_clip_grad_norm(self, parameters, max_norm, norm_type: int = 2):
-        from neuronx_distributed.pipeline import NxDPPModel
-
-        self.unscale_gradients()
-        parameters = list(parameters)
-        for model in self._models:
-            model_parameters = model.local_parameters() if isinstance(model, NxDPPModel) else model.parameters()
-            if parameters == list(model_parameters) or self.zero_1:
-                for opt in self._optimizers:
-                    # Under this setting, the gradient clipping will be deferred to the optimizer step.
-                    # It will happen after the gradients have been reduced and before the optimizer step.
-                    return opt.prepare_clip_grad_norm(parameters, max_norm, norm_type=norm_type)
-
-    def clip_grad_norm_(self, parameters, max_norm, norm_type=2):
-        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM or self.zero_1:
-            return self._prepare_clip_grad_norm(parameters, max_norm, norm_type=norm_type)
+    def clip_grad_norm_(self, parameters, max_norm, norm_type=2, postpone_clipping_to_optimizer_step: bool = False):
+        if postpone_clipping_to_optimizer_step:
+            parameters = list(parameters)
+            if len(self._optimizers) > 1:
+                raise RuntimeError(
+                    "Postponing gradient clipping to the optimizer step is not possible when multiple optimizer were "
+                    "prepared by the NeuronAccelerator."
+                )
+            self._optimizers[0].prepare_clip_grad_norm(parameters, max_norm, norm_type=norm_type)
         return super().clip_grad_norm_(parameters, max_norm, norm_type=norm_type)
 
     def _custom_save_state(

@@ -69,6 +69,7 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
         self.parameters = []
         self.parameter_ids = {}
         self.clip_grad_norm_to_perform = None
+        self.grad_norm = None
         if self.accelerator_state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             self.parameters = [p for group in self.optimizer.param_groups for p in group["params"]]
             self.parameter_ids = {id(p) for p in self.parameters}
@@ -78,9 +79,7 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
         return super().load_state_dict(state_dict)
 
     def prepare_clip_grad_norm(self, parameters, max_norm, norm_type=2):
-        parameter_ids = {id(p) for p in parameters}
-        if parameter_ids == self.parameter_ids or isinstance(self.optimizer, ZeroRedundancyOptimizer):
-            self.clip_grad_norm_to_perform = {"max_norm": max_norm, "norm_type": norm_type}
+        self.clip_grad_norm_to_perform = {"parameters": parameters, "max_norm": max_norm, "norm_type": norm_type}
 
     @requires_neuronx_distributed
     def step(self, closure=None):
@@ -105,17 +104,15 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                 # Resetting everything.
                 self.optimizer.grad_clipping = False
                 self.clip_grad_norm_to_perform = None
-            elif self.accelerator_state.distributed_type is DistributedType.XLA:
-                optimizer_args = {"closure": closure} if closure is not None else {}
-                # By default barrier=False, but making sure it's the case here since we use ParalleLoader.
-                xm.optimizer_step(self.optimizer, optimizer_args=optimizer_args, barrier=False)
-            elif self.accelerator_state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+            elif self.accelerator_state.distributed_type is DistributedType.XLA or self.accelerator_state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
                 if parallel_layers.parallel_state.get_data_parallel_size() > 1:
                     bucket_allreduce_gradients(xm._fetch_gradients(self.optimizer))
                 if self.clip_grad_norm_to_perform is not None:
-                    parallel_layers.clip_grad_norm(self.parameters, **self.clip_grad_norm_to_perform)
+                    parameters = self.clip_grad_norm_to_perform.pop("parameters", None)
+                    if parameters is not None:
+                        self.grad_norm = parallel_layers.clip_grad_norm(parameters, **self.clip_grad_norm_to_perform)
                     self.clip_grad_norm_to_perform = None
-                self.optimizer.step()
+                self.optimizer.step(closure=closure)
             elif self.scaler is not None:
                 scale_before = self.scaler.get_scale()
                 self.scaler.step(self.optimizer, closure)
