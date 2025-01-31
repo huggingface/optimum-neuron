@@ -42,16 +42,6 @@ class GraniteForSamplingNoEmbeddingHlo:
         self.neuron_config = neuron_config
         self.n_positions = None
 
-    def embedding(self, input_ids, cache_ids, start_ids, last_token_id, block_tables, context_lens, *weights):
-        embed_weight, *rst = weights
-        dtype = getattr(input_ids.scribe, self.neuron_config.amp)
-        hidden = hlo.embedding(embed_weight, input_ids, tp_degree=self.neuron_config.tp_degree, dtype=dtype)
-        if self.config.hidden_size % self.neuron_config.tp_degree != 0:
-            hidden = hlo.slice_along(hidden, dim=-1, limit=self.config.hidden_size, start=0)
-        if self.neuron_config.attention_layout == Layout.HSB:
-            hidden = hlo.transpose210(hidden)
-        return hidden
-
     def pre_layer(
         self, hidden, cache_ids, start_ids, last_token_id, block_tables, context_lens, *weights, position_ids=None
     ):
