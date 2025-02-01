@@ -14,7 +14,6 @@
 # limitations under the License.
 """Neuron export configurations for models using transformers_neuronx."""
 
-
 from optimum.exporters.tasks import TasksManager
 
 from ....neuron.models.granite.model import GraniteForSampling
@@ -71,6 +70,7 @@ class Qwen2NeuronConfig(TextNeuronDecoderConfig):
 class GraniteNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = GraniteForSampling
     CONTINUOUS_BATCHING = True
+
 
 @register_in_tasks_manager("phi4", "text-generation")
 class Phi4NeuronConfig(TextNeuronDecoderConfig):
