@@ -12,12 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Neuron export configurations for decoder models."""
-
-import importlib
-
-from transformers_neuronx import ContinuousBatchingConfig
-from transformers_neuronx import NeuronConfig as TnxNeuronConfig
+"""Neuron export configurations for models using transformers_neuronx."""
 
 from optimum.exporters.tasks import TasksManager
 
@@ -167,6 +162,7 @@ class Qwen2NeuronConfig(NeuronDecoderExportConfig):
 class GraniteNeuronConfig(NeuronDecoderExportConfig):
     NEURONX_CLASS = GraniteForSampling
     CONTINUOUS_BATCHING = True
+
 
 @register_in_tasks_manager("phi4", "text-generation")
 class Phi4NeuronConfig(TextNeuronDecoderConfig):
