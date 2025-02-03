@@ -55,14 +55,14 @@ class GraniteForSampling(NeuronHloDecoderModel):
         self.decoder_lm_head_for_context = self.decoder_param_set.init_context_decoder(model_obj=self)
 
     def load_weights(self):
-        self.materialize_embeddings()
+        # Materialize the embedding to CPU
+        self.chkpt_model.model.embed_tokens.materialize()
 
         for layer in self.chkpt_model.model.layers:
             layer.materialize()
             attn = layer.self_attn
             mlp = layer.mlp
-            is_unit_scale = False
-            new_layer = self.decoder_lm_head.new_layer(is_unit_scale=is_unit_scale)
+            new_layer = self.decoder_lm_head.new_layer()
             new_layer.add_pre_attention_layer_norm(layer.input_layernorm.weight.detach(), None)
             new_layer.add_attention_query(attn.q_proj.weight.detach().T, None)
             new_layer.add_attention_key(attn.k_proj.weight.detach().T, None)
@@ -93,14 +93,6 @@ class GraniteForSampling(NeuronHloDecoderModel):
         lm_head.nullify()
 
         self.decoder_lm_head.to_neuron()
-        self.init_rest_of_model()
-
-    def materialize_embeddings(self):
-        # Materialize the embedding to CPU
-        self.chkpt_model.model.embed_tokens.materialize()
-
-    def init_rest_of_model(self):
-        # Pipeline sparallel deosn't support executor right now
         self.decoder_lm_head.use_executor = True
 
         model = self.decoder_lm_head.build_weight_shared(share_caches=True, new=self.decoder_lm_head_for_context)
