@@ -14,7 +14,7 @@
 # ==============================================================================
 from transformers import PretrainedConfig
 from transformers_neuronx.base import NeuronHloDecoderModel
-from transformers_neuronx.config import Layout, NeuronConfig
+from transformers_neuronx.config import NeuronConfig
 from transformers_neuronx.decoder import DecoderGraph
 from transformers_neuronx.dtypes import to_torch_dtype
 
@@ -107,17 +107,7 @@ class GraniteForSampling(NeuronHloDecoderModel):
         model.use_executor = True
         self.decoder_lm_head_for_context = model
 
-    def preprocess_and_embed(self, input_ids, cache_ids=None, start_ids=None, **kwargs):
-        padded_inputs, *rst = self._preprocess(input_ids, start_ids=start_ids, cache_ids=cache_ids, **kwargs)
-        input_embeddings = self.chkpt_model.model.embed_tokens(padded_inputs)
-        if self.neuron_config.attention_layout == Layout.HSB:
-            input_embeddings = input_embeddings.transpose(0, -1).contiguous()
-        return input_embeddings, *rst
-
     def forward(self, input_ids, cache_ids, start_ids):
-        original_input_ids = input_ids
-        input_embeddings, *rst = self.preprocess_and_embed(input_ids, cache_ids, start_ids)
-        logits = self._forward(input_embeddings, *rst)
+        logits = super().forward(input_ids, cache_ids, start_ids)
         # Granite specific: divide logits by scaling factor
-        logits = logits / self.config.logits_scaling
-        return self._postprocess(original_input_ids, logits, start_ids=start_ids)
+        return logits / self.config.logits_scaling
