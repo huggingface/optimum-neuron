@@ -17,7 +17,7 @@ from typing import Optional
 from transformers.models.granite import GraniteConfig
 from transformers_neuronx import hlo, utils
 from transformers_neuronx.config import Layout, NeuronConfig
-from transformers_neuronx.layers import attention, rotary, transformer
+from transformers_neuronx.layers import attention, rotary
 from transformers_neuronx.llama.hlo import LlamaGraphBuilder
 
 from optimum.utils import logging
@@ -132,22 +132,6 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
         mlp_hidden = scale_mul(mlp_hidden, self.config.residual_multiplier)
         res_hidden = hlo.add(mlp_hidden, hidden)
         return res_hidden, out_attn_k_cache, out_attn_v_cache
-
-    def ln_lm_head(
-        self, hidden, last_token_id, rms_weight, unused_bias, lm_head_weight, lm_head_bias, is_prefill=True
-    ):
-        logits = transformer.rms_lm_head(
-            self.neuron_config.tp_degree,
-            hidden,
-            last_token_id,
-            rms_weight,
-            lm_head_weight,
-            lm_head_bias,
-            is_prefill,
-            eps=self.config.rms_norm_eps,
-            neuron_config=self.neuron_config,
-        )
-        return logits
 
     def attention(
         self,
