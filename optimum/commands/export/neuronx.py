@@ -207,7 +207,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         default=None,
         nargs="*",
         type=str,
-        help="",
+        help="The name of the weight file to load. If a list is passed, it should have the same length as `ip_adapter_subfolders`.",
     )
     optional_group.add_argument(
         "--ip_adapter_scales",

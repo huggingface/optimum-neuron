@@ -45,6 +45,7 @@ from .utils import (
     DIFFUSION_MODEL_CONTROLNET_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
+    DIFFUSION_MODEL_IMAGE_ENCODER_NAME,
     DIFFUSION_MODEL_TRANSFORMER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
@@ -327,7 +328,16 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             self.scheduler = LCMScheduler.from_config(self.scheduler.config)
 
         self.feature_extractor = feature_extractor
-        self.image_encoder = image_encoder  # TODO: implement the class `NeuronImageEncoder`.
+        self.image_encoder = (
+            NeuronModelImageEncoder(
+                image_encoder,
+                self,
+                self.configs[DIFFUSION_MODEL_IMAGE_ENCODER_NAME],
+                self.neuron_configs[DIFFUSION_MODEL_IMAGE_ENCODER_NAME],
+            )
+            if image_encoder is not None and not isinstance(image_encoder, NeuronModelImageEncoder)
+            else image_encoder
+        )
         self.safety_checker = safety_checker  # TODO: implement the class `NeuronStableDiffusionSafetyChecker`.
 
         all_possible_init_args = {
@@ -392,6 +402,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         data_parallel_mode: Optional[Literal["none", "unet", "transformer", "all"]],
         text_encoder_path: Optional[Union[str, Path]] = None,
         text_encoder_2_path: Optional[Union[str, Path]] = None,
+        image_encoder_path: Optional[Union[str, Path]] = None,
         unet_path: Optional[Union[str, Path]] = None,
         transformer_path: Optional[Union[str, Path]] = None,
         vae_encoder_path: Optional[Union[str, Path]] = None,
@@ -412,6 +423,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 Path of the compiled text encoder.
             text_encoder_2_path (`Optional[Union[str, Path]]`, defaults to `None`):
                 Path of the compiled second frozen text encoder. SDXL only.
+            image_encoder_path (`Optional[Union[str, Path]]`, defaults to `None`):
+                Path of the compiled image encoder.
             unet_path (`Optional[Union[str, Path]]`, defaults to `None`):
                 Path of the compiled U-NET.
             transformer_path (`Optional[Union[str, Path]]`, defaults to `None`):
@@ -662,6 +675,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         vae_encoder_file_name: Optional[str] = NEURON_FILE_NAME,
         vae_decoder_file_name: Optional[str] = NEURON_FILE_NAME,
         controlnet_file_name: Optional[str] = NEURON_FILE_NAME,
+        image_encoder_file_name: Optional[str] = NEURON_FILE_NAME,
         local_files_only: bool = False,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         data_parallel_mode: Optional[Literal["none", "unet", "transformer", "all"]] = None,
@@ -683,6 +697,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                     vae_encoder_file_name,
                     vae_decoder_file_name,
                     controlnet_file_name,
+                    image_encoder_file_name,
                     SCHEDULER_CONFIG_NAME,
                     CONFIG_NAME,
                     cls.config_name,
@@ -722,6 +737,10 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             "text_encoder_2": (
                 new_model_save_dir / DIFFUSION_MODEL_TEXT_ENCODER_2_NAME / text_encoder_2_file_name,
                 new_model_save_dir / DIFFUSION_MODEL_TEXT_ENCODER_2_NAME / cls.sub_component_config_name,
+            ),
+            "image_encoder": (
+                new_model_save_dir / DIFFUSION_MODEL_IMAGE_ENCODER_NAME / image_encoder_file_name,
+                new_model_save_dir / DIFFUSION_MODEL_IMAGE_ENCODER_NAME / cls.sub_component_config_name,
             ),
             "unet": (
                 new_model_save_dir / DIFFUSION_MODEL_UNET_NAME / unet_file_name,
@@ -782,6 +801,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             vae_decoder_path=model_and_config_save_paths["vae_decoder"][0],
             vae_encoder_path=model_and_config_save_paths["vae_encoder"][0],
             text_encoder_2_path=model_and_config_save_paths["text_encoder_2"][0],
+            image_encoder_path=model_and_config_save_paths["image_encoder"][0],
             controlnet_paths=model_and_config_save_paths["controlnet"][0],
             dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME].dynamic_batch_size,
             to_neuron=not inline_weights_to_neff,
@@ -846,6 +866,10 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         lora_adapter_names: Optional[Union[str, List[str]]] = None,
         lora_scales: Optional[Union[float, List[float]]] = None,
         controlnet_ids: Optional[Union[str, List[str]]] = None,
+        ip_adapter_ids: Optional[Union[str, List[str]]] = None,
+        ip_adapter_subfolders: Optional[Union[str, List[str]]] = None,
+        ip_adapter_weight_names: Optional[Union[str, List[str]]] = None,
+        ip_adapter_scales: Optional[Union[float, List[float]]] = None,
         **kwargs_shapes,
     ) -> "NeuronDiffusionPipelineBase":
         """
@@ -919,6 +943,14 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 Lora adapters scaling factors.
             controlnet_ids (`Optional[Union[str, List[str]]]`, defaults to `None`):
                 List of ControlNet model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`)."
+            ip_adapter_ids (`Optional[Union[str, List[str]]]`, defaults to `None`):
+                Model ids (eg. `h94/IP-Adapter`) of IP-Adapter models hosted on the Hub or paths to local directories containing the IP-Adapter weights.
+            ip_adapter_subfolders (`Optional[Union[str, List[str]]]`, defaults to `None`):
+                The subfolder location of a model file within a larger model repository on the Hub or locally. If a list is passed, it should have the same length as `ip_adapter_weight_names`.
+            ip_adapter_weight_names (`Optional[Union[str, List[str]]]`, defaults to `None`):
+                The name of the weight file to load. If a list is passed, it should have the same length as `ip_adapter_subfolders`.
+            ip_adapter_scales (`Optional[Union[float, List[float]]]`, defaults to `None`):
+                Scaling factors for the IP-Adapters.
             kwargs_shapes (`Dict[str, int]`):
                 Shapes to use during inference. This argument allows to override the default shapes used during the export.
         """
@@ -983,6 +1015,10 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 lora_scales=lora_scales,
                 torch_dtype=torch_dtype,
                 controlnet_ids=controlnet_ids,
+                ip_adapter_ids=ip_adapter_ids,
+                ip_adapter_subfolders=ip_adapter_subfolders,
+                ip_adapter_weight_names=ip_adapter_weight_names,
+                ip_adapter_scales=ip_adapter_scales,
                 **input_shapes_copy,
             )
 
@@ -1060,6 +1096,10 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 lora_adapter_names=lora_adapter_names,
                 lora_scales=lora_scales,
                 controlnet_ids=controlnet_ids,
+                ip_adapter_ids=ip_adapter_ids,
+                ip_adapter_subfolders=ip_adapter_subfolders,
+                ip_adapter_weight_names=ip_adapter_weight_names,
+                ip_adapter_scales=ip_adapter_scales,
                 library_name=cls.library_name,
                 **input_shapes,
             )
@@ -1202,6 +1242,36 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
     def modules(self):
         # dummy func for passing `unscale_lora_layers`.
         return []
+
+
+class NeuronModelImageEncoder(_NeuronDiffusionModelPart):
+    def __init__(
+        self,
+        model: torch.jit._script.ScriptModule,
+        parent_pipeline: NeuronDiffusionPipelineBase,
+        config: Optional[DiffusersPretrainedConfig] = None,
+        neuron_config: Optional[Dict[str, str]] = None,
+    ):
+        super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_IMAGE_ENCODER_NAME)
+
+    def forward(
+        self,
+        pixel_values: torch.FloatTensor,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        interpolate_pos_encoding: bool = False,
+        return_dict: Optional[bool] = True,
+    ):
+
+        pixel_values = pixel_values.to(torch.long)  # dummy generator uses long int for tracing
+        inputs = (pixel_values,)
+
+        outputs = self.model(*inputs)
+
+        if return_dict:
+            outputs = ModelOutput(dict(zip(self.neuron_config.outputs, outputs)))
+
+        return outputs
 
 
 class NeuronModelUnet(_NeuronDiffusionModelPart):

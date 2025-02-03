@@ -62,6 +62,7 @@ from ..model_wrappers import (
     T5EncoderForSeq2SeqLMWrapper,
     T5EncoderWrapper,
     UnetNeuronWrapper,
+    CLIPVisionWithProjectionNeuronWrapper,
 )
 
 
@@ -248,6 +249,7 @@ class CLIPNormalizedConfig(NormalizedTextAndVisionConfig):
 @register_in_tasks_manager("clip-vision-with-projection", *["feature-extraction"], library_name="diffusers")
 class CLIPVisionWithProjectionModelNeuronConfig(VisionNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedVisionConfig
+    CUSTOM_MODEL_WRAPPER = CLIPVisionWithProjectionNeuronWrapper
 
     @property
     def inputs(self) -> List[str]:
@@ -595,7 +597,7 @@ class WavLMNeuronConfig(Wav2Vec2NeuronConfig):
 @register_in_tasks_manager("unet", *["semantic-segmentation"], library_name="diffusers")
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "width", "height", "vae_scale_factor", "image_encoder_sequence_length", "image_encoder_hidden_size")
+    INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "width", "height", "vae_scale_factor")
     MODEL_TYPE = "unet"
     CUSTOM_MODEL_WRAPPER = UnetNeuronWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
@@ -641,7 +643,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
     def outputs(self) -> List[str]:
         return ["sample"]
 
-    def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
+    def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):    
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
         dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
         dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
@@ -693,6 +695,10 @@ class UNetNeuronConfig(VisionNeuronConfig):
     @with_ip_adapter.setter
     def with_ip_adapter(self, with_ip_adapter: bool):
         self._with_ip_adapter = with_ip_adapter
+        if with_ip_adapter:
+            self.mandatory_axes += ("image_encoder_sequence_length", "image_encoder_hidden_size")
+            setattr(self, "image_encoder_sequence_length", self.input_shapes["image_encoder_sequence_length"])
+            setattr(self, "image_encoder_hidden_size", self.input_shapes["image_encoder_hidden_size"])
 
 
 @register_in_tasks_manager("pixart-transformer-2d", *["semantic-segmentation"], library_name="diffusers")

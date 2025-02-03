@@ -569,6 +569,20 @@ class SentenceTransformersTransformerNeuronWrapper(torch.nn.Module):
         return out_tuple["token_embeddings"], out_tuple["sentence_embedding"]
 
 
+class CLIPVisionWithProjectionNeuronWrapper(torch.nn.Module):
+    def __init__(self, model, input_names: List[str]):
+        super().__init__()
+        self.model = model
+        self.input_names = input_names
+
+    def forward(self, pixel_values):
+        vision_outputs = self.model.vision_model(pixel_values=pixel_values)
+        pooled_output = vision_outputs[1]
+        image_embeds = self.model.visual_projection(pooled_output)
+
+        return (image_embeds, vision_outputs.last_hidden_state, vision_outputs.hidden_states)
+
+
 class SentenceTransformersCLIPNeuronWrapper(torch.nn.Module):
     def __init__(self, model, input_names: List[str]):
         super().__init__()

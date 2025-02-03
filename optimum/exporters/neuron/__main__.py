@@ -272,7 +272,7 @@ def infer_stable_diffusion_shapes_from_diffusers(
             "encoder_hidden_size": encoder_hidden_size,
         }
 
-    # IP-Adapter
+    # Image encoder
     if getattr(model, "image_encoder", None):
         input_shapes["image_encoder"] = {
             "batch_size": input_shapes[unet_or_transformer_name]["batch_size"],
@@ -280,13 +280,15 @@ def infer_stable_diffusion_shapes_from_diffusers(
             "width": model.image_encoder.config.image_size,
             "height": model.image_encoder.config.image_size,
         }
+        # IP-Adapter: add image_embeds as input for unet/transformer
         # unet has `ip_adapter_image_embeds` with shape [batch_size, 1, (self.image_encoder.config.image_size//patch_size)**2+1, self.image_encoder.config.hidden_size] as input
-        input_shapes[unet_or_transformer_name]["image_encoder_sequence_length"] = (
-            model.image_encoder.vision_model.embeddings.position_embedding.weight.shape[0]
-        )
-        input_shapes[unet_or_transformer_name]["image_encoder_hidden_size"] = (
-            model.image_encoder.vision_model.embeddings.position_embedding.weight.shape[1]
-        )
+        if getattr(model.unet.config, "encoder_hid_dim_type", None)=="ip_image_proj":
+            input_shapes[unet_or_transformer_name]["image_encoder_sequence_length"] = (
+                model.image_encoder.vision_model.embeddings.position_embedding.weight.shape[0]
+            )
+            input_shapes[unet_or_transformer_name]["image_encoder_hidden_size"] = (
+                model.image_encoder.vision_model.embeddings.position_embedding.weight.shape[1]
+            )
 
     return input_shapes
 
