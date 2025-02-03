@@ -89,6 +89,5 @@ class Qwen2ForSampling(NeuronHloDecoderModel):
         self.decoder_lm_head.to_neuron()
         self.decoder_lm_head.use_executor = True
 
-        model = self.decoder_lm_head.build_weight_shared(share_caches=True, new=self.decoder_lm_head_for_context)
-        model.use_executor = True
-        self.decoder_lm_head_for_context = model
+        self.decoder_lm_head_for_context.load_shared_weights(self.decoder_lm_head)
+        self.decoder_lm_head_for_context.use_executor = True
