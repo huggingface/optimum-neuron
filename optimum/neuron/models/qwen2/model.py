@@ -54,8 +54,8 @@ class Qwen2ForSampling(NeuronHloDecoderModel):
         self.decoder_lm_head_for_context = self.decoder_param_set.init_context_decoder(model_obj=self)
 
     def load_weights(self):
-        self.materialize_embeddings()
-        init_neuron()
+        # Materialize the embedding to CPU
+        self.chkpt_model.model.embed_tokens.materialize()
 
         for layer in self.chkpt_model.model.layers:
             layer.materialize()
@@ -87,14 +87,6 @@ class Qwen2ForSampling(NeuronHloDecoderModel):
         lm_head.nullify()
 
         self.decoder_lm_head.to_neuron()
-        self.init_rest_of_model()
-
-    def materialize_embeddings(self):
-        # Materialize the embedding to CPU
-        self.chkpt_model.model.embed_tokens.materialize()
-
-    def init_rest_of_model(self):
-        # Pipeline sparallel deosn't support executor right now
         self.decoder_lm_head.use_executor = True
 
         model = self.decoder_lm_head.build_weight_shared(share_caches=True, new=self.decoder_lm_head_for_context)
