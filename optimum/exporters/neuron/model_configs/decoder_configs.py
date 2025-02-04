@@ -16,8 +16,8 @@
 
 import importlib
 
-from transformers_neuronx.base import NeuronHloDecoderModel
 from transformers_neuronx.config import NeuronConfig
+from transformers_neuronx.decoder import NeuronHloDecoderModel
 
 from optimum.exporters.base import ExportConfig
 from optimum.exporters.tasks import TasksManager

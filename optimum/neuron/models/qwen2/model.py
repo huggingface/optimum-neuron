@@ -14,9 +14,8 @@
 # ==============================================================================
 
 from transformers import PretrainedConfig
-from transformers_neuronx.base import NeuronHloDecoderModel
 from transformers_neuronx.config import NeuronConfig
-from transformers_neuronx.decoder import DecoderGraph
+from transformers_neuronx.decoder import NeuronHloDecoderModel
 from transformers_neuronx.dtypes import to_torch_dtype
 from transformers_neuronx.llama.hlo import LlamaGraphBuilder
 
@@ -38,20 +37,15 @@ class Qwen2ForSampling(NeuronHloDecoderModel):
         neuron_config: NeuronConfig,
     ):
         dtype = to_torch_dtype(neuron_config.amp)
-        super().__init__(Qwen2ForCausalLM, config, dtype)
-        self.config = config
-        self.neuron_config = neuron_config
-        hlo_builder = LlamaGraphBuilder(config, neuron_config=self.neuron_config)
-        self.decoder_lm_head = DecoderGraph.init_token_decoder(config, neuron_config, hlo_builder, model_obj=self)
-        self.decoder_lm_head_for_context = DecoderGraph.init_context_decoder(
-            config, neuron_config, hlo_builder, model_obj=self
-        )
+        cpu_model = Qwen2ForCausalLM(config, dtype)
+        hlo_builder = LlamaGraphBuilder(config, neuron_config)
+        super().__init__(config, neuron_config, cpu_model, hlo_builder)
 
     def load_weights(self):
         # Materialize the embedding to CPU
-        self.chkpt_model.model.embed_tokens.materialize()
+        self.cpu_model.model.embed_tokens.materialize()
 
-        for layer in self.chkpt_model.model.layers:
+        for layer in self.cpu_model.model.layers:
             layer.materialize()
             attn = layer.self_attn
             mlp = layer.mlp
@@ -71,11 +65,11 @@ class Qwen2ForSampling(NeuronHloDecoderModel):
             new_layer.add_parameter(mlp.down_proj.weight, sharding=1)
             new_layer.to_neuron()
             layer.nullify()
-        ln_f = self.chkpt_model.model.norm
+        ln_f = self.cpu_model.model.norm
         ln_f.materialize()
         self.decoder_lm_head.add_final_layer_norm(ln_f.weight.detach(), None)
 
-        lm_head = self.chkpt_model.lm_head
+        lm_head = self.cpu_model.lm_head
         lm_head.materialize()
         self.decoder_lm_head.add_lm_head(lm_head.weight.detach().T)
         lm_head.nullify()
