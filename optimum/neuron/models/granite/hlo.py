@@ -15,9 +15,10 @@
 from typing import Optional
 
 from transformers.models.granite import GraniteConfig
-from transformers_neuronx import hlo, utils
-from transformers_neuronx.config import Layout, NeuronConfig
-from transformers_neuronx.layers import attention, rotary
+from transformers_neuronx.backends.hlo import functional
+from transformers_neuronx.backends.hlo.config import Layout, NeuronConfig
+from transformers_neuronx.backends.hlo.layers import attention, rotary
+from transformers_neuronx.backends.hlo.utils import get_qkv_padding
 from transformers_neuronx.llama.hlo import LlamaGraphBuilder
 
 from optimum.utils import logging
@@ -82,7 +83,7 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
     ):
         eps = self.config.rms_norm_eps
         is_bsh = self.neuron_config and self.neuron_config.attention_layout == Layout.BSH
-        ln_hidden = hlo.rms_norm(
+        ln_hidden = functional.rms_norm(
             hidden,
             pre_attn_ln_weight,
             eps,
@@ -109,10 +110,10 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
         )
         # Granite specific: attention output is multiplied by residual multiplier
         attn_output = scale_mul(attn_output, self.config.residual_multiplier)
-        hidden = hlo.add(attn_output, hidden)
-        gated_mlp = hlo.gated_mlp_bsh if is_bsh else hlo.gated_mlp
+        hidden = functional.add(attn_output, hidden)
+        gated_mlp = functional.gated_mlp_bsh if is_bsh else functional.gated_mlp
         rms_norm_dim = 2 if is_bsh else 0
-        norm_hidden = hlo.rms_norm(
+        norm_hidden = functional.rms_norm(
             hidden,
             pre_mlp_ln_weight,
             eps,
@@ -130,7 +131,7 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
         )
         # Granite specific: MLP output is multiplied by residual_multiplier
         mlp_hidden = scale_mul(mlp_hidden, self.config.residual_multiplier)
-        res_hidden = hlo.add(mlp_hidden, hidden)
+        res_hidden = functional.add(mlp_hidden, hidden)
         return res_hidden, out_attn_k_cache, out_attn_v_cache
 
     def attention(
@@ -161,7 +162,7 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
         if self.config.num_key_value_heads is not None:
             n_head = self.config.num_attention_heads
             n_kv_head = self.config.num_key_value_heads
-            n_head_padded, n_kv_head_padded = utils.get_qkv_padding(n_head, n_kv_head, self.neuron_config)
+            n_head_padded, n_kv_head_padded = get_qkv_padding(n_head, n_kv_head, self.neuron_config)
             n_kv_heads_tp = n_kv_head_padded // tp_degree
 
         # Q = (hidden @ wQ) + bQ
@@ -207,13 +208,13 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
                 # corresponding to the batch size of the speculative head
                 slice_sizes = [1] * len(cached_keys.sizes)
                 if cached_keys.sizes[batch_dim] == 1:
-                    # Use hlo.select for batch size 1 as index select is prohibitively slow
-                    # TODO: revert to hlo.index_select once its faster P126527643
-                    cached_keys_s = hlo.select(
-                        cached_keys, batch_dim, hlo.reshape(start_ids, slice_sizes), keepdim=True
+                    # Use functional.select for batch size 1 as index select is prohibitively slow
+                    # TODO: revert to functional.index_select once its faster P126527643
+                    cached_keys_s = functional.select(
+                        cached_keys, batch_dim, functional.reshape(start_ids, slice_sizes), keepdim=True
                     )
-                    cached_values_s = hlo.select(
-                        cached_values, batch_dim, hlo.reshape(start_ids, slice_sizes), keepdim=True
+                    cached_values_s = functional.select(
+                        cached_values, batch_dim, functional.reshape(start_ids, slice_sizes), keepdim=True
                     )
                 elif cached_keys.sizes[batch_dim] == start_ids.sizes[0]:
                     # For batched speculative decoding, we will select kv caches for all sequences. No need to do
@@ -223,8 +224,8 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
                 else:
                     # for multi prompt use case, cached_keys.sizes[batch_dim] can still be larger than 1, so we
                     # need to use start_ids size to determine if we want to select kv cache.
-                    cached_keys_s = hlo.index_select(cached_keys, batch_dim, start_ids)
-                    cached_values_s = hlo.index_select(cached_values, batch_dim, start_ids)
+                    cached_keys_s = functional.index_select(cached_keys, batch_dim, start_ids)
+                    cached_values_s = functional.index_select(cached_values, batch_dim, start_ids)
             else:
                 cached_keys_s = cached_keys
                 cached_values_s = cached_values

@@ -14,8 +14,8 @@
 # ==============================================================================
 
 from transformers import PretrainedConfig
-from transformers_neuronx.config import NeuronConfig
-from transformers_neuronx.dtypes import to_torch_dtype
+from transformers_neuronx.backends.hlo.config import NeuronConfig
+from transformers_neuronx.backends.hlo.dtypes import to_torch_dtype
 from transformers_neuronx.llama.model import LlamaHloModel
 
 from .modules import Qwen2ForCausalLM

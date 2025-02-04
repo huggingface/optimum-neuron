@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 from transformers import PretrainedConfig
-from transformers_neuronx.config import NeuronConfig
+from transformers_neuronx.backends.hlo.config import NeuronConfig
 from transformers_neuronx.llama.model import LlamaHloModel
 
 from .hlo import GraniteGraphBuilder

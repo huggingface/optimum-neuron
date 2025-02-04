@@ -14,7 +14,7 @@
 # ==============================================================================
 
 from transformers.models.qwen2 import Qwen2Config
-from transformers_neuronx import module
+from transformers_neuronx.backends.hlo import module
 from transformers_neuronx.llama.modules import LlamaMLP, LlamaRMSNorm
 
 
