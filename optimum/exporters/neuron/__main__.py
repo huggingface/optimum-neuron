@@ -47,7 +47,7 @@ from ...neuron.utils.version_utils import (
 from ...utils import is_diffusers_available, logging
 from ..error_utils import AtolError, OutputMatchError, ShapeError
 from ..tasks import TasksManager
-from .base import NeuronConfig, NeuronDecoderConfig
+from .base import NeuronDecoderConfig, NeuronExportConfig
 from .convert import export_models, validate_models_outputs
 from .model_configs import *  # noqa: F403
 from .utils import (
@@ -122,7 +122,7 @@ def get_input_shapes_and_config_class(task: str, args: argparse.Namespace) -> Di
     return input_shapes, neuron_config_constructor.func
 
 
-def get_neuron_config_class(task: str, model_id: str) -> NeuronConfig:
+def get_neuron_config_class(task: str, model_id: str) -> NeuronExportConfig:
     config = AutoConfig.from_pretrained(model_id)
 
     model_type = config.model_type.replace("_", "-")
