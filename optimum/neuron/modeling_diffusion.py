@@ -449,6 +449,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             "vae_encoder": vae_encoder_path,
             "vae_decoder": vae_decoder_path,
             "controlnet": controlnet_paths,
+            "image_encoder": image_encoder_path,
         }
 
         def _load_models_to_neuron(submodels, models_on_both_cores=None, models_on_a_single_core=None):
@@ -530,7 +531,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
     def replace_weights(self, weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]] = None):
         check_if_weights_replacable(self.configs, weights)
-        model_names = ["text_encoder", "text_encoder_2", "unet", "transformer", "vae_decoder", "vae_encoder"]
+        model_names = ["text_encoder", "text_encoder_2", "unet", "transformer", "vae_decoder", "vae_encoder", "image_encoder"]
         for name in model_names:
             model = getattr(self, name, None)
             weight = getattr(weights, name, None)
@@ -565,6 +566,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         vae_encoder_file_name: str = NEURON_FILE_NAME,
         vae_decoder_file_name: str = NEURON_FILE_NAME,
         controlnet_file_name: str = NEURON_FILE_NAME,
+        image_encoder_file_name: str = NEURON_FILE_NAME,
     ):
         """
         Saves the model to the serialized format optimized for Neuron devices.
@@ -589,6 +591,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 DIFFUSION_MODEL_UNET_NAME,
                 DIFFUSION_MODEL_TRANSFORMER_NAME,
                 DIFFUSION_MODEL_VAE_ENCODER_NAME,
+                DIFFUSION_MODEL_IMAGE_ENCODER_NAME,
             ]
         )
 
@@ -617,6 +620,9 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             DIFFUSION_MODEL_VAE_DECODER_NAME: save_directory
             / DIFFUSION_MODEL_VAE_DECODER_NAME
             / vae_decoder_file_name,
+            DIFFUSION_MODEL_IMAGE_ENCODER_NAME: save_directory
+            / DIFFUSION_MODEL_IMAGE_ENCODER_NAME
+            / image_encoder_file_name,
         }
         dst_paths[DIFFUSION_MODEL_CONTROLNET_NAME] = [
             save_directory / (DIFFUSION_MODEL_CONTROLNET_NAME + f"_{str(idx)}") / controlnet_file_name

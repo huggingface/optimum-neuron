@@ -62,7 +62,7 @@ from ..model_wrappers import (
     T5EncoderForSeq2SeqLMWrapper,
     T5EncoderWrapper,
     UnetNeuronWrapper,
-    CLIPVisionWithProjectionNeuronWrapper,
+    CLIPVisionModelNeuronWrapper,
 )
 
 
@@ -246,10 +246,10 @@ class CLIPNormalizedConfig(NormalizedTextAndVisionConfig):
     VISION_CONFIG = "vision_config"
 
 
-@register_in_tasks_manager("clip-vision-with-projection", *["feature-extraction"], library_name="diffusers")
-class CLIPVisionWithProjectionModelNeuronConfig(VisionNeuronConfig):
+@register_in_tasks_manager("clip-vision-model", *["feature-extraction"], library_name="diffusers")
+class CLIPVisionModelNeuronConfig(VisionNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedVisionConfig
-    CUSTOM_MODEL_WRAPPER = CLIPVisionWithProjectionNeuronWrapper
+    CUSTOM_MODEL_WRAPPER = CLIPVisionModelNeuronWrapper
 
     @property
     def inputs(self) -> List[str]:

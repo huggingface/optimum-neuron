@@ -337,7 +337,7 @@ def get_diffusion_models_for_export(
             model=image_encoder,
             exporter="neuron",
             task="feature-extraction",
-            model_type="clip-vision-with-projection",
+            model_type="clip-vision-model",
             library_name=library_name,
         )
         image_encoder_neuron_config = image_encoder_config_constructor(

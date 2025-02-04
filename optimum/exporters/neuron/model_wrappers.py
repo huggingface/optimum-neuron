@@ -569,7 +569,7 @@ class SentenceTransformersTransformerNeuronWrapper(torch.nn.Module):
         return out_tuple["token_embeddings"], out_tuple["sentence_embedding"]
 
 
-class CLIPVisionWithProjectionNeuronWrapper(torch.nn.Module):
+class CLIPVisionModelNeuronWrapper(torch.nn.Module):
     def __init__(self, model, input_names: List[str]):
         super().__init__()
         self.model = model
