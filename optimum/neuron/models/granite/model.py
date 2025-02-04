@@ -42,17 +42,12 @@ class GraniteForSampling(NeuronHloDecoderModel):
         dtype = to_torch_dtype(neuron_config.amp)
         super().__init__(GraniteForCausalLM, config, dtype)
         self.config = config
-        self.neuron_config = neuron_config if neuron_config else NeuronConfig()
+        self.neuron_config = neuron_config
         hlo_builder = GraniteGraphBuilder(config, neuron_config=self.neuron_config)
-
-        self.decoder_param_set = DecoderGraph(
-            config=config,
-            neuron_config=self.neuron_config,
-            n_active_tokens=1,
-            builder=hlo_builder,
+        self.decoder_lm_head = DecoderGraph.init_token_decoder(config, neuron_config, hlo_builder, model_obj=self)
+        self.decoder_lm_head_for_context = DecoderGraph.init_context_decoder(
+            config, neuron_config, hlo_builder, model_obj=self
         )
-        self.decoder_lm_head = self.decoder_param_set.init_token_decoder(model_obj=self)
-        self.decoder_lm_head_for_context = self.decoder_param_set.init_context_decoder(model_obj=self)
 
     def load_weights(self):
         # Materialize the embedding to CPU
