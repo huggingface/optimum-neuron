@@ -15,7 +15,7 @@
 
 from transformers.models.qwen2 import Qwen2Config
 from transformers_neuronx import module
-from transformers_neuronx.llama.modules import LlamaRMSNorm
+from transformers_neuronx.llama.modules import LlamaMLP, LlamaRMSNorm
 
 
 class Qwen2ForCausalLM(module.PretrainedModel):
@@ -45,7 +45,7 @@ class Qwen2DecoderLayer(module.LowMemoryModule):
     def __init__(self, config: Qwen2Config, dtype):
         super().__init__()
         self.self_attn = Qwen2Attention(config, dtype)
-        self.mlp = Qwen2MLP(config, dtype)
+        self.mlp = LlamaMLP(config, dtype)
         self.input_layernorm = LlamaRMSNorm()
         self.post_attention_layernorm = LlamaRMSNorm()
 
@@ -60,11 +60,3 @@ class Qwen2Attention(module.LowMemoryModule):
         self.k_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=True, dtype=dtype)
         self.v_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=True, dtype=dtype)
         self.o_proj = module.LowMemoryLazyLinear(self.hidden_size, bias=False, dtype=dtype)
-
-
-class Qwen2MLP(module.LowMemoryModule):
-    def __init__(self, config: Qwen2Config, dtype):
-        super().__init__()
-        self.gate_proj = module.LowMemoryLazyLinear(config.intermediate_size, bias=False, dtype=dtype)
-        self.up_proj = module.LowMemoryLazyLinear(config.intermediate_size, bias=False, dtype=dtype)
-        self.down_proj = module.LowMemoryLazyLinear(config.hidden_size, bias=False, dtype=dtype)
