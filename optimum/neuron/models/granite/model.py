@@ -14,23 +14,21 @@
 # ==============================================================================
 from transformers import PretrainedConfig
 from transformers_neuronx.config import NeuronConfig
-from transformers_neuronx.decoder import NeuronHloDecoderModel
-from transformers_neuronx.dtypes import to_torch_dtype
+from transformers_neuronx.llama.model import LlamaHloModel
 
 from .hlo import GraniteGraphBuilder
-from .modules import GraniteForCausalLM
 
 
-class GraniteForSampling(NeuronHloDecoderModel):
+class GraniteForSampling(LlamaHloModel):
     """The Granite model is a LLama model with 4 scalar multpliers that are applied to:
     - the embeddings,
     - the QK product in the attention (instead of the static 1/sqrt(num_heads))
     - the MLP outputs
     - the lm_head logits
-    The implementation in this class is very similar to the one used for Llama in Tnx.
+    The implementation in this class is very similar to the one used for Llama.
     The only differences are:
-    - the config (GraniteConfig) and base model (GraniteForCausalLM) used in __init__,
-    - the multiplication of the logits by the logits multiplier
+    - the specific graph builder used to insert the scaling operations,
+    - the overloaded forward to add multiplication of the logits by the logits multiplier.
     """
 
     def __init__(
@@ -38,54 +36,7 @@ class GraniteForSampling(NeuronHloDecoderModel):
         config: PretrainedConfig,
         neuron_config: NeuronConfig,
     ):
-        dtype = to_torch_dtype(neuron_config.amp)
-        cpu_model = GraniteForCausalLM(config, dtype)
-        hlo_builder = GraniteGraphBuilder(config, neuron_config)
-        super().__init__(config, neuron_config, cpu_model, hlo_builder)
-
-    def load_weights(self):
-        # Materialize the embedding to CPU
-        self.cpu_model.model.embed_tokens.materialize()
-
-        for layer in self.cpu_model.model.layers:
-            layer.materialize()
-            attn = layer.self_attn
-            mlp = layer.mlp
-            new_layer = self.decoder_lm_head.new_layer()
-            new_layer.add_pre_attention_layer_norm(layer.input_layernorm.weight.detach(), None)
-            new_layer.add_attention_query(attn.q_proj.weight.detach().T, None)
-            new_layer.add_attention_key(attn.k_proj.weight.detach().T, None)
-            new_layer.add_attention_value(attn.v_proj.weight.detach().T, None)
-            if self.neuron_config and self.neuron_config.attn_output_transposed:
-                new_layer.add_attention_output(attn.o_proj.weight.T.detach(), None, sharding=0, transposed=True)
-            else:
-                new_layer.add_attention_output(attn.o_proj.weight.detach(), None, sharding=1, transposed=False)
-
-            new_layer.add_pre_mlp_layer_norm(layer.post_attention_layernorm.weight.detach(), None)
-            new_layer.add_parameter(mlp.gate_proj.weight.T, sharding=1, allow_transform=True)
-            new_layer.add_parameter(mlp.up_proj.weight.T, sharding=1, allow_transform=True)
-            new_layer.add_parameter(
-                mlp.down_proj.weight,
-                sharding=1,
-            )
-            new_layer.to_neuron()
-            layer.nullify()
-
-        ln_f = self.cpu_model.model.norm
-        ln_f.materialize()
-        self.decoder_lm_head.add_final_layer_norm(ln_f.weight.detach(), None)
-        ln_f.nullify()
-
-        lm_head = self.cpu_model.lm_head
-        lm_head.materialize()
-        self.decoder_lm_head.add_lm_head(lm_head.weight.detach().T)
-        lm_head.nullify()
-
-        self.decoder_lm_head.to_neuron()
-        self.decoder_lm_head.use_executor = True
-
-        self.decoder_lm_head_for_context.load_shared_weights(self.decoder_lm_head)
-        self.decoder_lm_head_for_context.use_executor = True
+        super().__init__(config, neuron_config, hlo_builder=GraniteGraphBuilder(config, neuron_config))
 
     def forward(self, input_ids, cache_ids, start_ids):
         logits = super().forward(input_ids, cache_ids, start_ids)
