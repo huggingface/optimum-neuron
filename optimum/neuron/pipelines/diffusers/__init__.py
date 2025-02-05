@@ -14,4 +14,4 @@
 # limitations under the License.
 from .pipeline_controlnet import NeuronStableDiffusionControlNetPipelineMixin
 from .pipeline_controlnet_sd_xl import NeuronStableDiffusionXLControlNetPipelineMixin
-from .pipeline_utils import NeuronStableDiffusionXLPipelineMixin, NeuronIPAdapterMixin
+from .pipeline_utils import NeuronIPAdapterMixin, NeuronStableDiffusionXLPipelineMixin

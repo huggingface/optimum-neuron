@@ -282,7 +282,7 @@ def infer_stable_diffusion_shapes_from_diffusers(
         }
         # IP-Adapter: add image_embeds as input for unet/transformer
         # unet has `ip_adapter_image_embeds` with shape [batch_size, 1, (self.image_encoder.config.image_size//patch_size)**2+1, self.image_encoder.config.hidden_size] as input
-        if getattr(model.unet.config, "encoder_hid_dim_type", None)=="ip_image_proj":
+        if getattr(model.unet.config, "encoder_hid_dim_type", None) == "ip_image_proj":
             input_shapes[unet_or_transformer_name]["image_encoder_sequence_length"] = (
                 model.image_encoder.vision_model.embeddings.position_embedding.weight.shape[0]
             )

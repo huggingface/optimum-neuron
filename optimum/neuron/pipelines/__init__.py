@@ -30,10 +30,10 @@ _import_structure = {
 
 if TYPE_CHECKING:
     from .diffusers import (
+        NeuronIPAdapterMixin,
         NeuronStableDiffusionControlNetPipelineMixin,
         NeuronStableDiffusionXLControlNetPipelineMixin,
         NeuronStableDiffusionXLPipelineMixin,
-        NeuronIPAdapterMixin,
     )
     from .transformers import pipeline
 else:

@@ -43,9 +43,9 @@ from ..utils import is_diffusers_available
 from .modeling_traced import NeuronTracedModel
 from .utils import (
     DIFFUSION_MODEL_CONTROLNET_NAME,
+    DIFFUSION_MODEL_IMAGE_ENCODER_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
-    DIFFUSION_MODEL_IMAGE_ENCODER_NAME,
     DIFFUSION_MODEL_TRANSFORMER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
@@ -102,10 +102,10 @@ if is_diffusers_available():
     from diffusers.utils import CONFIG_NAME
 
     from .pipelines import (
+        NeuronIPAdapterMixin,
         NeuronStableDiffusionControlNetPipelineMixin,
         NeuronStableDiffusionXLControlNetPipelineMixin,
         NeuronStableDiffusionXLPipelineMixin,
-        NeuronIPAdapterMixin,
     )
 
     os.environ["NEURON_FUSE_SOFTMAX"] = "1"
@@ -532,7 +532,15 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, NeuronIPAdapterMixin):
 
     def replace_weights(self, weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]] = None):
         check_if_weights_replacable(self.configs, weights)
-        model_names = ["text_encoder", "text_encoder_2", "unet", "transformer", "vae_decoder", "vae_encoder", "image_encoder"]
+        model_names = [
+            "text_encoder",
+            "text_encoder_2",
+            "unet",
+            "transformer",
+            "vae_decoder",
+            "vae_encoder",
+            "image_encoder",
+        ]
         for name in model_names:
             model = getattr(self, name, None)
             weight = getattr(weights, name, None)
@@ -1320,9 +1328,11 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
             for optional_input_name in optional_inputs_names:
                 optional_input = added_cond_kwargs.get(optional_input_name, None)
                 if isinstance(optional_input, List):
-                    optional_input = torch.stack(optional_input, dim=0) if len(optional_input)>1 else optional_input[0]
+                    optional_input = (
+                        torch.stack(optional_input, dim=0) if len(optional_input) > 1 else optional_input[0]
+                    )
                 if optional_input is not None:
-                    inputs = inputs + (optional_input, )                    
+                    inputs = inputs + (optional_input,)
 
         outputs = self.model(*inputs)
         if return_dict:

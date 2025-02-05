@@ -53,6 +53,7 @@ from ..config import (
     VisionNeuronConfig,
 )
 from ..model_wrappers import (
+    CLIPVisionModelNeuronWrapper,
     ControlNetNeuronWrapper,
     NoCacheModelWrapper,
     PixartTransformerNeuronWrapper,
@@ -62,7 +63,6 @@ from ..model_wrappers import (
     T5EncoderForSeq2SeqLMWrapper,
     T5EncoderWrapper,
     UnetNeuronWrapper,
-    CLIPVisionModelNeuronWrapper,
 )
 
 
@@ -634,7 +634,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
     def outputs(self) -> List[str]:
         return ["sample"]
 
-    def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):    
+    def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
         dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
         dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
