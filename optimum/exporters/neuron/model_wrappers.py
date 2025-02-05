@@ -576,7 +576,7 @@ class CLIPVisionModelNeuronWrapper(torch.nn.Module):
         self.input_names = input_names
 
     def forward(self, pixel_values):
-        vision_outputs = self.model.vision_model(pixel_values=pixel_values)
+        vision_outputs = self.model.vision_model(pixel_values=pixel_values, output_hidden_states=True)
         pooled_output = vision_outputs[1]
         image_embeds = self.model.visual_projection(pooled_output)
 

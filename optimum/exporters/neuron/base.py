@@ -120,6 +120,7 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
     DUMMY_INPUT_GENERATOR_CLASSES = ()
     ATOL_FOR_VALIDATION: Union[float, Dict[str, float]] = 1e-5
     MODEL_TYPE = None
+    CUSTOM_MODEL_WRAPPER = None
 
     _TASK_TO_COMMON_OUTPUTS = {
         "depth-estimation": ["predicted_depth"],
@@ -430,7 +431,10 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
 
                 return outputs
 
-        return ModelWrapper(model, list(dummy_inputs.keys()))
+        if self.CUSTOM_MODEL_WRAPPER is None:
+            return ModelWrapper(model, list(dummy_inputs.keys()))
+        else:
+            return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
 class NeuronDecoderConfig(NeuronConfig):

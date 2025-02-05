@@ -24,6 +24,7 @@ _import_structure = {
         "NeuronStableDiffusionXLPipelineMixin",
         "NeuronStableDiffusionControlNetPipelineMixin",
         "NeuronStableDiffusionXLControlNetPipelineMixin",
+        "NeuronIPAdapterMixin",
     ],
 }
 
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
         NeuronStableDiffusionControlNetPipelineMixin,
         NeuronStableDiffusionXLControlNetPipelineMixin,
         NeuronStableDiffusionXLPipelineMixin,
+        NeuronIPAdapterMixin,
     )
     from .transformers import pipeline
 else:

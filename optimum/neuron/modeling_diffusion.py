@@ -105,6 +105,7 @@ if is_diffusers_available():
         NeuronStableDiffusionControlNetPipelineMixin,
         NeuronStableDiffusionXLControlNetPipelineMixin,
         NeuronStableDiffusionXLPipelineMixin,
+        NeuronIPAdapterMixin,
     )
 
     os.environ["NEURON_FUSE_SOFTMAX"] = "1"
@@ -120,7 +121,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class NeuronDiffusionPipelineBase(NeuronTracedModel):
+class NeuronDiffusionPipelineBase(NeuronTracedModel, NeuronIPAdapterMixin):
     auto_model_class = DiffusionPipeline
     task = None
     library_name = "diffusers"
@@ -824,6 +825,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             vae_encoder=pipe.get("vae_encoder"),
             vae_decoder=pipe.get("vae_decoder"),
             controlnet=pipe.get("controlnet"),
+            image_encoder=pipe.get("image_encoder"),
             config=config,
             tokenizer=sub_models.get("tokenizer", None),
             tokenizer_2=sub_models.get("tokenizer_2", None),
@@ -1268,8 +1270,6 @@ class NeuronModelImageEncoder(_NeuronDiffusionModelPart):
         interpolate_pos_encoding: bool = False,
         return_dict: Optional[bool] = True,
     ):
-
-        pixel_values = pixel_values.to(torch.long)  # dummy generator uses long int for tracing
         inputs = (pixel_values,)
 
         outputs = self.model(*inputs)
@@ -1316,12 +1316,13 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
             for idx in range(len(down_block_additional_residuals)):
                 inputs = inputs + (down_block_additional_residuals[idx],)
         if added_cond_kwargs:
-            text_embeds = added_cond_kwargs.pop("text_embeds", None)
-            time_ids = added_cond_kwargs.pop("time_ids", None)
-            image_embeds = added_cond_kwargs.pop("image_embeds", None)
-            inputs = inputs + (text_embeds, time_ids)
-            if image_embeds:
-                inputs.append(image_embeds)
+            optional_inputs_names = ["text_embeds", "time_ids", "image_embeds"]
+            for optional_input_name in optional_inputs_names:
+                optional_input = added_cond_kwargs.get(optional_input_name, None)
+                if isinstance(optional_input, List):
+                    optional_input = torch.stack(optional_input, dim=0) if len(optional_input)>1 else optional_input[0]
+                if optional_input is not None:
+                    inputs = inputs + (optional_input, )                    
 
         outputs = self.model(*inputs)
         if return_dict:

@@ -199,9 +199,7 @@ def validate_model_outputs(
             ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
             neuron_inputs = tuple(inputs.values())
-        elif any(
-            pattern in getattr(config._config, "_class_name", "").lower() for pattern in ["controlnet", "transformer"]
-        ) or getattr(config, "with_ip_adapter", False):
+        elif config.CUSTOM_MODEL_WRAPPER:
             reference_model = config.patch_model_for_export(reference_model, ref_inputs)
             neuron_inputs = ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)

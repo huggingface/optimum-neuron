@@ -148,9 +148,6 @@ class PhiNeuronConfig(ElectraNeuronConfig):
     def inputs(self) -> List[str]:
         return ["input_ids", "attention_mask"]
 
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
-
 
 @register_in_tasks_manager("roformer", *COMMON_TEXT_TASKS)
 class RoFormerNeuronConfig(ElectraNeuronConfig):
@@ -236,9 +233,6 @@ class SentenceTransformersTransformerNeuronConfig(TextEncoderNeuronConfig):
     @property
     def outputs(self) -> List[str]:
         return ["token_embeddings", "sentence_embedding"]
-
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
 class CLIPNormalizedConfig(NormalizedTextAndVisionConfig):
@@ -326,9 +320,6 @@ class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
     @property
     def outputs(self) -> List[str]:
         return ["text_embeds", "image_embeds"]
-
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
     def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
         for name, axis_dim in self._axes.items():
@@ -669,9 +660,6 @@ class UNetNeuronConfig(VisionNeuronConfig):
         else:
             return dummy_inputs
 
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
-
     @property
     def is_sdxl(self) -> bool:
         return self._is_sdxl
@@ -740,9 +728,6 @@ class PixartTransformerNeuronConfig(VisionNeuronConfig):
     def outputs(self) -> List[str]:
         return ["out_hidden_states"]
 
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
-
 
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")
 class ControlNetNeuronConfig(VisionNeuronConfig):
@@ -787,9 +772,6 @@ class ControlNetNeuronConfig(VisionNeuronConfig):
     @property
     def outputs(self) -> List[str]:
         return ["down_block_res_samples", "mid_block_res_sample"]
-
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
 @register_in_tasks_manager("vae-encoder", *["semantic-segmentation"], library_name="diffusers")
