@@ -1,4 +1,5 @@
 # Copyright Amazon Web Services and its Affiliates. All Rights Reserved.
+# Copyright 2025 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,33 +15,41 @@
 # ==============================================================================
 from typing import Optional
 
-from transformers.models.granite import GraniteConfig
+from transformers.models.llama import LlamaConfig
 
 from ...backends.hlo import functional
 from ...backends.hlo.config import Layout, NeuronConfig
-from ...backends.hlo.layers import attention, rotary
+from ...backends.hlo.decoder import DecoderGraphBuilder
+from ...backends.hlo.layers import attention, rotary, transformer
 from ...backends.hlo.utils import get_qkv_padding
-from ..llama.hlo import LlamaGraphBuilder
 
 
-def scale_mul(t, scale):
-    """Multiply a tensor by a float scale"""
-    dtype = t.dtype
-    # Convert float to a constant scalar tensor of the target dtype
-    scale_t = dtype.Constant(constant_value=scale)
-    # Expand the scalar tensor to the target shape
-    scale_br_t = dtype[t.sizes].Broadcast(scale_t, dimensions=[])
-    return dtype[t.sizes].Multiply(t, scale_br_t)
-
-
-class GraniteGraphBuilder(LlamaGraphBuilder):
-    def __init__(self, config: GraniteConfig, neuron_config: Optional[NeuronConfig] = None):
+class LlamaGraphBuilder(DecoderGraphBuilder):
+    def __init__(self, config: LlamaConfig, neuron_config: Optional[NeuronConfig] = None):
         super().__init__(config, neuron_config)
 
-    def pre_layer(self, hidden, cache_ids, start_ids):
-        # Granite specific: embeddings are multiplied by embedding_multiplier
-        hidden = scale_mul(hidden, self.config.embedding_multiplier)
-        return super().pre_layer(hidden, cache_ids, start_ids)
+    def pre_layer(
+        self,
+        hidden,
+        cache_ids,
+        start_ids,
+    ):
+        head_dim = self.config.hidden_size // self.config.num_attention_heads
+        pos_embed = rotary.hlo_rotary_embedding(
+            hidden.dtype,
+            head_dim,
+            cache_ids,
+            base=self.config.rope_theta,
+            rope_scaling=self.config.rope_scaling,
+        )
+
+        mask, active_mask = functional.attention_mask(
+            cache_ids,
+            start_ids,
+            self.neuron_config.n_positions,
+        )
+
+        return hidden, cache_ids, start_ids, pos_embed, mask, active_mask
 
     def layer(
         self,
@@ -103,8 +112,6 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
             attn_out_weight,
             attn_out_bias,
         )
-        # Granite specific: attention output is multiplied by residual multiplier
-        attn_output = scale_mul(attn_output, self.config.residual_multiplier)
         hidden = functional.add(attn_output, hidden)
         gated_mlp = functional.gated_mlp_bsh if is_bsh else functional.gated_mlp
         rms_norm_dim = 2 if is_bsh else 0
@@ -124,10 +131,31 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
             activation_function="silu",
             neuron_config=self.neuron_config,
         )
-        # Granite specific: MLP output is multiplied by residual_multiplier
-        mlp_hidden = scale_mul(mlp_hidden, self.config.residual_multiplier)
         res_hidden = functional.add(mlp_hidden, hidden)
         return res_hidden, out_attn_k_cache, out_attn_v_cache
+
+    def ln_lm_head(
+        self,
+        hidden,
+        last_token_id,
+        is_prefill,
+        rms_weight,
+        unused_bias,
+        lm_head_weight,
+        lm_head_bias,
+    ):
+        logits = transformer.rms_lm_head(
+            self.neuron_config.tp_degree,
+            hidden,
+            last_token_id,
+            rms_weight,
+            lm_head_weight,
+            lm_head_bias,
+            is_prefill=is_prefill,
+            eps=self.config.rms_norm_eps,
+            neuron_config=self.neuron_config,
+        )
+        return logits
 
     def attention(
         self,
@@ -190,26 +218,37 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
             tp_degree=tp_degree,
         )
 
-        # Granite specific: instead of dividing the QK product, multiply it by the attention_multiplier
-        query = scale_mul(query, self.config.attention_multiplier)
+        # Q = Q / sqrt(d_head)
+        query = attention.scale(query, d_head)
 
+        # The output of QKV linear projection is always SBH.
         batch_dim = 1
-        # Single Token Generation ("Prefetch"-style) ans speculative forward
+        # Single Token Generation ("Prefetch"-style)
         if active_mask is not None:
             n_active_tokens = key.sizes[0]
             if n_active_tokens > 1 and self.neuron_config and self.neuron_config.continuous_batching:
-                # For speculative forward + continuous batching, slice out samples in the batch size
-                # corresponding to the batch size of the speculative head
+                # For continuous batching, slice out samples in the batch size
                 slice_sizes = [1] * len(cached_keys.sizes)
                 if cached_keys.sizes[batch_dim] == 1:
                     # Use functional.select for batch size 1 as index select is prohibitively slow
                     # TODO: revert to functional.index_select once its faster P126527643
                     cached_keys_s = functional.select(
-                        cached_keys, batch_dim, functional.reshape(start_ids, slice_sizes), keepdim=True
+                        cached_keys,
+                        batch_dim,
+                        functional.reshape(start_ids, slice_sizes),
+                        keepdim=True,
                     )
                     cached_values_s = functional.select(
-                        cached_values, batch_dim, functional.reshape(start_ids, slice_sizes), keepdim=True
+                        cached_values,
+                        batch_dim,
+                        functional.reshape(start_ids, slice_sizes),
+                        keepdim=True,
                     )
+                elif cached_keys.sizes[batch_dim] == start_ids.sizes[0]:
+                    # For batched speculative decoding, we will select kv caches for all sequences. No need to do
+                    # index select, which is slow
+                    cached_keys_s = cached_keys
+                    cached_values_s = cached_values
                 else:
                     # for multi prompt use case, cached_keys.sizes[batch_dim] can still be larger than 1, so we
                     # need to use start_ids size to determine if we want to select kv cache.
@@ -225,7 +264,11 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
                 cached_keys_s,
                 n_kv_heads=self.config.num_key_value_heads,
             )
-            prior_scores = attention.mask(prior_scores, mask, tp_degree=tp_degree)
+            prior_scores = attention.mask(
+                prior_scores,
+                mask,
+                tp_degree=tp_degree,
+            )
 
             # Sa = Q @ Ka
             active_score = attention.score(
@@ -233,7 +276,11 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
                 key,
                 n_kv_heads=self.config.num_key_value_heads,
             )
-            active_score = attention.mask(active_score, active_mask, tp_degree=tp_degree)
+            active_score = attention.mask(
+                active_score,
+                active_mask,
+                tp_degree=tp_degree,
+            )
 
             # C = softmax(Sa, Sp) @ (Va, Vp)
             context = attention.context(
@@ -247,7 +294,13 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
 
             # KCache[I], VCache[I] = K, V
             updated_keys, updated_values = attention.fused_kv_update_cache(
-                cached_keys, cached_values, cache_ids, key, value, start_ids, neuron_config=self.neuron_config
+                cached_keys,
+                cached_values,
+                cache_ids,
+                key,
+                value,
+                start_ids,
+                neuron_config=self.neuron_config,
             )
 
         # Multi-Token Context Encoding
@@ -268,7 +321,11 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
                     key,
                     n_kv_heads=self.config.num_key_value_heads,
                 )
-                score = attention.mask(score, mask, tp_degree=tp_degree)
+                score = attention.mask(
+                    score,
+                    mask,
+                    tp_degree=tp_degree,
+                )
                 context = attention.context_combined(
                     score,
                     value,
@@ -280,7 +337,13 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
                 updated_keys, updated_values = key, value
             else:
                 updated_keys, updated_values = attention.fused_kv_update_cache(
-                    cached_keys, cached_values, cache_ids, key, value, start_ids, neuron_config=self.neuron_config
+                    cached_keys,
+                    cached_values,
+                    cache_ids,
+                    key,
+                    value,
+                    start_ids,
+                    neuron_config=self.neuron_config,
                 )
 
         # O = (C @ wO) + bO

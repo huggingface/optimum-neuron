@@ -13,17 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
-from transformers.models.qwen2 import Qwen2Config
-
 from ...backends.hlo import module
-from ..llama.modules import LlamaMLP, LlamaRMSNorm
 
 
-class Qwen2ForCausalLM(module.PretrainedModel):
-    def __init__(self, config: Qwen2Config, dtype):
+class LlamaForCausalLM(module.PretrainedModel):
+    def __init__(self, config, dtype):
         super().__init__()
-        self.model = Qwen2Model(config, dtype)
+        self.model = LlamaModel(config, dtype)
         self.lm_head = module.LowMemoryLazyLinear(config.vocab_size, dtype=dtype, bias=False)
 
     def get_tied_parameters(self):
@@ -33,32 +29,46 @@ class Qwen2ForCausalLM(module.PretrainedModel):
         return self.model
 
 
-class Qwen2Model(module.LowMemoryModule):
-    def __init__(self, config: Qwen2Config, dtype):
+class LlamaModel(module.LowMemoryModule):
+    def __init__(self, config, dtype):
         super().__init__()
         self.embed_tokens = module.LowMemoryEmbedding(config.vocab_size, config.hidden_size)
         self.layers = module.LowMemoryModuleList(
-            [Qwen2DecoderLayer(config, dtype) for _ in range(config.num_hidden_layers)]
+            [LlamaDecoderLayer(config, dtype) for _ in range(config.num_hidden_layers)]
         )
         self.norm = LlamaRMSNorm()
 
 
-class Qwen2DecoderLayer(module.LowMemoryModule):
-    def __init__(self, config: Qwen2Config, dtype):
+class LlamaRMSNorm(module.LowMemoryModule):
+    def __init__(self) -> None:
         super().__init__()
-        self.self_attn = Qwen2Attention(config, dtype)
+        self.weight = module.UninitializedParameter()
+
+
+class LlamaDecoderLayer(module.LowMemoryModule):
+    def __init__(self, config, dtype):
+        super().__init__()
+        self.self_attn = LlamaAttention(config, dtype)
         self.mlp = LlamaMLP(config, dtype)
         self.input_layernorm = LlamaRMSNorm()
         self.post_attention_layernorm = LlamaRMSNorm()
 
 
-class Qwen2Attention(module.LowMemoryModule):
-    def __init__(self, config: Qwen2Config, dtype):
+class LlamaAttention(module.LowMemoryModule):
+    def __init__(self, config, dtype):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_attention_heads
         self.head_dim = self.hidden_size // self.num_heads
-        self.q_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=True, dtype=dtype)
-        self.k_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=True, dtype=dtype)
-        self.v_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=True, dtype=dtype)
+        self.q_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=False, dtype=dtype)
+        self.k_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=False, dtype=dtype)
+        self.v_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=False, dtype=dtype)
         self.o_proj = module.LowMemoryLazyLinear(self.hidden_size, bias=False, dtype=dtype)
+
+
+class LlamaMLP(module.LowMemoryModule):
+    def __init__(self, config, dtype):
+        super().__init__()
+        self.gate_proj = module.LowMemoryLazyLinear(config.intermediate_size, bias=False, dtype=dtype)
+        self.up_proj = module.LowMemoryLazyLinear(config.intermediate_size, bias=False, dtype=dtype)
+        self.down_proj = module.LowMemoryLazyLinear(config.hidden_size, bias=False, dtype=dtype)

@@ -7,7 +7,7 @@ from transformers import AutoTokenizer, set_seed
 from optimum.neuron import NeuronModelForCausalLM
 
 
-def generate(model, tokenizer, prompts, length, temperature):
+def generate(model, tokenizer, prompts, max_new_tokens, temperature):
     # Specifiy padding options for decoder-only architecture
     tokenizer.pad_token_id = tokenizer.eos_token_id
     tokenizer.padding_side = "left"
@@ -17,7 +17,7 @@ def generate(model, tokenizer, prompts, length, temperature):
     start = time.time()
     with torch.inference_mode():
         sample_output = model.generate(
-            **tokens, do_sample=True, max_length=length, temperature=temperature, top_k=50, top_p=0.9
+            **tokens, do_sample=True, max_new_tokens=max_new_tokens, temperature=temperature, top_k=50, top_p=0.9
         )
     end = time.time()
     outputs = [tokenizer.decode(tok) for tok in sample_output]

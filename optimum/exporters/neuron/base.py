@@ -14,7 +14,6 @@
 # limitations under the License.
 """Neuron configuration base classes."""
 
-import importlib
 import re
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
@@ -24,7 +23,7 @@ import torch
 from optimum.utils import logging
 
 from ...exporters.base import ExportConfig
-from ...neuron.utils import is_neuron_available, is_transformers_neuronx_available
+from ...neuron.utils import is_neuron_available
 
 
 if TYPE_CHECKING:
@@ -40,7 +39,7 @@ class MissingMandatoryAxisDimension(ValueError):
     pass
 
 
-class NeuronConfig(ExportConfig):
+class NeuronExportConfig(ExportConfig):
     """Base class for Neuron exportable models
 
     Class attributes:
@@ -77,7 +76,7 @@ class NeuronConfig(ExportConfig):
         return tuple(axes)
 
 
-class NeuronDefaultConfig(NeuronConfig, ABC):
+class NeuronDefaultConfig(NeuronExportConfig, ABC):
     """
     Base class for configuring the export of Neuron TorchScript models.
 
