@@ -1114,6 +1114,11 @@ class _TrainerForNeuron:
                         if is_torch_xla_available():
                             xm.mark_step()
                         break
+                # We also need to break out of the nested loop
+                if self.control.should_epoch_stop or self.control.should_training_stop:
+                    if is_torch_xla_available():
+                        xm.mark_step()
+                    break
             if step < 0:
                 if is_main_worker():
                     logger.warning(
