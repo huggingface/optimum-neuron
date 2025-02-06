@@ -40,7 +40,7 @@ class UnetNeuronWrapper(torch.nn.Module):
         if len(inputs) != len(self.input_names):
             raise ValueError(
                 f"The model needs {len(self.input_names)} inputs: {self.input_names}."
-                f" But only {len(input)} inputs are passed."
+                f" But only {len(inputs)} inputs are passed."
             )
 
         ordered_inputs = dict(zip(self.input_names, inputs))

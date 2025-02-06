@@ -186,20 +186,21 @@ def validate_model_outputs(
         reference_model.eval()
         inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
         ref_inputs = config.unflatten_inputs(inputs)
-        if hasattr(reference_model, "config") and getattr(reference_model.config, "is_encoder_decoder", False):
+        if hasattr(reference_model, "config") and getattr(config._config, "is_encoder_decoder", False):
             reference_model = config.patch_model_for_export(reference_model, device="cpu", **input_shapes)
         if "SentenceTransformer" in reference_model.__class__.__name__:
             reference_model = config.patch_model_for_export(reference_model, ref_inputs)
             ref_outputs = reference_model(**ref_inputs)
             neuron_inputs = tuple(config.flatten_inputs(inputs).values())
         elif "AutoencoderKL" in getattr(config._config, "_class_name", "") or getattr(
-            reference_model.config, "is_encoder_decoder", False
+            config._config, "is_encoder_decoder", False
         ):
             # VAE components for stable diffusion or Encoder-Decoder models
             ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
             neuron_inputs = tuple(inputs.values())
-        elif config.CUSTOM_MODEL_WRAPPER:
+        elif config.CUSTOM_MODEL_WRAPPER is not None:
+            ref_inputs = config.flatten_inputs(inputs)
             reference_model = config.patch_model_for_export(reference_model, ref_inputs)
             neuron_inputs = ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
