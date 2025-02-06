@@ -730,7 +730,7 @@ def main():
         submodels = None
     else:
         input_shapes, neuron_config_class = get_input_shapes_and_config_class(task, args)
-        if NeuronDecoderExportConfig in inspect.getmro(neuron_config_class):
+        if is_transformers_neuronx_available() and NeuronDecoderExportConfig in inspect.getmro(neuron_config_class):
             # TODO: warn about ignored args:
             # dynamic_batch_size, compiler_workdir, optlevel,
             # atol, disable_validation, library_name
