@@ -23,6 +23,8 @@ jobs:
     name: Run INF2 LLM tests
     runs-on:
       group: aws-inf2-8xlarge
+    env:
+      HF_HUB_ENABLE_HF_TRANSFER: 1
     steps:
       - name: Install Neuron runtime
         run: |

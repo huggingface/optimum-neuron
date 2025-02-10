@@ -16,6 +16,7 @@ jobs:
       group: aws-inf2-8xlarge
     env:
       AWS_REGION: us-east-1
+      HF_HUB_ENABLE_HF_TRANSFER: 1
     strategy:
       fail-fast: false
       matrix:
@@ -40,6 +41,7 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+          python -m pip install hf_transfer
       - name: Install optimum neuron
         run: |
           source aws_neuron_venv_pytorch/bin/activate
