@@ -42,6 +42,7 @@ TESTS_REQUIRE = [
     "controlnet-aux",
     "mediapipe",
     "timm >= 1.0.0",
+    "hf_transfer",
 ]
 
 QUALITY_REQUIRES = [
