@@ -1,49 +1,61 @@
 import argparse
-import logging
-import os
 
-import evaluate
-import numpy as np
-from datasets import load_from_disk
+from datasets import load_dataset
 from huggingface_hub import HfFolder
-from transformers import (
-    AutoModelForSequenceClassification,
-    AutoTokenizer,
-    set_seed,
-)
-
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, set_seed
 from optimum.neuron import NeuronTrainer as Trainer
 from optimum.neuron import NeuronTrainingArguments as TrainingArguments
-
-
-logger = logging.getLogger(__name__)
-
-
-print(f"is precompilation: {os.environ.get('NEURON_PARALLEL_COMPILE')}")
 
 
 def parse_args():
     """Parse the arguments."""
     parser = argparse.ArgumentParser()
     # add model id and dataset path argument
-    parser.add_argument("--model_id", type=str, default="bert-large-uncased", help="Model id to use for training.")
-    parser.add_argument("--dataset_path", type=str, default="dataset", help="Path to the already processed dataset.")
-    parser.add_argument("--output_dir", type=str, default=None, help="Hugging Face Repository id for uploading models")
     parser.add_argument(
-        "--repository_id", type=str, default=None, help="Hugging Face Repository id for uploading models"
+        "--model_id",
+        type=str,
+        default="bert-base-uncased",
+        help="Model id to use for training.",
     )
-    # add training hyperparameters for epochs, batch size, learning rate, and seed
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=None,
+        help="Hugging Face Repository id for uploading models",
+    )
+    parser.add_argument(
+        "--repository_id",
+        type=str,
+        default=None,
+        help="Hugging Face Repository id for uploading models",
+    )
     parser.add_argument("--epochs", type=int, default=3, help="Number of epochs to train for.")
-    parser.add_argument("--per_device_train_batch_size", type=int, default=8, help="Batch size to use for training.")
-    parser.add_argument("--per_device_eval_batch_size", type=int, default=8, help="Batch size to use for testing.")
-    parser.add_argument("--lr", type=float, default=5e-5, help="Learning rate to use for training.")
-    parser.add_argument("--seed", type=int, default=42, help="Seed to use for training.")
+    parser.add_argument("--max_steps", type=int, default=-1, help="Number of steps to train for.")
     parser.add_argument(
-        "--bf16",
-        type=bool,
-        default=False,
-        help="Whether to use bf16.",
+        "--per_device_train_batch_size",
+        type=int,
+        default=8,
+        help="Batch size to use for training.",
     )
+    parser.add_argument(
+        "--per_device_eval_batch_size",
+        type=int,
+        default=8,
+        help="Batch size to use for validation.",
+    )
+    parser.add_argument(
+        "--train_max_length",
+        type=int,
+        default=128,
+        help="Maximum length of tokens to be used for training.",
+    )
+    parser.add_argument(
+        "--learning_rate",
+        type=float,
+        default=5e-5,
+        help="Learning rate to use for training.",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="Seed to use for training.")
     parser.add_argument(
         "--hf_token",
         type=str,
@@ -54,87 +66,86 @@ def parse_args():
     return args
 
 
-# Metric Id
-metric = evaluate.load("f1")
-
-
-# Metric helper method
-def compute_metrics(eval_pred):
-    predictions, labels = eval_pred
-    predictions = np.argmax(predictions, axis=1)
-    return metric.compute(predictions=predictions, references=labels, average="weighted")
-
-
 def training_function(args):
     # set seed
     set_seed(args.seed)
 
-    # load dataset from disk and tokenizer
-    train_dataset = load_from_disk(os.path.join(args.dataset_path, "train"))
-    eval_dataset = load_from_disk(os.path.join(args.dataset_path, "eval"))
-    tokenizer = AutoTokenizer.from_pretrained(args.model_id)
+    # Load the dataset
+    emotions = load_dataset("dair-ai/emotion")
+    model_id = args.model_id
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-    # Prepare model labels - useful for inference
-    labels = train_dataset.features["labels"].names
-    num_labels = len(labels)
-    label2id, id2label = {}, {}
-    for i, label in enumerate(labels):
-        label2id[label] = str(i)
-        id2label[str(i)] = label
+    # Tokenize the dataset
+    def tokenize_function(example):
+        ret = tokenizer(
+            example["text"],
+            padding="max_length",
+            truncation=True,
+            max_length=args.train_max_length,
+        )
+        return ret
 
-    # Download the model from huggingface.co/models
+    tokenized_emotions = emotions.map(tokenize_function, batched=True)
+
+    num_labels = len(emotions["train"].features["label"].names)
+
+    # Load the model
     model = AutoModelForSequenceClassification.from_pretrained(
-        args.model_id, num_labels=num_labels, label2id=label2id, id2label=id2label
+        model_id,
+        num_labels=num_labels,
     )
 
-    # Define training args
-    output_dir = args.model_id.split("/")[-1] if "/" in args.model_id else args.model_id
-    output_dir = f"{output_dir}-finetuned"
+    if args.output_dir:
+        output_dir = args.output_dir
+    else:
+        output_dir = f"{model_id}-finetuned"
+
+    # Define training arguments
     training_args = TrainingArguments(
-        overwrite_output_dir=True,
         output_dir=output_dir,
+        overwrite_output_dir=True,
+        learning_rate=args.learning_rate,
         per_device_train_batch_size=args.per_device_train_batch_size,
         per_device_eval_batch_size=args.per_device_eval_batch_size,
-        bf16=args.bf16,  # Use BF16 if available
-        learning_rate=args.lr,
         num_train_epochs=args.epochs,
-        # logging & evaluation strategies
+        max_steps=args.max_steps,
+        do_train=True,
+        bf16=True,
         logging_dir=f"{output_dir}/logs",
         logging_strategy="steps",
         logging_steps=500,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",
         save_total_limit=2,
         # push to hub parameters
-        report_to="tensorboard",
         push_to_hub=True if args.repository_id else False,
         hub_strategy="every_save",
         hub_model_id=args.repository_id if args.repository_id else None,
         hub_token=args.hf_token,
     )
 
-    # Create Trainer instance
+    # Initialize the Trainer
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        compute_metrics=compute_metrics,
+        train_dataset=tokenized_emotions["train"],
+        eval_dataset=tokenized_emotions["validation"],
+        processing_class=tokenizer,
     )
 
-    # Start training
-    trainer.train()
+    # Train the model
+    train_result = trainer.train()
+    metrics = train_result.metrics
 
-    eval_res = trainer.evaluate(eval_dataset=eval_dataset)
+    eval_dataset = tokenized_emotions["validation"]
+    eval_metrics = trainer.evaluate(eval_dataset=eval_dataset)
+    metrics.update(eval_metrics)
+    trainer.log_metrics("train", metrics)
 
-    print(eval_res)
-
-    # Save our tokenizer and create model card
-    tokenizer.save_pretrained(output_dir)
+    trainer.save_model(output_dir)
     trainer.create_model_card()
-    # Push the results to the hub
     if args.repository_id:
-        trainer.push_to_hub()
+        trainer.push_to_hub(repository_id=args.repository_id, token=args.hf_token)
 
 
 def main():
