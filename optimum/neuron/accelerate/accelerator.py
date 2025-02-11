@@ -62,7 +62,6 @@ from .utils import (
 )
 from .utils.misc import (
     apply_activation_checkpointing,
-    create_patched_finfo,
     create_patched_save_pretrained,
 )
 from .utils.operations import _xla_gather
@@ -327,19 +326,6 @@ class NeuronAccelerator(Accelerator):
         # Working on a copy for safety.
         patching_specs = list(patching_specs)
 
-        mixed_precision_is_bf16 = self.state.mixed_precision == "bf16"
-        patched_finfo = create_patched_finfo(
-            xla_downcast_bf16=mixed_precision_is_bf16 and self.state.downcast_bfloat,
-            use_amp=mixed_precision_is_bf16 and self.state.autocast_backend is AutocastBackend.AMP,
-            xla_use_bf16=mixed_precision_is_bf16 and not self.state.downcast_bfloat,
-        )
-        patching_specs.append(
-            (
-                "forward",
-                DynamicPatch(patch_within_function(("torch.finfo", patched_finfo))),
-            ),
-        )
-
         if isinstance(model, PreTrainedModel):
             patching_specs.append(
                 (
@@ -456,6 +442,9 @@ class NeuronAccelerator(Accelerator):
         check_neuron_cc_flags_for_model(model)
 
         model = self.patch_model_for_neuron(model)
+
+        if self.state.mixed_precision == "bf16":
+            model.to(torch.bfloat16)
 
         # We do not want to use the cache, or output unused tensors as it would imply more communication that we do not
         # need.
