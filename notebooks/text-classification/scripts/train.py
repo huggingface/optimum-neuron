@@ -2,9 +2,13 @@ import argparse
 
 from datasets import load_dataset
 from huggingface_hub import HfFolder
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, set_seed
-from optimum.neuron import NeuronTrainer as Trainer
-from optimum.neuron import NeuronTrainingArguments as TrainingArguments
+from transformers import (
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    Trainer,
+    TrainingArguments,
+    set_seed,
+)
 
 
 def parse_args():
