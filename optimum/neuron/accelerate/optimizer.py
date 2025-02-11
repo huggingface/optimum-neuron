@@ -105,7 +105,10 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                 # Resetting everything.
                 self.optimizer.grad_clipping = False
                 self.clip_grad_norm_to_perform = None
-            elif self.accelerator_state.distributed_type is DistributedType.XLA or self.accelerator_state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+            elif (
+                self.accelerator_state.distributed_type is DistributedType.XLA
+                or self.accelerator_state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
+            ):
                 if parallel_layers.parallel_state.get_data_parallel_size() > 1:
                     bucket_allreduce_gradients(xm._fetch_gradients(self.optimizer))
                 if self.clip_grad_norm_to_perform is not None:

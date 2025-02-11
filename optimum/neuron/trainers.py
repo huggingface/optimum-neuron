@@ -421,7 +421,9 @@ class _TrainerForNeuron:
             inputs = self._prepare_inputs(inputs)
             loss = model.run_train(**inputs)
         else:
-            loss = super().compute_loss(model, inputs, return_outputs=return_outputs, num_items_in_batch=num_items_in_batch)
+            loss = super().compute_loss(
+                model, inputs, return_outputs=return_outputs, num_items_in_batch=num_items_in_batch
+            )
         return loss
 
     def autocast_smart_context_manager(self, cache_enabled: Optional[bool] = True):
@@ -435,7 +437,9 @@ class _TrainerForNeuron:
         )
         return self.accelerator.autocast(autocast_handler=autocast_handler)
 
-    def training_step(self, model: torch.nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], num_items_in_batch=None) -> torch.Tensor:
+    def training_step(
+        self, model: torch.nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], num_items_in_batch=None
+    ) -> torch.Tensor:
         from neuronx_distributed.pipeline import NxDPPModel
 
         if isinstance(model, NxDPPModel):
@@ -540,6 +544,7 @@ class _TrainerForNeuron:
                 self.control.should_save = is_new_best_metric
 
         if self.control.should_save:
+
             def save_closure(self, model, trial):
                 self._save_checkpoint(model, trial)
                 self.control = self.callback_handler.on_save(self.args, self.state, self.control)
@@ -1003,7 +1008,9 @@ class _TrainerForNeuron:
                 for i, inputs in enumerate(batch_samples):
                     xm.mark_step()
                     step += 1
-                    do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (step + 1) == steps_in_epoch                    # Since we perform prefetching, we need to manually set sync_gradients
+                    do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (
+                        step + 1
+                    ) == steps_in_epoch  # Since we perform prefetching, we need to manually set sync_gradients
                     if not do_sync_step:
                         # self.accelerator.gradient_state._set_sync_gradients(False)
                         self.accelerator.gradient_state.sync_gradients = False
@@ -1079,7 +1086,9 @@ class _TrainerForNeuron:
 
                         # Gradient clipping
                         if args.max_grad_norm is not None and args.max_grad_norm > 0:
-                            parameters = model.local_parameters() if isinstance(model, NxDPPModel) else model.parameters()
+                            parameters = (
+                                model.local_parameters() if isinstance(model, NxDPPModel) else model.parameters()
+                            )
                             self.accelerator.clip_grad_norm_(
                                 parameters,
                                 args.max_grad_norm,
@@ -1104,7 +1113,9 @@ class _TrainerForNeuron:
                         self.state.global_step += 1
                         self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                         self.control = self.callback_handler.on_step_end(args, self.state, self.control)
-                        self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
+                        self._maybe_log_save_evaluate(
+                            tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time
+                        )
                     else:
                         self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 

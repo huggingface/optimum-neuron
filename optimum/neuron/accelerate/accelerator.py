@@ -202,7 +202,9 @@ class NeuronAccelerator(Accelerator):
         distributed_dataloader._is_accelerate_prepared = True
         return distributed_dataloader
 
-    def prepare_data_loader(self, data_loader: DataLoader, device_placement: Optional[bool] = None, use_mp_device_loader: bool = False):
+    def prepare_data_loader(
+        self, data_loader: DataLoader, device_placement: Optional[bool] = None, use_mp_device_loader: bool = False
+    ):
         force_drop_last = False
         if self.state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             from neuronx_distributed import parallel_layers
