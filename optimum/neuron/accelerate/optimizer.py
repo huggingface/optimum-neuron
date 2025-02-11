@@ -99,8 +99,9 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                     self.optimizer.max_norm = self.clip_grad_norm_to_perform["max_norm"]
                 else:
                     self.optimizer.grad_clipping = False
-                optimizer_args = {"closure": closure} if closure is not None else {}
-                self.optimizer.step(closure)
+                if closure is None:
+                    closure = {}
+                self.optimizer.step(closure=closure)
                 # Resetting everything.
                 self.optimizer.grad_clipping = False
                 self.clip_grad_norm_to_perform = None

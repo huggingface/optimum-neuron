@@ -73,6 +73,7 @@ from transformers.trainer_utils import (
     EvalPrediction,
     HPSearchBackend,
     PredictionOutput,
+    SaveStrategy,
     TrainOutput,
     denumpify_detensorize,
     has_length,
