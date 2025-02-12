@@ -18,11 +18,12 @@ import copy
 import os
 from collections import OrderedDict
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union, Any
 
 import torch
 
 from ...neuron.utils import (
+    LoRAAdapterArguments,
     DECODER_NAME,
     DIFFUSION_MODEL_CONTROLNET_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
@@ -64,6 +65,7 @@ if is_diffusers_available():
         StableDiffusionXLPipeline,
         UNet2DConditionModel,
     )
+    from diffusers.models import ImageProjection
     from diffusers.models.attention_processor import Attention
 
 
@@ -116,17 +118,14 @@ def build_stable_diffusion_components_mandatory_shapes(
 
 def get_diffusion_models_for_export(
     pipeline: "DiffusionPipeline",
-    text_encoder_input_shapes: Dict[str, int],
-    unet_input_shapes: Dict[str, int],
-    transformer_input_shapes: Dict[str, int],
-    vae_encoder_input_shapes: Dict[str, int],
-    vae_decoder_input_shapes: Dict[str, int],
+    text_encoder_input_shapes: Dict[str, Any],
+    unet_input_shapes: Dict[str, Any],
+    transformer_input_shapes: Dict[str, Any],
+    vae_encoder_input_shapes: Dict[str, Any],
+    vae_decoder_input_shapes: Dict[str, Any],
+    lora_args: LoRAAdapterArguments,
     dynamic_batch_size: Optional[bool] = False,
     output_hidden_states: bool = False,
-    lora_model_ids: Optional[List[str]] = None,
-    lora_weight_names: Optional[List[str]] = None,
-    lora_adapter_names: Optional[List[str]] = None,
-    lora_scales: Optional[List[float]] = None,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
     controlnet_input_shapes: Optional[Dict[str, int]] = None,
     image_encoder_input_shapes: Optional[Dict[str, int]] = None,
@@ -140,28 +139,22 @@ def get_diffusion_models_for_export(
     Args:
         pipeline ([`"DiffusionPipeline"`]):
             The model to export.
-        text_encoder_input_shapes (`Dict[str, int]`):
+        text_encoder_input_shapes (`Dict[str, Any]`):
             Static shapes used for compiling text encoder.
-        unet_input_shapes (`Dict[str, int]`):
+        unet_input_shapes (`Dict[str, Any]`):
             Static shapes used for compiling unet.
-        transformer_input_shapes (`Dict[str, int]`):
+        transformer_input_shapes (`Dict[str, Any]`):
             Static shapes used for compiling diffusion transformer.
-        vae_encoder_input_shapes (`Dict[str, int]`):
+        vae_encoder_input_shapes (`Dict[str, Any]`):
             Static shapes used for compiling vae encoder.
-        vae_decoder_input_shapes (`Dict[str, int]`):
+        vae_decoder_input_shapes (`Dict[str, Any]`):
             Static shapes used for compiling vae decoder.
+        lora_args (`LoRAAdapterArguments`):
+            Arguments for fetching the lora adapters, including `model_ids`, `weight_names`, `adapter_names` and `scales`.
         dynamic_batch_size (`bool`, defaults to `False`):
             Whether the Neuron compiled model supports dynamic batch size.
         output_hidden_states (`bool`, defaults to `False`):
             Whether or not for the traced text encoders to return the hidden states of all layers.
-        lora_model_ids (`Optional[List[str]]`, defaults to `None`):
-            List of model ids (eg. `ostris/super-cereal-sdxl-lora`) of pretrained lora models hosted on the Hub or paths to local directories containing the lora weights.
-        lora_weight_names (`Optional[List[str]]`, defaults to `None`):
-            List of lora weights file names.
-        lora_adapter_names (`Optional[List[str]]`, defaults to `None`):
-            List of adapter names to be used for referencing the loaded adapter models.
-        lora_scales (`Optional[List[float]]`, defaults to `None`):
-            List of scaling factors for lora adapters.
         controlnet_ids (`Optional[Union[str, List[str]]]`, defaults to `None`):
             Model ID of one or multiple ControlNets providing additional conditioning to the `unet` during the denoising process. If you set multiple
             ControlNets as a list, the outputs from each ControlNet are added together to create one combined additional conditioning.
@@ -176,10 +169,7 @@ def get_diffusion_models_for_export(
     """
     models_for_export = get_submodels_for_export_diffusion(
         pipeline=pipeline,
-        lora_model_ids=lora_model_ids,
-        lora_weight_names=lora_weight_names,
-        lora_adapter_names=lora_adapter_names,
-        lora_scales=lora_scales,
+        lora_args=lora_args,
         controlnet_ids=controlnet_ids,
     )
     library_name = "diffusers"
@@ -198,7 +188,7 @@ def get_diffusion_models_for_export(
             task="feature-extraction",
             dynamic_batch_size=dynamic_batch_size,
             output_hidden_states=output_hidden_states,
-            **text_encoder_input_shapes,
+            input_shapes=text_encoder_input_shapes,
         )
         models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (text_encoder, text_encoder_neuron_config)
 
@@ -216,7 +206,7 @@ def get_diffusion_models_for_export(
             task="feature-extraction",
             dynamic_batch_size=dynamic_batch_size,
             output_hidden_states=output_hidden_states,
-            **text_encoder_input_shapes,
+            input_shapes=text_encoder_input_shapes,
         )
         models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = (text_encoder_2, text_encoder_neuron_config_2)
 
@@ -235,7 +225,7 @@ def get_diffusion_models_for_export(
             task="semantic-segmentation",
             dynamic_batch_size=dynamic_batch_size,
             float_dtype=unet.dtype,
-            **unet_input_shapes,
+            input_shapes=unet_input_shapes,
         )
         is_stable_diffusion_xl = isinstance(
             pipeline, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline, StableDiffusionXLPipeline)
@@ -245,6 +235,7 @@ def get_diffusion_models_for_export(
         unet_neuron_config.with_ip_adapter = getattr(unet.config, "encoder_hid_dim_type", None) == "ip_image_proj"
 
         models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
+        
 
     # Diffusion Transformer
     transformer = None
@@ -264,7 +255,7 @@ def get_diffusion_models_for_export(
             task="semantic-segmentation",
             dynamic_batch_size=dynamic_batch_size,
             float_dtype=transformer.dtype,
-            **transformer_input_shapes,
+            input_shapes=transformer_input_shapes,
         )
         models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (transformer, transformer_neuron_config)
 
@@ -282,7 +273,7 @@ def get_diffusion_models_for_export(
         task="semantic-segmentation",
         dynamic_batch_size=dynamic_batch_size,
         float_dtype=vae_encoder.dtype,
-        **vae_encoder_input_shapes,
+        input_shapes=vae_encoder_input_shapes,
     )
     models_for_export[DIFFUSION_MODEL_VAE_ENCODER_NAME] = (vae_encoder, vae_encoder_neuron_config)
 
@@ -300,7 +291,7 @@ def get_diffusion_models_for_export(
         task="semantic-segmentation",
         dynamic_batch_size=dynamic_batch_size,
         float_dtype=transformer.dtype if transformer else vae_decoder.dtype,
-        **vae_decoder_input_shapes,
+        input_shapes=vae_decoder_input_shapes,
     )
     models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME] = (vae_decoder, vae_decoder_neuron_config)
 
@@ -333,6 +324,7 @@ def get_diffusion_models_for_export(
     # IP-Adapter: need to compile the image encoder
     if "image_encoder" in models_for_export:
         image_encoder = models_for_export["image_encoder"]
+        output_hidden_states = not isinstance(unet.encoder_hid_proj.image_projection_layers[0], ImageProjection)
         image_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
             model=image_encoder,
             exporter="neuron",
@@ -344,51 +336,31 @@ def get_diffusion_models_for_export(
             image_encoder.config,
             task="feature-extraction",
             dynamic_batch_size=dynamic_batch_size,
-            **image_encoder_input_shapes,
+            output_hidden_states=output_hidden_states,
+            input_shapes=image_encoder_input_shapes,
         )
         models_for_export["image_encoder"] = (image_encoder, image_encoder_neuron_config)
+        models_for_export[DIFFUSION_MODEL_UNET_NAME][1].image_encoder_output_hidden_states = output_hidden_states        
 
     return models_for_export
 
 
-def _load_lora_weights_to_pipeline(
-    pipeline: "DiffusionPipeline",
-    lora_model_ids: Optional[Union[str, List[str]]] = None,
-    weight_names: Optional[Union[str, List[str]]] = None,
-    adapter_names: Optional[Union[str, List[str]]] = None,
-    lora_scales: Optional[Union[float, List[float]]] = None,
-):
-    if isinstance(lora_model_ids, str):
-        lora_model_ids = [
-            lora_model_ids,
-        ]
-    if isinstance(weight_names, str):
-        weight_names = [
-            weight_names,
-        ]
-    if isinstance(adapter_names, str):
-        adapter_names = [
-            adapter_names,
-        ]
-    if isinstance(lora_scales, float):
-        lora_scales = [
-            lora_scales,
-        ]
-    if lora_model_ids and weight_names:
-        if len(lora_model_ids) == 1:
-            pipeline.load_lora_weights(lora_model_ids[0], weight_name=weight_names[0])
+def _load_lora_weights_to_pipeline(pipeline: "DiffusionPipeline", lora_args: LoRAAdapterArguments):
+    if lora_args.model_ids and lora_args.weight_names:
+        if len(lora_args.model_ids) == 1:
+            pipeline.load_lora_weights(lora_args.model_ids[0], weight_name=lora_args.weight_names[0])
             # For tracing the lora weights, we need to use PEFT to fuse adapters directly into the model weights. It won't work by passing the lora scale to the Neuron pipeline during the inference.
-            pipeline.fuse_lora(lora_scale=lora_scales[0] if lora_scales else 1.0)
-        elif len(lora_model_ids) > 1:
-            if not len(lora_model_ids) == len(weight_names) == len(adapter_names):
+            pipeline.fuse_lora(lora_scale=lora_args.scales[0] if lora_args.scales else 1.0)
+        elif len(lora_args.model_ids) > 1:
+            if not len(lora_args.model_ids) == len(lora_args.weight_names) == len(lora_args.adapter_names):
                 raise ValueError(
-                    f"weight_name and lora_scale are required to fuse more than one lora. You have {len(lora_model_ids)} lora models to fuse, but you have {len(weight_names)} lora weight names and {len(adapter_names)} adapter names."
+                    f"weight_name and lora_scale are required to fuse more than one lora. You have {len(lora_args.model_ids)} lora models to fuse, but you have {len(lora_args.weight_names)} lora weight names and {len(lora_args.adapter_names)} adapter names."
                 )
-            for model_id, weight_name, adapter_name in zip(lora_model_ids, weight_names, adapter_names):
+            for model_id, weight_name, adapter_name in zip(lora_args.model_ids, lora_args.weight_names, lora_args.adapter_names):
                 pipeline.load_lora_weights(model_id, weight_name=weight_name, adapter_name=adapter_name)
 
-            if lora_scales:
-                pipeline.set_adapters(adapter_names, adapter_weights=lora_scales)
+            if lora_args.scales:
+                pipeline.set_adapters(lora_args.adapter_names, adapter_weights=lora_args.scales)
             pipeline.fuse_lora()
 
     return pipeline
@@ -407,11 +379,8 @@ def load_controlnets(controlnet_ids: Optional[Union[str, List[str]]] = None):
 
 def get_submodels_for_export_diffusion(
     pipeline: "DiffusionPipeline",
+    lora_args: LoRAAdapterArguments,
     output_hidden_states: bool = False,
-    lora_model_ids: Optional[Union[str, List[str]]] = None,
-    lora_weight_names: Optional[Union[str, List[str]]] = None,
-    lora_adapter_names: Optional[Union[str, List[str]]] = None,
-    lora_scales: Optional[List[float]] = None,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
 ) -> Dict[str, Union["PreTrainedModel", "ModelMixin"]]:
     """
@@ -422,13 +391,7 @@ def get_submodels_for_export_diffusion(
     )
 
     # Lora
-    pipeline = _load_lora_weights_to_pipeline(
-        pipeline=pipeline,
-        lora_model_ids=lora_model_ids,
-        weight_names=lora_weight_names,
-        adapter_names=lora_adapter_names,
-        lora_scales=lora_scales,
-    )
+    pipeline = _load_lora_weights_to_pipeline(pipeline=pipeline, lora_args=lora_args)
 
     models_for_export = []
 

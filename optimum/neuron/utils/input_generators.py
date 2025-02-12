@@ -14,7 +14,7 @@
 # limitations under the License.
 """Dummy input generation classes."""
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import torch
 
@@ -25,6 +25,10 @@ from optimum.utils import (
     NormalizedTextConfig,
     NormalizedVisionConfig,
 )
+
+
+if TYPE_CHECKING:
+    from .argument_utils import ImageEncoderArguments
 
 
 class DummyBeamValuesGenerator(DummyInputGenerator):
@@ -169,7 +173,8 @@ class DummyControNetInputGenerator(DummyInputGenerator):
 class DummyIPAdapterInputGenerator(DummyInputGenerator):
     SUPPORTED_INPUT_NAMES = (
         # Unet extra inputs
-        "image_embeds",
+        "image_embeds",  # If `unet.encoder_hid_proj.image_projection_layers` are instances of `IPAdapterFullImageProjection`, eg. sd.
+        "image_enc_hidden_states",  # If `unet.encoder_hid_proj.image_projection_layers` are instances of `ImageProjection`, eg. sdxl.
         "ip_adapter_masks",
     )
 
@@ -178,22 +183,23 @@ class DummyIPAdapterInputGenerator(DummyInputGenerator):
         task: str,
         normalized_config: NormalizedTextConfig,
         batch_size: int,
-        image_encoder_sequence_length: Optional[int] = None,
-        image_encoder_hidden_size: Optional[int] = None,
+        image_encoder_shapes: Optional["ImageEncoderArguments"] = None,
         **kwargs,
     ):
         self.task = task
         self.normalized_config = normalized_config
         self.batch_size = batch_size
-        self.image_encoder_sequence_length = image_encoder_sequence_length
-        self.image_encoder_hidden_size = image_encoder_hidden_size
+        self.image_encoder_shapes = image_encoder_shapes
 
     def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
-        if input_name == "image_embeds":
-            shape = [self.batch_size, 1, self.image_encoder_sequence_length, self.image_encoder_hidden_size]
+        if input_name == "image_enc_hidden_states":
+            shape = [self.batch_size, 1, self.image_encoder_shapes.sequence_length, self.image_encoder_shapes.hidden_size]
+            return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
+        elif input_name == "image_embeds":   
+            shape = [self.batch_size, 1, self.image_encoder_shapes.projection_dim]
             return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
         elif input_name == "ip_adapter_masks":
-            shape = [self.batch_size, 1, self.image_encoder_sequence_length, self.image_encoder_hidden_size]
+            shape = [self.batch_size, 1, self.image_encoder_shapes.sequence_length, self.image_encoder_shapes.hidden_size]
             return self.random_int_tensor(shape, framework=framework, dtype=int_dtype)
 
 

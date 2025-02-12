@@ -297,7 +297,6 @@ def export_models(
         str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronDefaultConfig"]
     ],
     output_dir: Path,
-    torch_dtype: Optional[Union[str, torch.dtype]] = None,
     disable_neuron_cache: Optional[bool] = False,
     compiler_workdir: Optional[Path] = None,
     inline_weights_to_neff: bool = True,
@@ -314,8 +313,6 @@ def export_models(
             A dictionnary containing the models to export and their corresponding neuron configs.
         output_dir (`Path`):
             Output directory to store the exported Neuron models.
-        torch_dtype (`Optional[Union[str, torch.dtype]]`, defaults to `None`):
-            Override the default `torch.dtype` and load the model under this dtype. If `auto` is passed, the dtype will be automatically derived from the model's weights.
         disable_neuron_cache (`Optional[bool]`, defaults to `False`):
             Whether to disable automatic caching of AOT compiled models (not applicable for JIT compilation).
         compiler_workdir (`Optional[Path]`, defaults to `None`):
@@ -351,6 +348,12 @@ def export_models(
     failed_models = []
     total_compilation_time = 0
     compile_configs = {}
+    models_and_neuron_configs.pop("text_encoder")
+    # models_and_neuron_configs.pop("text_encoder_2")
+    models_and_neuron_configs.pop("unet")
+    models_and_neuron_configs.pop("vae_encoder")
+    models_and_neuron_configs.pop("vae_decoder")
+    # models_and_neuron_configs.pop("image_encoder")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]

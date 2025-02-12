@@ -19,7 +19,14 @@ from transformers.utils import _LazyModule
 
 
 _import_structure = {
-    "argument_utils": ["convert_neuronx_compiler_args_to_neuron", "store_compilation_config"],
+    "argument_utils": [
+        "LoRAAdapterArguments",
+        "IPAdapterArguments",
+        "ImageEncoderArguments",
+        "InputShapesArguments",
+        "convert_neuronx_compiler_args_to_neuron", 
+        "store_compilation_config"
+    ],
     "constant": [
         "DECODER_NAME",
         "DIFFUSION_MODEL_TEXT_ENCODER_2_NAME",
@@ -83,7 +90,14 @@ _import_structure = {
 }
 
 if TYPE_CHECKING:
-    from .argument_utils import convert_neuronx_compiler_args_to_neuron, store_compilation_config
+    from .argument_utils import (
+        LoRAAdapterArguments,
+        IPAdapterArguments,
+        ImageEncoderArguments,
+        InputShapesArguments,
+        convert_neuronx_compiler_args_to_neuron, 
+        store_compilation_config,
+    )
     from .constant import (
         DECODER_NAME,
         DIFFUSION_MODEL_CONTROLNET_NAME,

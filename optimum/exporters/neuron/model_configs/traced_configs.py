@@ -251,7 +251,10 @@ class CLIPVisionModelNeuronConfig(VisionNeuronConfig):
 
     @property
     def outputs(self) -> List[str]:
-        return ["image_embeds", "last_hidden_state", "hidden_states"]
+        common_outputs = ["image_embeds", "last_hidden_state"]
+        if self.output_hidden_states:
+            common_outputs.append("hidden_states")
+        return common_outputs
 
 
 @register_in_tasks_manager("clip", *["feature-extraction", "zero-shot-image-classification"])
@@ -626,7 +629,10 @@ class UNetNeuronConfig(VisionNeuronConfig):
 
         if self.with_ip_adapter:
             # add output of image encoder
-            common_inputs += ["image_embeds"]
+            if self.image_encoder_output_hidden_states:
+                common_inputs += ["image_enc_hidden_states"]
+            else:
+                common_inputs += ["image_embeds"]      
 
         return common_inputs
 
@@ -684,9 +690,8 @@ class UNetNeuronConfig(VisionNeuronConfig):
     def with_ip_adapter(self, with_ip_adapter: bool):
         self._with_ip_adapter = with_ip_adapter
         if with_ip_adapter:
-            self.mandatory_axes += ("image_encoder_sequence_length", "image_encoder_hidden_size")
-            setattr(self, "image_encoder_sequence_length", self.input_shapes["image_encoder_sequence_length"])
-            setattr(self, "image_encoder_hidden_size", self.input_shapes["image_encoder_hidden_size"])
+            self.mandatory_axes += ("image_encoder_shapes",)
+            setattr(self, "image_encoder_shapes", self.input_shapes["image_encoder_shapes"])
 
 
 @register_in_tasks_manager("pixart-transformer-2d", *["semantic-segmentation"], library_name="diffusers")

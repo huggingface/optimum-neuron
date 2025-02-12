@@ -15,6 +15,7 @@
 """Utilities related to CLI arguments."""
 
 import os
+from dataclasses import dataclass, is_dataclass, asdict
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from ...utils import logging
@@ -27,6 +28,62 @@ logger = logging.get_logger()
 
 DISABLE_ARGUMENT_PATCH = os.environ.get("OPTIMUM_DISABLE_ARGUMENT_PATCH", "0")
 DISABLE_STRICT_MODE = os.environ.get("OPTIMUM_DISABLE_STRICT_MODE", "0")
+
+
+@dataclass
+class LoRAAdapterArguments:
+    model_ids: Optional[Union[str, List[str]]] = None
+    weight_names: Optional[Union[str, List[str]]] = None
+    adapter_names: Optional[Union[str, List[str]]] = None
+    scales: Optional[Union[float, List[float]]] = None
+    
+    def __post_init__(self):
+        if isinstance(self.model_ids, str):
+            self.model_ids = [self.model_ids,]
+        if isinstance(self.weight_names, str):
+            self.weight_names = [self.weight_names,]
+        if isinstance(self.adapter_names, str):
+            self.adapter_names = [self.adapter_names,]
+        if isinstance(self.scales, float):
+            self.scales = [self.scales,]
+
+
+@dataclass
+class IPAdapterArguments:
+    model_id: Optional[Union[str, List[str]]] = None
+    subfolder: Optional[Union[str, List[str]]] = None
+    weight_name: Optional[Union[str, List[str]]] = None
+    scale: Optional[Union[float, List[float]]] = None
+
+
+@dataclass
+class ImageEncoderArguments:
+    sequence_length: Optional[int] = None
+    hidden_size: Optional[int] = None
+    projection_dim: Optional[int] = None
+
+
+@dataclass
+class InputShapesArguments:
+    batch_size: Optional[int] = None
+    text_batch_size: Optional[int] = None
+    image_batch_size: Optional[int] = None
+    sequence_length: Optional[int] = None
+    num_choices: Optional[int] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    image_size: Optional[int] = None
+    patch_size: Optional[int] = None
+    num_channels: Optional[int] = None
+    feature_size: Optional[int] = None
+    nb_max_frames: Optional[int] = None
+    audio_sequence_length: Optional[int] = None
+    point_batch_size: Optional[int] = None
+    nb_points_per_image: Optional[int] = None
+    num_beams: Optional[int] = None
+    vae_scale_factor: Optional[int] = None
+    encoder_hidden_size: Optional[int] = None
+    image_encoder_shapes: Optional[ImageEncoderArguments] = None
 
 
 def validate_arg(
@@ -135,6 +192,18 @@ def convert_neuronx_compiler_args_to_neuron(
     return compiler_args
 
 
+def add_shapes_to_config(config_args, input_shapes: Dict[str, Any]):
+    for axis, shape in input_shapes.items():
+        if shape is not None:
+            if is_dataclass(shape):
+                shape_dict = asdict(shape)
+                config_args[axis] = shape_dict
+            else:
+                axis = f"static_{axis}"
+                config_args[axis] = shape
+    return config_args
+
+
 def store_compilation_config(
     config: Union["PretrainedConfig", Dict],
     input_shapes: Dict[str, int],
@@ -165,10 +234,7 @@ def store_compilation_config(
     config_args["inline_weights_to_neff"] = inline_weights_to_neff
 
     # Add input shapes during compilation to the config
-    for axis, shape in input_shapes.items():
-        if shape is not None:
-            axis = f"static_{axis}"
-            config_args[axis] = shape
+    config_args = add_shapes_to_config(config_args, input_shapes)
 
     config_args["dynamic_batch_size"] = dynamic_batch_size
     config_args["tensor_parallel_size"] = tensor_parallel_size

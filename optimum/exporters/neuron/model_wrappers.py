@@ -48,7 +48,7 @@ class UnetNeuronWrapper(torch.nn.Module):
         added_cond_kwargs = {
             "text_embeds": ordered_inputs.pop("text_embeds", None),
             "time_ids": ordered_inputs.pop("time_ids", None),
-            "image_embeds": ordered_inputs.pop("image_embeds", None),
+            "image_embeds": ordered_inputs.pop("image_embeds", None) or ordered_inputs.pop("image_enc_hidden_states", None),
         }
         sample = ordered_inputs.pop("sample", None)
         timestep = ordered_inputs.pop("timestep").float().expand((sample.shape[0],))
@@ -570,17 +570,27 @@ class SentenceTransformersTransformerNeuronWrapper(torch.nn.Module):
 
 
 class CLIPVisionModelNeuronWrapper(torch.nn.Module):
-    def __init__(self, model, input_names: List[str]):
+    def __init__(
+        self, 
+        model, 
+        input_names: List[str],
+        output_hidden_states: bool = True,
+    ):
         super().__init__()
         self.model = model
         self.input_names = input_names
+        self.output_hidden_states = output_hidden_states
 
     def forward(self, pixel_values):
-        vision_outputs = self.model.vision_model(pixel_values=pixel_values, output_hidden_states=True)
+        vision_outputs = self.model.vision_model(pixel_values=pixel_values, output_hidden_states=self.output_hidden_states)
         pooled_output = vision_outputs[1]
         image_embeds = self.model.visual_projection(pooled_output)
-
-        return (image_embeds, vision_outputs.last_hidden_state, vision_outputs.hidden_states)
+        
+        outputs = (image_embeds, vision_outputs.last_hidden_state)
+        
+        if self.output_hidden_states:
+            outputs += (vision_outputs.hidden_states, )
+        return outputs
 
 
 class SentenceTransformersCLIPNeuronWrapper(torch.nn.Module):

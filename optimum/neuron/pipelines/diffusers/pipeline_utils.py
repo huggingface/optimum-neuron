@@ -107,7 +107,7 @@ class NeuronIPAdapterMixin:
                 ip_adapter_image = [ip_adapter_image]
 
             for single_ip_adapter_image in ip_adapter_image:
-                output_hidden_state = True  # TODO: is it the case for sdxl?
+                output_hidden_state = True  # TODO: not the case for sdxl
                 single_image_embeds, single_negative_image_embeds = self.encode_image(
                     single_ip_adapter_image, device, 1, output_hidden_state
                 )

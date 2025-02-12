@@ -23,7 +23,7 @@ import torch
 from optimum.utils import logging
 
 from ...exporters.base import ExportConfig
-from ...neuron.utils import is_neuron_available
+from ...neuron.utils import InputShapesArguments, ImageEncoderArguments, is_neuron_available
 
 
 if TYPE_CHECKING:
@@ -145,34 +145,15 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         self,
         config: "PretrainedConfig",
         task: str,
+        input_shapes: InputShapesArguments,
         compiler_type: Optional[str] = None,
         compiler_version: Optional[str] = None,
         tensor_parallel_size: int = 1,
-        batch_size: Optional[int] = None,
-        text_batch_size: Optional[int] = None,
-        image_batch_size: Optional[int] = None,
         dynamic_batch_size: bool = False,
-        sequence_length: Optional[int] = None,
-        num_choices: Optional[int] = None,
-        width: Optional[int] = None,
-        height: Optional[int] = None,
-        image_size: Optional[int] = None,
-        patch_size: Optional[int] = None,
-        num_channels: Optional[int] = None,
-        feature_size: Optional[int] = None,
-        nb_max_frames: Optional[int] = None,
-        audio_sequence_length: Optional[int] = None,
-        point_batch_size: Optional[int] = None,
-        nb_points_per_image: Optional[int] = None,
-        num_beams: Optional[int] = None,
-        vae_scale_factor: Optional[int] = None,
-        encoder_hidden_size: Optional[int] = None,
-        image_encoder_sequence_length: Optional[int] = None,
-        image_encoder_hidden_size: Optional[int] = None,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
-        int_dtype: Union[str, torch.dtype] = "int64",
-        float_dtype: Union[str, torch.dtype] = "fp32",
+        int_dtype: Union[str, torch.dtype] = "int64",  # Int dtype of dummy inputs used for tracing
+        float_dtype: Union[str, torch.dtype] = "fp32",  # Float dtype of dummy inputs used for tracing
     ):
         self._config = config
         self._normalized_config = self.NORMALIZED_CONFIG_CLASS(self._config)
@@ -187,36 +168,41 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         if self.dynamic_batch_size is True and is_neuron_available():
             logger.info("Overwriting batch size to 1 for neuron dynamic batch size support.")
             batch_size = 1
+        else:
+            batch_size = input_shapes.batch_size
 
         # To avoid using **kwargs.
         axes_values = {
             "batch_size": batch_size,
-            "text_batch_size": text_batch_size,
-            "image_batch_size": image_batch_size,
-            "sequence_length": sequence_length,
-            "num_choices": num_choices,
-            "width": width,
-            "height": height,
-            "num_channels": num_channels or getattr(self._config, "num_channels", None),
-            "feature_size": feature_size,
-            "nb_max_frames": nb_max_frames,
-            "audio_sequence_length": audio_sequence_length,
-            "point_batch_size": point_batch_size,
-            "nb_points_per_image": nb_points_per_image,
-            "num_beams": num_beams,
-            "image_size": image_size or getattr(self._config, "image_size", None),
-            "patch_size": patch_size or getattr(self._config, "patch_size", None),
-            "vae_scale_factor": vae_scale_factor,
-            "encoder_hidden_size": encoder_hidden_size,
-            "image_encoder_sequence_length": image_encoder_sequence_length,
-            "image_encoder_hidden_size": image_encoder_hidden_size,
+            "text_batch_size": input_shapes.text_batch_size,
+            "image_batch_size": input_shapes.image_batch_size,
+            "sequence_length": input_shapes.sequence_length,
+            "num_choices": input_shapes.num_choices,
+            "width": input_shapes.width,
+            "height": input_shapes.height,
+            "num_channels": input_shapes.num_channels or getattr(self._config, "num_channels", None),
+            "feature_size": input_shapes.feature_size,
+            "nb_max_frames": input_shapes.nb_max_frames,
+            "audio_sequence_length": input_shapes.audio_sequence_length,
+            "point_batch_size": input_shapes.point_batch_size,
+            "nb_points_per_image": input_shapes.nb_points_per_image,
+            "num_beams": input_shapes.num_beams,
+            "image_size": input_shapes.image_size or getattr(self._config, "image_size", None),
+            "patch_size": input_shapes.patch_size or getattr(self._config, "patch_size", None),
+            "vae_scale_factor": input_shapes.vae_scale_factor,
+            "encoder_hidden_size": input_shapes.encoder_hidden_size,
+            "image_encoder_shapes": ImageEncoderArguments(
+                sequence_length=getattr(input_shapes.image_encoder_shapes, "sequence_length", None), 
+                hidden_size=getattr(input_shapes.image_encoder_shapes, "hidden_size", None), 
+                projection_dim=getattr(input_shapes.image_encoder_shapes, "projection_dim", None),
+            ),
         }
-        input_shapes = {}
+        valid_input_shapes = {}
         for name, value in axes_values.items():
             if value is not None:
-                input_shapes[name] = value
+                valid_input_shapes[name] = value
             setattr(self, name, value)
-        setattr(self, "input_shapes", input_shapes)
+        setattr(self, "input_shapes", valid_input_shapes)
         setattr(self, "output_attentions", output_attentions)
         setattr(self, "output_hidden_states", output_hidden_states)
         setattr(self, "compiler_type", compiler_type)
