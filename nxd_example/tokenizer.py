@@ -6,7 +6,6 @@ from logging import getLogger
 from pathlib import Path
 from typing import (
     AbstractSet,
-    cast,
     Collection,
     Dict,
     Iterator,
@@ -15,6 +14,7 @@ from typing import (
     Sequence,
     TypedDict,
     Union,
+    cast,
 )
 
 import tiktoken
