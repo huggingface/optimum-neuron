@@ -18,12 +18,11 @@ import copy
 import os
 from collections import OrderedDict
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union, Any
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 
 from ...neuron.utils import (
-    LoRAAdapterArguments,
     DECODER_NAME,
     DIFFUSION_MODEL_CONTROLNET_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
@@ -33,6 +32,7 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     ENCODER_NAME,
+    LoRAAdapterArguments,
     get_attention_scores_sd,
     get_attention_scores_sdxl,
     neuron_scaled_dot_product_attention,
@@ -235,7 +235,7 @@ def get_diffusion_models_for_export(
         unet_neuron_config.with_ip_adapter = getattr(unet.config, "encoder_hid_dim_type", None) == "ip_image_proj"
 
         models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
-        
+
 
     # Diffusion Transformer
     transformer = None
@@ -340,7 +340,7 @@ def get_diffusion_models_for_export(
             input_shapes=image_encoder_input_shapes,
         )
         models_for_export["image_encoder"] = (image_encoder, image_encoder_neuron_config)
-        models_for_export[DIFFUSION_MODEL_UNET_NAME][1].image_encoder_output_hidden_states = output_hidden_states        
+        models_for_export[DIFFUSION_MODEL_UNET_NAME][1].image_encoder_output_hidden_states = output_hidden_states
 
     return models_for_export
 

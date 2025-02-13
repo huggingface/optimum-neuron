@@ -224,7 +224,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         type=float,
         help="Scaling factors for the IP-Adapters.",
     )
-    
+
     # Static Input Shapes
     input_group = parser.add_argument_group("Input shapes")
     doc_input = "that the Neuronx-cc compiler exported model will be able to take as input."

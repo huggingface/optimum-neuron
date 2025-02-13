@@ -15,7 +15,7 @@
 """Utilities related to CLI arguments."""
 
 import os
-from dataclasses import dataclass, is_dataclass, asdict
+from dataclasses import asdict, dataclass, fields, is_dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from ...utils import logging
@@ -36,7 +36,7 @@ class LoRAAdapterArguments:
     weight_names: Optional[Union[str, List[str]]] = None
     adapter_names: Optional[Union[str, List[str]]] = None
     scales: Optional[Union[float, List[float]]] = None
-    
+
     def __post_init__(self):
         if isinstance(self.model_ids, str):
             self.model_ids = [self.model_ids,]
@@ -84,6 +84,44 @@ class InputShapesArguments:
     vae_scale_factor: Optional[int] = None
     encoder_hidden_size: Optional[int] = None
     image_encoder_shapes: Optional[ImageEncoderArguments] = None
+
+
+class DataclassParser:
+    def __init__(self, **kwargs):
+        for name, cls in self.__class__.__annotations__.items():
+            if is_dataclass(cls):
+                parsed_kwargs = {k: v for k, v in kwargs.items() if k in {f.name for f in fields(cls)}}
+                setattr(self, f"{name}", cls(**parsed_kwargs))
+
+
+class NeuronArgumentParser(DataclassParser):
+    input_shapes: InputShapesArguments
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        for name, value in kwargs.items():
+            if value is not None:
+                setattr(self, name, value)
+
+    @property
+    def lora_args(self):
+        _lora_args = LoRAAdapterArguments(
+            model_ids=getattr(self, "lora_model_ids", None),
+            weight_names=getattr(self, "lora_weight_names", None),
+            adapter_names=getattr(self, "lora_adapter_names", None),
+            scales=getattr(self, "lora_scales", None),
+        )
+        return _lora_args
+
+    @property
+    def ip_adapter_args(self):
+        _ip_adapter_args = IPAdapterArguments(
+            model_id=getattr(self, "ip_adapter_id", None),
+            subfolder=getattr(self, "ip_adapter_subfolder", None),
+            weight_name=getattr(self, "ip_adapter_weight_name", None),
+            scale=getattr(self, "ip_adapter_scale", None),
+        )
+        return _ip_adapter_args
 
 
 def validate_arg(

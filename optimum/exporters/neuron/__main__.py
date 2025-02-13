@@ -36,10 +36,10 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     ENCODER_NAME,
     NEURON_FILE_NAME,
-    LoRAAdapterArguments,
-    IPAdapterArguments,
     ImageEncoderArguments,
     InputShapesArguments,
+    IPAdapterArguments,
+    LoRAAdapterArguments,
     is_neuron_available,
     is_neuronx_available,
     is_transformers_neuronx_available,
@@ -298,7 +298,7 @@ def infer_stable_diffusion_shapes_from_diffusers(
                 hidden_size=model.image_encoder.vision_model.embeddings.position_embedding.weight.shape[1],
                 projection_dim=getattr(model.image_encoder.config, "projection_dim", None),
             )
-    
+
     # Format with `InputShapesArguments`
     for sub_model_name in input_shapes.keys():
         input_shapes[sub_model_name] = InputShapesArguments(**input_shapes[sub_model_name])

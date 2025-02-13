@@ -23,7 +23,7 @@ import torch
 from optimum.utils import logging
 
 from ...exporters.base import ExportConfig
-from ...neuron.utils import InputShapesArguments, ImageEncoderArguments, is_neuron_available
+from ...neuron.utils import ImageEncoderArguments, InputShapesArguments, is_neuron_available
 
 
 if TYPE_CHECKING:
@@ -192,8 +192,8 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
             "vae_scale_factor": input_shapes.vae_scale_factor,
             "encoder_hidden_size": input_shapes.encoder_hidden_size,
             "image_encoder_shapes": ImageEncoderArguments(
-                sequence_length=getattr(input_shapes.image_encoder_shapes, "sequence_length", None), 
-                hidden_size=getattr(input_shapes.image_encoder_shapes, "hidden_size", None), 
+                sequence_length=getattr(input_shapes.image_encoder_shapes, "sequence_length", None),
+                hidden_size=getattr(input_shapes.image_encoder_shapes, "hidden_size", None),
                 projection_dim=getattr(input_shapes.image_encoder_shapes, "projection_dim", None),
             ),
         }

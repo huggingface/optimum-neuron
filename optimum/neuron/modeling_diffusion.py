@@ -22,6 +22,7 @@ import os
 import shutil
 from abc import abstractmethod
 from collections import OrderedDict
+from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
@@ -52,6 +53,7 @@ from .utils import (
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     NEURON_FILE_NAME,
     DiffusersPretrainedConfig,
+    NeuronArgumentParser,
     check_if_weights_replacable,
     is_neuronx_available,
     replace_weights,
@@ -877,16 +879,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, NeuronIPAdapterMixin):
         dynamic_batch_size: bool = False,
         output_hidden_states: bool = False,
         data_parallel_mode: Optional[Literal["none", "unet", "transformer", "all"]] = None,
-        lora_model_ids: Optional[Union[str, List[str]]] = None,
-        lora_weight_names: Optional[Union[str, List[str]]] = None,
-        lora_adapter_names: Optional[Union[str, List[str]]] = None,
-        lora_scales: Optional[Union[float, List[float]]] = None,
         controlnet_ids: Optional[Union[str, List[str]]] = None,
-        ip_adapter_ids: Optional[Union[str, List[str]]] = None,
-        ip_adapter_subfolders: Optional[Union[str, List[str]]] = None,
-        ip_adapter_weight_names: Optional[Union[str, List[str]]] = None,
-        ip_adapter_scales: Optional[Union[float, List[float]]] = None,
-        **kwargs_shapes,
+        **kwargs,
     ) -> "NeuronDiffusionPipelineBase":
         """
         Args:
@@ -967,9 +961,13 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, NeuronIPAdapterMixin):
                 The name of the weight file to load. If a list is passed, it should have the same length as `ip_adapter_subfolders`.
             ip_adapter_scales (`Optional[Union[float, List[float]]]`, defaults to `None`):
                 Scaling factors for the IP-Adapters.
-            kwargs_shapes (`Dict[str, int]`):
-                Shapes to use during inference. This argument allows to override the default shapes used during the export.
         """
+        # Parse kwargs to their dataclass
+        parser = NeuronArgumentParser(**kwargs)
+        lora_args = parser.lora_args
+        ip_adapter_args =  parser.ip_adapter_args
+        kwargs_shapes = asdict(parser.input_shapes)
+
         if task is None:
             if cls.task is not None:
                 task = cls.task
@@ -1024,17 +1022,11 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, NeuronIPAdapterMixin):
                 local_files_only=local_files_only,
                 token=token,
                 submodels=submodels,
+                lora_args=lora_args,
+                ip_adapter_args=ip_adapter_args,
                 output_hidden_states=output_hidden_states,
-                lora_model_ids=lora_model_ids,
-                lora_weight_names=lora_weight_names,
-                lora_adapter_names=lora_adapter_names,
-                lora_scales=lora_scales,
                 torch_dtype=torch_dtype,
                 controlnet_ids=controlnet_ids,
-                ip_adapter_ids=ip_adapter_ids,
-                ip_adapter_subfolders=ip_adapter_subfolders,
-                ip_adapter_weight_names=ip_adapter_weight_names,
-                ip_adapter_scales=ip_adapter_scales,
                 **input_shapes_copy,
             )
 
@@ -1090,6 +1082,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, NeuronIPAdapterMixin):
                 model_name_or_path=model_id,
                 output=save_dir_path,
                 compiler_kwargs=compiler_kwargs,
+                lora_args=lora_args,
+                ip_adapter_args=ip_adapter_args,
                 torch_dtype=torch_dtype,
                 task=task,
                 dynamic_batch_size=dynamic_batch_size,
@@ -1107,15 +1101,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, NeuronIPAdapterMixin):
                 do_validation=False,
                 submodels={"unet": unet_id},
                 output_hidden_states=output_hidden_states,
-                lora_model_ids=lora_model_ids,
-                lora_weight_names=lora_weight_names,
-                lora_adapter_names=lora_adapter_names,
-                lora_scales=lora_scales,
                 controlnet_ids=controlnet_ids,
-                ip_adapter_ids=ip_adapter_ids,
-                ip_adapter_subfolders=ip_adapter_subfolders,
-                ip_adapter_weight_names=ip_adapter_weight_names,
-                ip_adapter_scales=ip_adapter_scales,
                 library_name=cls.library_name,
                 **input_shapes,
             )

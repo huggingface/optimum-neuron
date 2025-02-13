@@ -31,8 +31,8 @@ from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from .modeling_base import NeuronModel
 from .utils import (
-    InputShapesArguments,
     NEURON_FILE_NAME,
+    InputShapesArguments,
     check_if_weights_replacable,
     is_neuron_available,
     replace_weights,

@@ -14,7 +14,7 @@
 # limitations under the License.
 """Dummy input generation classes."""
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import torch
 
@@ -195,7 +195,7 @@ class DummyIPAdapterInputGenerator(DummyInputGenerator):
         if input_name == "image_enc_hidden_states":
             shape = [self.batch_size, 1, self.image_encoder_shapes.sequence_length, self.image_encoder_shapes.hidden_size]
             return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
-        elif input_name == "image_embeds":   
+        elif input_name == "image_embeds":
             shape = [self.batch_size, 1, self.image_encoder_shapes.projection_dim]
             return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
         elif input_name == "ip_adapter_masks":

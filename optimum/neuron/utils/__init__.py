@@ -24,7 +24,8 @@ _import_structure = {
         "IPAdapterArguments",
         "ImageEncoderArguments",
         "InputShapesArguments",
-        "convert_neuronx_compiler_args_to_neuron", 
+        "NeuronArgumentParser",
+        "convert_neuronx_compiler_args_to_neuron",
         "store_compilation_config"
     ],
     "constant": [
@@ -91,11 +92,12 @@ _import_structure = {
 
 if TYPE_CHECKING:
     from .argument_utils import (
-        LoRAAdapterArguments,
-        IPAdapterArguments,
         ImageEncoderArguments,
         InputShapesArguments,
-        convert_neuronx_compiler_args_to_neuron, 
+        IPAdapterArguments,
+        LoRAAdapterArguments,
+        NeuronArgumentParser,
+        convert_neuronx_compiler_args_to_neuron,
         store_compilation_config,
     )
     from .constant import (

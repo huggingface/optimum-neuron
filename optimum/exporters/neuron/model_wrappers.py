@@ -571,8 +571,8 @@ class SentenceTransformersTransformerNeuronWrapper(torch.nn.Module):
 
 class CLIPVisionModelNeuronWrapper(torch.nn.Module):
     def __init__(
-        self, 
-        model, 
+        self,
+        model,
         input_names: List[str],
         output_hidden_states: bool = True,
     ):
@@ -585,9 +585,9 @@ class CLIPVisionModelNeuronWrapper(torch.nn.Module):
         vision_outputs = self.model.vision_model(pixel_values=pixel_values, output_hidden_states=self.output_hidden_states)
         pooled_output = vision_outputs[1]
         image_embeds = self.model.visual_projection(pooled_output)
-        
+
         outputs = (image_embeds, vision_outputs.last_hidden_state)
-        
+
         if self.output_hidden_states:
             outputs += (vision_outputs.hidden_states, )
         return outputs

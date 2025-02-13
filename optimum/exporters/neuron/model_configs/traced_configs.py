@@ -632,7 +632,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
             if self.image_encoder_output_hidden_states:
                 common_inputs += ["image_enc_hidden_states"]
             else:
-                common_inputs += ["image_embeds"]      
+                common_inputs += ["image_embeds"]
 
         return common_inputs
 
