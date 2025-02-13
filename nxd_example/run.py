@@ -78,11 +78,11 @@ def generate_cpu(batch_size=2,
     for prompt in prompt_tokens:
         print(tokenizer.decode(prompt))
 
+
 @torch.inference_mode()
-def generate_nxd(traced_model_path="/home/ubuntu/workspace-trn1/src/Aazhiko-workplace/scripts/modeling_example/traced_model/",
+def generate_nxd(traced_model_path="./traced_model/",
                  tokenizer_path="/home/ubuntu/.llama/checkpoints/Llama3.2-1B-Instruct/tokenizer.model",
-                 prompts=["I will just count till 20 - 1,2,3,4",
-                          "I will just count till 20 - 1,2,3,4,5,6"]):
+                 prompts=None):
     import os
 
     from safetensors.torch import load_file
@@ -92,7 +92,9 @@ def generate_nxd(traced_model_path="/home/ubuntu/workspace-trn1/src/Aazhiko-work
 
     bs, seq_len, tp_degree = cfg["batch_size"], cfg["seq_len"], cfg["tp_degree"]
 
-    if len(prompts) != bs:
+    if prompts is None:
+        prompts = ["I will just count till 20 - 1,2,3,4"] * bs
+    elif len(prompts) != bs:
         raise ValueError(f"Prompts size does not match batch size {cfg['batch_size']}")
 
     weights = []
@@ -116,7 +118,7 @@ def generate_nxd(traced_model_path="/home/ubuntu/workspace-trn1/src/Aazhiko-work
 
 def compile(batch_size=2,
             seq_len=128,
-            tp_degree=32,
+            tp_degree=8,
             model_path="/home/ubuntu/.llama/checkpoints/Llama3.2-1B-Instruct/consolidated.00.pth",
             output_path="traced_model/"):
 
