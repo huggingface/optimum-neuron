@@ -327,6 +327,7 @@ class Transformer(torch.nn.Module):
         self.rope_theta = cfg.rope_theta
         self.head_dim = cfg.head_dim
         self.hidden_size = cfg.hidden_size
+        self.vocab_size = cfg.vocab_size
 
     def forward(self,
                 tokens: torch.Tensor,
@@ -361,7 +362,7 @@ class Transformer(torch.nn.Module):
         # This is a simple optimization to stop moving sequence length long
         # logits back from device to CPU for prefil.
         if input_len > 1:
-            last_pos = last_pos.view(self.bs, 1, 1).expand(self.bs, 1, self.hidden_size)
+            last_pos = last_pos.view(self.bs, 1, 1).expand(self.bs, 1, self.vocab_size)
             output = torch.gather(output, dim=1, index=last_pos.to(torch.int64))
         # Note: We are returning K and V caches. The order in which the tensors
         # are returned is important as you will need to register the alias when
