@@ -1,27 +1,22 @@
+import copy
 import json
 from functools import partial
-import copy
-import torch
-from torch import nn
-import torch.nn.functional as F
+from typing import List
 
+import fire
+import torch
+from config import Llama1B
+from model import Transformer, load_llama_checkpoint
 from neuronx_distributed.trace import ModelBuilder
 from neuronx_distributed.trace.model_builder import BaseModelInstance
 from tokenizer import Tokenizer
 
-from typing import List
-
-from model import Transformer, load_llama_checkpoint
-
-from config import Llama1B
-
-import fire
 
 def generate(model: torch.nn.Module,
              max_len: int,
-             prompt_tokens: List[List[int]], 
+             prompt_tokens: List[List[int]],
              stop_tokens: List[int]):
-    
+
     # Track max pos per batch
     last_pos = torch.tensor([len(prompt)-1 for prompt in prompt_tokens], dtype=torch.int32)
 
@@ -36,7 +31,7 @@ def generate(model: torch.nn.Module,
     is_gen_complete = torch.full((input_bs, 1), False)
 
     while True:
-        
+
         logits = model.forward(input_tokens, last_pos)
         last_pos = last_pos + 1
 
@@ -44,8 +39,8 @@ def generate(model: torch.nn.Module,
         next_token = torch.argmax(logits[:, -1], dim=-1, keepdim=True)
 
         input_tokens = next_token.to(torch.int32)
-        
-        # Add the new token to prompt         
+
+        # Add the new token to prompt
         for idx, prompt  in enumerate(prompt_tokens):
             if not is_gen_complete[idx][0].item():
                 prompt.append(next_token[idx].item())
@@ -59,7 +54,7 @@ def generate(model: torch.nn.Module,
 
         if torch.max(last_pos).item() >= max_len:
             break
-    
+
     return prompt_tokens
 
 @torch.inference_mode()
@@ -67,7 +62,7 @@ def generate_cpu(batch_size=2,
                  seq_len=128,
                  model_path="/home/ubuntu/.llama/checkpoints/Llama3.2-1B-Instruct/consolidated.00.pth",
                  tokenizer_path="/home/ubuntu/.llama/checkpoints/Llama3.2-1B-Instruct/tokenizer.model",
-                 prompts=["I will just count till 20 - 1,2,3,4", 
+                 prompts=["I will just count till 20 - 1,2,3,4",
                           "I will just count till 20 - 1,2,3,4,5,6"]):
 
     checkpoint = load_llama_checkpoint(Llama1B, model_path)
@@ -82,21 +77,21 @@ def generate_cpu(batch_size=2,
 
     for prompt in prompt_tokens:
         print(tokenizer.decode(prompt))
-        
+
 @torch.inference_mode()
-def generate_nxd(world_size=32,
-                 traced_model_path="/home/ubuntu/workspace-trn1/src/Aazhiko-workplace/scripts/modeling_example/traced_model/",
+def generate_nxd(traced_model_path="/home/ubuntu/workspace-trn1/src/Aazhiko-workplace/scripts/modeling_example/traced_model/",
                  tokenizer_path="/home/ubuntu/.llama/checkpoints/Llama3.2-1B-Instruct/tokenizer.model",
-                 prompts=["I will just count till 20 - 1,2,3,4", 
+                 prompts=["I will just count till 20 - 1,2,3,4",
                           "I will just count till 20 - 1,2,3,4,5,6"]):
     import os
+
     from safetensors.torch import load_file
 
     with open(traced_model_path + "config.json", 'r') as file:
         cfg = json.load(file)
-    
+
     bs, seq_len, tp_degree = cfg["batch_size"], cfg["seq_len"], cfg["tp_degree"]
-        
+
     if len(prompts) != bs:
         raise ValueError(f"Prompts size does not match batch size {cfg['batch_size']}")
 
@@ -104,7 +99,7 @@ def generate_nxd(world_size=32,
     for rank in range(tp_degree):
         ckpt = load_file(os.path.join(traced_model_path, f"weights/tp{rank}_sharded_checkpoint.safetensors"))
         weights.append(ckpt)
-        
+
     model = torch.jit.load(traced_model_path + "nxd_model.pt")
     start_rank_tensor = torch.tensor([0], dtype=torch.int32, device="cpu")
     model.nxd_model.initialize(weights, start_rank_tensor)
@@ -171,8 +166,8 @@ def compile(batch_size=2,
     #
     #  This means `cache` is aliased to the output number 1 which is `output_A`
 
-    # CURRENT MODEL BUILDER FLOW. LOOK AFTER THIS SECTION FOR HOW THE NEW API 
-    # WILL LOOK LIKE. 
+    # CURRENT MODEL BUILDER FLOW. LOOK AFTER THIS SECTION FOR HOW THE NEW API
+    # WILL LOOK LIKE.
     class Instance(BaseModelInstance):
 
         def __init__(self):
@@ -203,7 +198,7 @@ def compile(batch_size=2,
 
     builder = ModelBuilder(router=None,
                            tp_degree=tp_degree,
-                           checkpoint_loader=partial(load_llama_checkpoint, Llama1B, model_path, tp_degree), 
+                           checkpoint_loader=partial(load_llama_checkpoint, Llama1B, model_path, tp_degree),
                            debug=True)
     builder.add(key="prefil",
                 model_instance=Instance(),
@@ -215,12 +210,12 @@ def compile(batch_size=2,
                 example_inputs=[(torch.ones((batch_size, 1),dtype=torch.int32), # input tokens
                                  torch.tensor([0] * batch_size, dtype=torch.int32),)],   # last_pos
                 compiler_args="--auto-cast=none")
-    
+
     traced_model = builder.trace(initialize_model_weights=False)
-    
+
     builder.shard_checkpoint(serialize_path=output_path + "weights/")
     torch.jit.save(traced_model, output_path + "nxd_model.pt")
-        
+
     # Lets store the config along with the saved model
     data = {
         "batch_size": batch_size,
@@ -229,12 +224,12 @@ def compile(batch_size=2,
     }
     with open(output_path + "config.json", 'w') as f:
         json.dump(data, f, indent=4)
-        
+
     '''
-    Sneek peek at how the new Model Builder API will look like : 
-    
-    --- Simple Case --- 
-    
+    Sneek peek at how the new Model Builder API will look like :
+
+    --- Simple Case ---
+
     torch.dist.init_process_group(backend="xla")
     parallel_state.initialize_model_parallel(tp_degree=32)
 
@@ -243,44 +238,44 @@ def compile(batch_size=2,
     model = ModelBuilder(model, world_size=32)
     .spmd_trace(torch.randn(1024))
     .compile()
-    
+
     model.save("model.nxdpt")
-            
+
     model = NxDModel.load("model.nxdpt").to_neuron()
     # HERE you could call model.set_weights(different_sharded_weights) to replace the weights
 
     output = model(torch.randn(1024))
-    
-    --- You can load weights after compilation too --- 
+
+    --- You can load weights after compilation too ---
 
     model = NxDModel.load("model.nxdpt")
     sharded_checkpoint = shard(model, checkpoint: TensorDict, device="neuron")
     model.set_weights(sharded_checkpoint)
-    model.to_neuron()   
-    
+    model.to_neuron()
+
     '''
 
 
 def test_attention(model_path="/home/ubuntu/.llama/checkpoints/Llama3.2-1B-Instruct/consolidated.00.pth"):
-    
-    from model import Attention, precompute_rope
+
     from config import Llama1B
-        
+    from model import Attention, precompute_rope
+
     # Lets test with float32
     cfg = copy.deepcopy(Llama1B)
     cfg.dtype = torch.float32
-        
+
     bs, seqlen, hidden_size = 1, 64, 2048 # batch, seq len, hidden size
     hidden = torch.randn((bs, seqlen, hidden_size), dtype=torch.float32)
     start_pos = torch.tensor([0])
     mask = torch.full((64, 64), torch.finfo(hidden.dtype).min)
     mask = torch.triu(mask, diagonal=1)
     rope_cache = precompute_rope("cpu", 500000.0, 64, 64)
-    
+
     import re
     state_dict = load_llama_checkpoint(model_path=model_path, cfg=cfg)
     attn_dict = {re.sub('layers.*.attention.','',k):v.to(torch.float32) for (k,v) in state_dict.items() if "attention" in k}
-    
+
     class Instance(BaseModelInstance):
 
         def __init__(self):
@@ -294,44 +289,44 @@ def test_attention(model_path="/home/ubuntu/.llama/checkpoints/Llama3.2-1B-Instr
 
     builder = ModelBuilder(router=None,
                            tp_degree=1,
-                           checkpoint_loader=lambda: attn_dict, 
+                           checkpoint_loader=lambda: attn_dict,
                            debug=True)
     builder.add(key="prefil",
                 model_instance=Instance(),
                 example_inputs=[(hidden, start_pos, mask, rope_cache)],
                 compiler_args="--auto-cast=none")
     neuron_attn = builder.trace()
-    
+
     start_rank_tensor = torch.tensor([0], dtype=torch.int32, device="cpu")
     neuron_attn.nxd_model.initialize([attn_dict], start_rank_tensor)
-    
+
     attn = Attention(cfg, bs, seqlen)
     attn.load_state_dict(attn_dict, strict=False)
-    
+
     hidden = torch.randn((bs,seqlen,hidden_size), dtype=torch.float32)
     start_pos = torch.tensor([0])
     mask = torch.full((64, 64), torch.finfo(hidden.dtype).min)
     mask = torch.triu(mask, diagonal=1)
     rope_cache = precompute_rope("cpu", 500000.0, 64, 64)
-    
+
     cpu_o, cache_k, cache_v = attn(hidden, start_pos, mask, rope_cache)
-    
-    # Note: If you alias the tensors, the compiled model will not return it. 
+
+    # Note: If you alias the tensors, the compiled model will not return it.
     # They are kept on device. We cannot return a signle tensor is because
     # each core has its own copy of the tensor. As we are SPMD the output
-    # is assumed to be the same, so return the output of the first core. 
+    # is assumed to be the same, so return the output of the first core.
     neuron_o = neuron_attn(hidden, start_pos, mask, rope_cache)
 
-    # But we can access them this way per rank. This is how you do it. 
+    # But we can access them this way per rank. This is how you do it.
     rank=0
     cache_k1 = neuron_attn.nxd_model.state[rank]['cache_k'].to("cpu")
     cache_v1 = neuron_attn.nxd_model.state[rank]['cache_v'].to("cpu")
-    
+
     torch.testing.assert_close(cpu_o, neuron_o)
     torch.testing.assert_close(cache_k,cache_k1)
     torch.testing.assert_close(cache_v,cache_v1)
-        
-        
+
+
 if __name__ == '__main__':
     fire.Fire({
         'generate_cpu': generate_cpu,

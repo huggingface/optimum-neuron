@@ -1,6 +1,6 @@
 import torch
 import torch_neuronx
-import torch_xla.core.xla_model as xm
+
 
 '''
     Example with direct XLA call.
@@ -43,13 +43,13 @@ import torch_xla.core.xla_model as xm
     Now, if you want the start position to be a parameter a good way to do this
     is to plug into XLA builder. We can use XLA's DynamicSlice operation. 
 '''
-    
-    
+
+
 def test():
-    
+
     tensor = torch.arange(100, dtype=torch.float32)
     start_pos = torch.tensor(5)
-    
+
     _narrow = torch_neuronx.trace(narrow, example_inputs=(tensor, start_pos), compiler_workdir="/tmp/narrow/")
     _index = torch_neuronx.trace(index_slice, example_inputs=(tensor, start_pos), compiler_workdir="/tmp/index/")
     _index_select = torch_neuronx.trace(index_select, example_inputs=(tensor, start_pos), compiler_workdir="/tmp/index_select/")
@@ -61,40 +61,40 @@ def test():
     assert not torch.allclose(_index(tensor, torch.tensor(10)), target)
     assert not torch.allclose(_index_select(tensor, torch.tensor(10)), target)
     assert not torch.allclose(_gather(tensor, torch.tensor(10)), target)
-    
-    assert torch.allclose(_dynamic_slice(tensor, torch.tensor(10)), target)
-    
 
-def dynamic_slice(tensor, 
+    assert torch.allclose(_dynamic_slice(tensor, torch.tensor(10)), target)
+
+
+def dynamic_slice(tensor,
                   start_indices):
 
     # Import annoation from torch_neuronx
     from torch_neuronx.xla_impl.ops import xla_call
-    from torch_xla.core import xla_builder as xb        
-    
+    from torch_xla.core import xla_builder as xb
+
     @xla_call
-    def xla_dynamic_slice(tensor: xb.Op, 
+    def xla_dynamic_slice(tensor: xb.Op,
                           *start_indices):
         return tensor.dynamic_slice(start_indices, [10])
 
     return xla_dynamic_slice(tensor, start_indices)
 
 
-# Case 1: 
+# Case 1:
 
 def narrow(tensor, start_index):
     return torch.narrow(tensor, dim=0, start=start_index, length=10)
 
-def index_slice(tensor, 
+def index_slice(tensor,
                 start_index):
     return tensor[start_index : start_index + 10]
 
-def index_select(tensor, 
+def index_select(tensor,
                  start_index):
     indices = torch.arange(start_index, start_index + 10, device=tensor.device)
     return torch.index_select(tensor, dim=0, index=indices)
 
-def gather(tensor, 
+def gather(tensor,
            start_index):
     indices = torch.arange(start_index, start_index + 10, device=tensor.device)
     return torch.gather(tensor, dim=0, index=indices)

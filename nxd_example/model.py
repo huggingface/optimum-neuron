@@ -2,28 +2,27 @@
 # Model ref: https://github.com/meta-llama/llama3/blob/main/llama/model.py
 
 import math
-from typing import Optional, List
-import torch
-from torch import nn
-import torch.nn.functional as F
+from typing import Optional
 
-from torch_neuronx.xla_impl.ops import RmsNorm
+import torch
+import torch.nn.functional as F
+from config import Config
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
     ParallelEmbedding,
     RowParallelLinear,
 )
+from torch import nn
+from torch_neuronx.xla_impl.ops import RmsNorm
 
-from config import Config
-    
 
-def prefill_cache(cache: torch.tensor,                 
+def prefill_cache(cache: torch.tensor,
                   update: torch.tensor):
 
     bs, seq_len, n_kv_heads, head_dim = update.shape
 
-    # CPU 
+    # CPU
     indices = torch.arange(start=0, end=seq_len, device=cache.device)
     indices = indices.view(1, seq_len, 1, 1)
     indices = indices.expand(bs, seq_len, n_kv_heads, head_dim)
@@ -33,14 +32,14 @@ def prefill_cache(cache: torch.tensor,
 
 def precompute_rope(device,
                     theta,
-                    head_dim, 
+                    head_dim,
                     seq_len):
     # Refer: https://medium.com/@parulsharmmaa/understanding-rotary-positional-embedding-and-implementation-9f4ad8b03e32
     theta = 1.0 / (
             theta
             ** (torch.arange(0, head_dim, 2, device=device)[: (head_dim // 2)].float() / head_dim)
         )
-    
+
     seq_idx = torch.arange(seq_len, dtype=torch.float32, device=device)
 
     # Outer product of theta and position index; output tensor has
@@ -55,14 +54,14 @@ def precompute_rope(device,
 def rope(x, start_pos, cache):
     # input tensor has shape [b, s, n_h, h_d]
     bs, input_len, _, _ = x.shape
-        
+
     # expand cache to batch size
     rope_cache = cache.unsqueeze(0).expand(bs, *cache.shape)
 
     if input_len == 1:
-        # We are in decode mode, so we have a q & k of size 1. 
-        # But the positions of these tokens are not necessarily the same, so 
-        # we gather the RoPE cos and sine values by position id 
+        # We are in decode mode, so we have a q & k of size 1.
+        # But the positions of these tokens are not necessarily the same, so
+        # we gather the RoPE cos and sine values by position id
         index = start_pos.view(bs, 1, 1, 1).expand(bs, 1, cache.shape[-2], cache.shape[-1])
         rope_cache = torch.gather(rope_cache, dim=1, index=index.to(torch.int64))
 
@@ -107,32 +106,32 @@ class RMSNorm(nn.Module):
         if x.is_cpu:
             output = self._norm(x.float()).type_as(x)
             return output * self.weight
-        else:        
+        else:
             return RmsNorm.apply(
                 x, self.weight, self.eps, len(x.shape) - 1
             ).to(x.dtype)
-    
+
 class Attention(nn.Module):
 
     def __init__(self, cfg: Config, batch_size: int, seq_len: int):
         super().__init__()
-                
+
         if parallel_state.model_parallel_is_initialized():
-            
+
             tp_degree = parallel_state.get_tensor_model_parallel_group().size()
-            
+
             if cfg.n_heads % tp_degree != 0:
                 raise ValueError("n_heads not evenly divisible by tp degree")
 
             # we want atleast 1 kv head on a core
             self.n_heads = cfg.n_heads // tp_degree
-            self.n_kv_heads = max(cfg.n_kv_heads // tp_degree, 1)             
-            
+            self.n_kv_heads = max(cfg.n_kv_heads // tp_degree, 1)
+
             self.wq = ColumnParallelLinear(cfg.hidden_size, self.n_heads * tp_degree * cfg.head_dim, bias=False, gather_output = False, dtype=cfg.dtype)
             self.wk = ColumnParallelLinear(cfg.hidden_size, self.n_kv_heads * tp_degree * cfg.head_dim, bias=False, gather_output = False, dtype=cfg.dtype)
             self.wv = ColumnParallelLinear(cfg.hidden_size, self.n_kv_heads * tp_degree * cfg.head_dim, bias=False, gather_output = False, dtype=cfg.dtype)
             self.wo = RowParallelLinear(self.n_heads * tp_degree * cfg.head_dim, cfg.hidden_size, bias=False, input_is_parallel=True, dtype=cfg.dtype)
-            
+
         else:
             self.n_heads = cfg.n_heads
             self.n_kv_heads = cfg.n_kv_heads
@@ -144,7 +143,7 @@ class Attention(nn.Module):
 
         # KV Caches
         # On NxD, your caches need to be registered parameters. Only parameters
-        # can be aliased. Note, you cannot use `register_buffer` as well. 
+        # can be aliased. Note, you cannot use `register_buffer` as well.
         #
         # What is aliasing?
         # When an input and output buffer is aliased, the buffer is reused for
@@ -186,38 +185,38 @@ class Attention(nn.Module):
             indices = indices.expand(bsz, inp_len, self.n_kv_heads, self.head_dim)
         else:
             indices = last_pos.view(bsz, 1, 1, 1).expand_as(k).to(torch.int64)
-            
+
         updated_kcache = torch.scatter(self.cache_k, 1, indices, k)
         updated_vcache = torch.scatter(self.cache_v, 1, indices, v)
 
         if q.is_cpu:
             # CPU flow and XLA flow keeps a reference to the cache differently
-            # On CPU we change the cache to point to the updated cache. 
-            # On XLA we expect aliasing to do this in place on device. 
+            # On CPU we change the cache to point to the updated cache.
+            # On XLA we expect aliasing to do this in place on device.
             self.cache_k.data = updated_kcache
             self.cache_v.data = updated_vcache
 
-        # Note: We cannot just slice the cache to the current position. If we slice, we would change the  
-        # compute shape for every decode run. On Neuron we compile for fixed shapes. So the alternative is to 
-        # operate on a fixed sequence length per compilation. In this example we compute the attention 
-        # for the full preallocated sequence length. We just 'read' the output at the right index. 
- 
+        # Note: We cannot just slice the cache to the current position. If we slice, we would change the
+        # compute shape for every decode run. On Neuron we compile for fixed shapes. So the alternative is to
+        # operate on a fixed sequence length per compilation. In this example we compute the attention
+        # for the full preallocated sequence length. We just 'read' the output at the right index.
+
         # keys = self.cache_k[:bsz, : start_pos + inp_len]  X wrong
         # values = self.cache_v[:bsz, : start_pos + ]       X wrong
 
         # Yes fixed shape will cause us to waste compute. The way to work around that is to 'bucket' - compile for many
-        # shapes. One way is to bucket along sequence length. Here we can slice the KV cache when you bucket along sequence length. 
-        # This is an easy optimization you could do. Note, this example does not bucket. 
+        # shapes. One way is to bucket along sequence length. Here we can slice the KV cache when you bucket along sequence length.
+        # This is an easy optimization you could do. Note, this example does not bucket.
         keys = updated_kcache
         values = updated_vcache
-        
+
         # With GQA, k/v heads are shared amond different q heads
         # repeat k/v heads to match q heads
         keys = torch.repeat_interleave(keys, dim=2, repeats=self.n_rep)
         values = torch.repeat_interleave(values, dim=2, repeats=self.n_rep)
-        
+
         # bs, seqlen, head, head_dim -> bs, head, seqlen, head_dim
-        q = q.transpose(1, 2) 
+        q = q.transpose(1, 2)
         keys = keys.transpose(1, 2)
         values = values.transpose(1, 2)
 
@@ -234,12 +233,12 @@ class Attention(nn.Module):
         # aliased input and output tensors to be alised.
         #
         # On NxD, we want to trace & compile the Model forward(). So all cache
-        # buffers are passed all the way back for Model.forward() to return. 
+        # buffers are passed all the way back for Model.forward() to return.
         #
-        # Planned Improvement: NxD is working on Auto-Aliasing which will 
-        # remove the need to return aliased buffers simplifying development. 
-        
-        # return self.wo(output) 
+        # Planned Improvement: NxD is working on Auto-Aliasing which will
+        # remove the need to return aliased buffers simplifying development.
+
+        # return self.wo(output)
         return self.wo(output), updated_kcache, updated_vcache
 
 
@@ -274,17 +273,17 @@ class TransformerBlock(torch.nn.Module):
         mask: torch.Tensor,
         rope_cache: torch.Tensor,
     ):
-      
+
         norm_h = self.attention_norm(x)
         attn_h, cache_k, cache_v = self.attention(norm_h, last_pos, mask, rope_cache)
         attn_h = x + attn_h
-        
+
         norm_h = self.mlp_norm(attn_h)
         mlp_h = self.mlp(self.mlp_norm(norm_h))
         out = attn_h + mlp_h
-        
-        # Note: Relaying the cache buffers to Transformer.forward() as 
-        # we want to return them as output tensors. 
+
+        # Note: Relaying the cache buffers to Transformer.forward() as
+        # we want to return them as output tensors.
 
         # return out
         return out, cache_k, cache_v
@@ -297,18 +296,18 @@ class Transformer(torch.nn.Module):
 
         if parallel_state.model_parallel_is_initialized():
             self.embedding = ParallelEmbedding(cfg.vocab_size,
-                                               cfg.hidden_size, 
-                                               shard_across_embedding=True, 
+                                               cfg.hidden_size,
+                                               shard_across_embedding=True,
                                                dtype=cfg.dtype)
             self.output = ColumnParallelLinear(cfg.hidden_size,
                                                cfg.vocab_size,
-                                               bias=False, 
-                                               gather_output=True, 
+                                               bias=False,
+                                               gather_output=True,
                                                dtype=cfg.dtype)
         else:
             self.embedding = torch.nn.Embedding(cfg.vocab_size,
                                                 cfg.hidden_size,
-                                                cfg.pad_token, 
+                                                cfg.pad_token,
                                                 dtype=cfg.dtype)
             self.output = nn.Linear(cfg.hidden_size,
                                     cfg.vocab_size,
@@ -317,7 +316,7 @@ class Transformer(torch.nn.Module):
 
         self.layers = torch.nn.ModuleList()
         for _ in range(cfg.n_layers):
-            self.layers.append(TransformerBlock(cfg, 
+            self.layers.append(TransformerBlock(cfg,
                                                 batch_size=batch_size,
                                                 seq_len=seq_len))
 
@@ -335,10 +334,10 @@ class Transformer(torch.nn.Module):
 
         _bsz, input_len = tokens.shape
         h = self.embedding(tokens)
-        
-        self.rope_cache = precompute_rope(device = h.device, 
-                                          theta=self.rope_theta, 
-                                          head_dim=self.head_dim, 
+
+        self.rope_cache = precompute_rope(device = h.device,
+                                          theta=self.rope_theta,
+                                          head_dim=self.head_dim,
                                           seq_len=self.seq_len)
 
         mask = None
@@ -357,17 +356,17 @@ class Transformer(torch.nn.Module):
 
         h = self.norm(h)
         output = self.output(h).float()
-        
-        # We return the logits for the last token per batch. 
-        # This is a simple optimization to stop moving sequence length long 
-        # logits back from device to CPU for prefil. 
+
+        # We return the logits for the last token per batch.
+        # This is a simple optimization to stop moving sequence length long
+        # logits back from device to CPU for prefil.
         if input_len > 1:
             last_pos = last_pos.view(self.bs, 1, 1).expand(self.bs, 1, self.hidden_size)
-            output = torch.gather(output, dim=1, index=last_pos.to(torch.int64)) 
+            output = torch.gather(output, dim=1, index=last_pos.to(torch.int64))
         # Note: We are returning K and V caches. The order in which the tensors
-        # are returned is important as you will need to register the alias when 
-        # tracing the model.                 
-        
+        # are returned is important as you will need to register the alias when
+        # tracing the model.
+
         if output.is_cpu:
             return output
         else:
@@ -375,7 +374,7 @@ class Transformer(torch.nn.Module):
 
 
 def load_llama_checkpoint(cfg: Config,
-                          model_path: str, 
+                          model_path: str,
                           tp_degree = 1):
 
     # Download model from : https://www.llama.com/llama-downloads/
@@ -397,10 +396,10 @@ def load_llama_checkpoint(cfg: Config,
     state_dict = replace(state_dict, 'mlp.w3', 'mlp.up_proj')
     state_dict = replace(state_dict, 'mlp.w2', 'mlp.down_proj')
 
-    # The embedding and modeling head outputs are tied. We just close because 
-    # model builder's sharding logic does not take care of tied weights yet. 
+    # The embedding and modeling head outputs are tied. We just close because
+    # model builder's sharding logic does not take care of tied weights yet.
     state_dict['output.weight'] = state_dict['embedding.weight'].clone().detach()
-    
+
     # We need to repeat KV heads to get atleast 1 KV head on one core
     if tp_degree > 1:
         n_repeat = tp_degree // cfg.n_kv_heads
