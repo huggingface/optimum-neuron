@@ -180,18 +180,52 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help="List of scaling factors for the lora adapters.",
     )
     optional_group.add_argument(
+        "--output_attentions",
+        action="store_true",
+        help="Whether or not for the traced model to return the attentions tensors of all attention layers.",
+    )
+
+    # Diffusion Only
+    optional_group.add_argument(
         "--controlnet_ids",
         default=None,
         nargs="*",
         type=str,
         help="List of model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`) of ControlNet models.",
     )
-    optional_group.add_argument(
-        "--output_attentions",
-        action="store_true",
-        help="Whether or not for the traced model to return the attentions tensors of all attention layers.",
+    ip_adapter_group = parser.add_argument_group("IP adapters")
+    ip_adapter_group.add_argument(
+        "--ip_adapter_id",
+        default=None,
+        nargs="*",
+        type=str,
+        help=(
+            "Model ids (eg. `h94/IP-Adapter`) of IP-Adapter models hosted on the Hub or paths to local directories containing the IP-Adapter weights."
+        ),
+    )
+    ip_adapter_group.add_argument(
+        "--ip_adapter_subfolder",
+        default=None,
+        nargs="*",
+        type=str,
+        help="The subfolder location of a model file within a larger model repository on the Hub or locally. If a list is passed, it should have the same length as `ip_adapter_weight_names`.",
+    )
+    ip_adapter_group.add_argument(
+        "--ip_adapter_weight_name",
+        default=None,
+        nargs="*",
+        type=str,
+        help="The name of the weight file to load. If a list is passed, it should have the same length as `ip_adapter_subfolders`.",
+    )
+    ip_adapter_group.add_argument(
+        "--ip_adapter_scale",
+        default=None,
+        nargs="*",
+        type=float,
+        help="Scaling factors for the IP-Adapters.",
     )
 
+    # Static Input Shapes
     input_group = parser.add_argument_group("Input shapes")
     doc_input = "that the Neuronx-cc compiler exported model will be able to take as input."
     input_group.add_argument(
@@ -262,6 +296,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help=f"Audio tasks only. Audio sequence length {doc_input}",
     )
 
+    # Optimization Level
     level_group = parser.add_mutually_exclusive_group()
     level_group.add_argument(
         "-O1",
