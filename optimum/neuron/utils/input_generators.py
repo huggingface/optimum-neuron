@@ -193,13 +193,23 @@ class DummyIPAdapterInputGenerator(DummyInputGenerator):
 
     def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
         if input_name == "image_enc_hidden_states":
-            shape = [self.batch_size, 1, self.image_encoder_shapes.sequence_length, self.image_encoder_shapes.hidden_size]
+            shape = [
+                self.batch_size,
+                1,
+                self.image_encoder_shapes.sequence_length,
+                self.image_encoder_shapes.hidden_size,
+            ]
             return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
         elif input_name == "image_embeds":
             shape = [self.batch_size, 1, self.image_encoder_shapes.projection_dim]
             return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
         elif input_name == "ip_adapter_masks":
-            shape = [self.batch_size, 1, self.image_encoder_shapes.sequence_length, self.image_encoder_shapes.hidden_size]
+            shape = [
+                self.batch_size,
+                1,
+                self.image_encoder_shapes.sequence_length,
+                self.image_encoder_shapes.hidden_size,
+            ]
             return self.random_int_tensor(shape, framework=framework, dtype=int_dtype)
 
 

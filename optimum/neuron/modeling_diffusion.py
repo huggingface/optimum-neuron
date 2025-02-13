@@ -965,7 +965,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, NeuronIPAdapterMixin):
         # Parse kwargs to their dataclass
         parser = NeuronArgumentParser(**kwargs)
         lora_args = parser.lora_args
-        ip_adapter_args =  parser.ip_adapter_args
+        ip_adapter_args = parser.ip_adapter_args
         kwargs_shapes = asdict(parser.input_shapes)
 
         if task is None:

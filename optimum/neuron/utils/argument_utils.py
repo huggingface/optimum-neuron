@@ -39,13 +39,21 @@ class LoRAAdapterArguments:
 
     def __post_init__(self):
         if isinstance(self.model_ids, str):
-            self.model_ids = [self.model_ids,]
+            self.model_ids = [
+                self.model_ids,
+            ]
         if isinstance(self.weight_names, str):
-            self.weight_names = [self.weight_names,]
+            self.weight_names = [
+                self.weight_names,
+            ]
         if isinstance(self.adapter_names, str):
-            self.adapter_names = [self.adapter_names,]
+            self.adapter_names = [
+                self.adapter_names,
+            ]
         if isinstance(self.scales, float):
-            self.scales = [self.scales,]
+            self.scales = [
+                self.scales,
+            ]
 
 
 @dataclass

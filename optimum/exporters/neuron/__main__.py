@@ -534,7 +534,9 @@ def load_models_and_neuron_configs(
         model = TasksManager.get_model_from_task(**model_kwargs)
         # Load IP-Adapter if it exists
         if ip_adapter_args.model_id is not None:
-            model.load_ip_adapter(ip_adapter_args.model_id, subfolder=ip_adapter_args.subfolder, weight_name=ip_adapter_args.weight_name)
+            model.load_ip_adapter(
+                ip_adapter_args.model_id, subfolder=ip_adapter_args.subfolder, weight_name=ip_adapter_args.weight_name
+            )
             model.set_ip_adapter_scale(scale=ip_adapter_args.scale)
 
     models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(

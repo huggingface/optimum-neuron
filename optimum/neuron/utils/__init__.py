@@ -26,7 +26,7 @@ _import_structure = {
         "InputShapesArguments",
         "NeuronArgumentParser",
         "convert_neuronx_compiler_args_to_neuron",
-        "store_compilation_config"
+        "store_compilation_config",
     ],
     "constant": [
         "DECODER_NAME",

@@ -236,7 +236,6 @@ def get_diffusion_models_for_export(
 
         models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
 
-
     # Diffusion Transformer
     transformer = None
     if DIFFUSION_MODEL_TRANSFORMER_NAME in models_for_export:
@@ -356,7 +355,9 @@ def _load_lora_weights_to_pipeline(pipeline: "DiffusionPipeline", lora_args: LoR
                 raise ValueError(
                     f"weight_name and lora_scale are required to fuse more than one lora. You have {len(lora_args.model_ids)} lora models to fuse, but you have {len(lora_args.weight_names)} lora weight names and {len(lora_args.adapter_names)} adapter names."
                 )
-            for model_id, weight_name, adapter_name in zip(lora_args.model_ids, lora_args.weight_names, lora_args.adapter_names):
+            for model_id, weight_name, adapter_name in zip(
+                lora_args.model_ids, lora_args.weight_names, lora_args.adapter_names
+            ):
                 pipeline.load_lora_weights(model_id, weight_name=weight_name, adapter_name=adapter_name)
 
             if lora_args.scales:
