@@ -33,10 +33,13 @@ def generate(model: torch.nn.Module,
     while True:
 
         logits = model.forward(input_tokens, last_pos)
-        last_pos = last_pos + 1
 
         # assuming we are doing greedy sampling
+        if logits.shape[1] > 1:
+            index = last_pos.view(input_bs, 1, 1).expand(input_bs, 1, logits.shape[2])
+            logits = torch.gather(logits, dim=1, index=index.to(torch.int64))
         next_token = torch.argmax(logits[:, -1], dim=-1, keepdim=True)
+        last_pos = last_pos + 1
 
         input_tokens = next_token.to(torch.int32)
 
