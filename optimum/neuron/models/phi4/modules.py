@@ -12,17 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from transformers_neuronx import dtypes, module, utils
+from transformers.models.phi import PhiConfig
 
-from .config import Phi4Config
+from ...backends.hlo import module
+from ..llama.modules import LlamaMLP
 
 
 class Phi4ForCausalLM(module.PretrainedModel):
-    def __init__(self, config: Phi4Config):
+    def __init__(self, config: PhiConfig, dtype):
         super().__init__()
-        dtype, _, _ = utils.parse_amp(config.amp)
-        dtype = dtypes.to_torch_dtype(dtype)
-        self.model = Phi4Model(config)
+        self.model = Phi4Model(config, dtype)
         self.lm_head = module.LowMemoryLazyLinear(config.vocab_size, dtype=dtype, bias=False)
 
     def get_tied_parameters(self):
@@ -33,7 +32,7 @@ class Phi4ForCausalLM(module.PretrainedModel):
 
 
 class Phi4Model(module.LowMemoryModule):
-    def __init__(self, config: Phi4Config):
+    def __init__(self, config: PhiConfig):
         super().__init__()
         self.embed_tokens = module.LowMemoryEmbedding(config.vocab_size, config.hidden_size)
         self.layers = module.LowMemoryModuleList([Phi4DecoderLayer(config) for _ in range(config.num_hidden_layers)])
@@ -41,39 +40,27 @@ class Phi4Model(module.LowMemoryModule):
 
 
 class Phi4RMSNorm(module.LowMemoryModule):
-    def __init__(self, config: Phi4Config) -> None:
+    def __init__(self, config: PhiConfig) -> None:
         super().__init__()
         self.weight = module.UninitializedParameter()
 
 
 class Phi4DecoderLayer(module.LowMemoryModule):
-    def __init__(self, config: Phi4Config):
+    def __init__(self, config: PhiConfig):
         super().__init__()
         self.self_attn = Phi4Attention(config)
-        self.mlp = Phi4MLP(config)
+        self.mlp = LlamaMLP(config)
         self.input_layernorm = Phi4RMSNorm(config)
         self.post_attention_layernorm = Phi4RMSNorm(config)
 
 
 class Phi4Attention(module.LowMemoryModule):
-    def __init__(self, config: Phi4Config):
+    def __init__(self, config: PhiConfig, dtype):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_attention_heads
         self.head_dim = self.hidden_size // self.num_heads
-        dtype, _, _ = utils.parse_amp(config.amp)
-        dtype = dtypes.to_torch_dtype(dtype)
         self.q_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=False, dtype=dtype)
         self.k_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=False, dtype=dtype)
         self.v_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=False, dtype=dtype)
         self.o_proj = module.LowMemoryLazyLinear(self.hidden_size, bias=False, dtype=dtype)
-
-
-class Phi4MLP(module.LowMemoryModule):
-    def __init__(self, config: Phi4Config):
-        super().__init__()
-        dtype, _, _ = utils.parse_amp(config.amp)
-        dtype = dtypes.to_torch_dtype(dtype)
-        self.gate_proj = module.LowMemoryLazyLinear(config.intermediate_size, bias=False, dtype=dtype)
-        self.up_proj = module.LowMemoryLazyLinear(config.intermediate_size, bias=False, dtype=dtype)
-        self.down_proj = module.LowMemoryLazyLinear(config.hidden_size, bias=False, dtype=dtype)

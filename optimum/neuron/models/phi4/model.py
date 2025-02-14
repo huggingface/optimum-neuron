@@ -12,20 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import warnings
 
 import torch
 from transformers import PretrainedConfig
-from transformers_neuronx import base, bucket, decoder, ops, utils
-from transformers_neuronx.config import NeuronConfig
-from transformers_neuronx.constants import KV_SHARD_PAD, LAYOUT_HSB
-from transformers_neuronx.llama.hlo import LlamaForSamplingNoEmbeddingHlo
+from transformers_neuronx import ops
 
-from .config import Phi4Config
+from ...backends.hlo.config import NeuronConfig
+from ...backends.hlo.dtypes import to_torch_dtype
+from ..llama.model import LlamaHloModel
 from .modules import Phi4ForCausalLM
 
 
-class Phi4ForSampling(base.NeuronModelBase):
+class Phi4ForSampling(LlamaHloModel):
     """The Phi4 model is essentially a LLama model with fused qkv and gate_up projections.
 
     The implementation in this class is very similar to the one used for Llama in Tnx.
@@ -37,97 +35,10 @@ class Phi4ForSampling(base.NeuronModelBase):
     def __init__(
         self,
         config: PretrainedConfig,
-        *,
-        n_positions: int = 2048,
-        batch_size: int = 1,
-        amp: str = "f32",
-        tp_degree: int = 2,
-        context_length_estimate: int = None,
-        context_unroll: int = None,
-        unroll: int = None,
-        neuron_config: NeuronConfig = None,
-        prefixed_length: int = 0,
-        **kwargs,
+        neuron_config: NeuronConfig,
     ):
-        config = Phi4Config(config, n_positions, batch_size, amp, tp_degree)
-        super().__init__(Phi4ForCausalLM, config)
-        self.context_pre_hook = None
-        self.context_hook = None
-        self.config = config
-        self.neuron_config = neuron_config if neuron_config else NeuronConfig()
-        if self.neuron_config.shard_over_sequence:
-            n_kv_head = self.config.num_key_value_heads
-            kv_shard_degree = self.config.tp_degree // n_kv_head
-            assert kv_shard_degree <= KV_SHARD_PAD, "increase kv_shard degree is higher than default 128"
-            warnings.warn(f"shard over sequence enabled, increasing n_positions {n_positions} by 128")
-            if isinstance(n_positions, list):
-                npos = sorted(n_positions)
-                npos[-1] += KV_SHARD_PAD
-            else:
-                npos = n_positions + KV_SHARD_PAD
-            self.config.n_positions = npos
-            config.n_positions = npos
-            n_positions = npos
-        if self.neuron_config.on_device_generation:
-            self.neuron_config.on_device_generation.vocab_size = self.config.vocab_size
-
-        self.layers_after_partition = self.neuron_config.auto_layer_partition(config.num_hidden_layers)
-        self.prefixed_length = prefixed_length
-
-        if context_unroll is None:
-            context_unroll = len(self.layers_after_partition)
-        self.context_unroll = context_unroll
-
-        if unroll is None:
-            unroll = len(self.layers_after_partition)
-        self.unroll = unroll
-
-        self.token_buckets = bucket.token_sizes(n_positions)
-        self.context_buckets = bucket.context_sizes(context_length_estimate, self.token_buckets)
-        # input length should be  divisable by tp_degree to activate seq paralle
-        if neuron_config and neuron_config.sequence_parallel_norm:
-            for bucket_size in self.context_buckets:
-                if (
-                    bucket_size > neuron_config.sequence_parallel_norm_threshold
-                    and bucket_size % self.config.tp_degree != 0
-                ):
-                    raise ValueError(
-                        f"Sequence parallel normalization requires the bucket size ({bucket_size}) to be divisible by the tensor parallel degree ({self.config.tp_degree})"
-                    )
-        self.window_context_buckets = []
-        if prefixed_length:
-            if prefixed_length not in self.context_buckets:
-                self.context_buckets.append(prefixed_length)
-                self.context_buckets = sorted(self.context_buckets)
-
-        self.batch_sizes = bucket.batch_sizes(batch_size)
-        self.context_batch_sizes = (
-            [1] if self.neuron_config and self.neuron_config.continuous_batching else self.batch_sizes
-        )
-        hlo_builder = LlamaForSamplingNoEmbeddingHlo(config, neuron_config=self.neuron_config)
-        self.decoder_param_set = decoder.DecoderLmHeadForSamplingNoEmbedding(
-            tp_degree=tp_degree,
-            n_positions_list=self.token_buckets,
-            n_active_tokens=1,
-            batch_size=self.batch_sizes,
-            attention_head_size=config.attention_head_size,
-            amp=amp,
-            num_layers=len(self.layers_after_partition),
-            n_head=config.num_attention_heads,
-            n_kv_head=config.num_key_value_heads,
-            unroll=unroll,
-            neuron_config=self.neuron_config,
-            allow_pad=True,
-            builder=hlo_builder,
-        )
-        self.decoder_lm_head = self.decoder_param_set.init_token_decoder(
-            unroll=self.unroll, buckets=self.token_buckets, model_obj=self
-        )
-        self.decoder_lm_head_for_context = self.decoder_param_set.init_context_decoder(
-            unroll=self.context_unroll, buckets=self.context_buckets, model_obj=self
-        )
-        self.decoder_lm_head_for_speculation = {}
-        self.decoder_lm_head_for_window_context = {}
+        dtype = to_torch_dtype(neuron_config.amp)
+        super().__init__(config, neuron_config, cpu_model=Phi4ForCausalLM(config, dtype))
 
     def load_weights(self):
         self.materialize_embeddings()
@@ -163,9 +74,9 @@ class Phi4ForSampling(base.NeuronModelBase):
 
             # Note: Automatic MLP padding is safe since zeros are *only* introduced to intermediary state
             if self.neuron_config.fuse_mlp:
-                assert (
-                    fused_gate_up.shape[0] % self.config.tp_degree == 0
-                ), f"mlp weights are not divisible by tp_degree {self.config.tp_degree}"
+                assert fused_gate_up.shape[0] % self.config.tp_degree == 0, (
+                    f"mlp weights are not divisible by tp_degree {self.config.tp_degree}"
+                )
                 new_layer.add_mlp_input(fused_gate_up)
                 if self.neuron_config.mlp_out_weight_transpose:
                     new_layer.add_mlp_output(
@@ -226,69 +137,3 @@ class Phi4ForSampling(base.NeuronModelBase):
 
         self.decoder_lm_head.to_neuron()
         self.init_rest_of_model()
-
-    def materialize_embeddings(self):
-        # Materialize the embedding to CPU
-        self.chkpt_model.model.embed_tokens.materialize()
-
-    def init_rest_of_model(self):
-        # Pipeline sparallel deosn't support executor right now
-        if not self.neuron_config.is_pp():
-            self.decoder_lm_head.use_executor = True
-
-        if self.context_buckets:
-            for context_length_estimate in self.context_buckets:
-                for batch_size in self.context_batch_sizes:
-                    model = self.decoder_lm_head.build_weight_shared(
-                        share_caches=True, new=self.decoder_lm_head_for_context[context_length_estimate, batch_size]
-                    )
-                    # PERF: No latency improvement seen in multi-layer models from executor
-                    # Pipeline parallel deosn't support executor right now
-                    if self.context_unroll == self.config.num_hidden_layers and not self.neuron_config.is_pp():
-                        model.use_executor = True
-                    self.decoder_lm_head_for_context[context_length_estimate, batch_size] = model
-
-        if self.decoder_lm_head_for_speculation:
-            for i, k in enumerate(self.decoder_lm_head_for_speculation):
-                model = self.decoder_lm_head.build_weight_shared(
-                    share_caches=True,
-                    new=self.decoder_lm_head_for_speculation[k],
-                    embed_weight=self.chkpt_model.model.embed_tokens.weight,
-                )
-                self.decoder_lm_head_for_speculation[k] = model
-
-        if self.decoder_lm_head_for_window_context:
-            for i, k in enumerate(self.decoder_lm_head_for_window_context):
-                model = self.decoder_lm_head.build_weight_shared(
-                    share_caches=True, new=self.decoder_lm_head_for_window_context[k]
-                )
-                self.decoder_lm_head_for_window_context[k] = model
-
-    def set_prefixed(self, input_ids):
-        self.prefixed_input_ids = input_ids[:, : self.prefixed_length]
-        prefixed_length = self.prefixed_length
-        self.prefixed_length = 0
-        self.forward(self.prefixed_input_ids)
-        self.prefixed_length = prefixed_length
-
-    def preprocess_and_embed(self, input_ids, cache_ids=None, start_ids=None, **kwargs):
-        padded_inputs, *rst = self._preprocess(input_ids, start_ids=start_ids, cache_ids=cache_ids, **kwargs)
-        if not self.neuron_config.on_device_embedding:
-            input_embeddings = self.chkpt_model.model.embed_tokens(padded_inputs)
-            if self.neuron_config.attention_layout == LAYOUT_HSB:
-                input_embeddings = input_embeddings.transpose(0, -1).contiguous()
-        else:
-            # embedding layer is on device and will be computed as part of self._forward(), so don't compute here
-            input_embeddings = None
-        return padded_inputs, input_embeddings, *rst
-
-    def forward(self, input_ids, cache_ids=None, start_ids=None, last_token_id=None, input_embeddings=None, **kwargs):
-        if last_token_id is not None:  # preprocess_and_embed() has already been invoked
-            rst = cache_ids, start_ids, last_token_id
-        else:  # invoke preprocess_and_embed()
-            input_ids, input_embeddings, *rst = self.preprocess_and_embed(input_ids, cache_ids, start_ids, **kwargs)
-        # either input_embeddings are generated (off device embedding), or input_ids will be padded from preprocess_and_embed (on device embedding)
-        inputs = input_embeddings if input_embeddings is not None else input_ids
-        logits = self._forward(inputs, *rst)
-        logits = self._postprocess(logits, start_ids=start_ids, **kwargs)
-        return logits
