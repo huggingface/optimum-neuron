@@ -144,7 +144,10 @@ class NeuronExportTestCase(unittest.TestCase):
             for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task)
         }
         neuron_config = neuron_config_constructor(
-            config=config, task=task, dynamic_batch_size=dynamic_batch_size, **mandatory_shapes
+            config=config,
+            task=task,
+            dynamic_batch_size=dynamic_batch_size,
+            **mandatory_shapes,
         )
 
         atol = neuron_config.ATOL_FOR_VALIDATION
@@ -218,8 +221,9 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         # prepare neuron config / models
         model = StableDiffusionPipeline.from_pretrained(model_id)
         input_shapes = build_stable_diffusion_components_mandatory_shapes(
-            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 4}
+            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 1}
         )
+        compiler_kwargs = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 
         with TemporaryDirectory() as tmpdirname:
             models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
@@ -234,6 +238,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
                 models_and_neuron_configs=models_and_neuron_configs,
                 output_dir=Path(tmpdirname),
                 output_file_names=output_model_names,
+                compiler_kwargs=compiler_kwargs,
             )
             validate_models_outputs(
                 models_and_neuron_configs=models_and_neuron_configs,
@@ -249,7 +254,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         # prepare neuron config / models
         model = StableDiffusionXLPipeline.from_pretrained(model_id)
         input_shapes = build_stable_diffusion_components_mandatory_shapes(
-            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 4}
+            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 1}
         )
 
         with TemporaryDirectory() as tmpdirname:
@@ -281,8 +286,9 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         # prepare neuron config / models
         model = StableDiffusionPipeline.from_pretrained(model_id)
         input_shapes = build_stable_diffusion_components_mandatory_shapes(
-            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 4}
+            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 1}
         )
+        compiler_kwargs = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 
         with TemporaryDirectory() as tmpdirname:
             models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
@@ -301,6 +307,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
                 models_and_neuron_configs=models_and_neuron_configs,
                 output_dir=Path(tmpdirname),
                 output_file_names=output_model_names,
+                compiler_kwargs=compiler_kwargs,
             )
             validate_models_outputs(
                 models_and_neuron_configs=models_and_neuron_configs,

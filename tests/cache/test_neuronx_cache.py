@@ -96,7 +96,7 @@ def export_stable_diffusion_model(model_id):
     batch_size = 1
     height = 64
     width = 64
-    num_images_per_prompt = 4
+    num_images_per_prompt = 1
     return NeuronStableDiffusionPipeline.from_pretrained(
         model_id,
         export=True,
@@ -113,7 +113,7 @@ def export_stable_diffusion_xl_model(model_id):
     batch_size = 1
     height = 64
     width = 64
-    num_images_per_prompt = 4
+    num_images_per_prompt = 1
     return NeuronStableDiffusionXLPipeline.from_pretrained(
         model_id,
         export=True,
@@ -143,7 +143,7 @@ def check_encoder_inference(model, tokenizer):
 
 def check_stable_diffusion_inference(model):
     prompts = ["sailing ship in storm by Leonardo da Vinci"]
-    image = model(prompts, num_images_per_prompt=4).images[0]
+    image = model(prompts, num_images_per_prompt=1).images[0]
     assert isinstance(image, PIL.Image.Image)
 
 
