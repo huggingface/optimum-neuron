@@ -1,0 +1,11 @@
+name: Install optimum-neuron
+description: install optimum-neuron (prepare_venv need to have been called first)
+runs:
+    using: "composite"
+    steps:
+      - name: Install optimum-neuron and Neuronx python package
+        shell: bash
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+          python -m pip install .[neuronx,tests]
