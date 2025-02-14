@@ -361,9 +361,9 @@ class Transformer(torch.nn.Module):
         # We return the logits for the last token per batch.
         # This is a simple optimization to stop moving sequence length long
         # logits back from device to CPU for prefil.
-        if input_len > 1:
-            last_pos = last_pos.view(self.bs, 1, 1).expand(self.bs, 1, self.vocab_size)
-            output = torch.gather(output, dim=1, index=last_pos.to(torch.int64))
+        #if input_len > 1:
+        #    last_pos = last_pos.view(self.bs, 1, 1).expand(self.bs, 1, self.hidden_size)
+        #    output = torch.gather(output, dim=1, index=last_pos.to(torch.int64))
         # Note: We are returning K and V caches. The order in which the tensors
         # are returned is important as you will need to register the alias when
         # tracing the model.
