@@ -32,6 +32,7 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     ENCODER_NAME,
+    InputShapesArguments,
     LoRAAdapterArguments,
     get_attention_scores_sd,
     get_attention_scores_sdxl,
@@ -127,8 +128,8 @@ def get_diffusion_models_for_export(
     dynamic_batch_size: Optional[bool] = False,
     output_hidden_states: bool = False,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
-    controlnet_input_shapes: Optional[Dict[str, int]] = None,
-    image_encoder_input_shapes: Optional[Dict[str, int]] = None,
+    controlnet_input_shapes: Optional[Dict[str, Any]] = None,
+    image_encoder_input_shapes: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronDefaultConfig"]]:
     """
     Returns the components of a Stable Diffusion model and their subsequent neuron configs.
@@ -158,9 +159,9 @@ def get_diffusion_models_for_export(
         controlnet_ids (`Optional[Union[str, List[str]]]`, defaults to `None`):
             Model ID of one or multiple ControlNets providing additional conditioning to the `unet` during the denoising process. If you set multiple
             ControlNets as a list, the outputs from each ControlNet are added together to create one combined additional conditioning.
-        controlnet_input_shapes (`Optional[Dict[str, int]]`, defaults to `None`):
+        controlnet_input_shapes (`Optional[Dict[str, Any]]`, defaults to `None`):
             Static shapes used for compiling ControlNets.
-        image_encoder_input_shapes (`Optional[Dict[str, int]]`, defaults to `None`):
+        image_encoder_input_shapes (`Optional[Dict[str, Any]]`, defaults to `None`):
             Static shapes used for compiling the image encoder.
 
     Returns:
@@ -313,7 +314,7 @@ def get_diffusion_models_for_export(
                 task="semantic-segmentation",
                 dynamic_batch_size=dynamic_batch_size,
                 float_dtype=controlnet.dtype,
-                **controlnet_input_shapes,
+                input_shapes=controlnet_input_shapes,
             )
             models_for_export[controlnet_name] = (
                 controlnet,
@@ -344,7 +345,9 @@ def get_diffusion_models_for_export(
     return models_for_export
 
 
-def _load_lora_weights_to_pipeline(pipeline: "DiffusionPipeline", lora_args: LoRAAdapterArguments):
+def _load_lora_weights_to_pipeline(pipeline: "DiffusionPipeline", lora_args: Optional[LoRAAdapterArguments]):
+    if lora_args is None:
+        lora_args = LoRAAdapterArguments()
     if lora_args.model_ids and lora_args.weight_names:
         if len(lora_args.model_ids) == 1:
             pipeline.load_lora_weights(lora_args.model_ids[0], weight_name=lora_args.weight_names[0])
@@ -588,12 +591,13 @@ def get_encoder_decoder_models_for_export(
         library_name="transformers",
     )
     check_mandatory_input_shapes(encoder_config_constructor, task, input_shapes)
+    input_shape_args = InputShapesArguments(**input_shapes)
     encoder_neuron_config = encoder_config_constructor(
         config=model.config,
         task=task,
         dynamic_batch_size=dynamic_batch_size,
         tensor_parallel_size=tensor_parallel_size,
-        **input_shapes,
+        input_shapes=input_shape_args,
     )
     if not tensor_parallel_size > 1:
         models_for_export[ENCODER_NAME] = (model, encoder_neuron_config)
@@ -613,7 +617,7 @@ def get_encoder_decoder_models_for_export(
         task=task,
         library_name="transformers",
     )
-    check_mandatory_input_shapes(encoder_config_constructor, task, input_shapes)
+    check_mandatory_input_shapes(decoder_config_constructor, task, input_shapes)
     decoder_neuron_config = decoder_config_constructor(
         config=model.config,
         task=task,
@@ -621,7 +625,7 @@ def get_encoder_decoder_models_for_export(
         tensor_parallel_size=tensor_parallel_size,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
-        **input_shapes,
+        input_shapes=input_shape_args,
     )
     if not tensor_parallel_size > 1:
         models_for_export[DECODER_NAME] = (model, decoder_neuron_config)

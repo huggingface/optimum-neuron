@@ -16,6 +16,7 @@
 
 import re
 from abc import ABC, abstractmethod
+from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -200,7 +201,11 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         valid_input_shapes = {}
         for name, value in axes_values.items():
             if value is not None:
-                valid_input_shapes[name] = value
+                is_empty_dataclass = is_dataclass(value) and all(
+                    getattr(value, field.name) is None for field in fields(value)
+                )
+                if not is_empty_dataclass:
+                    valid_input_shapes[name] = value
             setattr(self, name, value)
         setattr(self, "input_shapes", valid_input_shapes)
         setattr(self, "output_attentions", output_attentions)

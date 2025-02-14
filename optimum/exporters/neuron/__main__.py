@@ -311,7 +311,6 @@ def get_submodels_and_neuron_configs(
     task: str,
     output: Path,
     library_name: str,
-    lora_args: LoRAAdapterArguments,
     tensor_parallel_size: int = 1,
     subfolder: str = "",
     dynamic_batch_size: bool = False,
@@ -320,6 +319,7 @@ def get_submodels_and_neuron_configs(
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
+    lora_args: Optional[LoRAAdapterArguments] = None,
 ):
     is_encoder_decoder = (
         getattr(model.config, "is_encoder_decoder", False) if isinstance(model.config, PretrainedConfig) else False
@@ -333,11 +333,11 @@ def get_submodels_and_neuron_configs(
             model=model,
             input_shapes=input_shapes,
             output=output,
-            lora_args=lora_args,
             dynamic_batch_size=dynamic_batch_size,
             submodels=submodels,
             output_hidden_states=output_hidden_states,
             controlnet_ids=controlnet_ids,
+            lora_args=lora_args,
         )
     elif is_encoder_decoder:
         optional_outputs = {"output_attentions": output_attentions, "output_hidden_states": output_hidden_states}
@@ -377,11 +377,11 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     model: Union["PreTrainedModel", "DiffusionPipeline"],
     input_shapes: Dict[str, int],
     output: Path,
-    lora_args: LoRAAdapterArguments,
     dynamic_batch_size: bool = False,
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
     output_hidden_states: bool = False,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
+    lora_args: Optional[LoRAAdapterArguments] = None,
 ):
     check_compiler_compatibility_for_stable_diffusion()
     model = replace_stable_diffusion_submodels(model, submodels)
@@ -507,11 +507,11 @@ def load_models_and_neuron_configs(
     local_files_only: bool,
     token: Optional[Union[bool, str]],
     submodels: Optional[Dict[str, Union[Path, str]]],
-    lora_args: LoRAAdapterArguments,
     ip_adapter_args: IPAdapterArguments,
     torch_dtype: Optional[Union[str, torch.dtype]] = None,
     tensor_parallel_size: int = 1,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
+    lora_args: Optional[LoRAAdapterArguments] = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     **input_shapes,
@@ -545,7 +545,6 @@ def load_models_and_neuron_configs(
         tensor_parallel_size=tensor_parallel_size,
         task=task,
         library_name=library_name,
-        lora_args=lora_args,
         output=output,
         subfolder=subfolder,
         dynamic_batch_size=dynamic_batch_size,
@@ -554,6 +553,7 @@ def load_models_and_neuron_configs(
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
         controlnet_ids=controlnet_ids,
+        lora_args=lora_args,
     )
 
     return models_and_neuron_configs, output_model_names
@@ -563,8 +563,6 @@ def main_export(
     model_name_or_path: str,
     output: Union[str, Path],
     compiler_kwargs: Dict[str, Any],
-    lora_args: LoRAAdapterArguments,
-    ip_adapter_args: IPAdapterArguments,
     torch_dtype: Optional[Union[str, torch.dtype]] = None,
     tensor_parallel_size: int = 1,
     model: Optional[Union["PreTrainedModel", "ModelMixin"]] = None,
@@ -588,6 +586,8 @@ def main_export(
     output_hidden_states: bool = False,
     library_name: Optional[str] = None,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
+    lora_args: Optional[LoRAAdapterArguments] = None,
+    ip_adapter_args: Optional[IPAdapterArguments] = None,
     **input_shapes,
 ):
     output = Path(output)
@@ -757,8 +757,6 @@ def main():
         model_name_or_path=args.model,
         output=args.output,
         compiler_kwargs=compiler_kwargs,
-        lora_args=lora_args,
-        ip_adapter_args=ip_adapter_args,
         torch_dtype=args.torch_dtype,
         tensor_parallel_size=args.tensor_parallel_size,
         task=task,
@@ -775,6 +773,8 @@ def main():
         submodels=submodels,
         library_name=library_name,
         controlnet_ids=getattr(args, "controlnet_ids", None),
+        lora_args=lora_args,
+        ip_adapter_args=ip_adapter_args,
         **optional_outputs,
         **input_shapes,
     )
