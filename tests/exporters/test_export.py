@@ -146,7 +146,10 @@ class NeuronExportTestCase(unittest.TestCase):
         }
         mandatory_shapes = InputShapesArguments(**mandatory_shapes)
         neuron_config = neuron_config_constructor(
-            config=config, task=task, dynamic_batch_size=dynamic_batch_size, input_shapes=mandatory_shapes,
+            config=config,
+            task=task,
+            dynamic_batch_size=dynamic_batch_size,
+            input_shapes=mandatory_shapes,
         )
 
         atol = neuron_config.ATOL_FOR_VALIDATION

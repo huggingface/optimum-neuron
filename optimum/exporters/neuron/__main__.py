@@ -366,7 +366,9 @@ def get_submodels_and_neuron_configs(
         )
         input_shapes = check_mandatory_input_shapes(neuron_config_constructor, task, input_shapes)
         input_shapes = InputShapesArguments(**input_shapes)
-        neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, input_shapes=input_shapes)
+        neuron_config = neuron_config_constructor(
+            model.config, dynamic_batch_size=dynamic_batch_size, input_shapes=input_shapes
+        )
         model_name = getattr(model, "name_or_path", None) or model_name_or_path
         model_name = model_name.split("/")[-1] if model_name else model.config.model_type
         output_model_names = {model_name: "model.neuron"}
@@ -535,7 +537,9 @@ def load_models_and_neuron_configs(
     if model is None:
         model = TasksManager.get_model_from_task(**model_kwargs)
         # Load IP-Adapter if it exists
-        if ip_adapter_args is not None and not all(getattr(ip_adapter_args, field.name) is None for field in fields(ip_adapter_args)):
+        if ip_adapter_args is not None and not all(
+            getattr(ip_adapter_args, field.name) is None for field in fields(ip_adapter_args)
+        ):
             model.load_ip_adapter(
                 ip_adapter_args.model_id, subfolder=ip_adapter_args.subfolder, weight_name=ip_adapter_args.weight_name
             )
