@@ -1,6 +1,5 @@
 import copy
 import logging
-import subprocess
 import sys
 from tempfile import TemporaryDirectory
 
@@ -57,16 +56,11 @@ def _get_hub_neuron_model_id(config_name: str):
 
 
 def _export_model(model_id, export_kwargs, neuron_model_path):
-    export_command = ["optimum-cli", "export", "neuron", "-m", model_id, "--task", "text-generation"]
-    for kwarg, value in export_kwargs.items():
-        export_command.append(f"--{kwarg}")
-        export_command.append(str(value))
-    export_command.append(neuron_model_path)
-    logger.info(f"Exporting {model_id} with {export_kwargs}")
     try:
-        subprocess.run(export_command, check=True)
-    except subprocess.CalledProcessError as e:
-        raise SystemError(f"Failed to export model: {e}")
+        model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, **export_kwargs)
+        model.save_pretrained(neuron_model_path)
+    except Exception as e:
+        raise ValueError(f"Failed to export {model_id}: {e}")
 
 
 @pytest.fixture(scope="session", params=DECODER_MODEL_CONFIGURATIONS.keys())

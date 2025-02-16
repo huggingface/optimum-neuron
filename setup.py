@@ -42,6 +42,7 @@ TESTS_REQUIRE = [
     "controlnet-aux",
     "mediapipe",
     "timm >= 1.0.0",
+    "hf_transfer",
 ]
 
 QUALITY_REQUIRES = [
@@ -54,6 +55,7 @@ TRAINING_REQUIRES = [
     "trl == 0.11.4",
     "peft == 0.14.0",
     "neuronx-distributed == 0.9.0",
+    "evaluate == 0.4.3",
 ]
 
 EXTRAS_REQUIRE = {

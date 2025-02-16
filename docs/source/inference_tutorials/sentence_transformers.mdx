@@ -24,13 +24,13 @@ This guide explains how to compile, load, and use [Sentence Transformers (SBERT)
 
 ### Convert Sentence Transformers model to AWS Inferentia2  
 
-First, you need to convert your Sentence Transformers model to a format compatible with AWS Inferentia2. You can compile Sentence Transformers models with Optimum Neuron using the `optimum-cli` or `NeuronModelForSentenceTransformers` class. Below you will find an example for both approaches. We have to make sure `sentence-transformers` is installed. Thats only needed for exporting the model. 
+First, you need to convert your Sentence Transformers model to a format compatible with AWS Inferentia2. You can compile Sentence Transformers models with Optimum Neuron using the `optimum-cli` or `NeuronModelForSentenceTransformers` class. Below you will find an example for both approaches. We have to make sure `sentence-transformers` is installed. That's only needed for exporting the model. 
 
 ```bash
 pip install sentence-transformers
 ```
 
-Here we will use the `NeuronModelForSentenceTransformers`, which can be used to convert any Sntence Transformers model to a format compatible with AWS Inferentia2 or load already converted models. When exporting models with the `NeuronModelForSentenceTransformers` you need to set `export=True` and define the input shape and batch size. The input shape is defined by the `sequence_length` and the batch size by `batch_size`. 
+Here we will use the `NeuronModelForSentenceTransformers`, which can be used to convert any Sentence Transformers model to a format compatible with AWS Inferentia2 or load already converted models. When exporting models with the `NeuronModelForSentenceTransformers` you need to set `export=True` and define the input shape and batch size. The input shape is defined by the `sequence_length` and the batch size by `batch_size`. 
 
 ```python
 from optimum.neuron import NeuronModelForSentenceTransformers
