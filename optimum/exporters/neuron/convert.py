@@ -186,7 +186,7 @@ def validate_model_outputs(
         reference_model.eval()
         inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
         ref_inputs = config.unflatten_inputs(inputs)
-        if hasattr(reference_model, "config") and getattr(config._config, "is_encoder_decoder", False):
+        if hasattr(reference_model, "config") and getattr(reference_model.config, "is_encoder_decoder", False):
             reference_model = config.patch_model_for_export(reference_model, device="cpu", **input_shapes)
         if "SentenceTransformer" in reference_model.__class__.__name__:
             reference_model = config.patch_model_for_export(reference_model, ref_inputs)
