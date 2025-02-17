@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Uni
 
 import torch
 from huggingface_hub import snapshot_download
+from torch.nn import ModuleList
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig, T5Tokenizer
 from transformers.modeling_outputs import ModelOutput
 
@@ -96,6 +97,7 @@ if is_diffusers_available():
     from diffusers.image_processor import PixArtImageProcessor, VaeImageProcessor
     from diffusers.models.autoencoders.vae import DecoderOutput, DiagonalGaussianDistribution
     from diffusers.models.controlnet import ControlNetOutput
+    from diffusers.models.embeddings import ImageProjection, IPAdapterFullImageProjection
     from diffusers.models.modeling_outputs import AutoencoderKLOutput
     from diffusers.pipelines.controlnet import MultiControlNetModel
     from diffusers.pipelines.pipeline_utils import DiffusionPipeline
@@ -104,7 +106,6 @@ if is_diffusers_available():
     from diffusers.utils import CONFIG_NAME
 
     from .pipelines import (
-        NeuronIPAdapterMixin,
         NeuronStableDiffusionControlNetPipelineMixin,
         NeuronStableDiffusionXLControlNetPipelineMixin,
         NeuronStableDiffusionXLPipelineMixin,
@@ -123,7 +124,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class NeuronDiffusionPipelineBase(NeuronTracedModel, NeuronIPAdapterMixin):
+class NeuronDiffusionPipelineBase(NeuronTracedModel):
     auto_model_class = DiffusionPipeline
     task = None
     library_name = "diffusers"
@@ -141,6 +142,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, NeuronIPAdapterMixin):
         "transformer",
         "feature_extractor",
     ]
+    encoder_hid_proj = None  # A dummy module of Unet/transformer when they take the outputs of image encoder.
 
     def __init__(
         self,
@@ -392,6 +394,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, NeuronIPAdapterMixin):
         self.control_image_processor = VaeImageProcessor(
             vae_scale_factor=self.vae_scale_factor, do_convert_rgb=True, do_normalize=False
         )
+        # create dummy objects for inference with ip adapters
+        self._maybe_create_dummy_image_proj_layers()
 
     @staticmethod
     def is_lcm(unet_config):
@@ -1154,6 +1158,10 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, NeuronIPAdapterMixin):
             )
         )
 
+    def _maybe_create_dummy_image_proj_layers(self):
+        if all([self.image_encoder, self.encoder_hid_proj]):
+            self.unet.encoder_hid_proj = self.encoder_hid_proj
+
     def __call__(self, *args, **kwargs):
         # Height and width to unet/transformer (static shapes)
         unet_or_transformer = self.unet or self.transformer
@@ -1272,6 +1280,14 @@ class NeuronModelImageEncoder(_NeuronDiffusionModelPart):
             outputs = ModelOutput(dict(zip(self.neuron_config.outputs, outputs)))
 
         return outputs
+
+    # Create a dummy parameters to be compatible with `https://github.com/huggingface/diffusers/blob/c14057c8dbc32847bac9082bcc0ae00c9a19357d/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L514`
+    def parameters(self):
+        class DummyObject:
+            def __init__(self):
+                self.dtype = None
+
+        return iter([DummyObject()])
 
 
 class NeuronModelUnet(_NeuronDiffusionModelPart):
@@ -1543,6 +1559,12 @@ class NeuronStableDiffusionPipeline(NeuronDiffusionPipelineBase, StableDiffusion
     main_input_name = "prompt"
     auto_model_class = StableDiffusionPipeline
 
+    class DummyEncoderHidProj:
+        def __init__(self):
+            self.image_projection_layers = ModuleList([IPAdapterFullImageProjection()])  # TODO: support multiple IP adapters
+
+    encoder_hid_proj = DummyEncoderHidProj()
+
 
 class NeuronStableDiffusionImg2ImgPipeline(NeuronDiffusionPipelineBase, StableDiffusionImg2ImgPipeline):
     main_input_name = "image"
@@ -1597,6 +1619,12 @@ class NeuronStableDiffusionXLPipeline(
 ):
     main_input_name = "prompt"
     auto_model_class = StableDiffusionXLPipeline
+
+    class DummyEncoderHidProj:
+        def __init__(self):
+            self.image_projection_layers = ModuleList([ImageProjection()])  # TODO: support multiple IP adapters
+
+    encoder_hid_proj = DummyEncoderHidProj()
 
 
 class NeuronStableDiffusionXLImg2ImgPipeline(
