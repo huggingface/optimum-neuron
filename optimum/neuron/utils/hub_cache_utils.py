@@ -476,7 +476,7 @@ def get_hub_cached_models(
             root_sub_paths = path_in_repo.split("/")
             try:
                 registry = api.list_repo_tree(cache_repo_id, path_in_repo=path_in_repo, recursive=True)
-                cached_models = set({})
+                cached_models = set()
                 for registry_file in registry:
                     # Extract each cached model as a tuple of (arch, org, model)
                     if registry_file.path.endswith(".json"):
@@ -488,7 +488,7 @@ def get_hub_cached_models(
             except EntryNotFoundError:
                 # No cached models for the current version
                 continue
-    return set({})
+    return set()
 
 
 def _prepare_config_for_matching(entry_config: Dict, target_entry: ModelCacheEntry, model_type: str):
