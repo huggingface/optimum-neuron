@@ -32,7 +32,7 @@ from optimum.neuron import (
     NeuronStableDiffusionPipeline,
     NeuronStableDiffusionXLPipeline,
 )
-from optimum.neuron.utils import get_hub_cached_entries, synchronize_hub_cache
+from optimum.neuron.utils import get_hub_cached_entries, get_hub_cached_models, synchronize_hub_cache
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -198,6 +198,9 @@ def test_decoder_cache(cache_repos):
     model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
     assert len(model_entries) == 1
     assert model_entries[0] == model.config.neuron
+    # Also verify that the model appears in the list of cached models
+    cached_models = get_hub_cached_models("inference")
+    assert ("gpt2", "hf-internal-testing", "tiny-random-gpt2") in cached_models
     # Clear the local cache
     for root, dirs, files in os.walk(cache_path):
         for f in files:
