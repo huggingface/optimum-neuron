@@ -40,7 +40,7 @@ class UnetNeuronWrapper(torch.nn.Module):
         if len(inputs) != len(self.input_names):
             raise ValueError(
                 f"The model needs {len(self.input_names)} inputs: {self.input_names}."
-                f" But only {len(input)} inputs are passed."
+                f" But only {len(inputs)} inputs are passed."
             )
 
         ordered_inputs = dict(zip(self.input_names, inputs))
@@ -48,6 +48,8 @@ class UnetNeuronWrapper(torch.nn.Module):
         added_cond_kwargs = {
             "text_embeds": ordered_inputs.pop("text_embeds", None),
             "time_ids": ordered_inputs.pop("time_ids", None),
+            "image_embeds": ordered_inputs.pop("image_embeds", None)
+            or ordered_inputs.pop("image_enc_hidden_states", None),
         }
         sample = ordered_inputs.pop("sample", None)
         timestep = ordered_inputs.pop("timestep").float().expand((sample.shape[0],))
@@ -566,6 +568,32 @@ class SentenceTransformersTransformerNeuronWrapper(torch.nn.Module):
         out_tuple = self.model({"input_ids": input_ids, "attention_mask": attention_mask})
 
         return out_tuple["token_embeddings"], out_tuple["sentence_embedding"]
+
+
+class CLIPVisionModelNeuronWrapper(torch.nn.Module):
+    def __init__(
+        self,
+        model,
+        input_names: List[str],
+        output_hidden_states: bool = True,
+    ):
+        super().__init__()
+        self.model = model
+        self.input_names = input_names
+        self.output_hidden_states = output_hidden_states
+
+    def forward(self, pixel_values):
+        vision_outputs = self.model.vision_model(
+            pixel_values=pixel_values, output_hidden_states=self.output_hidden_states
+        )
+        pooled_output = vision_outputs[1]
+        image_embeds = self.model.visual_projection(pooled_output)
+
+        outputs = (image_embeds, vision_outputs.last_hidden_state)
+
+        if self.output_hidden_states:
+            outputs += (vision_outputs.hidden_states,)
+        return outputs
 
 
 class SentenceTransformersCLIPNeuronWrapper(torch.nn.Module):

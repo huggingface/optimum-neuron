@@ -24,11 +24,13 @@ _import_structure = {
         "NeuronStableDiffusionXLPipelineMixin",
         "NeuronStableDiffusionControlNetPipelineMixin",
         "NeuronStableDiffusionXLControlNetPipelineMixin",
+        "NeuronIPAdapterMixin",
     ],
 }
 
 if TYPE_CHECKING:
     from .diffusers import (
+        NeuronIPAdapterMixin,
         NeuronStableDiffusionControlNetPipelineMixin,
         NeuronStableDiffusionXLControlNetPipelineMixin,
         NeuronStableDiffusionXLPipelineMixin,
