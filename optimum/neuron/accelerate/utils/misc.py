@@ -21,7 +21,6 @@ import itertools
 from typing import TYPE_CHECKING, Callable, Dict, Optional, Union
 
 import torch
-from transformers.modeling_utils import get_parameter_dtype
 
 from ....utils import logging
 from ...utils import is_torch_neuronx_available, is_torch_xla_available, patch_everywhere
@@ -65,27 +64,6 @@ def patch_accelerate_is_torch_xla_available():
 
 
 _ORIG_TORCH_FINFO = torch.finfo
-
-
-def create_patched_finfo(xla_downcast_bf16: bool = False, use_amp: bool = False, xla_use_bf16: bool = False):
-    def patched_finfo(dtype):
-        if xla_downcast_bf16 or use_amp or xla_use_bf16:
-            return _ORIG_TORCH_FINFO(torch.bfloat16)
-        return _ORIG_TORCH_FINFO(dtype)
-
-    return patched_finfo
-
-
-def create_patched_get_parameter_dtype(
-    xla_downcast_bf16: bool = False, use_amp: bool = False, xla_use_bf16: bool = False
-):
-    def patched_get_parameter_dtype(module):
-        dtype = get_parameter_dtype(module)
-        if xla_downcast_bf16 or use_amp or xla_use_bf16:
-            return torch.bfloat16
-        return dtype
-
-    return patched_get_parameter_dtype
 
 
 @requires_neuronx_distributed

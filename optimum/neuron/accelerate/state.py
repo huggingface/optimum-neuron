@@ -181,16 +181,7 @@ class NeuronAcceleratorState(AcceleratorState):
 
             if self.distributed_type == DistributedType.XLA:
                 if mixed_precision == "bf16":
-                    if autocast_backend is AutocastBackend.AMP:
-                        self.downcast_bfloat = True
-                    elif os.environ.get("ACCELERATE_DOWNCAST_BF16"):
-                        os.environ["XLA_USE_BF16"] = str(0)
-                        os.environ["XLA_DOWNCAST_BF16"] = str(1)
-                        self.downcast_bfloat = True
-                    else:
-                        os.environ["XLA_USE_BF16"] = str(1)
-                        os.environ["XLA_DOWNCAST_BF16"] = str(0)
-                        self.downcast_bfloat = False
+                    os.environ["NEURON_RT_STOCHASTIC_ROUNDING_EN"] = "1"
 
                 if mp_plugin is None:
                     mp_plugin = ModelParallelismPlugin()
