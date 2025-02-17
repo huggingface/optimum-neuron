@@ -1561,7 +1561,9 @@ class NeuronStableDiffusionPipeline(NeuronDiffusionPipelineBase, StableDiffusion
 
     class DummyEncoderHidProj:
         def __init__(self):
-            self.image_projection_layers = ModuleList([IPAdapterFullImageProjection()])  # TODO: support multiple IP adapters
+            self.image_projection_layers = ModuleList(
+                [IPAdapterFullImageProjection()]
+            )  # TODO: support multiple IP adapters
 
     encoder_hid_proj = DummyEncoderHidProj()
 
