@@ -18,6 +18,7 @@ import argparse
 import inspect
 import os
 from argparse import ArgumentParser
+from dataclasses import fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
@@ -36,6 +37,10 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     ENCODER_NAME,
     NEURON_FILE_NAME,
+    ImageEncoderArguments,
+    InputShapesArguments,
+    IPAdapterArguments,
+    LoRAAdapterArguments,
     is_neuron_available,
     is_neuronx_available,
     is_transformers_neuronx_available,
@@ -278,6 +283,26 @@ def infer_stable_diffusion_shapes_from_diffusers(
             "encoder_hidden_size": encoder_hidden_size,
         }
 
+    # Image encoder
+    if getattr(model, "image_encoder", None):
+        input_shapes["image_encoder"] = {
+            "batch_size": input_shapes[unet_or_transformer_name]["batch_size"],
+            "num_channels": model.image_encoder.config.num_channels,
+            "width": model.image_encoder.config.image_size,
+            "height": model.image_encoder.config.image_size,
+        }
+        # IP-Adapter: add image_embeds as input for unet/transformer
+        # unet has `ip_adapter_image_embeds` with shape [batch_size, 1, (self.image_encoder.config.image_size//patch_size)**2+1, self.image_encoder.config.hidden_size] as input
+        if getattr(model.unet.config, "encoder_hid_dim_type", None) == "ip_image_proj":
+            input_shapes[unet_or_transformer_name]["image_encoder_shapes"] = ImageEncoderArguments(
+                sequence_length=model.image_encoder.vision_model.embeddings.position_embedding.weight.shape[0],
+                hidden_size=model.image_encoder.vision_model.embeddings.position_embedding.weight.shape[1],
+                projection_dim=getattr(model.image_encoder.config, "projection_dim", None),
+            )
+
+    # Format with `InputShapesArguments`
+    for sub_model_name in input_shapes.keys():
+        input_shapes[sub_model_name] = InputShapesArguments(**input_shapes[sub_model_name])
     return input_shapes
 
 
@@ -294,11 +319,8 @@ def get_submodels_and_neuron_configs(
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
-    lora_model_ids: Optional[Union[str, List[str]]] = None,
-    lora_weight_names: Optional[Union[str, List[str]]] = None,
-    lora_adapter_names: Optional[Union[str, List[str]]] = None,
-    lora_scales: Optional[Union[float, List[float]]] = None,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
+    lora_args: Optional[LoRAAdapterArguments] = None,
 ):
     is_encoder_decoder = (
         getattr(model.config, "is_encoder_decoder", False) if isinstance(model.config, PretrainedConfig) else False
@@ -315,11 +337,8 @@ def get_submodels_and_neuron_configs(
             dynamic_batch_size=dynamic_batch_size,
             submodels=submodels,
             output_hidden_states=output_hidden_states,
-            lora_model_ids=lora_model_ids,
-            lora_weight_names=lora_weight_names,
-            lora_adapter_names=lora_adapter_names,
-            lora_scales=lora_scales,
             controlnet_ids=controlnet_ids,
+            lora_args=lora_args,
         )
     elif is_encoder_decoder:
         optional_outputs = {"output_attentions": output_attentions, "output_hidden_states": output_hidden_states}
@@ -346,33 +365,16 @@ def get_submodels_and_neuron_configs(
             library_name=library_name,
         )
         input_shapes = check_mandatory_input_shapes(neuron_config_constructor, task, input_shapes)
-        neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
+        input_shapes = InputShapesArguments(**input_shapes)
+        neuron_config = neuron_config_constructor(
+            model.config, dynamic_batch_size=dynamic_batch_size, input_shapes=input_shapes
+        )
         model_name = getattr(model, "name_or_path", None) or model_name_or_path
         model_name = model_name.split("/")[-1] if model_name else model.config.model_type
         output_model_names = {model_name: "model.neuron"}
         models_and_neuron_configs = {model_name: (model, neuron_config)}
         maybe_save_preprocessors(model_name_or_path, output, src_subfolder=subfolder)
     return models_and_neuron_configs, output_model_names
-
-
-def _normalize_lora_params(lora_model_ids, lora_weight_names, lora_adapter_names, lora_scales):
-    if isinstance(lora_model_ids, str):
-        lora_model_ids = [
-            lora_model_ids,
-        ]
-    if isinstance(lora_weight_names, str):
-        lora_weight_names = [
-            lora_weight_names,
-        ]
-    if isinstance(lora_adapter_names, str):
-        lora_adapter_names = [
-            lora_adapter_names,
-        ]
-    if isinstance(lora_scales, float):
-        lora_scales = [
-            lora_scales,
-        ]
-    return lora_model_ids, lora_weight_names, lora_adapter_names, lora_scales
 
 
 def _get_submodels_and_neuron_configs_for_stable_diffusion(
@@ -382,11 +384,8 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     dynamic_batch_size: bool = False,
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
     output_hidden_states: bool = False,
-    lora_model_ids: Optional[Union[str, List[str]]] = None,
-    lora_weight_names: Optional[Union[str, List[str]]] = None,
-    lora_adapter_names: Optional[Union[str, List[str]]] = None,
-    lora_scales: Optional[Union[float, List[float]]] = None,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
+    lora_args: Optional[LoRAAdapterArguments] = None,
 ):
     check_compiler_compatibility_for_stable_diffusion()
     model = replace_stable_diffusion_submodels(model, submodels)
@@ -412,9 +411,6 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         model.feature_extractor.save_pretrained(output.joinpath("feature_extractor"))
     model.save_config(output)
 
-    lora_model_ids, lora_weight_names, lora_adapter_names, lora_scales = _normalize_lora_params(
-        lora_model_ids, lora_weight_names, lora_adapter_names, lora_scales
-    )
     models_and_neuron_configs = get_diffusion_models_for_export(
         pipeline=model,
         text_encoder_input_shapes=input_shapes["text_encoder"],
@@ -422,14 +418,12 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         transformer_input_shapes=input_shapes.get("transformer", None),
         vae_encoder_input_shapes=input_shapes["vae_encoder"],
         vae_decoder_input_shapes=input_shapes["vae_decoder"],
+        lora_args=lora_args,
         dynamic_batch_size=dynamic_batch_size,
         output_hidden_states=output_hidden_states,
-        lora_model_ids=lora_model_ids,
-        lora_weight_names=lora_weight_names,
-        lora_adapter_names=lora_adapter_names,
-        lora_scales=lora_scales,
         controlnet_ids=controlnet_ids,
         controlnet_input_shapes=input_shapes.get("controlnet", None),
+        image_encoder_input_shapes=input_shapes.get("image_encoder", None),
     )
     output_model_names = {
         DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
@@ -449,6 +443,8 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         output_model_names[DIFFUSION_MODEL_TRANSFORMER_NAME] = os.path.join(
             DIFFUSION_MODEL_TRANSFORMER_NAME, NEURON_FILE_NAME
         )
+    if getattr(model, "image_encoder", None) is not None:
+        output_model_names["image_encoder"] = os.path.join("image_encoder", NEURON_FILE_NAME)
 
     # ControlNet models
     if controlnet_ids:
@@ -515,13 +511,11 @@ def load_models_and_neuron_configs(
     local_files_only: bool,
     token: Optional[Union[bool, str]],
     submodels: Optional[Dict[str, Union[Path, str]]],
-    lora_model_ids: Optional[Union[str, List[str]]],
-    lora_weight_names: Optional[Union[str, List[str]]],
-    lora_adapter_names: Optional[Union[str, List[str]]],
-    lora_scales: Optional[Union[float, List[float]]],
     torch_dtype: Optional[Union[str, torch.dtype]] = None,
     tensor_parallel_size: int = 1,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
+    lora_args: Optional[LoRAAdapterArguments] = None,
+    ip_adapter_args: Optional[IPAdapterArguments] = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     **input_shapes,
@@ -542,6 +536,14 @@ def load_models_and_neuron_configs(
     }
     if model is None:
         model = TasksManager.get_model_from_task(**model_kwargs)
+        # Load IP-Adapter if it exists
+        if ip_adapter_args is not None and not all(
+            getattr(ip_adapter_args, field.name) is None for field in fields(ip_adapter_args)
+        ):
+            model.load_ip_adapter(
+                ip_adapter_args.model_id, subfolder=ip_adapter_args.subfolder, weight_name=ip_adapter_args.weight_name
+            )
+            model.set_ip_adapter_scale(scale=ip_adapter_args.scale)
 
     models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
         model=model,
@@ -556,11 +558,8 @@ def load_models_and_neuron_configs(
         submodels=submodels,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
-        lora_model_ids=lora_model_ids,
-        lora_weight_names=lora_weight_names,
-        lora_adapter_names=lora_adapter_names,
-        lora_scales=lora_scales,
         controlnet_ids=controlnet_ids,
+        lora_args=lora_args,
     )
 
     return models_and_neuron_configs, output_model_names
@@ -592,11 +591,9 @@ def main_export(
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     library_name: Optional[str] = None,
-    lora_model_ids: Optional[Union[str, List[str]]] = None,
-    lora_weight_names: Optional[Union[str, List[str]]] = None,
-    lora_adapter_names: Optional[Union[str, List[str]]] = None,
-    lora_scales: Optional[Union[float, List[float]]] = None,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
+    lora_args: Optional[LoRAAdapterArguments] = None,
+    ip_adapter_args: Optional[IPAdapterArguments] = None,
     **input_shapes,
 ):
     output = Path(output)
@@ -627,12 +624,10 @@ def main_export(
         local_files_only=local_files_only,
         token=token,
         submodels=submodels,
+        lora_args=lora_args,
+        ip_adapter_args=ip_adapter_args,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
-        lora_model_ids=lora_model_ids,
-        lora_weight_names=lora_weight_names,
-        lora_adapter_names=lora_adapter_names,
-        lora_scales=lora_scales,
         controlnet_ids=controlnet_ids,
         **input_shapes,
     )
@@ -640,7 +635,6 @@ def main_export(
     _, neuron_outputs = export_models(
         models_and_neuron_configs=models_and_neuron_configs,
         output_dir=output,
-        torch_dtype=torch_dtype,
         disable_neuron_cache=disable_neuron_cache,
         compiler_workdir=compiler_workdir,
         inline_weights_to_neff=inline_weights_to_neff,
@@ -752,6 +746,18 @@ def main():
     compiler_kwargs = infer_compiler_kwargs(args)
     optional_outputs = customize_optional_outputs(args)
     optlevel = parse_optlevel(args)
+    lora_args = LoRAAdapterArguments(
+        model_ids=getattr(args, "lora_model_ids", None),
+        weight_names=getattr(args, "lora_weight_names", None),
+        adapter_names=getattr(args, "lora_adapter_names", None),
+        scales=getattr(args, "lora_scales", None),
+    )
+    ip_adapter_args = IPAdapterArguments(
+        model_id=getattr(args, "ip_adapter_id", None),
+        subfolder=getattr(args, "ip_adapter_subfolder", None),
+        weight_name=getattr(args, "ip_adapter_weight_name", None),
+        scale=getattr(args, "ip_adapter_scale", None),
+    )
 
     main_export(
         model_name_or_path=args.model,
@@ -772,11 +778,9 @@ def main():
         do_validation=not args.disable_validation,
         submodels=submodels,
         library_name=library_name,
-        lora_model_ids=getattr(args, "lora_model_ids", None),
-        lora_weight_names=getattr(args, "lora_weight_names", None),
-        lora_adapter_names=getattr(args, "lora_adapter_names", None),
-        lora_scales=getattr(args, "lora_scales", None),
         controlnet_ids=getattr(args, "controlnet_ids", None),
+        lora_args=lora_args,
+        ip_adapter_args=ip_adapter_args,
         **optional_outputs,
         **input_shapes,
     )
