@@ -482,6 +482,7 @@ def get_hub_cached_models(
                     if registry_file.path.endswith(".json"):
                         sub_paths = registry_file.path.split("/")
                         if len(sub_paths) == len(root_sub_paths) + 4:
+                            # Look at the last four splits, i.e. model_arch/model_org/model_name/SHA.json
                             model_arch, model_org, model_name = sub_paths[-4:-1]
                             cached_models.add((model_arch, model_org, model_name))
                 return cached_models
