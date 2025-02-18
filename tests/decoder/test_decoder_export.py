@@ -32,6 +32,7 @@ DECODER_MODEL_NAMES = {
     "opt": "hf-internal-testing/tiny-random-OPTForCausalLM",
     "qwen2": "yujiepan/qwen2.5-128k-tiny-random",
     "granite": "hf-internal-testing/tiny-random-GraniteForCausalLM",
+    "phi4": "yujiepan/phi-4-tiny-random",
 }
 
 
