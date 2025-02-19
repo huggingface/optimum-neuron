@@ -48,9 +48,11 @@ class UnetNeuronWrapper(torch.nn.Module):
         added_cond_kwargs = {
             "text_embeds": ordered_inputs.pop("text_embeds", None),
             "time_ids": ordered_inputs.pop("time_ids", None),
-            "image_embeds": ordered_inputs.pop("image_embeds", None)
-            or ordered_inputs.pop("image_enc_hidden_states", None),
         }
+        if "image_embeds" in ordered_inputs:
+            added_cond_kwargs["image_embeds"] = ordered_inputs.pop("image_embeds", None)
+        elif "image_enc_hidden_states" in ordered_inputs:
+            added_cond_kwargs["image_enc_hidden_states"] = ordered_inputs.pop("image_enc_hidden_states", None)
         sample = ordered_inputs.pop("sample", None)
         timestep = ordered_inputs.pop("timestep").float().expand((sample.shape[0],))
         encoder_hidden_states = ordered_inputs.pop("encoder_hidden_states", None)

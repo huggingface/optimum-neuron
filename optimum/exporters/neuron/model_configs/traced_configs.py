@@ -256,6 +256,11 @@ class CLIPVisionModelNeuronConfig(VisionNeuronConfig):
             common_outputs.append("hidden_states")
         return common_outputs
 
+    def patch_model_for_export(self, model, dummy_inputs: Dict[str, torch.Tensor], **kwargs):
+        return self.CUSTOM_MODEL_WRAPPER(
+            model, list(dummy_inputs.keys()), output_hidden_states=self.output_hidden_states
+        )
+
 
 @register_in_tasks_manager("clip", *["feature-extraction", "zero-shot-image-classification"])
 class CLIPNeuronConfig(TextAndVisionNeuronConfig):
@@ -615,7 +620,13 @@ class UNetNeuronConfig(VisionNeuronConfig):
     def inputs(self) -> List[str]:
         common_inputs = ["sample", "timestep", "encoder_hidden_states"]
 
-        # TODO : add text_image, image and image_embeds
+        if self.with_ip_adapter:
+            # add output of image encoder
+            if self.image_encoder_output_hidden_states:
+                common_inputs += ["image_enc_hidden_states"]
+            else:
+                common_inputs += ["image_embeds"]
+
         if getattr(self._normalized_config, "addition_embed_type", None) == "text_time":
             common_inputs.append("text_embeds")
             common_inputs.append("time_ids")
@@ -626,13 +637,6 @@ class UNetNeuronConfig(VisionNeuronConfig):
         if self.with_controlnet:
             # outputs of controlnet
             common_inputs += ["down_block_additional_residuals", "mid_block_additional_residual"]
-
-        if self.with_ip_adapter:
-            # add output of image encoder
-            if self.image_encoder_output_hidden_states:
-                common_inputs += ["image_enc_hidden_states"]
-            else:
-                common_inputs += ["image_embeds"]
 
         return common_inputs
 
