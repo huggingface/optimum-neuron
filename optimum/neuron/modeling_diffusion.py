@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Uni
 import torch
 from huggingface_hub import snapshot_download
 from torch.nn import ModuleList
-from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig, T5Tokenizer
+from transformers import CLIPFeatureExtractor, CLIPImageProcessor, CLIPTokenizer, PretrainedConfig, T5Tokenizer
 from transformers.modeling_outputs import ModelOutput
 
 from ..exporters.neuron import (
@@ -161,7 +161,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         safety_checker: Optional[torch.jit._script.ScriptModule] = None,
         tokenizer: Optional[Union[CLIPTokenizer, T5Tokenizer]] = None,
         tokenizer_2: Optional[CLIPTokenizer] = None,
-        feature_extractor: Optional[CLIPFeatureExtractor] = None,
+        feature_extractor: Optional[Union[CLIPFeatureExtractor, CLIPImageProcessor]] = None,
         controlnet: Optional[
             Union[
                 torch.jit._script.ScriptModule,
@@ -214,7 +214,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             tokenizer_2 (`Optional[CLIPTokenizer]`, defaults to `None`):
                 Second tokenizer of class
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
-            feature_extractor (`Optional[CLIPFeatureExtractor]`, defaults to `None`):
+            feature_extractor (`Optional[Union[CLIPFeatureExtractor, CLIPImageProcessor]]`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
             controlnet (`Optional[Union[torch.jit._script.ScriptModule, List[torch.jit._script.ScriptModule], "NeuronControlNetModel", "NeuronMultiControlNetModel"]]`, defaults to `None`):
                 The Neuron TorchScript module(s) associated to the ControlNet(s).
@@ -1326,7 +1326,7 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
             for idx in range(len(down_block_additional_residuals)):
                 inputs = inputs + (down_block_additional_residuals[idx],)
         if added_cond_kwargs:
-            optional_inputs_names = ["text_embeds", "time_ids", "image_embeds"]
+            optional_inputs_names = ["image_embeds", "text_embeds", "time_ids"]
             for optional_input_name in optional_inputs_names:
                 optional_input = added_cond_kwargs.get(optional_input_name, None)
                 if isinstance(optional_input, List):
