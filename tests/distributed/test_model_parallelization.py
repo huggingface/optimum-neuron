@@ -409,7 +409,7 @@ class TestModelParallelization(DistributedTest):
 
         # This is very important otherwise the parallel cross entropy loss will modify the logits inplace.
         monkeypatch.setattr(
-            optimum.neuron.distributed.parallel_layers, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
+            optimum.neuron.distributed.utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
         )
 
         return self._parallel_model_matches_original_model(
@@ -425,7 +425,7 @@ class TestModelParallelization(DistributedTest):
     ):
         _, model_class, model_name_or_path, config_overwrite = model_specs
         monkeypatch.setattr(
-            optimum.neuron.distributed.parallel_layers, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
+            optimum.neuron.distributed.utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
         )
         return self._parallel_model_matches_original_model(
             model_class, model_name_or_path, config_overwrite, parallel_sizes, False, True, False, False
@@ -528,7 +528,7 @@ class TestModelParallelization(DistributedTest):
         parallelize_embeddings,
     ):
         monkeypatch.setattr(
-            optimum.neuron.distributed.parallel_layers, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
+            optimum.neuron.distributed.utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
         )
         num_kv_heads = int(config_overwrite["num_key_value_heads"])
         # if num_kv_heads >= tp_size and (from_pretrained or lazy_load or sequence_parallel_enabled):

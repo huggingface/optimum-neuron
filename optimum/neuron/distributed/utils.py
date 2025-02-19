@@ -46,6 +46,7 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
     from neuronx_distributed.parallel_layers import layers
     from neuronx_distributed.pipeline.trace import HFTracerWrapper, NxDTracer
+    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank, get_tensor_model_parallel_size
 else:
 
     class GQAQKVColumnParallelLinear(torch.nn.Module):
@@ -498,7 +499,6 @@ def embedding_to_parallel_embedding(
         `Union[ParallelEmbedding, Tuple[ParallelEmbedding", layers.ColumnParallelLinear]]`: The parallel embedding and the
         parallel linear projection if specified.
     """
-    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
 
     device = device if device is not None else torch.device("cpu")
 
@@ -631,10 +631,6 @@ def create_kv_proj_local_weight_from_regular_weight(
     GQAQKVColumnParallelLinear.
     """
     assert not isinstance(weight_data, torch.nn.Parameter)
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_tensor_model_parallel_rank,
-        get_tensor_model_parallel_size,
-    )
 
     tp_size = get_tensor_model_parallel_size()
     tp_rank = get_tensor_model_parallel_rank()
@@ -699,10 +695,6 @@ def create_query_or_output_projection_local_weight_from_regular_weight(
     assert query_or_output_proj in ["query", "output"]
     assert not isinstance(weight_data, torch.nn.Parameter)
 
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_tensor_model_parallel_rank,
-        get_tensor_model_parallel_size,
-    )
 
     tp_size = get_tensor_model_parallel_size()
     tp_rank = get_tensor_model_parallel_rank()
@@ -742,10 +734,6 @@ def create_local_bias_from_regular_bias(
     """
     assert query_or_key_value_bias in ["query", "key_value"]
     assert not isinstance(bias_weigth_data, torch.nn.Parameter)
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_tensor_model_parallel_rank,
-        get_tensor_model_parallel_size,
-    )
 
     tp_size = get_tensor_model_parallel_size()
     tp_rank = get_tensor_model_parallel_rank()
@@ -944,7 +932,6 @@ def maybe_load_linear_weight_to_parallel_linear(
         )
 
     from neuronx_distributed.parallel_layers.layers import RowParallelLinear
-    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
 
     tp_rank = get_tensor_model_parallel_rank()
     row_size, col_size = parallel_linear_layer.weight.shape
@@ -1776,3 +1763,300 @@ class SavedModelInTemporaryDirectory:
 
     def __exit__(self, *exc):
         self.tmpdir.cleanup()
+
+
+from neuronx_distributed.parallel_layers.mappings import (
+    _gather_along_dim,
+    _reduce_scatter_along_dim,
+)
+from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_group
+from torch.distributed import ProcessGroup
+
+
+class LinearWithAsyncCommunicationFixed(torch.autograd.Function):
+    """Linear layer execution with asynchronous communication."""
+
+    @staticmethod
+    def forward(
+        ctx,
+        input: torch.Tensor,
+        weight: torch.Tensor,
+        bias: Optional[torch.Tensor],
+        async_grad_allreduce: bool,
+        sequence_parallel_enabled: bool,
+        save_for_backward: bool = True,
+    ):
+        ctx.use_bias = bias is not None and weight.requires_grad
+        ctx.async_grad_allreduce = async_grad_allreduce
+        ctx.sequence_parallel_enabled = sequence_parallel_enabled
+        ctx.sequence_dimension = 0
+        ctx.compute_weight_gradient = weight.requires_grad
+        # ctx.process_group = get_tensor_model_parallel_group(as_list=True)
+        ctx.process_group = get_tensor_model_parallel_group()
+        ctx.reduce_dtype = torch.float32
+
+        if ctx.sequence_parallel_enabled:
+            assert (
+                ctx.sequence_dimension is not None
+            ), "Found `sequence_parallel_enabled` set to True, but `sequence_dimension` was None, and this occured in an unexpected area"
+
+        if save_for_backward:
+            if ctx.compute_weight_gradient:
+                ctx.save_for_backward(input, weight)
+            else:
+                ctx.save_for_backward(weight)
+
+        if ctx.sequence_parallel_enabled:
+            # `input` is supposed to be 3D and the optimal order of dimension is [sequence, batch, hidden]
+            # If not SBH, the necessary transposes will be added
+            # total_input = _gather_along_dim(input, ctx.sequence_dimension, process_group=ctx.process_group)
+            total_input = _gather_along_dim(input, ctx.sequence_dimension)
+        else:
+            total_input = input
+
+        output = torch.einsum('...m,mn->...n', total_input, weight.t())
+        if bias is not None:
+            output = output + bias
+        return output
+
+    @staticmethod
+    def backward(ctx: Any, *grad_outputs: Any) -> Any:
+        grad_output = grad_outputs[0]
+        if ctx.sequence_parallel_enabled:
+            assert (
+                ctx.sequence_dimension is not None
+            ), "Found `sequence_parallel_enabled` set to True, but `sequence_dimension` was None, and this occured in an unexpected area"
+
+        if ctx.compute_weight_gradient:
+            input, weight = ctx.saved_tensors
+        else:
+            weight = ctx.saved_tensors[0]
+            input = None
+
+        use_bias = ctx.use_bias
+        process_group = ctx.process_group
+
+        handle = None
+        if ctx.compute_weight_gradient:
+            if ctx.sequence_parallel_enabled:
+                # Optimal layout is SBH, but if not, transposes are added
+                # total_input = _gather_along_dim(input, ctx.sequence_dimension, process_group=process_group)
+                total_input = _gather_along_dim(input, ctx.sequence_dimension)
+            else:
+                total_input = input
+
+        grad_input = grad_output.matmul(weight)
+
+        if handle is not None:
+            handle.wait()
+
+        original_dtype = grad_input.dtype
+
+        if ctx.async_grad_allreduce:
+            # Asynchronous all-reduce
+            grad_input = grad_input.to(ctx.reduce_dtype)
+            handle = torch.distributed.all_reduce(grad_input, group=process_group, async_op=True)
+            grad_input = grad_input.to(original_dtype)
+
+        # if no weight gradient, immediately return
+        if not ctx.compute_weight_gradient:
+            if ctx.sequence_parallel_enabled:
+                assert not ctx.async_grad_allreduce
+                # Optimal layout is SBH, but if not, transposes are added
+                sub_grad_input = _reduce_scatter_along_dim(grad_input.to(ctx.reduce_dtype), ctx.sequence_dimension, process_group=process_group)
+                sub_grad_input = sub_grad_input.to(original_dtype)
+                return sub_grad_input, None, None, None, None, None, None, None, None
+
+            if ctx.async_grad_allreduce:
+                assert handle
+                handle.wait()
+                grad_input = grad_input.to(original_dtype)
+            return grad_input, None, None, None, None, None, None, None, None
+
+        # Convert the tensor shapes to 2D for execution compatibility
+        grad_output = grad_output.view(grad_output.shape[0] * grad_output.shape[1], grad_output.shape[2])
+        total_input = total_input.view(total_input.shape[0] * total_input.shape[1], total_input.shape[2])
+
+        if ctx.sequence_parallel_enabled:
+            assert not ctx.async_grad_allreduce
+            # optimal layout is SBH, but if not, transposes will be added
+            sub_grad_input = _reduce_scatter_along_dim(grad_input.to(ctx.reduce_dtype), ctx.sequence_dimension, process_group=process_group)
+            sub_grad_input=sub_grad_input.to(original_dtype)
+
+        grad_weight = grad_output.t().matmul(total_input)
+        grad_bias = grad_output.sum(dim=0) if use_bias else None
+
+        if ctx.sequence_parallel_enabled:
+            return sub_grad_input, grad_weight, grad_bias, None, None, None, None, None, None
+
+        if ctx.async_grad_allreduce:
+            assert handle
+            handle.wait()
+            grad_input = grad_input.to(original_dtype)
+        return grad_input, grad_weight, grad_bias, None, None, None, None, None, None
+
+import neuronx_distributed
+
+
+# neuronx_distributed.parallel_layers.layers.LinearWithAsyncCommunication.forward = LinearWithAsyncCommunicationFixed.forward
+# neuronx_distributed.parallel_layers.layers.LinearWithAsyncCommunication.backward = LinearWithAsyncCommunicationFixed.backward
+
+import torch
+
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_tensor_model_parallel_group,
+    get_tensor_model_parallel_rank,
+    get_tensor_model_parallel_size,
+)
+from neuronx_distributed.parallel_layers.utils import EmbeddingUtility
+
+class _ParallelCrossEntropy(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, vocab_parallel_logits, target, ignore_index=-100, reduction="mean", label_smoothing=0.0):
+        # Maximum value along vocab dimension across all GPUs.
+        logits_max = torch.max(vocab_parallel_logits, dim=-1)[0]
+        torch.distributed.all_reduce(
+            logits_max,
+            op=torch.distributed.ReduceOp.MAX,
+            group=get_tensor_model_parallel_group(),
+        )
+        # Subtract the maximum value.
+        vocab_parallel_logits.sub_(logits_max.unsqueeze(dim=-1))
+
+        # Get the partition's vocab indecies
+        get_vocab_range = EmbeddingUtility.range_from_per_partition_vocab_size
+        partition_vocab_size = vocab_parallel_logits.size()[-1]
+        rank = get_tensor_model_parallel_rank()
+        world_size = get_tensor_model_parallel_size()
+        vocab_start_index, vocab_end_index = get_vocab_range(partition_vocab_size, rank, world_size)
+
+        # Create a mask of valid vocab ids (0 means it needs to be masked).
+        # masked_target = target.clone() - vocab_start_index
+        # masked_target[target_mask] = 0
+        # new xla friendly
+        is_not_ignore_index_mask = target != ignore_index
+        target_mask = (target >= vocab_start_index) & (target < vocab_end_index) 
+        masked_target = target.clone() - vocab_start_index
+        masked_target = torch.mul(masked_target, target_mask.long())
+
+        # Get predicted-logits = logits[target].
+        # For Simplicity, we convert logits to a 2-D tensor with size
+        # [*, partition-vocab-size] and target to a 1-D tensor of size [*].
+        logits_2d = vocab_parallel_logits.view(-1, partition_vocab_size)
+        masked_target_1d = masked_target.view(-1)
+        arange_1d = torch.arange(start=0, end=logits_2d.size()[0], device=logits_2d.device, dtype=torch.long)
+        predicted_logits_1d = logits_2d[arange_1d, masked_target_1d]
+        predicted_logits_1d = predicted_logits_1d.clone().contiguous()
+        predicted_logits = predicted_logits_1d.view_as(target)
+        # original
+        # predicted_logits[target_mask] = 0.0
+        # new xla friendly
+        predicted_logits = torch.mul(predicted_logits, target_mask.float())
+        # predicted_logits = torch.mul(predicted_logits, is_not_ignore_index_mask.float())
+        # All reduce is needed to get the chunks from other GPUs.
+        torch.distributed.all_reduce(
+            predicted_logits,
+            op=torch.distributed.ReduceOp.SUM,
+            group=get_tensor_model_parallel_group(),
+        )
+
+        # Sum of exponential of logits along vocab dimension across all GPUs.
+        # new xla friendly
+        # exp_logits = vocab_parallel_logits
+        # torch.exp(vocab_parallel_logits, out=exp_logits)
+        exp_logits = torch.exp(vocab_parallel_logits)
+        sum_exp_logits = exp_logits.sum(dim=-1)
+        torch.distributed.all_reduce(
+            sum_exp_logits,
+            op=torch.distributed.ReduceOp.SUM,
+            group=get_tensor_model_parallel_group(),
+        )
+
+        # Loss = log(sum(exp(logits))) - predicted-logit.
+        loss = torch.log(sum_exp_logits) - predicted_logits
+
+        # Store softmax, target-mask and masked-target for backward pass.
+        exp_logits.div_(sum_exp_logits.unsqueeze(dim=-1))
+
+        vocab_size = exp_logits.size(-1)
+        if label_smoothing > 0:
+            """
+            We'd like to assign 1 / (K - 1) probability mass to every index that is not the ground truth.
+            = (1 - alpha) * y_gt + alpha * mean(y_{i for i != gt})
+            = (1 - alpha) * y_gt + (alpha / (K - 1)) * sum_{i != gt} y_i
+            = ((K - 1) * (1 - alpha) / (K - 1)) * y_gt + (alpha / (K - 1)) * sum_{i != gt} y_i
+            = (K * (1 - alpha) - 1) / (K - 1)) * y_gt  + (alpha / (K - 1)) * sum_{i} y_i
+            = (1 - (alpha * K) / (K - 1)) * y_gt + ( (alpha * K) / (K - 1) ) * sum_{i} y_i / K
+            From: https://github.com/NVIDIA/NeMo/blob/main/nemo/collections/common/losses/smoothed_cross_entropy.py
+            """
+            assert 1.0 > label_smoothing > 0.0
+            smoothing = label_smoothing * vocab_size / (vocab_size - 1)
+
+            # Exp logits at this point are normalized probabilities. So we can just take the log to get log-probs.
+            log_probs = torch.log(exp_logits)
+            mean_log_probs = log_probs.mean(dim=-1)
+            loss = (1.0 - smoothing) * loss - smoothing * mean_log_probs
+
+        loss = loss * is_not_ignore_index_mask
+        num_non_ignored_tokens = is_not_ignore_index_mask.sum()
+
+        if reduction == "sum":
+            loss = loss.sum()
+        elif reduction == "mean":
+            loss = loss.sum() / num_non_ignored_tokens
+
+        ctx.reduction, ctx.num_non_ignored_tokens = reduction, num_non_ignored_tokens
+        ctx.label_smoothing, ctx.vocab_size = label_smoothing, vocab_size
+        ctx.save_for_backward(exp_logits, target_mask, masked_target_1d, is_not_ignore_index_mask)
+
+        return loss
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # Retreive tensors from the forward path.
+        softmax, target_mask, masked_target_1d, is_non_ignore_index_mask = ctx.saved_tensors
+        label_smoothing, vocab_size = ctx.label_smoothing, ctx.vocab_size
+
+        reduction, num_non_ignored_tokens = ctx.reduction, ctx.num_non_ignored_tokens
+
+        # All the inputs have softmax as thier gradient.
+        grad_input = softmax
+        # For simplicity, work with the 2D gradient.
+        partition_vocab_size = softmax.size()[-1]
+        grad_2d = grad_input.view(-1, partition_vocab_size)
+
+        # Add the gradient from matching classes.
+        arange_1d = torch.arange(start=0, end=grad_2d.size()[0], device=grad_2d.device, dtype=torch.long)
+
+        if label_smoothing > 0:
+            softmax_update = 1.0 - target_mask.view(-1).float()
+            smoothing = label_smoothing * vocab_size / (vocab_size - 1)
+            grad_2d[arange_1d.long(), masked_target_1d.long()] -= (1.0 - smoothing) * softmax_update
+            average_grad = 1 / vocab_size
+            grad_2d[arange_1d.long(), :] -= smoothing * average_grad
+        else:
+            grad_2d[arange_1d, masked_target_1d] -= target_mask.view(-1).float()
+
+        print(grad_input)
+        grad_input *= is_non_ignore_index_mask.unsqueeze(dim=-1)
+        print(grad_input)
+
+        if reduction == "mean":
+            grad_input *= (grad_output / num_non_ignored_tokens)
+        elif reduction == "sum":
+            grad_input *= grad_output
+        else:
+            grad_input.mul_(grad_output.unsqueeze(dim=-1))
+
+        return grad_input, None, None, None, None
+
+# Just for testing purposes, setting that to True will feed a copy of the  input to `parallel_cross_entropy` which
+# changes inputs inplace. This way the original input is not transformed and can be used in tests for comparison.
+_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT: bool = False
+
+def parallel_cross_entropy(vocab_parallel_logits, target, ignore_index=-100, reduction="mean", label_smoothing=0.0):
+    """Helper function for the cross entropy."""
+    if _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT:
+        vocab_parallel_logits = vocab_parallel_logits.clone()
+    return _ParallelCrossEntropy.apply(vocab_parallel_logits, target, ignore_index, reduction, label_smoothing)
+

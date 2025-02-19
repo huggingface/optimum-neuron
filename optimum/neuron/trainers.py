@@ -105,6 +105,7 @@ from .utils.cache_utils import (
 from .utils.hub_cache_utils import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.import_utils import is_peft_available
 from .utils.misc import is_main_worker, is_precompilation
+from .utils.optimizer_utils import AdamW_FP32OptimParams
 from .utils.peft_utils import NeuronPeftModel, get_peft_model
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils.training_utils import (
@@ -187,6 +188,9 @@ class _TrainerForNeuron:
             self.prepare_for_precompilation(training_args)
 
         super().__init__(*args, **kwargs)
+
+        # This is important to avoid changing the way the loss is computed.
+        self.model_accepts_loss_kwargs = False
 
         if not isinstance(self.args, NeuronTrainingArguments):
             raise ValueError(
@@ -386,12 +390,15 @@ class _TrainerForNeuron:
     ) -> Tuple[Any, Any]:
         optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args, model=model)
         lazy_load = args.mp_plugin.should_parallelize or args.zero_1
+        optimizer_cls = AdamW_FP32OptimParams
         if lazy_load:
             optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)
         return optimizer_cls, optimizer_kwargs
 
     @patch_within_function(("transformers.Trainer.get_optimizer_cls_and_kwargs", get_optimizer_cls_and_kwargs))
     def create_optimizer(self):
+        # self.optimizer = torch.optim.SGD(self.model.parameters(), lr=1e-4)
+        # return
         return super().create_optimizer()
 
     def _prepare_input(self, data: Union[torch.Tensor, Any]) -> Union[torch.Tensor, Any]:
@@ -491,15 +498,22 @@ class _TrainerForNeuron:
             from neuronx_distributed.parallel_layers.parallel_state import (
                 get_data_parallel_group,
                 get_data_parallel_size,
+                get_tensor_model_parallel_size,
                 model_parallel_is_initialized,
             )
 
             if model_parallel_is_initialized():
                 dp_size = get_data_parallel_size()
+                tp_size = get_tensor_model_parallel_size()
             else:
                 dp_size = xm.xrt_world_size()
+                tp_size = 1
 
-            tr_loss_div = tr_loss / dp_size
+            # This is the correct way of doing thing, but there is an bug in the compiler in the Neuron SDK 2.20
+            # that ignores the groups attribute of the xm.all_reduce operation.
+            # For more information: https://github.com/aws-neuron/aws-neuron-sdk/issues/1107
+            #tr_loss_div = tr_loss / dp_size
+            tr_loss_div = tr_loss / (dp_size * tp_size)
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
 
             if self.control.should_log:
@@ -1096,6 +1110,15 @@ class _TrainerForNeuron:
                             )
 
                         self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
+
+                        # norms = []
+                        # for n, p in model.named_parameters():
+                        #     if p.grad is None:
+                        #         continue
+                        #     norms.append((n, p.grad.norm().item()))
+                        #     # xm.master_print(f"{n} => {torch.norm(p.grad)}")
+                        #     # xm.master_print(f"{n} => {p.grad.mean()}")
+                        # xm.master_print("\nNorms:", sorted(norms, key=lambda x: x[1]))
 
                         self.optimizer.step()
                         grad_norm = self.optimizer.grad_norm
