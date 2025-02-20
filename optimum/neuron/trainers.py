@@ -189,7 +189,7 @@ class _TrainerForNeuron:
         super().__init__(*args, **kwargs)
 
         # This is important to avoid changing the way the loss is computed.
-        self.model_accepts_loss_kwargs = False
+        # self.model_accepts_loss_kwargs = False
 
         if not isinstance(self.args, NeuronTrainingArguments):
             raise ValueError(
@@ -420,7 +420,6 @@ class _TrainerForNeuron:
         from neuronx_distributed.pipeline import NxDPPModel
 
         if isinstance(model, NxDPPModel):
-            # TODO: update with self.model_accepts_loss_kwargs etc
             inputs = self._prepare_inputs(inputs)
             loss = model.run_train(**inputs)
         else:
@@ -1106,15 +1105,6 @@ class _TrainerForNeuron:
                             )
 
                         self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
-
-                        # norms = []
-                        # for n, p in model.named_parameters():
-                        #     if p.grad is None:
-                        #         continue
-                        #     norms.append((n, p.grad.norm().item()))
-                        #     # xm.master_print(f"{n} => {torch.norm(p.grad)}")
-                        #     # xm.master_print(f"{n} => {p.grad.mean()}")
-                        # xm.master_print("\nNorms:", sorted(norms, key=lambda x: x[1]))
 
                         self.optimizer.step()
                         grad_norm = self.optimizer.grad_norm
