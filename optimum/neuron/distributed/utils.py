@@ -1998,14 +1998,14 @@ class _ParallelCrossEntropy(torch.autograd.Function):
             loss = (1.0 - smoothing) * loss - smoothing * mean_log_probs
 
         loss = loss * is_not_ignore_index_mask
-        num_non_ignored_tokens = is_not_ignore_index_mask.sum()
 
         if reduction == "sum":
             loss = loss.sum()
         elif reduction == "mean":
+            num_non_ignored_tokens = is_not_ignore_index_mask.sum()
             loss = loss.sum() / num_non_ignored_tokens
 
-        ctx.reduction, ctx.num_non_ignored_tokens = reduction, num_non_ignored_tokens
+        ctx.reduction = reduction
         ctx.label_smoothing, ctx.vocab_size = label_smoothing, vocab_size
         ctx.save_for_backward(exp_logits, target_mask, masked_target_1d, is_not_ignore_index_mask)
 
@@ -2017,7 +2017,7 @@ class _ParallelCrossEntropy(torch.autograd.Function):
         softmax, target_mask, masked_target_1d, is_non_ignore_index_mask = ctx.saved_tensors
         label_smoothing, vocab_size = ctx.label_smoothing, ctx.vocab_size
 
-        reduction, num_non_ignored_tokens = ctx.reduction, ctx.num_non_ignored_tokens
+        reduction = ctx.reduction
 
         # All the inputs have softmax as thier gradient.
         grad_input = softmax
@@ -2037,11 +2037,10 @@ class _ParallelCrossEntropy(torch.autograd.Function):
         else:
             grad_2d[arange_1d, masked_target_1d] -= target_mask.view(-1).float()
 
-        print(grad_input)
         grad_input *= is_non_ignore_index_mask.unsqueeze(dim=-1)
-        print(grad_input)
 
         if reduction == "mean":
+            num_non_ignored_tokens = is_non_ignore_index_mask.sum()
             grad_input *= (grad_output / num_non_ignored_tokens)
         elif reduction == "sum":
             grad_input *= grad_output
