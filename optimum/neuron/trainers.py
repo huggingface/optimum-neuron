@@ -390,15 +390,12 @@ class _TrainerForNeuron:
     ) -> Tuple[Any, Any]:
         optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args, model=model)
         lazy_load = args.mp_plugin.should_parallelize or args.zero_1
-        optimizer_cls = AdamW_FP32OptimParams
         if lazy_load:
             optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)
         return optimizer_cls, optimizer_kwargs
 
     @patch_within_function(("transformers.Trainer.get_optimizer_cls_and_kwargs", get_optimizer_cls_and_kwargs))
     def create_optimizer(self):
-        # self.optimizer = torch.optim.SGD(self.model.parameters(), lr=1e-4)
-        # return
         return super().create_optimizer()
 
     def _prepare_input(self, data: Union[torch.Tensor, Any]) -> Union[torch.Tensor, Any]:
@@ -512,7 +509,7 @@ class _TrainerForNeuron:
             # This is the correct way of doing thing, but there is an bug in the compiler in the Neuron SDK 2.20
             # that ignores the groups attribute of the xm.all_reduce operation.
             # For more information: https://github.com/aws-neuron/aws-neuron-sdk/issues/1107
-            #tr_loss_div = tr_loss / dp_size
+            # tr_loss_div = tr_loss / dp_size
             tr_loss_div = tr_loss / (dp_size * tp_size)
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
 
