@@ -105,7 +105,6 @@ from .utils.cache_utils import (
 from .utils.hub_cache_utils import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.import_utils import is_peft_available
 from .utils.misc import is_main_worker, is_precompilation
-from .utils.optimizer_utils import AdamW_FP32OptimParams
 from .utils.peft_utils import NeuronPeftModel, get_peft_model
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils.training_utils import (

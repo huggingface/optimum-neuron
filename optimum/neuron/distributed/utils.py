@@ -27,10 +27,6 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, 
 
 import torch
 import torch.nn.functional as F
-from neuronx_distributed.parallel_layers import layers
-from neuronx_distributed.parallel_layers.mappings import (
-    reduce_from_tensor_model_parallel_region,
-)
 from transformers import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
@@ -45,8 +41,14 @@ from ..utils.require_utils import requires_neuronx_distributed, requires_peft, r
 if is_neuronx_distributed_available():
     from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
     from neuronx_distributed.parallel_layers import layers
+    from neuronx_distributed.parallel_layers.mappings import reduce_from_tensor_model_parallel_region
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_tensor_model_parallel_group,
+        get_tensor_model_parallel_rank,
+        get_tensor_model_parallel_size,
+    )
+    from neuronx_distributed.parallel_layers.utils import EmbeddingUtility
     from neuronx_distributed.pipeline.trace import HFTracerWrapper, NxDTracer
-    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank, get_tensor_model_parallel_size
 else:
 
     class GQAQKVColumnParallelLinear(torch.nn.Module):
@@ -1765,27 +1767,12 @@ class SavedModelInTemporaryDirectory:
         self.tmpdir.cleanup()
 
 
-from neuronx_distributed.parallel_layers.mappings import (
-    _gather_along_dim,
-    _reduce_scatter_along_dim,
-)
-from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_group
-from torch.distributed import ProcessGroup
 
-
-import torch
-
-from neuronx_distributed.parallel_layers.parallel_state import (
-    get_tensor_model_parallel_group,
-    get_tensor_model_parallel_rank,
-    get_tensor_model_parallel_size,
-)
-from neuronx_distributed.parallel_layers.utils import EmbeddingUtility
 
 class _ParallelCrossEntropy(torch.autograd.Function):
     @staticmethod
     def forward(ctx, vocab_parallel_logits, target, ignore_index=-100, reduction="mean", label_smoothing=0.0):
-        # Maximum value along vocab dimension across all GPUs.
+
         logits_max = torch.max(vocab_parallel_logits, dim=-1)[0]
         torch.distributed.all_reduce(
             logits_max,
@@ -1802,12 +1789,12 @@ class _ParallelCrossEntropy(torch.autograd.Function):
         world_size = get_tensor_model_parallel_size()
         vocab_start_index, vocab_end_index = get_vocab_range(partition_vocab_size, rank, world_size)
 
-        # Create a mask of valid vocab ids (0 means it needs to be masked).
+        # Original implementation:
         # masked_target = target.clone() - vocab_start_index
         # masked_target[target_mask] = 0
-        # new xla friendly
+        # New xla friendly implementation:
         is_not_ignore_index_mask = target != ignore_index
-        target_mask = (target >= vocab_start_index) & (target < vocab_end_index) 
+        target_mask = (target >= vocab_start_index) & (target < vocab_end_index)
         masked_target = target.clone() - vocab_start_index
         masked_target = torch.mul(masked_target, target_mask.long())
 
@@ -1820,24 +1807,27 @@ class _ParallelCrossEntropy(torch.autograd.Function):
         predicted_logits_1d = logits_2d[arange_1d, masked_target_1d]
         predicted_logits_1d = predicted_logits_1d.clone().contiguous()
         predicted_logits = predicted_logits_1d.view_as(target)
-        # original
+
+        # Original implementation:
         # predicted_logits[target_mask] = 0.0
-        # new xla friendly
+        # New xla friendly implementation:
         predicted_logits = torch.mul(predicted_logits, target_mask.float())
-        # predicted_logits = torch.mul(predicted_logits, is_not_ignore_index_mask.float())
-        # All reduce is needed to get the chunks from other GPUs.
+
+        # All reduce is needed to get the chunks from other devices.
         torch.distributed.all_reduce(
             predicted_logits,
             op=torch.distributed.ReduceOp.SUM,
             group=get_tensor_model_parallel_group(),
         )
 
-        # Sum of exponential of logits along vocab dimension across all GPUs.
-        # new xla friendly
+        # Sum of exponential of logits along vocab dimension across all devices.
+        # Original implementation:
         # exp_logits = vocab_parallel_logits
         # torch.exp(vocab_parallel_logits, out=exp_logits)
+        # New xla friendly implementation:
         exp_logits = torch.exp(vocab_parallel_logits)
         sum_exp_logits = exp_logits.sum(dim=-1)
+
         torch.distributed.all_reduce(
             sum_exp_logits,
             op=torch.distributed.ReduceOp.SUM,
@@ -1869,8 +1859,11 @@ class _ParallelCrossEntropy(torch.autograd.Function):
             mean_log_probs = log_probs.mean(dim=-1)
             loss = (1.0 - smoothing) * loss - smoothing * mean_log_probs
 
+        # Zerooing the loss for the ignored tokens.
         loss = loss * is_not_ignore_index_mask
 
+        # Apply the reduction, to respect the torch.nn.functional.cross_entropy_loss API
+        # the reduction happens only on the non-ignored tokens.
         if reduction == "sum":
             loss = loss.sum()
         elif reduction == "mean":
@@ -1893,6 +1886,7 @@ class _ParallelCrossEntropy(torch.autograd.Function):
 
         # All the inputs have softmax as thier gradient.
         grad_input = softmax
+
         # For simplicity, work with the 2D gradient.
         partition_vocab_size = softmax.size()[-1]
         grad_2d = grad_input.view(-1, partition_vocab_size)

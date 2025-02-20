@@ -33,13 +33,13 @@ from .utils import (
     FakeProj,
     OptimumGQAQKVColumnParallelLinear,
     WeightInformation,
-    parallel_cross_entropy,
     embedding_to_parallel_embedding,
     get_linear_weight_info,
     linear_to_parallel_linear,
     mark_parameter_init_status_during_parallelization,
     maybe_load_weights_to_gqa_qkv_column_parallel_linear,
     maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear,
+    parallel_cross_entropy,
 )
 
 
