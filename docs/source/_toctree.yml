@@ -27,28 +27,33 @@
     title: How-To Guides
   - sections:
     - sections:
-      - sections: 
+      - isExpanded: false 
+        sections: 
         - local: model_doc/transformers/albert
           title: ALBERT
         - local: model_doc/transformers/bert
           title: BERT
         title: TEXT MODELS
-      - sections: 
+      - isExpanded: false
+        sections: 
         - local: model_doc/transformers/beit
           title: BEiT
         title: VISION MODELS
-      - sections: 
+      - isExpanded: false 
+        sections: 
         - local: model_doc/transformers/ast
           title: Audio Spectrogram Transformer(AST)
         title: AUDIO MODELS
-      - sections: 
+      - isExpanded: false
+        sections: 
         - local: model_doc/transformers/clip
           title: CLIP
         title: MULTIMODAL MODELS
       title: Transformers Models
     - local: model_doc/sentence_transformers/overview
       title: SENTENCE TRANSFORMERS
-    - sections:
+    - isExpanded: false
+      sections:
       - local: model_doc/diffusers/controlnet
         title: ControlNet
       - local: model_doc/diffusers/controlnet_sdxl
@@ -59,7 +64,8 @@
         title: PixArt-α
       - local: model_doc/diffusers/pixart_sigma
         title: PixArt-Σ
-      - sections: 
+      - isExpanded: false
+        sections: 
         - local: model_doc/diffusers/stable_diffusion
           title: Stable Diffusion
         - local: model_doc/diffusers/stable_diffusion_xl
@@ -67,7 +73,8 @@
         - local: model_doc/diffusers/sdxl_turbo
           title: SDXL Turbo
         title: STABLE DIFFUSION
-      - sections: 
+      - isExpanded: false
+        sections: 
         - local: model_doc/diffusers/lora
           title: LoRA
         - local: model_doc/diffusers/ip_adapter
