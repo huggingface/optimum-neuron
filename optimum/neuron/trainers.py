@@ -499,16 +499,10 @@ class _TrainerForNeuron:
 
             if model_parallel_is_initialized():
                 dp_size = get_data_parallel_size()
-                tp_size = get_tensor_model_parallel_size()
             else:
                 dp_size = xm.xrt_world_size()
-                tp_size = 1
 
-            # This is the correct way of doing thing, but there is an bug in the compiler in the Neuron SDK 2.20
-            # that ignores the groups attribute of the xm.all_reduce operation.
-            # For more information: https://github.com/aws-neuron/aws-neuron-sdk/issues/1107
-            # tr_loss_div = tr_loss / dp_size
-            tr_loss_div = tr_loss / (dp_size * tp_size)
+            tr_loss_div = tr_loss / dp_size
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
 
             if self.control.should_log:
@@ -1021,11 +1015,9 @@ class _TrainerForNeuron:
                         step + 1
                     ) == steps_in_epoch  # Since we perform prefetching, we need to manually set sync_gradients
                     if not do_sync_step:
-                        # self.accelerator.gradient_state._set_sync_gradients(False)
                         self.accelerator.gradient_state.sync_gradients = False
                     else:
                         self.accelerator.gradient_state.sync_gradients = True
-                        # self.accelerator.gradient_state._set_sync_gradients(True)
 
                     if self.args.include_num_input_tokens_seen:
                         main_input_name = getattr(self.model, "main_input_name", "input_ids")
@@ -1089,7 +1081,6 @@ class _TrainerForNeuron:
 
                     if do_sync_step:
                         # Since we perform prefetching, we need to manually set sync_gradients to True
-                        # self.accelerator.gradient_state._set_sync_gradients(True)
                         self.accelerator.gradient_state.sync_gradients = True
                         xm.mark_step()
 

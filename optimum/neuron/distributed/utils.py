@@ -434,39 +434,6 @@ def _peft_tuner_embedding_to_parallel_embedding(
         return parent
     return parent, parallel_linear
 
-
-class ParallelEmbeddingsFixed(layers.ParallelEmbedding):
-    # TODO: remove when updating to neuronx_distributed >= 0.10.0
-    # This is needed because there is an issue with masking the output embedding in neuronx_distributed==0.9.0:
-    # The output is not casted back to self.dtype, which forces the output to be torch.float32.
-    def _forward_shard_across_vocab(self, input_: torch.Tensor) -> Any:
-        if self.tensor_model_parallel_size > 1:
-            input_mask = (input_ >= self.start_index) & (input_ < self.end_index)
-            # Mask the input.
-            masked_input = input_.clone() - self.start_index
-            masked_input = torch.mul(masked_input, input_mask.long())
-        else:
-            masked_input = input_
-
-        # Get the embeddings.
-        output_parallel = F.embedding(
-            masked_input.long(),
-            self.weight,
-            self.padding_idx,
-            self.max_norm,
-            self.norm_type,
-            self.scale_grad_by_freq,
-            self.sparse,
-        )
-        # Mask the output embedding.
-        if self.tensor_model_parallel_size > 1:
-            # This is the problematic line: there is no casting back to self.dtype in the original code.
-            # output_parallel = torch.mul(output_parallel, torch.unsqueeze(input_mask.float(), dim=-1))
-            output_parallel = torch.mul(output_parallel, torch.unsqueeze(input_mask.float(), dim=-1)).to(self.dtype)
-
-        return reduce_from_tensor_model_parallel_region(output_parallel)
-
-@requires_neuronx_distributed
 def embedding_to_parallel_embedding(
     embedding_layer: Union["torch.nn.Embedding", "BaseTunerLayer"],
     lm_head_layer: Optional[Union["torch.nn.Linear", "BaseTunerLayer"]] = None,
@@ -524,7 +491,7 @@ def embedding_to_parallel_embedding(
                 device=device,
             )
 
-    parallel_embedding_layer = ParallelEmbeddingsFixed(
+    parallel_embedding_layer = layers.ParallelEmbedding(
         embedding_layer.num_embeddings,
         embedding_layer.embedding_dim,
         padding_idx=embedding_layer.padding_idx,
