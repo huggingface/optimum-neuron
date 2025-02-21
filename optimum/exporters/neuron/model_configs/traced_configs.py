@@ -63,6 +63,7 @@ from ..model_wrappers import (
     T5EncoderForSeq2SeqLMWrapper,
     T5EncoderWrapper,
     UnetNeuronWrapper,
+    WhisperDecoderWrapper,
 )
 
 
@@ -1087,3 +1088,28 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             aliases[decoder.past_key_values_ca[i]] = len(decoder.past_key_values_sa) + i + num_outputs_from_trace
 
         return aliases
+
+
+@register_in_tasks_manager("whisper-encoder", *["automatic-speech-recognition"])
+class WhisperEncoderNeuronConfig(AudioNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    MODEL_TYPE = "whisper-encoder"
+    NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
+        encoder_num_layers="encoder_layers",
+        decoder_num_layers="decoder_layers",
+        feature_size="num_mel_bins",
+        allow_new=True,
+    )
+
+
+@register_in_tasks_manager("whisper-decoder", *["automatic-speech-recognition"])
+class WhisperDecoderNeuronConfig(AudioNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    MODEL_TYPE = "whisper-decoder"
+    CUSTOM_MODEL_WRAPPER = WhisperDecoderWrapper
+    NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
+        encoder_num_layers="encoder_layers",
+        decoder_num_layers="decoder_layers",
+        feature_size="num_mel_bins",
+        allow_new=True,
+    )
