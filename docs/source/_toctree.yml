@@ -27,6 +27,26 @@
     title: How-To Guides
   - sections:
     - sections:
+      - local: training_tutorials/notebooks
+        title: Notebooks
+      - local: training_tutorials/fine_tune_bert
+        title: Fine-tune BERT for Text Classification on AWS Trainium
+      - local: training_tutorials/sft_lora_finetune_llm
+        title: Fine-tune Llama 3 8B on with LoRA and the SFTTrainer
+      title: Training Tutorials
+    - sections:
+      - local: inference_tutorials/notebooks
+        title: Notebooks
+      - local: inference_tutorials/llama2-13b-chatbot
+        title: Create your own chatbot with llama-2-13B on AWS Inferentia
+      - local: inference_tutorials/sentence_transformers
+        title: Sentence Transformers on AWS Inferentia
+      - local: inference_tutorials/stable_diffusion
+        title: Generate images with Stable Diffusion models on AWS Inferentia
+      title: Inference Tutorials
+    title: Tutorials
+  - sections:
+    - sections:
       - isExpanded: false 
         sections: 
         - local: model_doc/transformers/albert
@@ -50,8 +70,10 @@
           title: CLIP
         title: MULTIMODAL MODELS
       title: Transformers Models
-    - local: model_doc/sentence_transformers/overview
-      title: SENTENCE TRANSFORMERS
+    - isExpanded: false
+      sections:
+      - local: model_doc/sentence_transformers/overview
+        title: SENTENCE TRANSFORMERS
     - isExpanded: false
       sections:
       - local: model_doc/diffusers/controlnet
@@ -82,26 +104,6 @@
         title: SPECIFIC PIPELINES and ADAPTERS
       title: DIFFUSERS PIPELINES
     title: Models and Pipelines
-  - sections:
-    - sections:
-      - local: training_tutorials/notebooks
-        title: Notebooks
-      - local: training_tutorials/fine_tune_bert
-        title: Fine-tune BERT for Text Classification on AWS Trainium
-      - local: training_tutorials/sft_lora_finetune_llm
-        title: Fine-tune Llama 3 8B on with LoRA and the SFTTrainer
-      title: Training Tutorials
-    - sections:
-      - local: inference_tutorials/notebooks
-        title: Notebooks
-      - local: inference_tutorials/llama2-13b-chatbot
-        title: Create your own chatbot with llama-2-13B on AWS Inferentia
-      - local: inference_tutorials/sentence_transformers
-        title: Sentence Transformers on AWS Inferentia
-      - local: inference_tutorials/stable_diffusion
-        title: Generate images with Stable Diffusion models on AWS Inferentia
-      title: Inference Tutorials
-    title: Tutorials
   - sections:
     - local: benchmarks/inferentia-mistral-small
       title: Mistral Small on AWS Inferentia2
