@@ -46,7 +46,8 @@
       title: Inference Tutorials
     title: Tutorials
   - sections:
-    - sections:
+    - isExpanded: false
+      sections:
       - isExpanded: false 
         sections: 
         - local: model_doc/transformers/albert
@@ -73,7 +74,8 @@
     - isExpanded: false
       sections:
       - local: model_doc/sentence_transformers/overview
-        title: SENTENCE TRANSFORMERS
+        title: Overview
+      title: SENTENCE TRANSFORMERS
     - isExpanded: false
       sections:
       - local: model_doc/diffusers/controlnet
