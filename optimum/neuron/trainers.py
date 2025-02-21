@@ -188,9 +188,6 @@ class _TrainerForNeuron:
 
         super().__init__(*args, **kwargs)
 
-        # This is important to avoid changing the way the loss is computed.
-        # self.model_accepts_loss_kwargs = False
-
         if not isinstance(self.args, NeuronTrainingArguments):
             raise ValueError(
                 f"The NeuronTrainer only accept NeuronTrainingArguments, but {type(self.args)} was provided."
