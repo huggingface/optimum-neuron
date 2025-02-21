@@ -32,6 +32,7 @@ from ..exporters.tasks import TasksManager
 from .modeling_base import NeuronModel
 from .utils import (
     NEURON_FILE_NAME,
+    InputShapesArguments,
     check_if_weights_replacable,
     is_neuron_available,
     replace_weights,
@@ -463,13 +464,15 @@ class NeuronTracedModel(NeuronModel):
             library_name=cls.library_name,
         )
 
+        compile_shapes = InputShapesArguments(**compile_shapes)
         return neuron_config_constructor(
             config,
             dynamic_batch_size=neuron_config.get("dynamic_batch_size", False),
             compiler_type=compiler_type,
             compiler_version=compiler_version,
             tensor_parallel_size=tensor_parallel_size,
-            **compile_shapes,
+            input_shapes=compile_shapes,
+            output_hidden_states=neuron_config.get("output_hidden_states", False),
         )
 
     @classmethod

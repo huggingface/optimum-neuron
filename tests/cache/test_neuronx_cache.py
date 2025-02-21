@@ -32,7 +32,7 @@ from optimum.neuron import (
     NeuronStableDiffusionPipeline,
     NeuronStableDiffusionXLPipeline,
 )
-from optimum.neuron.utils import get_hub_cached_entries, synchronize_hub_cache
+from optimum.neuron.utils import get_hub_cached_entries, get_hub_cached_models, synchronize_hub_cache
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -96,7 +96,7 @@ def export_stable_diffusion_model(model_id):
     batch_size = 1
     height = 64
     width = 64
-    num_images_per_prompt = 4
+    num_images_per_prompt = 1
     return NeuronStableDiffusionPipeline.from_pretrained(
         model_id,
         export=True,
@@ -113,7 +113,7 @@ def export_stable_diffusion_xl_model(model_id):
     batch_size = 1
     height = 64
     width = 64
-    num_images_per_prompt = 4
+    num_images_per_prompt = 1
     return NeuronStableDiffusionXLPipeline.from_pretrained(
         model_id,
         export=True,
@@ -143,7 +143,7 @@ def check_encoder_inference(model, tokenizer):
 
 def check_stable_diffusion_inference(model):
     prompts = ["sailing ship in storm by Leonardo da Vinci"]
-    image = model(prompts, num_images_per_prompt=4).images[0]
+    image = model(prompts, num_images_per_prompt=1).images[0]
     assert isinstance(image, PIL.Image.Image)
 
 
@@ -198,6 +198,9 @@ def test_decoder_cache(cache_repos):
     model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
     assert len(model_entries) == 1
     assert model_entries[0] == model.config.neuron
+    # Also verify that the model appears in the list of cached models
+    cached_models = get_hub_cached_models("inference")
+    assert ("gpt2", "hf-internal-testing", "tiny-random-gpt2") in cached_models
     # Clear the local cache
     for root, dirs, files in os.walk(cache_path):
         for f in files:
@@ -311,7 +314,7 @@ def test_stable_diffusion_xl_cache(cache_repos):
     [
         ("CUSTOM_CACHE_REPO", "foo/bar", "The foo/bar repository does not exist"),
         ("HF_ENDPOINT", "https://foo.bar.baz", "Name or service not known"),
-        ("HF_TOKEN", "foo", "repository does not exist or you don't have access to it."),
+        ("HF_TOKEN", "foo", "401 Client Error: Unauthorized"),
     ],
     ids=["invalid_repo", "invalid_endpoint", "invalid_token"],
 )

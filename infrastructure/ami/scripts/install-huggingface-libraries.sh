@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Activate the neuron virtual environment
-source /opt/aws_neuronx_venv_pytorch/bin/activate
+source /opt/aws_neuronx_venv_pytorch_2_5/bin/activate
 
 echo "Step: install-hugging-face-libraries"
 
@@ -9,7 +9,7 @@ echo "TRANSFORMERS_VERSION: $TRANSFORMERS_VERSION"
 echo "OPTIMUM_VERSION: $OPTIMUM_VERSION"
 
 pip install --upgrade --no-cache-dir \
-    "evaluate==0.4.1" \
+    "evaluate==0.4.3" \
     "requests==2.31.0" \
     "notebook==7.0.6" \
     "markupsafe==2.1.1" \

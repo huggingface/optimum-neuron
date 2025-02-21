@@ -193,15 +193,14 @@ def validate_model_outputs(
             ref_outputs = reference_model(**ref_inputs)
             neuron_inputs = tuple(config.flatten_inputs(inputs).values())
         elif "AutoencoderKL" in getattr(config._config, "_class_name", "") or getattr(
-            reference_model.config, "is_encoder_decoder", False
+            config._config, "is_encoder_decoder", False
         ):
             # VAE components for stable diffusion or Encoder-Decoder models
             ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
             neuron_inputs = tuple(inputs.values())
-        elif any(
-            pattern in getattr(config._config, "_class_name", "").lower() for pattern in ["controlnet", "transformer"]
-        ):
+        elif config.CUSTOM_MODEL_WRAPPER is not None:
+            ref_inputs = config.flatten_inputs(inputs)
             reference_model = config.patch_model_for_export(reference_model, ref_inputs)
             neuron_inputs = ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
@@ -298,7 +297,6 @@ def export_models(
         str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronDefaultConfig"]
     ],
     output_dir: Path,
-    torch_dtype: Optional[Union[str, torch.dtype]] = None,
     disable_neuron_cache: Optional[bool] = False,
     compiler_workdir: Optional[Path] = None,
     inline_weights_to_neff: bool = True,
@@ -315,8 +313,6 @@ def export_models(
             A dictionnary containing the models to export and their corresponding neuron configs.
         output_dir (`Path`):
             Output directory to store the exported Neuron models.
-        torch_dtype (`Optional[Union[str, torch.dtype]]`, defaults to `None`):
-            Override the default `torch.dtype` and load the model under this dtype. If `auto` is passed, the dtype will be automatically derived from the model's weights.
         disable_neuron_cache (`Optional[bool]`, defaults to `False`):
             Whether to disable automatic caching of AOT compiled models (not applicable for JIT compilation).
         compiler_workdir (`Optional[Path]`, defaults to `None`):

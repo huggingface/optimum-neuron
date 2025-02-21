@@ -16,7 +16,7 @@ INSTALL_REQUIRES = [
     "transformers ~= 4.48.1",
     "accelerate == 0.29.2",
     "optimum ~= 1.23.3",
-    "huggingface_hub >= 0.28.0",
+    "huggingface_hub >= 0.29.0",
     "numpy>=1.22.2, <=1.25.2",
     "protobuf>=3.20.3, <4",
 ]
@@ -29,7 +29,7 @@ TESTS_REQUIRE = [
     "sentencepiece",
     "datasets",
     "sacremoses",
-    "diffusers>=0.28.0, <=0.30.3",
+    "diffusers>=0.29.0, <=0.30.3",
     "safetensors",
     "sentence-transformers >= 2.2.0",
     "peft>=0.14.0",
@@ -55,6 +55,7 @@ TRAINING_REQUIRES = [
     "trl == 0.11.4",
     "peft == 0.14.0",
     "neuronx-distributed == 0.9.0",
+    "evaluate == 0.4.3",
 ]
 
 EXTRAS_REQUIRE = {
@@ -72,13 +73,13 @@ EXTRAS_REQUIRE = {
     ],
     "neuronx": [
         "wheel",
-        "neuronx-cc==2.15.143.0",
-        "torch-neuronx==2.1.2.2.3.2",
-        "transformers-neuronx==0.12.313",
-        "torch==2.1.2.*",
-        "torchvision==0.16.*",
-        "neuronx_distributed==0.9.0",
-        "libneuronxla==2.0.5347.0",
+        "neuronx-cc==2.16.372.0",
+        "torch-neuronx==2.5.1.2.4.0",
+        "transformers-neuronx==0.13.322",
+        "torch==2.5.1.*",
+        "torchvision==0.20.*",
+        "neuronx_distributed==0.10.1",
+        "libneuronxla==2.1.681.0",
     ],
     "diffusers": ["diffusers>=0.28.0, <=0.30.3", "peft>=0.14.0"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],

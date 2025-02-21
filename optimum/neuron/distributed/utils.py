@@ -17,6 +17,7 @@
 import contextlib
 import copy
 import functools
+import inspect
 import itertools
 import json
 import os
@@ -1380,9 +1381,16 @@ def duplicate_module_with_random_weights_on_cpu(module: torch.nn.Module) -> torc
 
     for name in dir(module):
         attr = getattr(module, name)
+        if inspect.ismethod(attr):
+            continue
         if name in (children_names | buffer_names | parameter_names) or name.startswith("__"):
             continue
-        setattr(clone, name, copy.deepcopy(attr))
+        try:
+            cloned_attr = copy.deepcopy(attr)
+        except Exception:
+            # Attribute is not pickable or cannot be copied
+            continue
+        setattr(clone, name, cloned_attr)
 
     for name, mod in module.named_children():
         clone.add_module(name, duplicate_module_with_random_weights_on_cpu(mod))

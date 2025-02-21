@@ -50,8 +50,8 @@ trainer = Trainer(
 )
 ```
 
-All Trainium instances come at least with 2 Neuron Cores. To leverage those we need to launch the training whith `torchrun`.
-Below you see and example of how to launch a training script on a `trn1.2xlarge` instance using a `bert-base-uncased` model.
+All Trainium instances come at least with 2 Neuron Cores. To leverage those we need to launch the training with `torchrun`.
+Below you see an example of how to launch a training script on a `trn1.2xlarge` instance using a `bert-base-uncased` model.
 
 ```bash
 torchrun --nproc_per_node=2 huggingface-neuron-samples/text-classification/run_glue.py \

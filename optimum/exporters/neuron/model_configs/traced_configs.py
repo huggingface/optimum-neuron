@@ -41,6 +41,7 @@ from ....neuron.utils import (
     ASTDummyAudioInputGenerator,
     DummyBeamValuesGenerator,
     DummyControNetInputGenerator,
+    DummyIPAdapterInputGenerator,
     DummyMaskedPosGenerator,
     is_neuronx_distributed_available,
 )
@@ -52,6 +53,7 @@ from ..config import (
     VisionNeuronConfig,
 )
 from ..model_wrappers import (
+    CLIPVisionModelNeuronWrapper,
     ControlNetNeuronWrapper,
     NoCacheModelWrapper,
     PixartTransformerNeuronWrapper,
@@ -146,9 +148,6 @@ class PhiNeuronConfig(ElectraNeuronConfig):
     def inputs(self) -> List[str]:
         return ["input_ids", "attention_mask"]
 
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
-
 
 @register_in_tasks_manager("roformer", *COMMON_TEXT_TASKS)
 class RoFormerNeuronConfig(ElectraNeuronConfig):
@@ -235,13 +234,27 @@ class SentenceTransformersTransformerNeuronConfig(TextEncoderNeuronConfig):
     def outputs(self) -> List[str]:
         return ["token_embeddings", "sentence_embedding"]
 
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
-
 
 class CLIPNormalizedConfig(NormalizedTextAndVisionConfig):
     TEXT_CONFIG = "text_config"
     VISION_CONFIG = "vision_config"
+
+
+@register_in_tasks_manager("clip-vision-model", *["feature-extraction"], library_name="diffusers")
+class CLIPVisionModelNeuronConfig(VisionNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedVisionConfig
+    CUSTOM_MODEL_WRAPPER = CLIPVisionModelNeuronWrapper
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["pixel_values"]
+
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = ["image_embeds", "last_hidden_state"]
+        if self.output_hidden_states:
+            common_outputs.append("hidden_states")
+        return common_outputs
 
 
 @register_in_tasks_manager("clip", *["feature-extraction", "zero-shot-image-classification"])
@@ -310,9 +323,6 @@ class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
     @property
     def outputs(self) -> List[str]:
         return ["text_embeds", "image_embeds"]
-
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
     def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
         for name, axis_dim in self._axes.items():
@@ -598,6 +608,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
         DummyTimestepInputGenerator,
         DummySeq2SeqDecoderTextInputGenerator,
         DummyControNetInputGenerator,
+        DummyIPAdapterInputGenerator,
     )
 
     @property
@@ -615,6 +626,13 @@ class UNetNeuronConfig(VisionNeuronConfig):
         if self.with_controlnet:
             # outputs of controlnet
             common_inputs += ["down_block_additional_residuals", "mid_block_additional_residual"]
+
+        if self.with_ip_adapter:
+            # add output of image encoder
+            if self.image_encoder_output_hidden_states:
+                common_inputs += ["image_enc_hidden_states"]
+            else:
+                common_inputs += ["image_embeds"]
 
         return common_inputs
 
@@ -648,9 +666,6 @@ class UNetNeuronConfig(VisionNeuronConfig):
         else:
             return dummy_inputs
 
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
-
     @property
     def is_sdxl(self) -> bool:
         return self._is_sdxl
@@ -666,6 +681,17 @@ class UNetNeuronConfig(VisionNeuronConfig):
     @with_controlnet.setter
     def with_controlnet(self, with_controlnet: bool):
         self._with_controlnet = with_controlnet
+
+    @property
+    def with_ip_adapter(self) -> bool:
+        return self._with_ip_adapter
+
+    @with_ip_adapter.setter
+    def with_ip_adapter(self, with_ip_adapter: bool):
+        self._with_ip_adapter = with_ip_adapter
+        if with_ip_adapter:
+            self.mandatory_axes += ("image_encoder_shapes",)
+            setattr(self, "image_encoder_shapes", self.input_shapes["image_encoder_shapes"])
 
 
 @register_in_tasks_manager("pixart-transformer-2d", *["semantic-segmentation"], library_name="diffusers")
@@ -706,9 +732,6 @@ class PixartTransformerNeuronConfig(VisionNeuronConfig):
     @property
     def outputs(self) -> List[str]:
         return ["out_hidden_states"]
-
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")
@@ -754,9 +777,6 @@ class ControlNetNeuronConfig(VisionNeuronConfig):
     @property
     def outputs(self) -> List[str]:
         return ["down_block_res_samples", "mid_block_res_sample"]
-
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
 @register_in_tasks_manager("vae-encoder", *["semantic-segmentation"], library_name="diffusers")
