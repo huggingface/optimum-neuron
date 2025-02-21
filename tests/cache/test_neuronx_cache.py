@@ -314,7 +314,7 @@ def test_stable_diffusion_xl_cache(cache_repos):
     [
         ("CUSTOM_CACHE_REPO", "foo/bar", "The foo/bar repository does not exist"),
         ("HF_ENDPOINT", "https://foo.bar.baz", "Name or service not known"),
-        ("HF_TOKEN", "foo", "repository does not exist or you don't have access to it."),
+        ("HF_TOKEN", "foo", "401 Client Error: Unauthorized"),
     ],
     ids=["invalid_repo", "invalid_endpoint", "invalid_token"],
 )
