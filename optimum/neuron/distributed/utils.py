@@ -24,10 +24,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Set, Tuple, Type, Union
+from typing import TYPE_CHECKING, Callable, Dict, List, Literal, Optional, Set, Tuple, Type, Union
 
 import torch
-import torch.nn.functional as F
 from transformers import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
@@ -42,7 +41,6 @@ from ..utils.require_utils import requires_neuronx_distributed, requires_peft, r
 if is_neuronx_distributed_available():
     from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
     from neuronx_distributed.parallel_layers import layers
-    from neuronx_distributed.parallel_layers.mappings import reduce_from_tensor_model_parallel_region
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_tensor_model_parallel_group,
         get_tensor_model_parallel_rank,
@@ -434,6 +432,7 @@ def _peft_tuner_embedding_to_parallel_embedding(
         return parent
     return parent, parallel_linear
 
+
 def embedding_to_parallel_embedding(
     embedding_layer: Union["torch.nn.Embedding", "BaseTunerLayer"],
     lm_head_layer: Optional[Union["torch.nn.Linear", "BaseTunerLayer"]] = None,
@@ -664,7 +663,6 @@ def create_query_or_output_projection_local_weight_from_regular_weight(
     """
     assert query_or_output_proj in ["query", "output"]
     assert not isinstance(weight_data, torch.nn.Parameter)
-
 
     tp_size = get_tensor_model_parallel_size()
     tp_rank = get_tensor_model_parallel_rank()
@@ -1741,10 +1739,10 @@ class SavedModelInTemporaryDirectory:
     def __exit__(self, *exc):
         self.tmpdir.cleanup()
 
+
 class _ParallelCrossEntropy(torch.autograd.Function):
     @staticmethod
     def forward(ctx, vocab_parallel_logits, target, ignore_index=-100, reduction="mean", label_smoothing=0.0):
-
         logits_max = torch.max(vocab_parallel_logits, dim=-1)[0]
         torch.distributed.all_reduce(
             logits_max,
@@ -1879,7 +1877,7 @@ class _ParallelCrossEntropy(torch.autograd.Function):
 
         if reduction == "mean":
             num_non_ignored_tokens = is_non_ignore_index_mask.sum()
-            grad_input *= (grad_output / num_non_ignored_tokens)
+            grad_input *= grad_output / num_non_ignored_tokens
         elif reduction == "sum":
             grad_input *= grad_output
         else:
@@ -1887,13 +1885,14 @@ class _ParallelCrossEntropy(torch.autograd.Function):
 
         return grad_input, None, None, None, None
 
+
 # Just for testing purposes, setting that to True will feed a copy of the  input to `parallel_cross_entropy` which
 # changes inputs inplace. This way the original input is not transformed and can be used in tests for comparison.
 _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT: bool = False
+
 
 def parallel_cross_entropy(vocab_parallel_logits, target, ignore_index=-100, reduction="mean", label_smoothing=0.0):
     """Helper function for the cross entropy."""
     if _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT:
         vocab_parallel_logits = vocab_parallel_logits.clone()
     return _ParallelCrossEntropy.apply(vocab_parallel_logits, target, ignore_index, reduction, label_smoothing)
-

@@ -493,7 +493,6 @@ class _TrainerForNeuron:
             from neuronx_distributed.parallel_layers.parallel_state import (
                 get_data_parallel_group,
                 get_data_parallel_size,
-                get_tensor_model_parallel_size,
                 model_parallel_is_initialized,
             )
 
