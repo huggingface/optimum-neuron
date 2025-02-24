@@ -16,31 +16,11 @@ $ cd optimum-neuron/benchmark/text-generation-inference/
 
 Edit the `.env` file to select the model to use for the benchmark and its configuration.
 
-The following instructions assume that you are testing a locally built image, so docker would have stored image neuronx-tgi:latest.
-
-You can confirm this by running:
+Download the [text-generation-inference image](https://github.com/huggingface/text-generation-inference/pkgs/container/text-generation-inference) you want to use. Here we will simply use the latest one:
 
 ```shell
-$ docker image ls
+$ docker pull ghcr.io/huggingface/text-generation-inference:latest-neuron
 ```
-
-If you have not built it locally, you can download it and retag it using the following commands
-
-```shell
-$ docker pull ghcr.io/huggingface/neuronx-tgi:latest
-$ docker tag ghcr.io/huggingface/neuronx-tgi:latest neuronx-tgi:latest
-```
-You should then see the single IMAGE ID with two different sets of tags:
-
-```shell
-$ docker image ls
-REPOSITORY                        TAG       IMAGE ID       CREATED        SIZE
-neuronx-tgi                       latest    f5ba57f8517b   12 hours ago   11.3GB
-ghcr.io/huggingface/neuronx-tgi   latest    f5ba57f8517b   12 hours ago   11.3GB
-```
-
-
-Alternatively, you can edit the appropriate docker-compose.yaml to supply the fully path by changing ```neuronx-tgi:latest``` to ```ghcr.io/huggingface/neuronx-tgi:latest```
 
 ## Start the servers
 
@@ -94,10 +74,10 @@ See the [llama3-70b-trn1.32xlarge](llama3-70b-trn1.32xlarge) as an example.
 
 It is best to compile the model with the software in the container you will be using to ensure all library versions match.
 
-As an example, you can compile with the following command.  
+As an example, you can compile with the following command.
 
-**If you make changes, make sure your batch size, sequence length, and num_cores for compilation match the MAX_BATCH_SIZE, and MAX_TOTAL_TOKENS settings in the .env file and the HF_NUM_CORES setting in the docker-compose file.  
-MAX_INPUT_LENGTH needs to be less than sequence_length/MAX_TOTAL_TOKENS.  The directory at the end of the compile command needs to match the MODEL_ID in the .env file.**  
+**If you make changes, make sure your batch size, sequence length, and num_cores for compilation match the MAX_BATCH_SIZE, and MAX_TOTAL_TOKENS settings in the .env file and the HF_NUM_CORES setting in the docker-compose file.
+MAX_INPUT_LENGTH needs to be less than sequence_length/MAX_TOTAL_TOKENS.  The directory at the end of the compile command needs to match the MODEL_ID in the .env file.**
 
 ```
 docker run -p 8080:80 \
@@ -119,14 +99,14 @@ docker run -p 8080:80 \
 --device=/dev/neuron14 \
 --device=/dev/neuron15 \
 -ti \
---entrypoint "optimum-cli" neuronx-tgi:latest \
+--entrypoint "optimum-cli" ghcr.io/huggingface/text-generation-inference:latest-neuron \
 export neuron --model NousResearch/Meta-Llama-3-70B-Instruct \
 --sequence_length 4096 \
 --batch_size 4 \
 --num_cores 32 \
 /data/exportedmodel/
 ```
-See the [Hugging Face documentation](https://huggingface.co/docs/optimum-neuron/en/guides/export_model#exporting-a-model-to-neuron-using-the-cli) for more information on compilation.  
+See the [Hugging Face documentation](https://huggingface.co/docs/optimum-neuron/en/guides/export_model#exporting-a-model-to-neuron-using-the-cli) for more information on compilation.
 
 Note that the .env file has a path for MODEL_ID to load the model from the /data directory.
 
