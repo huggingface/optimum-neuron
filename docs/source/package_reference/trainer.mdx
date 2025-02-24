@@ -45,6 +45,10 @@ class CustomNeuronTrainer(NeuronTrainer):
 
 Another way to customize the training loop behavior for the PyTorch [`NeuronTrainer`](https://huggingface.co/docs/optimum/neuron/package_reference/trainer#optimum.neuron.NeuronTrainer) is to use [callbacks](https://huggingface.co/docs/transformers/main_classes/callback) that can inspect the training loop state (for progress reporting, logging on TensorBoard or other ML platforms...) and take decisions (like early stopping).
 
+## NeuronTrainingArguments
+
+[[autodoc]] training_args.NeuronTrainingArguments
+
 ## NeuronTrainer
 
 [[autodoc]] trainers.NeuronTrainer
