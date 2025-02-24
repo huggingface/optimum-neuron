@@ -20,28 +20,31 @@ limitations under the License.
 
 ## Training
 
-There are two main classes one needs to know:
+There are three main classes one needs to know:
 
 - NeuronArgumentParser: inherits the original [HfArgumentParser](https://huggingface.co/docs/transformers/main/en/internal/trainer_utils#transformers.HfArgumentParser) in Transformers with additional checks on the argument values to make sure that they will work well with AWS Trainium instances.
+- [NeuronTrainingArguments](https://huggingface.co/docs/optimum/neuron/package_reference/trainer#optimum.neuron.NeuronTrainingArguments): extends the original TrainingArguments with Trainium-specific parameters to optimize performance on AWS Trainium hardware.
 - [NeuronTrainer](https://huggingface.co/docs/optimum/neuron/package_reference/trainer): the trainer class that takes care of compiling and distributing the model to run on Trainium Chips, and performing training and evaluation.
 
-The [NeuronTrainer](https://huggingface.co/docs/optimum/neuron/package_reference/trainer) is very similar to the [🤗 Transformers Trainer](https://huggingface.co/docs/transformers/main_classes/trainer), and adapting a script using the Trainer to make it work with Trainium will mostly consist in simply swapping the `Trainer` class for the `NeuronTrainer` one.
+The [NeuronTrainer](https://huggingface.co/docs/optimum/neuron/package_reference/trainer) is very similar to the [🤗 Transformers Trainer](https://huggingface.co/docs/transformers/main_classes/trainer), and adapting a script using the Trainer to make it work with Trainium will mostly consist in simply swapping the `Trainer` class for the `NeuronTrainer` one, and using the appropriate training arguments class.
 That's how most of the [example scripts](https://github.com/huggingface/optimum-neuron/tree/main/examples) were adapted from their [original counterparts](https://github.com/huggingface/transformers/tree/main/examples/pytorch).
 
 modifications:
 
 ```diff
-from transformers import TrainingArguments
--from transformers import Trainer
+-from transformers import TrainingArguments
++from optimum.neuron import NeuronTrainingArguments
+from transformers import Trainer
 +from optimum.neuron import NeuronTrainer as Trainer
-training_args = TrainingArguments(
+-training_args = TrainingArguments(
++training_args = NeuronTrainingArguments(
   # training arguments...
 )
 # A lot of code here
 # Initialize our Trainer
 trainer = Trainer(
     model=model,
-    args=training_args,  # Original training arguments.
+    args=training_args,  # Training arguments from NeuronTrainingArguments.
     train_dataset=train_dataset if training_args.do_train else None,
     eval_dataset=eval_dataset if training_args.do_eval else None,
     compute_metrics=compute_metrics,
