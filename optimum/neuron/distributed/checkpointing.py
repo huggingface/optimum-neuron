@@ -158,9 +158,17 @@ def consolidate_tensor_parallel_checkpoints(
                     if weight_name == "weight_q":
                         s = slice(0, gqa_qkv_metadata["q_output_size_per_partition"])
                     elif weight_name == "weight_k":
-                        s = slice(gqa_qkv_metadata["q_output_size_per_partition"], gqa_qkv_metadata["q_output_size_per_partition"] + gqa_qkv_metadata["kv_output_size_per_partition"])
+                        s = slice(
+                            gqa_qkv_metadata["q_output_size_per_partition"],
+                            gqa_qkv_metadata["q_output_size_per_partition"]
+                            + gqa_qkv_metadata["kv_output_size_per_partition"],
+                        )
                     elif weight_name == "weight_v":
-                        s = slice(gqa_qkv_metadata["q_output_size_per_partition"] + gqa_qkv_metadata["kv_output_size_per_partition"], None)
+                        s = slice(
+                            gqa_qkv_metadata["q_output_size_per_partition"]
+                            + gqa_qkv_metadata["kv_output_size_per_partition"],
+                            None,
+                        )
                     else:
                         s = slice(None, None)
                 else:

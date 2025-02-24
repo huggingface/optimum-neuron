@@ -680,7 +680,7 @@ class Parallelizer(ABC):
             "kv_size_multiplier": None,
             "fuse_qkv": None,
             "q_output_size_per_partition": None,
-            "kv_output_size_per_partition": None ,
+            "kv_output_size_per_partition": None,
         }
         for mod in model.modules():
             if isinstance(mod, OptimumGQAQKVColumnParallelLinear):
