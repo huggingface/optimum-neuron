@@ -488,7 +488,7 @@ class _TrainerForNeuron:
         # This communication is not costly.
         if self.state.global_step > self._globalstep_last_logged:
             from neuronx_distributed.parallel_layers.parallel_state import (
-                get_data_parallel_group,
+                get_data_parallel_replica_groups,
                 get_data_parallel_size,
                 model_parallel_is_initialized,
             )
@@ -499,7 +499,7 @@ class _TrainerForNeuron:
                 dp_size = xm.xrt_world_size()
 
             tr_loss_div = tr_loss / dp_size
-            reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
+            reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_replica_groups())
 
             if self.control.should_log:
                 with torch.no_grad():
@@ -1119,13 +1119,11 @@ class _TrainerForNeuron:
                         # PyTorch/XLA relies on the data loader to insert the mark_step for
                         # each step. Since we are breaking the loop early, we need to manually
                         # insert the mark_step here.
-                        if is_torch_xla_available():
-                            xm.mark_step()
+                        xm.mark_step()
                         break
                 # We also need to break out of the nested loop
                 if self.control.should_epoch_stop or self.control.should_training_stop:
-                    if is_torch_xla_available():
-                        xm.mark_step()
+                    xm.mark_step()
                     break
             if step < 0:
                 if is_main_worker():
@@ -1137,6 +1135,7 @@ class _TrainerForNeuron:
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
+            xm.mark_step()
             self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
 
             if DebugOption.TPU_METRICS_DEBUG in self.args.debug:

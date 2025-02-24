@@ -158,7 +158,7 @@ class TestPeft(DistributedTest):
                 print(f"Checking that the parameter {name} matches")
                 torch.testing.assert_close(tensor, state_dict[name])
 
-    def test_peft_training(self, parallel_sizes, tmpdir):
+    def test_training(self, parallel_sizes, tmpdir):
         _, tp_size, pp_size = parallel_sizes
 
         per_device_train_batch_size = 1
