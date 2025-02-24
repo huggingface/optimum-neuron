@@ -34,7 +34,7 @@ modifications:
 ```diff
 -from transformers import TrainingArguments
 +from optimum.neuron import NeuronTrainingArguments
-from transformers import Trainer
+-from transformers import Trainer
 +from optimum.neuron import NeuronTrainer as Trainer
 -training_args = TrainingArguments(
 +training_args = NeuronTrainingArguments(
