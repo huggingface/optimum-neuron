@@ -421,9 +421,12 @@ class TestNeuronSFTTrainer(DistributedTest):
             response = f"### Answer\n{sample['response']}"
             # join all the parts together
             prompt = "\n\n".join([i for i in [instruction, context, response] if i is not None])
+            return {"text": prompt}
             if packing:
                 return prompt
             return [prompt]
+
+        dataset = dataset.map(format_dolly)
 
         tokenizer, model = get_tokenizer_and_tiny_llama_model()
         tokenizer.pad_token = tokenizer.eos_token
@@ -443,6 +446,7 @@ class TestNeuronSFTTrainer(DistributedTest):
             max_seq_length=512,
             packing=packing,
             dataset_num_proc=1,
+            dataset_text_field="text",
             **args,
         )
 
@@ -451,7 +455,7 @@ class TestNeuronSFTTrainer(DistributedTest):
             model=model,
             tokenizer=tokenizer,
             train_dataset=dataset,
-            formatting_func=format_dolly,
+            # formatting_func=format_dolly,
             args=sft_config,
         )
 

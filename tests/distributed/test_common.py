@@ -227,7 +227,12 @@ class TestCommonDistributed(DistributedTest):
                     xm.mark_step()
 
                     if max_grad_norm is not None:
-                        accelerator.clip_grad_norm_(model.local_parameters(), max_norm=max_grad_norm, norm_type=2)
+                        accelerator.clip_grad_norm_(
+                            model.local_parameters(),
+                            max_norm=max_grad_norm,
+                            norm_type=2,
+                            postpone_clipping_to_optimizer_step=True,
+                        )
 
                     # Checking that at least some of the parameters have a gradient.
                     grads_on_cpu = move_grads_to_cpu(model.local_parameters())
@@ -259,7 +264,12 @@ class TestCommonDistributed(DistributedTest):
                     loss.backward()
 
                     if max_grad_norm is not None:
-                        accelerator.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm, norm_type=2)
+                        accelerator.clip_grad_norm_(
+                            model.parameters(),
+                            max_norm=max_grad_norm,
+                            norm_type=2,
+                            postpone_clipping_to_optimizer_step=True,
+                        )
 
                     # Checking that at least some of the parameters have a gradient.
                     grads_on_cpu = move_grads_to_cpu(model.parameters())
