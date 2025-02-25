@@ -27,7 +27,7 @@
     title: Inference Tutorials
   - sections:
     - local: guides/setup_aws_instance
-      title: Set up AWS Trainium instance
+      title: Get Started on Amazon EC2
     - local: guides/sagemaker
       title: Training and Deployment using Amazon Sagemaker
     - local: guides/cache_system
