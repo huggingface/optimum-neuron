@@ -36,7 +36,7 @@ Before creating the EC2 instance, make sure you are in a supported region for th
 
 ### Find a supported region
 
-Here is the list of regions that support at least one type of trainium and inferencia instance, as of February 2025:
+Here is the list of regions that support at least one type of Trainium or Inferencia2 instance, as of February 2025:
 - us-east-1: US East (N. Virginia)
 - us-east-2: US East (Ohio)
 - us-west-2: US West (Oregon)
@@ -52,7 +52,7 @@ Here is the list of regions that support at least one type of trainium and infer
 - eu-central-1: Europe (Frankfurt)
 - sa-east-1: South America (Sao Paulo)
 
-Here is a Python script that lets you pull the latest supported instance type in each region:
+Here is a Python script that lets you pull the latest supported instance type in each region you have enabled:
 
 ```python
 import boto3  
@@ -91,10 +91,10 @@ for region, instance_types in supported_regions.items():
         region_long_name = response['Parameter']['Value']
     except (client.exceptions.ParameterNotFound, KeyError):
         region_long_name = region
-    print(f` * {region}: {region_long_name}`)
+    print(f' * {region}: {region_long_name}')
     for instance_type in instance_types:
-      print(f`  - {instance_type}`)
-    print(`\n`) 
+      print(f'  - {instance_type}')
+    print('\n') 
 ```
 
 ### Increase service quota
@@ -107,7 +107,7 @@ For example, a quota of 192 will let you run a single inf2.48xlarge, two inf2.24
 
 ### Launch the Amazon EC2 instance with the HF DLAMI
 
-Let's deploy a trn1.2xlarge instance in the us-east-1 region (N. Virginia) through the EC2 console.
+Let's deploy a trn1.2xlarge instance in the us-east-1 region (North Virginia) through the EC2 console.
 
 First, click on **Launch instance** and define a name for the instance (`trainium-huggingface-demo`).
 
@@ -231,4 +231,4 @@ With Visual Studio Code installed on your local machine, you can use the Remote-
 2. Enter in the full connection string from the ssh section above: ssh -i "/path/to/sshkey.pem" ubuntu@instance_ip_address
 3. VS Code should connect and automatically set up the VS Code server.
 4. Eventually, you should be prompted for a base directory. You can browse to a directory on the Neuron instance.
-5. You may find that some commands seem greyed out in the menus, but the keyboard commands will still work (⌘S to save or ^⇧` for terminal). You may need to restart VS Code.
+5. You case you find that some commands seem greyed out in the menus, but the keyboard commands will still work (⌘S to save or ^⇧` for terminal), you may need to restart VS Code.
