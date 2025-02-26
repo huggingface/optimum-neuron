@@ -1,0 +1,202 @@
+<!---
+Copyright 2023 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+# Deploy Llama 3.3 70B on AWS Inferentia2
+
+_There is a notebook version of that tutorial [here](https://github.com/huggingface/optimum-neuron/blob/main/notebooks/sagemaker/deploy-llama-3-3-70b.ipynb)._
+
+In this tutorial you will learn how to deploy [/meta-llama/Llama-3.3-70B-Instruct](https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct) model on AWS Inferentia2 with Hugging Face Optimum on Amazon SageMaker. We are going to use the Hugging Face TGI Neuron Container, a purpose-built Inference Container to easily deploy LLMs on AWS Inferentia2 powered by[ Text Generation Inference](https://huggingface.co/docs/text-generation-inference/index) and [Optimum Neuron](https://huggingface.co/docs/optimum-neuron/index).
+
+We will cover how to:
+1. [Setup development environment](#1-setup-development-environment)
+2. [Retrieve the new Hugging Face TGI Neuron DLC](#2-retrieve-the-new-hugging-face-tgi-neuron-dlc)
+3. [Deploy Llama 3.3 70B to inferentia2](#3-deploy-llama-33-70b-to-inferentia2)
+4. [Clean up](#5-clean-up)
+
+Lets get started! 🚀
+
+[AWS inferentia (Inf2)](https://aws.amazon.com/de/ec2/instance-types/inf2/) are purpose-built EC2 for deep learning (DL) inference workloads. Here are the different instances of the Inferentia2 family.
+
+| instance size | accelerators | Neuron Cores | accelerator memory | vCPU | CPU Memory | on-demand price ($/h) |
+| ------------- | ------------ | ------------ | ------------------ | ---- | ---------- | --------------------- |
+| inf2.xlarge   | 1            | 2            | 32                 | 4    | 16         | 0.76                  |
+| inf2.8xlarge  | 1            | 2            | 32                 | 32   | 128        | 1.97                  |
+| inf2.24xlarge | 6            | 12           | 192                | 96   | 384        | 6.49                  |
+| inf2.48xlarge | 12           | 24           | 384                | 192  | 768        | 12.98                 |
+
+## 1. Setup development environment
+
+For this tutorial, we are going to use a Notebook Instance in Amazon SageMaker with the Python 3 (ipykernel) and the `sagemaker` python SDK to deploy Llama 3.3 70B to a SageMaker inference endpoint.
+
+Make sur you have the latest version of the SageMaker SDK installed.
+
+```bash
+!pip install sagemaker --upgrade --quiet
+```
+
+Then, instantiate the sagemaker role and session.
+
+```python
+import sagemaker
+import boto3
+sess = sagemaker.Session()
+# sagemaker session bucket -> used for uploading data, models and logs
+# sagemaker will automatically create this bucket if it not exists
+sagemaker_session_bucket=None
+if sagemaker_session_bucket is None and sess is not None:
+    # set to default bucket if a bucket name is not given
+    sagemaker_session_bucket = sess.default_bucket()
+
+try:
+    role = sagemaker.get_execution_role()
+except ValueError:
+    iam = boto3.client('iam')
+    role = iam.get_role(RoleName='sagemaker_execution_role')['Role']['Arn']
+
+sess = sagemaker.Session(default_bucket=sagemaker_session_bucket)
+
+print(f"sagemaker role arn: {role}")
+print(f"sagemaker session region: {sess.boto_region_name}")
+```
+
+## 2. Retrieve the latest Hugging Face TGI Neuron DLC
+
+The latest Hugging Face TGI Neuron DLCs can be used to run inference on AWS Inferentia2. You can use the `get_huggingface_llm_image_uri` method of the `sagemaker` SDK to retrieve the appropriate Hugging Face TGI Neuron DLC URI based on your desired `backend`, `session`, `region`, and `version`. You can find the latest version of the container [here](https://huggingface.co/docs/optimum-neuron/containers), if not yet added to the SageMaker SDK.
+
+```python
+from sagemaker.huggingface import get_huggingface_llm_image_uri
+
+# retrieve the llm image uri
+llm_image = get_huggingface_llm_image_uri(
+  "huggingface-neuronx",
+)
+
+print(f"llm image uri: {llm_image}")
+```
+
+## 3. Deploy Llama 3.3 70B to Inferentia2
+
+At the time of writing, [AWS Inferentia2 does not support dynamic shapes for inference](https://awsdocs-neuron.readthedocs-hosted.com/en/v2.6.0/general/arch/neuron-features/dynamic-shapes.html#neuron-dynamic-shapes), which means that we need to specify our sequence length and batch size ahead of time.
+To make it easier for customers to utilize the full power of Inferentia2, we created a [neuron model cache](https://huggingface.co/docs/optimum-neuron/guides/cache_system), which contains pre-compiled configurations for the most popular LLMs, including Llama 3.3 70B. 
+
+This means we don't need to compile the model ourselves, but we can use the pre-compiled model from the cache. You can find compiled/cached configurations on the [Hugging Face Hub](https://huggingface.co/aws-neuron/optimum-neuron-cache/tree/main/inference-cache-config). If your desired configuration is not yet cached, you can compile it yourself using the [Optimum CLI](https://huggingface.co/docs/optimum-neuron/guides/export_model) or open a request at the [Cache repository](https://huggingface.co/aws-neuron/optimum-neuron-cache/discussions).
+
+**Deploying Llama 3.3 70B to a SageMaker Endpoint**   
+
+Before deploying the model to Amazon SageMaker, we must define the TGI Neuron endpoint configuration. We need to make sure the following additional parameters are defined: 
+
+- `HF_NUM_CORES`: Number of Neuron Cores used for the compilation.
+- `HF_BATCH_SIZE`: The batch size that was used to compile the model.
+- `HF_SEQUENCE_LENGTH`: The sequence length that was used to compile the model.
+- `HF_AUTO_CAST_TYPE`: The auto cast type that was used to compile the model.
+
+We still need to define traditional TGI parameters with:
+
+- `HF_MODEL_ID`: The Hugging Face model ID.
+- `HF_TOKEN`: The Hugging Face API token to access gated models.
+- `MAX_BATCH_SIZE`: The maximum batch size that the model can handle, equal to the batch size used for compilation.
+- `MAX_INPUT_LENGTH`: The maximum input length that the model can handle. 
+- `MAX_TOTAL_TOKENS`: The maximum total tokens the model can generate, equal to the sequence length used for compilation.
+
+Optionnaly, you can configure the endpoint to support chat templates:
+- `MESSAGES_API_ENABLED`: Enable Messages API 
+
+**Select the right instance type**
+
+Llama 3.3 70B is a large model and requires a lot of memory. We are going to use the `inf2.48xlarge` instance type, which has 192 vCPUs and 384 GB of accelerator memory. The `inf2.48xlarge` instance comes with 12 Inferentia2 accelerators that include 24 Neuron Cores. If you want to find the cached configurations for Llama 3.3 70B, you can find them [here](https://huggingface.co/aws-neuron/optimum-neuron-cache/blob/main/inference-cache-config/llama3-70b.json#L16). In our case we will use a batch size of 4 and a sequence length of 4096. 
+
+
+Before we can deploy Llama 3.3 70B to Inferentia2, we need to make sure we have the necessary permissions to access the model. You can request access to the model [here](https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct) and create a User access token following this [guide](https://huggingface.co/docs/hub/en/security-tokens).
+
+After that we can create our endpoint configuration and deploy the model to Amazon SageMaker.
+
+```python
+from sagemaker.huggingface import HuggingFaceModel
+
+# sagemaker config
+instance_type = "ml.inf2.48xlarge"
+health_check_timeout=2400 # additional time to load the model
+volume_size=512 # size in GB of the EBS volume
+
+# Define Model and Endpoint configuration parameter
+config = {
+    "HF_MODEL_ID": "meta-llama/Meta-Llama-3-70B-Instruct",
+    "HF_NUM_CORES": "24", # number of neuron cores
+    "HF_AUTO_CAST_TYPE": "bf16",  # dtype of the model
+    "MAX_BATCH_SIZE": "4", # max batch size for the model
+    "MAX_INPUT_TOKENS": "4000", # max length of input text
+    "MAX_TOTAL_TOKENS": "4096", # max length of generated text
+    "MESSAGES_API_ENABLED": "true", # Enable the messages API
+    "HF_TOKEN": "<REPLACE WITH YOUR TOKEN>",
+}
+
+assert config["HF_TOKEN"] != "<REPLACE WITH YOUR TOKEN>", "Please replace '<REPLACE WITH YOUR TOKEN>' with your Hugging Face Hub API token"
+
+# create HuggingFaceModel with the image uri
+llm_model = HuggingFaceModel(
+  role=role,
+  image_uri=llm_image,
+  env=config
+)
+```
+
+After we have created the `HuggingFaceModel` we can deploy it to Amazon SageMaker using the `deploy` method. We will deploy the model with the `ml.inf2.48xlarge` instance type. TGI will automatically distribute and shard the model across all Inferentia devices.
+
+```python
+# deactivate warning since model is compiled
+llm_model._is_compiled_model = True
+
+llm = llm_model.deploy(
+  initial_instance_count=1,
+  instance_type=instance_type,
+  container_startup_health_check_timeout=health_check_timeout,
+  volume_size=volume_size
+)
+```
+
+SageMaker will now create our endpoint and deploy the model to it. It takes around 30-40 minutes, we are working on improving the deployment time.
+
+After our endpoint is deployed we can run inference on it. We will use the `predict` method from the `predictor` to run inference on our endpoint. We can inference with different parameters to impact the generation. Parameters can be defined as in the `parameters` attribute of the payload. You can find supported parameters in the [here](https://huggingface.co/docs/text-generation-inference/messages_api).
+
+The Messages API allows us to interact with the model in a conversational way. We can define the role of the message and the content. The role can be either `system`,`assistant` or `user`. The `system` role is used to provide context to the model and the `user` role is used to ask questions or provide input to the model.
+
+```python
+# Prompt to generate
+messages=[
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "What is deep learning?" }
+]
+
+# Generation arguments
+parameters = {
+    "top_p": 0.6,
+    "temperature": 0.9,
+    "max_tokens": 50,
+    "stop": ["<|eot_id|>"],
+}
+
+chat = llm.predict({"messages" :messages, **parameters,"steam":True})
+
+print(chat["choices"][0]["message"]["content"].strip())
+```
+
+## 4. Clean up
+
+To clean up, we can delete the model and endpoint.
+
+```python
+llm.delete_model()
+llm.delete_endpoint()
+```

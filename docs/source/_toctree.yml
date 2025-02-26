@@ -8,23 +8,36 @@
   - local: containers
     title: Optimum Containers
   - sections:
-    - local: training_tutorials/notebooks
-      title: Notebooks
-    - local: training_tutorials/fine_tune_bert
-      title: Fine-tune BERT for Text Classification on AWS Trainium
-    - local: training_tutorials/sft_lora_finetune_llm
-      title: Fine-tune Llama 3 8B on with LoRA and the SFTTrainer
-    title: Training Tutorials
-  - sections:
-    - local: inference_tutorials/notebooks
-      title: Notebooks
-    - local: inference_tutorials/llama2-13b-chatbot
-      title: Create your own chatbot with llama-2-13B on AWS Inferentia
-    - local: inference_tutorials/sentence_transformers
-      title: Sentence Transformers on AWS Inferentia
-    - local: inference_tutorials/stable_diffusion
-      title: Generate images with Stable Diffusion models on AWS Inferentia
-    title: Inference Tutorials
+    - sections:
+      - isExpanded: false
+        sections:
+        - local: training_tutorials/notebooks
+          title: Notebooks
+        - local: training_tutorials/fine_tune_bert
+          title: Fine-tune BERT for Text Classification
+        - local: training_tutorials/sft_lora_finetune_llm
+          title: Fine-tune Llama 3 8B with LoRA and the SFTTrainer
+        title: EC2
+      title: Training Tutorials
+    - sections:
+      - isExpanded: false
+        sections:
+        - local: inference_tutorials/notebooks
+          title: Notebooks
+        - local: inference_tutorials/llama2-13b-chatbot
+          title: Create your own chatbot with llama-2-13B on AWS Inferentia
+        - local: inference_tutorials/sentence_transformers
+          title: Sentence Transformers on AWS Inferentia
+        - local: inference_tutorials/stable_diffusion
+          title: Generate images with Stable Diffusion models on AWS Inferentia
+        title: EC2
+      - isExpanded: false
+        sections:
+        - local: inference_tutorials/sagemaker/deploy-llama-3-3-70b
+          title: Deploy Llama 3.3 70B on AWS Inferentia2 with SageMaker
+        title: SageMaker
+      title: Inference Tutorials
+    title: Tutorials
   - sections:
     - local: guides/setup_aws_instance
       title: Set up AWS Trainium instance
