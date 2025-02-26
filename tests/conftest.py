@@ -114,12 +114,12 @@ def _hub_test(create_local_cache: bool = False):
     else:
         yield custom_cache_repo_with_seed
 
+
     delete_repo(custom_cache_repo_with_seed, repo_type="model")
 
-    model_repos = HfApi().list_models()
+    model_repos = HfApi().list_models(author=" optimum-internal-testing-user")
     for repo in model_repos:
-        if repo.id.startswith("optimum-neuron-cache-for-testing-"):
-            delete_repo(repo.id)
+        delete_repo(repo.id)
 
     if local_cache_path_with_seed.is_dir():
         shutil.rmtree(local_cache_path_with_seed)
