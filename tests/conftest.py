@@ -118,7 +118,8 @@ def _hub_test(create_local_cache: bool = False):
 
     model_repos = HfApi().list_models(author=" optimum-internal-testing-user")
     for repo in model_repos:
-        delete_repo(repo.id)
+        if repo.id.startswith("optimum-neuron-cache-for-testing-"):
+            delete_repo(repo.id)
 
     if local_cache_path_with_seed.is_dir():
         shutil.rmtree(local_cache_path_with_seed)

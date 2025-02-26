@@ -771,7 +771,6 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
             "A linear's layer WeightInformation or a linear layer to copy the weights from need to specified."
         )
 
-    # proj_name = weight_name[-1]
     if layer.fuse_qkv:
         weight = getattr(layer, "weight_qkv")
         bias = getattr(layer, "bias_qkv")
@@ -1899,7 +1898,7 @@ class _ParallelCrossEntropy(torch.autograd.Function):
 
         reduction = ctx.reduction
 
-        # All the inputs have softmax as thier gradient.
+        # All the inputs have softmax as their gradient.
         grad_input = softmax
 
         # For simplicity, work with the 2D gradient.

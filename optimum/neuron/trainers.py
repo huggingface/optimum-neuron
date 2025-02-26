@@ -455,8 +455,8 @@ class _TrainerForNeuron:
                 dtype = torch.bfloat16 if use_bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
 
-            # TODO: handle with num_items_in_batch
-            output = loss / self.args.gradient_accumulation_steps
+            if num_items_in_batch is None:
+                output = loss / self.args.gradient_accumulation_steps
         else:
             output = super().training_step(model, inputs, num_items_in_batch=num_items_in_batch)
         output = output.detach()
