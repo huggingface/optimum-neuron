@@ -1710,6 +1710,7 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
                 data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
         # Pre-process the datasets only once per node. The remaining processes will use the cache.
+        from contextlib import nullcontext
         with NeuronPartialState().local_main_process_first():
             if train_dataset is not None:
                 train_dataset = self._prepare_dataset(
