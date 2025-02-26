@@ -506,6 +506,7 @@ class _TrainerForNeuron:
             if self.control.should_log:
                 xm.mark_step()
                 tr_loss.zero_()
+
                 def log_closure(self, reduced_tr_loss, grad_norm):
                     # We need to check that self.state.global_step > self._globalstep_last_logged because if two
                     # closures are added in a row (which can happen at the end of the training), then it will fail the
@@ -544,6 +545,7 @@ class _TrainerForNeuron:
                 self.control.should_save = is_new_best_metric
 
         if self.control.should_save:
+
             def save_closure(self, model, trial):
                 self._save_checkpoint(model, trial)
                 self.control = self.callback_handler.on_save(self.args, self.state, self.control)

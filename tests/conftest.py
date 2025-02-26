@@ -114,7 +114,6 @@ def _hub_test(create_local_cache: bool = False):
     else:
         yield custom_cache_repo_with_seed
 
-
     delete_repo(custom_cache_repo_with_seed, repo_type="model")
 
     model_repos = HfApi().list_models(author=" optimum-internal-testing-user")
