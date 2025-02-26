@@ -26,10 +26,11 @@ There are three main classes one needs to know:
 - [NeuronTrainingArguments](https://huggingface.co/docs/optimum/neuron/package_reference/trainer#optimum.neuron.NeuronTrainingArguments): extends the original TrainingArguments with Trainium-specific parameters to optimize performance on AWS Trainium hardware.
 - [NeuronTrainer](https://huggingface.co/docs/optimum/neuron/package_reference/trainer): the trainer class that takes care of compiling and distributing the model to run on Trainium Chips, and performing training and evaluation.
 
-The [NeuronTrainer](https://huggingface.co/docs/optimum/neuron/package_reference/trainer) is very similar to the [🤗 Transformers Trainer](https://huggingface.co/docs/transformers/main_classes/trainer), and adapting a script using the Trainer to make it work with Trainium will mostly consist in simply swapping the `Trainer` class for the `NeuronTrainer` one, and using the appropriate training arguments class.
-That's how most of the [example scripts](https://github.com/huggingface/optimum-neuron/tree/main/examples) were adapted from their [original counterparts](https://github.com/huggingface/transformers/tree/main/examples/pytorch).
+The [NeuronTrainer](https://huggingface.co/docs/optimum/neuron/package_reference/trainer) is very similar to the [🤗 Transformers Trainer](https://huggingface.co/docs/transformers/main_classes/trainer), and adapting a script for Trainium instances will mostly consist in:
+    - Swapping the `Trainer` class for the `NeuronTrainer` one
+    - Using `NeuronTrainingArguments` instead of `TrainingArguments`
 
-modifications:
+That's how most of the [example scripts](https://github.com/huggingface/optimum-neuron/tree/main/examples) were adapted from their [original counterparts](https://github.com/huggingface/transformers/tree/main/examples/pytorch):
 
 ```diff
 -from transformers import TrainingArguments
@@ -44,7 +45,7 @@ modifications:
 # Initialize our Trainer
 trainer = Trainer(
     model=model,
-    args=training_args,  # Training arguments from NeuronTrainingArguments.
+    args=training_args,
     train_dataset=train_dataset if training_args.do_train else None,
     eval_dataset=eval_dataset if training_args.do_eval else None,
     compute_metrics=compute_metrics,
