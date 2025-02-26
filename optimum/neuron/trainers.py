@@ -454,12 +454,12 @@ class _TrainerForNeuron:
                 use_bf16 = self.accelerator.state.mixed_precision == "bf16"
                 dtype = torch.bfloat16 if use_bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
-            else:
-                loss = loss.detach()
+
             # TODO: handle with num_items_in_batch
             output = loss / self.args.gradient_accumulation_steps
         else:
             output = super().training_step(model, inputs, num_items_in_batch=num_items_in_batch)
+        output = output.detach()
         return output
 
     @requires_neuronx_distributed
@@ -486,6 +486,7 @@ class _TrainerForNeuron:
     def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time):
         # We always reduce the loss, even when we do not use it to avoid a new graph.
         # This communication is not costly.
+
         if self.state.global_step > self._globalstep_last_logged:
             from neuronx_distributed.parallel_layers.parallel_state import (
                 get_data_parallel_replica_groups,
@@ -500,11 +501,11 @@ class _TrainerForNeuron:
 
             tr_loss_div = tr_loss / dp_size
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_replica_groups())
+            reduced_tr_loss = reduced_tr_loss.detach()
 
             if self.control.should_log:
-                with torch.no_grad():
-                    tr_loss.zero_()
-
+                xm.mark_step()
+                tr_loss.zero_()
                 def log_closure(self, reduced_tr_loss, grad_norm):
                     # We need to check that self.state.global_step > self._globalstep_last_logged because if two
                     # closures are added in a row (which can happen at the end of the training), then it will fail the
@@ -543,7 +544,6 @@ class _TrainerForNeuron:
                 self.control.should_save = is_new_best_metric
 
         if self.control.should_save:
-
             def save_closure(self, model, trial):
                 self._save_checkpoint(model, trial)
                 self.control = self.callback_handler.on_save(self.args, self.state, self.control)

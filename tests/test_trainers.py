@@ -435,15 +435,17 @@ class TestNeuronSFTTrainer(DistributedTest):
         args = NeuronTrainingArguments(
             output_dir=output_dir,
             do_train=True,
-            max_steps=20,
+            max_steps=10,
             per_device_train_batch_size=1,
             tensor_parallel_size=tp_size,
             pipeline_parallel_size=pp_size,
+            bf16=True,
             logging_steps=1,
         )
         args = args.to_dict()
         sft_config = NeuronSFTConfig(
-            max_seq_length=512,
+            # Using a small sequence-length since we are not validating the outputs.
+            max_seq_length=128,
             packing=packing,
             dataset_num_proc=1,
             dataset_text_field="text",
@@ -455,7 +457,7 @@ class TestNeuronSFTTrainer(DistributedTest):
             model=model,
             tokenizer=tokenizer,
             train_dataset=dataset,
-            # formatting_func=format_dolly,
+            formatting_func=format_dolly,
             args=sft_config,
         )
 
