@@ -62,7 +62,6 @@ from .utils import (
 )
 from .utils.misc import (
     apply_activation_checkpointing,
-    create_patched_finfo,
     create_patched_save_pretrained,
 )
 from .utils.operations import _xla_gather
@@ -203,7 +202,9 @@ class NeuronAccelerator(Accelerator):
         distributed_dataloader._is_accelerate_prepared = True
         return distributed_dataloader
 
-    def prepare_data_loader(self, data_loader: DataLoader, device_placement: Optional[bool] = None):
+    def prepare_data_loader(
+        self, data_loader: DataLoader, device_placement: Optional[bool] = None, use_mp_device_loader: bool = False
+    ):
         force_drop_last = False
         if self.state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             from neuronx_distributed import parallel_layers
@@ -224,11 +225,9 @@ class NeuronAccelerator(Accelerator):
                 data_loader, num_replicas=num_replicas, rank=rank, force_drop_last=force_drop_last
             )
             # No need to wrap the dataloader if we are using pipeline parallelism.
-            if self.state.mp_plugin.pipeline_parallel_size == 1:
+            if use_mp_device_loader and self.state.mp_plugin.pipeline_parallel_size == 1:
                 data_loader = MpDeviceLoader(data_loader, self.device)
         return data_loader
-        # TODO: fix that.
-        # return super().prepare_data_loader(data_loader, device_placement=device_placement)
 
     def _prepare_optimizer_for_mp(self, optimizer: torch.optim.Optimizer, device_placement=None):
         cpu_parameters_to_xla = collections.ChainMap(*self._model_cpu_parameters_to_xla.values())
@@ -328,19 +327,6 @@ class NeuronAccelerator(Accelerator):
 
         # Working on a copy for safety.
         patching_specs = list(patching_specs)
-
-        mixed_precision_is_bf16 = self.state.mixed_precision == "bf16"
-        patched_finfo = create_patched_finfo(
-            xla_downcast_bf16=mixed_precision_is_bf16 and self.state.downcast_bfloat,
-            use_amp=mixed_precision_is_bf16 and self.state.autocast_backend is AutocastBackend.AMP,
-            xla_use_bf16=mixed_precision_is_bf16 and not self.state.downcast_bfloat,
-        )
-        patching_specs.append(
-            (
-                "forward",
-                DynamicPatch(patch_within_function(("torch.finfo", patched_finfo))),
-            ),
-        )
 
         if isinstance(model, PreTrainedModel):
             patching_specs.append(
@@ -459,6 +445,9 @@ class NeuronAccelerator(Accelerator):
 
         model = self.patch_model_for_neuron(model)
 
+        if self.state.mixed_precision == "bf16":
+            model.to(torch.bfloat16)
+
         # We do not want to use the cache, or output unused tensors as it would imply more communication that we do not
         # need.
         model.config.use_cache = False
@@ -529,24 +518,17 @@ class NeuronAccelerator(Accelerator):
         yield
         autocast_context.__exit__(*sys.exc_info())
 
-    @requires_neuronx_distributed
-    def _prepare_clip_grad_norm(self, parameters, max_norm, norm_type: int = 2):
-        from neuronx_distributed.pipeline import NxDPPModel
-
-        self.unscale_gradients()
-        parameters = list(parameters)
-        for model in self._models:
-            model_parameters = model.local_parameters() if isinstance(model, NxDPPModel) else model.parameters()
-            if parameters == list(model_parameters) or self.zero_1:
-                for opt in self._optimizers:
-                    # Under this setting, the gradient clipping will be deferred to the optimizer step.
-                    # It will happen after the gradients have been reduced and before the optimizer step.
-                    return opt.prepare_clip_grad_norm(parameters, max_norm, norm_type=norm_type)
-
-    def clip_grad_norm_(self, parameters, max_norm, norm_type=2):
-        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM or self.zero_1:
-            return self._prepare_clip_grad_norm(parameters, max_norm, norm_type=norm_type)
-        return super().clip_grad_norm_(parameters, max_norm, norm_type=norm_type)
+    def clip_grad_norm_(self, parameters, max_norm, norm_type=2, postpone_clipping_to_optimizer_step: bool = False):
+        if postpone_clipping_to_optimizer_step:
+            parameters = list(parameters)
+            if len(self._optimizers) > 1:
+                raise RuntimeError(
+                    "Postponing gradient clipping to the optimizer step is not possible when multiple optimizer were "
+                    "prepared by the NeuronAccelerator."
+                )
+            self._optimizers[0].prepare_clip_grad_norm(parameters, max_norm, norm_type=norm_type)
+        else:
+            return super().clip_grad_norm_(parameters, max_norm, norm_type=norm_type)
 
     def _custom_save_state(
         self,
