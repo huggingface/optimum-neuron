@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Neuron export configurations for decoder models."""
+"""Neuron export configurations for models using transformers_neuronx."""
 
 import importlib
 
@@ -25,6 +25,7 @@ from ....neuron.backends.hlo.config import NeuronConfig
 from ....neuron.backends.hlo.decoder import NeuronHloDecoderModel
 from ....neuron.models.granite.model import GraniteForSampling
 from ....neuron.models.llama.model import LlamaHloModel
+from ....neuron.models.phi4.model import Phi4ForSampling
 from ....neuron.models.qwen2.model import Qwen2ForSampling
 from ..base import NeuronExportConfig
 
@@ -165,4 +166,10 @@ class Qwen2NeuronConfig(NeuronDecoderExportConfig):
 @register_in_tasks_manager("granite", "text-generation")
 class GraniteNeuronConfig(NeuronDecoderExportConfig):
     NEURONX_CLASS = GraniteForSampling
+    CONTINUOUS_BATCHING = True
+
+
+@register_in_tasks_manager("phi3", "text-generation")
+class Phi4NeuronConfig(NeuronDecoderExportConfig):
+    NEURONX_CLASS = Phi4ForSampling
     CONTINUOUS_BATCHING = True
