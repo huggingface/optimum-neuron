@@ -51,11 +51,16 @@ class Phi4ForSampling(LlamaHloModel):
             new_layer.add_pre_attention_layer_norm(layer.input_layernorm.weight.detach(), None)
             # Transpose and split fused qkv_proj into separate weights
             fused_attn = attn.qkv_proj.weight.clone().detach().T
-            # Extract the larger query weights first
-            q_features = attn.num_heads * attn.head_dim
-            q_weight = fused_attn[:, :q_features]
-            # Then split the remaining into key and value weights
-            k_weight, v_weight = torch.chunk(fused_attn[:, q_features:], 2, dim=1)
+            # Handle GQA
+            if self.config.num_kv_heads < self.config.num_attention_heads:
+                # Extract the larger query weights first
+                q_features = attn.num_heads * attn.head_dim
+                q_weight = fused_attn[:, :q_features]
+                # Then split the remaining into key and value weights
+                k_weight, v_weight = torch.chunk(fused_attn[:, q_features:], 2, dim=1)
+            # Handle MHA
+            else:
+                q_weight, k_weight, v_weight = torch.chunk(fused_attn, 3, dim=1)
             new_layer.add_attention_query(q_weight, None)
             new_layer.add_attention_key(k_weight, None)
             new_layer.add_attention_value(v_weight, None)
