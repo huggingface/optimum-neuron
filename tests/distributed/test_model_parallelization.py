@@ -24,23 +24,12 @@ import torch.utils._pytree as pytree
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.models.auto.modeling_auto import (
-    MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING,
-    MODEL_FOR_BACKBONE_MAPPING,
     MODEL_FOR_CAUSAL_LM_MAPPING,
-    MODEL_FOR_CTC_MAPPING,
-    MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING,
-    MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING,
-    MODEL_FOR_MASKED_IMAGE_MODELING_MAPPING,
     MODEL_FOR_MASKED_LM_MAPPING,
-    MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING,
     MODEL_FOR_PRETRAINING_MAPPING,
     MODEL_FOR_QUESTION_ANSWERING_MAPPING,
-    MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING,
-    MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING,
     MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING,
-    MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING,
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING,
-    MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING,
 )
 
 import optimum
@@ -96,26 +85,12 @@ def _generate_supported_model_classes(
 ) -> List[Type["PreTrainedModel"]]:
     task_mapping = {
         # TODO: enable that when base models are supported.
-        # "default": MODEL_MAPPING,
         "pretraining": MODEL_FOR_PRETRAINING_MAPPING,
-        "next-sentence-prediction": MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING,
         "masked-lm": MODEL_FOR_MASKED_LM_MAPPING,
         "causal-lm": MODEL_FOR_CAUSAL_LM_MAPPING,
-        "seq2seq-lm": MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING,
-        "speech-seq2seq": MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING,
-        # Those architectures are more painful to deal with because the input is different.
-        # "multiple-choice": MODEL_FOR_MULTIPLE_CHOICE_MAPPING,
-        "document-question-answering": MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING,
         "question-answering": MODEL_FOR_QUESTION_ANSWERING_MAPPING,
         "sequence-classification": MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING,
         "token-classification": MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING,
-        "masked-image-modeling": MODEL_FOR_MASKED_IMAGE_MODELING_MAPPING,
-        "image-classification": MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING,
-        "zero-shot-image-classification": MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING,
-        "ctc": MODEL_FOR_CTC_MAPPING,
-        "audio-classification": MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING,
-        "semantic-segmentation": MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING,
-        "backbone": MODEL_FOR_BACKBONE_MAPPING,
     }
 
     if supported_tasks is None:
