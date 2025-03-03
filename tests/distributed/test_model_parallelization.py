@@ -21,6 +21,15 @@ from typing import TYPE_CHECKING, List, Optional, Type, Union
 import pytest
 import torch
 import torch.utils._pytree as pytree
+import torch_xla.core.xla_model as xm
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_kv_shared_group,
+    get_pipeline_model_parallel_rank,
+    get_tensor_model_parallel_group,
+    get_tensor_model_parallel_size,
+)
+from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
+from neuronx_distributed.utils.model_utils import move_model_to_device
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.models.auto.modeling_auto import (
@@ -49,40 +58,18 @@ from optimum.neuron.distributed.utils import compute_query_indices_for_rank, laz
 from optimum.neuron.utils.cache_utils import (
     get_num_neuron_cores,
 )
-from optimum.neuron.utils.import_utils import (
-    is_neuronx_available,
-    is_neuronx_distributed_available,
-    is_torch_xla_available,
-)
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .. import DistributedTest
 from ..utils import SEED, StaticSeedPatcher, create_accelerator, get_model, get_model_inputs
 
 
-if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
-
-if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_kv_shared_group,
-        get_pipeline_model_parallel_rank,
-        get_tensor_model_parallel_group,
-        get_tensor_model_parallel_size,
-    )
-    from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
-    from neuronx_distributed.utils.model_utils import move_model_to_device
-
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
 
 TEMPLATE_FILE_NAME = "model_parallel_test_template.txt"
-if is_neuronx_available():
-    NUM_NEURON_CORES_AVAILABLE = get_num_neuron_cores()
-else:
-    NUM_NEURON_CORES_AVAILABLE = 0
-
+NUM_NEURON_CORES_AVAILABLE = get_num_neuron_cores()
 
 CLASSES_TO_IGNORE = [
     # TODO: enable this class when it can be traced for pipeline parallelism.
