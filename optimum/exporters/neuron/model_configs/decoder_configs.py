@@ -172,4 +172,4 @@ class GraniteNeuronConfig(NeuronDecoderExportConfig):
 @register_in_tasks_manager("phi3", "text-generation")
 class Phi3NeuronConfig(NeuronDecoderExportConfig):
     NEURONX_CLASS = Phi3HloModel
-    CONTINUOUS_BATCHING = True
+    CONTINUOUS_BATCHING = False
