@@ -291,7 +291,7 @@ class _TrainerForNeuron:
         # create accelerator object
         self.accelerator = NeuronAccelerator(
             *args,
-            mp_plugin=self.args.mp_plugin,
+            mp_config=self.args.mp_config,
             zero_1=self.args.zero_1,
             mixed_precision="bf16" if self.args.bf16 else "no",
             autocast_backend=self.args.half_precision_backend,
@@ -385,7 +385,7 @@ class _TrainerForNeuron:
         args: TrainingArguments, model: Optional[PreTrainedModel] = None
     ) -> Tuple[Any, Any]:
         optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args, model=model)
-        lazy_load = args.mp_plugin.should_parallelize or args.zero_1
+        lazy_load = args.mp_config.should_parallelize or args.zero_1
         if lazy_load:
             optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)
         return optimizer_cls, optimizer_kwargs
@@ -397,7 +397,7 @@ class _TrainerForNeuron:
     def _prepare_input(self, data: Union[torch.Tensor, Any]) -> Union[torch.Tensor, Any]:
         # When pipeline parallelism is enabled, we should not put any tensor on device.
         # It is handled by the NxDPPModel class.
-        if self.args.mp_plugin.pipeline_parallel_size > 1:
+        if self.args.mp_config.pipeline_parallel_size > 1:
             return data
         return super()._prepare_input(data)
 
@@ -576,7 +576,7 @@ class _TrainerForNeuron:
                 from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
                 config = copy.deepcopy(self.model.config)
-                if self.args.mp_plugin.parallelize_embeddings:
+                if self.args.mp_config.parallelize_embeddings:
                     config.vocab_size = config.vocab_size * get_tensor_model_parallel_size()
                 config.save_pretrained(output_dir)
 
@@ -586,9 +586,9 @@ class _TrainerForNeuron:
                 self.model,
                 output_dir,
                 optimizer=self.optimizer if not self.args.save_only_model else None,
-                use_xser=self.accelerator.state.mp_plugin.use_xser,
-                async_save=self.accelerator.state.mp_plugin.async_save,
-                num_local_ranks_per_step=self.accelerator.state.mp_plugin.num_local_ranks_per_step,
+                use_xser=self.accelerator.state.mp_config.use_xser,
+                async_save=self.accelerator.state.mp_config.async_save,
+                num_local_ranks_per_step=self.accelerator.state.mp_config.num_local_ranks_per_step,
             )
         else:
             supported_classes = (PreTrainedModel, NeuronPeftModel)
@@ -2085,7 +2085,7 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
             preprocess_logits_for_metrics=preprocess_logits_for_metrics,
         )
 
-        if self.accelerator.state.mp_plugin.should_parallelize:
+        if self.accelerator.state.mp_config.should_parallelize:
             raise RuntimeError("Model parallelism is not supported with the NeuronORPOTrainer yet.")
 
         # Add tags for models that have been loaded with the correct transformers version

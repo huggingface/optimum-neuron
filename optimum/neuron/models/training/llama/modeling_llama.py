@@ -31,7 +31,7 @@ from transformers.modeling_outputs import (
     BaseModelOutputWithPast,
     CausalLMOutputWithPast,
 )
-from transformers.models.llama.configuration_llama import LlamaConfig, KwargsForCausalLM
+from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import (
     LLAMA_INPUTS_DOCSTRING,
     LLAMA_START_DOCSTRING,
@@ -45,13 +45,13 @@ from transformers.models.llama.modeling_llama import (
 )
 from transformers.models.llama.modeling_llama import (
     LlamaForSequenceClassification,
-    LlamaLinearScalingRotaryEmbedding,
 )
 from transformers.models.llama.modeling_llama import LlamaMLP as LlamaMLPHF
 from transformers.models.llama.modeling_llama import LlamaModel as LlamaModelHF
 from transformers.models.llama.modeling_llama import LlamaPreTrainedModel
 from transformers.models.llama.modeling_llama import LlamaRMSNorm as LlamaRMSNormHF
 from transformers.models.llama.modeling_llama import (
+    KwargsForCausalLM,
     LlamaRotaryEmbedding,
     apply_rotary_pos_emb,
     repeat_kv,
@@ -78,8 +78,8 @@ from neuronx_distributed.parallel_layers.layers import (
 )
 from neuronx_distributed.parallel_layers.loss_functions import parallel_cross_entropy
 from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
-from neuronx_distributed.utils.model_utils import move_model_to_device
 
+from ....accelerate import ModelParallelismConfig
 from ...loss_utils import ForCausalLMLoss
 
 
@@ -99,10 +99,10 @@ class LlamaRMSNorm(LlamaRMSNormHF):
 
 
 class LlamaMLP(LlamaMLPHF):
-    def __init__(self, config):
+    def __init__(self, config, mp_config: ModelParallelismConfig):
         nn.Module.__init__(self)
         self.config = config
-        self.pretraining_tp = config.pretraining_tp
+        self.mp_config=mp_config
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
         self.act_fn = ACT2FN[config.hidden_act]
@@ -115,7 +115,7 @@ class LlamaMLP(LlamaMLPHF):
             bias=False,
             gather_output=False,
             init_method=init_method,
-            sequence_parallel_enabled=self.config.sequence_parallel_enabled,
+            sequence_parallel_enabled=self.mp_config.sequence_parallel_enabled,
             dtype=self.config.torch_dtype,
         )
         self.down_proj = RowParallelLinear(
@@ -124,12 +124,10 @@ class LlamaMLP(LlamaMLPHF):
             bias=False,
             input_is_parallel=True,
             init_method=init_method,
-            sequence_parallel_enabled=self.config.sequence_parallel_enabled,
+            sequence_parallel_enabled=self.mp_config.sequence_parallel_enabled,
             dtype=self.config.torch_dtype,
         )
         self.split_size = self.intermediate_size // get_tensor_model_parallel_size()
-        if config.move_model_to_device:
-            move_model_to_device(self, xm.xla_device())
 
     def forward(self, x):
         gate_proj, up_proj = self.gate_up_proj(x).split(self.split_size, dim=2)
@@ -140,7 +138,7 @@ class LlamaMLP(LlamaMLPHF):
 
         # We checkpoint the MLP compute too, since we see extra data movement which is more
         # expensive than the recompute in this case.
-        if self.config.selective_checkpoint_enabled:
+        if self.mp_config.gradient_checkpointing:
             intermediate_states = checkpoint(activation_mlp, gate_proj, up_proj)
         else:
             intermediate_states = self.act_fn(gate_proj) * up_proj
@@ -176,7 +174,7 @@ def eager_attention_forward(
 class LlamaAttention(LlamaAttentionHF):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    def __init__(self, config: LlamaConfig, layer_idx: int):
+    def __init__(self, config: LlamaConfig, mp_config: ModelParallelismConfig, layer_idx: int):
         nn.Module.__init__(self)
         self.config = config
         self.layer_idx = layer_idx
@@ -189,41 +187,34 @@ class LlamaAttention(LlamaAttentionHF):
         self.attention_dropout = config.attention_dropout
         self.is_causal = True
 
-        if not hasattr(config, "kv_shared_group_size"):
-            config.kv_shared_group_size = 1
-
-        if not hasattr(config, "qkv_linear"):
-            config.qkv_linear = False
-
-        if not hasattr(config, "fuse_qkv"):
-            config.fuse_qkv = False
-
-        if not hasattr(config, "use_flash_attention"):
-            self.use_flash_attention = False
-        else:
-            self.use_flash_attention = config.use_flash_attention
-
         if (self.head_dim * self.num_heads) != self.hidden_size:
             raise ValueError(
                 f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
                 f" and `num_heads`: {self.num_heads})."
             )
-        self._init_rope()
+        self.mp_config = mp_config
 
         init_method = partial(_init_normal, config.initializer_range)
-        if self.config.qkv_linear:
+    
+        self.qkv_linear = self.num_key_value_heads < get_tensor_model_parallel_size()
+        if mp_config.kv_size_multiplier is None:
+            self.kv_size_multiplier = mp_config.auto_kv_size_multiplier(self.num_key_value_heads)
+        else:
+            self.kv_size_multiplier = mp_config.kv_size_multiplier
+
+        if self.qkv_linear:
             self.qkv_proj = GQAQKVColumnParallelLinear(
                 self.hidden_size,
                 [self.num_heads * self.head_dim, self.num_key_value_heads * self.head_dim],
                 bias=False,
                 gather_output=False,
                 init_method=init_method,
-                sequence_parallel_enabled=self.config.sequence_parallel_enabled,
-                kv_size_multiplier=self.config.kv_shared_group_size,
-                fuse_qkv=self.config.fuse_qkv,
+                sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+                kv_size_multiplier=self.kv_size_multiplier,
+                fuse_qkv=mp_config.fuse_qkv,
                 dtype=self.config.torch_dtype,
             )
-        elif self.config.fuse_qkv and self.num_heads == self.num_key_value_heads:
+        elif mp_config.fuse_qkv and self.num_heads == self.num_key_value_heads:
             self.qkv_proj = ColumnParallelLinear(
                 self.hidden_size,
                 3 * self.num_heads * self.head_dim,
@@ -231,7 +222,7 @@ class LlamaAttention(LlamaAttentionHF):
                 bias=False,
                 gather_output=False,
                 init_method=init_method,
-                sequence_parallel_enabled=self.config.sequence_parallel_enabled,
+                sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
                 dtype=self.config.torch_dtype,
             )
             self.split_size = self.num_heads * self.head_dim // get_tensor_model_parallel_size()
@@ -242,7 +233,7 @@ class LlamaAttention(LlamaAttentionHF):
                 bias=False,
                 gather_output=False,
                 init_method=init_method,
-                sequence_parallel_enabled=self.config.sequence_parallel_enabled,
+                sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
                 dtype=self.config.torch_dtype,
             )
             self.k_proj = ColumnParallelLinear(
@@ -251,7 +242,7 @@ class LlamaAttention(LlamaAttentionHF):
                 bias=False,
                 gather_output=False,
                 init_method=init_method,
-                sequence_parallel_enabled=self.config.sequence_parallel_enabled,
+                sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
                 dtype=self.config.torch_dtype,
             )
             self.v_proj = ColumnParallelLinear(
@@ -260,7 +251,7 @@ class LlamaAttention(LlamaAttentionHF):
                 bias=False,
                 gather_output=False,
                 init_method=init_method,
-                sequence_parallel_enabled=self.config.sequence_parallel_enabled,
+                sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
                 dtype=self.config.torch_dtype,
             )
         self.o_proj = RowParallelLinear(
@@ -269,17 +260,14 @@ class LlamaAttention(LlamaAttentionHF):
             bias=False,
             input_is_parallel=True,
             init_method=init_method,
-            sequence_parallel_enabled=self.config.sequence_parallel_enabled,
+            sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
             dtype=self.config.torch_dtype,
         )
         self.num_heads = neuronx_dist_utils.divide(config.num_attention_heads, get_tensor_model_parallel_size())
         self.num_key_value_heads = neuronx_dist_utils.divide(
-            config.num_key_value_heads * self.config.kv_shared_group_size, get_tensor_model_parallel_size()
+            config.num_key_value_heads * self.kv_size_multiplier, get_tensor_model_parallel_size()
         )
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
-
-        if config.move_model_to_device:
-            move_model_to_device(self, xm.xla_device())
 
     def forward(
         self,
@@ -296,20 +284,20 @@ class LlamaAttention(LlamaAttentionHF):
             q_len = q_len * get_tensor_model_parallel_size()
 
         if (
-            self.config.fuse_qkv
+            self.mp_config.fuse_qkv
             and self.num_heads == self.num_key_value_heads
-            and self.config.kv_shared_group_size == 1
+            and self.kv_size_multiplier == 1
         ):
             qkv_states = self.qkv_proj(hidden_states)
             query_states, key_states, value_states = qkv_states.split(self.split_size, dim=2)
-        elif self.config.qkv_linear:
+        elif self.qkv_linear:
             query_states, key_states, value_states = self.qkv_proj(hidden_states)
         else:
             query_states = self.q_proj(hidden_states)
             key_states = self.k_proj(hidden_states)
             value_states = self.v_proj(hidden_states)
 
-        if self.config.sequence_parallel_enabled:
+        if self.mp_config.sequence_parallel_enabled:
             query_states = query_states.view(q_len, bsz, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
             key_states = key_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
             value_states = value_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
@@ -355,7 +343,7 @@ class LlamaAttention(LlamaAttentionHF):
         else:
             attn_output, attn_weights = output
 
-        if self.config.sequence_parallel_enabled:
+        if self.mp_config.sequence_parallel_enabled:
             attn_output = attn_output.permute(2, 0, 1, 3)
             attn_output = attn_output.reshape(q_len, bsz, self.hidden_size // get_tensor_model_parallel_size())
         else:
@@ -367,19 +355,19 @@ class LlamaAttention(LlamaAttentionHF):
         return attn_output, attn_weights
 
 class LlamaDecoderLayer(LlamaDecoderLayerHF):
-    def __init__(self, config: LlamaConfig, layer_idx: int):
+    def __init__(self, config: LlamaConfig, mp_config: ModelParallelismConfig, layer_idx: int):
         nn.Module.__init__(self)
 
         self.hidden_size = config.hidden_size
 
-        self.self_attn = LlamaAttention(config=config, layer_idx=layer_idx)
+        self.self_attn = LlamaAttention(config=config, mp_config=mp_config, layer_idx=layer_idx)
 
-        self.mlp = LlamaMLP(config)
+        self.mlp = LlamaMLP(config, mp_config)
         self.input_layernorm = LlamaRMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=config.sequence_parallel_enabled
+            config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=mp_config.sequence_parallel_enabled
         )
         self.post_attention_layernorm = LlamaRMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=config.sequence_parallel_enabled
+            config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=mp_config.sequence_parallel_enabled
         )
 
 
@@ -391,7 +379,7 @@ class LlamaModel(LlamaModelHF):
         config: LlamaConfig
     """
 
-    def __init__(self, config: LlamaConfig):
+    def __init__(self, config: LlamaConfig, mp_config: ModelParallelismConfig):
         LlamaPreTrainedModel.__init__(self, config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
@@ -399,11 +387,11 @@ class LlamaModel(LlamaModelHF):
         init_method = partial(_init_normal, config.initializer_range)
         self.embed_tokens = ParallelEmbedding(
             config.vocab_size, config.hidden_size, self.padding_idx, init_method=init_method,
-            sequence_parallel_enabled=config.sequence_parallel_enabled, dtype=config.torch_dtype,
+            sequence_parallel_enabled=mp_config.sequence_parallel_enabled, dtype=config.torch_dtype,
         )
-        self.layers = nn.ModuleList([LlamaDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)])
+        self.layers = nn.ModuleList([LlamaDecoderLayer(config, mp_config, layer_idx) for layer_idx in range(config.num_hidden_layers)])
         self.norm = LlamaRMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=config.sequence_parallel_enabled
+            config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=mp_config.sequence_parallel_enabled
         )
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
 
@@ -522,10 +510,11 @@ class LlamaForCausalLM(LlamaForCausalLMHF):
     _tied_weights_keys = ["lm_head.weight"]
     _tp_plan = {"lm_head": "colwise_rep"}
 
-    def __init__(self, config):
+    def __init__(self, config, mp_config: ModelParallelismConfig):
         super().__init__(config)
-        self.model = LlamaModel(config)
+        self.model = LlamaModel(config, mp_config)
         self.vocab_size = config.vocab_size
+        self.mp_config = mp_config
 
         init_method = partial(_init_normal, config.initializer_range)
         self.lm_head = ColumnParallelLinear(
@@ -534,7 +523,7 @@ class LlamaForCausalLM(LlamaForCausalLMHF):
             bias=False,
             gather_output=False,
             init_method=init_method,
-            sequence_parallel_enabled=config.sequence_parallel_enabled,
+            sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
             dtype=self.config.torch_dtype,
         )
 
@@ -585,7 +574,7 @@ class LlamaForCausalLM(LlamaForCausalLMHF):
         # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         logits = self.lm_head(hidden_states[:, -num_logits_to_keep:, :])
 
-        if self.config.sequence_parallel_enabled:
+        if self.mp_config.sequence_parallel_enabled:
             logits = logits.transpose(0, 1).contiguous()
 
         loss = None

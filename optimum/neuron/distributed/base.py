@@ -18,6 +18,7 @@ import contextlib
 import gc
 import math
 from abc import ABC, abstractclassmethod
+from dataclasses import dataclass
 from collections import defaultdict
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -559,6 +560,10 @@ class Parallelizer(ABC):
         orig_model, peft_prefix = get_base_model_and_peft_prefix(model)
         model_class = orig_model.__class__
 
+        import inspect
+        if inspect.getmodule(orig_model.__class__).__name__.startswith("optimum.neuron.models.training"):
+            return orig_model
+
         if peft_prefix:
             # We update the weight_map to contain both the original parameter names, and the ones in the PeftModel.
             # The reason we keep both is because depending on the context during parallelization one or the other name
@@ -1047,3 +1052,4 @@ class Parallelizer(ABC):
     @classmethod
     def load_optimizer_sharded_checkpoint(cls, optimizer: "torch.optim.Optimizer", load_dir: Union[str, Path]):
         return cls.load_sharded_checkpoint(load_dir, optimizer=optimizer)
+
