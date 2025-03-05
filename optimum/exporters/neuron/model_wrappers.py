@@ -619,6 +619,42 @@ class SentenceTransformersCLIPNeuronWrapper(torch.nn.Module):
         return (text_embeds, image_embeds)
 
 
+class WhisperEncoderWrapper(torch.nn.Module):
+    """Wrapper to trace the encoder of Whisper."""
+
+    def __init__(
+        self,
+        model: "PreTrainedModel",
+        batch_size: int,
+        audio_sequence_length: int,
+        output_hidden_states: bool = False,
+        output_attentions: bool = False,
+        **kwargs,
+    ):
+        super().__init__()
+        self.model = model
+        self.config = model.config
+        self.batch_size = batch_size
+        self.sequence_length = audio_sequence_length
+        self.output_hidden_states = output_hidden_states
+        self.output_attentions = output_attentions
+
+    def forward(
+        self,
+        input_features,
+        attention_mask=None,
+        **kwargs,
+    ):
+        outputs = self.model.model.encoder(
+            input_features=input_features,
+            attention_mask=attention_mask,
+            output_attentions=self.output_attentions,
+            output_hidden_states=self.output_hidden_states,
+            return_dict=True,
+        )
+        return outputs.last_hidden_state
+
+
 class WhisperDecoderWrapper(torch.nn.Module):
     """Wrapper to trace the decoder and projection output layer of Whisper."""
 
@@ -627,40 +663,34 @@ class WhisperDecoderWrapper(torch.nn.Module):
         model: "PreTrainedModel",
         batch_size: int,
         sequence_length: int,
-        num_beams: int = 1,
         output_hidden_states: bool = False,
         output_attentions: bool = False,
+        **kwargs,
     ):
         super().__init__()
         self.model = model
         self.config = model.config
         self.batch_size = batch_size
         self.sequence_length = sequence_length
-        self.num_beams = num_beams
         self.output_hidden_states = output_hidden_states
         self.output_attentions = output_attentions
-    
+
     def forward(
         self,
         input_ids,
-        decoder_attention_mask,
         encoder_hidden_states,
-        encoder_attention_mask,
-        beam_idx,
-        beam_scores,
         **kwargs,
     ):
-        outputs = self.model.decoder(
+        outputs = self.model.model.decoder(
             input_ids=input_ids,
-            attention_mask=decoder_attention_mask,
             encoder_hidden_states=encoder_hidden_states,
             output_attentions=False,
             output_hidden_states=False,
             return_dict=True,
         )
-        lm_logits = self.proj_out(outputs[0])
-        return (lm_logits, outputs.encoder_last_hidden_state)
-        
+        lm_logits = self.model.proj_out(outputs[0])
+        return (lm_logits, outputs.last_hidden_state)
+
 
 
 class NoCacheModelWrapper(torch.nn.Module):

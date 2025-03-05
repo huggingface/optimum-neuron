@@ -43,6 +43,7 @@ from ....neuron.utils import (
     DummyControNetInputGenerator,
     DummyIPAdapterInputGenerator,
     DummyMaskedPosGenerator,
+    WhisperDummyTextInputGenerator,
     is_neuronx_distributed_available,
 )
 from ..config import (
@@ -64,6 +65,7 @@ from ..model_wrappers import (
     T5EncoderWrapper,
     UnetNeuronWrapper,
     WhisperDecoderWrapper,
+    WhisperEncoderWrapper,
 )
 
 
@@ -859,6 +861,10 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
     def outputs(self) -> List[str]:
         return ["last_hidden_state"]
 
+    @property
+    def is_encoder_decoder(self) -> bool:
+        return True
+
     def patch_model_for_export(self, model_or_path, **input_shapes):
         return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes)
 
@@ -990,6 +996,10 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
 
         return common_outputs
 
+    @property
+    def is_encoder_decoder(self) -> bool:
+        return True
+
     def generate_dummy_inputs(self, **kwargs):
         batch_size = kwargs.pop("batch_size") * kwargs.get("num_beams")
         dummy_inputs = super().generate_dummy_inputs(batch_size=batch_size, **kwargs)
@@ -1094,22 +1104,61 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
 class WhisperEncoderNeuronConfig(AudioNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MODEL_TYPE = "whisper-encoder"
+    CUSTOM_MODEL_WRAPPER = WhisperEncoderWrapper
+    INPUT_ARGS = AudioNeuronConfig.INPUT_ARGS + ("sequence_length",)
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
         encoder_num_layers="encoder_layers",
         decoder_num_layers="decoder_layers",
         feature_size="num_mel_bins",
         allow_new=True,
     )
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_features", "attention_mask"]
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["last_hidden_state"]
+
+    @property
+    def is_encoder_decoder(self) -> bool:
+        return True
+
+    def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
+        if "audio_sequence_length" in kwargs:
+            kwargs["sequence_length"] = kwargs["audio_sequence_length"]
+            self._axes["sequence_length"] = self._axes["audio_sequence_length"]
+        return super().generate_dummy_inputs(return_tuple=return_tuple, **kwargs)
+
+    def patch_model_for_export(self, model_or_path, **input_shapes):
+        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes)
 
 
 @register_in_tasks_manager("whisper-decoder", *["automatic-speech-recognition"])
 class WhisperDecoderNeuronConfig(AudioNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MODEL_TYPE = "whisper-decoder"
+    DUMMY_INPUT_GENERATOR_CLASSES = (WhisperDummyTextInputGenerator, )
+    INPUT_ARGS = AudioNeuronConfig.INPUT_ARGS + ("sequence_length",)
     CUSTOM_MODEL_WRAPPER = WhisperDecoderWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
         encoder_num_layers="encoder_layers",
         decoder_num_layers="decoder_layers",
         feature_size="num_mel_bins",
+        hidden_size="d_model",
         allow_new=True,
     )
+    @property
+    def inputs(self) -> List[str]:
+        return ["decoder_input_ids", "encoder_hidden_states"]
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["lm_logits", "encoder_last_hidden_state"]
+
+    @property
+    def is_encoder_decoder(self) -> bool:
+        return True
+
+    def patch_model_for_export(self, model_or_path, **input_shapes):
+        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes)

@@ -58,6 +58,40 @@ class DummyBeamValuesGenerator(DummyInputGenerator):
             return torch.zeros((self.num_beams,), dtype=DTYPE_MAPPER.pt(float_dtype))
 
 
+class WhisperDummyTextInputGenerator(DummyInputGenerator):
+    """
+    Generates dummy inputs for Whisper decoder.
+    """
+
+    SUPPORTED_INPUT_NAMES = (
+        "decoder_input_ids",
+        "encoder_hidden_states",
+    )
+
+    def __init__(
+        self,
+        task: str,
+        normalized_config: NormalizedTextConfig,
+        batch_size: int,
+        sequence_length: int = 1,
+        **kwargs,
+    ):
+        self.task = task
+        self.batch_size = batch_size
+        self.sequence_length = sequence_length
+        self.vocab_size = normalized_config.vocab_size
+        self.normalized_config = normalized_config
+
+
+    def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
+        if input_name == "decoder_input_ids":
+            shape = (self.batch_size, self.sequence_length)
+            return self.random_int_tensor(shape, max_value=self.vocab_size, min_value=0, framework=framework, dtype=int_dtype)
+        elif input_name == "encoder_hidden_states":
+            shape = (self.batch_size, self.normalized_config.max_source_positions, self.normalized_config.hidden_size)
+            return self.random_float_tensor(shape, max_value=self.vocab_size, framework=framework, dtype=float_dtype)
+
+
 class DummyMaskedPosGenerator(DummyInputGenerator):
     SUPPORTED_INPUT_NAMES = ("masked_pos", "bool_masked_pos")
 
