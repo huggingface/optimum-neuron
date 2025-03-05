@@ -115,13 +115,13 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
     model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
     tokenizer = AutoTokenizer.from_pretrained(neuron_decoder_path)
     prompt = "What is Deep Learning?"
-    inputs = tokenizer(prompt, return_tensors='pt')
-    outputs= model.generate(**inputs, do_sample=False, max_new_tokens=17)
+    inputs = tokenizer(prompt, return_tensors="pt")
+    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17)
     expectations = {
         "gpt2": "\n\nDeep learning is a new field of research that has been around for a while",
         "llama": " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial",
         "mistral": "\nWhat is Deep Learning?\nDeep Learning is a type of machine learning that",
-        "mixtral": "_+Azure marineictions spoonニolare又 Movement@Export좌╗personE przASS", # This model has random weights
+        "mixtral": "_+Azure marineictions spoonニolare又 Movement@Export좌╗personE przASS",  # This model has random weights
         "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
         "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
         "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
@@ -171,3 +171,41 @@ def test_decoder_generation_stop_strings(model_and_tokenizer):
     assert len(new_output_string) < len(output_string)
     # Verify the stop string is in the generated string (but not necessarily exactly at the end because of tokenization)
     assert stop_string in output_string
+
+
+def test_continuous_batching_two_requests(model_and_tokenizer):
+    # We bypass the generate method and use the internal model API to prefill / decode
+    model, tokenizer = model_and_tokenizer
+    inputs = tokenizer("Once upon a time", return_tensors='pt')
+    max_new_tokens = 20
+
+    def get_next_tokens(input_ids, cache_ids, start_ids):
+        outputs = model.forward(input_ids, cache_ids, start_ids, return_dict=True)
+        return outputs.logits[:, -1, :].argmax(dim=-1)
+
+    # Prefill a single request, remembering the generated token
+    first_inputs = model.prepare_inputs_for_prefill(**inputs, seq_ids=torch.tensor([0]))
+    next_tokens = get_next_tokens(**first_inputs)
+    # Decode a few tokens
+    gen_tokens = 4
+    input_ids = inputs.input_ids
+    attention_mask = inputs.attention_mask
+    for _ in range(gen_tokens - 1):
+        input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
+        attention_mask = torch.cat([attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))], dim=-1)
+        decode_inputs = model.prepare_inputs_for_decode(input_ids, attention_mask)
+        next_tokens = get_next_tokens(**decode_inputs)
+    # Prefill a second request and concatenate the next tokens for decode
+    second_inputs = model.prepare_inputs_for_prefill(**inputs, seq_ids=torch.tensor([1]))
+    next_tokens = torch.cat([next_tokens, get_next_tokens(**second_inputs)], dim=0)
+    # Decode more tokens until we reach the maximum for the first request
+    second_input_ids = torch.nn.ConstantPad1d((0, gen_tokens - 1), 0)(inputs.input_ids)
+    input_ids = torch.cat([input_ids, second_input_ids], dim=0)
+    second_attention_mask = torch.nn.ConstantPad1d((0, gen_tokens - 1), 0)(inputs.attention_mask)
+    attention_mask = torch.cat([attention_mask, second_attention_mask], dim=0)
+    for _ in range(max_new_tokens - gen_tokens):
+        # TODO: cannot cat here because left aligned
+        input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
+        attention_mask = torch.cat([attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))], dim=-1)
+        decode_inputs = model.prepare_inputs_for_decode(input_ids, attention_mask)
+        next_tokens = get_next_tokens(**decode_inputs)
