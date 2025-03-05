@@ -165,6 +165,17 @@ MODEL_CLASSES_TO_IGNORE = [
 LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
 
 
+def _early_skip(pp_size=None, parallel_sizes=None, model_specs=None):
+    if pp_size is None and parallel_sizes is not None:
+        pp_size = parallel_sizes[-1]
+
+    if pp_size is not None and pp_size > 1 and model_specs is not None:
+        model_type = model_specs[0]
+        manager = ParallelizersManager.parallelizer_for_model(model_type)
+        if not manager.supports_pipeline_parallelism():
+            pytest.skip(f"Pipeline parallelism is not supported for {model_class.__name__}.")
+
+
 @is_trainium_test
 class TestModelParallelization(DistributedTest):
     OUTPUTS_TO_IGNORE = {
@@ -206,16 +217,8 @@ class TestModelParallelization(DistributedTest):
     def early_skip(self, fixtures_kwargs):
         pp_size = fixtures_kwargs.get("pp_size", None)
         parallel_sizes = fixtures_kwargs.get("parallel_sizes", None)
-        if pp_size is None and parallel_sizes is not None:
-            pp_size = parallel_sizes[-1]
         model_specs = fixtures_kwargs.get("model_specs", None)
-
-        if pp_size is not None and pp_size > 1 and model_specs is not None:
-            model_type = model_specs[0]
-            manager = ParallelizersManager.parallelizer_for_model(model_type)
-            if not manager.supports_pipeline_parallelism():
-                pytest.skip(f"Pipeline parallelism is not supported for {model_class.__name__}.")
-
+        _early_skip(pp_size=pp_size, parallel_sizes=parallel_sizes, model_specs=model_specs)
         return super().early_skip(fixtures_kwargs)
 
     def _check_output(self, name: str, original_output, output):
