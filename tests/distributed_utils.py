@@ -97,7 +97,6 @@ class DistributedExec(ABC):
     init_distributed: bool = True
     set_dist_env: bool = True
     requires_neuron_environment: bool = True
-    reuse_dist_env: bool = False
     _pool_cache = {}
     exec_timeout: int = TEST_TIMEOUT
 
@@ -154,14 +153,8 @@ class DistributedExec(ABC):
 
         # Create process pool or use cached one
         master_port = None
-        if self.reuse_dist_env:
-            if num_procs not in self._pool_cache:
-                self._pool_cache[num_procs] = mp.Pool(processes=num_procs)
-                master_port = get_master_port()
-            pool = self._pool_cache[num_procs]
-        else:
-            pool = mp.Pool(processes=num_procs)
-            master_port = get_master_port()
+        pool = mp.Pool(processes=num_procs)
+        master_port = get_master_port()
 
         # Run the test
         args = [(local_rank, num_procs, master_port, tp_size, pp_size) for local_rank in range(num_procs)]
@@ -235,17 +228,16 @@ class DistributedExec(ABC):
             dist.barrier()
             dist.destroy_process_group()
 
-    def _close_pool(self, pool, num_procs, force=False, use_terminate=False):
-        if force or not self.reuse_dist_env:
-            try:
-                _ = pool.starmap(self._dist_destroy, [() for _ in range(num_procs)])
-                if use_terminate:
-                    pool.terminate()
-                else:
-                    pool.close()
-                pool.join()
-            except ValueError:
-                pass
+    def _close_pool(self, pool, num_procs, use_terminate=False):
+        try:
+            _ = pool.starmap(self._dist_destroy, [() for _ in range(num_procs)])
+            if use_terminate:
+                pool.terminate()
+            else:
+                pool.close()
+            pool.join()
+        except ValueError:
+            pass
 
 
 class DistributedTest(DistributedExec):
