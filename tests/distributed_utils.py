@@ -261,12 +261,6 @@ class DistributedTest(DistributedExec):
         """
         pass
 
-    # Temporary directory that is shared among test methods in a class
-    @pytest.fixture(autouse=True, scope="class")
-    def class_tmpdir(self, tmpdir_factory):
-        fn = tmpdir_factory.mktemp(self.__class__.__name__)
-        return fn
-
     def run(self, **fixture_kwargs):
         self._current_test(**fixture_kwargs)
 
