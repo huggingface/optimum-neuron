@@ -39,18 +39,6 @@ PACKAGE_FILES = $(PACKAGE_PYTHON_FILES)  \
 $(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)
 	python -m build
 
-neuronx-tgi: $(PACKAGE_DIST)
-	docker build --rm -f text-generation-inference/Dockerfile \
-	             --build-arg VERSION=$(VERSION) \
-				 -t neuronx-tgi:$(VERSION) .
-	docker tag neuronx-tgi:$(VERSION) neuronx-tgi:latest
-
-neuronx-tgi-sagemaker: $(PACKAGE_DIST)
-	docker build --rm -f text-generation-inference/Dockerfile \
-	             --build-arg VERSION=$(VERSION) \
-				 --target sagemaker \
-				 -t neuronx-tgi:$(VERSION) .
-
 # Creates example scripts from Transformers
 transformers_examples:
 	rm -f examples/**/*.py
@@ -80,20 +68,3 @@ pypi_upload: ${PACKAGE_DIST} ${PACKAGE_WHEEL}
 test_installs:
 	python -m pip install .[tests]
 	python -m pip install git+https://github.com/huggingface/transformers.git
-
-# Stand-alone TGI server for unit tests outside of TGI container
-tgi_server:
-	python -m pip install -r text-generation-inference/server/build-requirements.txt
-	make -C text-generation-inference/server clean
-	VERSION=${VERSION} make -C text-generation-inference/server gen-server
-
-tgi_test: tgi_server
-	python -m pip install .[neuronx]
-	python -m pip install -r text-generation-inference/tests/requirements.txt
-	find text-generation-inference -name "text_generation_server-$(VERSION)-py3-none-any.whl" \
-	                               -exec python -m pip install --force-reinstall {} \;
-	python -m pytest -sv text-generation-inference/tests -k server
-
-tgi_docker_test: neuronx-tgi
-	python -m pip install -r text-generation-inference/tests/requirements.txt
-	python -m pytest -sv text-generation-inference/tests -k integration

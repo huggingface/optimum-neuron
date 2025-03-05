@@ -39,6 +39,7 @@ from .utils import (
     mark_parameter_init_status_during_parallelization,
     maybe_load_weights_to_gqa_qkv_column_parallel_linear,
     maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear,
+    parallel_cross_entropy,
 )
 
 
@@ -47,11 +48,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.get_logger()
-
-
-# Just for testing purposes, setting that to True will feed a copy of the  input to `parallel_cross_entropy` which
-# changes inputs inplace. This way the original input is not transformed and can be used in tests for comparison.
-_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT: bool = False
 
 
 class ParallelLayer(ABC):
@@ -379,8 +375,8 @@ class ParallelSelfAttention(ParallelLayer):
         key_linear = getattr(attention_layer, cls.KEYS_NAME)
 
         hidden_size = query_linear.weight.size(1)
-        query_in_features = query_linear.weight.size(0)
-        key_value_in_features = key_linear.weight.size(0)
+        query_out_features = query_linear.out_features
+        key_value_out_features = key_linear.out_features
 
         if kv_size_multiplier is None:
             kv_size_multiplier = get_tensor_model_parallel_size() // num_key_value_heads
@@ -397,7 +393,7 @@ class ParallelSelfAttention(ParallelLayer):
             num_attention_heads,
             num_key_value_heads,
             hidden_size,
-            [query_in_features, key_value_in_features],
+            [query_out_features, key_value_out_features],
             gather_output=False,
             bias=query_linear.bias is not None,
             sequence_parallel_enabled=sequence_parallel_enabled,
@@ -871,40 +867,6 @@ class ParallelMLP(ParallelLayer):
         return layer
 
 
-@requires_neuronx_distributed
-@torch.fx.wrap
-def safe_parallel_cross_entropy(*args, **kwargs):
-    if kwargs.pop("weight", None) is not None:
-        raise ValueError("The weight keyword argument is not supported when using parallel cross entropy")
-    if kwargs.pop("size_average", None) is not None:
-        raise ValueError("The size_average keyword argument is not supported when using parallel cross entropy")
-    if kwargs.pop("ignore_index", -100) != -100:
-        raise ValueError("The ignore_index keyword argument is not supported when using parallel cross entropy")
-    if kwargs.pop("reduce", None) is not None:
-        raise ValueError("The reduce keyword argument is not supported when using parallel cross entropy")
-    reduction = kwargs.pop("reduction", "mean")
-    if reduction not in ["mean", "sum", "none"]:
-        raise ValueError(
-            f'The reduction parameter only accepts 3 values: "mean", "sum" and "none", but {reduction} was provided '
-            "here."
-        )
-
-    from neuronx_distributed.parallel_layers.loss_functions import parallel_cross_entropy
-
-    input_ = args[0]
-    if _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT:
-        input_ = input_.clone()
-
-    loss = parallel_cross_entropy(input_, *args[1:], **kwargs)
-
-    if reduction == "mean":
-        loss = loss.mean()
-    elif reduction == "sum":
-        loss = loss.sum()
-
-    return loss
-
-
 class ParallelCrossEntropyLoss(_WeightedLoss):
     """
     Same as `torch.nn.CrossEntropyLoss` except that it uses
@@ -932,10 +894,9 @@ class ParallelCrossEntropyLoss(_WeightedLoss):
         # Original way of computing the cross-entropy in `torch_neuronx`:
         # from torch_neuronx.xla_impl.ops import SimpleCrossEntropyLoss
         # output = SimpleCrossEntropyLoss.gen_override().forward(self, input, target)
-        output = safe_parallel_cross_entropy(
+        output = parallel_cross_entropy(
             input,
             target,
-            weight=self.weight,
             ignore_index=self.ignore_index,
             reduction=self.reduction,
             label_smoothing=self.label_smoothing,
@@ -961,8 +922,8 @@ class ParallelCrossEntropy(ParallelLayer):
         orig_forward = model.forward
         patcher = patch_within_function(
             [
-                ("torch.nn.functional.cross_entropy", safe_parallel_cross_entropy),
-                ("torch.nn.modules.loss.F.cross_entropy", safe_parallel_cross_entropy),
+                ("torch.nn.functional.cross_entropy", parallel_cross_entropy),
+                ("torch.nn.modules.loss.F.cross_entropy", parallel_cross_entropy),
             ]
         )
         model.forward = patcher(orig_forward)

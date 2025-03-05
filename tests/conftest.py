@@ -116,7 +116,7 @@ def _hub_test(create_local_cache: bool = False):
 
     delete_repo(custom_cache_repo_with_seed, repo_type="model")
 
-    model_repos = HfApi().list_models()
+    model_repos = HfApi().list_models(author=" optimum-internal-testing-user")
     for repo in model_repos:
         if repo.id.startswith("optimum-neuron-cache-for-testing-"):
             delete_repo(repo.id)

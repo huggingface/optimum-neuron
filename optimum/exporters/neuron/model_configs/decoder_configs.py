@@ -25,6 +25,7 @@ from ....neuron.backends.hlo.config import NeuronConfig
 from ....neuron.backends.hlo.decoder import NeuronHloDecoderModel
 from ....neuron.models.granite.model import GraniteForSampling
 from ....neuron.models.llama.model import LlamaHloModel
+from ....neuron.models.phi3.model import Phi3HloModel
 from ....neuron.models.qwen2.model import Qwen2ForSampling
 from ..base import NeuronExportConfig
 
@@ -166,3 +167,9 @@ class Qwen2NeuronConfig(NeuronDecoderExportConfig):
 class GraniteNeuronConfig(NeuronDecoderExportConfig):
     NEURONX_CLASS = GraniteForSampling
     CONTINUOUS_BATCHING = True
+
+
+@register_in_tasks_manager("phi3", "text-generation")
+class Phi3NeuronConfig(NeuronDecoderExportConfig):
+    NEURONX_CLASS = Phi3HloModel
+    CONTINUOUS_BATCHING = False
