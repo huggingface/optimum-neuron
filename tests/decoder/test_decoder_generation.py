@@ -110,6 +110,28 @@ def test_decoder_generation_padded_inputs(model_and_tokenizer):
 
 @is_inferentia_test
 @requires_neuronx
+def test_decoder_generation_greedy_expectations(neuron_decoder_config):
+    neuron_decoder_path = neuron_decoder_config["neuron_model_path"]
+    model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
+    tokenizer = AutoTokenizer.from_pretrained(neuron_decoder_path)
+    prompt = "What is Deep Learning?"
+    inputs = tokenizer(prompt, return_tensors='pt')
+    outputs= model.generate(**inputs, do_sample=False, max_new_tokens=17)
+    expectations = {
+        "gpt2": "\n\nDeep learning is a new field of research that has been around for a while",
+        "llama": " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial",
+        "mistral": "\nWhat is Deep Learning?\nDeep Learning is a type of machine learning that",
+        "mixtral": "_+Azure marineictions spoonニolare又 Movement@Export좌╗personE przASS", # This model has random weights
+        "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
+        "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
+        "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
+    }
+    config_name = neuron_decoder_config["name"]
+    assert tokenizer.decode(outputs[0]).endswith(expectations[config_name])
+
+
+@is_inferentia_test
+@requires_neuronx
 def test_decoder_generation_multiple_eos_token_ids(model_and_tokenizer):
     model, tokenizer = model_and_tokenizer
     prompt = "Name three fruits:"
