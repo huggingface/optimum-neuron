@@ -23,6 +23,7 @@ import socket
 import time
 import uuid
 from abc import ABC, abstractmethod
+from functools import partial
 from typing import List, Union
 
 import pytest
@@ -93,9 +94,6 @@ class DistributedExec(ABC):
     world_size: Union[int, List[int]] = 2
     tp_size: int = 1
     pp_size: int = 1
-    backend: str = "xla"
-    init_distributed: bool = True
-    set_dist_env: bool = True
     requires_neuron_environment: bool = True
     _pool_cache = {}
     exec_timeout: int = TEST_TIMEOUT
@@ -147,9 +145,12 @@ class DistributedExec(ABC):
         mp.set_start_method("forkserver", force=True)
 
         # We cannot set environment variable `TORCHELASTIC_RUN_ID` here because `torch_neuronx` will
-        # configure PJRT if it is set. Instead we store the value and set it once the other environment
+        # configure PJRT if it is set. Instead we create the value and set it once the other environment
         # variables to simulate a `torchrun` execution (e.g. `LOCAL_RANK`, `RANK`, `WORLD_SIZE`, ...) can be set.
-        self.torchelastic_run_id = str(uuid.uuid4())
+        run_id = str(uuid.uuid4())
+
+        # The run function is passed as parameter
+        run_fn = partial(self.run, **self._fixture_kwargs)
 
         # Create process pool or use cached one
         master_port = None
@@ -157,8 +158,10 @@ class DistributedExec(ABC):
         master_port = get_master_port()
 
         # Run the test
-        args = [(local_rank, num_procs, master_port, tp_size, pp_size) for local_rank in range(num_procs)]
-        skip_msgs_async = pool.starmap_async(self._dist_run, args)
+        args = [
+            (run_fn, run_id, local_rank, num_procs, master_port, tp_size, pp_size) for local_rank in range(num_procs)
+        ]
+        skip_msgs_async = pool.starmap_async(_dist_run, args)
 
         skip_msgs = ""  # Otherwise the linter complains.
         try:
@@ -180,48 +183,45 @@ class DistributedExec(ABC):
             assert len(set(skip_msgs)) == 1, "Multiple different skip messages received"
             pytest.skip(skip_msgs[0])
 
-    def _dist_run(self, local_rank, num_procs, master_port, tp_size, pp_size):
-        skip_msg = ""
-        if not dist.is_initialized():
-            """Initializes communication and executes the user function."""
-            if self.set_dist_env:
-                os.environ["MASTER_ADDR"] = "127.0.0.1"
-                os.environ["MASTER_PORT"] = str(master_port)
-                # Unit tests do not support multi-node so local_rank == global rank
-                os.environ["LOCAL_RANK"] = str(local_rank)
-                os.environ["RANK"] = str(local_rank)
-                os.environ["LOCAL_SIZE"] = str(num_procs)
-                os.environ["WORLD_SIZE"] = str(num_procs)
-                os.environ["LOCAL_WORLD_SIZE"] = str(num_procs)
-                # Unit tests do not support multi-node so there is only one group in our case
-                os.environ["GROUP_RANK"] = "0"
 
-                if not hasattr(self, "torchelastic_run_id"):
-                    raise RuntimeError("self.torchelastic_run_id was not set, it is needed to run a distributed test.")
-                os.environ["TORCHELASTIC_RUN_ID"] = self.torchelastic_run_id
+def _dist_run(run_fn, run_id, local_rank, num_procs, master_port, tp_size, pp_size):
+    skip_msg = ""
+    if not dist.is_initialized():
+        """Initializes communication and executes the user function."""
+        os.environ["MASTER_ADDR"] = "127.0.0.1"
+        os.environ["MASTER_PORT"] = str(master_port)
+        # Unit tests do not support multi-node so local_rank == global rank
+        os.environ["LOCAL_RANK"] = str(local_rank)
+        os.environ["RANK"] = str(local_rank)
+        os.environ["LOCAL_SIZE"] = str(num_procs)
+        os.environ["WORLD_SIZE"] = str(num_procs)
+        os.environ["LOCAL_WORLD_SIZE"] = str(num_procs)
+        # Unit tests do not support multi-node so there is only one group in our case
+        os.environ["GROUP_RANK"] = "0"
 
-                # Now that the environment has been set, we can initialize the XLA environment.
-                torch_neuronx.initialization.initialize()
+        os.environ["TORCHELASTIC_RUN_ID"] = run_id
 
-            if self.init_distributed:
-                dist.init_process_group(backend=self.backend, rank=local_rank, world_size=num_procs)
-                if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
-                    raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
+        # Now that the environment has been set, we can initialize the XLA environment.
+        torch_neuronx.initialization.initialize()
 
-                # Intializing NxD.
-                neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(
-                    tensor_model_parallel_size=tp_size,
-                    pipeline_model_parallel_size=pp_size,
-                )
-        try:
-            self.run(**self._fixture_kwargs)
-        except BaseException as e:
-            if isinstance(e, Skipped):
-                skip_msg = e.msg
-            else:
-                raise e
+        dist.init_process_group(backend="xla", rank=local_rank, world_size=num_procs)
+        if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
+            raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
 
-        return skip_msg
+        # Intializing NxD.
+        neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(
+            tensor_model_parallel_size=tp_size,
+            pipeline_model_parallel_size=pp_size,
+        )
+    try:
+        run_fn()
+    except BaseException as e:
+        if isinstance(e, Skipped):
+            skip_msg = e.msg
+        else:
+            raise e
+
+    return skip_msg
 
 
 def _close_pool(pool, num_procs, use_terminate=False):
