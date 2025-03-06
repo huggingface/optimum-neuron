@@ -130,7 +130,7 @@ def _dynamic_logits_slice(hidden, last_token_id, neuron_config=None):
         batch_size, n_active_tokens, hidden_size = hidden.sizes
     else:
         hidden_size, n_active_tokens, batch_size = hidden.sizes
-    if neuron_config and neuron_config.lhs_aligned:
+    if neuron_config.continuous_batching:
         if not is_bsh:
             hidden = functional.transpose210(hidden)
         hidden = functional.reshape(hidden, (batch_size * n_active_tokens, hidden_size))

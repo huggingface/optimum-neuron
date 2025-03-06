@@ -68,11 +68,6 @@ class NeuronConfig:
             To be selected from `["HSB", "BSH"]`.
         collectives_layout: Layout to be used for collectives within attention.
             To be selected from `["HSB", "BSH"]`.
-        padding_side: The expected tokenizer batch padding side. See:
-            https://huggingface.co/docs/transformers/v4.39.0/en/main_classes/tokenizer#transformers.PreTrainedTokenizer.padding_side
-            The default padding side is "left", however using "right"
-            padding enables variable length sequences to be used. This is
-            enabled when using features such as continuous batching.
         group_query_attention: The sharding configuration to use when the number
             of query attention heads is not equal to the number of key/value
             heads. Neuron attempts to select the best configuration by default.
@@ -136,11 +131,11 @@ class NeuronConfig:
 
     @property
     def use_2d_cache_ids(self):
-        return self.lhs_aligned
+        return self.continuous_batching
 
     @property
     def vectorize_last_token_id(self):
-        return self.lhs_aligned
+        return self.continuous_batching
 
     def to_json(self):
         json_serializable_types = (str, int, float, bool)

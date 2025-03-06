@@ -1297,7 +1297,7 @@ class NeuronHloDecoderModel(NeuronModelBase):
         if start_ids is None or (self.neuron_config.output_all_logits and logits.shape[1] > 1):
             return logits
 
-        if not self.neuron_config.lhs_aligned or input_ids.shape[-1] > 1:
+        if not self.neuron_config.continuous_batching or input_ids.shape[-1] > 1:
             return logits
 
         input_batch_size = start_ids.shape[0]
