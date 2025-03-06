@@ -130,10 +130,6 @@ class NeuronConfig:
         self.attn_output_transposed = attn_output_transposed
 
     @property
-    def use_2d_cache_ids(self):
-        return self.continuous_batching
-
-    @property
     def vectorize_last_token_id(self):
         return self.continuous_batching
 
