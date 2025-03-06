@@ -40,7 +40,7 @@ from .utils import (
 )
 from .utils.hub_cache_utils import ModelCacheEntry, build_cache_config, create_hub_compile_cache_proxy
 from .utils.import_utils import is_neuronx_available
-from .utils.misc import maybe_load_preprocessors
+from ..utils.save_utils import maybe_load_preprocessors
 from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
 

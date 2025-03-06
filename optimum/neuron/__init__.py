@@ -63,7 +63,10 @@ _import_structure = {
         "NeuronPixArtSigmaPipeline",
     ],
     "modeling_decoder": ["NeuronDecoderModel"],
-    "modeling_seq2seq": ["NeuronModelForSeq2SeqLM"],
+    "modeling_seq2seq": [
+        "NeuronModelForSeq2SeqLM", 
+        "NeuronWhisperForConditionalGeneration",
+    ],
     "accelerate": [
         "NeuronAccelerator",
         "NeuronAcceleratorState",
@@ -110,7 +113,7 @@ if TYPE_CHECKING:
         NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
     )
-    from .modeling_seq2seq import NeuronModelForSeq2SeqLM
+    from .modeling_seq2seq import NeuronModelForSeq2SeqLM, NeuronWhisperForConditionalGeneration
     from .modeling_traced import NeuronTracedModel
     from .pipelines import pipeline
     from .trainers import NeuronORPOTrainer, NeuronSFTTrainer, NeuronTrainer, Seq2SeqNeuronTrainer
