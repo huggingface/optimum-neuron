@@ -181,7 +181,7 @@ def _early_skip(pp_size=None, parallel_sizes=None, model_specs=None):
         model_type = model_specs[0]
         manager = ParallelizersManager.parallelizer_for_model(model_type)
         if not manager.supports_pipeline_parallelism():
-            pytest.skip(f"Pipeline parallelism is not supported for {model_class.__name__}.")
+            pytest.skip(f"Pipeline parallelism is not supported for {model_specs[1].__name__}.")
 
 
 def _check_output(name: str, original_output, output):
