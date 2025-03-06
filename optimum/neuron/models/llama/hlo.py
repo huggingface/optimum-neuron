@@ -92,7 +92,6 @@ class LlamaGraphBuilder(DecoderGraphBuilder):
             pre_attn_ln_weight,
             eps,
             dim=2 if is_bsh else 0,
-            neuron_config=self.neuron_config,
         )
         attn_output, out_attn_k_cache, out_attn_v_cache = self.attention(
             ln_hidden,
@@ -120,7 +119,6 @@ class LlamaGraphBuilder(DecoderGraphBuilder):
             pre_mlp_ln_weight,
             eps,
             dim=rms_norm_dim,
-            neuron_config=self.neuron_config,
         )
 
         mlp_hidden = gated_mlp(

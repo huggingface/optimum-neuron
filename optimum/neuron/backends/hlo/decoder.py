@@ -1308,14 +1308,6 @@ class NeuronHloDecoderModel(NeuronModelBase):
 
         return logits
 
-    def _cast_logits(self, logits):
-        # Cast logits to float32 or the dtype specified in the neuron config
-        logits_dtype = torch.float32
-        if self.neuron_config:
-            if self.neuron_config.cast_logits_dtype is not None:
-                logits_dtype = getattr(torch, self.neuron_config.cast_logits_dtype)
-        return logits.to(logits_dtype)
-
     def _context_dynamic_batching(self, hidden, *args):
         is_bsh = self.neuron_config and self.neuron_config.attention_layout == Layout.BSH
         input_batch_size = hidden.shape[0] if is_bsh else hidden.shape[2]
@@ -1365,7 +1357,7 @@ class NeuronHloDecoderModel(NeuronModelBase):
         else:
             logits = self.decode(hidden, *args)
 
-        logits = self._cast_logits(logits)
+        logits = logits.to(torch.float32)
         if self.neuron_config.output_all_logits and context_length > 1:
             logits = logits.permute(2, 1, 0)
         else:

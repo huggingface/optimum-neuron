@@ -71,12 +71,8 @@ class NeuronConfig:
         group_query_attention: The sharding configuration to use when the number
             of query attention heads is not equal to the number of key/value
             heads. Neuron attempts to select the best configuration by default.
-        bf16_rms_norm: Uses BF16 weights and hidden states input for RMS norm operations.
-            By default, the RMS norm operates on FP32 dtype of inputs.
         all_reduce_dtype: The data type that is used for AllReduce collectives.
             To be selected from `["float32", "float16", "bfloat16"]`.
-        cast_logits_dtype: The data type to cast logits to in the forward
-            pass. To be selected from `["float32", "float16", "bfloat16"]`.
         fuse_qkv: Fuses the QKV projection into a single matrix multiplication.
         log_softmax_scores: Return log-softmax scores along with logits.
         output_all_logits: Return all logits from each model invocation.
@@ -94,9 +90,7 @@ class NeuronConfig:
         attention_layout: Layout = Layout.HSB,
         collectives_layout: Layout = Layout.HSB,
         group_query_attention: Optional[GQA] = None,
-        bf16_rms_norm: bool = False,
         all_reduce_dtype: Optional[str] = None,
-        cast_logits_dtype: str = "float32",
         fuse_qkv: bool = False,
         log_softmax_scores: bool = False,
         output_all_logits: bool = False,
@@ -107,10 +101,6 @@ class NeuronConfig:
         self.amp = amp
         self.tp_degree = tp_degree
         self.all_reduce_dtype = all_reduce_dtype
-        self.cast_logits_dtype = cast_logits_dtype
-        assert cast_logits_dtype in valid_dtypes, (
-            f"The `cast_logits_dtype={cast_logits_dtype}` argument must be one of {valid_dtypes}"
-        )
         self.fuse_qkv = fuse_qkv
         self.continuous_batching = continuous_batching
         self.attention_layout = attention_layout
@@ -119,7 +109,6 @@ class NeuronConfig:
         self.group_query_attention = group_query_attention
         if self.group_query_attention is not None:
             self.group_query_attention = GQA(self.group_query_attention)
-        self.bf16_rms_norm = bf16_rms_norm
         self.output_all_logits = output_all_logits
         self.attn_output_transposed = attn_output_transposed
 

@@ -122,7 +122,7 @@ def layer_norm_bsh(hidden, weight, bias, neuron_config=None, tp_degree=None):
     return output
 
 
-def rms_norm_legacy(hidden, weight, eps=1e-6, dim=2, neuron_config=None):
+def rms_norm_legacy(hidden, weight, eps=1e-6, dim=2):
     # Reference: https://github.com/huggingface/transformers/blob/v4.29.2/src/transformers/models/t5/modeling_t5.py#L238-L260
 
     size = hidden.sizes
@@ -133,10 +133,7 @@ def rms_norm_legacy(hidden, weight, eps=1e-6, dim=2, neuron_config=None):
 
     dtype = hidden.dtype
     scribe = hidden.scribe
-    if neuron_config and neuron_config.bf16_rms_norm:
-        scribe_dtype = scribe.bf16
-    else:
-        scribe_dtype = scribe.f32
+    scribe_dtype = scribe.f32
 
     hidden = cast(hidden, scribe_dtype)
 
@@ -160,22 +157,17 @@ def rms_norm_legacy(hidden, weight, eps=1e-6, dim=2, neuron_config=None):
     return result
 
 
-def rms_norm(hidden, weight, eps=1e-6, dim=2, neuron_config=None):
+def rms_norm(hidden, weight, eps=1e-6, dim=2):
     dtype = hidden.dtype
     shape = hidden.sizes
     # Fallback on generic HLO implementation when norm dimension is 1
     if shape[dim] == 1:
-        return rms_norm_legacy(hidden, weight, eps, dim, neuron_config)
+        return rms_norm_legacy(hidden, weight, eps, dim)
     scribe = hidden.scribe
     backend_config = str(dim).encode()
-    if neuron_config and neuron_config.bf16_rms_norm:
-        eps = hidden.scribe.bf16.Constant(constant_value=eps)
-        bf16 = scribe.bf16
-        hidden = cast(hidden, bf16)
-    else:
-        eps = hidden.scribe.f32.Constant(constant_value=eps)
-        f32 = scribe.f32
-        hidden = cast(hidden, f32)
+    eps = hidden.scribe.f32.Constant(constant_value=eps)
+    f32 = scribe.f32
+    hidden = cast(hidden, f32)
 
     result = dtype[shape].CustomCall(
         hidden,
