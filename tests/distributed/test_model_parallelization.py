@@ -15,6 +15,7 @@
 """Tests validating that models can be parallelized correctly."""
 
 from contextlib import nullcontext
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Type, Union
 
@@ -45,7 +46,7 @@ from optimum.neuron.utils.import_utils import (
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from .. import DistributedTest
+from .. import DistributedTest, launch_procs
 from ..utils import SEED, StaticSeedPatcher, create_accelerator, get_model, get_model_inputs
 
 
@@ -377,21 +378,6 @@ class TestModelParallelization(DistributedTest):
     def tie_embeddings(self, request):
         return request.param
 
-    def test_parallel_model_matches_original_model_from_pretrained_with_parallel_embeddings_and_sequence_parallel(
-        self,
-        model_specs,
-        parallel_sizes,
-        monkeypatch,
-    ):
-        _, model_class, model_name_or_path, config_overwrite = model_specs
-
-        # This is very important otherwise the parallel cross entropy loss will modify the logits inplace.
-        monkeypatch.setattr(optimum.neuron.distributed.utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True)
-
-        return _parallel_model_matches_original_model(
-            model_class, model_name_or_path, config_overwrite, parallel_sizes, True, True, True, True
-        )
-
     @pytest.mark.skip("Model parallelism from config is not fully supported yet.")
     def test_parallel_model_matches_original_model_from_config(
         self,
@@ -599,6 +585,41 @@ class TestModelParallelization(DistributedTest):
         gathered_logits = torch.cat(gathered, dim=2)
         xm.mark_step()
         torch.testing.assert_close(orig_logits, gathered_logits)
+
+
+@is_trainium_test
+@pytest.mark.parametrize(
+    "world_size,tp_size,pp_size", [[2, 2, 1], [2, 1, 2], [16, 2, 2]], ids=["tp=2", "pp=2", "dp=4,tp=pp=2"]
+)
+@pytest.mark.parametrize("model_specs", MODELS_TO_TEST, ids=[specs[1].__name__ for specs in MODELS_TO_TEST])
+def test_parallelized_layers_model_matches_original(
+    model_specs,
+    world_size,
+    tp_size,
+    pp_size,
+    monkeypatch,
+):
+    _, model_class, model_name_or_path, config_overwrite = model_specs
+
+    # This is very important otherwise the parallel cross entropy loss will modify the logits inplace.
+    monkeypatch.setattr(optimum.neuron.distributed.utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True)
+
+    # Skip on certain combinations
+    _early_skip(pp_size=pp_size, parallel_sizes=[world_size, tp_size, pp_size], model_specs=model_specs)
+    parallel_sizes = world_size, tp_size, pp_size
+
+    run_fn = partial(
+        _parallel_model_matches_original_model,
+        model_class,
+        model_name_or_path,
+        config_overwrite,
+        parallel_sizes,
+        True,
+        True,
+        True,
+        True,
+    )
+    launch_procs(run_fn, world_size, tp_size, pp_size)
 
 
 @pytest.mark.parametrize(
