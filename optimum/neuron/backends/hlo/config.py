@@ -93,7 +93,6 @@ class NeuronConfig:
         continuous_batching: Optional[bool] = False,
         attention_layout: Layout = Layout.HSB,
         collectives_layout: Layout = Layout.HSB,
-        lhs_aligned: bool = False,
         group_query_attention: Optional[GQA] = None,
         bf16_rms_norm: bool = False,
         all_reduce_dtype: Optional[str] = None,
@@ -114,11 +113,6 @@ class NeuronConfig:
         )
         self.fuse_qkv = fuse_qkv
         self.continuous_batching = continuous_batching
-        if self.continuous_batching:
-            # Force left alignment for continuous batching.
-            self.lhs_aligned = True
-        else:
-            self.lhs_aligned = lhs_aligned
         self.attention_layout = attention_layout
         self.collectives_layout = collectives_layout
         self.log_softmax_scores = log_softmax_scores

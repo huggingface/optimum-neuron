@@ -252,14 +252,7 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
 
         # Multi-Token Context Encoding
         else:
-            batch_size = query.sizes[batch_dim]
-            if self.neuron_config.lhs_aligned or batch_size == 1:
-                context = attention.flash_attention(query, key, value)
-            else:
-                # do not use flash attention for lhs padded (right aligned) batch > 1 case
-                # because it does not correctly take mask into account
-                context = None
-
+            context = attention.flash_attention(query, key, value)
             if context is None:
                 # S = Q @ K
 
