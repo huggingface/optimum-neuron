@@ -191,31 +191,10 @@ class GraniteGraphBuilder(LlamaGraphBuilder):
         # Granite specific: instead of dividing the QK product, multiply it by the attention_multiplier
         query = scale_mul(query, self.config.attention_multiplier)
 
-        batch_dim = 1
-        # Single Token Generation ("Prefetch"-style) ans speculative forward
+        # Single Token Generation (Decode)
         if active_mask is not None:
-            n_active_tokens = key.sizes[0]
-            if n_active_tokens > 1 and self.neuron_config and self.neuron_config.continuous_batching:
-                # For speculative forward + continuous batching, slice out samples in the batch size
-                # corresponding to the batch size of the speculative head
-                slice_sizes = [1] * len(cached_keys.sizes)
-                if cached_keys.sizes[batch_dim] == 1:
-                    # Use functional.select for batch size 1 as index select is prohibitively slow
-                    # TODO: revert to functional.index_select once its faster P126527643
-                    cached_keys_s = functional.select(
-                        cached_keys, batch_dim, functional.reshape(start_ids, slice_sizes), keepdim=True
-                    )
-                    cached_values_s = functional.select(
-                        cached_values, batch_dim, functional.reshape(start_ids, slice_sizes), keepdim=True
-                    )
-                else:
-                    # for multi prompt use case, cached_keys.sizes[batch_dim] can still be larger than 1, so we
-                    # need to use start_ids size to determine if we want to select kv cache.
-                    cached_keys_s = functional.index_select(cached_keys, batch_dim, start_ids)
-                    cached_values_s = functional.index_select(cached_values, batch_dim, start_ids)
-            else:
-                cached_keys_s = cached_keys
-                cached_values_s = cached_values
+            cached_keys_s = cached_keys
+            cached_values_s = cached_values
 
             # Sp = Q @ Kp
             prior_scores = attention.score(
