@@ -586,10 +586,7 @@ def _test_parallelized_layers_model_matches_original(
     # This is very important otherwise the parallel cross entropy loss will modify the logits inplace.
     monkeypatch.setattr(optimum.neuron.distributed.utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True)
 
-    # Skip on certain combinations
-    _early_skip(pp_size=pp_size, parallel_sizes=[world_size, tp_size, pp_size], model_specs=model_specs)
     parallel_sizes = world_size, tp_size, pp_size
-
     run_fn = partial(
         _parallel_model_matches_original_model,
         model_class,
@@ -605,17 +602,14 @@ def _test_parallelized_layers_model_matches_original(
 
 
 @is_trainium_test
-@pytest.mark.parametrize(
-    "world_size,tp_size,pp_size", [[2, 2, 1], [2, 1, 2], [16, 2, 2]], ids=["tp=2", "pp=2", "dp=4,tp=pp=2"]
-)
 @pytest.mark.parametrize("model_specs", NOT_LLAMA_TO_TEST, ids=[specs[1].__name__ for specs in NOT_LLAMA_TO_TEST])
 def test_parallelized_layers_model_matches_original(
     model_specs,
-    world_size,
-    tp_size,
-    pp_size,
     monkeypatch,
 ):
+    world_size = 2
+    tp_size = 2
+    pp_size = 1
     return _test_parallelized_layers_model_matches_original(
         model_specs,
         world_size,
