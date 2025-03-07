@@ -109,9 +109,8 @@ def _generate_supported_model_classes(
     return list(set(model_classes))
 
 
+LLAMA_TYPES_TO_TEST = ("llama", "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random", None)
 MODEL_TYPES_TO_TEST = [
-    # Since the update they seem to not match, that's ok since it is not needed anyways.
-    # ("bert", "hf-internal-testing/tiny-random-bert", {"num_hidden_layers": "2"}),
     ("roberta", "hf-internal-testing/tiny-random-roberta", {"num_hidden_layers": "2"}),
     (
         "gpt_neo",
@@ -120,42 +119,30 @@ MODEL_TYPES_TO_TEST = [
             "num_layers": "2",
         },
     ),
-    # TODO: re-enable that. No super urgent, do not want it to be a blocker.
-    # (
-    #     "gpt_neox",
-    #     "michaelbenayoun/gpt-neox-tiny-4layers-random",
-    #     {"num_hidden_layers": "2"},
-    # ),
-    (
-        "llama",
-        "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random",
-    ),
     (
         "t5",
         "hf-internal-testing/tiny-random-T5Model",
         {"d_ff": "36", "num_layers": "2", "num_decoder_layers": "2"},
     ),
-    ("mistral", "michaelbenayoun/mistral-tiny-4layers-8kv-heads-random"),
+    ("mistral", "michaelbenayoun/mistral-tiny-4layers-8kv-heads-random", None),
 ]
 
-MODELS_TO_TEST = []
-for entry in MODEL_TYPES_TO_TEST:
-    if len(entry) == 2:
-        model_type, model_name_or_path = entry
-        config_overwrite = None
-    else:
+
+def _build_models_to_test(model_types_to_test):
+    models_to_test = []
+    for entry in model_types_to_test:
         model_type, model_name_or_path, config_overwrite = entry
-    for model_class in _generate_supported_model_classes(model_type):
-        entry = (model_type, model_class, model_name_or_path, config_overwrite)
-        if entry not in MODELS_TO_TEST:
-            MODELS_TO_TEST.append(entry)
+        for model_class in _generate_supported_model_classes(model_type):
+            models_to_test.append((model_type, model_class, model_name_or_path, config_overwrite))
+    return models_to_test
+
+
+LLAMA_MODELS_TO_TEST = _build_models_to_test([LLAMA_TYPES_TO_TEST])
+NOT_LLAMA_TO_TEST = _build_models_to_test(MODEL_TYPES_TO_TEST)
+MODELS_TO_TEST = NOT_LLAMA_TO_TEST + LLAMA_MODELS_TO_TEST
 
 
 MODEL_CLASSES_TO_IGNORE = [
-    "BertForPreTraining",  # There is a compilation issue, and testing TP for BertForPretraining is not really important.
-    # TODO
-    # GPTNeo's attention mechanism is broken in transformers==4.36.2, this should be re-enabled once there is a release
-    # containing this PR: https://github.com/huggingface/transformers/pull/28533
     "GPTNeoForSequenceClassification",
     "GPTNeoForTokenClassification",
     "GPTNeoForQuestionAnswering",
@@ -587,12 +574,7 @@ class TestModelParallelization(DistributedTest):
         torch.testing.assert_close(orig_logits, gathered_logits)
 
 
-@is_trainium_test
-@pytest.mark.parametrize(
-    "world_size,tp_size,pp_size", [[2, 2, 1], [2, 1, 2], [16, 2, 2]], ids=["tp=2", "pp=2", "dp=4,tp=pp=2"]
-)
-@pytest.mark.parametrize("model_specs", MODELS_TO_TEST, ids=[specs[1].__name__ for specs in MODELS_TO_TEST])
-def test_parallelized_layers_model_matches_original(
+def _test_parallelized_layers_model_matches_original(
     model_specs,
     world_size,
     tp_size,
@@ -620,6 +602,50 @@ def test_parallelized_layers_model_matches_original(
         True,
     )
     launch_procs(run_fn, world_size, tp_size, pp_size)
+
+
+@is_trainium_test
+@pytest.mark.parametrize(
+    "world_size,tp_size,pp_size", [[2, 2, 1], [2, 1, 2], [16, 2, 2]], ids=["tp=2", "pp=2", "dp=4,tp=pp=2"]
+)
+@pytest.mark.parametrize("model_specs", NOT_LLAMA_TO_TEST, ids=[specs[1].__name__ for specs in NOT_LLAMA_TO_TEST])
+def test_parallelized_layers_model_matches_original(
+    model_specs,
+    world_size,
+    tp_size,
+    pp_size,
+    monkeypatch,
+):
+    return _test_parallelized_layers_model_matches_original(
+        model_specs,
+        world_size,
+        tp_size,
+        pp_size,
+        monkeypatch,
+    )
+
+
+@is_trainium_test
+@pytest.mark.parametrize(
+    "world_size,tp_size,pp_size", [[2, 2, 1], [2, 1, 2], [16, 2, 2]], ids=["tp=2", "pp=2", "dp=4,tp=pp=2"]
+)
+@pytest.mark.parametrize(
+    "model_specs", LLAMA_MODELS_TO_TEST, ids=[specs[1].__name__ for specs in LLAMA_MODELS_TO_TEST]
+)
+def test_parallelized_llama_matches_original(
+    model_specs,
+    world_size,
+    tp_size,
+    pp_size,
+    monkeypatch,
+):
+    return _test_parallelized_layers_model_matches_original(
+        model_specs,
+        world_size,
+        tp_size,
+        pp_size,
+        monkeypatch,
+    )
 
 
 @pytest.mark.parametrize(
