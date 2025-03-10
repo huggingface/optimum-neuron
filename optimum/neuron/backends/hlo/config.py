@@ -77,6 +77,7 @@ class NeuronConfig:
         log_softmax_scores: Return log-softmax scores along with logits.
         output_all_logits: Return all logits from each model invocation.
         attn_output_transposed: Transposes the attention output projection weight tensor.
+        allow_flash_attention: if possible, use flash attention.
     """
 
     def __init__(
@@ -95,6 +96,7 @@ class NeuronConfig:
         log_softmax_scores: bool = False,
         output_all_logits: bool = False,
         attn_output_transposed: bool = False,
+        allow_flash_attention: bool = True,
     ):
         self.n_positions = n_positions
         self.batch_size = batch_size
@@ -111,6 +113,7 @@ class NeuronConfig:
             self.group_query_attention = GQA(self.group_query_attention)
         self.output_all_logits = output_all_logits
         self.attn_output_transposed = attn_output_transposed
+        self.allow_flash_attention = allow_flash_attention
 
     @property
     def vectorize_last_token_id(self):

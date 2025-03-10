@@ -271,7 +271,9 @@ class LlamaGraphBuilder(DecoderGraphBuilder):
 
         # Multi-Token Context Encoding
         else:
-            context = attention.flash_attention(query, key, value)
+            context = None
+            if self.neuron_config.allow_flash_attention:
+                context = attention.flash_attention(query, key, value)
             if context is None:
                 # S = Q @ K
 
