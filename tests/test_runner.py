@@ -35,13 +35,11 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
 _TINY_BERT_MODEL_NAME = "hf-internal-testing/tiny-random-bert"
-_TINY_GPT_NEO_MODEL_NAME = "hf-internal-testing/tiny-random-GPTNeoForCausalLM"
 _TINY_BART_MODEL_NAME = "hf-internal-testing/tiny-random-BartForConditionalGeneration"
 _TINY_VIT_MODEL_NAME = "hf-internal-testing/tiny-random-ViTForImageClassification"
 
 TO_TEST = [
     ("masked-lm", _TINY_BERT_MODEL_NAME, 128),
-    ("causal-lm", _TINY_GPT_NEO_MODEL_NAME, 128),
     ("text-classification", _TINY_BERT_MODEL_NAME, 128),
     ("token-classification", _TINY_BERT_MODEL_NAME, 384),
     ("multiple-choice", "hf-internal-testing/tiny-random-BertForMultipleChoice", 384),
