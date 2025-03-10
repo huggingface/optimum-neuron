@@ -113,13 +113,6 @@ LLAMA_TYPES_TO_TEST = ("llama", "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-
 MODEL_TYPES_TO_TEST = [
     ("roberta", "hf-internal-testing/tiny-random-roberta", {"num_hidden_layers": "2"}),
     (
-        "gpt_neo",
-        "hf-internal-testing/tiny-random-GPTNeoModel",
-        {
-            "num_layers": "2",
-        },
-    ),
-    (
         "t5",
         "hf-internal-testing/tiny-random-T5Model",
         {"d_ff": "36", "num_layers": "2", "num_decoder_layers": "2"},
@@ -140,14 +133,6 @@ def _build_models_to_test(model_types_to_test):
 LLAMA_MODELS_TO_TEST = _build_models_to_test([LLAMA_TYPES_TO_TEST])
 NOT_LLAMA_TO_TEST = _build_models_to_test(MODEL_TYPES_TO_TEST)
 MODELS_TO_TEST = NOT_LLAMA_TO_TEST + LLAMA_MODELS_TO_TEST
-
-
-MODEL_CLASSES_TO_IGNORE = [
-    "GPTNeoForSequenceClassification",
-    "GPTNeoForTokenClassification",
-    "GPTNeoForQuestionAnswering",
-    "GPTNeoForCausalLM",
-]
 
 
 OUTPUTS_TO_IGNORE = {
@@ -218,9 +203,6 @@ def _parallel_model_matches_original_model(
     sequence_parallel_enabled,
     parallelize_embeddings,
 ):
-    if model_class.__name__ in MODEL_CLASSES_TO_IGNORE:
-        pytest.skip(f"Skipping test for {model_class.__name__} since it is buggy or a special case.")
-
     world_size, tp_size, pp_size = parallel_sizes
     dp_size = world_size // (tp_size * pp_size)
     pp_rank = get_pipeline_model_parallel_rank()

@@ -21,7 +21,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers.cache_utils import Cache
-from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoBlock, GPTNeoSelfAttention
 from transformers.models.llama.modeling_llama import (
     LlamaAttention,
     LlamaDecoderLayer,
@@ -50,117 +49,6 @@ from .utils import get_linear_weight_info, linear_to_parallel_linear
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
-
-
-class GPTNeoParallelEmbedding(ParallelEmbedding):
-    EMBEDDING_NAME = "transformer.wte"
-    LM_HEAD_NAME = "lm_head"
-
-
-class GPTNeoParallelSelfAttention(ParallelSelfAttention):
-    QUERIES_NAME = "q_proj"
-    KEYS_NAME = "k_proj"
-    VALUES_NAME = "v_proj"
-    OUTPUT_PROJECTION_NAME = "out_proj"
-    ALL_HEAD_SIZE_NAME = "embed_dim"
-
-
-class GPTNeoParallelMLP(ParallelMLP):
-    FIRST_LINEAR_NAME = "c_fc"
-    SECOND_LINEAR_NAME = "c_proj"
-
-
-class GPTNeoParallelCrossEntropy(ParallelCrossEntropy):
-    LAST_LINEAR_PROJECTION_NAME = {"GPTNeoForCausalLM": "lm_head"}
-
-
-class GPTNeoSequenceParallelismSpecs(SequenceParallelismSpecs):
-    SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
-        "transformer.h.[0-9]+.ln_[1-2]",
-        "transformer.ln_f",
-    ]
-    SEQUENCE_COLLECTIVE_OPS_INFOS = [
-        SequenceCollectiveOpInfo("scatter", GPTNeoBlock, "input", "first"),
-        SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "output", "last"),
-    ]
-
-    @classmethod
-    def patch_for_sequence_parallelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
-        if not sequence_parallel_enabled:
-            return
-
-        def _split_heads(self, tensor, num_heads, attn_head_size):
-            new_shape = tensor.size()[:-1] + (num_heads, attn_head_size)
-            tensor = tensor.view(new_shape)
-            if sequence_parallel_enabled:
-                # [S, B, num_heads, head_dim] -> [B, num_heads, S, head_dim]
-                return tensor.permute(1, 2, 0, 3)
-            return tensor.permute(0, 2, 1, 3)
-
-        def _merge_heads(self, tensor, num_heads, attn_head_size):
-            if sequence_parallel_enabled:
-                # [B, num_heads, S, head_dim] -> [S, B, num_heads, head_dim]
-                tensor = tensor.permute(2, 0, 1, 3).contiguous()
-            else:
-                tensor = tensor.permute(0, 2, 1, 3).contiguous()
-            new_shape = tensor.size()[:-2] + (num_heads * attn_head_size,)
-            return tensor.view(new_shape)
-
-        for module in model.modules():
-            if isinstance(module, GPTNeoSelfAttention):
-                module._split_heads = _split_heads.__get__(module)
-                module._merge_heads = _merge_heads.__get__(module)
-
-
-class GPTNeoParallelizer(Parallelizer):
-    SEQUENCE_PARALLELSIM_SPECS_CLS = GPTNeoSequenceParallelismSpecs
-
-    @classmethod
-    def _parallelize(
-        cls,
-        model: "PreTrainedModel",
-        device: Optional[torch.device] = None,
-        parallelize_embeddings: bool = True,
-        sequence_parallel_enabled: bool = False,
-        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
-        **parallel_layer_specific_kwargs,
-    ) -> "PreTrainedModel":
-        if parallelize_embeddings:
-            model = GPTNeoParallelEmbedding.transform(
-                model,
-                model,
-                sequence_parallel_enabled=sequence_parallel_enabled,
-                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
-                device=device,
-                **parallel_layer_specific_kwargs,
-            )
-        for block in model.transformer.h:
-            block.attn.attention = GPTNeoParallelSelfAttention.transform(
-                model,
-                block.attn.attention,
-                sequence_parallel_enabled=sequence_parallel_enabled,
-                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
-                device=device,
-                **parallel_layer_specific_kwargs,
-            )
-            block.mlp = GPTNeoParallelMLP.transform(
-                model,
-                block.mlp,
-                sequence_parallel_enabled=sequence_parallel_enabled,
-                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
-                device=device,
-                **parallel_layer_specific_kwargs,
-            )
-        if parallelize_embeddings:
-            model = GPTNeoParallelCrossEntropy.transform(
-                model,
-                model,
-                sequence_parallel_enabled=sequence_parallel_enabled,
-                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
-                device=device,
-                **parallel_layer_specific_kwargs,
-            )
-        return model
 
 
 class LlamaParallelEmbedding(ParallelEmbedding):

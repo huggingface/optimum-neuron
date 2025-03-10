@@ -121,11 +121,6 @@ ARCHITECTURES_TO_COMMON_PRETRAINED_WEIGHTS = {
             "default": {"batch_size": 16, "sequence_length": 128},
         },
     },
-    "gpt-neo": {
-        "EleutherAI/gpt-neo-125M": {
-            "default": {"batch_size": 16, "sequence_length": 128},
-        },
-    },
     "marian": {
         "Helsinki-NLP/opus-mt-en-es": {
             "translation": {"batch_size": 4, "source_sequence_length": 512, "target_sequence_length": 512},
