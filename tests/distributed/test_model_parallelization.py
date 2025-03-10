@@ -502,7 +502,7 @@ class TestModelParallelization(DistributedTest):
             model.save_pretrained(model_name_or_path)
         xm.rendezvous("Model creation done.")
 
-        return self._parallel_model_matches_original_model(
+        return _parallel_model_matches_original_model(
             LlamaForCausalLM,
             model_name_or_path,
             config_overwrite,
