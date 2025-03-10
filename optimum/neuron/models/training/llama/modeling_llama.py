@@ -81,6 +81,7 @@ from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_
 
 from ....accelerate import ModelParallelismConfig
 from ...loss_utils import ForCausalLMLoss
+from .. import NeuronModelMixin
 
 
 logger = logging.get_logger(__name__)
@@ -371,7 +372,7 @@ class LlamaDecoderLayer(LlamaDecoderLayerHF):
         )
 
 
-class LlamaModel(LlamaModelHF):
+class LlamaModel(NeuronModelMixin, LlamaModelHF):
     """
     Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`LlamaDecoderLayer`]
 
@@ -506,12 +507,12 @@ class LlamaModel(LlamaModelHF):
         )
         return output if return_dict else output.to_tuple()
 
-class LlamaForCausalLM(LlamaForCausalLMHF):
+class LlamaForCausalLM(NeuronModelMixin, LlamaForCausalLMHF):
     _tied_weights_keys = ["lm_head.weight"]
     _tp_plan = {"lm_head": "colwise_rep"}
 
     def __init__(self, config, mp_config: ModelParallelismConfig):
-        super().__init__(config)
+        LlamaForCausalLMHF.__init__(self,config)
         self.model = LlamaModel(config, mp_config)
         self.vocab_size = config.vocab_size
         self.mp_config = mp_config
