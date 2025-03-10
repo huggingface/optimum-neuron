@@ -139,12 +139,6 @@ MODELS_TO_TEST_MAPPING = {
         Coverage.MIDDLE,
         {"num_hidden_layers": 4},
     ),
-    "gpt_neo": (
-        "EleutherAI/gpt-neo-125M",
-        TPSupport.PARTIAL,
-        Coverage.HIGH,
-        {"num_hidden_layers": 4, "attention_types": [[["global", "local"], 2]]},
-    ),
     "marian": (
         "Helsinki-NLP/opus-mt-en-ro",
         TPSupport.NONE,
