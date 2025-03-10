@@ -35,8 +35,6 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
 _TINY_BERT_MODEL_NAME = "hf-internal-testing/tiny-random-bert"
-_TINY_BART_MODEL_NAME = "hf-internal-testing/tiny-random-BartForConditionalGeneration"
-_TINY_VIT_MODEL_NAME = "hf-internal-testing/tiny-random-ViTForImageClassification"
 
 TO_TEST = [
     ("masked-lm", _TINY_BERT_MODEL_NAME, 128),
@@ -44,10 +42,6 @@ TO_TEST = [
     ("token-classification", _TINY_BERT_MODEL_NAME, 384),
     ("multiple-choice", "hf-internal-testing/tiny-random-BertForMultipleChoice", 384),
     ("question-answering", _TINY_BERT_MODEL_NAME, 384),
-    # The following tests are disabled because they fail with AWS Neuron SDK 2.16
-    # ("summarization", _TINY_BART_MODEL_NAME, [10, 10]),
-    # ("translation", _TINY_BART_MODEL_NAME, [10, 10]),
-    # ("image-classification", _TINY_VIT_MODEL_NAME, None),
 ]
 
 
