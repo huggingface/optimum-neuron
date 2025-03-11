@@ -145,17 +145,6 @@ OUTPUTS_TO_IGNORE = {
 LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
 
 
-def _early_skip(pp_size=None, parallel_sizes=None, model_specs=None):
-    if pp_size is None and parallel_sizes is not None:
-        pp_size = parallel_sizes[-1]
-
-    if pp_size is not None and pp_size > 1 and model_specs is not None:
-        model_type = model_specs[0]
-        manager = ParallelizersManager.parallelizer_for_model(model_type)
-        if not manager.supports_pipeline_parallelism():
-            pytest.skip(f"Pipeline parallelism is not supported for {model_specs[1].__name__}.")
-
-
 def _check_output(name: str, original_output, output):
     assert type(original_output) is type(output)
     if isinstance(original_output, (tuple, list, set)):
@@ -346,19 +335,6 @@ class TestModelParallelization(DistributedTest):
     @pytest.fixture(scope="class", params=[False, True], ids=["embeddings_not_tied", "tied_embeddings"])
     def tie_embeddings(self, request):
         return request.param
-
-    @pytest.mark.skip("Model parallelism from config is not fully supported yet.")
-    def test_parallel_model_matches_original_model_from_config(
-        self,
-        model_specs,
-        parallel_sizes,
-        monkeypatch,
-    ):
-        _, model_class, model_name_or_path, config_overwrite = model_specs
-        monkeypatch.setattr(optimum.neuron.distributed.utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True)
-        return _parallel_model_matches_original_model(
-            model_class, model_name_or_path, config_overwrite, parallel_sizes, False, True, False, False
-        )
 
     @pytest.mark.skipif(
         NUM_NEURON_CORES_AVAILABLE < 32,
