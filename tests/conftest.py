@@ -156,13 +156,6 @@ def pytest_runtest_call(item):
         item.runtest = lambda: True  # Dummy function so test is not run twice
 
 
-@pytest.hookimpl(tryfirst=True)
-def pytest_fixture_setup(fixturedef, request):
-    if getattr(fixturedef.func, "is_dist_fixture", False):
-        dist_fixture_class = fixturedef.func()
-        dist_fixture_class(request)
-
-
 @pytest.fixture
 def staging():
     """A pytest fixture only available in huggingface_hub staging mode
