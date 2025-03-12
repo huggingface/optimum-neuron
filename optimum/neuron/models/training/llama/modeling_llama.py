@@ -109,6 +109,9 @@ class LlamaMLP(LlamaMLPHF):
         self.act_fn = ACT2FN[config.hidden_act]
 
         init_method = partial(_init_normal, config.initializer_range)
+        self.fused_linears = {
+            "gate_up_proj": ["gate_proj", "up_proj"],
+        }
         self.gate_up_proj = ColumnParallelLinear(
             self.hidden_size,
             2 * self.intermediate_size,
@@ -216,6 +219,9 @@ class LlamaAttention(LlamaAttentionHF):
                 dtype=self.config.torch_dtype,
             )
         elif mp_config.fuse_qkv and self.num_heads == self.num_key_value_heads:
+            self.fused_linears = {
+                "qkv_proj": ["q_proj", "k_proj", "v_proj"],
+            }
             self.qkv_proj = ColumnParallelLinear(
                 self.hidden_size,
                 3 * self.num_heads * self.head_dim,
@@ -280,7 +286,7 @@ class LlamaAttention(LlamaAttentionHF):
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         bsz, q_len, _ = hidden_states.size()
-        if self.config.sequence_parallel_enabled:
+        if self.mp_config.sequence_parallel_enabled:
             q_len, bsz, _ = hidden_states.size()
             q_len = q_len * get_tensor_model_parallel_size()
 
