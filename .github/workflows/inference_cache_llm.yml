@@ -27,6 +27,8 @@ jobs:
           gpt2,
           llama,
           qwen2.5,
+          granite,
+          phi4,
           llama3.1-70b,
           qwen2.5-large,
           mistral,
