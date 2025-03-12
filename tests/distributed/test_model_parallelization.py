@@ -529,12 +529,30 @@ def _test_resize_embedding(tie_embeddings, lazy_load):
 
 
 @is_trainium_test
-@pytest.mark.parametrize("lazy_load", [False, True], ids=["regular_load", "lazy_load"])
-@pytest.mark.parametrize("tie_embeddings", [False, True], ids=["embeddings_not_tied", "tied_embeddings"])
+@pytest.mark.parametrize(
+    "tie_embeddings, lazy_load",
+    [
+        (False, False),
+        (True, False),
+        (True, True),
+    ],
+    ids=["embeddings_not_tied-regular_load", "tied_embeddings-regular_load", "tied_embeddings-lazy_load"],
+)
 def test_resize_embedding(tie_embeddings, lazy_load):
     world_size, tp_size, pp_size = (2, 2, 1)
     run_fn = partial(_test_resize_embedding, tie_embeddings, lazy_load)
     launch_procs(run_fn, world_size, tp_size, pp_size)
+
+
+@is_trainium_test
+# Resize embeddings is not supported when lazy loading AND untied embeddings.
+def test_resize_embedding_unsupported():
+    tie_embeddings = False
+    lazy_load = True
+    world_size, tp_size, pp_size = (2, 2, 1)
+    run_fn = partial(_test_resize_embedding, tie_embeddings, lazy_load)
+    with pytest.raises(RuntimeError, match="Cannot resize token embeddings"):
+        launch_procs(run_fn, world_size, tp_size, pp_size)
 
 
 def _test_parallelized_layers_model_matches_original(

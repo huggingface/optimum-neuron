@@ -1429,6 +1429,16 @@ def parameter_can_be_initialized(model: torch.nn.Module, parent_module: torch.nn
     )
 
 
+def _check_meta(model: torch.nn.Module):
+    """
+    Check if any parameter in the model is on the meta device. Usually indicates lazy loading.
+    """
+    for name, param in model.named_parameters():
+        if param.device == torch.device("meta"):
+            return True
+    return False
+
+
 def create_wrapper_for_resize_token_embedding(orig_resize_token_embeddings):
     @functools.wraps(orig_resize_token_embeddings)
     def wrapper(
@@ -1476,6 +1486,10 @@ def create_wrapper_for_resize_token_embedding(orig_resize_token_embeddings):
             else:
                 self._init_weights(lm_head)
 
+        lazy_loading = _check_meta(self)
+        tied_embeddings = getattr(self.config, "tie_word_embeddings", False)
+        if lazy_loading and not tied_embeddings:
+            raise RuntimeError("Cannot resize token embeddings when using untied embeddings with lazy loading.")
         return orig_resize_token_embeddings(new_num_tokens=new_num_tokens, pad_to_multiple_of=pad_to_multiple_of)
 
     bound_wrapper = wrapper.__get__(orig_resize_token_embeddings.__self__)
