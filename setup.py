@@ -55,6 +55,7 @@ TRAINING_REQUIRES = [
     "trl == 0.11.4",
     "peft == 0.14.0",
     "evaluate == 0.4.3",
+    "neuronx_distributed==0.10.1",
 ]
 
 EXTRAS_REQUIRE = {
