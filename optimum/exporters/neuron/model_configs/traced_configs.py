@@ -1105,7 +1105,8 @@ class WhisperEncoderNeuronConfig(AudioNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MODEL_TYPE = "whisper-encoder"
     CUSTOM_MODEL_WRAPPER = WhisperEncoderWrapper
-    INPUT_ARGS = AudioNeuronConfig.INPUT_ARGS + ("sequence_length",)
+    INPUT_ARGS = ("batch_size", "sequence_length")
+    DUMMY_INPUT_GENERATOR_CLASSES = AudioNeuronConfig.DUMMY_INPUT_GENERATOR_CLASSES + (WhisperDummyTextInputGenerator, )
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
         encoder_num_layers="encoder_layers",
         decoder_num_layers="decoder_layers",
@@ -1114,20 +1115,18 @@ class WhisperEncoderNeuronConfig(AudioNeuronConfig):
     )
     @property
     def inputs(self) -> List[str]:
-        return ["input_features", "attention_mask"]
+        return ["input_features", "decoder_input_ids"]
 
     @property
     def outputs(self) -> List[str]:
-        return ["last_hidden_state"]
+        return ["lm_logits", "encoder_last_hidden_state"]
 
     @property
     def is_encoder_decoder(self) -> bool:
         return True
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
-        if "audio_sequence_length" in kwargs:
-            kwargs["sequence_length"] = kwargs["audio_sequence_length"]
-            self._axes["sequence_length"] = self._axes["audio_sequence_length"]
+        kwargs["sequence_length"] = 1  # only `decoder_start_token_id`
         return super().generate_dummy_inputs(return_tuple=return_tuple, **kwargs)
 
     def patch_model_for_export(self, model_or_path, **input_shapes):
@@ -1139,7 +1138,7 @@ class WhisperDecoderNeuronConfig(AudioNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MODEL_TYPE = "whisper-decoder"
     DUMMY_INPUT_GENERATOR_CLASSES = (WhisperDummyTextInputGenerator, )
-    INPUT_ARGS = AudioNeuronConfig.INPUT_ARGS + ("sequence_length",)
+    INPUT_ARGS = ("batch_size", "sequence_length")
     CUSTOM_MODEL_WRAPPER = WhisperDecoderWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
         encoder_num_layers="encoder_layers",
@@ -1154,7 +1153,7 @@ class WhisperDecoderNeuronConfig(AudioNeuronConfig):
 
     @property
     def outputs(self) -> List[str]:
-        return ["lm_logits", "encoder_last_hidden_state"]
+        return ["lm_logits"]
 
     @property
     def is_encoder_decoder(self) -> bool:

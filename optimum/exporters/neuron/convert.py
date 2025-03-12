@@ -200,7 +200,7 @@ def validate_model_outputs(
             neuron_inputs = tuple(inputs.values())
         elif config.CUSTOM_MODEL_WRAPPER is not None:
             ref_inputs = config.flatten_inputs(inputs)
-            reference_model = config.patch_model_for_export(reference_model, ref_inputs)
+            reference_model = config.patch_model_for_export(reference_model, ref_inputs, device="cpu")
             neuron_inputs = ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
         else:

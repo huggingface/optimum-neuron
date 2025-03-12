@@ -64,7 +64,7 @@ _import_structure = {
     ],
     "modeling_decoder": ["NeuronDecoderModel"],
     "modeling_seq2seq": [
-        "NeuronModelForSeq2SeqLM", 
+        "NeuronModelForSeq2SeqLM",
         "NeuronWhisperForConditionalGeneration",
     ],
     "accelerate": [

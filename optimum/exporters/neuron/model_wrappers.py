@@ -17,6 +17,7 @@
 from typing import TYPE_CHECKING, List, Optional
 
 import torch
+import torch_xla.core.xla_model as xm
 from transformers.models.t5.modeling_t5 import T5LayerCrossAttention
 
 from ...neuron.utils import is_neuronx_distributed_available
@@ -31,10 +32,11 @@ if TYPE_CHECKING:
 
 
 class UnetNeuronWrapper(torch.nn.Module):
-    def __init__(self, model, input_names: List[str]):
+    def __init__(self, model, input_names: List[str], device: str = None):
         super().__init__()
         self.model = model
         self.input_names = input_names
+        self.device = device
 
     def forward(self, *inputs):
         if len(inputs) != len(self.input_names):
@@ -82,11 +84,12 @@ class UnetNeuronWrapper(torch.nn.Module):
 
 
 class PixartTransformerNeuronWrapper(torch.nn.Module):
-    def __init__(self, model, input_names: List[str]):
+    def __init__(self, model, input_names: List[str], device: str = None):
         super().__init__()
         self.model = model
         self.dtype = model.dtype
         self.input_names = input_names
+        self.device = device
 
     def forward(self, *inputs):
         if len(inputs) != len(self.input_names):
@@ -116,10 +119,11 @@ class PixartTransformerNeuronWrapper(torch.nn.Module):
 
 
 class ControlNetNeuronWrapper(torch.nn.Module):
-    def __init__(self, model, input_names: List[str]):
+    def __init__(self, model, input_names: List[str], device: str = None):
         super().__init__()
         self.model = model
         self.input_names = input_names
+        self.device = device
 
     def forward(self, *inputs):
         if len(inputs) != len(self.input_names):
@@ -559,10 +563,11 @@ class T5DecoderWrapper(torch.nn.Module):
 
 
 class SentenceTransformersTransformerNeuronWrapper(torch.nn.Module):
-    def __init__(self, model, input_names: List[str]):
+    def __init__(self, model, input_names: List[str], device: str = None):
         super().__init__()
         self.model = model
         self.input_names = input_names
+        self.device = device
 
     def forward(self, input_ids, attention_mask):
         out_tuple = self.model({"input_ids": input_ids, "attention_mask": attention_mask})
@@ -576,11 +581,13 @@ class CLIPVisionModelNeuronWrapper(torch.nn.Module):
         model,
         input_names: List[str],
         output_hidden_states: bool = True,
+        device: str = None,
     ):
         super().__init__()
         self.model = model
         self.input_names = input_names
         self.output_hidden_states = output_hidden_states
+        self.device = device
 
     def forward(self, pixel_values):
         vision_outputs = self.model.vision_model(
@@ -597,10 +604,11 @@ class CLIPVisionModelNeuronWrapper(torch.nn.Module):
 
 
 class SentenceTransformersCLIPNeuronWrapper(torch.nn.Module):
-    def __init__(self, model, input_names: List[str]):
+    def __init__(self, model, input_names: List[str], device: str = None):
         super().__init__()
         self.model = model
         self.input_names = input_names
+        self.device = device
 
     def forward(self, input_ids, pixel_values, attention_mask):
         vision_outputs = self.model[0].model.vision_model(pixel_values=pixel_values)
@@ -620,43 +628,46 @@ class SentenceTransformersCLIPNeuronWrapper(torch.nn.Module):
 
 
 class WhisperEncoderWrapper(torch.nn.Module):
-    """Wrapper to trace the encoder of Whisper."""
+    """Wrapper to trace the forward of Whisper encoder."""
 
     def __init__(
         self,
         model: "PreTrainedModel",
         batch_size: int,
-        audio_sequence_length: int,
-        output_hidden_states: bool = False,
-        output_attentions: bool = False,
+        device: str = None,
         **kwargs,
     ):
         super().__init__()
         self.model = model
         self.config = model.config
         self.batch_size = batch_size
-        self.sequence_length = audio_sequence_length
-        self.output_hidden_states = output_hidden_states
-        self.output_attentions = output_attentions
+        self.device = device
 
     def forward(
         self,
         input_features,
-        attention_mask=None,
+        decoder_input_ids,
         **kwargs,
     ):
-        outputs = self.model.model.encoder(
+        # encoder
+        encoder_outputs = self.model.model.encoder(
             input_features=input_features,
-            attention_mask=attention_mask,
-            output_attentions=self.output_attentions,
-            output_hidden_states=self.output_hidden_states,
             return_dict=True,
         )
-        return outputs.last_hidden_state
+        # 1st decoder + proj_out
+        decoder_outputs = self.model.model.decoder(
+            input_ids=decoder_input_ids,
+            encoder_hidden_states=encoder_outputs[0],
+            use_cache=False,
+            return_dict=True,
+        )
+        lm_logits = self.model.proj_out(decoder_outputs[0])
+
+        return (lm_logits, encoder_outputs.last_hidden_state)
 
 
 class WhisperDecoderWrapper(torch.nn.Module):
-    """Wrapper to trace the decoder and projection output layer of Whisper."""
+    """Wrapper to trace the forward of Whisper decoder."""
 
     def __init__(
         self,
@@ -665,6 +676,7 @@ class WhisperDecoderWrapper(torch.nn.Module):
         sequence_length: int,
         output_hidden_states: bool = False,
         output_attentions: bool = False,
+        device: str = None,
         **kwargs,
     ):
         super().__init__()
@@ -674,6 +686,7 @@ class WhisperDecoderWrapper(torch.nn.Module):
         self.sequence_length = sequence_length
         self.output_hidden_states = output_hidden_states
         self.output_attentions = output_attentions
+        self.device = device if device else xm.xla_device()
 
     def forward(
         self,
@@ -681,17 +694,18 @@ class WhisperDecoderWrapper(torch.nn.Module):
         encoder_hidden_states,
         **kwargs,
     ):
+        cache_position = torch.arange(input_ids.shape[1]).to(self.device)
         outputs = self.model.model.decoder(
             input_ids=input_ids,
             encoder_hidden_states=encoder_hidden_states,
+            use_cache=False,
             output_attentions=False,
             output_hidden_states=False,
             return_dict=True,
+            cache_position=cache_position,
         )
         lm_logits = self.model.proj_out(outputs[0])
-        return (lm_logits, outputs.last_hidden_state)
-
-
+        return lm_logits
 
 class NoCacheModelWrapper(torch.nn.Module):
     def __init__(self, model: "PreTrainedModel", input_names: List[str]):

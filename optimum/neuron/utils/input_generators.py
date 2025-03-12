@@ -85,8 +85,11 @@ class WhisperDummyTextInputGenerator(DummyInputGenerator):
 
     def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
         if input_name == "decoder_input_ids":
-            shape = (self.batch_size, self.sequence_length)
-            return self.random_int_tensor(shape, max_value=self.vocab_size, min_value=0, framework=framework, dtype=int_dtype)
+            if self.sequence_length==1:
+                return torch.full((self.batch_size, 1), self.normalized_config.decoder_start_token_id, dtype=torch.long)
+            else:
+                shape = (self.batch_size, self.sequence_length)
+                return self.random_int_tensor(shape, max_value=self.vocab_size, min_value=0, framework=framework, dtype=int_dtype)
         elif input_name == "encoder_hidden_states":
             shape = (self.batch_size, self.normalized_config.max_source_positions, self.normalized_config.hidden_size)
             return self.random_float_tensor(shape, max_value=self.vocab_size, framework=framework, dtype=float_dtype)

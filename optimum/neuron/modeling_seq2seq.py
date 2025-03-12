@@ -25,11 +25,11 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 
 import torch
 from huggingface_hub import snapshot_download
-from transformers import AutoConfig, AutoModelForSeq2SeqLM, WhisperForConditionalGeneration, GenerationConfig
-from transformers.modeling_outputs import Seq2SeqLMOutput
+from transformers import AutoConfig, AutoModelForSeq2SeqLM, GenerationConfig, WhisperForConditionalGeneration
 from transformers.file_utils import add_start_docstrings, add_start_docstrings_to_model_forward
 from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import StoppingCriteriaList
+from transformers.modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
 from transformers.utils import ModelOutput
 
 from ..exporters.neuron import (
@@ -705,10 +705,10 @@ class DummyLayer:
     def __init__(self, **kwargs):
         for key, value in kwargs.items():
             setattr(self, key, value)
-    
+
     def __call__(self, x):
         return x
-            
+
 
 class NeuronWhisperEncoder(_NeuronSeq2SeqModelPart):
     """
@@ -724,21 +724,26 @@ class NeuronWhisperEncoder(_NeuronSeq2SeqModelPart):
         neuron_config: Optional[Dict[str, str]] = None,
     ):
         super().__init__(model, parent_model, config, neuron_config, "encoder")
-        self.conv1 = DummyLayer(stride=[1])
+        # self.conv1 = DummyLayer(stride=[self.neuron_config.stride[0]])
+        # self.conv2 = DummyLayer(stride=[self.neuron_config.stride[1]])
+        self.conv1 = DummyLayer(stride=[1])  # hard coded
         self.conv2 = DummyLayer(stride=[2])
 
     def forward(
         self,
-        input_features: torch.LongTensor,
-        attention_mask: torch.FloatTensor,
+        input_features: torch.FloatTensor,
+        decoder_input_ids: Optional[torch.LongTensor] = None,
         **kwargs,
     ):
-        inputs = (
-            input_features,
-            attention_mask,
-        )
-        outputs = self.model(*inputs)
-        return outputs
+        prepare_encoder_decoder_kwargs_for_generation = False
+        if decoder_input_ids is None:
+            decoder_input_ids = torch.full((self.neuron_config.batch_size, 1), self.config.decoder_start_token_id, dtype=torch.long)
+            prepare_encoder_decoder_kwargs_for_generation = True
+        outputs = self.model(input_features, decoder_input_ids)
+        if prepare_encoder_decoder_kwargs_for_generation:
+            return BaseModelOutput(last_hidden_state=outputs[1])
+        else:
+            return outputs
 
 
 class NeuronWhisperDecoder(_NeuronSeq2SeqModelPart):
@@ -757,8 +762,8 @@ class NeuronWhisperDecoder(_NeuronSeq2SeqModelPart):
 
     def forward(
         self,
-        decoder_input_ids: torch.LongTensor,
-        encoder_hidden_states: torch.FloatTensor,
+        decoder_input_ids: Optional[torch.LongTensor],
+        encoder_hidden_states: Optional[torch.FloatTensor],
         **kwargs,
     ):
         inputs = (
@@ -766,9 +771,9 @@ class NeuronWhisperDecoder(_NeuronSeq2SeqModelPart):
             encoder_hidden_states,
         )
         outputs = self.model(*inputs)
-        return outputs
+        return (outputs, encoder_hidden_states)
 
-class NeuronWhisperModel: 
+class NeuronWhisperModel:
     def __init__(self, encoder: NeuronEncoder, decoder: NeuronWhisperDecoder):
         self.encoder = encoder
         self.decoder = decoder
@@ -779,7 +784,7 @@ class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration,
     main_input_name = "input_features"
     encoder_class = NeuronWhisperEncoder
     decoder_class = NeuronWhisperDecoder
-    
+
     def __init__(
         self,
         encoder: torch.jit._script.ScriptModule,
@@ -795,14 +800,14 @@ class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration,
         **kwargs,
     ):
         super().__init__(
-            encoder, 
-            decoder, 
-            config, 
-            model_save_dir, 
-            encoder_file_name, 
-            decoder_file_name, 
-            preprocessors, 
-            neuron_configs, 
+            encoder,
+            decoder,
+            config,
+            model_save_dir,
+            encoder_file_name,
+            decoder_file_name,
+            preprocessors,
+            neuron_configs,
             configs,
             generation_config,
             **kwargs
@@ -812,27 +817,33 @@ class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration,
     @property
     def device(self):
         return torch.device("cpu")
-    
+
     def get_encoder(self) -> "NeuronWhisperEncoder":
         return self.encoder
-    
+
     def forward(
         self,
+        input_features: Optional[torch.FloatTensor] = None,
         decoder_input_ids: Optional[torch.LongTensor] = None,
         encoder_outputs: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         **kwargs,
     ) -> Union[Tuple[torch.Tensor], Seq2SeqLMOutput]:
-        # pad `decoder_input_ids` to the sequence length of the compilation
-        decoder_input_ids_length = decoder_input_ids.shape[1]
-        pad_size = torch.as_tensor(self.neuron_configs["decoder"].sequence_length - decoder_input_ids_length)
-        decoder_input_ids = torch.nn.functional.pad(decoder_input_ids, (0, pad_size), "constant", self.preprocessors[0].pad_token_id)
-        
-        outputs = self.decoder(
-            decoder_input_ids=decoder_input_ids,
-            encoder_hidden_states=encoder_outputs,
-        )
-        
+        if encoder_outputs is None:
+            lm_logits, encoder_last_hidden_state = self.encoder(input_features=input_features, decoder_input_ids=decoder_input_ids)
+        else:
+            # pad `decoder_input_ids` to the sequence length of the compilation
+            decoder_input_ids_length = decoder_input_ids.shape[1]
+            pad_size = torch.as_tensor(self.neuron_configs["decoder"].sequence_length - decoder_input_ids_length)
+            decoder_input_ids = torch.nn.functional.pad(decoder_input_ids, (0, pad_size), "constant", self.preprocessors[0].pad_token_id)
+
+            lm_logits, encoder_last_hidden_state = self.decoder(
+                decoder_input_ids=decoder_input_ids,
+                encoder_hidden_states=encoder_outputs[0],
+            )
+            # unpad
+            lm_logits = lm_logits[:, :decoder_input_ids_length, :]
+
         return Seq2SeqLMOutput(
-            logits=outputs[0][:, :decoder_input_ids_length, :],
-            encoder_last_hidden_state=outputs[1],
+            logits=lm_logits,
+            encoder_last_hidden_state=encoder_last_hidden_state,
         )
