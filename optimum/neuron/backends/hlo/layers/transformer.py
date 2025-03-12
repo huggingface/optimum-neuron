@@ -108,9 +108,7 @@ def rms_lm_head(
         n_active_tokens = 1
 
     rms_hidden = (
-        functional.rms_norm(hidden, rms_weight, eps, neuron_config=None)
-        if is_bsh
-        else functional.rms_norm(hidden, rms_weight, eps, dim=0, neuron_config=None)
+        functional.rms_norm(hidden, rms_weight, eps) if is_bsh else functional.rms_norm(hidden, rms_weight, eps, dim=0)
     )
 
     if is_bsh:
@@ -124,13 +122,13 @@ def rms_lm_head(
     return functional.reshape(logits, (vocab_size, n_active_tokens, batch_size))
 
 
-def _dynamic_logits_slice(hidden, last_token_id, neuron_config=None):
-    is_bsh = neuron_config and neuron_config.attention_layout == Layout.BSH
+def _dynamic_logits_slice(hidden, last_token_id, neuron_config):
+    is_bsh = neuron_config.attention_layout == Layout.BSH
     if is_bsh:
         batch_size, n_active_tokens, hidden_size = hidden.sizes
     else:
         hidden_size, n_active_tokens, batch_size = hidden.sizes
-    if neuron_config and neuron_config.lhs_aligned:
+    if neuron_config.continuous_batching:
         if not is_bsh:
             hidden = functional.transpose210(hidden)
         hidden = functional.reshape(hidden, (batch_size * n_active_tokens, hidden_size))

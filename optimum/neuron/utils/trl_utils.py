@@ -33,7 +33,7 @@ else:
     @dataclass
     class ORPOConfig:
         def __init__(self, *args, **kwargs):
-            raise RuntimeError("You need to install the `trl` library to use the `NeuronSFTConfig`.")
+            raise RuntimeError("You need to install the `trl` library to use the `NeuronORPOConfig`.")
 
 
 @dataclass

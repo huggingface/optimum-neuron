@@ -43,11 +43,10 @@ class NeuronModelBase(PretrainedModel):
         self._compiled_artifacts_directory = directory
 
     # top level api
-    def compile(self, parallel_degree=None):
+    def compile(self):
         kernels = self._get_all_kernels()
         neff_bytes_futures = {}
-        if parallel_degree is None:
-            parallel_degree = len(kernels)
+        parallel_degree = len(kernels)
         with ProcessPoolExecutor(parallel_degree) as executor:
             for kernel in kernels:
                 neff_bytes_futures[hash_hlo(kernel.hlo_module)] = executor.submit(
@@ -77,7 +76,7 @@ class NeuronModelBase(PretrainedModel):
             for nbs_obj in self.nbs_objs:
                 nbs_obj.set_neff_bytes(self._compiled_artifacts_directory)
         else:
-            self.compile(parallel_degree=self.neuron_config.compilation_worker_count)
+            self.compile()
         self.setup()
 
     def save(self, directory):
