@@ -7,7 +7,7 @@ runs:
         shell: bash
         run: |
           sudo apt install python3-venv python3-dev -y
-          sudo apt-get install python3-opencv
+          sudo apt-get install python3-opencv -y
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
