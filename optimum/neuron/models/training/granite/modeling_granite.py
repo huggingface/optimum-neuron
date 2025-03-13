@@ -13,9 +13,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from functools import partial
 from typing import Callable, List, Optional, Tuple, Union
 
 import torch
+from neuronx_distributed.parallel_layers.layers import (
+    ColumnParallelLinear,
+)
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
@@ -39,6 +43,10 @@ from .configuration_granite import NeuronGraniteConfig
 
 logger = logging.get_logger(__name__)
 _CONFIG_FOR_DOC = "NeuronGraniteConfig"
+
+
+def _init_normal(std, w):
+    return nn.init.normal_(w, mean=0.0, std=std)
 
 
 def rotate_half(x):
@@ -761,7 +769,17 @@ class GraniteForCausalLM(GranitePreTrainedModel, GenerationMixin):
         super().__init__(config)
         self.model = GraniteModel(config)
         self.vocab_size = config.vocab_size
-        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        init_method = partial(_init_normal, config.initializer_range)
+        self.lm_head = ColumnParallelLinear(
+            config.hidden_size,
+            config.vocab_size,
+            bias=False,
+            gather_output=False,
+            init_method=init_method,
+            sequence_parallel_enabled=config.sequence_parallel_enabled,
+            dtype=self.config.torch_dtype,
+            pad=True,
+        )
 
         # Initialize weights and apply final processing
         self.post_init()
