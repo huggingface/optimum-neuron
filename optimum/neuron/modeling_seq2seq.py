@@ -711,7 +711,7 @@ NEURON_WHISPER_INPUTS_DOCSTRING = r"""
             [`AutoFeatureExtractor`] should be used for extracting the mel features, padding and conversion into a
             tensor of type `torch.FloatTensor`. See [`~WhisperFeatureExtractor.__call__`]
         decoder_input_ids (`Optional[torch.LongTensor]` of shape `(batch_size, max_sequence_length)`):
-            Indices of decoder input sequence tokens in the vocabulary. Indices can be obtained using [`WhisperTokenizer`]. 
+            Indices of decoder input sequence tokens in the vocabulary. Indices can be obtained using [`WhisperTokenizer`].
             See [`PreTrainedTokenizer.encode`] and [`PreTrainedTokenizer.__call__`] for details. Since the cache is not yet
             supported for Whisper, it needs to be padded to the `sequence_length` used for the compilation.
         encoder_outputs (`Optional[Tuple[torch.FloatTensor]]`):

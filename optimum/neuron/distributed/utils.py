@@ -1602,7 +1602,7 @@ def from_pretrained_for_mp(
         from safetensors import safe_open
 
         with safe_open(filename, framework="pt", device="cpu") as fp:
-            weight_map = {weight_name: filename for weight_name in fp.keys()}
+            weight_map = dict.fromkeys(fp.keys(), filename)
 
         # If the model checkpoint used is from a base model but our model is "task-specific", for instance a checkpoint
         # from `GPTNeoModel` when using `GPTNeoForCausalLM`, then our model weight names might not match the names in
