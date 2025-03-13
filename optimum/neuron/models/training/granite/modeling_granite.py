@@ -25,7 +25,6 @@ from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, PreTrainedModel
-from transformers.models.granite.configuration_granite import GraniteConfig
 from transformers.processing_utils import Unpack
 from transformers.utils import (
     LossKwargs,
@@ -35,9 +34,11 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 
+from .configuration_granite import NeuronGraniteConfig
+
 
 logger = logging.get_logger(__name__)
-_CONFIG_FOR_DOC = "GraniteConfig"
+_CONFIG_FOR_DOC = "NeuronGraniteConfig"
 
 
 def rotate_half(x):
@@ -115,7 +116,7 @@ def eager_attention_forward(
 class GraniteAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    def __init__(self, config: GraniteConfig, layer_idx: Optional[int] = None):
+    def __init__(self, config: NeuronGraniteConfig, layer_idx: Optional[int] = None):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
@@ -225,7 +226,7 @@ class GraniteMLP(nn.Module):
 
 
 class GraniteDecoderLayer(nn.Module):
-    def __init__(self, config: GraniteConfig, layer_idx: int):
+    def __init__(self, config: NeuronGraniteConfig, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.self_attn = GraniteAttention(config=config, layer_idx=layer_idx)
@@ -302,7 +303,7 @@ class GraniteDecoderLayer(nn.Module):
 
 
 class GraniteRotaryEmbedding(nn.Module):
-    def __init__(self, config: GraniteConfig, device=None):
+    def __init__(self, config: NeuronGraniteConfig, device=None):
         super().__init__()
         # BC: "rope_type" was originally "type"
         if hasattr(config, "rope_scaling") and config.rope_scaling is not None:
@@ -372,7 +373,7 @@ GRANITE_START_DOCSTRING = r"""
     and behavior.
 
     Parameters:
-        config ([`GraniteConfig`]):
+        config ([`NeuronGraniteConfig`]):
             Model configuration class with all the parameters of the model. Initializing with a config file does not
             load the weights associated with the model, only the configuration. Check out the
             [`~PreTrainedModel.from_pretrained`] method to load the model weights.
@@ -384,7 +385,7 @@ GRANITE_START_DOCSTRING = r"""
     GRANITE_START_DOCSTRING,
 )
 class GranitePreTrainedModel(PreTrainedModel):
-    config_class = GraniteConfig
+    config_class = NeuronGraniteConfig
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
     _no_split_modules = ["GraniteDecoderLayer"]
@@ -492,10 +493,10 @@ class GraniteModel(GranitePreTrainedModel):
     Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`GraniteDecoderLayer`]
 
     Args:
-        config: GraniteConfig
+        config: NeuronGraniteConfig
     """
 
-    def __init__(self, config: GraniteConfig):
+    def __init__(self, config: NeuronGraniteConfig):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
