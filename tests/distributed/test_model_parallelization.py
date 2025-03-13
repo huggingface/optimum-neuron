@@ -52,6 +52,7 @@ from ..utils import SEED, StaticSeedPatcher, create_accelerator, get_model, get_
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+    import torch_xla.runtime as xr
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.parallel_state import (
@@ -444,7 +445,7 @@ class TestModelParallelization(DistributedTest):
         # Since we are creating the model from config, we actually first create a model locally from config and then
         # use that as a `from_pretrained` to have proper initialization. Without that we can end-up with uninitialized
         # weights.
-        if xm.get_ordinal() == 0:
+        if xr.global_ordinal() == 0:
             tokenizer = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
             tokenizer.save_pretrained(model_name_or_path)
             model = get_model(

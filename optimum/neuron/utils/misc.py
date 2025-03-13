@@ -65,8 +65,9 @@ def is_precompilation() -> bool:
 def is_main_worker(global_main: bool = True) -> bool:
     if torch.distributed.is_initialized() and is_torch_xla_available():
         import torch_xla.core.xla_model as xm
+        import torch_xla.runtime as xr
 
-        return xm.get_ordinal() == 0 if global_main else xm.get_local_ordinal() == 0
+        return xr.global_ordinal() == 0 if global_main else xm.get_local_ordinal() == 0
     return True
 
 
