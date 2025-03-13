@@ -724,10 +724,9 @@ class NeuronWhisperEncoder(_NeuronSeq2SeqModelPart):
         neuron_config: Optional[Dict[str, str]] = None,
     ):
         super().__init__(model, parent_model, config, neuron_config, "encoder")
-        # self.conv1 = DummyLayer(stride=[self.neuron_config.stride[0]])
-        # self.conv2 = DummyLayer(stride=[self.neuron_config.stride[1]])
-        self.conv1 = DummyLayer(stride=[1])  # hard coded
-        self.conv2 = DummyLayer(stride=[2])
+        stride = getattr(self.config, "stride", [1, 2])
+        self.conv1 = DummyLayer(stride=[stride[0]])
+        self.conv2 = DummyLayer(stride=[stride[1]])
 
     def forward(
         self,
@@ -820,6 +819,22 @@ class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration,
 
     def get_encoder(self) -> "NeuronWhisperEncoder":
         return self.encoder
+
+    def _update_model_kwargs_for_generation(
+        self,
+        outputs: ModelOutput,
+        model_kwargs: Dict[str, Any],
+        is_encoder_decoder: bool = False,
+        num_new_tokens: int = 1,
+    ) -> Dict[str, Any]:
+        # Override "use_cache" to False, since whisper with cache is not yet supported for neuron.
+        model_kwargs["use_cache"] = False
+
+        model_kwargs = super()._update_model_kwargs_for_generation(
+            outputs, model_kwargs, is_encoder_decoder, num_new_tokens
+        )
+
+        return model_kwargs
 
     def forward(
         self,

@@ -592,6 +592,9 @@ def get_encoder_decoder_models_for_export(
     )
     check_mandatory_input_shapes(encoder_config_constructor, task, input_shapes)
     input_shape_args = InputShapesArguments(**input_shapes)
+    # Whisper specific
+    if getattr(model.config, "model_type", None)=="whisper":
+        setattr(model.config, "stride", [model.model.encoder.conv1.stride[0], model.model.encoder.conv2.stride[0]])
     encoder_neuron_config = encoder_config_constructor(
         config=model.config,
         task=task,
