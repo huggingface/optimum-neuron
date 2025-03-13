@@ -17,11 +17,13 @@
 from typing import TYPE_CHECKING, List, Optional
 
 import torch
-import torch_xla.core.xla_model as xm
 from transformers.models.t5.modeling_t5 import T5LayerCrossAttention
 
-from ...neuron.utils import is_neuronx_distributed_available
+from ...neuron.utils import is_neuronx_available, is_neuronx_distributed_available
 
+
+if is_neuronx_available():
+    import torch_xla.core.xla_model as xm
 
 if is_neuronx_distributed_available():
     import neuronx_distributed

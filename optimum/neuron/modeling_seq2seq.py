@@ -712,7 +712,7 @@ class DummyLayer:
 
 class NeuronWhisperEncoder(_NeuronSeq2SeqModelPart):
     """
-    Decoder with output embedding of the whisper model for Neuron inference.
+    Encoder and the 1st forward of decoder+language head.
     """
     main_input_name = "input_features"
 
