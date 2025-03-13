@@ -13,9 +13,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import re
+from functools import partial
 from typing import Callable, List, Optional, Tuple, Union
 
 import torch
+import torch_xla.runtime as xr
+from neuronx_distributed.parallel_layers.layers import (
+    RowParallelLinear,
+)
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
@@ -39,6 +45,34 @@ from .configuration_granite import NeuronGraniteConfig
 
 logger = logging.get_logger(__name__)
 _CONFIG_FOR_DOC = "NeuronGraniteConfig"
+
+
+def slice_tensor(tensor: torch.Tensor, axis: int) -> torch.Tensor:
+    """Slice a tensor along a given axis and return a slice corresponding to the rank.
+
+    Args:
+        tensor (:obj:`torch.Tensor`): The tensor to slice.
+        axis (:obj:`int`): The axis along which to slice the tensor.
+    """
+    rank = xr.global_ordinal()
+    world_size = xr.world_size()
+    axis_len = tensor.shape[axis]
+    # round up to the next multiple of world_size
+    split_len = (axis_len + world_size - 1) // world_size
+    split_start = split_len * rank
+    split_end = split_start + split_len
+    tensor = torch.moveaxis(tensor, axis, 0)
+    tensor = tensor[split_start:split_end, ...]
+    pad_len = split_len - tensor.shape[0]
+    if pad_len > 0:
+        padding = torch.zeros((pad_len, *tensor.shape[1:]), dtype=tensor.dtype, device=tensor.device)
+        tensor = torch.cat((tensor, padding), dim=0)
+    tensor = torch.moveaxis(tensor, 0, axis)
+    return tensor
+
+
+def _init_normal(std, w):
+    return nn.init.normal_(w, mean=0.0, std=std)
 
 
 def rotate_half(x):
@@ -215,10 +249,52 @@ class GraniteMLP(nn.Module):
         self.config = config
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
+        init_method = partial(_init_normal, config.initializer_range)
+        assert not config.mlp_bias, "GraniteMLP sharding does not support bias for now"
+        # self.gate_proj = ColumnParallelLinear(
+        #     self.hidden_size,
+        #     self.intermediate_size,
+        #     bias=config.mlp_bias,
+        #     gather_output=True,
+        #     init_method=init_method,
+        #     dtype=config.torch_dtype,
+        #     sequence_parallel_enabled=config.sequence_parallel_enabled,
+        # )
+        # self.up_proj = ColumnParallelLinear(
+        #     self.hidden_size,
+        #     self.intermediate_size,
+        #     bias=config.mlp_bias,
+        #     gather_output=True,
+        #     init_method=init_method,
+        #     dtype=config.torch_dtype,
+        #     sequence_parallel_enabled=config.sequence_parallel_enabled,
+        # )
+        self.down_proj = RowParallelLinear(
+            self.intermediate_size,
+            self.hidden_size,
+            bias=config.mlp_bias,
+            init_method=init_method,
+            dtype=config.torch_dtype,
+            sequence_parallel_enabled=config.sequence_parallel_enabled,
+        )
         self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=config.mlp_bias)
         self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=config.mlp_bias)
-        self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=config.mlp_bias)
+        # self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=config.mlp_bias)
         self.act_fn = ACT2FN[config.hidden_act]
+        # Split parallelized weights
+        self._register_load_state_dict_pre_hook(self.load_hook)
+
+    def load_hook(self, state_dict, prefix, *_args):
+        """
+        Update the state dict to split the weights of the model across the world size.
+        """
+        # Filtering items to slice only the weights of this layer
+        filtered_items = filter(lambda x: x[0].startswith(prefix), state_dict.items())
+        for k, v in filtered_items:
+            # if re.fullmatch(r"model.layers.\d+.mlp.(gate_proj|up_proj).weight", k):
+            #     state_dict[k] = slice_tensor(v, 0)
+            if re.fullmatch(r"model.layers.\d+.mlp.down_proj.weight", k):
+                state_dict[k] = slice_tensor(v, 1)
 
     def forward(self, x):
         down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
@@ -500,7 +576,14 @@ class GraniteModel(GranitePreTrainedModel):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
+        self.rank = xr.global_ordinal()
+        self.world_size = xr.world_size()
 
+        # init_method = partial(_init_normal, config.initializer_range)
+        # self.embed_tokens = ParallelEmbedding(
+        #     config.vocab_size, config.hidden_size, self.padding_idx, init_method=init_method,
+        #     sequence_parallel_enabled=config.sequence_parallel_enabled, dtype=config.torch_dtype, pad=True,
+        # )
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
         self.layers = nn.ModuleList(
             [GraniteDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
@@ -510,8 +593,22 @@ class GraniteModel(GranitePreTrainedModel):
         self.gradient_checkpointing = False
         self.embedding_multiplier = config.embedding_multiplier
 
+        # Split parallelized weights
+        # self._register_load_state_dict_pre_hook(self.load_hook)
+
         # Initialize weights and apply final processing
         self.post_init()
+
+    def load_hook(self, state_dict, _prefix, *_args):
+        """
+        Update the state dict to split the weights of the model across the world size.
+        """
+
+        for k, v in state_dict.items():
+            if k == "model.embed_tokens.weight":
+                sliced_size = self.embed_tokens.weight.shape
+                print(f"🟡 rank {self.rank} Loading {k} with shape {v.shape} sliced shape {sliced_size}")
+                state_dict[k] = slice_tensor(v, 0, self.rank, self.world_size)
 
     def get_input_embeddings(self):
         return self.embed_tokens
@@ -760,7 +857,18 @@ class GraniteForCausalLM(GranitePreTrainedModel, GenerationMixin):
         super().__init__(config)
         self.model = GraniteModel(config)
         self.vocab_size = config.vocab_size
+        # init_method = partial(_init_normal, config.initializer_range)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        # self.lm_head = ColumnParallelLinear(
+        #     config.hidden_size,
+        #     config.vocab_size,
+        #     bias=False,
+        #     gather_output=False,
+        #     init_method=init_method,
+        #     sequence_parallel_enabled=config.sequence_parallel_enabled,
+        #     dtype=self.config.torch_dtype,
+        #     pad=True,
+        # )
 
         # Initialize weights and apply final processing
         self.post_init()
