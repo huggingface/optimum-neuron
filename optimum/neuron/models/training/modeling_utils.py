@@ -985,13 +985,3 @@ class NeuronModelMixin:
 
         return model
 
-
-
-    # @classmethod
-    # def from_pretrained(cls, *args, **kwargs):
-    #     mp_config = args[1][1]
-    #     partial_parallel_load_state_dict = functools.partial(parallel_load_state_dict, mp_config=mp_config)
-    #     patcher = Patcher([("transformers.modeling_utils.load_state_dict", partial_parallel_load_state_dict)])
-    #     with patcher:
-    #         return super().from_pretrained(*args, **kwargs)
-

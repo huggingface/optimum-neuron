@@ -90,7 +90,7 @@ class ModelParallelismConfig:
             )
 
     def auto_kv_size_multiplier(self, num_key_value_heads: int) -> int:
-        kv_size_multiplier = self.tensor_parallel_size // num_key_value_heads
+        kv_size_multiplier = max(1, self.tensor_parallel_size // num_key_value_heads)
         if self.kv_size_multiplier is not None and self.kv_size_multiplier != kv_size_multiplier:
             raise ValueError(
                 "A kv size multiplier was already specified and is different from the inferred one: "

@@ -165,8 +165,12 @@ def eager_attention_forward(
 
     attn_weights = torch.matmul(query, key_states.transpose(2, 3)) * scaling
     if attention_mask is not None:
-        causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
-        attn_weights = attn_weights + causal_mask
+        # Instead of using the attention mask, we re-compute a causal mask.
+        # It is more efficient, the only issue is that we do not support custom attention masks.
+        # Change this if a customer requests for it.
+        causal_mask = torch.triu(torch.ones((1, 1, query.size(2), key.size(2)), device="xla"), diagonal=1).bool()
+        min_value = torch.finfo(attn_weights.dtype).min
+        attn_weights = attn_weights.masked_fill_(causal_mask, min_value)
 
     attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
     attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
@@ -201,10 +205,13 @@ class LlamaAttention(LlamaAttentionHF):
         init_method = partial(_init_normal, config.initializer_range)
     
         self.qkv_linear = self.num_key_value_heads < get_tensor_model_parallel_size()
-        if mp_config.kv_size_multiplier is None:
-            self.kv_size_multiplier = mp_config.auto_kv_size_multiplier(self.num_key_value_heads)
+        if self.qkv_linear:
+            if mp_config.kv_size_multiplier is None:
+                self.kv_size_multiplier = mp_config.auto_kv_size_multiplier(self.num_key_value_heads)
+            else:
+                self.kv_size_multiplier = mp_config.kv_size_multiplier
         else:
-            self.kv_size_multiplier = mp_config.kv_size_multiplier
+            self.kv_size_multiplier = 1
 
         if self.qkv_linear:
             self.qkv_proj = GQAQKVColumnParallelLinear(
@@ -270,9 +277,10 @@ class LlamaAttention(LlamaAttentionHF):
             sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
             dtype=self.config.torch_dtype,
         )
-        self.num_heads = neuronx_dist_utils.divide(config.num_attention_heads, get_tensor_model_parallel_size())
+        tp_size = get_tensor_model_parallel_size()
+        self.num_heads = neuronx_dist_utils.divide(config.num_attention_heads, tp_size)
         self.num_key_value_heads = neuronx_dist_utils.divide(
-            config.num_key_value_heads * self.kv_size_multiplier, get_tensor_model_parallel_size()
+            config.num_key_value_heads * self.kv_size_multiplier, tp_size
         )
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
 
@@ -452,9 +460,12 @@ class LlamaModel(NeuronModelMixin, LlamaModelHF):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        causal_mask = self._update_causal_mask(
-            attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
-        )
+        # This is not needed since we recompute a causal mask at each attention layer.
+        # We keep this in case we want to support custom attention masks in the future.
+        # causal_mask = self._update_causal_mask(
+        #     attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
+        # )
+        causal_mask = None
 
         hidden_states = inputs_embeds
 
@@ -520,7 +531,6 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaForCausalLMHF):
     def __init__(self, config, mp_config: ModelParallelismConfig):
         LlamaForCausalLMHF.__init__(self,config)
         self.model = LlamaModel(config, mp_config)
-        self.vocab_size = config.vocab_size
         self.mp_config = mp_config
 
         init_method = partial(_init_normal, config.initializer_range)
@@ -533,6 +543,8 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaForCausalLMHF):
             sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
             dtype=self.config.torch_dtype,
         )
+
+        self.vocab_size = config.vocab_size // get_tensor_model_parallel_size()
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -586,7 +598,7 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaForCausalLMHF):
 
         loss = None
         if labels is not None:
-            loss = ForCausalLMLoss(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **kwargs)
+            loss = ForCausalLMLoss(logits=logits, labels=labels, vocab_size=self.vocab_size, **kwargs)
 
         if not return_dict:
             output = (logits,) + outputs[1:]
