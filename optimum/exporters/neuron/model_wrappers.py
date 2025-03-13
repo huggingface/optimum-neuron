@@ -709,6 +709,7 @@ class WhisperDecoderWrapper(torch.nn.Module):
         lm_logits = self.model.proj_out(outputs[0])
         return lm_logits
 
+
 class NoCacheModelWrapper(torch.nn.Module):
     def __init__(self, model: "PreTrainedModel", input_names: List[str]):
         super().__init__()

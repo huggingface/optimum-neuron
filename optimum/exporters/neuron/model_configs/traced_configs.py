@@ -1106,13 +1106,14 @@ class WhisperEncoderNeuronConfig(AudioNeuronConfig):
     MODEL_TYPE = "whisper-encoder"
     CUSTOM_MODEL_WRAPPER = WhisperEncoderWrapper
     INPUT_ARGS = ("batch_size", "sequence_length")
-    DUMMY_INPUT_GENERATOR_CLASSES = AudioNeuronConfig.DUMMY_INPUT_GENERATOR_CLASSES + (WhisperDummyTextInputGenerator, )
+    DUMMY_INPUT_GENERATOR_CLASSES = AudioNeuronConfig.DUMMY_INPUT_GENERATOR_CLASSES + (WhisperDummyTextInputGenerator,)
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
         encoder_num_layers="encoder_layers",
         decoder_num_layers="decoder_layers",
         feature_size="num_mel_bins",
         allow_new=True,
     )
+
     @property
     def inputs(self) -> List[str]:
         return ["input_features", "decoder_input_ids"]
@@ -1137,7 +1138,7 @@ class WhisperEncoderNeuronConfig(AudioNeuronConfig):
 class WhisperDecoderNeuronConfig(AudioNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MODEL_TYPE = "whisper-decoder"
-    DUMMY_INPUT_GENERATOR_CLASSES = (WhisperDummyTextInputGenerator, )
+    DUMMY_INPUT_GENERATOR_CLASSES = (WhisperDummyTextInputGenerator,)
     INPUT_ARGS = ("batch_size", "sequence_length")
     CUSTOM_MODEL_WRAPPER = WhisperDecoderWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
@@ -1147,6 +1148,7 @@ class WhisperDecoderNeuronConfig(AudioNeuronConfig):
         hidden_size="d_model",
         allow_new=True,
     )
+
     @property
     def inputs(self) -> List[str]:
         return ["decoder_input_ids", "encoder_hidden_states"]

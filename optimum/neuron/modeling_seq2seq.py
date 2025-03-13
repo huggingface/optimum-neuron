@@ -714,6 +714,7 @@ class NeuronWhisperEncoder(_NeuronSeq2SeqModelPart):
     """
     Encoder and the 1st forward of decoder+language head.
     """
+
     main_input_name = "input_features"
 
     def __init__(
@@ -736,7 +737,9 @@ class NeuronWhisperEncoder(_NeuronSeq2SeqModelPart):
     ):
         prepare_encoder_decoder_kwargs_for_generation = False
         if decoder_input_ids is None:
-            decoder_input_ids = torch.full((self.neuron_config.batch_size, 1), self.config.decoder_start_token_id, dtype=torch.long)
+            decoder_input_ids = torch.full(
+                (self.neuron_config.batch_size, 1), self.config.decoder_start_token_id, dtype=torch.long
+            )
             prepare_encoder_decoder_kwargs_for_generation = True
         outputs = self.model(input_features, decoder_input_ids)
         if prepare_encoder_decoder_kwargs_for_generation:
@@ -771,6 +774,7 @@ class NeuronWhisperDecoder(_NeuronSeq2SeqModelPart):
         )
         outputs = self.model(*inputs)
         return (outputs, encoder_hidden_states)
+
 
 class NeuronWhisperModel:
     def __init__(self, encoder: NeuronEncoder, decoder: NeuronWhisperDecoder):
@@ -809,7 +813,7 @@ class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration,
             neuron_configs,
             configs,
             generation_config,
-            **kwargs
+            **kwargs,
         )
         self.model = NeuronWhisperModel(self.encoder, self.decoder)
 
@@ -844,12 +848,16 @@ class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration,
         **kwargs,
     ) -> Union[Tuple[torch.Tensor], Seq2SeqLMOutput]:
         if encoder_outputs is None:
-            lm_logits, encoder_last_hidden_state = self.encoder(input_features=input_features, decoder_input_ids=decoder_input_ids)
+            lm_logits, encoder_last_hidden_state = self.encoder(
+                input_features=input_features, decoder_input_ids=decoder_input_ids
+            )
         else:
             # pad `decoder_input_ids` to the sequence length of the compilation
             decoder_input_ids_length = decoder_input_ids.shape[1]
             pad_size = torch.as_tensor(self.neuron_configs["decoder"].sequence_length - decoder_input_ids_length)
-            decoder_input_ids = torch.nn.functional.pad(decoder_input_ids, (0, pad_size), "constant", self.preprocessors[0].pad_token_id)
+            decoder_input_ids = torch.nn.functional.pad(
+                decoder_input_ids, (0, pad_size), "constant", self.preprocessors[0].pad_token_id
+            )
 
             lm_logits, encoder_last_hidden_state = self.decoder(
                 decoder_input_ids=decoder_input_ids,
