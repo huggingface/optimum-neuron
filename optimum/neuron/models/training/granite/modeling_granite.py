@@ -13,9 +13,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from functools import partial
 from typing import Callable, List, Optional, Tuple, Union
 
 import torch
+import torch_xla.runtime as xr
+from neuronx_distributed.parallel_layers.layers import (
+    ColumnParallelLinear,
+    RowParallelLinear,
+    create_local_weight,
+)
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
@@ -39,6 +46,27 @@ from .configuration_granite import NeuronGraniteConfig
 
 logger = logging.get_logger(__name__)
 _CONFIG_FOR_DOC = "NeuronGraniteConfig"
+
+
+def slice_tensor(tensor: torch.Tensor, axis: int) -> torch.Tensor:
+    """Slice a tensor along a given axis and return a slice corresponding to the rank.
+    This will round up the layer to the next multiple if there is need to pad the tensor.
+
+    Args:
+        tensor (:obj:`torch.Tensor`): The tensor to slice.
+        axis (:obj:`int`): The axis along which to slice the tensor.
+    """
+    world_size = xr.world_size()
+    axis_len = tensor.shape[axis]
+
+    # round up to the next multiple of world_size
+    split_len = (axis_len + world_size - 1) // world_size
+    partition_stride = 1  # assuming that is always 1
+    return create_local_weight(tensor, axis, split_len, partition_stride)
+
+
+def _init_normal(std, w):
+    return nn.init.normal_(w, mean=0.0, std=std)
 
 
 def rotate_half(x):
@@ -215,10 +243,52 @@ class GraniteMLP(nn.Module):
         self.config = config
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
-        self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=config.mlp_bias)
-        self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=config.mlp_bias)
-        self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=config.mlp_bias)
+        init_method = partial(_init_normal, config.initializer_range)
+        assert not config.mlp_bias, "GraniteMLP sharding does not support bias for now"
+        self.gate_proj = ColumnParallelLinear(
+            self.hidden_size,
+            self.intermediate_size,
+            bias=config.mlp_bias,
+            gather_output=True,
+            init_method=init_method,
+            dtype=config.torch_dtype,
+            sequence_parallel_enabled=config.sequence_parallel_enabled,
+        )
+        self.up_proj = ColumnParallelLinear(
+            self.hidden_size,
+            self.intermediate_size,
+            bias=config.mlp_bias,
+            gather_output=True,
+            init_method=init_method,
+            dtype=config.torch_dtype,
+            sequence_parallel_enabled=config.sequence_parallel_enabled,
+        )
+        self.down_proj = RowParallelLinear(
+            self.intermediate_size,
+            self.hidden_size,
+            bias=config.mlp_bias,
+            init_method=init_method,
+            dtype=config.torch_dtype,
+            input_is_parallel=False,
+            sequence_parallel_enabled=config.sequence_parallel_enabled,
+        )
         self.act_fn = ACT2FN[config.hidden_act]
+        # Split parallelized weights
+        self._register_load_state_dict_pre_hook(self.load_hook)
+
+    def load_hook(self, state_dict, prefix, *_args):
+        """
+        Update the state dict to split the weights of the model across the world size.
+        """
+        # Filtering items to slice only the weights of this layer
+        filtered_items = filter(lambda x: x[0].startswith(prefix), state_dict.items())
+        for k, v in filtered_items:
+            if k.endswith("gate_proj.weight"):
+                state_dict[k] = slice_tensor(v, 0)
+            if k.endswith("up_proj.weight"):
+                state_dict[k] = slice_tensor(v, 0)
+            if k.endswith("down_proj.weight"):
+                state_dict[k] = slice_tensor(v, 1)
 
     def forward(self, x):
         down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
@@ -500,6 +570,8 @@ class GraniteModel(GranitePreTrainedModel):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
+        self.rank = xr.global_ordinal()
+        self.world_size = xr.world_size()
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
         self.layers = nn.ModuleList(
