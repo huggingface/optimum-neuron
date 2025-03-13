@@ -885,6 +885,10 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
         )
         return common_outputs
 
+    @property
+    def is_encoder_decoder(self) -> bool:
+        return True
+
     def patch_model_for_export(self, model_or_path, device="xla", **kwargs):
         num_beams = kwargs.pop("num_beams", 1)
         sequence_length = kwargs.pop("sequence_length", None)

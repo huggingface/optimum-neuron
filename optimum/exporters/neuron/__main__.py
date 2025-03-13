@@ -50,7 +50,7 @@ from ...neuron.utils.version_utils import (
     check_compiler_compatibility_for_stable_diffusion,
 )
 from ...utils import is_diffusers_available, logging
-from ...utils.save_utils import maybe_save_preprocessors
+from ...utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
 from ..error_utils import AtolError, OutputMatchError, ShapeError
 from ..tasks import TasksManager
 from .base import NeuronExportConfig
@@ -314,6 +314,7 @@ def get_submodels_and_neuron_configs(
     library_name: str,
     tensor_parallel_size: int = 1,
     subfolder: str = "",
+    trust_remote_code: bool = False,
     dynamic_batch_size: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
@@ -342,6 +343,11 @@ def get_submodels_and_neuron_configs(
         )
     elif is_encoder_decoder:
         optional_outputs = {"output_attentions": output_attentions, "output_hidden_states": output_hidden_states}
+        preprocessors = maybe_load_preprocessors(
+            src_name_or_path=model_name_or_path,
+            subfolder=subfolder,
+            trust_remote_code=trust_remote_code,
+        )
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_encoder_decoder(
             model=model,
             input_shapes=input_shapes,
@@ -350,6 +356,7 @@ def get_submodels_and_neuron_configs(
             output=output,
             dynamic_batch_size=dynamic_batch_size,
             model_name_or_path=model_name_or_path,
+            preprocessors=preprocessors,
             **optional_outputs,
         )
     else:
@@ -465,6 +472,7 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
     tensor_parallel_size: int,
     task: str,
     output: Path,
+    preprocessors: Optional[List] = None,
     dynamic_batch_size: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
     output_attentions: bool = False,
@@ -484,6 +492,7 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
         model_name_or_path=model_name_or_path,
+        preprocessors=preprocessors,
     )
     output_model_names = {
         ENCODER_NAME: os.path.join(ENCODER_NAME, NEURON_FILE_NAME),
@@ -553,6 +562,7 @@ def load_models_and_neuron_configs(
         library_name=library_name,
         output=output,
         subfolder=subfolder,
+        trust_remote_code=trust_remote_code,
         dynamic_batch_size=dynamic_batch_size,
         model_name_or_path=model_name_or_path,
         submodels=submodels,

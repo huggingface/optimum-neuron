@@ -147,6 +147,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         config: "PretrainedConfig",
         task: str,
         input_shapes: InputShapesArguments,
+        preprocessors: Optional[List] = None,
         compiler_type: Optional[str] = None,
         compiler_version: Optional[str] = None,
         tensor_parallel_size: int = 1,
@@ -171,6 +172,13 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
             batch_size = 1
         else:
             batch_size = input_shapes.batch_size
+
+        if preprocessors:
+            for preprocessor in preprocessors:
+                if hasattr(preprocessor, "feature_extractor_type"):
+                    input_shapes.nb_max_frames = input_shapes.nb_max_frames or getattr(
+                        preprocessor, "nb_max_frames", None
+                    )
 
         # To avoid using **kwargs.
         axes_values = {
@@ -261,7 +269,6 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         for name, axis_dim in self._axes.items():
             self._axes[name] = kwargs.pop(name, axis_dim)
 
-        self._validate_mandatory_axes()
         return [cls_(self.task, self._normalized_config, **self._axes) for cls_ in self.DUMMY_INPUT_GENERATOR_CLASSES]
 
     @property

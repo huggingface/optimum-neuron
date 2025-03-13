@@ -61,6 +61,7 @@ if is_neuronx_distributed_available():
 logger = logging.getLogger(__name__)
 
 _TOKENIZER_FOR_DOC = "AutoTokenizer"
+_PROCESSOR_FOR_AUDIO = "AutoProcessor"
 
 NEURON_SEQ2SEQ_MODEL_START_DOCSTRING = r"""
     This model inherits from [`~neuron.modeling.NeuronTracedModel`]. Check the superclass documentation for the generic methods the
@@ -701,6 +702,24 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         return True
 
 
+NEURON_WHISPER_INPUTS_DOCSTRING = r"""
+    Args:
+        input_features (`Optional[torch.FloatTensor]` of shape `(batch_size, feature_size, sequence_length)`):
+            Float values mel features extracted from the raw speech waveform. Raw speech waveform can be obtained by
+            loading a `.flac` or `.wav` audio file into an array of type `List[float]` or a `numpy.ndarray`, *e.g.* via
+            the soundfile library (`pip install soundfile`). To prepare the array into `input_features`, the
+            [`AutoFeatureExtractor`] should be used for extracting the mel features, padding and conversion into a
+            tensor of type `torch.FloatTensor`. See [`~WhisperFeatureExtractor.__call__`]
+        decoder_input_ids (`Optional[torch.LongTensor]` of shape `(batch_size, max_sequence_length)`):
+            Indices of decoder input sequence tokens in the vocabulary. Indices can be obtained using [`WhisperTokenizer`]. 
+            See [`PreTrainedTokenizer.encode`] and [`PreTrainedTokenizer.__call__`] for details. Since the cache is not yet
+            supported for Whisper, it needs to be padded to the `sequence_length` used for the compilation.
+        encoder_outputs (`Optional[Tuple[torch.FloatTensor]]`):
+            Tuple consists of `last_hidden_state` of shape `(batch_size, sequence_length, hidden_size)`) is a sequence of
+            hidden-states at the output of the last layer of the encoder. Used in the cross-attention of the decoder.
+"""
+
+
 class DummyLayer:
     def __init__(self, **kwargs):
         for key, value in kwargs.items():
@@ -782,6 +801,44 @@ class NeuronWhisperModel:
         self.decoder = decoder
 
 
+SPEECH_RECOGNITION_EXAMPLE = r"""
+    *(Following models are compiled with neuronx compiler and can only be run on INF2.)*
+    Example of automatic speech recognition with Whisper model:
+
+    ```python
+    from datasets import load_dataset
+    from transformers import {processor_class}
+    from optimum.neuron import {model_class}
+
+    # Select an audio file and read it:
+    ds = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
+    audio_sample = ds[1]["audio"]
+    processor = AutoProcessor.from_pretrained({checkpoint})
+    
+    # Use the model and processor to transcribe the audio:
+    input_features = processor(
+        audio_sample["array"], sampling_rate=audio_sample["sampling_rate"], return_tensors="pt"
+    ).input_features
+
+    # Compile the model to Neuron format
+    neuron_model = {model_class}.from_pretrained({checkpoint}, export=True, batch_size=1, sequence_length=128)
+    neuron_model.save_pretrained("whisper_tiny_neuronx/")
+    del neuron_model
+
+    # Inference
+    neuron_model = {model_class}.from_pretrained("whisper_tiny_neuronx/")
+    predicted_ids = neuron_model.generate(input_features)
+    transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)
+    ```
+"""  # noqa: W293
+
+
+@add_start_docstrings(
+    """
+    Whisper Neuron model with a language modeling head that can be used for automatic speech recognition.
+    """,
+    NEURON_SEQ2SEQ_MODEL_START_DOCSTRING,
+)
 class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration, WhisperForConditionalGeneration):
     auto_model_class = WhisperForConditionalGeneration
     main_input_name = "input_features"
@@ -840,11 +897,19 @@ class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration,
 
         return model_kwargs
 
+    @add_start_docstrings_to_model_forward(
+        NEURON_WHISPER_INPUTS_DOCSTRING
+        + SPEECH_RECOGNITION_EXAMPLE.format(
+            processor_class=_PROCESSOR_FOR_AUDIO,
+            model_class="NeuronWhisperForConditionalGeneration",
+            checkpoint="openai/whisper-tiny",
+        )
+    )
     def forward(
         self,
         input_features: Optional[torch.FloatTensor] = None,
         decoder_input_ids: Optional[torch.LongTensor] = None,
-        encoder_outputs: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
+        encoder_outputs: Optional[Tuple[torch.FloatTensor]] = None,
         **kwargs,
     ) -> Union[Tuple[torch.Tensor], Seq2SeqLMOutput]:
         if encoder_outputs is None:
