@@ -14,7 +14,6 @@
 # limitations under the License.
 # ==============================================================================
 import enum
-import warnings
 from typing import Optional
 
 import torch
@@ -69,25 +68,16 @@ class NeuronConfig:
             To be selected from `["HSB", "BSH"]`.
         collectives_layout: Layout to be used for collectives within attention.
             To be selected from `["HSB", "BSH"]`.
-        padding_side: The expected tokenizer batch padding side. See:
-            https://huggingface.co/docs/transformers/v4.39.0/en/main_classes/tokenizer#transformers.PreTrainedTokenizer.padding_side
-            The default padding side is "left", however using "right"
-            padding enables variable length sequences to be used. This is
-            enabled when using features such as continuous batching.
         group_query_attention: The sharding configuration to use when the number
             of query attention heads is not equal to the number of key/value
             heads. Neuron attempts to select the best configuration by default.
-        bf16_rms_norm: Uses BF16 weights and hidden states input for RMS norm operations.
-            By default, the RMS norm operates on FP32 dtype of inputs.
         all_reduce_dtype: The data type that is used for AllReduce collectives.
             To be selected from `["float32", "float16", "bfloat16"]`.
-        cast_logits_dtype: The data type to cast logits to in the forward
-            pass. To be selected from `["float32", "float16", "bfloat16"]`.
         fuse_qkv: Fuses the QKV projection into a single matrix multiplication.
         log_softmax_scores: Return log-softmax scores along with logits.
         output_all_logits: Return all logits from each model invocation.
         attn_output_transposed: Transposes the attention output projection weight tensor.
-        compilation_worker_count: Count of concurrent compilation workers.
+        allow_flash_attention: if possible, use flash attention.
     """
 
     def __init__(
@@ -100,76 +90,34 @@ class NeuronConfig:
         continuous_batching: Optional[bool] = False,
         attention_layout: Layout = Layout.HSB,
         collectives_layout: Layout = Layout.HSB,
-        padding_side: str = "left",
         group_query_attention: Optional[GQA] = None,
-        bf16_rms_norm: bool = False,
         all_reduce_dtype: Optional[str] = None,
-        cast_logits_dtype: str = "float32",
         fuse_qkv: bool = False,
         log_softmax_scores: bool = False,
         output_all_logits: bool = False,
         attn_output_transposed: bool = False,
-        compilation_worker_count: Optional[int] = None,
-        **kwargs,
+        allow_flash_attention: bool = True,
     ):
         self.n_positions = n_positions
         self.batch_size = batch_size
         self.amp = amp
         self.tp_degree = tp_degree
         self.all_reduce_dtype = all_reduce_dtype
-        self.cast_logits_dtype = cast_logits_dtype
-        assert cast_logits_dtype in valid_dtypes, (
-            f"The `cast_logits_dtype={cast_logits_dtype}` argument must be one of {valid_dtypes}"
-        )
         self.fuse_qkv = fuse_qkv
         self.continuous_batching = continuous_batching
-        self.padding_side = padding_side
-        assert padding_side in [
-            "left",
-            "right",
-        ], f"The `padding_side={padding_side}` argument must be either 'left' or 'right'"
-
-        self.lhs_aligned = padding_side == "right"
-        if "use_2d_cache_ids" in kwargs:
-            warnings.warn(
-                "NeuronConfig `use_2d_cache_ids` argument is deprecated. Please specify `padding_side = 'right'`."
-            )
-            self.lhs_aligned = kwargs.pop("use_2d_cache_ids", False)
-        if "lhs_aligned" in kwargs:
-            warnings.warn(
-                "NeuronConfig `lhs_aligned` argument is deprecated. Please specify `padding_side = 'right'`."
-            )
-            self.lhs_aligned = kwargs.pop("lhs_aligned", False)
-        if self.continuous_batching:
-            # Force left alignment for continuous batching.
-            self.lhs_aligned = True
-            self.padding_side = "right"
         self.attention_layout = attention_layout
         self.collectives_layout = collectives_layout
         self.log_softmax_scores = log_softmax_scores
         self.group_query_attention = group_query_attention
         if self.group_query_attention is not None:
             self.group_query_attention = GQA(self.group_query_attention)
-        self.bf16_rms_norm = bf16_rms_norm
         self.output_all_logits = output_all_logits
-
-        assert len(kwargs) == 0, f"Unexpected NeuronConfig keyword arguments: {kwargs}"
-
-        self.dist = None
-
-        self.layer_partition = {}
-
         self.attn_output_transposed = attn_output_transposed
-
-        self.compilation_worker_count = compilation_worker_count
-
-    @property
-    def use_2d_cache_ids(self):
-        return self.lhs_aligned
+        self.allow_flash_attention = allow_flash_attention
 
     @property
     def vectorize_last_token_id(self):
-        return self.lhs_aligned
+        return self.continuous_batching
 
     def to_json(self):
         json_serializable_types = (str, int, float, bool)

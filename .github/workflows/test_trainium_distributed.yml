@@ -12,6 +12,7 @@ on:
     paths:
       - "setup.py"
       - "optimum/neuron/distributed/**.py"
+      - "tests/distributed/**.py"
       -  ".github/workflows/test_trainium_distributed.yml"
 
 concurrency:

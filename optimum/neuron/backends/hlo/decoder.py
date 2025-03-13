@@ -93,8 +93,7 @@ class DecoderGraphBuilder(GraphBuilder):
             hidden_sizes = self.config.hidden_size, n_active_tokens, batch_size
 
         hidden = dtype[hidden_sizes].Parameter(parameter_number=0)
-        cache_2d = self.neuron_config.use_2d_cache_ids
-        if cache_2d:
+        if self.neuron_config.continuous_batching:
             position_sizes = batch_size, n_active_tokens
             cache_ids = s32[position_sizes].Parameter(parameter_number=1)  # 2d cache_ids
         else:
@@ -103,7 +102,7 @@ class DecoderGraphBuilder(GraphBuilder):
         start_ids = s32[batch_size].Parameter(parameter_number=2)
 
         # Build parameters for last_token_id and others
-        if cache_2d:
+        if self.neuron_config.continuous_batching:
             # regular token gen
             last_token_id = s32[batch_size].Parameter(parameter_number=3)
         else:
@@ -1185,7 +1184,7 @@ class NeuronHloDecoderModel(NeuronModelBase):
         batch_size, context_length = input_ids.shape
 
         # if last_token_id not used, simply set to 0
-        if self.neuron_config.vectorize_last_token_id:
+        if self.neuron_config.continuous_batching:
             last_token_id = torch.zeros(batch_size, dtype=torch.int32)
         else:
             last_token_id = torch.as_tensor([0], dtype=torch.int32)
@@ -1197,7 +1196,7 @@ class NeuronHloDecoderModel(NeuronModelBase):
 
         if estimate:
             # when context length is larger than estimate, last_token_id=estimate-1
-            if self.neuron_config.vectorize_last_token_id:
+            if self.neuron_config.continuous_batching:
                 last_token_id = cache_ids.max(dim=1).values
             else:
                 last_token_id = torch.as_tensor([min(context_length - 1, estimate - 1)], dtype=torch.int32)
@@ -1208,7 +1207,7 @@ class NeuronHloDecoderModel(NeuronModelBase):
         return input_ids, cache_ids, last_token_id
 
     def _pad_cache_ids(self, cache_ids, batch_size, context_length, estimate):
-        if self.neuron_config.use_2d_cache_ids:
+        if self.neuron_config.continuous_batching:
             cache_ids = torch.arange(estimate, dtype=torch.int32)
             cache_ids = cache_ids.unsqueeze(0).expand(batch_size, estimate)
         else:
@@ -1288,7 +1287,7 @@ class NeuronHloDecoderModel(NeuronModelBase):
 
         if cache_ids is None:
             cache_ids = torch.arange(context_length, dtype=torch.int32)
-            if self.neuron_config.use_2d_cache_ids:
+            if self.neuron_config.continuous_batching:
                 cache_ids = cache_ids.unsqueeze(0).expand(batch_size, context_length)
 
         return input_ids, cache_ids, start_ids, last_token_id
@@ -1297,7 +1296,7 @@ class NeuronHloDecoderModel(NeuronModelBase):
         if start_ids is None or (self.neuron_config.output_all_logits and logits.shape[1] > 1):
             return logits
 
-        if not self.neuron_config.lhs_aligned or input_ids.shape[-1] > 1:
+        if not self.neuron_config.continuous_batching or input_ids.shape[-1] > 1:
             return logits
 
         input_batch_size = start_ids.shape[0]
@@ -1308,14 +1307,6 @@ class NeuronHloDecoderModel(NeuronModelBase):
             logits = logits[seq_ids.to(torch.long)]
 
         return logits
-
-    def _cast_logits(self, logits):
-        # Cast logits to float32 or the dtype specified in the neuron config
-        logits_dtype = torch.float32
-        if self.neuron_config:
-            if self.neuron_config.cast_logits_dtype is not None:
-                logits_dtype = getattr(torch, self.neuron_config.cast_logits_dtype)
-        return logits.to(logits_dtype)
 
     def _context_dynamic_batching(self, hidden, *args):
         is_bsh = self.neuron_config and self.neuron_config.attention_layout == Layout.BSH
@@ -1366,7 +1357,7 @@ class NeuronHloDecoderModel(NeuronModelBase):
         else:
             logits = self.decode(hidden, *args)
 
-        logits = self._cast_logits(logits)
+        logits = logits.to(torch.float32)
         if self.neuron_config.output_all_logits and context_length > 1:
             logits = logits.permute(2, 1, 0)
         else:
