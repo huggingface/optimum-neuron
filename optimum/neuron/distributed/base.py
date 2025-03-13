@@ -16,9 +16,9 @@
 
 import contextlib
 import gc
+import inspect
 import math
 from abc import ABC, abstractclassmethod
-from dataclasses import dataclass
 from collections import defaultdict
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -560,7 +560,7 @@ class Parallelizer(ABC):
         orig_model, peft_prefix = get_base_model_and_peft_prefix(model)
         model_class = orig_model.__class__
 
-        import inspect
+        # We skip parallelization if the model is coming from a custom modeling since it is already parallelized.
         if inspect.getmodule(orig_model.__class__).__name__.startswith("optimum.neuron.models.training"):
             return orig_model
 

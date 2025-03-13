@@ -14,27 +14,36 @@
 # limitations under the License.
 """LlaMa model implementation for Neuron"""
 
-import math
-import os
 from functools import partial
-from typing import List, Optional, Tuple, Union, Callable
+from typing import Callable, List, Optional, Tuple, Union
 
+import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
 import torch
-import torch.nn.functional as F
 import torch.utils.checkpoint
-import torch_xla.core.xla_model as xm
-from torch_xla.utils.checkpoint import checkpoint
+from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
+from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
+from neuronx_distributed.parallel_layers.layers import (
+    ColumnParallelLinear,
+    ParallelEmbedding,
+    RowParallelLinear,
+)
+from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 from torch import nn
-
+from torch_xla.utils.checkpoint import checkpoint
 from transformers.activations import ACT2FN
+from transformers.cache_utils import Cache, DynamicCache
+from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import (
     BaseModelOutputWithPast,
     CausalLMOutputWithPast,
 )
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import (
-    LLAMA_INPUTS_DOCSTRING,
-    LLAMA_START_DOCSTRING,
+    KwargsForCausalLM,
+    LlamaPreTrainedModel,
+    LlamaRotaryEmbedding,
+    apply_rotary_pos_emb,
+    repeat_kv,
 )
 from transformers.models.llama.modeling_llama import LlamaAttention as LlamaAttentionHF
 from transformers.models.llama.modeling_llama import (
@@ -43,41 +52,13 @@ from transformers.models.llama.modeling_llama import (
 from transformers.models.llama.modeling_llama import (
     LlamaForCausalLM as LlamaForCausalLMHF,
 )
-from transformers.models.llama.modeling_llama import (
-    LlamaForSequenceClassification,
-)
 from transformers.models.llama.modeling_llama import LlamaMLP as LlamaMLPHF
 from transformers.models.llama.modeling_llama import LlamaModel as LlamaModelHF
-from transformers.models.llama.modeling_llama import LlamaPreTrainedModel
 from transformers.models.llama.modeling_llama import LlamaRMSNorm as LlamaRMSNormHF
-from transformers.models.llama.modeling_llama import (
-    KwargsForCausalLM,
-    LlamaRotaryEmbedding,
-    apply_rotary_pos_emb,
-    repeat_kv,
-    rotate_half,
-)
-from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.processing_utils import Unpack
-from transformers.cache_utils import Cache, DynamicCache, StaticCache
 from transformers.utils import (
-    add_start_docstrings,
-    add_start_docstrings_to_model_forward,
     logging,
-    replace_return_docstrings,
 )
-
-import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
-from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
-from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
-from neuronx_distributed.parallel_layers import mappings
-from neuronx_distributed.parallel_layers.layers import (
-    ColumnParallelLinear,
-    ParallelEmbedding,
-    RowParallelLinear,
-)
-from neuronx_distributed.parallel_layers.loss_functions import parallel_cross_entropy
-from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
 from ....accelerate import ModelParallelismConfig
 from ...loss_utils import ForCausalLMLoss
@@ -203,7 +184,7 @@ class LlamaAttention(LlamaAttentionHF):
         self.mp_config = mp_config
 
         init_method = partial(_init_normal, config.initializer_range)
-    
+
         self.qkv_linear = self.num_key_value_heads < get_tensor_model_parallel_size()
         if self.qkv_linear:
             if mp_config.kv_size_multiplier is None:
@@ -336,7 +317,7 @@ class LlamaAttention(LlamaAttentionHF):
                     f"Unsupported attention implementation for Neuron: {self.config._attn_implementation}"
                 )
             else:
-                # It could be this one day if we support multiple attention implementations, but for now it's just 
+                # It could be this one day if we support multiple attention implementations, but for now it's just
                 # eager or flash attention.
                 # attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
                 attention_interface = nki_flash_attn_func

@@ -22,8 +22,9 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 import torch
 
 from ...distributed import ParallelizersManager
-from ...utils.torch_xla_and_neuronx_initialization import init_process_group
 from ...utils import is_neuronx_distributed_available
+from ...utils.torch_xla_and_neuronx_initialization import init_process_group
+
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers import parallel_state

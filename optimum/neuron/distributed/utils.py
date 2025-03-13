@@ -37,7 +37,6 @@ from ..utils.misc import download_checkpoints_in_cache, is_precompilation
 from ..utils.peft_utils import NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed, requires_peft, requires_safetensors, requires_torch_xla
 
-from safetensors.torch import safe_open
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear

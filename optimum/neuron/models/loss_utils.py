@@ -15,10 +15,7 @@
 
 from typing import Optional
 
-import torch
 import torch.nn as nn
-from torch.nn import BCEWithLogitsLoss, MSELoss
-
 from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
 from ..distributed.utils import parallel_cross_entropy
