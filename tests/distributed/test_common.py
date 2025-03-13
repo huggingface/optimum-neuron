@@ -41,6 +41,7 @@ from ..utils import StaticSeedPatcher, create_accelerator, get_model, get_model_
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+    import torch_xla.runtime as xr
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.parallel_state import (
@@ -468,7 +469,7 @@ class TestCommonDistributed(DistributedTest):
             use_static_seed_patcher=True,
         )
         orig_model_path = Path(tmpdir) / "orig_model"
-        if xm.get_ordinal() == 0:
+        if xr.global_ordinal() == 0:
             # Saving to pytorch instead of safetensors because it fails otherwise for pickling issues with distributed tests.
             orig_model.save_pretrained(orig_model_path, safe_serialization=False)
 
@@ -481,7 +482,7 @@ class TestCommonDistributed(DistributedTest):
         xm.rendezvous("Saving done.")
 
         consolidation_dir = Path(tmpdir) / "consolidated"
-        if xm.get_ordinal() == 0:
+        if xr.global_ordinal() == 0:
             consolidate_model_parallel_checkpoints_to_unified_checkpoint(
                 output_dir, consolidation_dir, save_format="pytorch"
             )
