@@ -126,9 +126,9 @@ def is_model_officially_supported(model: "PreTrainedModel") -> bool:
 
 @requires_torch_xla
 def is_topology_supported() -> bool:
-    import torch_xla.core.xla_model as xm
+    import torch_xla.runtime as xr
 
-    num_devices = xm.xrt_world_size()
+    num_devices = xr.world_size()
     allowed_number_of_devices = [1, 2, 8]
     return num_devices in allowed_number_of_devices or num_devices % 32 == 0
 

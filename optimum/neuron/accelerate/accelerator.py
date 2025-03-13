@@ -75,6 +75,7 @@ if TYPE_CHECKING:
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+    import torch_xla.runtime as xr
     from torch_xla.distributed.parallel_loader import MpDeviceLoader
 else:
     xm = None
@@ -218,8 +219,8 @@ class NeuronAccelerator(Accelerator):
                     "cause failure if the last batch size is not divisible by the number of microbatches for the pipeline."
                 )
         else:
-            num_replicas = xm.xrt_world_size()
-            rank = xm.get_ordinal()
+            num_replicas = xr.world_size()
+            rank = xr.global_ordinal()
         if self.state.num_processes > 1:
             data_loader = self._prepare_data_loader_for_distributed(
                 data_loader, num_replicas=num_replicas, rank=rank, force_drop_last=force_drop_last
