@@ -386,6 +386,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         dummy_inputs: Optional[Dict[str, torch.Tensor]] = None,
         forward_with_tuple: bool = False,
         eligible_outputs: Optional[List[Union[str, int]]] = None,
+        device: str = None,
     ):
         """
         Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
