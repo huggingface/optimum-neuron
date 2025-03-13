@@ -20,7 +20,6 @@ from typing import Callable, List, Optional, Tuple, Union
 import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
 import torch
 import torch.utils.checkpoint
-from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
 from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
@@ -62,7 +61,7 @@ from transformers.utils import (
 
 from ....accelerate import ModelParallelismConfig
 from ...loss_utils import ForCausalLMLoss
-from .. import NeuronModelMixin
+from ..modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
 
 
 logger = logging.get_logger(__name__)
@@ -311,33 +310,30 @@ class LlamaAttention(LlamaAttentionHF):
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
         attention_interface: Callable = eager_attention_forward
-        if self.config._attn_implementation != "eager":
-            if self.config._attn_implementation != "flash_attention_2":
-                raise RuntimeError(
-                    f"Unsupported attention implementation for Neuron: {self.config._attn_implementation}"
-                )
-            else:
-                # It could be this one day if we support multiple attention implementations, but for now it's just
-                # eager or flash attention.
-                # attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
-                attention_interface = nki_flash_attn_func
-
-        output = attention_interface(
-            self,
-            query_states,
-            key_states,
-            value_states,
-            attention_mask,
-            dropout=0.0 if not self.training else self.attention_dropout,
-            scaling=self.scaling,
-            **kwargs,
-        )
-
-        if self.config._attn_implementation != "eager":
-            attn_output = output[0]
+        if self.config._attn_implementation == "flash_attention_2":
+            attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
+            attn_output = attention_interface(
+                query_states,
+                repeat_kv(key_states, self.num_key_value_groups),
+                repeat_kv(value_states, self.num_key_value_groups),
+                dropout_p=0.0 if not self.training else self.attention_dropout,
+                softmax_scale=self.scaling,
+                causal=True,
+                mixed_precision=True,
+            )
             attn_weights = None
         else:
-            attn_output, attn_weights = output
+            attn_output, attn_weights = attention_interface(
+                self,
+                query_states,
+                key_states,
+                value_states,
+                attention_mask,
+                dropout=0.0 if not self.training else self.attention_dropout,
+                scaling=self.scaling,
+                **kwargs,
+            )
+            attn_weights = None
 
         if self.mp_config.sequence_parallel_enabled:
             attn_output = attn_output.permute(2, 0, 1, 3)

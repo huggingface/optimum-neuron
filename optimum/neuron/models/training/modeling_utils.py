@@ -19,7 +19,7 @@ import math
 import os
 import warnings
 from pathlib import Path
-from typing import Optional, Type, Union
+from typing import Callable, Dict, Optional, Type, Union
 
 import torch
 from safetensors import safe_open
@@ -37,11 +37,9 @@ from transformers.utils import (
     is_offline_mode,
     is_peft_available,
     is_safetensors_available,
-    is_torch_xla_available,
     logging,
 )
 
-from ...accelerate import ModelParallelismConfig
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from ...utils.misc import download_checkpoints_in_cache
 
@@ -50,6 +48,7 @@ if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 
 if is_neuronx_distributed_available():
+    from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
     from neuronx_distributed.parallel_layers.layers import create_local_weight
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_tensor_model_parallel_rank,
@@ -58,23 +57,12 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.utils import get_local_world_size
 
 
-
-
 logger = logging.get_logger(__name__)
 
-def parallel_load_state_dict(
-    mp_config: ModelParallelismConfig,
-    checkpoint_file: Union[str, os.PathLike],
-    is_quantized: bool = False,
-    map_location: Optional[Union[str, torch.device]] = None,
-    weights_only: bool = True,
-):
-    # Steps:
-    # 1. If the checkpoint_file is a torch checkpoint, convert it to safetensors
-    # 2. Loop over the tp ranks in groups of mp.config.num_local_ranks_per_steps
-    # 3. For each step, loop over the parameter names to load
-    # 4. Shard them according to the tp_rank
-    pass
+ALL_ATTENTION_FUNCTIONS: Dict[str, Dict[str, Callable]] = {
+    "flash_attention_2": nki_flash_attn_func,
+}
+
 
 def create_local_fused_weight(tp_rank, tp_size, individual_weights, partition_dim, out_weight=None):
     weight_lists = []
@@ -91,6 +79,143 @@ def create_local_fused_weight(tp_rank, tp_size, individual_weights, partition_di
 
 
 class NeuronModelMixin:
+    @classmethod
+    def _check_and_enable_flash_attn_2(
+        cls,
+        config,
+        torch_dtype: Optional[torch.dtype] = None,
+        device_map: Optional[Union[str, Dict[str, int]]] = None,
+        check_device_map: bool = True,
+        hard_check_only: bool = False,
+    ) -> PretrainedConfig:
+        """
+        Checks the availability of Flash Attention 2 and compatibility with the current model.
+
+        If all checks pass and `hard_check_only` is False, the method will set the config attribute `attn_implementation` to "flash_attention_2" so that the model can initialize the correct attention module.
+        """
+        if not cls._supports_flash_attn_2:
+            raise ValueError(
+                f"{cls.__name__} does not support Flash Attention 2.0 yet. Please request to add support where"
+                f" the model is hosted, on its model hub page: https://huggingface.co/{config._name_or_path}/discussions/new"
+                " or in the Transformers GitHub repo: https://github.com/huggingface/transformers/issues/new"
+            )
+
+        if torch_dtype is None:
+            logger.warning_once(
+                "You are attempting to use Flash Attention 2.0 without specifying a torch dtype. This might lead to unexpected behaviour"
+            )
+        elif torch_dtype is not None and torch_dtype not in [torch.float16, torch.bfloat16]:
+            logger.warning_once(
+                "Flash Attention 2.0 only supports torch.float16 and torch.bfloat16 dtypes, but"
+                f" the current dype in {cls.__name__} is {torch_dtype}. You should run training or inference using Automatic Mixed-Precision via the `with torch.autocast(device_type='torch_device'):` decorator,"
+                ' or load the model with the `torch_dtype` argument. Example: `model = AutoModel.from_pretrained("openai/whisper-tiny", attn_implementation="flash_attention_2", torch_dtype=torch.float16)`'
+            )
+
+        # The check `torch.empty(0).device.type != "xla"` is needed as the model may be initialized after `torch.set_default_device` has been called,
+        # or the model may be initialized under the context manager `with torch.device("cuda"):`.
+        if check_device_map and device_map is None and torch.empty(0).device.type != "xla":
+            logger.warning_once(
+                "You are attempting to use Flash Attention 2.0 with a model not initialized on XLA. Make sure to move the model to XLA"
+                " after initializing it on CPU with `model.to('xla')`."
+            )
+        elif (
+            check_device_map
+            and device_map is not None
+            and isinstance(device_map, dict)
+            and ("cpu" in device_map.values() or "disk" in device_map.values())
+        ):
+            raise ValueError(
+                "You are attempting to use Flash Attention 2.0 with a model dispatched on CPU or disk. This is not supported. Please make sure to "
+                "initialise the model on XLA by passing a device_map that contains only GPU devices as keys."
+            )
+        if not hard_check_only:
+            config._attn_implementation = "flash_attention_2"
+        return config
+
+    @classmethod
+    def _autoset_attn_implementation(
+        cls,
+        config,
+        use_flash_attention_2: bool = False,
+        torch_dtype: Optional[torch.dtype] = None,
+        device_map: Optional[Union[str, Dict[str, int]]] = None,
+        check_device_map: bool = True,
+    ):
+        """
+        Automatically checks and dispatches to a default attention implementation. In order of priority:
+            1. An implementation specified in `config._attn_implementation` (due for example to the argument attn_implementation="sdpa" in from_pretrained).
+            2. DEPRECATED: if use_flash_attention_2 is set to `True` and `flash_attn` is available, flash attention. (`LlamaFlashAttention` for example)
+            3. SDPA implementation, if available and supported by the model type. (`LlamaSdpaAttention` for example)
+            4. The default model's implementation otherwise (`LlamaAttention` for example) .
+        """
+        # Here we use config._attn_implementation_internal to check whether the attention implementation was explicitely set by the user.
+        # The property `PretrainedConfig._attn_implementation` is never `None`, for backward compatibility (always fall back on "eager").
+        # The `hasattr` here is used as some Transformers tests for some reason do not call PretrainedConfig __init__ (e.g. test_no_super_init_config_and_model)
+        requested_attn_implementation = None
+        if hasattr(config, "_attn_implementation_internal") and config._attn_implementation_internal is not None:
+            if config._attn_implementation != "flash_attention_2" and use_flash_attention_2:
+                raise ValueError(
+                    f'Both attn_implementation="{config._attn_implementation}" and `use_flash_attention_2=True` were used when loading the model, which are not compatible.'
+                    ' We recommend to just use `attn_implementation="flash_attention_2"` when loading the model.'
+                )
+
+            if not isinstance(config._attn_implementation, dict) and config._attn_implementation not in [
+                "eager"
+            ] + list(ALL_ATTENTION_FUNCTIONS.keys()):
+                message = f'Specified `attn_implementation="{config._attn_implementation}"` is not supported. The only possible arguments are `attn_implementation="eager"` (manual attention implementation)'
+                if cls._supports_flash_attn_2:
+                    message += ', `"attn_implementation=flash_attention_2"` (implementation using nki flash attention 2)'
+                # Keeping this if supported one day.
+                # if cls._supports_flex_attn:
+                #     message += (
+                #         ', `"attn_implementation=flex_attention"` (implementation using torch\'s flex_attention)'
+                #     )
+                raise ValueError(message + ".")
+
+            # If a config is passed with a preset attn_implementation, we skip the automatic dispatch and use the user-provided config, with hard checks that the requested attention implementation is available.
+            requested_attn_implementation = config._attn_implementation_internal
+
+        # Composite models consisting of several PretrainedModels have to specify attention impl as a dict
+        # where keys are sub-config names. But most people will specify one `str` which means that should dispatch it
+        # for all sub-models.
+        # Below we check if a config is composite and manually prepare a dict of attn impl if not already passed as a dict.
+        # Later each sub-module will dispatch with its own attn impl, by calling `XXXModel._from_config(config.text_config)`
+        # If any of sub-modules doesn't support requested attn, an error will be raised. See https://github.com/huggingface/transformers/pull/32238
+        for key in config.sub_configs.keys():
+            sub_config = getattr(config, key)
+            curr_attn_implementation = (
+                requested_attn_implementation
+                if not isinstance(requested_attn_implementation, dict)
+                else requested_attn_implementation.get(key, None)
+            )
+            sub_config._attn_implementation_internal = curr_attn_implementation
+
+        if use_flash_attention_2:
+            logger.warning_once(
+                'The model was loaded with use_flash_attention_2=True, which is deprecated and may be removed in a future release. Please use `attn_implementation="flash_attention_2"` instead.'
+            )
+            config._attn_implementation = "flash_attention_2"
+
+        if config._attn_implementation == "flash_attention_2":
+            cls._check_and_enable_flash_attn_2(
+                config,
+                torch_dtype=torch_dtype,
+                device_map=device_map,
+                hard_check_only=False,
+                check_device_map=check_device_map,
+            )
+        # Keeping it if supported one day.
+        # elif requested_attn_implementation == "flex_attention":
+        #     config = cls._check_and_enable_flex_attn(config, hard_check_only=True)
+        elif requested_attn_implementation in list(ALL_ATTENTION_FUNCTIONS.keys()):
+            config._attn_implementation = requested_attn_implementation
+        elif isinstance(requested_attn_implementation, dict):
+            config._attn_implementation = None
+        else:
+            config._attn_implementation = "eager"
+
+        config._attn_implementation_autoset = True
+        return config
 
     @classmethod
     def from_pretrained(
@@ -113,7 +238,7 @@ class NeuronModelMixin:
         from_flax = kwargs.pop("from_flax", False)
         resume_download = kwargs.pop("resume_download", None)
         proxies = kwargs.pop("proxies", None)
-        output_loading_info = kwargs.pop("output_loading_info", False)
+        kwargs.pop("output_loading_info", False)
         use_auth_token = kwargs.pop("use_auth_token", None)
         trust_remote_code = kwargs.pop("trust_remote_code", None)
         _ = kwargs.pop("mirror", None)
@@ -123,24 +248,23 @@ class NeuronModelMixin:
         torch_dtype = kwargs.pop("torch_dtype", None)
         low_cpu_mem_usage = kwargs.pop("low_cpu_mem_usage", None)
         device_map = kwargs.pop("device_map", None)
-        max_memory = kwargs.pop("max_memory", None)
-        offload_folder = kwargs.pop("offload_folder", None)
-        offload_state_dict = kwargs.pop("offload_state_dict", False)
-        offload_buffers = kwargs.pop("offload_buffers", False)
+        kwargs.pop("max_memory", None)
+        kwargs.pop("offload_folder", None)
+        kwargs.pop("offload_state_dict", False)
+        kwargs.pop("offload_buffers", False)
         load_in_8bit = kwargs.pop("load_in_8bit", False)
         load_in_4bit = kwargs.pop("load_in_4bit", False)
-        quantization_config = kwargs.pop("quantization_config", None)
+        kwargs.pop("quantization_config", None)
         subfolder = kwargs.pop("subfolder", "")
         commit_hash = kwargs.pop("_commit_hash", None)
-        variant = kwargs.pop("variant", None)
+        kwargs.pop("variant", None)
         adapter_kwargs = kwargs.pop("adapter_kwargs", {})
-        adapter_name = kwargs.pop("adapter_name", "default")
+        kwargs.pop("adapter_name", "default")
         use_flash_attention_2 = kwargs.pop("use_flash_attention_2", False)
-        generation_config = kwargs.pop("generation_config", None)
+        kwargs.pop("generation_config", None)
 
-        gguf_file = kwargs.pop("gguf_file", None)
+        kwargs.pop("gguf_file", None)
         # Cache path to the GGUF file
-        gguf_path = None
 
         if use_auth_token is not None:
             warnings.warn(
@@ -216,7 +340,7 @@ class NeuronModelMixin:
         if load_in_4bit or load_in_8bit:
             raise RuntimeError("Quantization is not supported yet.")
 
-        from_pt = not (from_tf | from_flax)
+        not (from_tf | from_flax)
 
         user_agent = {"file_type": "model", "framework": "pytorch", "from_auto_class": from_auto_class}
         if from_pipeline is not None:
@@ -280,8 +404,9 @@ class NeuronModelMixin:
 
         config = copy.deepcopy(config)  # We do not want to modify the config inplace in from_pretrained.
         if not getattr(config, "_attn_implementation_autoset", False):
+            # We do not check for the device_map because we are going to move the model to XLA anyway on our own.
             config = cls._autoset_attn_implementation(
-                config, use_flash_attention_2=use_flash_attention_2, torch_dtype=torch_dtype, device_map=device_map
+                config, use_flash_attention_2=use_flash_attention_2, torch_dtype=torch_dtype, device_map=device_map, check_device_map=False,
             )
 
         with ContextManagers(init_contexts):
@@ -304,7 +429,6 @@ class NeuronModelMixin:
 
         for worker in range(math.ceil(local_world_size / num_local_ranks_per_step)):
             if local_rank // num_local_ranks_per_step == worker:
-                print(f"Loading for worker {worker}")
                 if sharded_metadata:
                     weight_map = sharded_metadata["weight_map"]
                 else:
@@ -348,4 +472,3 @@ class NeuronModelMixin:
             xm.rendezvous(f"load_state_dict_{worker}")
 
         return model
-
