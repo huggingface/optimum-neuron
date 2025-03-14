@@ -553,7 +553,8 @@ def export_neuronx(
     compiler_args.extend(["--optlevel", optlevel])
     logger.info(f"Using Neuron: --optlevel {optlevel}")
 
-    if getattr(config._config, "is_encoder_decoder", False):
+    # no idea what range of models this flag could be applied, seems only unet doesn't like it so far
+    if config.MODEL_TYPE != "unet":
         compiler_args.extend(["--model-type", "transformer"])
 
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)  # diffusers specific
