@@ -68,14 +68,14 @@ _import_structure = {
         "NeuronAccelerator",
         "NeuronAcceleratorState",
         "NeuronPartialState",
-        "ModelParallelismPlugin",
+        "ModelParallelismConfig",
     ],
     "pipelines": ["pipeline"],
     "utils": ["NeuronSFTConfig", "NeuronORPOConfig", "get_peft_model"],
 }
 
 if TYPE_CHECKING:
-    from .accelerate import ModelParallelismPlugin, NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
+    from .accelerate import ModelParallelismConfig, NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
     from .hf_argparser import NeuronHfArgumentParser
     from .modeling import (
         NeuronModelForAudioClassification,
