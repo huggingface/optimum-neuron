@@ -620,6 +620,8 @@ def create_kv_proj_local_weight_from_regular_weight(
     """
     assert not isinstance(weight_data, torch.nn.Parameter)
 
+    print(weight_data.shape)
+
     tp_size = get_tensor_model_parallel_size()
     tp_rank = get_tensor_model_parallel_rank()
     repeated_weight = weight_data.repeat(kv_size_multiplier, 1)

@@ -194,6 +194,13 @@ class LlamaAttention(LlamaAttentionHF):
             self.kv_size_multiplier = 1
 
         if self.qkv_linear:
+                # ("qkv_proj", "weight_qkv"): [("q_proj", "weight"), ("k_proj", "weight"), ("v_proj", "weight")],
+            # else:
+            #     # self.gqa_qkv_specs = {
+            #     #     ("qkv_proj", "weight_q"): [("q_proj", "weight")],
+            #     #     ("qkv_proj", "weight_k"): [("k_proj", "weight")],
+            #     #     ("qkv_proj", "weight_v"): [("v_proj", "weight")],
+            #     # }
             self.qkv_proj = GQAQKVColumnParallelLinear(
                 self.hidden_size,
                 [self.num_heads * self.head_dim, self.num_key_value_heads * self.head_dim],
@@ -205,6 +212,19 @@ class LlamaAttention(LlamaAttentionHF):
                 fuse_qkv=mp_config.fuse_qkv,
                 dtype=self.config.torch_dtype,
             )
+            self.gqa_qkv_specs = {
+                "fuse_qkv": mp_config.fuse_qkv,
+                "bias": False,
+                "gqa_qkv_projection": "qkv_proj",
+                "query_projection": "q_proj",
+                "key_projection": "k_proj",
+                "value_projection": "v_proj",
+                "output_projection": "o_proj",
+                "num_attention_heads": self.num_heads,
+                "num_key_value_heads": self.num_key_value_heads,
+                "kv_size_multiplier": self.kv_size_multiplier,
+                "kv_output_size_per_partition": self.qkv_proj.kv_output_size_per_partition,
+            }
         elif mp_config.fuse_qkv and self.num_heads == self.num_key_value_heads:
             self.fused_linears = {
                 "qkv_proj": ["q_proj", "k_proj", "v_proj"],
