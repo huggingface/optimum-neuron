@@ -145,17 +145,6 @@ OUTPUTS_TO_IGNORE = {
 LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
 
 
-def _early_skip(pp_size=None, parallel_sizes=None, model_specs=None):
-    if pp_size is None and parallel_sizes is not None:
-        pp_size = parallel_sizes[-1]
-
-    if pp_size is not None and pp_size > 1 and model_specs is not None:
-        model_type = model_specs[0]
-        manager = ParallelizersManager.parallelizer_for_model(model_type)
-        if not manager.supports_pipeline_parallelism():
-            pytest.skip(f"Pipeline parallelism is not supported for {model_specs[1].__name__}.")
-
-
 def _check_output(name: str, original_output, output):
     assert type(original_output) is type(output)
     if isinstance(original_output, (tuple, list, set)):
@@ -343,23 +332,6 @@ class TestModelParallelization(DistributedTest):
     def parallelize_embeddings(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[False, True], ids=["embeddings_not_tied", "tied_embeddings"])
-    def tie_embeddings(self, request):
-        return request.param
-
-    @pytest.mark.skip("Model parallelism from config is not fully supported yet.")
-    def test_parallel_model_matches_original_model_from_config(
-        self,
-        model_specs,
-        parallel_sizes,
-        monkeypatch,
-    ):
-        _, model_class, model_name_or_path, config_overwrite = model_specs
-        monkeypatch.setattr(optimum.neuron.distributed.utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True)
-        return _parallel_model_matches_original_model(
-            model_class, model_name_or_path, config_overwrite, parallel_sizes, False, True, False, False
-        )
-
     @pytest.mark.skipif(
         NUM_NEURON_CORES_AVAILABLE < 32,
         reason=f"This test requires 32 Neuron cores, but only {NUM_NEURON_CORES_AVAILABLE} are available",
@@ -495,65 +467,92 @@ class TestModelParallelization(DistributedTest):
             parallelize_embeddings,
         )
 
-    @pytest.mark.parallel_sizes((2, 2, 1))
-    def test_resize_embedding(self, tie_embeddings, lazy_load):
-        tp_size = get_tensor_model_parallel_size()
-        tp_group = get_tensor_model_parallel_group()
 
-        static_seed_patcher = StaticSeedPatcher(42)
+def _test_resize_embedding(tie_embeddings, lazy_load):
+    tp_size = get_tensor_model_parallel_size()
+    tp_group = get_tensor_model_parallel_group()
 
-        config = AutoConfig.from_pretrained(LLAMA_V2_MODEL_NAME)
-        config.tie_word_embeddings = tie_embeddings
+    static_seed_patcher = StaticSeedPatcher(42)
 
+    config = AutoConfig.from_pretrained(LLAMA_V2_MODEL_NAME)
+    config.tie_word_embeddings = tie_embeddings
+
+    with static_seed_patcher:
+        orig_model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, config=config)
+        orig_model.eval()
+        vocab_size = orig_model.config.vocab_size
+        new_vocab_size = vocab_size + tp_size
+
+    with static_seed_patcher:
+        orig_model.resize_token_embeddings(new_vocab_size)
+
+    ctx = lazy_load_for_parallelism(tensor_parallel_size=tp_size) if lazy_load else nullcontext()
+    with ctx:
         with static_seed_patcher:
-            orig_model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, config=config)
-            orig_model.eval()
-            vocab_size = orig_model.config.vocab_size
-            new_vocab_size = vocab_size + tp_size
+            model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, config=config)
+            model.eval()
 
-        with static_seed_patcher:
-            orig_model.resize_token_embeddings(new_vocab_size)
+    with static_seed_patcher:
+        model.resize_token_embeddings(new_vocab_size)
 
-        ctx = lazy_load_for_parallelism(tensor_parallel_size=tp_size) if lazy_load else nullcontext()
-        with ctx:
-            with static_seed_patcher:
-                model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, config=config)
-                model.eval()
+    accelerator = create_accelerator(
+        tp_size,
+        1,
+        parallelize_embeddings=True,
+        sequence_parallel_enabled=True,
+    )
+    with static_seed_patcher:
+        model = accelerator.prepare_model(model)
 
-        with static_seed_patcher:
-            model.resize_token_embeddings(new_vocab_size)
+    # First we check that the embedding weights match
+    gathered = [torch.empty_like(model.model.embed_tokens.weight) for _ in range(tp_size)]
+    torch.distributed.all_gather(gathered, model.model.embed_tokens.weight, group=tp_group)
+    gathered_embedding = torch.cat(gathered, dim=0)
+    xm.mark_step()
+    torch.testing.assert_close(orig_model.model.embed_tokens.weight, gathered_embedding.to("cpu"))
 
-        accelerator = create_accelerator(
-            tp_size,
-            1,
-            parallelize_embeddings=True,
-            sequence_parallel_enabled=True,
-        )
-        with static_seed_patcher:
-            model = accelerator.prepare_model(model)
+    # Second we check that logits match
+    tok = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
+    tok.pad_token = tok.eos_token
+    inputs = tok("This is a test", max_length=24, padding="max_length", return_tensors="pt")
+    inputs = {k: v.to("xla") for k, v in inputs.items()}
+    orig_model = orig_model.to("xla")
+    orig_logits = orig_model(**inputs).logits
+    xm.mark_step()
+    logits = model(**inputs).logits
+    xm.mark_step()
+    gathered = [torch.empty_like(logits) for _ in range(tp_size)]
+    torch.distributed.all_gather(gathered, logits, group=tp_group)
+    gathered_logits = torch.cat(gathered, dim=2)
+    xm.mark_step()
+    torch.testing.assert_close(orig_logits, gathered_logits)
 
-        # First we check that the embedding weights match
-        gathered = [torch.empty_like(model.model.embed_tokens.weight) for _ in range(tp_size)]
-        torch.distributed.all_gather(gathered, model.model.embed_tokens.weight, group=tp_group)
-        gathered_embedding = torch.cat(gathered, dim=0)
-        xm.mark_step()
-        torch.testing.assert_close(orig_model.model.embed_tokens.weight, gathered_embedding.to("cpu"))
 
-        # Second we check that logits match
-        tok = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
-        tok.pad_token = tok.eos_token
-        inputs = tok("This is a test", max_length=24, padding="max_length", return_tensors="pt")
-        inputs = {k: v.to("xla") for k, v in inputs.items()}
-        orig_model = orig_model.to("xla")
-        orig_logits = orig_model(**inputs).logits
-        xm.mark_step()
-        logits = model(**inputs).logits
-        xm.mark_step()
-        gathered = [torch.empty_like(logits) for _ in range(tp_size)]
-        torch.distributed.all_gather(gathered, logits, group=tp_group)
-        gathered_logits = torch.cat(gathered, dim=2)
-        xm.mark_step()
-        torch.testing.assert_close(orig_logits, gathered_logits)
+@is_trainium_test
+@pytest.mark.parametrize(
+    "tie_embeddings, lazy_load",
+    [
+        (False, False),
+        (True, False),
+        (True, True),
+    ],
+    ids=["embeddings_not_tied-regular_load", "tied_embeddings-regular_load", "tied_embeddings-lazy_load"],
+)
+def test_resize_embedding(tie_embeddings, lazy_load):
+    world_size, tp_size, pp_size = (2, 2, 1)
+    run_fn = partial(_test_resize_embedding, tie_embeddings, lazy_load)
+    launch_procs(run_fn, world_size, tp_size, pp_size)
+
+
+@is_trainium_test
+# Resize embeddings is not supported when lazy loading AND untied embeddings.
+def test_resize_embedding_unsupported():
+    tie_embeddings = False
+    lazy_load = True
+    world_size, tp_size, pp_size = (2, 2, 1)
+    run_fn = partial(_test_resize_embedding, tie_embeddings, lazy_load)
+    with pytest.raises(RuntimeError, match="Cannot resize token embeddings"):
+        launch_procs(run_fn, world_size, tp_size, pp_size)
 
 
 def _test_parallelized_layers_model_matches_original(

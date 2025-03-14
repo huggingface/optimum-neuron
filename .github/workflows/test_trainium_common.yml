@@ -45,6 +45,10 @@ jobs:
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" $TESTS_TO_IGNORE_FLAGS tests --durations=0 -v
+      - name: Run tests that do not use Neuron cores
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          pytest -m "not is_staging_test and not is_trainium_test and not is_inferentia_test" tests/distributed tests/peft tests/test_utils.py -sv
       - name: Collect staging tests on Neuron Cores
         run: |
           source aws_neuron_venv_pytorch/bin/activate

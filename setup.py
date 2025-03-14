@@ -54,8 +54,8 @@ QUALITY_REQUIRES = [
 TRAINING_REQUIRES = [
     "trl == 0.11.4",
     "peft == 0.14.0",
-    "neuronx-distributed == 0.9.0",
     "evaluate == 0.4.3",
+    "neuronx_distributed==0.10.1",
 ]
 
 EXTRAS_REQUIRE = {
@@ -102,8 +102,7 @@ setup(
         "Intended Audience :: Education",
         "Intended Audience :: Science/Research",
         "Operating System :: OS Independent",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
     keywords="transformers, diffusers, mixed-precision training, fine-tuning, inference, trainium, inferentia, aws",
