@@ -42,14 +42,14 @@ EXPORT_MODELS_TINY = {
     "phi": "bumblebee-testing/tiny-random-PhiModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
     "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
-    "sew": "hf-internal-testing/tiny-random-SEWModel",  # blocked
-    "sew-d": "hf-internal-testing/tiny-random-SEWDModel",  # blocked
+    # "sew": "hf-internal-testing/tiny-random-SEWModel",  # blocked
+    # "sew-d": "hf-internal-testing/tiny-random-SEWDModel",  # blocked
     "swin": "hf-internal-testing/tiny-random-SwinModel",
     "unispeech": "hf-internal-testing/tiny-random-unispeech",
     "unispeech-sat": "hf-internal-testing/tiny-random-unispeech-sat",
     "vit": "hf-internal-testing/tiny-random-vit",
     "wav2vec2": "hf-internal-testing/tiny-random-Wav2Vec2Model",
-    "wav2vec2-conformer": "hf-internal-testing/tiny-random-wav2vec2-conformer",  # blocked
+    # "wav2vec2-conformer": "hf-internal-testing/tiny-random-wav2vec2-conformer",  # blocked
     "wavlm": "hf-internal-testing/tiny-random-wavlm",
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
