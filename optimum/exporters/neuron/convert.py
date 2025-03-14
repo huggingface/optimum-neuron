@@ -45,7 +45,6 @@ from ...utils import (
     is_sentence_transformers_available,
     logging,
 )
-from .config import TextSeq2SeqNeuronConfig
 
 
 if TYPE_CHECKING:
@@ -201,7 +200,7 @@ def validate_model_outputs(
             neuron_inputs = tuple(inputs.values())
         elif config.CUSTOM_MODEL_WRAPPER is not None:
             ref_inputs = config.flatten_inputs(inputs)
-            reference_model = config.patch_model_for_export(reference_model, ref_inputs)
+            reference_model = config.patch_model_for_export(reference_model, ref_inputs, device="cpu")
             neuron_inputs = ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
         else:
@@ -533,7 +532,7 @@ def export_neuronx(
     # Prepare the model / function(tp) to trace
     aliases = {}
     tensor_parallel_size = config.tensor_parallel_size
-    if isinstance(config, TextSeq2SeqNeuronConfig):
+    if hasattr(config, "is_encoder_decoder") and config.is_encoder_decoder:
         checked_model = config.patch_model_for_export(model_or_path, **input_shapes)
         if tensor_parallel_size == 1 and hasattr(config, "generate_io_aliases"):
             aliases = config.generate_io_aliases(checked_model)
@@ -554,7 +553,8 @@ def export_neuronx(
     compiler_args.extend(["--optlevel", optlevel])
     logger.info(f"Using Neuron: --optlevel {optlevel}")
 
-    if getattr(config._config, "is_encoder_decoder", False):
+    # no idea what range of models this flag could be applied, seems only unet doesn't like it so far
+    if config.MODEL_TYPE != "unet":
         compiler_args.extend(["--model-type", "transformer"])
 
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)  # diffusers specific

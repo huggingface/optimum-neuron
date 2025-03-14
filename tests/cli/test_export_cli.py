@@ -423,3 +423,30 @@ class TestExportCLI(unittest.TestCase):
                 shell=False,
                 check=True,
             )
+
+    @requires_neuronx
+    def test_whisper(self):
+        model_id = "openai/whisper-tiny"
+        with tempfile.TemporaryDirectory() as tempdir:
+            subprocess.run(
+                [
+                    "optimum-cli",
+                    "export",
+                    "neuron",
+                    "--model",
+                    model_id,
+                    "--task",
+                    "automatic-speech-recognition",
+                    "--batch_size",
+                    "1",
+                    "--sequence_length",
+                    "32",
+                    "--auto_cast",
+                    "matmul",
+                    "--auto_cast_type",
+                    "bf16",
+                    tempdir,
+                ],
+                shell=False,
+                check=True,
+            )
