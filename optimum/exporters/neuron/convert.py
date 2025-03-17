@@ -553,8 +553,8 @@ def export_neuronx(
     compiler_args.extend(["--optlevel", optlevel])
     logger.info(f"Using Neuron: --optlevel {optlevel}")
 
-    # no idea what range of models this flag could be applied, seems only unet doesn't like it so far
-    if config.MODEL_TYPE != "unet":
+    # no idea what range of models this flag could be applied, here are some exceptions that we have observed so far.
+    if config.MODEL_TYPE not in {"unet", "vae-encoder", "vae-decoder"}:
         compiler_args.extend(["--model-type", "transformer"])
 
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)  # diffusers specific
@@ -616,8 +616,6 @@ def add_stable_diffusion_compiler_args(config, compiler_args):
             compiler_args.append("--enable-fast-loading-neuron-binaries")
         if "unet" in identifier or "controlnet" in identifier:
             compiler_args.append("--model-type=unet-inference")
-        if "transformer" in identifier:
-            compiler_args.append("--model-type=transformer")
     return compiler_args
 
 
