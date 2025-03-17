@@ -554,9 +554,21 @@ def export_neuronx(
     logger.info(f"Using Neuron: --optlevel {optlevel}")
 
     # no idea what range of models this flag could be applied, here are some exceptions that we have observed so far.
-    if config.MODEL_TYPE not in {"unet", "vae-encoder", "vae-decoder"} and not (
-        config._config.model_type == "mobilevit" and not inline_weights_to_neff
-    ):
+    excluded_models = {
+        "unet",
+        "vae-encoder",
+        "vae-decoder",
+        "cvt",
+        "hubert",
+        "levit",
+        "mobilenet-v2",
+        "mobilevit",
+        "unispeech",
+        "unispeech-sat",
+        "wav2vec2",
+        "wavlm",
+    }
+    if config.MODEL_TYPE not in excluded_models:
         compiler_args.extend(["--model-type", "transformer"])
 
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)  # diffusers specific

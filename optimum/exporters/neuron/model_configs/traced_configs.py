@@ -375,6 +375,8 @@ class ConvNextV2NeuronConfig(ViTNeuronConfig):
 
 @register_in_tasks_manager("cvt", *["feature-extraction", "image-classification"])
 class CvTNeuronConfig(ViTNeuronConfig):
+    MODEL_TYPE = "cvt"
+
     @property
     def outputs(self) -> List[str]:
         common_outputs = super().outputs
@@ -401,6 +403,7 @@ class DptNeuronConfig(ViTNeuronConfig):
 
 @register_in_tasks_manager("levit", *["feature-extraction", "image-classification"])
 class LevitNeuronConfig(ViTNeuronConfig):
+    MODEL_TYPE = "levit"
     pass
 
 
@@ -408,6 +411,7 @@ class LevitNeuronConfig(ViTNeuronConfig):
     "mobilenet-v2", *["feature-extraction", "image-classification", "semantic-segmentation", "image-segmentation"]
 )
 class MobileNetV2NeuronConfig(ViTNeuronConfig):
+    MODEL_TYPE = "mobilenet-v2"
     pass
 
 
@@ -415,6 +419,7 @@ class MobileNetV2NeuronConfig(ViTNeuronConfig):
     "mobilevit", *["feature-extraction", "image-classification", "semantic-segmentation", "image-segmentation"]
 )
 class MobileViTNeuronConfig(ViTNeuronConfig):
+    MODEL_TYPE = "mobilevit"
     pass
 
 
@@ -445,6 +450,7 @@ class YolosTNeuronConfig(ViTNeuronConfig):
 )
 class Wav2Vec2NeuronConfig(AudioNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedConfig
+    MODEL_TYPE = "wav2vec2"
 
     @property
     def inputs(self) -> List[str]:
@@ -487,6 +493,8 @@ class ASTNeuronConfig(AudioNeuronConfig):
     ],
 )
 class HubertNeuronConfig(Wav2Vec2NeuronConfig):
+    MODEL_TYPE = "hubert"
+
     @property
     def outputs(self) -> List[str]:
         common_outputs = super().outputs
@@ -530,6 +538,7 @@ class HubertNeuronConfig(Wav2Vec2NeuronConfig):
     ],
 )
 class UniSpeechNeuronConfig(Wav2Vec2NeuronConfig):
+    MODEL_TYPE = "unispeech"
     pass
 
 
@@ -544,6 +553,7 @@ class UniSpeechNeuronConfig(Wav2Vec2NeuronConfig):
     ],
 )
 class UniSpeechSATNeuronConfig(Wav2Vec2NeuronConfig):
+    MODEL_TYPE = "unispeech-sat"
     pass
 
 
@@ -588,6 +598,7 @@ class UniSpeechSATNeuronConfig(Wav2Vec2NeuronConfig):
     ],
 )
 class WavLMNeuronConfig(Wav2Vec2NeuronConfig):
+    MODEL_TYPE = "wavlm"
     pass
 
 
