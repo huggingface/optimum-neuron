@@ -103,7 +103,7 @@ class _NeuronSeq2SeqModelPart:
         config: Optional["PretrainedConfig"] = None,
         neuron_config: Optional["NeuronDefaultConfig"] = None,
         model_type: str = "encoder",
-        device: Optional[int] = None,
+        device: Optional[str] = None,
     ):
         self.model = model
         self.parent_model = parent_model
