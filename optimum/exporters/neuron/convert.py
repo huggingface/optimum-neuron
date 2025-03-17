@@ -532,7 +532,7 @@ def export_neuronx(
     # Prepare the model / function(tp) to trace
     aliases = {}
     tensor_parallel_size = config.tensor_parallel_size
-    if hasattr(config, "is_encoder_decoder") and config.is_encoder_decoder:
+    if getattr(config, "is_encoder_decoder", False):
         checked_model = config.patch_model_for_export(model_or_path, **input_shapes)
         if tensor_parallel_size == 1 and hasattr(config, "generate_io_aliases"):
             aliases = config.generate_io_aliases(checked_model)
