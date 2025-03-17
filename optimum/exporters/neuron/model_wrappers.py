@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 
 class UnetNeuronWrapper(torch.nn.Module):
-    def __init__(self, model, input_names: List[str], device: str = None):
+    def __init__(self, model, input_names: List[str], device: Optional[str] = None):
         super().__init__()
         self.model = model
         self.input_names = input_names
