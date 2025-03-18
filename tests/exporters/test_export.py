@@ -223,7 +223,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         # prepare neuron config / models
         model = StableDiffusionPipeline.from_pretrained(model_id)
         input_shapes = build_stable_diffusion_components_mandatory_shapes(
-            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 1}
+            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 4}
         )
         compiler_kwargs = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 
@@ -256,7 +256,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         # prepare neuron config / models
         model = StableDiffusionXLPipeline.from_pretrained(model_id)
         input_shapes = build_stable_diffusion_components_mandatory_shapes(
-            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 1}
+            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 4}
         )
         compiler_kwargs = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 
@@ -290,7 +290,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         # prepare neuron config / models
         model = StableDiffusionPipeline.from_pretrained(model_id)
         input_shapes = build_stable_diffusion_components_mandatory_shapes(
-            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 1}
+            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 4}
         )
         lora_args = LoRAAdapterArguments(
             model_ids=lora_params[0],

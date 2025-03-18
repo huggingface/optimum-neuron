@@ -70,7 +70,7 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_export_and_inference_non_dyn(self, model_arch):
-        num_images_per_prompt = 1
+        num_images_per_prompt = 1  # TODO: set back to 4 when the compilation failure is solved.
         input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
         input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
         neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
@@ -295,7 +295,7 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_export_and_inference_non_dyn(self, model_arch):
-        num_images_per_prompt = 1
+        num_images_per_prompt = 4
         input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
         input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
         neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
@@ -440,9 +440,7 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
         self.assertIsInstance(image, PIL.Image.Image)
 
 
-is_inferentia_test
-
-
+@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 class NeuronPixArtAlphaPipelineIntegrationTest(unittest.TestCase):
