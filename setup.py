@@ -38,7 +38,6 @@ TESTS_REQUIRE = [
     "rjieba",
     "soundfile",
     "librosa",
-    "opencv-python-headless",
     "controlnet-aux",
     "mediapipe",
     "timm >= 1.0.0",

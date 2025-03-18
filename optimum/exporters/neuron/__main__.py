@@ -26,6 +26,11 @@ import torch
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
 
+from optimum.exporters.error_utils import AtolError, OutputMatchError, ShapeError
+from optimum.exporters.tasks import TasksManager
+from optimum.utils import is_diffusers_available, logging
+from optimum.utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
+
 from ...neuron.utils import (
     DECODER_NAME,
     DIFFUSION_MODEL_CONTROLNET_NAME,
@@ -49,10 +54,6 @@ from ...neuron.utils import (
 from ...neuron.utils.version_utils import (
     check_compiler_compatibility_for_stable_diffusion,
 )
-from ...utils import is_diffusers_available, logging
-from optimum.utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
-from ..error_utils import AtolError, OutputMatchError, ShapeError
-from ..tasks import TasksManager
 from .base import NeuronExportConfig
 from .convert import export_models, validate_models_outputs
 from .model_configs import *  # noqa: F403
