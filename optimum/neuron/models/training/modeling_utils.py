@@ -17,6 +17,7 @@ import copy
 import json
 import math
 import os
+import gc
 import warnings
 from pathlib import Path
 from typing import Callable, Dict, Optional, Type, Union
@@ -58,7 +59,7 @@ if is_neuronx_distributed_available():
         get_tensor_model_parallel_rank,
         get_tensor_model_parallel_size,
     )
-    from neuronx_distributed.parallel_layers.utils import get_local_world_size
+    from neuronx_distributed.parallel_layers.utils import get_local_world_size, move_model_to_device
 
 
 logger = logging.get_logger(__name__)
@@ -251,6 +252,9 @@ class NeuronModelMixin:
         _fast_init = kwargs.pop("_fast_init", True)
         torch_dtype = kwargs.pop("torch_dtype", None)
         low_cpu_mem_usage = kwargs.pop("low_cpu_mem_usage", None)
+        # The default is device_map = None in transformers.
+        # Here we want to move the model to the device by default to free up the RAM.
+        # device_map = kwargs.pop("device_map", "xla")
         device_map = kwargs.pop("device_map", None)
         kwargs.pop("max_memory", None)
         kwargs.pop("offload_folder", None)
@@ -335,8 +339,8 @@ class NeuronModelMixin:
         else:
             _adapter_model_path = None
 
-        if device_map is not None:
-            raise RuntimeError("Device map is not supported yet.")
+        if device_map not in [None, "xla", "cpu"]:
+            raise RuntimeError('The only device map values supported are: `None`, "cpu" or "xla".')
 
         if low_cpu_mem_usage is not None:
             raise RuntimeError("Low cpu memory usage is not supported for optimum-neuron.")
@@ -499,8 +503,6 @@ class NeuronModelMixin:
                         if module.get_submodule(specs["output_projection"]).bias is not None:
                             model2state_dict[f"{output_projection_name}.bias"] = ("gqa_qkv_output_projection", f"{output_projection_name}.bias", specs)
 
-                print(model2state_dict)
-
                 for name, param in model.state_dict(keep_vars=True).items():
                     if hasattr(param, "tensor_model_parallel") and param.tensor_model_parallel:
                         if param.partition_dim not in [0, 1]:
@@ -567,7 +569,14 @@ class NeuronModelMixin:
                                 "output",
                             )
 
-                model.load_state_dict(state_dict, strict=False)
+                model.load_state_dict(state_dict, strict=True)
+                if torch_dtype is not None:
+                    model = model.to(torch_dtype)
+                if device_map == "xla":
+                    move_model_to_device(model, xm.xla_device())
+                gc.collect()
+                model.tie_weights()
+
             xm.rendezvous(f"load_state_dict_{worker}")
 
         return model

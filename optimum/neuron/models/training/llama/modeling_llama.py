@@ -54,13 +54,15 @@ from transformers.models.llama.modeling_llama import (
 from transformers.models.llama.modeling_llama import LlamaMLP as LlamaMLPHF
 from transformers.models.llama.modeling_llama import LlamaModel as LlamaModelHF
 from transformers.models.llama.modeling_llama import LlamaRMSNorm as LlamaRMSNormHF
+# from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding as LlamaRotaryEmbeddingHF
+
 from transformers.processing_utils import Unpack
 from transformers.utils import (
     logging,
 )
 
 from ....accelerate import ModelParallelismConfig
-from ...loss_utils import ForCausalLMLoss
+from ..loss_utils import ForCausalLMLoss
 from ..modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
 
 
@@ -68,6 +70,31 @@ logger = logging.get_logger(__name__)
 
 def _init_normal(std, w):
     return nn.init.normal_(w, mean=0.0, std=std)
+
+
+# class LlamaRotaryEmbedding(LlamaRotaryEmbeddingHF):
+#     @torch.no_grad()
+#     def forward(self, x, position_ids):
+#         if "dynamic" in self.rope_type:
+#             self._dynamic_frequency_update(position_ids, device=x.device)
+# 
+#         # Core RoPE block
+#         inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
+#         position_ids_expanded = position_ids[:, None, :].float()
+#         # Force float32 (see https://github.com/huggingface/transformers/pull/29285)
+#         device_type = x.device.type
+#         device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
+#         with torch.autocast(device_type=device_type, enabled=False):
+#             freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
+#             emb = torch.cat((freqs, freqs), dim=-1)
+#             cos = emb.cos()
+#             sin = emb.sin()
+# 
+#         # Advanced RoPE types (e.g. yarn) apply a post-processing scaling factor, equivalent to scaling attention
+#         cos = cos * self.attention_scaling
+#         sin = sin * self.attention_scaling
+# 
+#         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
 
 class LlamaRMSNorm(LlamaRMSNormHF):
@@ -396,6 +423,8 @@ class LlamaModel(NeuronModelMixin, LlamaModelHF):
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
+        self.mp_config = mp_config
+
         init_method = partial(_init_normal, config.initializer_range)
         self.embed_tokens = ParallelEmbedding(
             config.vocab_size, config.hidden_size, self.padding_idx, init_method=init_method,
@@ -450,8 +479,9 @@ class LlamaModel(NeuronModelMixin, LlamaModelHF):
 
         if cache_position is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+            current_length = inputs_embeds.size(0) * self.mp_config.tensor_parallel_size if self.mp_config.sequence_parallel_enabled else inputs_embeds.size(0)
             cache_position = torch.arange(
-                past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
+                past_seen_tokens, past_seen_tokens + current_length, device=inputs_embeds.device
             )
 
         if position_ids is None:

@@ -14,6 +14,7 @@
 # limitations under the License.
 """Tests validating that models can be parallelized correctly."""
 
+import importlib
 from contextlib import nullcontext
 from functools import partial
 from pathlib import Path
@@ -22,6 +23,7 @@ from typing import TYPE_CHECKING, List, Optional, Type, Union
 import pytest
 import torch
 import torch.utils._pytree as pytree
+import transformers
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.models.auto.modeling_auto import (
@@ -133,6 +135,10 @@ def _build_models_to_test(model_types_to_test):
 LLAMA_MODELS_TO_TEST = _build_models_to_test([LLAMA_TYPES_TO_TEST])
 NOT_LLAMA_TO_TEST = _build_models_to_test(MODEL_TYPES_TO_TEST)
 MODELS_TO_TEST = NOT_LLAMA_TO_TEST + LLAMA_MODELS_TO_TEST
+
+CUSTOM_MODELINGS_TO_TEST = [
+    ("LlamaForCausalLM", "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random")
+]
 
 
 OUTPUTS_TO_IGNORE = {
@@ -735,3 +741,150 @@ def test_compute_query_indices_for_rank(
         print(f"Expected {expected}")
         print(f"Computed {computed}")
         torch.testing.assert_close(expected, computed)
+
+def _custom_model_matches_original_model(
+    model_class_name,
+    model_name_or_path,
+    parallel_sizes,
+    sequence_parallel_enabled,
+    attn_implementation
+):
+    world_size, tp_size, pp_size = parallel_sizes
+    dp_size = world_size // (tp_size * pp_size)
+    pp_rank = get_pipeline_model_parallel_rank()
+
+    static_seed_patcher = StaticSeedPatcher(SEED)
+
+    orig_model_class = getattr(transformers, model_class_name)
+    with static_seed_patcher:
+        orig_model = orig_model_class.from_pretrained(model_name_or_path)
+
+    accelerator = create_accelerator(
+        tp_size,
+        pp_size,
+        parallelize_embeddings=False,
+        sequence_parallel_enabled=sequence_parallel_enabled,
+    )
+
+    # It is ok to use this accelerator because `patch_model_for_neuron` does not depend on the TP or PP size.
+    orig_model = accelerator.patch_model_for_neuron(orig_model)
+
+    # Since the new KV cache system it seems that if orig_model.use_cache != model.use_cache, the losses between
+    # the two models will not match. It either comes from Transformers itself or Optimum Neuron.
+    # TODO: investigate this.
+    if pp_size == 1:
+        orig_model.config.use_cache = True
+    else:
+        orig_model.config.use_cache = False
+
+    orig_model.to(torch.bfloat16)
+    move_model_to_device(orig_model, xm.xla_device())
+    orig_model = orig_model.eval()
+
+    if pp_size > 1:
+        pytest.skip(f"Pipeline parallelism is not supported for {model_class_name}.")
+
+    pad_to_multiple_of = None if not sequence_parallel_enabled else tp_size
+    inputs = get_model_inputs(
+        orig_model,
+        model_name_or_path,
+        batch_size=dp_size,
+        pad_to_multiple_of=pad_to_multiple_of,
+    )
+
+    xla_inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
+    xm.mark_step()
+
+    with torch.no_grad():
+        orig_model_outputs = orig_model(**xla_inputs)
+
+    xm.mark_step()
+
+    training_mod = importlib.import_module("optimum.neuron.models.training")
+    custom_model_class = getattr(training_mod, model_class_name)
+    with static_seed_patcher:
+        model = custom_model_class.from_pretrained(model_name_or_path, accelerator.state.mp_config, attn_implementation=attn_implementation)
+        model.to(torch.bfloat16)
+        move_model_to_device(model, xm.xla_device())
+
+    with static_seed_patcher:
+        model = accelerator.prepare(model)
+
+    # model_state_dict = dict(model.state_dict())
+    # for name, orig_p in orig_model.named_parameters():
+    #     p = model_state_dict.get(name, None)
+    #     if p is None:
+    #         continue
+    #     xm.master_print(name)
+    #     xm.master_print(orig_p)
+    #     xm.master_print(p)
+
+    # return
+
+    xm.mark_step()
+
+    with torch.no_grad():
+        if pp_size == 1:
+            # This is set to False by `accelerator.prepare`, which we want in the general case, but here let's
+            # enable the cache to test that the KV cache matches the original model.
+            model.config.use_cache = True
+            model = model.eval()
+            model_outputs = model(**xla_inputs)
+        else:
+            loss = model.run_eval(**inputs)
+            model_outputs = {"loss": loss}
+
+    xm.mark_step()
+
+    outputs_to_consider = [output_name for output_name in orig_model_outputs if output_name not in OUTPUTS_TO_IGNORE]
+
+    if pp_size > 1:
+        outputs_to_consider = ["loss"]
+
+    outputs_to_check = [
+        (orig_model_outputs[output_name], model_outputs[output_name]) for output_name in outputs_to_consider
+    ]
+    outputs_to_check = pytree.tree_map(move_all_tensor_to_cpu, outputs_to_check)
+
+    for output_name, outputs in zip(outputs_to_consider, outputs_to_check):
+        # For now ignoring past_key_values because they do not match and it is not needed for training.
+        if "past" in output_name:
+            continue
+        if all(output is None for output in outputs):
+            continue
+        if pp_size == 1 or pp_rank == pp_size - 1:
+            _check_output(output_name, outputs[0], outputs[1])
+ 
+
+# TODO: test fuse_qkv and gqa qkv
+@pytest.mark.parametrize(
+    "world_size,tp_size,pp_size", [[2, 2, 1], [16, 2, 1]], ids=["tp=2","dp=8,tp=2"]
+)
+@pytest.mark.parametrize(
+    "sequence_parallel_enabled,attn_implementation",[(False, "flash_attention_2"),(True, "eager")], ids=["sp-disabled-flash_attention_2","sp-enabled-eager"]
+)
+@pytest.mark.parametrize(
+    "model_specs", CUSTOM_MODELINGS_TO_TEST, ids=[specs[0] for specs in CUSTOM_MODELINGS_TO_TEST]
+)
+def test_custom_modeling_matches_original(
+    model_specs,
+    sequence_parallel_enabled,
+    attn_implementation,
+    world_size,
+    tp_size,
+    pp_size,
+    monkeypatch,
+):
+    training_mod = importlib.import_module("optimum.neuron.models.training")
+    monkeypatch.setattr(training_mod.loss_utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True)
+    model_class_name, model_name_or_path = model_specs
+    run_fn = partial(
+        _custom_model_matches_original_model,
+        model_class_name,
+        model_name_or_path,
+        (world_size, tp_size, pp_size),
+        sequence_parallel_enabled,
+        attn_implementation,
+    )
+    launch_procs(run_fn, world_size, tp_size, pp_size)
+

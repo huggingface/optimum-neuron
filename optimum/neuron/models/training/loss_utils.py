@@ -18,12 +18,20 @@ from typing import Optional
 import torch.nn as nn
 from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
-from ..distributed.utils import parallel_cross_entropy
+from ...distributed.utils import parallel_cross_entropy
+
+_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT: bool = False
 
 
 def fixed_cross_entropy(source, target, num_items_in_batch: Optional[int] = None, ignore_index: int = -100, **kwargs):
     reduction = "sum" if num_items_in_batch is not None else "mean"
-    loss_function = parallel_cross_entropy if get_tensor_model_parallel_size() > 1 else nn.functional.cross_entropy
+    tp_size = get_tensor_model_parallel_size()
+    if tp_size > 1:
+        if _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT:
+            source = source.clone()
+        loss_function = parallel_cross_entropy 
+    else:
+        loss_function = nn.functional.cross_entropy
     loss = loss_function(source, target, ignore_index=ignore_index, reduction=reduction)
     if reduction == "sum":
         loss = loss / num_items_in_batch
