@@ -50,7 +50,7 @@ from ...neuron.utils.version_utils import (
     check_compiler_compatibility_for_stable_diffusion,
 )
 from ...utils import is_diffusers_available, logging
-from ...utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
+from optimum.utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
 from ..error_utils import AtolError, OutputMatchError, ShapeError
 from ..tasks import TasksManager
 from .base import NeuronExportConfig
