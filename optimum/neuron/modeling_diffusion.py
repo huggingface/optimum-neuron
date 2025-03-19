@@ -1066,14 +1066,6 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 compilation_configs[name] = compilation_config
 
             # 3. Lookup cached config
-            # import json
-            # with open("/var/tmp/neuron-compile-cache/neuronxcc-2.16.372.0+4a9b2326/MODULE_a68f54494a5c9529b7dc/config.json") as fd:
-            #     local_config = json.load(fd)
-            #     from deepdiff import DeepDiff
-            #     # local_config_to_check =  build_cache_config(local_config)
-            #     import pdb
-            #     pdb.set_trace()
-            #     dif = DeepDiff(cache_config, local_config)
             cache_config = build_cache_config(compilation_configs)
             cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
             compile_cache = create_hub_compile_cache_proxy()
