@@ -551,6 +551,7 @@ def get_encoder_decoder_models_for_export(
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
+    preprocessors: Optional[List] = None,
 ) -> Dict[str, Tuple["PreTrainedModel", "NeuronDefaultConfig"]]:
     """
     Returns the components of an encoder-decoder model and their subsequent neuron configs.
@@ -592,12 +593,16 @@ def get_encoder_decoder_models_for_export(
     )
     check_mandatory_input_shapes(encoder_config_constructor, task, input_shapes)
     input_shape_args = InputShapesArguments(**input_shapes)
+    # Whisper specific
+    if getattr(model.config, "model_type", None) == "whisper":
+        setattr(model.config, "stride", [model.model.encoder.conv1.stride[0], model.model.encoder.conv2.stride[0]])
     encoder_neuron_config = encoder_config_constructor(
         config=model.config,
         task=task,
         dynamic_batch_size=dynamic_batch_size,
         tensor_parallel_size=tensor_parallel_size,
         input_shapes=input_shape_args,
+        preprocessors=preprocessors,
     )
     if not tensor_parallel_size > 1:
         models_for_export[ENCODER_NAME] = (model, encoder_neuron_config)

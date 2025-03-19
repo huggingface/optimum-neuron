@@ -31,7 +31,7 @@ EXPORT_MODELS_TINY = {
     "donut-swin": "hf-internal-testing/tiny-random-DonutSwinModel",
     "dpt": "hf-internal-testing/tiny-random-DPTModel",
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
-    "esm": "hf-internal-testing/tiny-random-EsmModel",
+    # "esm": "hf-internal-testing/tiny-random-EsmModel",  # TODO: put the test back, when https://github.com/aws-neuron/aws-neuron-sdk/issues/1081 is solved.
     "flaubert": "flaubert/flaubert_small_cased",
     "hubert": "hf-internal-testing/tiny-random-HubertModel",
     "levit": "hf-internal-testing/tiny-random-LevitModel",
