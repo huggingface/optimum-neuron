@@ -29,6 +29,7 @@ from transformers import AutoConfig, AutoModel, GenerationMixin
 from ..exporters.neuron import main_export
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
+from ..utils.save_utils import maybe_load_preprocessors
 from .modeling_base import NeuronModel
 from .utils import (
     NEURON_FILE_NAME,
@@ -40,7 +41,6 @@ from .utils import (
 )
 from .utils.hub_cache_utils import ModelCacheEntry, build_cache_config, create_hub_compile_cache_proxy
 from .utils.import_utils import is_neuronx_available
-from .utils.misc import maybe_load_preprocessors
 from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
 
