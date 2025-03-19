@@ -441,9 +441,7 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
         self.assertIsInstance(image, PIL.Image.Image)
 
 
-is_inferentia_test
-
-
+@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 class NeuronPixArtAlphaPipelineIntegrationTest(unittest.TestCase):
