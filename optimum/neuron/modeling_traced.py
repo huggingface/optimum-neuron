@@ -316,6 +316,8 @@ class NeuronTracedModel(NeuronModel):
             cache_available = False
 
         # load cache
+        # import pdb
+        # pdb.set_trace()
         if cache_available:
             try:
                 neuron_model = cls.from_pretrained(model_cache_dir)

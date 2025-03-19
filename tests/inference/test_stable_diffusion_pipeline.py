@@ -70,13 +70,14 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_export_and_inference_non_dyn(self, model_arch):
-        num_images_per_prompt = 1
+        num_images_per_prompt = 4
         input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
         input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
         neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
             MODEL_NAMES[model_arch],
             export=True,
             dynamic_batch_size=False,
+            disable_neuron_cache=True,
             **input_shapes,
             **self.COMPILER_ARGS,
         )
@@ -295,7 +296,7 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_export_and_inference_non_dyn(self, model_arch):
-        num_images_per_prompt = 1
+        num_images_per_prompt = 4
         input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
         input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
         neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
