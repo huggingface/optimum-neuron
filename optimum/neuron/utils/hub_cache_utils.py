@@ -80,7 +80,7 @@ CACHE_WHITE_LIST = [
     "_use_default_values",
     "_attn_implementation_autoset",
 ]
-NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names", "model_type", "static__commit_hash"]
+NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names", "model_type"]
 
 DEFAULT_PATH_FOR_NEURON_CC_WRAPPER = Path(__file__).parent.as_posix()
 

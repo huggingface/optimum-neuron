@@ -295,6 +295,8 @@ class NeuronTracedModel(NeuronModel):
             "disable_fast_relayout": disable_fast_relayout,
             "disable_fallback": disable_fallback,
         }
+        # clean shapes
+        commit_hash = kwargs_shapes.pop("_commit_hash", None)
 
         if not disable_neuron_cache and is_neuronx_available():  # TODO: support caching of Inf1 as well
             # Check if the cache exists
@@ -336,6 +338,7 @@ class NeuronTracedModel(NeuronModel):
                     local_files_only=local_files_only,
                     force_download=force_download,
                     trust_remote_code=trust_remote_code,
+                    _commit_hash=commit_hash,
                 )
                 if not inline_weights_to_neff:
                     # replace weights
