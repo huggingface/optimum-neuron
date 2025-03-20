@@ -21,7 +21,9 @@ import torch
 import torch_xla.runtime as xr
 from neuronx_distributed.parallel_layers.layers import (
     RowParallelLinear,
+    create_local_weight,
 )
+
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
@@ -290,11 +292,14 @@ class GraniteMLP(nn.Module):
         """
         # Filtering items to slice only the weights of this layer
         filtered_items = filter(lambda x: x[0].startswith(prefix), state_dict.items())
+        world_size = xr.world_size()
         for k, v in filtered_items:
-            # if re.fullmatch(r"model.layers.\d+.mlp.(gate_proj|up_proj).weight", k):
-            #     state_dict[k] = slice_tensor(v, 0)
-            if re.fullmatch(r"model.layers.\d+.mlp.down_proj.weight", k):
-                state_dict[k] = slice_tensor(v, 1)
+            if k.endswith("down_proj.weight"):
+                axis_len = v.shape[1]
+                # state_dict[k] = slice_tensor(v, 1)
+                split_len = (axis_len + world_size - 1) // world_size
+                partition_stride = 1 # assuming that is always 1
+                state_dict[k] = create_local_weight(v, 1, split_len, 1)
 
     def forward(self, x):
         down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))

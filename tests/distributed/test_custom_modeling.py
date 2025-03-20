@@ -1,7 +1,8 @@
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
 from optimum.neuron.models.training.granite.modeling_granite import GraniteForCausalLM
+from optimum.neuron.models.training.granite.configuration_granite import NeuronGraniteConfig
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
@@ -18,9 +19,9 @@ if is_neuronx_distributed_available():
 
 
 @torch.no_grad()
-def _get_expected_output(model_id, inputs):
+def _get_expected_output(model_id, inputs, config):
     # Get the expected output. Inference will run on CPU, dtype if bfloat16.
-    model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, device_map="xla")
+    model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, device_map="xla", config=config)
     model = model.eval()
     outputs = model(**inputs)
     return outputs.logits.detach()
@@ -34,13 +35,20 @@ def _test_parallel_granite():
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     inputs = tokenizer(prompt, return_tensors="pt").to("xla")
 
+    num_hidden_layers = 1
+
+    config = AutoConfig.from_pretrained(model_id)
+    config.num_hidden_layers = num_hidden_layers
+
     # Expected output is the one loaded from transformers "vanilla" modeling on XLA
-    expected_output = _get_expected_output(model_id, inputs)
+    expected_output = _get_expected_output(model_id, inputs, config)
     print("🔴 No Shard", expected_output, expected_output.shape)
     xm.mark_step()
 
     # Note that model is init on CPU, then moved  to XLA
-    model = GraniteForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16).to(device="xla")
+    config = NeuronGraniteConfig.from_pretrained(model_id)
+    config.num_hidden_layers = num_hidden_layers
+    model = GraniteForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, config=config).to(device="xla")
     model.eval()
     outputs = model(**inputs)
     xm.mark_step()
