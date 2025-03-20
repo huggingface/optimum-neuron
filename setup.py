@@ -32,7 +32,7 @@ TESTS_REQUIRE = [
     "diffusers>=0.29.0, <=0.30.3",
     "safetensors",
     "sentence-transformers >= 2.2.0",
-    "peft>=0.14.0",
+    "peft>=0.14.0, <0.15.0",
     "trl==0.11.4",
     "compel",
     "rjieba",
