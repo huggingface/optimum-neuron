@@ -15,18 +15,7 @@ The `optimum.neuron.distributed` module provides a set of tools to perform distr
 
 ## Parallelization
 
-The main task in distributed training / inference is being able to shard things such as the model weights, the gradient, and/or the optimizer state. We built `Parallelizer` classes to handle the sharding.
 
-### Base `Parallelizer`
-
-The [`~optimum.neuron.distributed.Parallelizer`] class is the base abstract class being derived for every model supporting model parallelism. It provides methods to parallelize the model and save and load sharded checkpoints.
-
-[[autodoc]] distributed.Parallelizer
-  - _parallelize
-  - parallelize
-  - optimizer_for_mp
-  - save_model_sharded_checkpoint
-  - load_model_sharded_checkpoint
 
 ### Selecting Model-Specific Parallelizer Classes
 
