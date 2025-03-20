@@ -256,6 +256,7 @@ class NeuronTracedModel(NeuronModel):
         force_download: bool = False,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[Union[str, Path]] = None,
+        tensor_parallel_size: Optional[int] = 1,
         disable_neuron_cache: bool = False,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
@@ -268,6 +269,8 @@ class NeuronTracedModel(NeuronModel):
         disable_fast_relayout: Optional[bool] = False,
         disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
+        output_attentions: bool = False,
+        output_hidden_states: bool = False,
         **kwargs_shapes,
     ) -> "NeuronTracedModel":
         """
@@ -300,12 +303,15 @@ class NeuronTracedModel(NeuronModel):
                 input_shapes=kwargs_shapes,
                 compiler_kwargs=compiler_kwargs,
                 dynamic_batch_size=dynamic_batch_size,
+                tensor_parallel_size=tensor_parallel_size,
                 compiler_type=NEURON_COMPILER_TYPE,
                 compiler_version=NEURON_COMPILER_VERSION,
                 inline_weights_to_neff=inline_weights_to_neff,
                 optlevel=optlevel,
                 model_type=getattr(config, "model_type", None),
                 task=task,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
             )
             cache_config = build_cache_config(compilation_config)
             cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
@@ -316,8 +322,6 @@ class NeuronTracedModel(NeuronModel):
             cache_available = False
 
         # load cache
-        # import pdb
-        # pdb.set_trace()
         if cache_available:
             try:
                 neuron_model = cls.from_pretrained(model_cache_dir)
