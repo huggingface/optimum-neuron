@@ -54,12 +54,9 @@ from transformers.models.llama.modeling_llama import (
 from transformers.models.llama.modeling_llama import LlamaMLP as LlamaMLPHF
 from transformers.models.llama.modeling_llama import LlamaModel as LlamaModelHF
 from transformers.models.llama.modeling_llama import LlamaRMSNorm as LlamaRMSNormHF
-# from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding as LlamaRotaryEmbeddingHF
-
 from transformers.processing_utils import Unpack
-from transformers.utils import (
-    logging,
-)
+from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
+from transformers.utils import logging
 
 from ....accelerate import ModelParallelismConfig
 from ..loss_utils import ForCausalLMLoss
@@ -72,31 +69,6 @@ def _init_normal(std, w):
     return nn.init.normal_(w, mean=0.0, std=std)
 
 
-# class LlamaRotaryEmbedding(LlamaRotaryEmbeddingHF):
-#     @torch.no_grad()
-#     def forward(self, x, position_ids):
-#         if "dynamic" in self.rope_type:
-#             self._dynamic_frequency_update(position_ids, device=x.device)
-# 
-#         # Core RoPE block
-#         inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
-#         position_ids_expanded = position_ids[:, None, :].float()
-#         # Force float32 (see https://github.com/huggingface/transformers/pull/29285)
-#         device_type = x.device.type
-#         device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
-#         with torch.autocast(device_type=device_type, enabled=False):
-#             freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
-#             emb = torch.cat((freqs, freqs), dim=-1)
-#             cos = emb.cos()
-#             sin = emb.sin()
-# 
-#         # Advanced RoPE types (e.g. yarn) apply a post-processing scaling factor, equivalent to scaling attention
-#         cos = cos * self.attention_scaling
-#         sin = sin * self.attention_scaling
-# 
-#         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
-
-
 class LlamaRMSNorm(LlamaRMSNormHF):
     def __init__(self, hidden_size, eps=1e-6, sequence_parallel_enabled=False):
         """
@@ -104,6 +76,17 @@ class LlamaRMSNorm(LlamaRMSNormHF):
         """
         super().__init__(hidden_size, eps=eps)
         setattr(self.weight, "sequence_parallel_enabled", sequence_parallel_enabled)
+
+    # def forward(self, hidden_states):
+    #     input_dtype = hidden_states.dtype
+    #     hidden_states = hidden_states.to(torch.float32)
+    #     variance = hidden_states.pow(2).mean(-1, keepdim=True)
+    #     hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+    #     # output = self.weight * hidden_states
+    #     return self.weight * hidden_states.to(input_dtype)
+    #     # return output.to(input_dtype)
+
+ALL_LAYERNORM_LAYERS.append(LlamaRMSNorm)
 
 
 class LlamaMLP(LlamaMLPHF):
@@ -165,6 +148,7 @@ def eager_attention_forward(
     attention_mask: Optional[torch.Tensor],
     scaling: float,
     dropout: float = 0.0,
+    causal: bool = False,
     **kwargs,
 ):
     key_states = repeat_kv(key, module.num_key_value_groups)
@@ -172,6 +156,9 @@ def eager_attention_forward(
 
     attn_weights = torch.matmul(query, key_states.transpose(2, 3)) * scaling
     if attention_mask is not None:
+        causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+        attn_weights = attn_weights + causal_mask
+    elif causal:
         # Instead of using the attention mask, we re-compute a causal mask.
         # It is more efficient, the only issue is that we do not support custom attention masks.
         # Change this if a customer requests for it.
@@ -182,7 +169,6 @@ def eager_attention_forward(
     attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
     attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
     attn_output = torch.matmul(attn_weights, value_states)
-    attn_output = attn_output.transpose(1, 2).contiguous()
 
     return attn_output, attn_weights
 
@@ -221,13 +207,6 @@ class LlamaAttention(LlamaAttentionHF):
             self.kv_size_multiplier = 1
 
         if self.qkv_linear:
-                # ("qkv_proj", "weight_qkv"): [("q_proj", "weight"), ("k_proj", "weight"), ("v_proj", "weight")],
-            # else:
-            #     # self.gqa_qkv_specs = {
-            #     #     ("qkv_proj", "weight_q"): [("q_proj", "weight")],
-            #     #     ("qkv_proj", "weight_k"): [("k_proj", "weight")],
-            #     #     ("qkv_proj", "weight_v"): [("v_proj", "weight")],
-            #     # }
             self.qkv_proj = GQAQKVColumnParallelLinear(
                 self.hidden_size,
                 [self.num_heads * self.head_dim, self.num_key_value_heads * self.head_dim],
@@ -320,10 +299,11 @@ class LlamaAttention(LlamaAttentionHF):
         cache_position: Optional[torch.LongTensor] = None,
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        bsz, q_len, _ = hidden_states.size()
         if self.mp_config.sequence_parallel_enabled:
             q_len, bsz, _ = hidden_states.size()
             q_len = q_len * get_tensor_model_parallel_size()
+        else:
+            bsz, q_len, _ = hidden_states.size()
 
         if (
             self.mp_config.fuse_qkv
@@ -375,12 +355,12 @@ class LlamaAttention(LlamaAttentionHF):
                 query_states,
                 key_states,
                 value_states,
-                attention_mask,
+                attention_mask, # It is `None` in this case compared to the original implementation
+                self.scaling,
                 dropout=0.0 if not self.training else self.attention_dropout,
-                scaling=self.scaling,
+                causal=True,
                 **kwargs,
             )
-            attn_weights = None
 
         if self.mp_config.sequence_parallel_enabled:
             attn_output = attn_output.permute(2, 0, 1, 3)
@@ -408,6 +388,48 @@ class LlamaDecoderLayer(LlamaDecoderLayerHF):
         self.post_attention_layernorm = LlamaRMSNorm(
             config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=mp_config.sequence_parallel_enabled
         )
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_value: Optional[Cache] = None,
+        output_attentions: Optional[bool] = False,
+        use_cache: Optional[bool] = False,
+        cache_position: Optional[torch.LongTensor] = None,
+        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
+        **kwargs: Unpack[FlashAttentionKwargs],
+    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+        residual = hidden_states
+
+        hidden_states = self.input_layernorm(hidden_states)
+
+        # Self Attention
+        hidden_states, self_attn_weights = self.self_attn(
+            hidden_states=hidden_states,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_value=past_key_value,
+            output_attentions=output_attentions,
+            use_cache=use_cache,
+            cache_position=cache_position,
+            position_embeddings=position_embeddings,
+            **kwargs,
+        )
+        hidden_states = residual + hidden_states
+
+        # Fully Connected
+        residual = hidden_states
+        hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states = self.mlp(hidden_states)
+        hidden_states = residual + hidden_states
+
+        outputs = (hidden_states,)
+        if output_attentions:
+            outputs += (self_attn_weights,)
+
+        return outputs
 
 
 class LlamaModel(NeuronModelMixin, LlamaModelHF):
@@ -479,7 +501,7 @@ class LlamaModel(NeuronModelMixin, LlamaModelHF):
 
         if cache_position is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-            current_length = inputs_embeds.size(0) * self.mp_config.tensor_parallel_size if self.mp_config.sequence_parallel_enabled else inputs_embeds.size(0)
+            current_length = inputs_embeds.size(0) * self.mp_config.tensor_parallel_size if self.mp_config.sequence_parallel_enabled else inputs_embeds.size(1)
             cache_position = torch.arange(
                 past_seen_tokens, past_seen_tokens + current_length, device=inputs_embeds.device
             )
@@ -600,6 +622,7 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaForCausalLMHF):
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
 
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model(

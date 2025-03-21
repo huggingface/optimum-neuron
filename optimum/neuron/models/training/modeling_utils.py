@@ -14,10 +14,10 @@
 # limitations under the License.
 
 import copy
+import gc
 import json
 import math
 import os
-import gc
 import warnings
 from pathlib import Path
 from typing import Callable, Dict, Optional, Type, Union
@@ -348,8 +348,6 @@ class NeuronModelMixin:
         if load_in_4bit or load_in_8bit:
             raise RuntimeError("Quantization is not supported yet.")
 
-        not (from_tf | from_flax)
-
         user_agent = {"file_type": "model", "framework": "pytorch", "from_auto_class": from_auto_class}
         if from_pipeline is not None:
             user_agent["using_pipeline"] = from_pipeline
@@ -357,6 +355,7 @@ class NeuronModelMixin:
         if is_offline_mode() and not local_files_only:
             logger.info("Offline mode: forcing local_files_only=True")
             local_files_only = True
+
 
         # Load config if we don't provide a configuration
         if not isinstance(config, PretrainedConfig):
@@ -404,6 +403,34 @@ class NeuronModelMixin:
             convert_to_safetensors=True,
             **kwargs,
         )
+
+        if torch_dtype is not None:
+            if isinstance(torch_dtype, str):
+                if torch_dtype == "auto":
+                    if hasattr(config, "torch_dtype") and config.torch_dtype is not None:
+                        torch_dtype = config.torch_dtype
+                        logger.info(f"Will use torch_dtype={torch_dtype} as defined in model's config object")
+                    else:
+                        if is_sharded and "dtype" in sharded_metadata:
+                            torch_dtype = sharded_metadata["dtype"]
+                        elif not is_sharded:
+                            torch_dtype = get_state_dict_dtype(state_dict)
+                        else:
+                            one_state_dict = load_state_dict(resolved_archive_file[0], weights_only=weights_only)
+                            torch_dtype = get_state_dict_dtype(one_state_dict)
+                            del one_state_dict  # free CPU memory
+                        logger.info(
+                            "Since the `torch_dtype` attribute can't be found in model's config object, "
+                            "will use torch_dtype={torch_dtype} as derived from model's weights"
+                        )
+                elif hasattr(torch, torch_dtype):
+                    torch_dtype = getattr(torch, torch_dtype)
+                else:
+                    raise ValueError(
+                        f'`torch_dtype` can be one of: `torch.dtype`, `"auto"` or a string of a valid `torch.dtype`, but received {torch_dtype}'
+                    )
+            # dtype_orig = cls._set_default_torch_dtype(torch_dtype)
+            config.torch_dtype = torch_dtype
 
         config.name_or_path = pretrained_model_name_or_path
 
@@ -503,7 +530,7 @@ class NeuronModelMixin:
                         if module.get_submodule(specs["output_projection"]).bias is not None:
                             model2state_dict[f"{output_projection_name}.bias"] = ("gqa_qkv_output_projection", f"{output_projection_name}.bias", specs)
 
-                for name, param in model.state_dict(keep_vars=True).items():
+                for name, param in model.named_parameters():
                     if hasattr(param, "tensor_model_parallel") and param.tensor_model_parallel:
                         if param.partition_dim not in [0, 1]:
                             raise Exception(f"Partiton value of 0,1 are supported, found {param.partition_dim}.")
@@ -511,6 +538,7 @@ class NeuronModelMixin:
                         if case == "local":
                             full_weight = state_dict[name]
                             per_partition_size = full_weight.shape[param.partition_dim] // tp_size
+                            print(name, param.partition_dim, per_partition_size, param.partition_stride)
                             state_dict[name] = create_local_weight(
                                 full_weight, param.partition_dim, per_partition_size, param.partition_stride
                             )
