@@ -33,7 +33,7 @@
         title: EC2
       - isExpanded: false
         sections:
-        - local: inference_tutorials/sagemaker/deploy-llama-3-3-70b
+        - local: inference_tutorials/deploy-llama-3-3-70b
           title: Deploy Llama 3.3 70B on AWS Inferentia2 with SageMaker
         title: SageMaker
       title: Inference Tutorials
