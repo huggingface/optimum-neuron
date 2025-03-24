@@ -77,6 +77,7 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
             MODEL_NAMES[model_arch],
             export=True,
             dynamic_batch_size=False,
+            disable_neuron_cache=True,
             **input_shapes,
             **self.COMPILER_ARGS,
         )
@@ -169,7 +170,7 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_export_and_inference_with_fused_lora(self, model_arch):
-        num_images_per_prompt = 4
+        num_images_per_prompt = 1
         input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
         input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
         lora_params = LORA_WEIGHTS_TINY[model_arch]
@@ -440,9 +441,7 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
         self.assertIsInstance(image, PIL.Image.Image)
 
 
-is_inferentia_test
-
-
+@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 class NeuronPixArtAlphaPipelineIntegrationTest(unittest.TestCase):

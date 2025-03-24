@@ -25,6 +25,7 @@ from tempfile import TemporaryDirectory
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from huggingface_hub import HfApi, get_token
+from huggingface_hub.errors import EntryNotFoundError
 from huggingface_hub.hf_api import RepoFile
 from transformers import AutoConfig, PretrainedConfig
 
@@ -33,6 +34,7 @@ from .cache_utils import get_hf_hub_cache_repo, get_neuron_cache_path
 from .import_utils import is_neuronx_available
 from .patching import patch_everywhere
 from .require_utils import requires_torch_neuronx
+from .version_utils import get_neuronxcc_version
 
 
 if is_neuronx_available():
@@ -76,6 +78,7 @@ CACHE_WHITE_LIST = [
     "sample_size",
     "projection_dim",
     "_use_default_values",
+    "_attn_implementation_autoset",
 ]
 NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names", "model_type"]
 
@@ -445,6 +448,49 @@ def get_hub_cached_entries(
                     )
 
     return model_entries
+
+
+def get_hub_cached_models(
+    mode: Union[Literal["training"], Literal["inference"], Mode], cache_repo_id: Optional[str] = None
+):
+    """Get the list of cached models for the specified mode for the current version
+
+    Args:
+        mode (`Union[Literal["training"], Literal["inference"], Mode]`): the cache mode (inference or training).
+        cache_repo_id (`Optional[str]`): the path to a cache repo id if different from the default one.
+    Returns:
+        A set of (model_arch, model_org, model_id)
+    """
+    if cache_repo_id is None:
+        cache_repo_id = get_hf_hub_cache_repo()
+    registry_folder = get_registry_folder_for_mode(mode)
+    api = HfApi()
+    root = api.list_repo_tree(cache_repo_id, path_in_repo="", recursive=False)
+    for root_file in root:
+        compiler_pattern = "neuronxcc-"
+        if is_neuronx_available():
+            # If we know the current compiler we can avoid going through all of them in the hub cache
+            compiler_pattern += get_neuronxcc_version()
+        if root_file.path.startswith(compiler_pattern):
+            # Look for a registry of cached models for the current optimum-version
+            path_in_repo = root_file.path + "/" + registry_folder
+            root_sub_paths = path_in_repo.split("/")
+            try:
+                registry = api.list_repo_tree(cache_repo_id, path_in_repo=path_in_repo, recursive=True)
+                cached_models = set()
+                for registry_file in registry:
+                    # Extract each cached model as a tuple of (arch, org, model)
+                    if registry_file.path.endswith(".json"):
+                        sub_paths = registry_file.path.split("/")
+                        if len(sub_paths) == len(root_sub_paths) + 4:
+                            # Look at the last four splits, i.e. model_arch/model_org/model_name/SHA.json
+                            model_arch, model_org, model_name = sub_paths[-4:-1]
+                            cached_models.add((model_arch, model_org, model_name))
+                return cached_models
+            except EntryNotFoundError:
+                # No cached models for the current version
+                continue
+    return set()
 
 
 def _prepare_config_for_matching(entry_config: Dict, target_entry: ModelCacheEntry, model_type: str):

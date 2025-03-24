@@ -45,7 +45,6 @@ from ...utils import (
     is_sentence_transformers_available,
     logging,
 )
-from .config import TextSeq2SeqNeuronConfig
 
 
 if TYPE_CHECKING:
@@ -193,16 +192,15 @@ def validate_model_outputs(
             ref_outputs = reference_model(**ref_inputs)
             neuron_inputs = tuple(config.flatten_inputs(inputs).values())
         elif "AutoencoderKL" in getattr(config._config, "_class_name", "") or getattr(
-            reference_model.config, "is_encoder_decoder", False
+            config._config, "is_encoder_decoder", False
         ):
             # VAE components for stable diffusion or Encoder-Decoder models
             ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
             neuron_inputs = tuple(inputs.values())
-        elif any(
-            pattern in getattr(config._config, "_class_name", "").lower() for pattern in ["controlnet", "transformer"]
-        ):
-            reference_model = config.patch_model_for_export(reference_model, ref_inputs)
+        elif config.CUSTOM_MODEL_WRAPPER is not None:
+            ref_inputs = config.flatten_inputs(inputs)
+            reference_model = config.patch_model_for_export(reference_model, ref_inputs, device="cpu")
             neuron_inputs = ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
         else:
@@ -298,7 +296,6 @@ def export_models(
         str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronDefaultConfig"]
     ],
     output_dir: Path,
-    torch_dtype: Optional[Union[str, torch.dtype]] = None,
     disable_neuron_cache: Optional[bool] = False,
     compiler_workdir: Optional[Path] = None,
     inline_weights_to_neff: bool = True,
@@ -315,8 +312,6 @@ def export_models(
             A dictionnary containing the models to export and their corresponding neuron configs.
         output_dir (`Path`):
             Output directory to store the exported Neuron models.
-        torch_dtype (`Optional[Union[str, torch.dtype]]`, defaults to `None`):
-            Override the default `torch.dtype` and load the model under this dtype. If `auto` is passed, the dtype will be automatically derived from the model's weights.
         disable_neuron_cache (`Optional[bool]`, defaults to `False`):
             Whether to disable automatic caching of AOT compiled models (not applicable for JIT compilation).
         compiler_workdir (`Optional[Path]`, defaults to `None`):
@@ -537,7 +532,7 @@ def export_neuronx(
     # Prepare the model / function(tp) to trace
     aliases = {}
     tensor_parallel_size = config.tensor_parallel_size
-    if isinstance(config, TextSeq2SeqNeuronConfig):
+    if getattr(config, "is_encoder_decoder", False):
         checked_model = config.patch_model_for_export(model_or_path, **input_shapes)
         if tensor_parallel_size == 1 and hasattr(config, "generate_io_aliases"):
             aliases = config.generate_io_aliases(checked_model)
@@ -558,7 +553,22 @@ def export_neuronx(
     compiler_args.extend(["--optlevel", optlevel])
     logger.info(f"Using Neuron: --optlevel {optlevel}")
 
-    if getattr(config._config, "is_encoder_decoder", False):
+    # no idea what range of models this flag could be applied, here are some exceptions that we have observed so far.
+    excluded_models = {
+        "unet",
+        "vae-encoder",
+        "vae-decoder",
+        "cvt",
+        "hubert",
+        "levit",
+        "mobilenet-v2",
+        "mobilevit",
+        "unispeech",
+        "unispeech-sat",
+        "wav2vec2",
+        "wavlm",
+    }
+    if config.MODEL_TYPE not in excluded_models:
         compiler_args.extend(["--model-type", "transformer"])
 
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)  # diffusers specific
@@ -620,8 +630,6 @@ def add_stable_diffusion_compiler_args(config, compiler_args):
             compiler_args.append("--enable-fast-loading-neuron-binaries")
         if "unet" in identifier or "controlnet" in identifier:
             compiler_args.append("--model-type=unet-inference")
-        if "transformer" in identifier:
-            compiler_args.append("--model-type=transformer")
     return compiler_args
 
 

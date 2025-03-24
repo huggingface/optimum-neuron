@@ -10,7 +10,7 @@ variable "instance_type" {
 }
 
 variable "source_ami" {
-  default     = "ami-0980ce83654efe544"
+  default     = "ami-0349dc82277d50797"
   description = "Base Image"
   type        = string
   /*
@@ -18,7 +18,7 @@ variable "source_ami" {
   aws ec2 describe-images \
       --region us-east-1 \
       --owners amazon \
-      --filters 'Name=name,Values=Deep Learning AMI Neuron ????????' 'Name=state,Values=available' \
+      --filters 'Name=name,Values=Deep Learning AMI Neuron ???????????????????????' 'Name=state,Values=available' \
       --query 'reverse(sort_by(Images, &CreationDate))[:1].ImageId' \
       --output text
   */

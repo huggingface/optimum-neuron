@@ -14,9 +14,9 @@
 # limitations under the License.
 """Neuron configuration base classes."""
 
-import importlib
 import re
 from abc import ABC, abstractmethod
+from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -24,7 +24,7 @@ import torch
 from optimum.utils import logging
 
 from ...exporters.base import ExportConfig
-from ...neuron.utils import is_neuron_available, is_transformers_neuronx_available
+from ...neuron.utils import ImageEncoderArguments, InputShapesArguments, is_neuron_available
 
 
 if TYPE_CHECKING:
@@ -40,7 +40,7 @@ class MissingMandatoryAxisDimension(ValueError):
     pass
 
 
-class NeuronConfig(ExportConfig):
+class NeuronExportConfig(ExportConfig):
     """Base class for Neuron exportable models
 
     Class attributes:
@@ -77,7 +77,7 @@ class NeuronConfig(ExportConfig):
         return tuple(axes)
 
 
-class NeuronDefaultConfig(NeuronConfig, ABC):
+class NeuronDefaultConfig(NeuronExportConfig, ABC):
     """
     Base class for configuring the export of Neuron TorchScript models.
 
@@ -120,6 +120,7 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
     DUMMY_INPUT_GENERATOR_CLASSES = ()
     ATOL_FOR_VALIDATION: Union[float, Dict[str, float]] = 1e-5
     MODEL_TYPE = None
+    CUSTOM_MODEL_WRAPPER = None
 
     _TASK_TO_COMMON_OUTPUTS = {
         "depth-estimation": ["predicted_depth"],
@@ -145,32 +146,16 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         self,
         config: "PretrainedConfig",
         task: str,
+        input_shapes: InputShapesArguments,
+        preprocessors: Optional[List] = None,
         compiler_type: Optional[str] = None,
         compiler_version: Optional[str] = None,
         tensor_parallel_size: int = 1,
-        batch_size: Optional[int] = None,
-        text_batch_size: Optional[int] = None,
-        image_batch_size: Optional[int] = None,
         dynamic_batch_size: bool = False,
-        sequence_length: Optional[int] = None,
-        num_choices: Optional[int] = None,
-        width: Optional[int] = None,
-        height: Optional[int] = None,
-        image_size: Optional[int] = None,
-        patch_size: Optional[int] = None,
-        num_channels: Optional[int] = None,
-        feature_size: Optional[int] = None,
-        nb_max_frames: Optional[int] = None,
-        audio_sequence_length: Optional[int] = None,
-        point_batch_size: Optional[int] = None,
-        nb_points_per_image: Optional[int] = None,
-        num_beams: Optional[int] = None,
-        vae_scale_factor: Optional[int] = None,
-        encoder_hidden_size: Optional[int] = None,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
-        int_dtype: Union[str, torch.dtype] = "int64",
-        float_dtype: Union[str, torch.dtype] = "fp32",
+        int_dtype: Union[str, torch.dtype] = "int64",  # Int dtype of dummy inputs used for tracing
+        float_dtype: Union[str, torch.dtype] = "fp32",  # Float dtype of dummy inputs used for tracing
     ):
         self._config = config
         self._normalized_config = self.NORMALIZED_CONFIG_CLASS(self._config)
@@ -185,34 +170,52 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         if self.dynamic_batch_size is True and is_neuron_available():
             logger.info("Overwriting batch size to 1 for neuron dynamic batch size support.")
             batch_size = 1
+        else:
+            batch_size = input_shapes.batch_size
+
+        if preprocessors:
+            for preprocessor in preprocessors:
+                if hasattr(preprocessor, "feature_extractor_type"):
+                    input_shapes.nb_max_frames = input_shapes.nb_max_frames or getattr(
+                        preprocessor, "nb_max_frames", None
+                    )
 
         # To avoid using **kwargs.
         axes_values = {
             "batch_size": batch_size,
-            "text_batch_size": text_batch_size,
-            "image_batch_size": image_batch_size,
-            "sequence_length": sequence_length,
-            "num_choices": num_choices,
-            "width": width,
-            "height": height,
-            "num_channels": num_channels or getattr(self._config, "num_channels", None),
-            "feature_size": feature_size,
-            "nb_max_frames": nb_max_frames,
-            "audio_sequence_length": audio_sequence_length,
-            "point_batch_size": point_batch_size,
-            "nb_points_per_image": nb_points_per_image,
-            "num_beams": num_beams,
-            "image_size": image_size or getattr(self._config, "image_size", None),
-            "patch_size": patch_size or getattr(self._config, "patch_size", None),
-            "vae_scale_factor": vae_scale_factor,
-            "encoder_hidden_size": encoder_hidden_size,
+            "text_batch_size": input_shapes.text_batch_size,
+            "image_batch_size": input_shapes.image_batch_size,
+            "sequence_length": input_shapes.sequence_length,
+            "num_choices": input_shapes.num_choices,
+            "width": input_shapes.width,
+            "height": input_shapes.height,
+            "num_channels": input_shapes.num_channels or getattr(self._config, "num_channels", None),
+            "feature_size": input_shapes.feature_size,
+            "nb_max_frames": input_shapes.nb_max_frames,
+            "audio_sequence_length": input_shapes.audio_sequence_length,
+            "point_batch_size": input_shapes.point_batch_size,
+            "nb_points_per_image": input_shapes.nb_points_per_image,
+            "num_beams": input_shapes.num_beams,
+            "image_size": input_shapes.image_size or getattr(self._config, "image_size", None),
+            "patch_size": input_shapes.patch_size or getattr(self._config, "patch_size", None),
+            "vae_scale_factor": input_shapes.vae_scale_factor,
+            "encoder_hidden_size": input_shapes.encoder_hidden_size,
+            "image_encoder_shapes": ImageEncoderArguments(
+                sequence_length=getattr(input_shapes.image_encoder_shapes, "sequence_length", None),
+                hidden_size=getattr(input_shapes.image_encoder_shapes, "hidden_size", None),
+                projection_dim=getattr(input_shapes.image_encoder_shapes, "projection_dim", None),
+            ),
         }
-        input_shapes = {}
+        valid_input_shapes = {}
         for name, value in axes_values.items():
             if value is not None:
-                input_shapes[name] = value
+                is_empty_dataclass = is_dataclass(value) and all(
+                    getattr(value, field.name) is None for field in fields(value)
+                )
+                if not is_empty_dataclass:
+                    valid_input_shapes[name] = value
             setattr(self, name, value)
-        setattr(self, "input_shapes", input_shapes)
+        setattr(self, "input_shapes", valid_input_shapes)
         setattr(self, "output_attentions", output_attentions)
         setattr(self, "output_hidden_states", output_hidden_states)
         setattr(self, "compiler_type", compiler_type)
@@ -266,7 +269,6 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         for name, axis_dim in self._axes.items():
             self._axes[name] = kwargs.pop(name, axis_dim)
 
-        self._validate_mandatory_axes()
         return [cls_(self.task, self._normalized_config, **self._axes) for cls_ in self.DUMMY_INPUT_GENERATOR_CLASSES]
 
     @property
@@ -384,6 +386,7 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         dummy_inputs: Optional[Dict[str, torch.Tensor]] = None,
         forward_with_tuple: bool = False,
         eligible_outputs: Optional[List[Union[str, int]]] = None,
+        device: Optional[str] = None,
     ):
         """
         Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
@@ -426,63 +429,7 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
 
                 return outputs
 
-        return ModelWrapper(model, list(dummy_inputs.keys()))
-
-
-class NeuronDecoderConfig(NeuronConfig):
-    """
-    Base class for configuring the export of Neuron Decoder models
-
-    Class attributes:
-
-    - INPUT_ARGS (`Tuple[Union[str, Tuple[Union[str, Tuple[str]]]]]`) -- A tuple where each element is either:
-        - An argument  name, for instance "batch_size" or "sequence_length", that indicates that the argument can
-        be passed to export the model,
-    - NEURONX_CLASS (`str`) -- the name of the transformers-neuronx class to instantiate for the model.
-    It is a full class name defined relatively to the transformers-neuronx module, e.g. `gpt2.model.GPT2ForSampling`
-    - CONTINUOUS_BATCHING (`bool`, defaults to `False`) -- Whether the model supports continuous batching or not.
-    - ATTENTION_LAYOUT (`str`, defaults to `HSB`) -- Layout to be used for attention computation.
-
-    The NEURONX_CLASS must always be defined in each model configuration.
-
-    Args:
-        task (`str`): The task the model should be exported for.
-    """
-
-    INPUT_ARGS = ("batch_size", "sequence_length")
-    NEURONX_CLASS = None
-    CONTINUOUS_BATCHING = False
-    ATTENTION_lAYOUT = "HSB"
-    FUSE_QKV = True
-
-    def __init__(self, task: str):
-        if not is_transformers_neuronx_available():
-            raise ModuleNotFoundError(
-                "The mandatory transformers-neuronx package is missing. Please install optimum[neuronx]."
-            )
-        if isinstance(self.NEURONX_CLASS, type):
-            self._neuronx_class = self.NEURONX_CLASS
+        if self.CUSTOM_MODEL_WRAPPER is None:
+            return ModelWrapper(model, list(dummy_inputs.keys()))
         else:
-            module_name, class_name = self.NEURONX_CLASS.rsplit(".", maxsplit=1)
-            module = importlib.import_module(f"transformers_neuronx.{module_name}")
-            self._neuronx_class = getattr(module, class_name, None)
-            if self._neuronx_class is None:
-                raise ImportError(
-                    f"{class_name} not found in {module_name}. Please check transformers-neuronx version."
-                )
-
-    @property
-    def neuronx_class(self):
-        return self._neuronx_class
-
-    @property
-    def continuous_batching(self):
-        return self.CONTINUOUS_BATCHING
-
-    @property
-    def attention_layout(self):
-        return self.ATTENTION_lAYOUT
-
-    @property
-    def fuse_qkv(self):
-        return self.FUSE_QKV
+            return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))

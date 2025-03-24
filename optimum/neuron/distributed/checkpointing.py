@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Union
 
 import torch
-from transformers.modeling_utils import shard_checkpoint
+from huggingface_hub import split_torch_state_dict_into_shards
 from transformers.utils import (
     SAFE_WEIGHTS_INDEX_NAME,
     SAFE_WEIGHTS_NAME,
@@ -134,46 +134,73 @@ def consolidate_tensor_parallel_checkpoints(
     for name in parameter_names:
         # We need to handle the mapping between the GQA parameter names and the original names.
         is_gqa_qkv_weight = name in gqa_qkv_names_to_original_names
+        is_fuse_qkv = gqa_qkv_metadata["fuse_qkv"]
         if is_gqa_qkv_weight:
-            original_name = gqa_qkv_names_to_original_names[name]
-            weight_name = name.rsplit(".", maxsplit=1)[1]
+            if is_fuse_qkv:
+                original_names = [k for k, v in original_parameter_names_to_gqa_qkv_names.items() if v == name]
+                weight_names = [name.rsplit(".", maxsplit=1)[1] for name in original_names]
+                weight_names = ["weight_q", "weight_k", "weight_v"]
+            else:
+                original_names = [gqa_qkv_names_to_original_names[name]]
+                weight_names = [name.rsplit(".", maxsplit=1)[1]]
         else:
-            original_name = name
-            weight_name = ""  # Not needed.
+            original_names = [name]
+            weight_names = [""]  # Not needed.
 
         # For now all parameter metadatas are equal so it is enough to take the first element.
         # This might not be the case anymore when `ParameterMetadata` uses slices.
         sharded_metadata = sharded_metadatas[name]
-        if sharded_metadata.is_tied:
-            consolidated_state_dict[original_name] = state_dicts[0][name].to("cpu").contiguous()
-        else:
-            # Ensure that all tensors are contiguous before concatenating or further processing
-            weights = [state_dict[name].contiguous() for state_dict in state_dicts]
-            tp_size = len(weights)
+        for original_name, weight_name in zip(original_names, weight_names):
+            if sharded_metadata.is_tied:
+                consolidated_state_dict[original_name] = state_dicts[0][name].to("cpu").contiguous()
+            else:
+                if is_fuse_qkv:
+                    if weight_name == "weight_q":
+                        s = slice(0, gqa_qkv_metadata["q_output_size_per_partition"])
+                    elif weight_name == "weight_k":
+                        s = slice(
+                            gqa_qkv_metadata["q_output_size_per_partition"],
+                            gqa_qkv_metadata["q_output_size_per_partition"]
+                            + gqa_qkv_metadata["kv_output_size_per_partition"],
+                        )
+                    elif weight_name == "weight_v":
+                        s = slice(
+                            gqa_qkv_metadata["q_output_size_per_partition"]
+                            + gqa_qkv_metadata["kv_output_size_per_partition"],
+                            None,
+                        )
+                    else:
+                        s = slice(None, None)
+                else:
+                    s = slice(None, None)
 
-            full_weight = (
-                torch.cat(
-                    weights,
-                    dim=sharded_metadata.partition_dim,
-                )
-                .to("cpu")
-                .contiguous()
-            )  # Ensure the result is also contiguous
+                # Ensure that all tensors are contiguous before concatenating or further processing
+                weights = [state_dict[name][s].contiguous() for state_dict in state_dicts]
+                tp_size = len(weights)
 
-            if weight_name in ["weight_k", "weight_v", "bias_k", "bias_v"]:
                 full_weight = (
-                    torch.chunk(full_weight, gqa_qkv_metadata["kv_size_multiplier"], dim=0)[0].detach().clone()
-                )
-            elif weight_name == "weight_q" or original_name in gqa_qkv_output_projections_names:
-                full_weight = create_gqa_query_or_output_projection_weight_from_full_weight(
-                    full_weight,
-                    tp_size,
-                    gqa_qkv_metadata["num_attention_heads"],
-                    gqa_qkv_metadata["num_key_value_heads"],
-                    gqa_qkv_metadata["kv_size_multiplier"],
-                    "query" if weight_name == "weight_q" else "output",
-                )
-            consolidated_state_dict[original_name] = full_weight
+                    torch.cat(
+                        weights,
+                        dim=sharded_metadata.partition_dim,
+                    )
+                    .to("cpu")
+                    .contiguous()
+                )  # Ensure the result is also contiguous
+
+                if weight_name in ["weight_k", "weight_v", "bias_k", "bias_v"]:
+                    full_weight = (
+                        torch.chunk(full_weight, gqa_qkv_metadata["kv_size_multiplier"], dim=0)[0].detach().clone()
+                    )
+                elif weight_name == "weight_q" or original_name in gqa_qkv_output_projections_names:
+                    full_weight = create_gqa_query_or_output_projection_weight_from_full_weight(
+                        full_weight,
+                        tp_size,
+                        gqa_qkv_metadata["num_attention_heads"],
+                        gqa_qkv_metadata["num_key_value_heads"],
+                        gqa_qkv_metadata["kv_size_multiplier"],
+                        "query" if weight_name == "weight_q" else "output",
+                    )
+                consolidated_state_dict[original_name] = full_weight
 
     return consolidated_state_dict
 
@@ -255,16 +282,27 @@ def consolidate_model_parallel_checkpoints_to_unified_checkpoint(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     state_dict = consolidate_model_parallel_checkpoints(checkpoint_dir)
-    shards, index = shard_checkpoint(
-        state_dict, weights_name=safe_weights_name if save_format == "safetensors" else weights_name
+    state_dict_split = split_torch_state_dict_into_shards(
+        state_dict, filename_pattern=safe_weights_name if save_format == "safetensors" else weights_name
     )
-    for shard_file, shard in shards.items():
-        if save_format == "safetensors":
-            save_file(shard, output_dir / shard_file, metadata={"format": "pt"})
-        else:
-            torch.save(shard, output_dir / shard_file)
-    if index is not None:
+    # Save index if sharded
+    if state_dict_split.is_sharded:
+        index = {
+            "metadata": state_dict_split.metadata,
+            "weight_map": state_dict_split.tensor_to_filename,
+        }
         save_index_file = SAFE_WEIGHTS_INDEX_NAME if save_format == "safetensors" else WEIGHTS_INDEX_NAME
         with open(output_dir / save_index_file, "w") as fp:
             content = json.dumps(index, indent=2, sort_keys=True) + "\n"
             fp.write(content)
+    # Save the model
+    filename_to_tensors = state_dict_split.filename_to_tensors.items()
+    for shard_file, tensors in filename_to_tensors:
+        shard = {}
+        for tensor in tensors:
+            shard[tensor] = state_dict[tensor].contiguous()
+            del state_dict[tensor]
+        if save_format == "safetensors":
+            save_file(shard, output_dir / shard_file, metadata={"format": "pt"})
+        else:
+            torch.save(shard, output_dir / shard_file)

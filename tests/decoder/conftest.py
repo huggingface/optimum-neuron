@@ -1,6 +1,5 @@
 import copy
 import logging
-import subprocess
 import sys
 from tempfile import TemporaryDirectory
 
@@ -30,7 +29,7 @@ DECODER_MODEL_CONFIGURATIONS = {
         "export_kwargs": {"batch_size": 4, "sequence_length": 1024, "num_cores": 2, "auto_cast_type": "fp16"},
     },
     "llama": {
-        "model_id": "NousResearch/Hermes-2-Theta-Llama-3-8B",
+        "model_id": "unsloth/Llama-3.2-1B-Instruct",
         "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "fp16"},
     },
     "qwen2": {
@@ -49,6 +48,10 @@ DECODER_MODEL_CONFIGURATIONS = {
         "model_id": "dacorvo/Mixtral-tiny",
         "export_kwargs": {"batch_size": 4, "sequence_length": 1024, "num_cores": 2, "auto_cast_type": "fp16"},
     },
+    "phi": {
+        "model_id": "microsoft/Phi-3-mini-4k-instruct",
+        "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "bf16"},
+    },
 }
 
 
@@ -57,16 +60,11 @@ def _get_hub_neuron_model_id(config_name: str):
 
 
 def _export_model(model_id, export_kwargs, neuron_model_path):
-    export_command = ["optimum-cli", "export", "neuron", "-m", model_id, "--task", "text-generation"]
-    for kwarg, value in export_kwargs.items():
-        export_command.append(f"--{kwarg}")
-        export_command.append(str(value))
-    export_command.append(neuron_model_path)
-    logger.info(f"Exporting {model_id} with {export_kwargs}")
     try:
-        subprocess.run(export_command, check=True)
-    except subprocess.CalledProcessError as e:
-        raise SystemError(f"Failed to export model: {e}")
+        model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, **export_kwargs)
+        model.save_pretrained(neuron_model_path)
+    except Exception as e:
+        raise ValueError(f"Failed to export {model_id}: {e}")
 
 
 @pytest.fixture(scope="session", params=DECODER_MODEL_CONFIGURATIONS.keys())

@@ -228,11 +228,12 @@ def pipeline(
         )
 
     # copied from transformers.pipelines.__init__.py
+    commit_hash = kwargs.pop("_commit_hash", None)
     hub_kwargs = {
         "revision": revision,
         "token": token,
         "trust_remote_code": trust_remote_code,
-        "_commit_hash": None,
+        "_commit_hash": commit_hash,
     }
 
     config = kwargs.get("config", None)

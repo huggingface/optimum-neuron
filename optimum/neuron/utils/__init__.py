@@ -19,11 +19,20 @@ from transformers.utils import _LazyModule
 
 
 _import_structure = {
-    "argument_utils": ["convert_neuronx_compiler_args_to_neuron", "store_compilation_config"],
+    "argument_utils": [
+        "LoRAAdapterArguments",
+        "IPAdapterArguments",
+        "ImageEncoderArguments",
+        "InputShapesArguments",
+        "NeuronArgumentParser",
+        "convert_neuronx_compiler_args_to_neuron",
+        "store_compilation_config",
+    ],
     "constant": [
         "DECODER_NAME",
         "DIFFUSION_MODEL_TEXT_ENCODER_2_NAME",
         "DIFFUSION_MODEL_TEXT_ENCODER_NAME",
+        "DIFFUSION_MODEL_IMAGE_ENCODER_NAME",
         "DIFFUSION_MODEL_UNET_NAME",
         "DIFFUSION_MODEL_TRANSFORMER_NAME",
         "DIFFUSION_MODEL_VAE_DECODER_NAME",
@@ -32,7 +41,13 @@ _import_structure = {
         "ENCODER_NAME",
         "NEURON_FILE_NAME",
     ],
-    "hub_cache_utils": ["ModelCacheEntry", "get_hub_cached_entries", "hub_neuronx_cache", "synchronize_hub_cache"],
+    "hub_cache_utils": [
+        "ModelCacheEntry",
+        "get_hub_cached_entries",
+        "get_hub_cached_models",
+        "hub_neuronx_cache",
+        "synchronize_hub_cache",
+    ],
     "import_utils": [
         "is_accelerate_available",
         "is_neuron_available",
@@ -48,6 +63,8 @@ _import_structure = {
         "DummyMaskedPosGenerator",
         "DummyControNetInputGenerator",
         "ASTDummyAudioInputGenerator",
+        "DummyIPAdapterInputGenerator",
+        "WhisperDummyTextInputGenerator",
     ],
     "misc": [
         "DiffusersPretrainedConfig",
@@ -81,10 +98,19 @@ _import_structure = {
 }
 
 if TYPE_CHECKING:
-    from .argument_utils import convert_neuronx_compiler_args_to_neuron, store_compilation_config
+    from .argument_utils import (
+        ImageEncoderArguments,
+        InputShapesArguments,
+        IPAdapterArguments,
+        LoRAAdapterArguments,
+        NeuronArgumentParser,
+        convert_neuronx_compiler_args_to_neuron,
+        store_compilation_config,
+    )
     from .constant import (
         DECODER_NAME,
         DIFFUSION_MODEL_CONTROLNET_NAME,
+        DIFFUSION_MODEL_IMAGE_ENCODER_NAME,
         DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
         DIFFUSION_MODEL_TEXT_ENCODER_NAME,
         DIFFUSION_MODEL_TRANSFORMER_NAME,
@@ -94,7 +120,13 @@ if TYPE_CHECKING:
         ENCODER_NAME,
         NEURON_FILE_NAME,
     )
-    from .hub_cache_utils import ModelCacheEntry, get_hub_cached_entries, hub_neuronx_cache, synchronize_hub_cache
+    from .hub_cache_utils import (
+        ModelCacheEntry,
+        get_hub_cached_entries,
+        get_hub_cached_models,
+        hub_neuronx_cache,
+        synchronize_hub_cache,
+    )
     from .import_utils import (
         is_accelerate_available,
         is_neuron_available,
@@ -109,7 +141,9 @@ if TYPE_CHECKING:
         ASTDummyAudioInputGenerator,
         DummyBeamValuesGenerator,
         DummyControNetInputGenerator,
+        DummyIPAdapterInputGenerator,
         DummyMaskedPosGenerator,
+        WhisperDummyTextInputGenerator,
     )
     from .misc import (
         DiffusersPretrainedConfig,

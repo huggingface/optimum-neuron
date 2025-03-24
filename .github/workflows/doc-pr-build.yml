@@ -33,7 +33,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      
+
       - name: Setup environment
         run: |
           pip install --upgrade pip
@@ -42,6 +42,8 @@ jobs:
       - name: Make documentation
         shell: bash
         run: |
+          doc-builder notebook-to-mdx notebooks/sagemaker/deploy-llama-3-3-70b.ipynb --output_dir docs/source/inference_tutorials/
+          doc-builder notebook-to-mdx notebooks/text-classification/fine_tune_bert.ipynb --output_dir docs/source/training_tutorials/
           doc-builder build optimum.neuron docs/source/ \
             --repo_name optimum-neuron \
             --build_dir neuron-doc-build/ \
@@ -58,7 +60,7 @@ jobs:
           echo ${{ env.COMMIT_SHA }} > ./commit_sha
           echo ${{ env.PR_NUMBER }} > ./pr_number
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: doc-build-artifact
           path: neuron-doc-build/

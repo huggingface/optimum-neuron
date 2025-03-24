@@ -116,7 +116,7 @@ def _hub_test(create_local_cache: bool = False):
 
     delete_repo(custom_cache_repo_with_seed, repo_type="model")
 
-    model_repos = HfApi().list_models()
+    model_repos = HfApi().list_models(author=" optimum-internal-testing-user")
     for repo in model_repos:
         if repo.id.startswith("optimum-neuron-cache-for-testing-"):
             delete_repo(repo.id)
@@ -154,23 +154,6 @@ def pytest_runtest_call(item):
         dist_test_class = item.cls()
         dist_test_class(item._request)
         item.runtest = lambda: True  # Dummy function so test is not run twice
-
-
-# We allow DistributedTest to reuse distributed environments. When the last
-# test for a class is run, we want to make sure those distributed environments
-# are destroyed.
-def pytest_runtest_teardown(item, nextitem):
-    if getattr(item.cls, "reuse_dist_env", False) and not nextitem:
-        dist_test_class = item.cls()
-        for num_procs, pool in dist_test_class._pool_cache.items():
-            dist_test_class._close_pool(pool, num_procs, force=True)
-
-
-@pytest.hookimpl(tryfirst=True)
-def pytest_fixture_setup(fixturedef, request):
-    if getattr(fixturedef.func, "is_dist_fixture", False):
-        dist_fixture_class = fixturedef.func()
-        dist_fixture_class(request)
 
 
 @pytest.fixture

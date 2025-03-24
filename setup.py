@@ -13,10 +13,10 @@ except Exception as error:
 
 
 INSTALL_REQUIRES = [
-    "transformers == 4.46.2",
+    "transformers ~= 4.49.0",
     "accelerate == 0.29.2",
-    "optimum ~= 1.23.0",
-    "huggingface_hub >= 0.20.1",
+    "optimum ~= 1.23.3",
+    "huggingface_hub >= 0.29.0",
     "numpy>=1.22.2, <=1.25.2",
     "protobuf>=3.20.3, <4",
 ]
@@ -29,10 +29,10 @@ TESTS_REQUIRE = [
     "sentencepiece",
     "datasets",
     "sacremoses",
-    "diffusers>=0.28.0, <=0.30.3",
+    "diffusers>=0.29.0, <=0.30.3",
     "safetensors",
     "sentence-transformers >= 2.2.0",
-    "peft>=0.14.0",
+    "peft==0.14.0",
     "trl==0.11.4",
     "compel",
     "rjieba",
@@ -41,6 +41,8 @@ TESTS_REQUIRE = [
     "opencv-python-headless",
     "controlnet-aux",
     "mediapipe",
+    "timm >= 1.0.0",
+    "hf_transfer",
 ]
 
 QUALITY_REQUIRES = [
@@ -52,7 +54,8 @@ QUALITY_REQUIRES = [
 TRAINING_REQUIRES = [
     "trl == 0.11.4",
     "peft == 0.14.0",
-    "neuronx-distributed == 0.9.0",
+    "evaluate == 0.4.3",
+    "neuronx_distributed==0.10.1",
 ]
 
 EXTRAS_REQUIRE = {
@@ -70,15 +73,15 @@ EXTRAS_REQUIRE = {
     ],
     "neuronx": [
         "wheel",
-        "neuronx-cc==2.15.143.0",
-        "torch-neuronx==2.1.2.2.3.2",
-        "transformers-neuronx==0.12.313",
-        "torch==2.1.2.*",
-        "torchvision==0.16.*",
-        "neuronx_distributed==0.9.0",
-        "libneuronxla==2.0.5347.0",
+        "neuronx-cc==2.16.372.0",
+        "torch-neuronx==2.5.1.2.4.0",
+        "transformers-neuronx==0.13.322",
+        "torch==2.5.1.*",
+        "torchvision==0.20.*",
+        "neuronx_distributed==0.10.1",
+        "libneuronxla==2.1.681.0",
     ],
-    "diffusers": ["diffusers>=0.28.0, <=0.30.3", "peft>=0.14.0"],
+    "diffusers": ["diffusers>=0.28.0, <=0.30.3", "peft==0.14.0"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
 }
 
@@ -99,8 +102,7 @@ setup(
         "Intended Audience :: Education",
         "Intended Audience :: Science/Research",
         "Operating System :: OS Independent",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
     keywords="transformers, diffusers, mixed-precision training, fine-tuning, inference, trainium, inferentia, aws",

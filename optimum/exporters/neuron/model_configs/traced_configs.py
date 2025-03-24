@@ -41,7 +41,9 @@ from ....neuron.utils import (
     ASTDummyAudioInputGenerator,
     DummyBeamValuesGenerator,
     DummyControNetInputGenerator,
+    DummyIPAdapterInputGenerator,
     DummyMaskedPosGenerator,
+    WhisperDummyTextInputGenerator,
     is_neuronx_distributed_available,
 )
 from ..config import (
@@ -52,6 +54,7 @@ from ..config import (
     VisionNeuronConfig,
 )
 from ..model_wrappers import (
+    CLIPVisionModelNeuronWrapper,
     ControlNetNeuronWrapper,
     NoCacheModelWrapper,
     PixartTransformerNeuronWrapper,
@@ -61,6 +64,8 @@ from ..model_wrappers import (
     T5EncoderForSeq2SeqLMWrapper,
     T5EncoderWrapper,
     UnetNeuronWrapper,
+    WhisperDecoderWrapper,
+    WhisperEncoderWrapper,
 )
 
 
@@ -145,9 +150,6 @@ class PhiNeuronConfig(ElectraNeuronConfig):
     @property
     def inputs(self) -> List[str]:
         return ["input_ids", "attention_mask"]
-
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
 @register_in_tasks_manager("roformer", *COMMON_TEXT_TASKS)
@@ -235,13 +237,27 @@ class SentenceTransformersTransformerNeuronConfig(TextEncoderNeuronConfig):
     def outputs(self) -> List[str]:
         return ["token_embeddings", "sentence_embedding"]
 
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
-
 
 class CLIPNormalizedConfig(NormalizedTextAndVisionConfig):
     TEXT_CONFIG = "text_config"
     VISION_CONFIG = "vision_config"
+
+
+@register_in_tasks_manager("clip-vision-model", *["feature-extraction"], library_name="diffusers")
+class CLIPVisionModelNeuronConfig(VisionNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedVisionConfig
+    CUSTOM_MODEL_WRAPPER = CLIPVisionModelNeuronWrapper
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["pixel_values"]
+
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = ["image_embeds", "last_hidden_state"]
+        if self.output_hidden_states:
+            common_outputs.append("hidden_states")
+        return common_outputs
 
 
 @register_in_tasks_manager("clip", *["feature-extraction", "zero-shot-image-classification"])
@@ -311,9 +327,6 @@ class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
     def outputs(self) -> List[str]:
         return ["text_embeds", "image_embeds"]
 
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
-
     def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
         for name, axis_dim in self._axes.items():
             self._axes[name] = kwargs.pop(name, axis_dim)
@@ -362,6 +375,8 @@ class ConvNextV2NeuronConfig(ViTNeuronConfig):
 
 @register_in_tasks_manager("cvt", *["feature-extraction", "image-classification"])
 class CvTNeuronConfig(ViTNeuronConfig):
+    MODEL_TYPE = "cvt"
+
     @property
     def outputs(self) -> List[str]:
         common_outputs = super().outputs
@@ -388,6 +403,7 @@ class DptNeuronConfig(ViTNeuronConfig):
 
 @register_in_tasks_manager("levit", *["feature-extraction", "image-classification"])
 class LevitNeuronConfig(ViTNeuronConfig):
+    MODEL_TYPE = "levit"
     pass
 
 
@@ -395,6 +411,7 @@ class LevitNeuronConfig(ViTNeuronConfig):
     "mobilenet-v2", *["feature-extraction", "image-classification", "semantic-segmentation", "image-segmentation"]
 )
 class MobileNetV2NeuronConfig(ViTNeuronConfig):
+    MODEL_TYPE = "mobilenet-v2"
     pass
 
 
@@ -402,6 +419,7 @@ class MobileNetV2NeuronConfig(ViTNeuronConfig):
     "mobilevit", *["feature-extraction", "image-classification", "semantic-segmentation", "image-segmentation"]
 )
 class MobileViTNeuronConfig(ViTNeuronConfig):
+    MODEL_TYPE = "mobilevit"
     pass
 
 
@@ -432,6 +450,7 @@ class YolosTNeuronConfig(ViTNeuronConfig):
 )
 class Wav2Vec2NeuronConfig(AudioNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedConfig
+    MODEL_TYPE = "wav2vec2"
 
     @property
     def inputs(self) -> List[str]:
@@ -474,6 +493,8 @@ class ASTNeuronConfig(AudioNeuronConfig):
     ],
 )
 class HubertNeuronConfig(Wav2Vec2NeuronConfig):
+    MODEL_TYPE = "hubert"
+
     @property
     def outputs(self) -> List[str]:
         common_outputs = super().outputs
@@ -517,6 +538,7 @@ class HubertNeuronConfig(Wav2Vec2NeuronConfig):
     ],
 )
 class UniSpeechNeuronConfig(Wav2Vec2NeuronConfig):
+    MODEL_TYPE = "unispeech"
     pass
 
 
@@ -531,6 +553,7 @@ class UniSpeechNeuronConfig(Wav2Vec2NeuronConfig):
     ],
 )
 class UniSpeechSATNeuronConfig(Wav2Vec2NeuronConfig):
+    MODEL_TYPE = "unispeech-sat"
     pass
 
 
@@ -575,6 +598,7 @@ class UniSpeechSATNeuronConfig(Wav2Vec2NeuronConfig):
     ],
 )
 class WavLMNeuronConfig(Wav2Vec2NeuronConfig):
+    MODEL_TYPE = "wavlm"
     pass
 
 
@@ -598,6 +622,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
         DummyTimestepInputGenerator,
         DummySeq2SeqDecoderTextInputGenerator,
         DummyControNetInputGenerator,
+        DummyIPAdapterInputGenerator,
     )
 
     @property
@@ -615,6 +640,13 @@ class UNetNeuronConfig(VisionNeuronConfig):
         if self.with_controlnet:
             # outputs of controlnet
             common_inputs += ["down_block_additional_residuals", "mid_block_additional_residual"]
+
+        if self.with_ip_adapter:
+            # add output of image encoder
+            if self.image_encoder_output_hidden_states:
+                common_inputs += ["image_enc_hidden_states"]
+            else:
+                common_inputs += ["image_embeds"]
 
         return common_inputs
 
@@ -648,9 +680,6 @@ class UNetNeuronConfig(VisionNeuronConfig):
         else:
             return dummy_inputs
 
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
-
     @property
     def is_sdxl(self) -> bool:
         return self._is_sdxl
@@ -666,6 +695,17 @@ class UNetNeuronConfig(VisionNeuronConfig):
     @with_controlnet.setter
     def with_controlnet(self, with_controlnet: bool):
         self._with_controlnet = with_controlnet
+
+    @property
+    def with_ip_adapter(self) -> bool:
+        return self._with_ip_adapter
+
+    @with_ip_adapter.setter
+    def with_ip_adapter(self, with_ip_adapter: bool):
+        self._with_ip_adapter = with_ip_adapter
+        if with_ip_adapter:
+            self.mandatory_axes += ("image_encoder_shapes",)
+            setattr(self, "image_encoder_shapes", self.input_shapes["image_encoder_shapes"])
 
 
 @register_in_tasks_manager("pixart-transformer-2d", *["semantic-segmentation"], library_name="diffusers")
@@ -706,9 +746,6 @@ class PixartTransformerNeuronConfig(VisionNeuronConfig):
     @property
     def outputs(self) -> List[str]:
         return ["out_hidden_states"]
-
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")
@@ -754,9 +791,6 @@ class ControlNetNeuronConfig(VisionNeuronConfig):
     @property
     def outputs(self) -> List[str]:
         return ["down_block_res_samples", "mid_block_res_sample"]
-
-    def patch_model_for_export(self, model, dummy_inputs):
-        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
 @register_in_tasks_manager("vae-encoder", *["semantic-segmentation"], library_name="diffusers")
@@ -838,6 +872,10 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
     def outputs(self) -> List[str]:
         return ["last_hidden_state"]
 
+    @property
+    def is_encoder_decoder(self) -> bool:
+        return True
+
     def patch_model_for_export(self, model_or_path, **input_shapes):
         return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes)
 
@@ -857,6 +895,10 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
             + [f"present.{idx}.cross.value" for idx in range(self._config.num_decoder_layers)]
         )
         return common_outputs
+
+    @property
+    def is_encoder_decoder(self) -> bool:
+        return True
 
     def patch_model_for_export(self, model_or_path, device="xla", **kwargs):
         num_beams = kwargs.pop("num_beams", 1)
@@ -969,6 +1011,10 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
 
         return common_outputs
 
+    @property
+    def is_encoder_decoder(self) -> bool:
+        return True
+
     def generate_dummy_inputs(self, **kwargs):
         batch_size = kwargs.pop("batch_size") * kwargs.get("num_beams")
         dummy_inputs = super().generate_dummy_inputs(batch_size=batch_size, **kwargs)
@@ -1067,3 +1113,68 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             aliases[decoder.past_key_values_ca[i]] = len(decoder.past_key_values_sa) + i + num_outputs_from_trace
 
         return aliases
+
+
+@register_in_tasks_manager("whisper-encoder", *["automatic-speech-recognition"])
+class WhisperEncoderNeuronConfig(AudioNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    MODEL_TYPE = "whisper-encoder"
+    CUSTOM_MODEL_WRAPPER = WhisperEncoderWrapper
+    INPUT_ARGS = ("batch_size", "sequence_length")
+    DUMMY_INPUT_GENERATOR_CLASSES = AudioNeuronConfig.DUMMY_INPUT_GENERATOR_CLASSES + (WhisperDummyTextInputGenerator,)
+    NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
+        encoder_num_layers="encoder_layers",
+        decoder_num_layers="decoder_layers",
+        feature_size="num_mel_bins",
+        allow_new=True,
+    )
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_features", "decoder_input_ids"]
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["lm_logits", "encoder_last_hidden_state"]
+
+    @property
+    def is_encoder_decoder(self) -> bool:
+        return True
+
+    def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
+        kwargs["sequence_length"] = 1  # only `decoder_start_token_id`
+        return super().generate_dummy_inputs(return_tuple=return_tuple, **kwargs)
+
+    def patch_model_for_export(self, model_or_path, **input_shapes):
+        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes)
+
+
+@register_in_tasks_manager("whisper-decoder", *["automatic-speech-recognition"])
+class WhisperDecoderNeuronConfig(AudioNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    MODEL_TYPE = "whisper-decoder"
+    DUMMY_INPUT_GENERATOR_CLASSES = (WhisperDummyTextInputGenerator,)
+    INPUT_ARGS = ("batch_size", "sequence_length")
+    CUSTOM_MODEL_WRAPPER = WhisperDecoderWrapper
+    NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
+        encoder_num_layers="encoder_layers",
+        decoder_num_layers="decoder_layers",
+        feature_size="num_mel_bins",
+        hidden_size="d_model",
+        allow_new=True,
+    )
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["decoder_input_ids", "encoder_hidden_states"]
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["lm_logits"]
+
+    @property
+    def is_encoder_decoder(self) -> bool:
+        return True
+
+    def patch_model_for_export(self, model_or_path, **input_shapes):
+        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes)
