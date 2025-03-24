@@ -25,25 +25,21 @@ if is_torch_xla_available():
     import torch_xla.runtime as xrt
 
 
-INPUT_SIZE = 8192
-OUTPUT_SIZE = 2048
-
-
 class SampleModel(nn.Module):
-    def __init__(self, weights_dtype):
+    def __init__(self, weights_dtype, input_size, output_size):
         super().__init__()
-        self.linear1 = nn.Linear(INPUT_SIZE, OUTPUT_SIZE, bias=False, dtype=weights_dtype)
+        self.linear1 = nn.Linear(input_size, output_size, bias=False, dtype=weights_dtype)
 
     def forward(self, x):
         return self.linear1(x)
 
 
 class ParallelSampleModel(nn.Module):
-    def __init__(self, weights_dtype):
+    def __init__(self, weights_dtype, input_size, output_size):
         super().__init__()
         self.linear1 = RowParallelLinear(
-            INPUT_SIZE,
-            OUTPUT_SIZE,
+            input_size,
+            output_size,
             bias=False,
             dtype=weights_dtype,
             sequence_parallel_enabled=False,
@@ -64,36 +60,55 @@ class ParallelSampleModel(nn.Module):
                 split_len = (axis_len + world_size - 1) // world_size
                 partition_stride = 1  # assuming that is always 1
                 state_dict[k] = create_local_weight(v, 1, split_len, partition_stride)
-                # state_dict[k] = slice_tensor(v, 1)
 
     def forward(self, x):
         return self.linear1(x)
 
 
 @torch.no_grad()
-def _test_parallel_model_check(weights_dtype, inputs_dtype):
+def _test_parallel_model_check(weights_dtype, inputs_dtype, input_size, output_size):
     set_seed(42)
     device = "xla"
 
-    original_model = SampleModel(weights_dtype)
+    original_model = SampleModel(weights_dtype, input_size, output_size)
     original_model.to(device).eval()
 
-    inputs = torch.randn(1, 2, INPUT_SIZE, dtype=inputs_dtype).to(device)
+    inputs = torch.randn(1, 2, input_size, dtype=inputs_dtype).to(device)
     original_outputs = original_model(inputs)
     xm.mark_step()
 
-    parallel_model = ParallelSampleModel(weights_dtype)
+    parallel_model = ParallelSampleModel(weights_dtype, input_size, output_size)
     parallel_model.load_state_dict(original_model.state_dict())
 
     parallel_model.to(device).eval()
     parallel_outputs = parallel_model(inputs)
-    outputs_match = torch.allclose(parallel_outputs.to("cpu"), original_outputs.to("cpu"), atol=1e-3)
+    atol = torch.finfo(inputs_dtype).resolution
+    outputs_match = torch.allclose(parallel_outputs.to("cpu"), original_outputs.to("cpu"), atol=atol)
 
     assert outputs_match, "Sharded model output does not match unsharded one"
 
 
-def _test_parallel_linears(weights_dtype, inputs_dtype):
-    run_fn = partial(_test_parallel_model_check, weights_dtype=weights_dtype, inputs_dtype=inputs_dtype)
+@is_trainium_test
+@pytest.mark.parametrize("weights_dtype, inputs_dtype", [
+    (torch.float32, torch.float32),
+    (torch.bfloat16, torch.bfloat16),
+    (torch.bfloat16, torch.float32),
+    (torch.float16, torch.float16),
+], ids=["weights=float32-inputs=float32",
+        "weights=bfloat16-inputs=bfloat16",
+        "weights=bfloat16-inputs=float32",
+        "weights=float16-inputs=float16",])
+@pytest.mark.parametrize("input_size, output_size", [
+    (8192, 2048), (400, 300)
+], ids=["input_size=8192-output_size=2048", "input_size=400-output_size=300"])
+def test_parallel_linears(weights_dtype, inputs_dtype, input_size, output_size):
+    run_fn = partial(
+        _test_parallel_model_check,
+        weights_dtype=weights_dtype,
+        inputs_dtype=inputs_dtype,
+        input_size=input_size,
+        output_size=output_size,
+    )
 
     launch_procs(
         run_fn,
@@ -101,18 +116,3 @@ def _test_parallel_linears(weights_dtype, inputs_dtype):
         tp_size=2,
         pp_size=1,
     )
-
-
-@is_trainium_test
-@pytest.mark.xfail(reason="The output of the parallel model is not matching the original one")
-def test_parallel_layers_bfloat16_inputs_bfloat16():
-    _test_parallel_linears(torch.bfloat16, inputs_dtype=torch.bfloat16)
-
-@is_trainium_test
-def test_parallel_layers_bfloat16_inputs_float32():
-    _test_parallel_linears(torch.bfloat16, inputs_dtype=torch.float32)
-
-
-@is_trainium_test
-def test_parallel_layers_float32():
-    _test_parallel_linears(torch.float32, inputs_dtype=torch.float32)
