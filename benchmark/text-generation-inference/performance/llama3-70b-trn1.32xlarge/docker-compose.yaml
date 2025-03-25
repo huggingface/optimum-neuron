@@ -2,7 +2,7 @@ version: '3.7'
 
 services:
   tgi-1:
-    image: neuronx-tgi:latest
+    image: ghcr.io/huggingface/text-generation-inference:latest-neuron
     ports:
       - "8080:8080"
     environment:
@@ -33,4 +33,3 @@ services:
       - "/dev/neuron13"
       - "/dev/neuron14"
       - "/dev/neuron15"
-      

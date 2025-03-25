@@ -78,6 +78,7 @@ CACHE_WHITE_LIST = [
     "sample_size",
     "projection_dim",
     "_use_default_values",
+    "_attn_implementation_autoset",
 ]
 NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names", "model_type"]
 

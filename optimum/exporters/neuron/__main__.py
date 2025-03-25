@@ -26,6 +26,11 @@ import torch
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
 
+from optimum.exporters.error_utils import AtolError, OutputMatchError, ShapeError
+from optimum.exporters.tasks import TasksManager
+from optimum.utils import is_diffusers_available, logging
+from optimum.utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
+
 from ...neuron.utils import (
     DECODER_NAME,
     DIFFUSION_MODEL_CONTROLNET_NAME,
@@ -46,13 +51,9 @@ from ...neuron.utils import (
     is_transformers_neuronx_available,
     map_torch_dtype,
 )
-from ...neuron.utils.misc import maybe_save_preprocessors
 from ...neuron.utils.version_utils import (
     check_compiler_compatibility_for_stable_diffusion,
 )
-from ...utils import is_diffusers_available, logging
-from ..error_utils import AtolError, OutputMatchError, ShapeError
-from ..tasks import TasksManager
 from .base import NeuronExportConfig
 from .convert import export_models, validate_models_outputs
 from .model_configs import *  # noqa: F403
@@ -212,7 +213,7 @@ def normalize_stable_diffusion_input_shapes(
             f"Shape of {mandatory_axes} are mandatory for neuron compilation, while {mandatory_axes.difference(args.keys())} are not given."
         )
     mandatory_shapes = {name: args[name] for name in mandatory_axes}
-    mandatory_shapes["num_images_per_prompt"] = args.get("num_images_per_prompt", 1)
+    mandatory_shapes["num_images_per_prompt"] = args.get("num_images_per_prompt", 1) or 1
     mandatory_shapes["sequence_length"] = args.get("sequence_length", None)
     input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)
     return input_shapes
@@ -314,6 +315,7 @@ def get_submodels_and_neuron_configs(
     library_name: str,
     tensor_parallel_size: int = 1,
     subfolder: str = "",
+    trust_remote_code: bool = False,
     dynamic_batch_size: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
@@ -342,6 +344,11 @@ def get_submodels_and_neuron_configs(
         )
     elif is_encoder_decoder:
         optional_outputs = {"output_attentions": output_attentions, "output_hidden_states": output_hidden_states}
+        preprocessors = maybe_load_preprocessors(
+            src_name_or_path=model_name_or_path,
+            subfolder=subfolder,
+            trust_remote_code=trust_remote_code,
+        )
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_encoder_decoder(
             model=model,
             input_shapes=input_shapes,
@@ -350,6 +357,7 @@ def get_submodels_and_neuron_configs(
             output=output,
             dynamic_batch_size=dynamic_batch_size,
             model_name_or_path=model_name_or_path,
+            preprocessors=preprocessors,
             **optional_outputs,
         )
     else:
@@ -465,6 +473,7 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
     tensor_parallel_size: int,
     task: str,
     output: Path,
+    preprocessors: Optional[List] = None,
     dynamic_batch_size: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
     output_attentions: bool = False,
@@ -484,6 +493,7 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
         model_name_or_path=model_name_or_path,
+        preprocessors=preprocessors,
     )
     output_model_names = {
         ENCODER_NAME: os.path.join(ENCODER_NAME, NEURON_FILE_NAME),
@@ -553,6 +563,7 @@ def load_models_and_neuron_configs(
         library_name=library_name,
         output=output,
         subfolder=subfolder,
+        trust_remote_code=trust_remote_code,
         dynamic_batch_size=dynamic_batch_size,
         model_name_or_path=model_name_or_path,
         submodels=submodels,

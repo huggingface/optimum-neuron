@@ -151,7 +151,7 @@ def has_write_access_to_repo(repo_id: str) -> bool:
     except RevisionNotFoundError:
         has_access = True  # has write access, otherwise would have been 403 forbidden.
     except HfHubHTTPError as e:
-        if e.response.status_code == 403:
+        if e.response.status_code in (401, 403):
             has_access = False
 
     if has_access is None:

@@ -23,6 +23,7 @@ import socket
 import time
 import uuid
 from abc import ABC, abstractmethod
+from functools import partial
 from typing import List, Union
 
 import pytest
@@ -93,13 +94,8 @@ class DistributedExec(ABC):
     world_size: Union[int, List[int]] = 2
     tp_size: int = 1
     pp_size: int = 1
-    backend: str = "xla"
-    init_distributed: bool = True
-    set_dist_env: bool = True
     requires_neuron_environment: bool = True
-    reuse_dist_env: bool = False
     _pool_cache = {}
-    exec_timeout: int = TEST_TIMEOUT
 
     @abstractmethod
     def run(self): ...
@@ -110,10 +106,13 @@ class DistributedExec(ABC):
         if self.requires_neuron_environment and not is_neuron_environment_available():
             pytest.skip("Only supported in a Neuron environment.")
 
+        # The function to be run is passed with its parameters
+        run_fn = partial(self.run, **self._fixture_kwargs)
+
         if isinstance(world_size, int):
             world_size = [world_size]
         for procs in world_size:
-            self._launch_procs(procs, self.tp_size, self.pp_size)
+            launch_procs(run_fn, procs, self.tp_size, self.pp_size)
 
     def _get_fixture_kwargs(self, request, func):
         if not request:
@@ -129,123 +128,116 @@ class DistributedExec(ABC):
                 pass  # test methods can have kwargs that are not fixtures
         return fixture_kwargs
 
-    def _launch_procs(self, num_procs, tp_size, pp_size):
-        if not is_torch_neuronx_available() or not is_torch_xla_available() or not is_neuronx_distributed_available():
-            raise RuntimeError(
-                "The `torch_neuronx`, `torch_xla` and `neuronx_distributed` packages are required to run a distributed "
-                "test."
-            )
 
-        # Verify we have enough accelerator devices to run this test
-        num_cores = get_num_neuron_cores()
-        if 0 < num_cores < num_procs:
-            pytest.skip(
-                f"Skipping test because not enough Neuron cores are available: {num_procs} required, {num_cores} "
-                "available."
-            )
+def launch_procs(run_fn, num_procs, tp_size, pp_size):
+    if not is_torch_neuronx_available() or not is_torch_xla_available() or not is_neuronx_distributed_available():
+        raise RuntimeError(
+            "The `torch_neuronx`, `torch_xla` and `neuronx_distributed` packages are required to run a distributed "
+            "test."
+        )
 
-        # Set start method to `forkserver` (or `fork`)
-        mp.set_start_method("forkserver", force=True)
+    # Verify we have enough accelerator devices to run this test
+    num_cores = get_num_neuron_cores()
+    if 0 < num_cores < num_procs:
+        pytest.skip(
+            f"Skipping test because not enough Neuron cores are available: {num_procs} required, {num_cores} "
+            "available."
+        )
 
-        # We cannot set environment variable `TORCHELASTIC_RUN_ID` here because `torch_neuronx` will
-        # configure PJRT if it is set. Instead we store the value and set it once the other environment
-        # variables to simulate a `torchrun` execution (e.g. `LOCAL_RANK`, `RANK`, `WORLD_SIZE`, ...) can be set.
-        self.torchelastic_run_id = str(uuid.uuid4())
+    # Set start method to `forkserver` (or `fork`)
+    mp.set_start_method("forkserver", force=True)
 
-        # Create process pool or use cached one
-        master_port = None
-        if self.reuse_dist_env:
-            if num_procs not in self._pool_cache:
-                self._pool_cache[num_procs] = mp.Pool(processes=num_procs)
-                master_port = get_master_port()
-            pool = self._pool_cache[num_procs]
+    # We cannot set environment variable `TORCHELASTIC_RUN_ID` here because `torch_neuronx` will
+    # configure PJRT if it is set. Instead we create the value and set it once the other environment
+    # variables to simulate a `torchrun` execution (e.g. `LOCAL_RANK`, `RANK`, `WORLD_SIZE`, ...) can be set.
+    run_id = str(uuid.uuid4())
+
+    # Create process pool or use cached one
+    master_port = None
+    pool = mp.Pool(processes=num_procs)
+    master_port = get_master_port()
+
+    # Run the test
+    args = [(run_fn, run_id, local_rank, num_procs, master_port, tp_size, pp_size) for local_rank in range(num_procs)]
+    skip_msgs_async = pool.starmap_async(_dist_run, args)
+
+    skip_msgs = ""  # Otherwise the linter complains.
+    try:
+        skip_msgs = skip_msgs_async.get(TEST_TIMEOUT)
+    except mp.TimeoutError:
+        # Shortcut to exit pytest in the case of a hanged test. This
+        # usually means an environment error and the rest of tests will
+        # hang (causing super long unit test runtimes)
+        pytest.exit("Test hanged, exiting", returncode=0)
+    except Exception as e:
+        _close_pool(pool, num_procs, use_terminate=True)
+        raise e
+    finally:
+        # Tear down distributed environment and close process pools
+        _close_pool(pool, num_procs)
+
+    # If we skipped a test, propagate that to this process
+    if any(skip_msgs):
+        assert len(set(skip_msgs)) == 1, "Multiple different skip messages received"
+        pytest.skip(skip_msgs[0])
+
+
+def _dist_run(run_fn, run_id, local_rank, num_procs, master_port, tp_size, pp_size):
+    skip_msg = ""
+    if not dist.is_initialized():
+        """Initializes communication and executes the user function."""
+        os.environ["MASTER_ADDR"] = "127.0.0.1"
+        os.environ["MASTER_PORT"] = str(master_port)
+        # Unit tests do not support multi-node so local_rank == global rank
+        os.environ["LOCAL_RANK"] = str(local_rank)
+        os.environ["RANK"] = str(local_rank)
+        os.environ["LOCAL_SIZE"] = str(num_procs)
+        os.environ["WORLD_SIZE"] = str(num_procs)
+        os.environ["LOCAL_WORLD_SIZE"] = str(num_procs)
+        # Unit tests do not support multi-node so there is only one group in our case
+        os.environ["GROUP_RANK"] = "0"
+
+        os.environ["TORCHELASTIC_RUN_ID"] = run_id
+
+        # Now that the environment has been set, we can initialize the XLA environment.
+        torch_neuronx.initialization.initialize()
+
+        dist.init_process_group(backend="xla", rank=local_rank, world_size=num_procs)
+        if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
+            raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
+
+        # Intializing NxD.
+        neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(
+            tensor_model_parallel_size=tp_size,
+            pipeline_model_parallel_size=pp_size,
+        )
+    try:
+        run_fn()
+    except BaseException as e:
+        if isinstance(e, Skipped):
+            skip_msg = e.msg
         else:
-            pool = mp.Pool(processes=num_procs)
-            master_port = get_master_port()
-
-        # Run the test
-        args = [(local_rank, num_procs, master_port, tp_size, pp_size) for local_rank in range(num_procs)]
-        skip_msgs_async = pool.starmap_async(self._dist_run, args)
-
-        skip_msgs = ""  # Otherwise the linter complains.
-        try:
-            skip_msgs = skip_msgs_async.get(self.exec_timeout)
-        except mp.TimeoutError:
-            # Shortcut to exit pytest in the case of a hanged test. This
-            # usually means an environment error and the rest of tests will
-            # hang (causing super long unit test runtimes)
-            pytest.exit("Test hanged, exiting", returncode=0)
-        except Exception as e:
-            self._close_pool(pool, num_procs, use_terminate=True)
             raise e
-        finally:
-            # Tear down distributed environment and close process pools
-            self._close_pool(pool, num_procs)
 
-        # If we skipped a test, propagate that to this process
-        if any(skip_msgs):
-            assert len(set(skip_msgs)) == 1, "Multiple different skip messages received"
-            pytest.skip(skip_msgs[0])
+    return skip_msg
 
-    def _dist_run(self, local_rank, num_procs, master_port, tp_size, pp_size):
-        skip_msg = ""
-        if not dist.is_initialized():
-            """Initializes communication and executes the user function."""
-            if self.set_dist_env:
-                os.environ["MASTER_ADDR"] = "127.0.0.1"
-                os.environ["MASTER_PORT"] = str(master_port)
-                # Unit tests do not support multi-node so local_rank == global rank
-                os.environ["LOCAL_RANK"] = str(local_rank)
-                os.environ["RANK"] = str(local_rank)
-                os.environ["LOCAL_SIZE"] = str(num_procs)
-                os.environ["WORLD_SIZE"] = str(num_procs)
-                os.environ["LOCAL_WORLD_SIZE"] = str(num_procs)
-                # Unit tests do not support multi-node so there is only one group in our case
-                os.environ["GROUP_RANK"] = "0"
 
-                if not hasattr(self, "torchelastic_run_id"):
-                    raise RuntimeError("self.torchelastic_run_id was not set, it is needed to run a distributed test.")
-                os.environ["TORCHELASTIC_RUN_ID"] = self.torchelastic_run_id
+def _close_pool(pool, num_procs, use_terminate=False):
+    try:
+        _ = pool.starmap(_dist_destroy, [() for _ in range(num_procs)])
+        if use_terminate:
+            pool.terminate()
+        else:
+            pool.close()
+        pool.join()
+    except ValueError:
+        pass
 
-                # Now that the environment has been set, we can configure the PJRT environment.
-                torch_neuronx.xla.configure_pjrt_environment()
 
-            if self.init_distributed:
-                dist.init_process_group(backend=self.backend, rank=local_rank, world_size=num_procs)
-                if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
-                    raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
-
-                # Intializing NxD.
-                neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(
-                    tensor_model_parallel_size=tp_size,
-                    pipeline_model_parallel_size=pp_size,
-                )
-        try:
-            self.run(**self._fixture_kwargs)
-        except BaseException as e:
-            if isinstance(e, Skipped):
-                skip_msg = e.msg
-            else:
-                raise e
-
-        return skip_msg
-
-    def _dist_destroy(self):
-        if (dist is not None) and dist.is_initialized():
-            dist.barrier()
-            dist.destroy_process_group()
-
-    def _close_pool(self, pool, num_procs, force=False, use_terminate=False):
-        if force or not self.reuse_dist_env:
-            try:
-                _ = pool.starmap(self._dist_destroy, [() for _ in range(num_procs)])
-                if use_terminate:
-                    pool.terminate()
-                else:
-                    pool.close()
-                pool.join()
-            except ValueError:
-                pass
+def _dist_destroy():
+    if dist.is_initialized():
+        dist.barrier()
+        dist.destroy_process_group()
 
 
 class DistributedTest(DistributedExec):
@@ -261,12 +253,6 @@ class DistributedTest(DistributedExec):
         """
         pass
 
-    # Temporary directory that is shared among test methods in a class
-    @pytest.fixture(autouse=True, scope="class")
-    def class_tmpdir(self, tmpdir_factory):
-        fn = tmpdir_factory.mktemp(self.__class__.__name__)
-        return fn
-
     def run(self, **fixture_kwargs):
         self._current_test(**fixture_kwargs)
 
@@ -278,6 +264,8 @@ class DistributedTest(DistributedExec):
             pytest.skip("Only supported in a Neuron environment.")
 
         self.early_skip(self._fixture_kwargs)
+        # The function to be run is passed with its parameters
+        run_fn = partial(self.run, **self._fixture_kwargs)
 
         world_size = tp_size = pp_size = parallel_sizes = None
 
@@ -337,7 +325,7 @@ class DistributedTest(DistributedExec):
                 pp_size = [pp_size] * length if isinstance(pp_size, int) else pp_size
 
         for sizes in zip(world_size, tp_size, pp_size):
-            self._launch_procs(*sizes)
+            launch_procs(run_fn, *sizes)
             time.sleep(0.5)
 
     def _get_current_test_func(self, request):

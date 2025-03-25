@@ -139,12 +139,6 @@ MODELS_TO_TEST_MAPPING = {
         Coverage.MIDDLE,
         {"num_hidden_layers": 4},
     ),
-    "gpt_neo": (
-        "EleutherAI/gpt-neo-125M",
-        TPSupport.PARTIAL,
-        Coverage.HIGH,
-        {"num_hidden_layers": 4, "attention_types": [[["global", "local"], 2]]},
-    ),
     "marian": (
         "Helsinki-NLP/opus-mt-en-ro",
         TPSupport.NONE,
@@ -230,7 +224,7 @@ _SCRIPT_TO_MODEL_MAPPING = {
     "run_mlm": _get_supported_models_for_script(MODELS_TO_TEST_MAPPING, MODEL_FOR_MASKED_LM_MAPPING),
     "run_swag": _get_supported_models_for_script(MODELS_TO_TEST_MAPPING, MODEL_FOR_MULTIPLE_CHOICE_MAPPING),
     "run_qa": _get_supported_models_for_script(
-        MODELS_TO_TEST_MAPPING, MODEL_FOR_QUESTION_ANSWERING_MAPPING, to_exclude={"gpt2", "gpt_neo", "bart", "t5"}
+        MODELS_TO_TEST_MAPPING, MODEL_FOR_QUESTION_ANSWERING_MAPPING, to_exclude={"gpt2", "bart", "t5"}
     ),
     "run_summarization": _get_supported_models_for_script(
         MODELS_TO_TEST_MAPPING, MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING, to_exclude={"marian", "m2m_100"}
@@ -239,10 +233,10 @@ _SCRIPT_TO_MODEL_MAPPING = {
         MODELS_TO_TEST_MAPPING, MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING
     ),
     "run_glue": _get_supported_models_for_script(
-        MODELS_TO_TEST_MAPPING, MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING, to_exclude={"gpt2", "gpt_neo", "bart", "t5"}
+        MODELS_TO_TEST_MAPPING, MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING, to_exclude={"gpt2", "bart", "t5"}
     ),
     "run_ner": _get_supported_models_for_script(
-        MODELS_TO_TEST_MAPPING, MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING, to_exclude={"gpt2", "gpt_neo"}
+        MODELS_TO_TEST_MAPPING, MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING, to_exclude={"gpt2"}
     ),
     "run_image_classification": _get_supported_models_for_script(
         MODELS_TO_TEST_MAPPING, MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING

@@ -25,6 +25,7 @@ from ....neuron.backends.hlo.config import NeuronConfig
 from ....neuron.backends.hlo.decoder import NeuronHloDecoderModel
 from ....neuron.models.granite.model import GraniteForSampling
 from ....neuron.models.llama.model import LlamaHloModel
+from ....neuron.models.phi3.model import Phi3HloModel
 from ....neuron.models.qwen2.model import Qwen2ForSampling
 from ..base import NeuronExportConfig
 
@@ -54,6 +55,7 @@ class NeuronDecoderExportConfig(NeuronExportConfig):
 
     INPUT_ARGS = ("batch_size", "sequence_length")
     NEURONX_CLASS = None
+    ALLOW_FLASH_ATTENTION = False
     CONTINUOUS_BATCHING = False
     ATTENTION_lAYOUT = "HSB"
     FUSE_QKV = True
@@ -73,6 +75,10 @@ class NeuronDecoderExportConfig(NeuronExportConfig):
     @property
     def neuronx_class(self):
         return self._neuronx_class
+
+    @property
+    def allow_flash_attention(self):
+        return self.ALLOW_FLASH_ATTENTION
 
     @property
     def continuous_batching(self):
@@ -105,6 +111,7 @@ class NeuronDecoderExportConfig(NeuronExportConfig):
         if issubclass(self.neuronx_class, NeuronHloDecoderModel):
             # For new models, all export kwargs are integrated into NeuronConfig
             neuron_kwargs.update(base_kwargs)
+            neuron_kwargs["allow_flash_attention"] = self.allow_flash_attention
             neuron_kwargs["continuous_batching"] = continuous_batching
             export_kwargs["neuron_config"] = NeuronConfig(**neuron_kwargs)
         else:
@@ -129,6 +136,7 @@ class GPT2NeuronConfig(NeuronDecoderExportConfig):
 @register_in_tasks_manager("llama", "text-generation")
 class LLamaNeuronConfig(NeuronDecoderExportConfig):
     NEURONX_CLASS = LlamaHloModel
+    ALLOW_FLASH_ATTENTION = True
     CONTINUOUS_BATCHING = True
     ATTENTION_lAYOUT = "BSH"
 
@@ -158,6 +166,7 @@ class MixtralNeuronConfig(NeuronDecoderExportConfig):
 @register_in_tasks_manager("qwen2", "text-generation")
 class Qwen2NeuronConfig(NeuronDecoderExportConfig):
     NEURONX_CLASS = Qwen2ForSampling
+    ALLOW_FLASH_ATTENTION = True
     CONTINUOUS_BATCHING = True
     FUSE_QKV = False
 
@@ -165,4 +174,11 @@ class Qwen2NeuronConfig(NeuronDecoderExportConfig):
 @register_in_tasks_manager("granite", "text-generation")
 class GraniteNeuronConfig(NeuronDecoderExportConfig):
     NEURONX_CLASS = GraniteForSampling
+    ALLOW_FLASH_ATTENTION = True
+    CONTINUOUS_BATCHING = True
+
+
+@register_in_tasks_manager("phi3", "text-generation")
+class Phi3NeuronConfig(NeuronDecoderExportConfig):
+    NEURONX_CLASS = Phi3HloModel
     CONTINUOUS_BATCHING = True
