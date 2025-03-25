@@ -38,7 +38,7 @@ from ..utils.torch_xla_and_neuronx_initialization import (
     set_neuron_cc_flags_for_torch_amp,
 )
 from .utils import NeuronDistributedType
-from .utils.dataclasses import AutocastBackend, ModelParallelismPlugin
+from .utils.dataclasses import AutocastBackend, ModelParallelismConfig
 
 
 if is_torch_xla_available():
@@ -127,7 +127,7 @@ class NeuronAcceleratorState(AcceleratorState):
         deepspeed_plugin=None,
         fsdp_plugin=None,
         megatron_lm_plugin=None,
-        mp_plugin: Optional[ModelParallelismPlugin] = None,
+        mp_config: Optional[ModelParallelismConfig] = None,
         autocast_backend: Optional[Union[str, AutocastBackend]] = None,
         _from_accelerator: bool = False,
         **kwargs,
@@ -183,18 +183,18 @@ class NeuronAcceleratorState(AcceleratorState):
                 if mixed_precision == "bf16":
                     os.environ["NEURON_RT_STOCHASTIC_ROUNDING_EN"] = "1"
 
-                if mp_plugin is None:
-                    mp_plugin = ModelParallelismPlugin()
+                if mp_config is None:
+                    mp_config = ModelParallelismConfig()
 
-                if mp_plugin.should_parallelize:
+                if mp_config.should_parallelize:
                     self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
 
-                self.mp_plugin = mp_plugin
+                self.mp_config = mp_config
 
                 if torch.distributed.is_initialized() and not parallel_state.model_parallel_is_initialized():
                     parallel_state.initialize_model_parallel(
-                        tensor_model_parallel_size=self.mp_plugin.tensor_parallel_size,
-                        pipeline_model_parallel_size=self.mp_plugin.pipeline_parallel_size,
+                        tensor_model_parallel_size=self.mp_config.tensor_parallel_size,
+                        pipeline_model_parallel_size=self.mp_config.pipeline_parallel_size,
                     )
 
             if self.distributed_type is DistributedType.NO:
