@@ -73,8 +73,8 @@
         title: VISION MODELS
       - isExpanded: false 
         sections: 
-        - local: model_doc/transformers/ast
-          title: Audio Spectrogram Transformer(AST)
+        - local: model_doc/transformers/whisper
+          title: Whisper
         title: AUDIO MODELS
       - isExpanded: false
         sections: 

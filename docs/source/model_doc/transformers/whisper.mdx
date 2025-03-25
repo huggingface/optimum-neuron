@@ -1,0 +1,113 @@
+<!---
+Copyright 2025 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# [MODEL_NAME]
+
+## Overview
+
+[Whisper](https://hf.co/papers/2212.04356) is a encoder-decoder (sequence-to-sequence) transformer pretrained on 680,000 hours of labeled audio data. This amount of pretraining data enables zero-shot performance on audio tasks in English and many other languages. The decoder allows Whisper to map the encoders learned speech representations to useful outputs, such as text, without additional fine-tuning. Whisper just works out of the box.
+
+You can find all the original Whisper checkpoints under the [Whisper](https://huggingface.co/collections/openai/whisper-release-6501bba2cf999715fd953013) collection.
+
+
+## Export to Neuron
+
+To deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you first need to compile the models and export them to a serialized format for inference. Below are two approaches to compile the model, you can choose the one that best suits your needs:
+
+### Using the CLI
+
+You can export the model using the Optimum command-line interface as follows:
+
+```bash
+optimum-cli export neuron --model openai/whisper-tiny --task automatic-speech-recognition --batch_size 1 --sequence_length 128 --auto_cast matmul --auto_cast_type bf16 whisper_tiny_neuronx/
+```
+
+> [!TIP]
+> Execute `optimum-cli export neuron --help` to display all command line options and their description.
+
+### Using NeuronModel class
+
+```python
+from optimum.neuron import NeuronWhisperForConditionalGeneration
+
+compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+input_shapes = {"batch_size": 1, "sequence_length": 128}
+neuron_model = NeuronWhisperForConditionalGeneration.from_pretrained(
+    model_id,
+    export=True,
+    **compiler_args,
+    **input_shapes,
+)
+# Save locally
+neuron_model.save_pretrained("whisper_tiny_neuronx")
+
+# Upload to the HuggingFace Hub
+neuron_model.push_to_hub(
+    "whisper_tiny_neuronx", repository_id="my-neuron-repo", use_auth_token=True
+)
+```
+
+## Usage example
+
+To use the model that we just exported, there are two options. We can eithe use the [`NeuronWhisperForConditionalGeneration`] class or use the [`Pipeline`]. The example below demonstrates how to automatically transcribe speech into text these two approaches.
+
+<hfoptions id="usage">
+<hfoption id="NeuronModel">
+
+```python
+import torch
+from datasets import load_dataset
+from transformers import AutoProcessor
+from optimum.neuron import NeuronWhisperForConditionalGeneration
+
+processor = AutoProcessor.from_pretrained("whisper_tiny_neuronx")
+neuron_model = NeuronWhisperForConditionalGeneration.from_pretrained("whisper_tiny_neuronx")
+
+ds = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
+audio_sample = ds[0]["audio"]
+input_features = processor(
+    audio_sample["array"],
+    sampling_rate=audio_sample["sampling_rate"],
+    return_tensors="pt"
+).input_features
+
+predicted_ids = neuron_model.generate(input_features)
+transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)
+```
+
+</hfoption>
+<hfoption id="Pipeline">
+
+```python
+import torch
+from optimum.neuron import NeuronWhisperForConditionalGeneration, pipeline
+
+pipeline = pipeline(
+    task="automatic-speech-recognition",
+    model="my-neuron-repo",
+)
+pipeline("https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/mlk.flac")
+```
+
+</hfoption>
+</hfoptions>
+
+
+## APIs
+
+### NeuronWhisperForConditionalGeneration
+
+[[autodoc]] modeling_seq2seq.NeuronWhisperForConditionalGeneration
