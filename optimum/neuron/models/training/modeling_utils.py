@@ -596,7 +596,6 @@ class NeuronModelMixin:
                                 specs["kv_size_multiplier"],
                                 "output",
                             )
-
                 model.load_state_dict(state_dict, strict=True)
                 if torch_dtype is not None:
                     model = model.to(torch_dtype)

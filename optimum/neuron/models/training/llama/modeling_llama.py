@@ -110,6 +110,7 @@ class LlamaMLP(LlamaMLPHF):
             gather_output=False,
             init_method=init_method,
             sequence_parallel_enabled=self.mp_config.sequence_parallel_enabled,
+            sequence_dimension=0,
             dtype=self.config.torch_dtype,
         )
         self.down_proj = RowParallelLinear(
@@ -119,6 +120,7 @@ class LlamaMLP(LlamaMLPHF):
             input_is_parallel=True,
             init_method=init_method,
             sequence_parallel_enabled=self.mp_config.sequence_parallel_enabled,
+            sequence_dimension=0,
             dtype=self.config.torch_dtype,
         )
         self.split_size = self.intermediate_size // get_tensor_model_parallel_size()
@@ -214,6 +216,7 @@ class LlamaAttention(LlamaAttentionHF):
                 gather_output=False,
                 init_method=init_method,
                 sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+                sequence_dimension=0,
                 kv_size_multiplier=self.kv_size_multiplier,
                 fuse_qkv=mp_config.fuse_qkv,
                 dtype=self.config.torch_dtype,
@@ -243,6 +246,7 @@ class LlamaAttention(LlamaAttentionHF):
                 gather_output=False,
                 init_method=init_method,
                 sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+                sequence_dimension=0,
                 dtype=self.config.torch_dtype,
             )
             self.split_size = self.num_heads * self.head_dim // get_tensor_model_parallel_size()
@@ -254,6 +258,7 @@ class LlamaAttention(LlamaAttentionHF):
                 gather_output=False,
                 init_method=init_method,
                 sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+                sequence_dimension=0,
                 dtype=self.config.torch_dtype,
             )
             self.k_proj = ColumnParallelLinear(
@@ -263,6 +268,7 @@ class LlamaAttention(LlamaAttentionHF):
                 gather_output=False,
                 init_method=init_method,
                 sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+                sequence_dimension=0,
                 dtype=self.config.torch_dtype,
             )
             self.v_proj = ColumnParallelLinear(
@@ -272,6 +278,7 @@ class LlamaAttention(LlamaAttentionHF):
                 gather_output=False,
                 init_method=init_method,
                 sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+                sequence_dimension=0,
                 dtype=self.config.torch_dtype,
             )
         self.o_proj = RowParallelLinear(
@@ -281,6 +288,7 @@ class LlamaAttention(LlamaAttentionHF):
             input_is_parallel=True,
             init_method=init_method,
             sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+            sequence_dimension=0,
             dtype=self.config.torch_dtype,
         )
         tp_size = get_tensor_model_parallel_size()
@@ -590,6 +598,7 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaForCausalLMHF):
             gather_output=False,
             init_method=init_method,
             sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+            sequence_dimension=0,
             dtype=self.config.torch_dtype,
         )
 

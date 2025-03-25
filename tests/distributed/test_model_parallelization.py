@@ -19,11 +19,12 @@ import math
 from contextlib import nullcontext
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional, Type, Union
+from typing import TYPE_CHECKING, List, Optional, Type, Union, Literal
 
 import pytest
 import torch
 import torch.utils._pytree as pytree
+from torch import nn
 import transformers
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
@@ -61,9 +62,11 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_kv_shared_group,
         get_pipeline_model_parallel_rank,
+        get_tensor_model_parallel_rank,
         get_tensor_model_parallel_group,
         get_tensor_model_parallel_size,
     )
+    from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, RowParallelLinear, create_local_weight
     from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
     from neuronx_distributed.utils.model_utils import move_model_to_device
 
@@ -909,3 +912,53 @@ def test_custom_modeling_matches_original(
     )
     launch_procs(run_fn, world_size, tp_size, pp_size)
 
+def _test_parallel_linear(row_or_column: Literal["column", "row"]):
+    tp_rank = get_tensor_model_parallel_rank()
+    tp_size = get_tensor_model_parallel_size()
+    dtype = torch.bfloat16
+
+    input_dim = 64
+    output_dim = 8
+    batch_size = 1
+
+    torch.manual_seed(42)
+    linear = nn.Linear(input_dim, output_dim, bias=False, dtype=dtype, device="xla")
+    if row_or_column == "column":
+        partition_dim = 0
+        per_partition_size = linear.weight.size(partition_dim) // tp_size
+        parallel_linear = ColumnParallelLinear(
+            input_dim, output_dim, bias=False, dtype=dtype, gather_output=True, reduce_dtype=torch.float32,
+        ).to(device="xla")
+
+        torch.manual_seed(42)
+        input_tensor = torch.randn(batch_size, input_dim).to(dtype=dtype, device="xla")
+        parallel_input = input_tensor
+    else:
+        partition_dim = 1
+        per_partition_size = linear.weight.size(partition_dim) // tp_size
+        parallel_linear = RowParallelLinear(
+            input_dim, output_dim, bias=False, dtype=dtype, input_is_parallel=True, reduce_dtype=torch.float32,
+        ).to(device="xla")
+
+        torch.manual_seed(42)
+        input_tensor = torch.randn(batch_size, input_dim).to(dtype=dtype, device="xla")
+        parallel_input = input_tensor[:, tp_rank * per_partition_size : (tp_rank + 1) * per_partition_size]
+
+    stride = 1
+    with torch.no_grad():
+        parallel_linear.weight.data = create_local_weight(linear.weight, partition_dim, per_partition_size, stride)
+
+
+    output_linear = linear(input_tensor)
+    output_row_parallel = parallel_linear(parallel_input)
+
+    xm.mark_step()
+    torch.testing.assert_allclose(output_linear, output_row_parallel)
+
+def test_row_parallel_linear():
+    run_fn = partial(_test_parallel_linear, "row")
+    launch_procs(run_fn, 8, 8, 1)
+
+def test_column_parallel_linear():
+    run_fn = partial(_test_parallel_linear, "column")
+    launch_procs(run_fn, 8, 8, 1)
