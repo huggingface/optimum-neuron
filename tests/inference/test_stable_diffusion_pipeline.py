@@ -70,13 +70,18 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_export_and_inference_non_dyn(self, model_arch):
+<<<<<<< HEAD
         num_images_per_prompt = 1  # TODO: set back to 4 when the compilation failure is solved.
+=======
+        num_images_per_prompt = 4
+>>>>>>> main
         input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
         input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
         neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
             MODEL_NAMES[model_arch],
             export=True,
             dynamic_batch_size=False,
+            disable_neuron_cache=True,
             **input_shapes,
             **self.COMPILER_ARGS,
         )

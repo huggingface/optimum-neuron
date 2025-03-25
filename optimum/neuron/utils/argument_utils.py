@@ -81,6 +81,7 @@ class InputShapesArguments:
     width: Optional[int] = None
     height: Optional[int] = None
     image_size: Optional[int] = None
+    num_images_per_prompt: Optional[int] = None
     patch_size: Optional[int] = None
     num_channels: Optional[int] = None
     feature_size: Optional[int] = None
