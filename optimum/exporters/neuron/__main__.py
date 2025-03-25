@@ -35,7 +35,6 @@ from ...neuron.utils import (
     DECODER_NAME,
     DIFFUSION_MODEL_CONTROLNET_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
-    DIFFUSION_MODEL_FLUX_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_TRANSFORMER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
@@ -84,7 +83,7 @@ if is_transformers_neuronx_available():
 
 
 if is_diffusers_available():
-    from diffusers import StableDiffusionXLPipeline, FluxPipeline
+    from diffusers import StableDiffusionXLPipeline
 
 
 if TYPE_CHECKING:
@@ -223,7 +222,7 @@ def normalize_stable_diffusion_input_shapes(
 def infer_flux_shapes_from_diffusers(
     input_shapes: Dict[str, Dict[str, int]],
 ):
-    input_shapes.setdefault("text_encoder_2", {})["max_sequence_length"] = input_shapes["text_encoder"].get("sequence_length") 
+    input_shapes.setdefault("text_encoder_2", {})["max_sequence_length"] = input_shapes["text_encoder"].get("sequence_length")
     input_shapes.setdefault("transformer", {})["max_sequence_length"] = input_shapes["text_encoder"].get("sequence_length")
     input_shapes.setdefault("transformer", {})["height"] = input_shapes["unet_or_transformer"].get("height")
     input_shapes.setdefault("transformer", {})["width"] = input_shapes["unet_or_transformer"].get("width")
@@ -408,25 +407,6 @@ def get_submodels_and_neuron_configs(
         maybe_save_preprocessors(model_name_or_path, output, src_subfolder=subfolder)
     return models_and_neuron_configs, output_model_names
 
-
-def _normalize_lora_params(lora_model_ids, lora_weight_names, lora_adapter_names, lora_scales):
-    if isinstance(lora_model_ids, str):
-        lora_model_ids = [
-            lora_model_ids,
-        ]
-    if isinstance(lora_weight_names, str):
-        lora_weight_names = [
-            lora_weight_names,
-        ]
-    if isinstance(lora_adapter_names, str):
-        lora_adapter_names = [
-            lora_adapter_names,
-        ]
-    if isinstance(lora_scales, float):
-        lora_scales = [
-            lora_scales,
-        ]
-    return lora_model_ids, lora_weight_names, lora_adapter_names, lora_scales
 
 def _get_submodels_and_neuron_configs_for_flux(
     model: Union["PreTrainedModel", "DiffusionPipeline"],

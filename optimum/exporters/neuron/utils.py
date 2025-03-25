@@ -117,13 +117,13 @@ def build_stable_diffusion_components_mandatory_shapes(
     return components_shapes
 
 def get_flux_diffusion_models_for_export(
-  pipeline: "FluxPipeline",
-  text_encoder_2_input_shapes: Dict[str, int],
-  transformer_input_shapes: Dict[str, int],
-  vae_decoder_input_shapes: Dict[str, int],
-  output_hidden_states: bool = False,
-  ) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronDefaultConfig"]]:
-    #TBD add to get_submodels_for_export_diffusion 
+    pipeline: "FluxPipeline",
+    text_encoder_2_input_shapes: Dict[str, int],
+    transformer_input_shapes: Dict[str, int],
+    vae_decoder_input_shapes: Dict[str, int],
+    output_hidden_states: bool = False,
+) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronDefaultConfig"]]:
+    #TBD add to get_submodels_for_export_diffusion
     models_for_export = get_submodels_for_export_diffusion(
       pipeline=pipeline,
     )
@@ -143,8 +143,8 @@ def get_flux_diffusion_models_for_export(
         )
         models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (text_encoder, text_encoder_neuron_config)
 
-    if DIFFUSION_MODEL_FLUX_TEXT_ENCODER_2_NAME in models_for_export:
-        text_encoder_2 = models_for_export[DIFFUSION_MODEL_FLUX_TEXT_ENCODER_2_NAME]
+    if DIFFUSION_MODEL_TEXT_ENCODER_2_NAME in models_for_export:
+        text_encoder_2 = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME]
         text_encoder_config_constructor_2 = TasksManager.get_exporter_config_constructor(
           model=text_encoder_2,
           exporter="neuron",
@@ -158,7 +158,7 @@ def get_flux_diffusion_models_for_export(
           output_hidden_states=output_hidden_states,
           **text_encoder_2_input_shapes
         )
-        models_for_export[DIFFUSION_MODEL_FLUX_TEXT_ENCODER_2_NAME] = (text_encoder_2, text_encoder_neuron_config_2)
+        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = (text_encoder_2, text_encoder_neuron_config_2)
 
     transformer = None
     if DIFFUSION_MODEL_TRANSFORMER_NAME in models_for_export:
@@ -179,7 +179,7 @@ def get_flux_diffusion_models_for_export(
           **transformer_input_shapes,
         )
         models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (transformer, transformer_neuron_config)
-    
+
     vae_decoder = models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME]
     vae_decoder_config_constructor = TasksManager.get_exporter_config_constructor(
         model=vae_decoder,
