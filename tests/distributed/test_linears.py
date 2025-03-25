@@ -89,18 +89,26 @@ def _test_parallel_model_check(weights_dtype, inputs_dtype, input_size, output_s
 
 
 @is_trainium_test
-@pytest.mark.parametrize("weights_dtype, inputs_dtype", [
-    (torch.float32, torch.float32),
-    (torch.bfloat16, torch.bfloat16),
-    (torch.bfloat16, torch.float32),
-    (torch.float16, torch.float16),
-], ids=["weights=float32-inputs=float32",
+@pytest.mark.parametrize(
+    "weights_dtype, inputs_dtype",
+    [
+        (torch.float32, torch.float32),
+        (torch.bfloat16, torch.bfloat16),
+        (torch.bfloat16, torch.float32),
+        (torch.float16, torch.float16),
+    ],
+    ids=[
+        "weights=float32-inputs=float32",
         "weights=bfloat16-inputs=bfloat16",
         "weights=bfloat16-inputs=float32",
-        "weights=float16-inputs=float16",])
-@pytest.mark.parametrize("input_size, output_size", [
-    (8192, 2048), (400, 300)
-], ids=["input_size=8192-output_size=2048", "input_size=400-output_size=300"])
+        "weights=float16-inputs=float16",
+    ],
+)
+@pytest.mark.parametrize(
+    "input_size, output_size",
+    [(8192, 2048), (400, 300)],
+    ids=["input_size=8192-output_size=2048", "input_size=400-output_size=300"],
+)
 def test_parallel_linears(weights_dtype, inputs_dtype, input_size, output_size):
     run_fn = partial(
         _test_parallel_model_check,
