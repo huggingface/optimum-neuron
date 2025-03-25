@@ -801,38 +801,6 @@ class NeuronWhisperModel:
         self.decoder = decoder
 
 
-SPEECH_RECOGNITION_EXAMPLE = r"""
-    *(Following models are compiled with neuronx compiler and can only be run on INF2.)*
-    Example of automatic speech recognition with Whisper model:
-
-    ```python
-    from datasets import load_dataset
-    from transformers import {processor_class}
-    from optimum.neuron import {model_class}
-
-    # Select an audio file and read it:
-    ds = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
-    audio_sample = ds[1]["audio"]
-    processor = AutoProcessor.from_pretrained({checkpoint})
-    
-    # Use the model and processor to transcribe the audio:
-    input_features = processor(
-        audio_sample["array"], sampling_rate=audio_sample["sampling_rate"], return_tensors="pt"
-    ).input_features
-
-    # Compile the model to Neuron format
-    neuron_model = {model_class}.from_pretrained({checkpoint}, export=True, batch_size=1, sequence_length=128)
-    neuron_model.save_pretrained("whisper_tiny_neuronx/")
-    del neuron_model
-
-    # Inference
-    neuron_model = {model_class}.from_pretrained("whisper_tiny_neuronx/")
-    predicted_ids = neuron_model.generate(input_features)
-    transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)
-    ```
-"""  # noqa: W293
-
-
 @add_start_docstrings(
     """
     Whisper Neuron model with a language modeling head that can be used for automatic speech recognition.
@@ -899,11 +867,6 @@ class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration,
 
     @add_start_docstrings_to_model_forward(
         NEURON_WHISPER_INPUTS_DOCSTRING
-        + SPEECH_RECOGNITION_EXAMPLE.format(
-            processor_class=_PROCESSOR_FOR_AUDIO,
-            model_class="NeuronWhisperForConditionalGeneration",
-            checkpoint="openai/whisper-tiny",
-        )
     )
     def forward(
         self,

@@ -27,7 +27,6 @@ You can find all the original Whisper checkpoints under the [Whisper](https://hu
 
 To deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you first need to compile the models and export them to a serialized format for inference. Below are two approaches to compile the model, you can choose the one that best suits your needs:
 
-```html
 <hfoptions id="Export">
 <hfoption id=" Using the CLI">
 
@@ -65,13 +64,11 @@ neuron_model.push_to_hub(
 
 </hfoption>
 </hfoptions>
-```
 
 ## Usage example
 
 To use the model that we just exported, there are two options. We can eithe use the [`NeuronWhisperForConditionalGeneration`] class or use the [`Pipeline`]. The example below demonstrates how to automatically transcribe speech into text these two approaches.
 
-```html
 <hfoptions id="usage">
 <hfoption id="NeuronModel">
 
@@ -117,7 +114,6 @@ pipeline("https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/mlk.flac
 
 </hfoption>
 </hfoptions>
-```
 
 
 ## NeuronWhisperForConditionalGeneration
