@@ -154,7 +154,6 @@ def load_pipeline(
     token: Optional[Union[bool, str]] = None,
     revision: str = "main",
     compiler_args: Optional[Dict[str, Any]] = {},
-    config: AutoConfig = None,
     hub_kwargs: Optional[Dict[str, Any]] = {},
     **kwargs,
 ):
@@ -242,7 +241,10 @@ def pipeline(
             config = AutoConfig.from_pretrained(model, _from_pipeline=task, **hub_kwargs, **kwargs)
             hub_kwargs["_commit_hash"] = config._commit_hash
         elif isinstance(model, (PreTrainedModel, NeuronModel)):
-            config = model.config
+            if hasattr(model, "encoder"):
+                config = model.encoder.config
+            else:
+                config = model.config
 
     if export:
         if hasattr(config, "neuron"):
@@ -294,7 +296,6 @@ def pipeline(
         input_shapes=input_shapes,
         compiler_args=compiler_args,
         supported_tasks=NEURONX_SUPPORTED_TASKS,
-        config=config,
         hub_kwargs=hub_kwargs,
         token=token,
     )
@@ -308,8 +309,8 @@ def pipeline(
     # and it will process the inputs one by one instead of processing them in parallel
     batch_size = 1
     for attr in ["batch_size", "static_batch_size"]:
-        if attr in model.config.neuron:
-            batch_size = model.config.neuron[attr]
+        if attr in config.neuron:
+            batch_size = config.neuron[attr]
     if batch_size > 1 and tokenizer is not None and tokenizer.pad_token_id is None:
         # The pipeline needs a pad token to be able to batch
         if isinstance(model.config.eos_token_id, list):

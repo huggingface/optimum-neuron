@@ -48,7 +48,7 @@ from optimum.neuron import NeuronWhisperForConditionalGeneration
 compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 input_shapes = {"batch_size": 1, "sequence_length": 128}
 neuron_model = NeuronWhisperForConditionalGeneration.from_pretrained(
-    model_id,
+    "openai/whisper-tiny",
     export=True,
     **compiler_args,
     **input_shapes,
@@ -58,7 +58,7 @@ neuron_model.save_pretrained("whisper_tiny_neuronx")
 
 # Upload to the HuggingFace Hub
 neuron_model.push_to_hub(
-    "whisper_tiny_neuronx", repository_id="my-neuron-repo", use_auth_token=True
+    "whisper_tiny_neuronx", repository_id="my-neuron-repo"  # Replace with your repo id, eg. "Jingya/whisper_tiny_neuronx"
 )
 ```
 
@@ -80,20 +80,15 @@ from optimum.neuron import NeuronWhisperForConditionalGeneration
 # Select an audio file and read it:
 ds = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
 audio_sample = ds[1]["audio"]
-processor = AutoProcessor.from_pretrained(openai/whisper-tiny)
 
 # Use the model and processor to transcribe the audio:
+processor = AutoProcessor.from_pretrained("Jingya/whisper_tiny_neuronx")
 input_features = processor(
     audio_sample["array"], sampling_rate=audio_sample["sampling_rate"], return_tensors="pt"
 ).input_features
 
-# Compile the model to Neuron format
-neuron_model = NeuronWhisperForConditionalGeneration.from_pretrained(openai/whisper-tiny, export=True, batch_size=1, sequence_length=128)
-neuron_model.save_pretrained("whisper_tiny_neuronx/")
-del neuron_model
-
 # Inference
-neuron_model = NeuronWhisperForConditionalGeneration.from_pretrained("whisper_tiny_neuronx/")
+neuron_model = NeuronWhisperForConditionalGeneration.from_pretrained("Jingya/whisper_tiny_neuronx")
 predicted_ids = neuron_model.generate(input_features)
 transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)
 ```
@@ -102,12 +97,17 @@ transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)
 <hfoption id="pipeline">
 
 ```python
-import torch
-from optimum.neuron import pipeline
+from transformers import AutoProcessor
+from optimum.neuron import NeuronWhisperForConditionalGeneration, pipeline
+
+processor = AutoProcessor.from_pretrained("Jingya/whisper_tiny_neuronx")
+neuron_model = NeuronWhisperForConditionalGeneration.from_pretrained("Jingya/whisper_tiny_neuronx")
 
 pipeline = pipeline(
     task="automatic-speech-recognition",
-    model="my-neuron-repo",
+    model=neuron_model,
+    tokenizer=processor.tokenizer,
+    feature_extractor=processor.feature_extractor,
 )
 pipeline("https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/mlk.flac")
 ```

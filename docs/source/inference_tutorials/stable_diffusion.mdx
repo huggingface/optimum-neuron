@@ -81,7 +81,7 @@ Besides, don't hesitate to tweak the compilation configuration to find the best 
 >>> save_directory = "sd_neuron/"
 >>> stable_diffusion.save_pretrained(save_directory)
 >>> stable_diffusion.push_to_hub(
-...     save_directory, repository_id="my-neuron-repo", use_auth_token=True
+...     save_directory, repository_id="my-neuron-repo"
 ... )
 ```
 
@@ -256,7 +256,7 @@ Here is an example of exporting stable diffusion components with `NeuronStableDi
 >>> save_directory = "sd_neuron_xl/"
 >>> stable_diffusion_xl.save_pretrained(save_directory)
 >>> stable_diffusion_xl.push_to_hub(
-...     save_directory, repository_id="my-neuron-repo", use_auth_token=True
+...     save_directory, repository_id="my-neuron-repo"
 ... )
 ```
 
@@ -416,7 +416,7 @@ save_directory = "lcm_sd_neuron/"
 stable_diffusion.save_pretrained(save_directory)
 
 # Push to hub
-stable_diffusion.push_to_hub(save_directory, repository_id="my-neuron-repo", use_auth_token=True)  # Replace with your repo id, eg. "Jingya/LCM_Dreamshaper_v7_neuronx"
+stable_diffusion.push_to_hub(save_directory, repository_id="my-neuron-repo")  # Replace with your repo id, eg. "Jingya/LCM_Dreamshaper_v7_neuronx"
 ```
 
 ***LCM of Stable Diffusion XL***
@@ -437,7 +437,7 @@ save_directory = "lcm_sdxl_neuron/"
 stable_diffusion.save_pretrained(save_directory)
 
 # Push to hub
-stable_diffusion.push_to_hub(save_directory, repository_id="my-neuron-repo", use_auth_token=True)   # Replace with your repo id, eg. "Jingya/lcm-sdxl-neuronx"
+stable_diffusion.push_to_hub(save_directory, repository_id="my-neuron-repo")   # Replace with your repo id, eg. "Jingya/lcm-sdxl-neuronx"
 ```
 
 ### Text-to-Image
