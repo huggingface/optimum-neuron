@@ -865,9 +865,7 @@ class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration,
 
         return model_kwargs
 
-    @add_start_docstrings_to_model_forward(
-        NEURON_WHISPER_INPUTS_DOCSTRING
-    )
+    @add_start_docstrings_to_model_forward(NEURON_WHISPER_INPUTS_DOCSTRING)
     def forward(
         self,
         input_features: Optional[torch.FloatTensor] = None,

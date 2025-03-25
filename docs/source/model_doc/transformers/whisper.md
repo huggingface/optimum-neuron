@@ -28,7 +28,7 @@ You can find all the original Whisper checkpoints under the [Whisper](https://hu
 To deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you first need to compile the models and export them to a serialized format for inference. Below are two approaches to compile the model, you can choose the one that best suits your needs:
 
 <hfoptions id="Export">
-<hfoption id=" Using the CLI">
+<hfoption id="using-the-cli">
 
 You can export the model using the Optimum command-line interface as follows:
 
@@ -40,7 +40,7 @@ optimum-cli export neuron --model openai/whisper-tiny --task automatic-speech-re
 > Execute `optimum-cli export neuron --help` to display all command line options and their description.
 
 </hfoption>
-<hfoption id="Using NeuronModel class">
+<hfoption id="using-neuron-model-class">
 
 ```python
 from optimum.neuron import NeuronWhisperForConditionalGeneration
@@ -70,7 +70,7 @@ neuron_model.push_to_hub(
 To use the model that we just exported, there are two options. We can eithe use the [`NeuronWhisperForConditionalGeneration`] class or use the [`Pipeline`]. The example below demonstrates how to automatically transcribe speech into text these two approaches.
 
 <hfoptions id="usage">
-<hfoption id="NeuronModel">
+<hfoption id="neuron-model">
 
 ```python
 from datasets import load_dataset
@@ -99,7 +99,7 @@ transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)
 ```
 
 </hfoption>
-<hfoption id="Pipeline">
+<hfoption id="pipeline">
 
 ```python
 import torch
