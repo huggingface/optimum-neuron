@@ -16,12 +16,16 @@
 from functools import partial
 from typing import Callable, List, Optional, Tuple, Union
 
+import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
 import torch
 import torch_xla.runtime as xr
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
     RowParallelLinear,
     create_local_weight,
+)
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_tensor_model_parallel_size,
 )
 from torch import nn
 from transformers.activations import ACT2FN
@@ -56,11 +60,11 @@ def slice_tensor(tensor: torch.Tensor, axis: int) -> torch.Tensor:
         tensor (:obj:`torch.Tensor`): The tensor to slice.
         axis (:obj:`int`): The axis along which to slice the tensor.
     """
-    world_size = xr.world_size()
+    tp_size = get_tensor_model_parallel_size()
     axis_len = tensor.shape[axis]
 
-    # round up to the next multiple of world_size
-    split_len = (axis_len + world_size - 1) // world_size
+    # round up to the next multiple of tp_size
+    split_len = (axis_len + tp_size - 1) // tp_size
     partition_stride = 1  # assuming that is always 1
     return create_local_weight(tensor, axis, split_len, partition_stride)
 
@@ -136,7 +140,7 @@ def eager_attention_forward(
     attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
     attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
     attn_output = torch.matmul(attn_weights, value_states)
-    attn_output = attn_output.transpose(1, 2).contiguous()
+    # Note: transpose happens outside of this function
 
     return attn_output, attn_weights
 
@@ -147,25 +151,84 @@ class GraniteAttention(nn.Module):
     def __init__(self, config: NeuronGraniteConfig, layer_idx: Optional[int] = None):
         super().__init__()
         self.config = config
+        self.hidden_size = config.hidden_size
+        self.num_heads = config.num_attention_heads
         self.layer_idx = layer_idx
-        self.head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
+        self.head_dim = config.hidden_size // config.num_attention_heads
+        self.num_key_value_heads = config.num_key_value_heads
         self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
         self.scaling = config.attention_multiplier
         self.attention_dropout = config.attention_dropout
         self.is_causal = True
 
-        self.q_proj = nn.Linear(
-            config.hidden_size, config.num_attention_heads * self.head_dim, bias=config.attention_bias
+        tp_size = get_tensor_model_parallel_size()
+        # num_attention_heads must be divisible by TP size, otherwise it cannot be correctly sharded
+        if config.num_key_value_heads % tp_size != 0:
+            raise ValueError(
+                f"num_key_value_heads {config.num_key_value_heads} must be divisible by TP size {tp_size}"
+            )
+
+        init_method = partial(_init_normal, config.initializer_range)
+        self.q_proj = ColumnParallelLinear(
+            self.hidden_size,
+            self.num_heads * self.head_dim,
+            bias=False,
+            gather_output=False,
+            init_method=init_method,
+            sequence_parallel_enabled=self.config.sequence_parallel_enabled,
+            dtype=self.config.torch_dtype,
         )
-        self.k_proj = nn.Linear(
-            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias
+        self.k_proj = ColumnParallelLinear(
+            self.hidden_size,
+            self.num_key_value_heads * self.head_dim,
+            bias=False,
+            gather_output=False,
+            init_method=init_method,
+            sequence_parallel_enabled=self.config.sequence_parallel_enabled,
+            dtype=self.config.torch_dtype,
         )
-        self.v_proj = nn.Linear(
-            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias
+        self.v_proj = ColumnParallelLinear(
+            self.hidden_size,
+            self.num_key_value_heads * self.head_dim,
+            bias=False,
+            gather_output=False,
+            init_method=init_method,
+            sequence_parallel_enabled=self.config.sequence_parallel_enabled,
+            dtype=self.config.torch_dtype,
         )
-        self.o_proj = nn.Linear(
-            config.num_attention_heads * self.head_dim, config.hidden_size, bias=config.attention_bias
+        self.o_proj = RowParallelLinear(
+            self.num_heads * self.head_dim,
+            self.hidden_size,
+            bias=False,
+            input_is_parallel=True,
+            init_method=init_method,
+            sequence_parallel_enabled=config.sequence_parallel_enabled,
+            dtype=self.config.torch_dtype,
         )
+        # Split parallelized weights
+        self._register_load_state_dict_pre_hook(self.load_hook)
+
+        # Some variables are initialized regardless of the TP size, to consider sharded weights
+        tp_size = get_tensor_model_parallel_size()
+        self.num_heads = neuronx_dist_utils.divide(config.num_attention_heads, tp_size)
+        self.num_key_value_heads = neuronx_dist_utils.divide(config.num_key_value_heads, tp_size)
+        self.num_key_value_groups = self.num_heads // self.num_key_value_heads
+
+    def load_hook(self, state_dict, prefix, *_args):
+        """
+        Update the state dict to split the weights of the model across the TP size.
+        """
+        # Filtering items to slice only the weights of this layer
+        filtered_items = filter(lambda x: x[0].startswith(prefix), state_dict.items())
+        for k, v in filtered_items:
+            if k.endswith("q_proj.weight"):
+                state_dict[k] = slice_tensor(v, 0)
+            if k.endswith("k_proj.weight"):
+                state_dict[k] = slice_tensor(v, 0)
+            if k.endswith("v_proj.weight"):
+                state_dict[k] = slice_tensor(v, 0)
+            if k.endswith("o_proj.weight"):
+                state_dict[k] = slice_tensor(v, 1)
 
     def forward(
         self,
@@ -176,12 +239,26 @@ class GraniteAttention(nn.Module):
         cache_position: Optional[torch.LongTensor] = None,
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-        input_shape = hidden_states.shape[:-1]
-        hidden_shape = (*input_shape, -1, self.head_dim)
+        tp_size = get_tensor_model_parallel_size()
 
-        query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-        key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-        value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+        if self.config.sequence_parallel_enabled:
+            q_len, bsz, _ = hidden_states.size()
+            q_len = q_len * tp_size
+        else:
+            bsz, q_len, _ = hidden_states.size()
+
+        query_states = self.q_proj(hidden_states)
+        key_states = self.k_proj(hidden_states)
+        value_states = self.v_proj(hidden_states)
+
+        if self.config.sequence_parallel_enabled:
+            query_states = query_states.view(q_len, bsz, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
+            key_states = key_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
+            value_states = value_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
+        else:
+            query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+            key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+            value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
         cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
@@ -212,8 +289,14 @@ class GraniteAttention(nn.Module):
             **kwargs,
         )
 
-        attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+        if self.config.sequence_parallel_enabled:
+            attn_output = attn_output.permute(2, 0, 1, 3)
+            attn_output = attn_output.reshape(q_len, bsz, self.hidden_size // tp_size)
+        else:
+            attn_output = attn_output.transpose(1, 2).contiguous()
+            attn_output = attn_output.reshape(bsz, q_len, self.hidden_size // tp_size)
         attn_output = self.o_proj(attn_output)
+
         return attn_output, attn_weights
 
 
@@ -278,7 +361,7 @@ class GraniteMLP(nn.Module):
 
     def load_hook(self, state_dict, prefix, *_args):
         """
-        Update the state dict to split the weights of the model across the world size.
+        Update the state dict to split the weights of the model across the TP size.
         """
         # Filtering items to slice only the weights of this layer
         filtered_items = filter(lambda x: x[0].startswith(prefix), state_dict.items())
