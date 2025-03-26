@@ -579,6 +579,9 @@ def export_neuronx(
         )
         inline_weights_to_neff = True
 
+    _compiler_args = " ".join(compiler_args)
+    import os
+    os.environ["NEURON_CC_FLAGS"] = _compiler_args
     # Start trace
     if tensor_parallel_size > 1:
         # 1. use NxD to trace for parallel
