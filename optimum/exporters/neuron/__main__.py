@@ -549,9 +549,6 @@ def load_models_and_neuron_configs(
     }
     if model is None:
         model = TasksManager.get_model_from_task(**model_kwargs)
-        # In case `torch.compile` is enabled by default
-        if hasattr(model, "_orig_mod"):
-            model = model._orig_mod
         # Load IP-Adapter if it exists
         if ip_adapter_args is not None and not all(
             getattr(ip_adapter_args, field.name) is None for field in fields(ip_adapter_args)
