@@ -33,7 +33,7 @@ To deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) mo
 You can export the model using the Optimum command-line interface as follows:
 
 ```bash
-optimum-cli export neuron --model openai/whisper-tiny --task automatic-speech-recognition --batch_size 1 --sequence_length 128 --auto_cast matmul --auto_cast_type bf16 whisper_tiny_neuronx/
+optimum-cli export neuron --model openai/whisper-tiny --task automatic-speech-recognition --batch_size 1 --sequence_length 128 --auto_cast all --auto_cast_type bf16 whisper_tiny_neuronx/
 ```
 
 > [!TIP]
@@ -45,11 +45,12 @@ optimum-cli export neuron --model openai/whisper-tiny --task automatic-speech-re
 ```python
 from optimum.neuron import NeuronWhisperForConditionalGeneration
 
-compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+compiler_args = {"auto_cast": "all", "auto_cast_type": "bf16"}
 input_shapes = {"batch_size": 1, "sequence_length": 128}
 neuron_model = NeuronWhisperForConditionalGeneration.from_pretrained(
     "openai/whisper-tiny",
     export=True,
+    inline_weights_to_neff=False,
     **compiler_args,
     **input_shapes,
 )
@@ -79,7 +80,7 @@ from optimum.neuron import NeuronWhisperForConditionalGeneration
 
 # Select an audio file and read it:
 ds = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
-audio_sample = ds[1]["audio"]
+audio_sample = ds[0]["audio"]
 
 # Use the model and processor to transcribe the audio:
 processor = AutoProcessor.from_pretrained("Jingya/whisper_tiny_neuronx")
@@ -91,6 +92,7 @@ input_features = processor(
 neuron_model = NeuronWhisperForConditionalGeneration.from_pretrained("Jingya/whisper_tiny_neuronx")
 predicted_ids = neuron_model.generate(input_features)
 transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)
+#  Mr. Quilter is the apostle of the middle classes and we are glad to welcome his gospel.
 ```
 
 </hfoption>
@@ -110,6 +112,7 @@ pipeline = pipeline(
     feature_extractor=processor.feature_extractor,
 )
 pipeline("https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/mlk.flac")
+#  I have a dream. Good one day. This nation will rise up. Live out the true meaning of its dream.
 ```
 
 </hfoption>
