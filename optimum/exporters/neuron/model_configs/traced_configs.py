@@ -143,6 +143,19 @@ class MobileBertNeuronConfig(BertNeuronConfig):
     pass
 
 
+@register_in_tasks_manager("modernbert", *["feature-extraction", "fill-mask", "text-classification", "token-classification"])
+class ModernBertNeuronConfig(BertNeuronConfig):
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_ids", "attention_mask"]
+
+    @property
+    def outputs(self) -> List[str]:
+        if self.task == "feature-extraction":
+            return ["last_hidden_state"]
+        return self._TASK_TO_COMMON_OUTPUTS[self.task]
+
+
 @register_in_tasks_manager("phi", *["feature-extraction", "text-classification", "token-classification"])
 class PhiNeuronConfig(ElectraNeuronConfig):
     CUSTOM_MODEL_WRAPPER = NoCacheModelWrapper
