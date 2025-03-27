@@ -143,7 +143,9 @@ class MobileBertNeuronConfig(BertNeuronConfig):
     pass
 
 
-@register_in_tasks_manager("modernbert", *["feature-extraction", "fill-mask", "text-classification", "token-classification"])
+@register_in_tasks_manager(
+    "modernbert", *["feature-extraction", "fill-mask", "text-classification", "token-classification"]
+)
 class ModernBertNeuronConfig(BertNeuronConfig):
     @property
     def inputs(self) -> List[str]:
