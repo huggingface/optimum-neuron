@@ -53,6 +53,7 @@ MODEL_NAMES = {
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
     "mobilenet-v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
     "mobilevit": "hf-internal-testing/tiny-random-mobilevit",
+    "modernbert": "hf-internal-testing/tiny-random-ModernBertModel",
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
     "phi": "bumblebee-testing/tiny-random-PhiModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
