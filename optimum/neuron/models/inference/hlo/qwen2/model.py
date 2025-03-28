@@ -15,13 +15,13 @@
 
 from transformers import PretrainedConfig
 
-from ...backends.hlo.config import HloNeuronConfig
-from ...backends.hlo.dtypes import to_torch_dtype
+from .....backends.hlo.config import HloNeuronConfig
+from .....backends.hlo.dtypes import to_torch_dtype
 from ..llama.model import LlamaHloModel
 from .modules import Qwen2ForCausalLM
 
 
-class Qwen2ForSampling(LlamaHloModel):
+class Qwen2HloModel(LlamaHloModel):
     """The Qwen2 model is essentially a LLama model with bias in attention projections.
 
     The implementation in this class is very similar to the one used for Llama in Tnx.
