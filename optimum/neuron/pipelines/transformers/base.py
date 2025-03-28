@@ -48,7 +48,6 @@ from optimum.neuron.pipelines.transformers.sentence_transformers import (
 
 from ...modeling import (
     NeuronModelForAudioClassification,
-    NeuronModelForCausalLM,
     NeuronModelForCTC,
     NeuronModelForFeatureExtraction,
     NeuronModelForImageClassification,
@@ -59,6 +58,7 @@ from ...modeling import (
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
 )
+from ...modeling_decoder import NeuronModelForCausalLM
 
 
 logger = logging.getLogger(__name__)

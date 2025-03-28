@@ -14,259 +14,121 @@
 # limitations under the License.
 """Base class for text-generation model architectures on neuron devices."""
 
-import copy
-import functools
 import logging
 import os
-import re
-import shutil
-import warnings
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Optional, Union
 
-from huggingface_hub import HfApi, snapshot_download
-from transformers import AutoConfig, AutoModel, GenerationConfig
+import torch
+from huggingface_hub import HfApi
+from transformers import AutoModelForCausalLM, GenerationConfig
+from transformers.file_utils import add_start_docstrings
+from transformers.generation import GenerationMixin
+
+from optimum.exporters.tasks import TasksManager
 
 from ..exporters.neuron.model_configs import *  # noqa: F403
-from ..exporters.tasks import TasksManager
-from .cache.entries.single_model import SingleModelCacheEntry
-from .cache.hub_cache import hub_neuronx_cache
+from .backends.hlo.config import HloNeuronConfig
+from .configuration_utils import NeuronConfig
 from .modeling_base import NeuronModel
-from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
-
-
-NEURON_DEV_PATTERN = re.compile(r"^neuron\d+$", re.IGNORECASE)
-MAJORS_FILE = "/proc/devices"
-NEURON_MAJOR_LINE = re.compile(r"^\s*(\d+)\s+neuron\s*$")
+from .utils.system import get_available_cores
 
 
 if TYPE_CHECKING:
-    from transformers import PretrainedConfig
+    from pathlib import Path
+
+    from transformers import GenerationConfig, PretrainedConfig
+    from transformers.generation import StoppingCriteriaList
 
 
 logger = logging.getLogger(__name__)
 
 
-def get_exporter(config):
-    return TasksManager.get_exporter_config_constructor(
-        model_type=config.model_type, exporter="neuron", task="text-generation", library_name="transformers"
-    )()
+NEURON_CAUSALLM_MODEL_START_DOCSTRING = r"""
+    This model inherits from [`~neuron.NeuronModel`]. Check the superclass documentation for the generic methods the
+    library implements for all its model (such as downloading or saving)
+"""
+
+NEURON_CAUSALLM_MODEL_GENERATE_DOCSTRING = r"""
+    A streamlined generate() method overriding the transformers.GenerationMixin.generate() method.
+
+    This method uses the same logits processors/warpers and stopping criterias as the transformers library
+    `generate()` method but restricts the generation to greedy search and sampling.
+
+    It does not support transformers `generate()` advanced options.
+
+    Please refer to https://huggingface.co/docs/transformers/en/main_classes/text_generation#transformers.GenerationMixin.generate
+    for details on generation configuration.
+
+    Parameters:
+        input_ids (`torch.Tensor` of shape `(batch_size, sequence_length)`):
+            The sequence used as a prompt for the generation.
+        attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
+            Mask to avoid performing attention on padding token indices.
+        generation_config (`~transformers.generation.GenerationConfig`, *optional*):
+            The generation configuration to be used as base parametrization for the generation call. `**kwargs`
+            passed to generate matching the attributes of `generation_config` will override them. If
+            `generation_config` is not provided, default will be used, which had the following loading
+            priority: 1) from the `generation_config.json` model file, if it exists; 2) from the model
+            configuration. Please note that unspecified parameters will inherit [`~transformers.generation.GenerationConfig`]'s
+            default values, whose documentation should be checked to parameterize generation.
+        stopping_criteria (`Optional[transformers.generation.StoppingCriteriaList], defaults to `None`):
+            Custom stopping criteria that complement the default stopping criteria built from arguments and a
+            generation config.
+
+    Returns:
+        `torch.Tensor`: A  `torch.FloatTensor`.
+"""
+
+TEXT_GENERATION_EXAMPLE = r"""
+    Example of text generation:
+
+    ```python
+    >>> from transformers import {processor_class}
+    >>> from optimum.neuron import {model_class}
+    >>> import torch
+
+    >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
+    >>> model = {model_class}.from_pretrained("{checkpoint}", export=True)
+
+    >>> inputs = tokenizer("My favorite moment of the day is", return_tensors="pt")
+
+    >>> gen_tokens = model.generate(**inputs, do_sample=True, temperature=0.9, min_length=20, max_length=20)
+    >>> tokenizer.batch_decode(gen_tokens)  # doctest: +IGNORE_RESULT
+    ```
+"""
 
 
-# Note: with python 3.9, functools.cache would be more suited
-@functools.lru_cache()
-def get_neuron_major() -> int:
-    with open(MAJORS_FILE, "r") as f:
-        for l in f.readlines():
-            m = NEURON_MAJOR_LINE.match(l)
-            if m:
-                return int(m.group(1))
-    logger.error("No major for neuron device could be found in /proc/devices!")
-    return -1
+@add_start_docstrings(
+    r"""
+    Neuron model with a causal language modeling head for inference on Neuron devices.
+    """,
+    NEURON_CAUSALLM_MODEL_START_DOCSTRING,
+)
+class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
+    auto_model_class = AutoModelForCausalLM
+    main_input_name = "input_ids"
+    preprocessors = []  # Required by optimum OptimizedModel
 
-
-def get_available_cores() -> int:
-    """A helper to get the number of available cores.
-
-    This number depends first on the actual number of cores, then on the
-    content of the NEURON_RT_NUM_CORES and NEURON_RT_VISIBLE_CORES variables.
-    """
-    device_count = 0
-    neuron_major = get_neuron_major()
-    root, _, files = next(os.walk("/dev"))
-    # Just look for devices in dev, non recursively
-    for f in files:
-        if neuron_major > 0:
-            try:
-                dev_major = os.major(os.stat("{}/{}".format(root, f)).st_rdev)
-                if dev_major == neuron_major:
-                    device_count += 1
-            except FileNotFoundError:
-                # Just to avoid race conditions where some devices would be deleted while running this
-                pass
-        else:
-            # We were not able to get the neuron major properly we fallback on counting neuron devices based on the
-            # device name
-            if NEURON_DEV_PATTERN.match(f):
-                device_count += 1
-    max_cores = device_count * 2
-    num_cores = os.environ.get("NEURON_RT_NUM_CORES", max_cores)
-    if num_cores != max_cores:
-        num_cores = int(num_cores)
-    num_cores = min(num_cores, max_cores)
-    visible_cores = os.environ.get("NEURON_RT_VISIBLE_CORES", num_cores)
-    if visible_cores != num_cores:
-        # Assume NEURON_RT_VISIBLE_CORES is in the form '4' or '7-15'
-        if "-" in visible_cores:
-            start, end = visible_cores.split("-")
-            visible_cores = int(end) - int(start) + 1
-        else:
-            visible_cores = 1
-    visible_cores = min(visible_cores, num_cores)
-    return visible_cores
-
-
-class NeuronDecoderModel(NeuronModel):
-    """
-    Base class to convert and run pre-trained transformers decoder models on Neuron devices.
-
-    It implements the methods to convert a pre-trained transformers decoder model into a Neuron transformer model by:
-    - transferring the checkpoint weights of the original into an optimized neuron graph,
-    - compiling the resulting graph using the Neuron compiler.
-
-    Common attributes:
-        - model (`torch.nn.Module`) -- The decoder model with a graph optimized for neuron devices.
-        - config ([`~transformers.PretrainedConfig`]) -- The configuration of the original model.
-        - generation_config ([`~transformers.GenerationConfig`]) -- The generation configuration used by default when calling `generate()`.
-    """
-
-    model_type = "neuron_model"
-    auto_model_class = AutoModel
-
-    CHECKPOINT_DIR = "checkpoint"
-    COMPILED_DIR = "compiled"
-
-    def __init__(
-        self,
-        config: "PretrainedConfig",
-        checkpoint_dir: Union[str, Path, TemporaryDirectory],
-        compiled_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        generation_config: Optional[GenerationConfig] = None,
-    ):
-        neuron_config = getattr(config, "neuron", None)
-        if neuron_config is None:
-            raise ValueError(
-                "The specified model is not a neuron model."
-                "Please convert your model to neuron format by passing export=True."
-            )
-
-        self.compiled_dir = compiled_dir
-        if generation_config is None:
-            logger.info("Generation config file not found, using a generation config created from the model config.")
-            generation_config = GenerationConfig.from_model_config(config)
-        self.generation_config = generation_config
-        # Registers the NeuronModelForXXX classes into the transformers AutoModel classes to avoid warnings when creating
-        # a pipeline https://github.com/huggingface/transformers/blob/3d3204c025b6b5de013e07dd364208e28b4d9589/src/transformers/pipelines/base.py#L940
-        AutoConfig.register(self.model_type, AutoConfig)
-        if hasattr(self.auto_model_class, "register"):
-            self.auto_model_class.register(AutoConfig, self.__class__)
-
-        # Evaluate the configuration passed during export
-        batch_size = neuron_config["batch_size"]
-        sequence_length = neuron_config["sequence_length"]
-        num_cores = neuron_config["num_cores"]
-        auto_cast_type = neuron_config["auto_cast_type"]
-
-        check_compiler_compatibility(neuron_config["compiler_type"], neuron_config["compiler_version"])
-
-        exporter = get_exporter(config)
-
-        export_kwargs = exporter.get_export_kwargs(
-            batch_size=batch_size,
-            sequence_length=sequence_length,
-            tensor_parallel_size=num_cores,
-            auto_cast_type=auto_cast_type,
-        )
-
-        # Instantiate neuronx model
-        checkpoint_path = checkpoint_dir.name if isinstance(checkpoint_dir, TemporaryDirectory) else checkpoint_dir
-        neuronx_model = exporter.neuronx_class.from_pretrained(checkpoint_path, **export_kwargs)
-
-        if compiled_dir is not None:
-            # Specify the path where compiled artifacts are stored before conversion
-            neuronx_model.load(compiled_dir)
-
-        # When compiling, only create a cache entry if the model comes from the hub
-        checkpoint_id = neuron_config.get("checkpoint_id", None)
-        cache_entry = (
-            None
-            if checkpoint_id is None
-            else SingleModelCacheEntry(model_id=checkpoint_id, task="text-generation", config=config)
-        )
-
-        # Export the model using the Optimum Neuron Cache
-        with hub_neuronx_cache("inference", entry=cache_entry):
-            available_cores = get_available_cores()
-            if num_cores > available_cores:
-                raise ValueError(
-                    f"The specified number of cores ({num_cores}) exceeds the number of cores available ({available_cores})."
-                )
-            neuron_rt_num_cores = os.environ.get("NEURON_RT_NUM_CORES", None)
-            # Restrict the number of cores used to allow multiple models on the same host
-            os.environ["NEURON_RT_NUM_CORES"] = str(num_cores)
-            # Load the model on neuron cores (if found in cache or compiled directory, the NEFF files
-            # will be reloaded instead of compiled)
-            neuronx_model.to_neuron()
-            if neuron_rt_num_cores is None:
-                os.environ.pop("NEURON_RT_NUM_CORES")
-            else:
-                os.environ["NEURON_RT_NUM_CORES"] = neuron_rt_num_cores
-
-        super().__init__(neuronx_model, config)
-
-    @classmethod
-    def _create_checkpoint(
-        cls,
-        model_id: str,
-        token: Optional[Union[bool, str]] = None,
-        revision: Optional[str] = None,
-        force_download: bool = False,
-        cache_dir: Optional[str] = None,
-        subfolder: str = "",
-        local_files_only: bool = False,
-        trust_remote_code: bool = False,
-        **kwargs,
-    ) -> TemporaryDirectory:
-        # Instantiate the transformers model checkpoint
-        model = TasksManager.get_model_from_task(
-            task="text-generation",
-            model_name_or_path=model_id,
-            subfolder=subfolder,
-            revision=revision,
-            framework="pt",
-            cache_dir=cache_dir,
-            token=token,
-            local_files_only=local_files_only,
-            force_download=force_download,
-            trust_remote_code=trust_remote_code,
-            torch_dtype="auto",
-            **kwargs,
-        )
-
-        if model.generation_config is not None:
-            with warnings.catch_warnings(record=True) as caught_warnings:
-                model.generation_config.validate()
-            if len(caught_warnings) > 0:
-                logger.warning("Invalid generation config: recreating it from model config.")
-                model.generation_config = GenerationConfig.from_model_config(model.config)
-
-        # Save the model checkpoint in a temporary directory
-        checkpoint_dir = TemporaryDirectory()
-        os.chmod(checkpoint_dir.name, 0o775)
-        model.save_pretrained(checkpoint_dir.name)
-        return checkpoint_dir
-
-    @classmethod
-    def get_export_config(
-        cls,
-        model_id: str,
+    @staticmethod
+    def get_neuron_config(
+        model_name_or_path: Union[str, Path],
         config: "PretrainedConfig",
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         batch_size: Optional[int] = None,
         sequence_length: Optional[int] = None,
-        num_cores: Optional[int] = None,
+        tensor_parallel_size: Optional[int] = None,
         auto_cast_type: Optional[str] = None,
-    ) -> "PretrainedConfig":
-        if os.path.isdir(model_id):
+    ):
+        if os.path.isdir(model_name_or_path):
             checkpoint_id = None
             checkpoint_revision = None
         else:
-            checkpoint_id = model_id
+            checkpoint_id = model_name_or_path
             # Get the exact checkpoint revision (SHA1)
             api = HfApi(token=token)
-            model_info = api.repo_info(model_id, revision=revision)
+            model_info = api.repo_info(model_name_or_path, revision=revision)
             checkpoint_revision = model_info.sha
 
         if batch_size is None:
@@ -278,11 +140,10 @@ class NeuronDecoderModel(NeuronModel):
             elif hasattr(config, "max_position_embeddings"):
                 sequence_length = config.max_position_embeddings
             else:
-                # Use transformers-neuronx default
-                sequence_length = 2048
-        if num_cores is None:
+                sequence_length = 1024
+        if tensor_parallel_size is None:
             # Use all available cores
-            num_cores = get_available_cores()
+            tensor_parallel_size = get_available_cores()
         if auto_cast_type is None:
             auto_cast_type = "fp32"
             if config.torch_dtype == "float16":
@@ -290,18 +151,17 @@ class NeuronDecoderModel(NeuronModel):
             elif config.torch_dtype == "bfloat16":
                 auto_cast_type = "bf16"
 
-        new_config = copy.deepcopy(config)
-        new_config.neuron = {
-            "batch_size": batch_size,
-            "num_cores": num_cores,
-            "auto_cast_type": auto_cast_type,
-            "sequence_length": sequence_length,
-            "compiler_type": "neuronx-cc",
-            "compiler_version": get_neuronxcc_version(),
-            "checkpoint_id": checkpoint_id,
-            "checkpoint_revision": checkpoint_revision,
-        }
-        return new_config
+        exporter = TasksManager.get_exporter_config_constructor(
+            model_type=config.model_type, exporter="neuron", task="text-generation", library_name="transformers"
+        )()
+        return exporter.get_neuron_config(
+            checkpoint_id=checkpoint_id,
+            checkpoint_revision=checkpoint_revision,
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            auto_cast_type=auto_cast_type,
+            tensor_parallel_size=tensor_parallel_size,
+        )
 
     @classmethod
     def _from_transformers(cls, *args, **kwargs):
@@ -321,147 +181,74 @@ class NeuronDecoderModel(NeuronModel):
         auto_cast_type: Optional[str] = "fp32",
         task: Optional[str] = "text-generation",
         **kwargs,
-    ) -> "NeuronDecoderModel":
-        if not os.path.isdir("/sys/class/neuron_device/"):
-            raise SystemError("Decoder models can only be exported on a neuron platform.")
+    ) -> "NeuronModelForCausalLM":
+        from .backends.hlo.modeling_decoder import HloModelForCausalLM
 
-        # Update the config
-        new_config = cls.get_export_config(
+        # Get the neuron config
+        neuron_config = cls.get_neuron_config(
             model_id,
             config,
             token=token,
             revision=revision,
             batch_size=batch_size,
             sequence_length=sequence_length,
-            num_cores=num_cores,
+            tensor_parallel_size=num_cores,
             auto_cast_type=auto_cast_type,
         )
 
         if task != "text-generation":
             raise ValueError(
-                f"Task {task} is not supported for causal language models. Please use another base model instead."
+                f"Task {task} is not supported for causal language models. Please use another base model."
             )
 
-        if os.path.isdir(model_id):
-            checkpoint_dir = model_id
-        else:
-            # Create the local transformers model checkpoint
-            checkpoint_dir = cls._create_checkpoint(
-                model_id,
-                revision=revision,
-                **kwargs,
-            )
-
-        # Try to reload the generation config (if any)
-        generation_config = None
-        try:
-            generation_config = GenerationConfig.from_pretrained(model_id, revision=revision)
-        except OSError:
-            pass
-
-        return cls(new_config, checkpoint_dir, generation_config=generation_config)
-
-    @classmethod
-    def _get_neuron_dirs(cls, model_path: Union[str, Path]) -> Tuple[str, str]:
-        # The checkpoint is in a subdirectory
-        checkpoint_dir = os.path.join(model_path, cls.CHECKPOINT_DIR)
-        # So are the compiled artifacts
-        compiled_dir = os.path.join(model_path, cls.COMPILED_DIR)
-        return checkpoint_dir, compiled_dir
+        return HloModelForCausalLM._export(
+            model_id,
+            config,
+            neuron_config,
+            token=token,
+            revision=revision,
+            **kwargs,
+        )
 
     @classmethod
     def _from_pretrained(
         cls,
-        model_id: Union[str, Path],
+        model_id: Union[str, "Path"],
         config: "PretrainedConfig",
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         **kwargs,
-    ) -> "NeuronDecoderModel":
-        # Verify we are actually trying to load a neuron model
-        neuron_config = getattr(config, "neuron", None)
-        if neuron_config is None:
-            raise ValueError(
-                "The specified directory does not contain a neuron model."
-                "Please convert your model to neuron format by passing export=True."
+    ) -> "NeuronModelForCausalLM":
+        neuron_config = NeuronConfig.from_pretrained(model_id, token=token, revision=revision)
+        if isinstance(neuron_config, HloNeuronConfig):
+            from .backends.hlo.modeling_decoder import HloModelForCausalLM
+
+            return HloModelForCausalLM._from_pretrained(
+                model_id, config, neuron_config, token=token, revision=revision, **kwargs
             )
-        check_compiler_compatibility(neuron_config["compiler_type"], neuron_config["compiler_version"])
+        raise ValueError(
+            "The specified directory does not contain a neuron model."
+            "Please convert your model to neuron format by passing export=True."
+        )
 
-        model_path = model_id
-        if not os.path.isdir(model_id):
-            model_path = snapshot_download(model_id, token=token, revision=revision)
+    def can_generate(self) -> bool:
+        """Returns True to validate the check made in `GenerationMixin.generate()`."""
+        return True
 
-        checkpoint_dir, compiled_dir = cls._get_neuron_dirs(model_path)
-        if not os.path.isdir(checkpoint_dir):
-            # Try to recreate checkpoint from neuron config
-            checkpoint_id = neuron_config.get("checkpoint_id", None)
-            if checkpoint_id is None:
-                raise ValueError("Unable to fetch the neuron model weights files.")
-            checkpoint_revision = neuron_config["checkpoint_revision"]
-            checkpoint_dir = cls._create_checkpoint(
-                checkpoint_id,
-                revision=checkpoint_revision,
-                token=token,
-                **kwargs,
-            )
-        assert os.path.isdir(compiled_dir)
-
-        # Try to reload the generation config (if any)
-        generation_config = None
-        try:
-            generation_config = GenerationConfig.from_pretrained(model_id, revision=revision)
-        except OSError:
-            pass
-
-        return cls(config, checkpoint_dir, compiled_dir=compiled_dir, generation_config=generation_config)
-
-    def forward(self, *args, **kwargs):
-        raise NotImplementedError()
-
-    def _save_pretrained(self, save_directory: Union[str, Path]):
-        dst_checkpoint_path, dst_compiled_path = self._get_neuron_dirs(save_directory)
-
-        model_name_or_path = getattr(self.config, "_name_or_path")
-        if os.path.isdir(model_name_or_path):
-            # Model was exported from a local path, so we need to save the checkpoint
-            shutil.copytree(model_name_or_path, dst_checkpoint_path, dirs_exist_ok=True)
-
-        # Save or create compiled directory
-        if self.compiled_dir is None:
-            # The compilation artifacts have never been saved, do it now
-            self.model.save(dst_compiled_path)
-        else:
-            shutil.copytree(self.compiled_dir, dst_compiled_path)
-        self.compiled_dir = dst_compiled_path
-        self.generation_config.save_pretrained(save_directory)
-
-    def push_to_hub(
+    @add_start_docstrings(
+        NEURON_CAUSALLM_MODEL_GENERATE_DOCSTRING
+        + TEXT_GENERATION_EXAMPLE.format(
+            processor_class="AutoTokenizer",
+            model_class="NeuronModelForCausalLM",
+            checkpoint="Qwen/Qwen2.5-0.5B-Instruct",
+        )
+    )
+    def generate(
         self,
-        save_directory: str,
-        repository_id: str,
-        private: Optional[bool] = None,
-        revision: Optional[str] = None,
-        token: Union[bool, str] = True,
-        endpoint: Optional[str] = None,
-    ) -> str:
-        api = HfApi(endpoint=endpoint)
-
-        api.create_repo(
-            token=token,
-            repo_id=repository_id,
-            exist_ok=True,
-            private=private,
-        )
-        ignore_patterns = []
-        neuron_config = getattr(self.config, "neuron")
-        checkpoint_id = neuron_config.get("checkpoint_id", None)
-        if checkpoint_id is not None:
-            # Avoid uploading checkpoints when the original model is available on the hub
-            ignore_patterns = [self.CHECKPOINT_DIR + "/*"]
-        api.upload_folder(
-            repo_id=repository_id,
-            folder_path=save_directory,
-            token=token,
-            revision=revision,
-            ignore_patterns=ignore_patterns,
-        )
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        generation_config: Optional["GenerationConfig"] = None,
+        stopping_criteria: Optional["StoppingCriteriaList"] = None,
+        **kwargs,
+    ) -> torch.LongTensor:
+        raise NotImplementedError

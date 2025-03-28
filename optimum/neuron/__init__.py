@@ -38,7 +38,6 @@ _import_structure = {
         "NeuronModelForSequenceClassification",
         "NeuronModelForTokenClassification",
         "NeuronModelForMultipleChoice",
-        "NeuronModelForCausalLM",
         "NeuronModelForImageClassification",
         "NeuronModelForSemanticSegmentation",
         "NeuronModelForObjectDetection",
@@ -62,7 +61,7 @@ _import_structure = {
         "NeuronPixArtAlphaPipeline",
         "NeuronPixArtSigmaPipeline",
     ],
-    "modeling_decoder": ["NeuronDecoderModel"],
+    "modeling_decoder": ["NeuronModelForCausalLM"],
     "modeling_seq2seq": [
         "NeuronModelForSeq2SeqLM",
     ],
@@ -96,7 +95,6 @@ if TYPE_CHECKING:
     from .modeling import (
         NeuronModelForAudioClassification,
         NeuronModelForAudioFrameClassification,
-        NeuronModelForCausalLM,
         NeuronModelForCTC,
         NeuronModelForFeatureExtraction,
         NeuronModelForImageClassification,
@@ -110,7 +108,7 @@ if TYPE_CHECKING:
         NeuronModelForTokenClassification,
         NeuronModelForXVector,
     )
-    from .modeling_decoder import NeuronDecoderModel
+    from .modeling_decoder import NeuronModelForCausalLM
     from .modeling_diffusion import (
         NeuronDiffusionPipelineBase,
         NeuronLatentConsistencyModelPipeline,

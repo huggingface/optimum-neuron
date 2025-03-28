@@ -14,9 +14,8 @@
 # limitations under the License.
 """NeuronModelForXXX classes for inference on neuron devices using the same API as Transformers."""
 
-import copy
 import logging
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Optional
 
 import torch
 from transformers import (
@@ -24,7 +23,6 @@ from transformers import (
     AutoModelForAudioClassification,
     AutoModelForAudioFrameClassification,
     AutoModelForAudioXVector,
-    AutoModelForCausalLM,
     AutoModelForCTC,
     AutoModelForImageClassification,
     AutoModelForMaskedLM,
@@ -35,7 +33,6 @@ from transformers import (
     AutoModelForSequenceClassification,
     AutoModelForTokenClassification,
 )
-from transformers.generation import GenerationMixin
 from transformers.modeling_outputs import (
     BaseModelOutputWithPooling,
     CausalLMOutput,
@@ -50,8 +47,6 @@ from transformers.modeling_outputs import (
     XVectorOutput,
 )
 
-from .generation import TokenSelector
-from .modeling_decoder import NeuronDecoderModel
 from .modeling_traced import NeuronTracedModel
 from .utils.doc import (
     _GENERIC_PROCESSOR,
@@ -61,8 +56,6 @@ from .utils.doc import (
     NEURON_AUDIO_FRAME_CLASSIFICATION_EXAMPLE,
     NEURON_AUDIO_INPUTS_DOCSTRING,
     NEURON_AUDIO_XVECTOR_EXAMPLE,
-    NEURON_CAUSALLM_INPUTS_DOCSTRING,
-    NEURON_CAUSALLM_MODEL_START_DOCSTRING,
     NEURON_CTC_EXAMPLE,
     NEURON_FEATURE_EXTRACTION_EXAMPLE,
     NEURON_IMAGE_CLASSIFICATION_EXAMPLE,
@@ -76,7 +69,6 @@ from .utils.doc import (
     NEURON_SENTENCE_TRANSFORMERS_IMAGE_EXAMPLE,
     NEURON_SENTENCE_TRANSFORMERS_TEXT_EXAMPLE,
     NEURON_SEQUENCE_CLASSIFICATION_EXAMPLE,
-    NEURON_TEXT_GENERATION_EXAMPLE,
     NEURON_TEXT_INPUTS_DOCSTRING,
     NEURON_TOKEN_CLASSIFICATION_EXAMPLE,
     add_start_docstrings,
@@ -85,11 +77,7 @@ from .utils.doc import (
 
 
 if TYPE_CHECKING:
-    from pathlib import Path
-    from tempfile import TemporaryDirectory
-
-    from transformers import GenerationConfig, PretrainedConfig
-    from transformers.generation import StoppingCriteriaList
+    pass
 
 
 logger = logging.getLogger(__name__)
@@ -753,287 +741,3 @@ class NeuronModelForXVector(NeuronTracedModel):
         embeddings = outputs[1]
 
         return XVectorOutput(logits=logits, embeddings=embeddings)
-
-
-@add_start_docstrings(
-    r"""
-    Neuron model with a causal language modeling head for inference on Neuron devices.
-    """,
-    NEURON_CAUSALLM_MODEL_START_DOCSTRING,
-)
-class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
-    auto_model_class = AutoModelForCausalLM
-    main_input_name = "input_ids"
-
-    def __init__(
-        self,
-        config: "PretrainedConfig",
-        checkpoint_dir: Union[str, "Path", "TemporaryDirectory"],
-        compiled_dir: Optional[Union[str, "Path", "TemporaryDirectory"]] = None,
-        generation_config: Optional["GenerationConfig"] = None,
-    ):
-        super().__init__(config, checkpoint_dir, compiled_dir=compiled_dir, generation_config=generation_config)
-        self.batch_size = self.config.neuron["batch_size"]
-        self.max_length = self.config.neuron["sequence_length"]
-        self.continuous_batching = self.model.neuron_config and self.model.neuron_config.continuous_batching
-        # The generate method from GenerationMixin expects the device attribute to be set
-        self.device = torch.device("cpu")
-
-    def reset_generation(self):
-        pass
-
-    @add_start_docstrings_to_model_forward(
-        NEURON_CAUSALLM_INPUTS_DOCSTRING
-        + NEURON_TEXT_GENERATION_EXAMPLE.format(
-            processor_class="AutoTokenizer",
-            model_class="NeuronModelForCausalLM",
-            checkpoint="Qwen/Qwen2.5-0.5B-Instruct",
-        )
-    )
-    def forward(
-        self,
-        input_ids: torch.Tensor,
-        cache_ids: torch.Tensor,
-        start_ids: torch.Tensor = None,
-        return_dict: bool = True,
-    ):
-        # Evaluate the output logits, storing the current key and values at the indices specified by cache_ids
-        out_logits = self.model.forward(input_ids, cache_ids, start_ids)
-        out_logits = out_logits[:, None, :]
-        # Since we are using a static cache, we don't need to return past keys and values
-        if return_dict:
-            return ModelOutput([("logits", out_logits)])
-        return (out_logits,)
-
-    def get_start_ids(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        seq_ids: Optional[torch.Tensor] = None,
-    ):
-        # The start_ids parameter has different meanings:
-        # - for continuous (unpadded) batching it corresponds to the sequence id,
-        # - for static batching it corresponds to the start of the padded sequence.
-        if self.continuous_batching:
-            if seq_ids is None:
-                seq_ids = torch.arange(input_ids.shape[0])
-            else:
-                assert seq_ids.shape[0] == input_ids.shape[0]
-            return seq_ids
-        start_ids = None
-        if attention_mask is not None:
-            _, start_ids = attention_mask.max(axis=1)
-        return start_ids
-
-    def get_cache_ids(self, attention_mask: torch.tensor, prefill: bool):
-        cache_n, cache_len = attention_mask.shape
-        if self.continuous_batching:
-            # Evaluate the inputs that are not masked for each sequence
-            input_length = attention_mask.sum(axis=1)
-            if not prefill:
-                # When decoding, cache_ids contains a single value per sequence
-                return (input_length - 1).unsqueeze(1)
-            # When prefilling, cache_ids is an increasing range
-            cache_ids = torch.zeros_like(attention_mask)
-            for i in range(cache_n):
-                cur_length = input_length[i]
-                cache_ids[i, :cur_length] = torch.arange(cur_length)
-            return cache_ids
-        # Static batching
-        return None if prefill else torch.tensor([cache_len - 1], dtype=torch.int32)
-
-    def prepare_inputs_for_prefill(
-        self, input_ids: torch.Tensor, attention_mask: torch.Tensor, seq_ids: Optional[List[int]] = None
-    ) -> Dict[str, torch.Tensor]:
-        start_ids = self.get_start_ids(input_ids, attention_mask, seq_ids=seq_ids)
-        cache_ids = self.get_cache_ids(attention_mask, prefill=True)
-        if self.continuous_batching and torch.any(attention_mask[:, 0] == 0):
-            # Inputs are left padded: we need to invert padding as continuous batching requires right-padding
-            batch_size, seq_len = input_ids.shape
-            input_length = attention_mask.sum(axis=1)
-            new_input_ids = torch.zeros_like(input_ids)
-            for i in range(batch_size):
-                cur_length = input_length[i]
-                new_input_ids[i, :cur_length] = input_ids[i, seq_len - cur_length :]
-            input_ids = new_input_ids
-        return {
-            "input_ids": input_ids,
-            "cache_ids": cache_ids,
-            "start_ids": start_ids,
-        }
-
-    def prepare_inputs_for_decode(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        seq_ids: Optional[List[int]] = None,
-    ) -> Dict[str, torch.Tensor]:
-        start_ids = self.get_start_ids(input_ids, attention_mask, seq_ids=seq_ids)
-        cache_ids = self.get_cache_ids(attention_mask, prefill=False)
-        # Only pass the last tokens of each sample
-        input_ids = input_ids[:, -1:]
-        return {
-            "input_ids": input_ids,
-            "cache_ids": cache_ids,
-            "start_ids": start_ids,
-        }
-
-    def can_generate(self) -> bool:
-        """Returns True to validate the check made in `GenerationMixin.generate()`."""
-        return True
-
-    def generate(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        generation_config: Optional["GenerationConfig"] = None,
-        stopping_criteria: Optional["StoppingCriteriaList"] = None,
-        **kwargs,
-    ) -> torch.LongTensor:
-        r"""
-        A streamlined generate() method overriding the transformers.GenerationMixin.generate() method.
-
-        This method uses the same logits processors/warpers and stopping criterias as the transformers library
-        `generate()` method but restricts the generation to greedy search and sampling.
-
-        It does not support transformers `generate()` advanced options.
-
-        Please refer to https://huggingface.co/docs/transformers/en/main_classes/text_generation#transformers.GenerationMixin.generate
-        for details on generation configuration.
-
-        Parameters:
-            input_ids (`torch.Tensor` of shape `(batch_size, sequence_length)`):
-                The sequence used as a prompt for the generation.
-            attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
-                Mask to avoid performing attention on padding token indices.
-            generation_config (`~transformers.generation.GenerationConfig`, *optional*):
-                The generation configuration to be used as base parametrization for the generation call. `**kwargs`
-                passed to generate matching the attributes of `generation_config` will override them. If
-                `generation_config` is not provided, default will be used, which had the following loading
-                priority: 1) from the `generation_config.json` model file, if it exists; 2) from the model
-                configuration. Please note that unspecified parameters will inherit [`~transformers.generation.GenerationConfig`]'s
-                default values, whose documentation should be checked to parameterize generation.
-            stopping_criteria (`Optional[transformers.generation.StoppingCriteriaList], defaults to `None`):
-                Custom stopping criteria that complement the default stopping criteria built from arguments and a
-                generation config.
-
-        Returns:
-            `torch.Tensor`: A  `torch.FloatTensor`.
-        """
-        # The actual generation configuration is a combination of config and parameters
-        generation_config = copy.deepcopy(self.generation_config if generation_config is None else generation_config)
-        # Extract tokenizer if any (used only for stop strings)
-        tokenizer = kwargs.pop("tokenizer", None)
-        model_kwargs = generation_config.update(**kwargs)  # All unused kwargs must be model kwargs
-        # Check model kwargs are actually used by either prepare_inputs_for_generation or forward
-        self._validate_model_kwargs(model_kwargs)
-
-        # Instantiate a TokenSelector for the specified configuration
-        selector = TokenSelector.create(
-            input_ids,
-            generation_config,
-            self,
-            self.max_length,
-            stopping_criteria=stopping_criteria,
-            tokenizer=tokenizer,
-        )
-
-        # Verify that the inputs are compatible with the model static input dimensions
-        batch_size, sequence_length = input_ids.shape
-        if sequence_length > self.max_length:
-            raise ValueError(
-                f"The input sequence length ({sequence_length}) exceeds the model static sequence length ({self.max_length})"
-            )
-        padded_input_ids = input_ids
-        padded_attention_mask = torch.ones_like(input_ids) if attention_mask is None else attention_mask
-        if batch_size > self.batch_size:
-            raise ValueError(
-                f"The specified batch_size ({batch_size}) exceeds the model static batch size ({self.batch_size})"
-            )
-        elif batch_size < self.batch_size and not self.continuous_batching:
-            logger.warning("Inputs will be padded to match the model static batch size. This will increase latency.")
-            padding_shape = [self.batch_size - batch_size, sequence_length]
-            pad_token_id = generation_config.pad_token_id
-            if pad_token_id is None:
-                if isinstance(self.config.eos_token_id, list):
-                    pad_token_id = self.config.eos_token_id[0]
-                else:
-                    pad_token_id = self.config.eos_token_id
-            padding = torch.full(padding_shape, fill_value=pad_token_id, dtype=torch.int64)
-            padded_input_ids = torch.cat([padded_input_ids, padding])
-            padding = torch.zeros(padding_shape, dtype=torch.int64)
-            padded_attention_mask = torch.cat([padded_attention_mask, padding])
-
-        output_ids = self.generate_tokens(
-            padded_input_ids,
-            selector,
-            batch_size,
-            padded_attention_mask,
-            **model_kwargs,
-        )
-        return output_ids[:batch_size, :]
-
-    def generate_tokens(
-        self,
-        input_ids: torch.LongTensor,
-        selector: TokenSelector,
-        batch_size: int,
-        attention_mask: torch.Tensor,
-        **model_kwargs,
-    ) -> torch.LongTensor:
-        r"""
-        Generate tokens using sampling or greedy search.
-
-        Args:
-            input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
-                The sequence used as a prompt for the generation.
-            selector (`TokenSelector`):
-                The object implementing the generation logic based on transformers processors and stopping criterias.
-            batch_size (`int`):
-                The actual input batch size. Used to avoid generating tokens for padded inputs.
-            attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
-                Mask to avoid performing attention on padding token indices.
-            model_kwargs:
-                Additional model specific kwargs will be forwarded to the `forward` function of the model.
-
-        Return:
-            `torch.LongTensor`: A `torch.LongTensor` containing the generated tokens.
-
-        """
-        # keep track of which sequences are already finished
-        unfinished_sequences = torch.zeros(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
-        unfinished_sequences[:batch_size] = 1
-
-        # Prefill and obtain the first token
-        model_inputs = self.prepare_inputs_for_prefill(input_ids, attention_mask)
-        outputs = self(
-            **model_inputs,
-            return_dict=True,
-        )
-
-        # auto-regressive generation
-        while True:
-            next_token_logits = outputs.logits[:, -1, :]
-
-            next_tokens = selector.select(input_ids, next_token_logits)
-
-            # finished sentences should have their next token be a padding token
-            next_tokens = next_tokens * unfinished_sequences + selector.pad_token_id * (1 - unfinished_sequences)
-
-            # update inputs for the next step
-            input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
-            attention_mask = torch.cat([attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))], dim=-1)
-
-            unfinished_sequences = unfinished_sequences & ~selector.stopping_criteria(input_ids, None)
-
-            if unfinished_sequences.max() == 0:
-                break
-
-            # forward pass to get next token
-            model_inputs = self.prepare_inputs_for_decode(input_ids, attention_mask)
-            outputs = self(
-                **model_inputs,
-                return_dict=True,
-            )
-
-        return input_ids
