@@ -19,7 +19,7 @@ import math
 import torch
 import torch.nn.functional as F
 
-from .config import GQA, NeuronConfig
+from .config import GQA, HloNeuronConfig
 
 
 def parse_dtype_replica_groups(neuron_config):
@@ -200,7 +200,7 @@ def build_replica_groups(num_groups, group_size, interleave=False):
 def get_qkv_padding(
     n_head: int,
     n_kv_head: int,
-    neuron_config: NeuronConfig,
+    neuron_config: HloNeuronConfig,
 ):
     """
     Compute the number of Q & KV heads after required padding.

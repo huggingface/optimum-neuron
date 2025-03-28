@@ -16,7 +16,7 @@
 
 from optimum.exporters.tasks import TasksManager
 
-from ....neuron.backends.hlo.config import NeuronConfig
+from ....neuron.backends.hlo.config import HloNeuronConfig
 from ....neuron.backends.hlo.decoder import NeuronHloDecoderModel
 from ....neuron.models.hlo.granite.model import GraniteHloModel
 from ....neuron.models.hlo.llama.model import LlamaHloModel
@@ -81,7 +81,7 @@ class NeuronDecoderExportConfig(NeuronExportConfig):
     def get_export_kwargs(self, batch_size: int, sequence_length: int, auto_cast_type: str, tensor_parallel_size: int):
         export_kwargs = {}
         if issubclass(self.neuronx_class, NeuronHloDecoderModel):
-            export_kwargs["neuron_config"] = NeuronConfig(
+            export_kwargs["neuron_config"] = HloNeuronConfig(
                 batch_size=batch_size,
                 n_positions=sequence_length,
                 tp_degree=tensor_parallel_size,

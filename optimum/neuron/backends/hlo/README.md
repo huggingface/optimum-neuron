@@ -12,7 +12,7 @@ Each LLM model implementation using that backend should inherit from the `Neuron
 This class expects four parameters to be passed at initialization:
 
 - a base transformers `PretrainedConfig`,
-- a `NeuronConfig`,
+- a `HloNeuronConfig`,
 - an instance of a "CPU" model that inherits from `PretrainedModel`,
 - an instance of a HLO `DecoderGraphBuilder` that provides implementations for "hooks" in the forward pass of the model (typically before and inside the layers loop).
 

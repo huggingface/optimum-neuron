@@ -30,7 +30,7 @@ from .compiler import (
     gen_zero_input,
     gen_zero_output,
 )
-from .config import GQA, Layout, NeuronConfig
+from .config import GQA, HloNeuronConfig, Layout
 from .dtypes import to_torch_dtype
 from .parallel import ParallelTensorManipulator
 from .utils import (
@@ -44,7 +44,7 @@ from .utils import (
 
 
 class GraphBuilder(ABC):
-    def __init__(self, config: PretrainedConfig, neuron_config: NeuronConfig):
+    def __init__(self, config: PretrainedConfig, neuron_config: HloNeuronConfig):
         self.config = config
         self.neuron_config = neuron_config
 
@@ -201,7 +201,7 @@ class DecoderGraph(NeuronBaseSerializer):
         self,
         n_active_tokens,
         config: PretrainedConfig,
-        neuron_config: NeuronConfig,
+        neuron_config: HloNeuronConfig,
         is_prefill=True,
         builder=None,
         tag=None,
