@@ -1,5 +1,4 @@
 # Copyright Amazon Web Services and its Affiliates. All Rights Reserved.
-# Copyright 2025 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,13 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from ...backends.hlo import module
+from transformers.models.phi import PhiConfig
+
+from ....backends.hlo import module
 
 
-class LlamaForCausalLM(module.PretrainedModel):
-    def __init__(self, config, dtype):
+class Phi3ForCausalLM(module.PretrainedModel):
+    def __init__(self, config: PhiConfig, dtype):
         super().__init__()
-        self.model = LlamaModel(config, dtype)
+        self.model = Phi3Model(config, dtype)
         self.lm_head = module.LowMemoryLazyLinear(config.vocab_size, dtype=dtype, bias=False)
 
     def get_tied_parameters(self):
@@ -29,46 +30,44 @@ class LlamaForCausalLM(module.PretrainedModel):
         return self.model
 
 
-class LlamaModel(module.LowMemoryModule):
-    def __init__(self, config, dtype):
+class Phi3Model(module.LowMemoryModule):
+    def __init__(self, config: PhiConfig, dtype):
         super().__init__()
         self.embed_tokens = module.LowMemoryEmbedding(config.vocab_size, config.hidden_size)
         self.layers = module.LowMemoryModuleList(
-            [LlamaDecoderLayer(config, dtype) for _ in range(config.num_hidden_layers)]
+            [Phi3DecoderLayer(config, dtype) for _ in range(config.num_hidden_layers)]
         )
-        self.norm = LlamaRMSNorm()
+        self.norm = Phi3RMSNorm()
 
 
-class LlamaRMSNorm(module.LowMemoryModule):
+class Phi3RMSNorm(module.LowMemoryModule):
     def __init__(self) -> None:
         super().__init__()
         self.weight = module.UninitializedParameter()
 
 
-class LlamaDecoderLayer(module.LowMemoryModule):
-    def __init__(self, config, dtype):
+class Phi3DecoderLayer(module.LowMemoryModule):
+    def __init__(self, config: PhiConfig, dtype):
         super().__init__()
-        self.self_attn = LlamaAttention(config, dtype)
-        self.mlp = LlamaMLP(config, dtype)
-        self.input_layernorm = LlamaRMSNorm()
-        self.post_attention_layernorm = LlamaRMSNorm()
+        self.self_attn = Phi3Attention(config, dtype)
+        self.mlp = Phi3MLP(config, dtype)
+        self.input_layernorm = Phi3RMSNorm()
+        self.post_attention_layernorm = Phi3RMSNorm()
 
 
-class LlamaAttention(module.LowMemoryModule):
-    def __init__(self, config, dtype):
+class Phi3Attention(module.LowMemoryModule):
+    def __init__(self, config: PhiConfig, dtype):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_attention_heads
         self.head_dim = self.hidden_size // self.num_heads
-        self.q_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=False, dtype=dtype)
-        self.k_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=False, dtype=dtype)
-        self.v_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=False, dtype=dtype)
+        op_size = config.num_attention_heads * self.head_dim + 2 * (config.num_key_value_heads * self.head_dim)
+        self.qkv_proj = module.LowMemoryLazyLinear(op_size, bias=False, dtype=dtype)
         self.o_proj = module.LowMemoryLazyLinear(self.hidden_size, bias=False, dtype=dtype)
 
 
-class LlamaMLP(module.LowMemoryModule):
+class Phi3MLP(module.LowMemoryModule):
     def __init__(self, config, dtype):
         super().__init__()
-        self.gate_proj = module.LowMemoryLazyLinear(config.intermediate_size, bias=False, dtype=dtype)
-        self.up_proj = module.LowMemoryLazyLinear(config.intermediate_size, bias=False, dtype=dtype)
+        self.gate_up_proj = module.LowMemoryLazyLinear(2 * config.intermediate_size, bias=False, dtype=dtype)
         self.down_proj = module.LowMemoryLazyLinear(config.hidden_size, bias=False, dtype=dtype)
