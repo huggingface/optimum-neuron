@@ -2,8 +2,9 @@ import subprocess
 from tempfile import TemporaryDirectory
 
 import pytest
-from transformers import AutoConfig
 
+from optimum.neuron.backends.hlo.config import HloNeuronConfig
+from optimum.neuron.configuration_utils import NeuronConfig
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -37,11 +38,10 @@ def test_export_decoder_cli(batch_size, sequence_length, auto_cast_type, num_cor
             check=True,
         )
         # Check exported config
-        config = AutoConfig.from_pretrained(tempdir)
-        neuron_config = getattr(config, "neuron", None)
-        assert neuron_config is not None
-        assert neuron_config["batch_size"] == batch_size
-        assert neuron_config["sequence_length"] == sequence_length
-        assert neuron_config["auto_cast_type"] == auto_cast_type
-        assert neuron_config["num_cores"] == num_cores
-        assert neuron_config["checkpoint_id"] == model_id
+        neuron_config = NeuronConfig.from_pretrained(tempdir)
+        assert isinstance(neuron_config, HloNeuronConfig)
+        assert neuron_config.batch_size == batch_size
+        assert neuron_config.sequence_length == sequence_length
+        assert neuron_config.auto_cast_type == auto_cast_type
+        assert neuron_config.tp_degree == num_cores
+        assert neuron_config.checkpoint_id == model_id
