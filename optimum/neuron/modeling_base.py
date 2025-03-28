@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Union
 
 import torch
 
-from ..modeling_base import OptimizedModel
+from optimum.modeling_base import OptimizedModel
 
 
 if TYPE_CHECKING:
