@@ -23,10 +23,10 @@ from optimum.exporters.tasks import TasksManager
 
 from ....neuron.backends.hlo.config import HloNeuronConfig
 from ....neuron.backends.hlo.decoder import NeuronHloDecoderModel
-from ....neuron.models.granite.model import GraniteForSampling
-from ....neuron.models.llama.model import LlamaHloModel
-from ....neuron.models.phi3.model import Phi3HloModel
-from ....neuron.models.qwen2.model import Qwen2ForSampling
+from ....neuron.models.inference.hlo.granite.model import GraniteHloModel
+from ....neuron.models.inference.hlo.llama.model import LlamaHloModel
+from ....neuron.models.inference.hlo.phi3.model import Phi3HloModel
+from ....neuron.models.inference.hlo.qwen2.model import Qwen2HloModel
 from ..base import NeuronExportConfig
 
 
@@ -165,7 +165,7 @@ class MixtralNeuronConfig(NeuronDecoderExportConfig):
 
 @register_in_tasks_manager("qwen2", "text-generation")
 class Qwen2NeuronConfig(NeuronDecoderExportConfig):
-    NEURONX_CLASS = Qwen2ForSampling
+    NEURONX_CLASS = Qwen2HloModel
     ALLOW_FLASH_ATTENTION = True
     CONTINUOUS_BATCHING = True
     FUSE_QKV = False
@@ -173,7 +173,7 @@ class Qwen2NeuronConfig(NeuronDecoderExportConfig):
 
 @register_in_tasks_manager("granite", "text-generation")
 class GraniteNeuronConfig(NeuronDecoderExportConfig):
-    NEURONX_CLASS = GraniteForSampling
+    NEURONX_CLASS = GraniteHloModel
     ALLOW_FLASH_ATTENTION = True
     CONTINUOUS_BATCHING = True
 
