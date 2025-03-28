@@ -18,14 +18,14 @@ from typing import Optional
 from transformers.models.llama import LlamaConfig
 
 from ...backends.hlo import functional
-from ...backends.hlo.config import Layout, NeuronConfig
+from ...backends.hlo.config import HloNeuronConfig, Layout
 from ...backends.hlo.decoder import DecoderGraphBuilder
 from ...backends.hlo.layers import attention, rotary, transformer
 from ...backends.hlo.utils import get_qkv_padding
 
 
 class LlamaGraphBuilder(DecoderGraphBuilder):
-    def __init__(self, config: LlamaConfig, neuron_config: Optional[NeuronConfig] = None):
+    def __init__(self, config: LlamaConfig, neuron_config: Optional[HloNeuronConfig] = None):
         super().__init__(config, neuron_config)
 
     def pre_layer(
