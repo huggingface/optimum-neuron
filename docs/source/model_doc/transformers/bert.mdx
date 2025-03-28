@@ -28,42 +28,40 @@ You can find all the original BERT checkpoints under the [BERT](https://huggingf
 To deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you first need to compile the models and export them to a serialized format for inference. Below are two approaches to compile the model, you can choose the one that best suits your needs. Here we take the `feature-extraction` as an example:
 
 <hfoptions id="export-to-neuron">
-  <hfoption id="cli">
+<hfoption id="cli">
   
-    You can export the model using the Optimum command-line interface as follows:
+You can export the model using the Optimum command-line interface as follows:
 
-    ```bash
-    optimum-cli export neuron --model google-bert/bert-base-uncased --task feature-extraction --batch_size 1 --sequence_length 128 bert_feature_extraction_neuronx/
-    ```
+```bash
+optimum-cli export neuron --model google-bert/bert-base-uncased --task feature-extraction --batch_size 1 --sequence_length 128 bert_feature_extraction_neuronx/
+```
 
-    </hfoption>
-    <hfoption id="using-neuron-model-class">
+</hfoption>
+<hfoption id="using-neuron-model-class">
 
-    ```python
-    from optimum.neuron import NeuronModelForFeatureExtraction
+```python
+from optimum.neuron import NeuronModelForFeatureExtraction
 
-    input_shapes = {"batch_size": 1, "sequence_length": 128}
-    compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
-    neuron_model = NeuronModelForFeatureExtraction.from_pretrained(
-        "google-bert/bert-base-uncased",
-        export=True,
-        **input_shapes,
-        **compiler_args,
-    )
-    # Save locally
-    neuron_model.save_pretrained("bert_feature_extraction_neuronx")
+input_shapes = {"batch_size": 1, "sequence_length": 128}
+compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+neuron_model = NeuronModelForFeatureExtraction.from_pretrained(
+    "google-bert/bert-base-uncased",
+    export=True,
+    **input_shapes,
+    **compiler_args,
+)
+# Save locally
+neuron_model.save_pretrained("bert_feature_extraction_neuronx")
 
-    # Upload to the HuggingFace Hub
-    neuron_model.push_to_hub(
-        "bert_feature_extraction_neuronx", repository_id="my-neuron-repo"  # Replace with your HF Hub repo id
-    )
-    ```
+# Upload to the HuggingFace Hub
+neuron_model.push_to_hub(
+    "bert_feature_extraction_neuronx", repository_id="my-neuron-repo"  # Replace with your HF Hub repo id
+)
+```
 
-    </hfoption>
+</hfoption>
 </hfoptions>
 
 > [!TIP]
 > Execute `optimum-cli export neuron --help` to display all command line options and their description.
 
-
-## 
