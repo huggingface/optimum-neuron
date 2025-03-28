@@ -1300,7 +1300,9 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
             from .modeling_decoder import HloModelForCausalLM
 
             neuron_config = getattr(config, "neuron", None)
-            return HloModelForCausalLM._from_pretrained(model_id, config, neuron_config, token=token, revision=revision)
+            return HloModelForCausalLM._from_pretrained(
+                model_id, config, neuron_config, token=token, revision=revision
+            )
         raise ValueError(
             "The specified directory does not contain a neuron model."
             "Please convert your model to neuron format by passing export=True."

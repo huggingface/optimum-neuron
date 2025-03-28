@@ -21,7 +21,7 @@ from transformers_neuronx import NeuronConfig as TnxNeuronConfig
 
 from optimum.exporters.tasks import TasksManager
 
-from ....neuron.backends.hlo.config import NeuronConfig
+from ....neuron.backends.hlo.config import HloNeuronConfig
 from ....neuron.backends.hlo.decoder import NeuronHloDecoderModel
 from ....neuron.models.hlo.granite.model import GraniteHloModel
 from ....neuron.models.hlo.llama.model import LlamaHloModel
@@ -109,11 +109,11 @@ class NeuronDecoderExportConfig(NeuronExportConfig):
         continuous_batching = batch_size > 1 and self.continuous_batching
         export_kwargs = {}
         if issubclass(self.neuronx_class, NeuronHloDecoderModel):
-            # For new models, all export kwargs are integrated into NeuronConfig
+            # For new models, all export kwargs are integrated into HloNeuronConfig
             neuron_kwargs.update(base_kwargs)
             neuron_kwargs["allow_flash_attention"] = self.allow_flash_attention
             neuron_kwargs["continuous_batching"] = continuous_batching
-            export_kwargs["neuron_config"] = NeuronConfig(**neuron_kwargs)
+            export_kwargs["neuron_config"] = HloNeuronConfig(**neuron_kwargs)
         else:
             # For legacy models, base kwargs are passed individually
             export_kwargs.update(base_kwargs)

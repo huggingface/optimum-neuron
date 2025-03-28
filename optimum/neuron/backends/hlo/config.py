@@ -53,7 +53,7 @@ valid_dtypes = [
 ]
 
 
-class NeuronConfig:
+class HloNeuronConfig:
     """
     Neuron configurations for extra features and performance optimizations.
 
