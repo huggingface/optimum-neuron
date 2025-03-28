@@ -51,6 +51,7 @@ def _export_model(model_id, export_kwargs, neuron_model_path):
     try:
         model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, **export_kwargs)
         model.save_pretrained(neuron_model_path)
+        return model
     except Exception as e:
         raise ValueError(f"Failed to export {model_id}: {e}")
 
@@ -88,17 +89,12 @@ def neuron_decoder_config(request):
             logger.info(f"Fetching {neuron_model_id} from the HuggingFace hub")
             hub.snapshot_download(neuron_model_id, local_dir=neuron_model_path)
         else:
-            _export_model(model_id, export_kwargs, neuron_model_path)
+            model = _export_model(model_id, export_kwargs, neuron_model_path)
             tokenizer = AutoTokenizer.from_pretrained(model_id)
             tokenizer.save_pretrained(neuron_model_path)
             del tokenizer
             # Create the test model on the hub
-            hub.create_repo(neuron_model_id, private=True)
-            hub.upload_folder(
-                folder_path=neuron_model_path,
-                repo_id=neuron_model_id,
-                ignore_patterns=[NeuronModelForCausalLM.CHECKPOINT_DIR + "/*"],
-            )
+            model.push_to_hub(save_directory=neuron_model_path, repository_id=neuron_model_id, private=True)
             # Make sure it is cached
             synchronize_hub_cache(cache_repo_id=OPTIMUM_CACHE_REPO_ID)
         # Add dynamic parameters to the model configuration
