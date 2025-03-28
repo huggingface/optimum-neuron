@@ -332,7 +332,7 @@ class GraniteMLP(nn.Module):
             self.hidden_size,
             self.intermediate_size,
             bias=config.mlp_bias,
-            gather_output=True,
+            gather_output=False,
             init_method=init_method,
             dtype=config.torch_dtype,
             sequence_parallel_enabled=config.sequence_parallel_enabled,
@@ -341,7 +341,7 @@ class GraniteMLP(nn.Module):
             self.hidden_size,
             self.intermediate_size,
             bias=config.mlp_bias,
-            gather_output=True,
+            gather_output=False,
             init_method=init_method,
             dtype=config.torch_dtype,
             sequence_parallel_enabled=config.sequence_parallel_enabled,
@@ -352,6 +352,7 @@ class GraniteMLP(nn.Module):
             bias=config.mlp_bias,
             init_method=init_method,
             dtype=config.torch_dtype,
+            input_is_parallel=True,
             sequence_parallel_enabled=config.sequence_parallel_enabled,
         )
         self.act_fn = ACT2FN[config.hidden_act]

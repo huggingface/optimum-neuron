@@ -19,9 +19,9 @@ if is_neuronx_distributed_available():
 
 
 @torch.no_grad()
-def _get_expected_output(model_id, inputs, config):
-    # Get the expected output. Inference will run on CPU, dtype if bfloat16.
-    model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, config=config).to(device="xla")
+def _get_expected_output(model_id, inputs, config, torch_dtype):
+    # Get the expected output. Inference will run on CPU
+    model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch_dtype, config=config).to(device="xla")
     model = model.eval()
     outputs = model(**inputs)
     return outputs.logits.detach()
@@ -31,6 +31,7 @@ def _get_expected_output(model_id, inputs, config):
 def _test_parallel_granite():
     model_id = "ibm-granite/granite-3.2-2b-instruct"
     prompt = "What is Deep Learning?"
+    torch_dtype = torch.bfloat16
 
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     inputs = tokenizer(prompt, return_tensors="pt").to("xla")
@@ -41,20 +42,20 @@ def _test_parallel_granite():
     # config.num_hidden_layers = num_hidden_layers
 
     # Expected output is the one loaded from transformers "vanilla" modeling on XLA
-    expected_output = _get_expected_output(model_id, inputs, config)
+    expected_output = _get_expected_output(model_id, inputs, config, torch_dtype)
     print("🔴 No Shard", expected_output, expected_output.shape)
     xm.mark_step()
 
     # Note that model is init on CPU, then moved  to XLA
     config = NeuronGraniteConfig.from_pretrained(model_id)
     # config.num_hidden_layers = num_hidden_layers
-    model = GraniteForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, config=config).to(device="xla")
+    model = GraniteForCausalLM.from_pretrained(model_id, torch_dtype=torch_dtype, config=config).to(device="xla")
     model.eval()
     outputs = model(**inputs)
     xm.mark_step()
     local_rank = xm.get_local_ordinal()
     print(f"🟡 Rank {local_rank}", outputs.logits, outputs.logits.shape)
-    atol = torch.finfo(torch.bfloat16).resolution
+    atol = torch.finfo(torch_dtype).resolution
     outputs_match = torch.allclose(outputs.logits.to("cpu"), expected_output.to("cpu"), atol=atol)
     print(f"🟢 Rank {local_rank}", outputs_match)
     diff = (expected_output - outputs.logits).to("cpu")
