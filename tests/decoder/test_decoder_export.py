@@ -39,16 +39,15 @@ def export_decoder_id(request):
 
 
 def check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num_cores=None, auto_cast_type=None):
-    neuron_config = getattr(neuron_model.config, "neuron", None)
-    assert neuron_config
+    neuron_config = neuron_model.neuron_config
     if batch_size:
-        assert neuron_config["batch_size"] == batch_size
+        assert neuron_config.batch_size == batch_size
     if sequence_length:
-        assert neuron_config["sequence_length"] == sequence_length
+        assert neuron_config.sequence_length == sequence_length
     if num_cores:
-        assert neuron_config["num_cores"] == num_cores
+        assert neuron_config.tp_degree == num_cores
     if auto_cast_type:
-        assert neuron_config["auto_cast_type"] == auto_cast_type
+        assert neuron_config.auto_cast_type == auto_cast_type
 
 
 @pytest.mark.parametrize(

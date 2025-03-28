@@ -11,7 +11,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 def _test_generation(p):
     assert p.task == "text-generation"
     assert isinstance(p.model, NeuronModelForCausalLM)
-    model_batch_size = getattr(p.model.config, "neuron")["batch_size"]
+    model_batch_size = p.model.neuron_config.batch_size
     prompt = "I like you."
     # We check the ability of the pipeline to split the inputs by using different
     # combinations of input_size and batch_size

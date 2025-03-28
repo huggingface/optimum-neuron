@@ -46,6 +46,7 @@ from optimum.neuron.pipelines.transformers.sentence_transformers import (
     is_sentence_transformer_model,
 )
 
+from ...configuration_utils import NeuronConfig
 from ...modeling import (
     NeuronModelForAudioClassification,
     NeuronModelForCTC,
@@ -259,14 +260,25 @@ def pipeline(
             else:
                 config = model.config
 
+    neuron_config = getattr(config, "neuron", None)
+    if neuron_config is None:
+        if isinstance(model, str):
+            try:
+                neuron_config = NeuronConfig.from_pretrained(model, token=token, revision=revision)
+            except EnvironmentError:
+                # If the model is not a Neuron model, we will just ignore the error
+                pass
+        elif isinstance(model, NeuronModel):
+            neuron_config = getattr(model, "neuron_config", None)
+
     if export:
-        if hasattr(config, "neuron"):
+        if neuron_config is not None:
             raise ValueError("This model has already been exported to Neuron format")
         if not input_shapes:
             input_shapes = {"batch_size": 1, "sequence_length": 128}
             logger.warning(f"No input shapes provided, using default shapes, {input_shapes}")
     else:
-        if not hasattr(config, "neuron"):
+        if neuron_config is None:
             raise ValueError("The model must be exported to Neuron format first")
         if input_shapes:
             logger.warning("Input shapes can only be set during export")
@@ -334,10 +346,16 @@ def pipeline(
     # If we don't specify a batch_size, the pipeline will assume batch_size 1
     # and it will process the inputs one by one instead of processing them in parallel
     batch_size = 1
-    for attr in ["batch_size", "static_batch_size"]:
-        neuron_config = getattr(config, "neuron", None) or getattr(model.config, "neuron", None)
-        if attr in neuron_config:
-            batch_size = neuron_config[attr]
+    neuron_config = (
+        getattr(config, "neuron", None)
+        or getattr(model.config, "neuron", None)
+        or getattr(model, "neuron_config", None)
+    )
+    if isinstance(neuron_config, NeuronConfig):
+        batch_size = neuron_config.batch_size
+    elif isinstance(neuron_config, dict):
+        for attr in ["batch_size", "static_batch_size"]:
+            batch_size = neuron_config.get(attr, batch_size)
     if batch_size > 1 and tokenizer is not None and tokenizer.pad_token_id is None:
         # The pipeline needs a pad token to be able to batch
         if isinstance(model.config.eos_token_id, list):

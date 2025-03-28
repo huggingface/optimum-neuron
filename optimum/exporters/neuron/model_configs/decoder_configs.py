@@ -77,10 +77,19 @@ class NeuronDecoderExportConfig(NeuronExportConfig):
     def fuse_qkv(self):
         return self.FUSE_QKV
 
-    def get_export_kwargs(self, batch_size: int, sequence_length: int, auto_cast_type: str, tensor_parallel_size: int):
-        export_kwargs = {}
+    def get_neuron_config(
+        self,
+        checkpoint_id: str,
+        checkpoint_revision: str,
+        batch_size: int,
+        sequence_length: int,
+        auto_cast_type: str,
+        tensor_parallel_size: int,
+    ):
         if issubclass(self.neuronx_class, NeuronHloDecoderModel):
-            export_kwargs["neuron_config"] = HloNeuronConfig(
+            return HloNeuronConfig(
+                checkpoint_id=checkpoint_id,
+                checkpoint_revision=checkpoint_revision,
                 batch_size=batch_size,
                 sequence_length=sequence_length,
                 tp_degree=tensor_parallel_size,
@@ -90,8 +99,7 @@ class NeuronDecoderExportConfig(NeuronExportConfig):
                 continuous_batching=(batch_size > 1 and self.continuous_batching),
                 allow_flash_attention=self.allow_flash_attention,
             )
-
-        return export_kwargs
+        return None
 
 
 @register_in_tasks_manager("llama", "text-generation")
