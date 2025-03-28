@@ -154,7 +154,6 @@ def load_pipeline(
     token: Optional[Union[bool, str]] = None,
     revision: str = "main",
     compiler_args: Optional[Dict[str, Any]] = {},
-    config: AutoConfig = None,
     hub_kwargs: Optional[Dict[str, Any]] = {},
     **kwargs,
 ):
@@ -242,7 +241,10 @@ def pipeline(
             config = AutoConfig.from_pretrained(model, _from_pipeline=task, **hub_kwargs, **kwargs)
             hub_kwargs["_commit_hash"] = config._commit_hash
         elif isinstance(model, (PreTrainedModel, NeuronModel)):
-            config = model.config
+            if hasattr(model, "encoder"):
+                config = model.encoder.config
+            else:
+                config = model.config
 
     if export:
         if hasattr(config, "neuron"):
@@ -294,7 +296,6 @@ def pipeline(
         input_shapes=input_shapes,
         compiler_args=compiler_args,
         supported_tasks=NEURONX_SUPPORTED_TASKS,
-        config=config,
         hub_kwargs=hub_kwargs,
         token=token,
     )
