@@ -222,6 +222,18 @@ def normalize_stable_diffusion_input_shapes(
     return input_shapes
 
 
+def infer_flux_shapes_from_diffusers(
+    input_shapes: Dict[str, Dict[str, int]],
+):
+    input_shapes.setdefault("text_encoder_2", {})["max_sequence_length"] = input_shapes["text_encoder"].get("sequence_length")
+    input_shapes.setdefault("transformer", {})["max_sequence_length"] = input_shapes["text_encoder"].get("sequence_length")
+    input_shapes.setdefault("transformer", {})["height"] = input_shapes["unet_or_transformer"].get("height")
+    input_shapes.setdefault("transformer", {})["width"] = input_shapes["unet_or_transformer"].get("width")
+    input_shapes.setdefault("decoder", {})["height"] = input_shapes["unet_or_transformer"].get("height")
+    input_shapes.setdefault("decoder", {})["width"] = input_shapes["unet_or_transformer"].get("width")
+
+    return input_shapes
+
 def infer_stable_diffusion_shapes_from_diffusers(
     input_shapes: Dict[str, Dict[str, int]],
     model: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
@@ -335,7 +347,18 @@ def get_submodels_and_neuron_configs(
         # TODO: Enable optional outputs for Stable Diffusion
         if output_attentions:
             raise ValueError(f"`output_attentions`is not supported by the {task} task yet.")
-        models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_stable_diffusion(
+        diffuser_type=model.__class__.__name__
+        if diffuser_type=="FluxPipeline":
+          #print(f"in get_submodels_and_neuron_configs class_name:{model.__class__.__name__}; {model}")
+          models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_flux(
+            model=model,
+            input_shapes=input_shapes,
+            output=output,
+            submodels=submodels,
+            output_hidden_states=output_hidden_states,
+          )
+        else:
+          models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_stable_diffusion(
             model=model,
             input_shapes=input_shapes,
             output=output,
@@ -388,6 +411,39 @@ def get_submodels_and_neuron_configs(
     return models_and_neuron_configs, output_model_names
 
 
+def _get_submodels_and_neuron_configs_for_flux(
+    model: Union["PreTrainedModel", "DiffusionPipeline"],
+    input_shapes: Dict[str, int],
+    output: Path,
+    submodels: Optional[Dict[str, Union[Path, str]]] = None,
+    output_hidden_states: bool = False,
+):
+    if is_neuron_available():
+        raise RuntimeError(
+            "Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
+        )
+    input_shapes = infer_flux_shapes_from_diffusers(
+        input_shapes=input_shapes,
+    )
+    print(f"in _get_submodels_and_neuron_configs_for_flux input_shapes:{input_shapes}")
+    if getattr(model, "text_encoder_1", None) is not None:
+        model.text_encoder_1.save_pretrained(output.joinpath("text_encoder_1"))
+    if getattr(model, "text_encoder_2", None) is not None:
+        model.text_encoder_2.save_pretrained(output.joinpath("text_encoder_2"))
+    if getattr(model, "transformer", None) is not None:
+        model.transformer.save_pretrained(output.joinpath("transformer"))
+    if getattr(model, "decoder", None) is not None:
+        model.decoder.save_pretrained(output.joinpath("decoder"))
+    model.save_config(output)
+
+    models_and_neuron_configs = get_flux_diffusion_models_for_export(
+        pipeline=model,
+        text_encoder_2_input_shapes=input_shapes["text_encoder_2"],
+        transformer_input_shapes=input_shapes.get("transformer"),
+        vae_decoder_input_shapes=input_shapes["decoder"],
+        output_hidden_states=output_hidden_states,
+    )
+
 def _get_submodels_and_neuron_configs_for_stable_diffusion(
     model: Union["PreTrainedModel", "DiffusionPipeline"],
     input_shapes: Dict[str, int],
@@ -409,7 +465,6 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         model=model,
         has_controlnets=controlnet_ids is not None,
     )
-
     # Saving the model config and preprocessor as this is needed sometimes.
     model.scheduler.save_pretrained(output.joinpath("scheduler"))
     if getattr(model, "tokenizer", None) is not None:
