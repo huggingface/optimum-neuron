@@ -1295,9 +1295,18 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
         revision: Optional[str] = None,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
-        from .modeling_decoder import HloModelForCausalLM
+        neuron_config = getattr(config, "neuron", None)
+        if neuron_config is not None:
+            from .modeling_decoder import HloModelForCausalLM
 
-        return HloModelForCausalLM._from_pretrained(model_id, config, token=token, revision=revision, **kwargs)
+            neuron_config = getattr(config, "neuron", None)
+            return HloModelForCausalLM._from_pretrained(
+                model_id, config, neuron_config, token=token, revision=revision, **kwargs
+            )
+        raise ValueError(
+            "The specified directory does not contain a neuron model."
+            "Please convert your model to neuron format by passing export=True."
+        )
 
     def can_generate(self) -> bool:
         """Returns True to validate the check made in `GenerationMixin.generate()`."""
