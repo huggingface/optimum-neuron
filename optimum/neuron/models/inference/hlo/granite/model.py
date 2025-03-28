@@ -14,12 +14,12 @@
 # ==============================================================================
 from transformers import PretrainedConfig
 
-from ...backends.hlo.config import HloNeuronConfig
+from .....backends.hlo.config import HloNeuronConfig
 from ..llama.model import LlamaHloModel
 from .hlo import GraniteGraphBuilder
 
 
-class GraniteForSampling(LlamaHloModel):
+class GraniteHloModel(LlamaHloModel):
     """The Granite model is a LLama model with 4 scalar multpliers that are applied to:
     - the embeddings,
     - the QK product in the attention (instead of the static 1/sqrt(num_heads))
