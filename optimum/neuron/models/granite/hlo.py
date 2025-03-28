@@ -17,7 +17,7 @@ from typing import Optional
 from transformers.models.granite import GraniteConfig
 
 from ...backends.hlo import functional
-from ...backends.hlo.config import Layout, NeuronConfig
+from ...backends.hlo.config import HloNeuronConfig, Layout
 from ...backends.hlo.layers import attention, rotary
 from ...backends.hlo.utils import get_qkv_padding
 from ..llama.hlo import LlamaGraphBuilder
@@ -34,7 +34,7 @@ def scale_mul(t, scale):
 
 
 class GraniteGraphBuilder(LlamaGraphBuilder):
-    def __init__(self, config: GraniteConfig, neuron_config: Optional[NeuronConfig] = None):
+    def __init__(self, config: GraniteConfig, neuron_config: Optional[HloNeuronConfig] = None):
         super().__init__(config, neuron_config)
 
     def pre_layer(self, hidden, cache_ids, start_ids):

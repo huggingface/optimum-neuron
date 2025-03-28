@@ -14,7 +14,7 @@
 # ==============================================================================
 from transformers import PretrainedConfig
 
-from ...backends.hlo.config import NeuronConfig
+from ...backends.hlo.config import HloNeuronConfig
 from ..llama.model import LlamaHloModel
 from .hlo import GraniteGraphBuilder
 
@@ -34,7 +34,7 @@ class GraniteForSampling(LlamaHloModel):
     def __init__(
         self,
         config: PretrainedConfig,
-        neuron_config: NeuronConfig,
+        neuron_config: HloNeuronConfig,
     ):
         super().__init__(config, neuron_config, hlo_builder=GraniteGraphBuilder(config, neuron_config))
 

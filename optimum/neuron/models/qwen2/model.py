@@ -15,7 +15,7 @@
 
 from transformers import PretrainedConfig
 
-from ...backends.hlo.config import NeuronConfig
+from ...backends.hlo.config import HloNeuronConfig
 from ...backends.hlo.dtypes import to_torch_dtype
 from ..llama.model import LlamaHloModel
 from .modules import Qwen2ForCausalLM
@@ -32,7 +32,7 @@ class Qwen2ForSampling(LlamaHloModel):
     def __init__(
         self,
         config: PretrainedConfig,
-        neuron_config: NeuronConfig,
+        neuron_config: HloNeuronConfig,
     ):
         dtype = to_torch_dtype(neuron_config.amp)
         super().__init__(config, neuron_config, cpu_model=Qwen2ForCausalLM(config, dtype))
