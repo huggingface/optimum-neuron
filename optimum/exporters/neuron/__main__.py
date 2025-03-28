@@ -17,6 +17,9 @@
 import argparse
 import inspect
 import os
+
+
+os.environ["TORCHDYNAMO_DISABLE"] = "1"  # Always turn off torchdynamo as it's incompatible with neuron
 from argparse import ArgumentParser
 from dataclasses import fields
 from pathlib import Path
