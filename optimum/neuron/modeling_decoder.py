@@ -394,17 +394,11 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         cls,
         model_id: Union[str, Path],
         config: "PretrainedConfig",
+        neuron_config: Dict,
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         **kwargs,
     ) -> "HloModelForCausalLM":
-        # Verify we are actually trying to load a neuron model
-        neuron_config = getattr(config, "neuron", None)
-        if neuron_config is None:
-            raise ValueError(
-                "The specified directory does not contain a neuron model."
-                "Please convert your model to neuron format by passing export=True."
-            )
         check_compiler_compatibility(neuron_config["compiler_type"], neuron_config["compiler_version"])
 
         model_path = model_id
