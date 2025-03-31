@@ -217,7 +217,7 @@ class NeuronBertForSequenceClassification(NeuronTracedModel):
         NEURON_TEXT_INPUTS_DOCSTRING.format("batch_size, sequence_length")
         + NEURON_SEQUENCE_CLASSIFICATION_EXAMPLE.format(
             processor_class=_TOKENIZER_FOR_DOC,
-            model_class="NeuronModelForSequenceClassification",
+            model_class="NeuronBertForSequenceClassification",
             checkpoint="optimum/distilbert-base-uncased-finetuned-sst-2-english-neuronx",
         )
     )
@@ -264,7 +264,7 @@ class NeuronBertForTokenClassification(NeuronTracedModel):
         NEURON_TEXT_INPUTS_DOCSTRING.format("batch_size, sequence_length")
         + NEURON_TOKEN_CLASSIFICATION_EXAMPLE.format(
             processor_class=_TOKENIZER_FOR_DOC,
-            model_class="NeuronModelForTokenClassification",
+            model_class="NeuronBertForTokenClassification",
             checkpoint="optimum/bert-base-NER-neuronx",
         )
     )
@@ -312,7 +312,7 @@ class NeuronBertForMultipleChoice(NeuronTracedModel):
         NEURON_TEXT_INPUTS_DOCSTRING.format("batch_size, num_choices, sequence_length")
         + NEURON_MULTIPLE_CHOICE_EXAMPLE.format(
             processor_class=_TOKENIZER_FOR_DOC,
-            model_class="NeuronModelForMultipleChoice",
+            model_class="NeuronBertForMultipleChoice",
             checkpoint="optimum/bert-base-uncased_SWAG-neuronx",
         )
     )
