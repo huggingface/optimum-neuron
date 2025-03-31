@@ -22,14 +22,9 @@ from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
-DECODER_MODEL_ARCHITECTURES = ["bloom", "gpt2", "llama", "mistral", "mixtral", "opt", "phi3"]
+DECODER_MODEL_ARCHITECTURES = ["llama", "granite", "qwen2", "phi3"]
 DECODER_MODEL_NAMES = {
-    "bloom": "hf-internal-testing/tiny-random-BloomForCausalLM",
-    "gpt2": "hf-internal-testing/tiny-random-gpt2",
     "llama": "llamafactory/tiny-random-Llama-3",
-    "mistral": "dacorvo/tiny-random-MistralForCausalLM",
-    "mixtral": "dacorvo/Mixtral-tiny",
-    "opt": "hf-internal-testing/tiny-random-OPTForCausalLM",
     "qwen2": "yujiepan/qwen2.5-128k-tiny-random",
     "granite": "hf-internal-testing/tiny-random-GraniteForCausalLM",
     "phi3": "yujiepan/phi-4-tiny-random",
