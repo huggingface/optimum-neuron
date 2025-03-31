@@ -787,7 +787,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         + NEURON_TEXT_GENERATION_EXAMPLE.format(
             processor_class="AutoTokenizer",
             model_class="NeuronModelForCausalLM",
-            checkpoint="gpt2",
+            checkpoint="Qwen/Qwen2.5-0.5B-Instruct",
         )
     )
     def forward(

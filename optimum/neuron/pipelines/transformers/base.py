@@ -98,7 +98,7 @@ NEURONX_SUPPORTED_TASKS = {
     "text-generation": {
         "impl": TextGenerationPipeline,
         "class": (NeuronModelForCausalLM,),
-        "default": "gpt2",
+        "default": "Qwen/Qwen2.5-0.5B-Instruct",
         "type": "text",
     },
     "image-classification": {

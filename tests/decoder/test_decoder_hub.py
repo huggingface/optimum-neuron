@@ -29,17 +29,17 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 @requires_neuronx
 @pytest.mark.parametrize("from_local", [False, True], ids=["from_hub", "from_local"])
 def test_decoder_push_to_hub(from_local):
-    model_id = "hf-internal-testing/tiny-random-gpt2"
+    model_id = "llamafactory/tiny-random-Llama-3"
     with TemporaryDirectory() as model_path:
         if from_local:
             hub_model = AutoModelForCausalLM.from_pretrained(model_id)
             with TemporaryDirectory() as tmpdir:
                 hub_model.save_pretrained(tmpdir)
-                model = NeuronModelForCausalLM.from_pretrained(tmpdir, export=True)
+                model = NeuronModelForCausalLM.from_pretrained(tmpdir, export=True, num_cores=2)
                 # Save must happen within the context of the tmpdir or checkpoint dir is lost
                 model.save_pretrained(model_path)
         else:
-            model = NeuronModelForCausalLM.from_pretrained(model_id, export=True)
+            model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, num_cores=2)
             model.save_pretrained(model_path)
         # The hub model contains the checkpoint only when the model is exported from a local path
         ignore_patterns = [] if from_local else [model.CHECKPOINT_DIR + "/*"]

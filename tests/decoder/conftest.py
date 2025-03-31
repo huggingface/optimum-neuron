@@ -24,10 +24,6 @@ OPTIMUM_CACHE_REPO_ID = "optimum-internal-testing/neuron-testing-cache"
 
 # All model configurations below will be added to the neuron_model_config fixture
 DECODER_MODEL_CONFIGURATIONS = {
-    "gpt2": {
-        "model_id": "gpt2",
-        "export_kwargs": {"batch_size": 4, "sequence_length": 1024, "num_cores": 2, "auto_cast_type": "fp16"},
-    },
     "llama": {
         "model_id": "unsloth/Llama-3.2-1B-Instruct",
         "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "fp16"},
@@ -39,14 +35,6 @@ DECODER_MODEL_CONFIGURATIONS = {
     "granite": {
         "model_id": "ibm-granite/granite-3.1-2b-instruct",
         "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "bf16"},
-    },
-    "mistral": {
-        "model_id": "optimum/mistral-1.1b-testing",
-        "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "bf16"},
-    },
-    "mixtral": {
-        "model_id": "dacorvo/Mixtral-tiny",
-        "export_kwargs": {"batch_size": 4, "sequence_length": 1024, "num_cores": 2, "auto_cast_type": "fp16"},
     },
     "phi": {
         "model_id": "microsoft/Phi-3-mini-4k-instruct",
