@@ -13,9 +13,9 @@ from optimum.neuron.configuration_utils import NeuronConfig
         (
             HloNeuronConfig,
             {
-                "n_positions": 512,
+                "sequence_length": 512,
                 "batch_size": 8,
-                "amp": "fp16",
+                "auto_cast_type": "fp16",
                 "tp_degree": 4,
                 "continuous_batching": True,
                 "attention_layout": Layout.BSH,

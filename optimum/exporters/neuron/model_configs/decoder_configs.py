@@ -82,10 +82,10 @@ class NeuronDecoderExportConfig(NeuronExportConfig):
         if issubclass(self.neuronx_class, NeuronHloDecoderModel):
             export_kwargs["neuron_config"] = HloNeuronConfig(
                 batch_size=batch_size,
-                n_positions=sequence_length,
+                sequence_length=sequence_length,
                 tp_degree=tensor_parallel_size,
                 # transformers-neuronx uses f32/f16 instead of fp32/fp16
-                amp=auto_cast_type.replace("p", ""),
+                auto_cast_type=auto_cast_type.replace("p", ""),
                 attention_layout=self.attention_layout,
                 fuse_qkv=self.fuse_qkv,
                 continuous_batching=(batch_size > 1 and self.continuous_batching),
