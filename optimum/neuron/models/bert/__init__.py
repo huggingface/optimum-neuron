@@ -13,4 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .model import NeuronBertModel
+from .model import (
+    NeuronBertForMaskedLM,
+    NeuronBertForMultipleChoice,
+    NeuronBertForQuestionAnswering,
+    NeuronBertForSequenceClassification,
+    NeuronBertForTokenClassification,
+    NeuronBertModel,
+)

@@ -17,6 +17,6 @@ from . import (
     bert,
     granite,
     llama,
-    phi,
+    phi3,
     qwen2,
 )
