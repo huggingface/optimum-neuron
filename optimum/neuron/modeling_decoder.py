@@ -33,7 +33,6 @@ from ..exporters.tasks import TasksManager
 from .cache.entries.single_model import SingleModelCacheEntry
 from .cache.hub_cache import hub_neuronx_cache
 from .modeling_base import NeuronModel
-from .utils.require_utils import requires_transformers_neuronx
 from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
 
 
@@ -67,7 +66,6 @@ def get_neuron_major() -> int:
     return -1
 
 
-@requires_transformers_neuronx
 def get_available_cores() -> int:
     """A helper to get the number of available cores.
 
@@ -129,7 +127,6 @@ class NeuronDecoderModel(NeuronModel):
     CHECKPOINT_DIR = "checkpoint"
     COMPILED_DIR = "compiled"
 
-    @requires_transformers_neuronx
     def __init__(
         self,
         config: "PretrainedConfig",
@@ -315,13 +312,11 @@ class NeuronDecoderModel(NeuronModel):
         return new_config
 
     @classmethod
-    @requires_transformers_neuronx
     def _from_transformers(cls, *args, **kwargs):
         # Deprecate it when optimum uses `_export` as from_pretrained_method in a stable release.
         return cls._export(*args, **kwargs)
 
     @classmethod
-    @requires_transformers_neuronx
     def _export(
         cls,
         model_id: str,
@@ -380,7 +375,6 @@ class NeuronDecoderModel(NeuronModel):
         return checkpoint_dir, compiled_dir
 
     @classmethod
-    @requires_transformers_neuronx
     def _from_pretrained(
         cls,
         model_id: Union[str, Path],

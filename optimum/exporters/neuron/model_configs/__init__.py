@@ -14,9 +14,9 @@
 # limitations under the License.
 """Model specific Neuron configurations."""
 
-from ....neuron.utils.import_utils import is_transformers_neuronx_available
+from ....neuron.utils.import_utils import is_neuronx_available
 from .traced_configs import *
 
 
-if is_transformers_neuronx_available():
+if is_neuronx_available():
     from .decoder_configs import *

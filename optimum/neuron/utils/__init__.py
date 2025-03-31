@@ -48,7 +48,6 @@ _import_structure = {
         "is_neuronx_distributed_available",
         "is_torch_neuronx_available",
         "is_torch_xla_available",
-        "is_transformers_neuronx_available",
         "is_trl_available",
     ],
     "input_generators": [
@@ -120,7 +119,6 @@ if TYPE_CHECKING:
         is_neuronx_distributed_available,
         is_torch_neuronx_available,
         is_torch_xla_available,
-        is_transformers_neuronx_available,
         is_trl_available,
     )
     from .input_generators import (
