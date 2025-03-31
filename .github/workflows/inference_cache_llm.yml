@@ -24,17 +24,13 @@ jobs:
       fail-fast: false
       matrix:
         config: [
-          gpt2,
           llama,
           qwen2.5,
           granite,
           phi4,
           llama3.1-70b,
           qwen2.5-large,
-          mistral,
           llama-variants,
-          mistral-variants,
-          mixtral
         ]
     steps:
       - name: Checkout

@@ -118,10 +118,7 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
     inputs = tokenizer(prompt, return_tensors="pt")
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17)
     expectations = {
-        "gpt2": "\n\nDeep learning is a new field of research that has been around for a while",
         "llama": " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial",
-        "mistral": "\nWhat is Deep Learning?\nDeep Learning is a type of machine learning that",
-        "mixtral": "_+Azure marineictions spoonニolare又 Movement@Export좌╗personE przASS",  # This model has random weights
         "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
         "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
         "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",

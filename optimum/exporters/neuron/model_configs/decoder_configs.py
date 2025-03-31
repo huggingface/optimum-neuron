@@ -14,11 +14,6 @@
 # limitations under the License.
 """Neuron export configurations for decoder models."""
 
-import importlib
-
-from transformers_neuronx import ContinuousBatchingConfig
-from transformers_neuronx import NeuronConfig as TnxNeuronConfig
-
 from optimum.exporters.tasks import TasksManager
 
 from ....neuron.backends.hlo.config import HloNeuronConfig
@@ -42,8 +37,7 @@ class NeuronDecoderExportConfig(NeuronExportConfig):
     - INPUT_ARGS (`Tuple[Union[str, Tuple[Union[str, Tuple[str]]]]]`) -- A tuple where each element is either:
         - An argument  name, for instance "batch_size" or "sequence_length", that indicates that the argument can
         be passed to export the model,
-    - NEURONX_CLASS (`str`) -- the name of the transformers-neuronx class to instantiate for the model.
-    It is a full class name defined relatively to the transformers-neuronx module, e.g. `gpt2.model.GPT2ForSampling`
+    - NEURONX_CLASS (`type`) -- thethe class to use to instantiate the model.
     - CONTINUOUS_BATCHING (`bool`, defaults to `False`) -- Whether the model supports continuous batching or not.
     - ATTENTION_LAYOUT (`str`, defaults to `HSB`) -- Layout to be used for attention computation.
 
@@ -61,20 +55,11 @@ class NeuronDecoderExportConfig(NeuronExportConfig):
     FUSE_QKV = True
 
     def __init__(self, task: str):
-        if isinstance(self.NEURONX_CLASS, type):
-            self._neuronx_class = self.NEURONX_CLASS
-        else:
-            module_name, class_name = self.NEURONX_CLASS.rsplit(".", maxsplit=1)
-            module = importlib.import_module(f"transformers_neuronx.{module_name}")
-            self._neuronx_class = getattr(module, class_name, None)
-            if self._neuronx_class is None:
-                raise ImportError(
-                    f"{class_name} not found in {module_name}. Please check transformers-neuronx version."
-                )
+        pass
 
     @property
     def neuronx_class(self):
-        return self._neuronx_class
+        return self.NEURONX_CLASS
 
     @property
     def allow_flash_attention(self):
@@ -93,44 +78,21 @@ class NeuronDecoderExportConfig(NeuronExportConfig):
         return self.FUSE_QKV
 
     def get_export_kwargs(self, batch_size: int, sequence_length: int, auto_cast_type: str, tensor_parallel_size: int):
-        base_kwargs = {
-            "batch_size": batch_size,
-            "n_positions": sequence_length,
-            "tp_degree": tensor_parallel_size,
-            # transformers-neuronx uses f32/f16 instead of fp32/fp16
-            "amp": auto_cast_type.replace("p", ""),
-        }
-        neuron_kwargs = {
-            "attention_layout": self.attention_layout,
-            "fuse_qkv": self.fuse_qkv,
-        }
-        # Continuous batching is always enabled for models that support it because static batching
-        # is broken for these models:  see https://github.com/aws-neuron/transformers-neuronx/issues/79
-        continuous_batching = batch_size > 1 and self.continuous_batching
         export_kwargs = {}
         if issubclass(self.neuronx_class, NeuronHloDecoderModel):
-            # For new models, all export kwargs are integrated into NeuronConfig
-            neuron_kwargs.update(base_kwargs)
-            neuron_kwargs["allow_flash_attention"] = self.allow_flash_attention
-            neuron_kwargs["continuous_batching"] = continuous_batching
-            export_kwargs["neuron_config"] = HloNeuronConfig(**neuron_kwargs)
-        else:
-            # For legacy models, base kwargs are passed individually
-            export_kwargs.update(base_kwargs)
-            if continuous_batching:
-                neuron_kwargs["continuous_batching"] = ContinuousBatchingConfig(
-                    batch_size_for_shared_caches=batch_size
-                )
-                export_kwargs["n_positions"] = [sequence_length]
-                export_kwargs["context_length_estimate"] = [sequence_length]
-            export_kwargs["neuron_config"] = TnxNeuronConfig(**neuron_kwargs)
+            export_kwargs["neuron_config"] = HloNeuronConfig(
+                batch_size=batch_size,
+                n_positions=sequence_length,
+                tp_degree=tensor_parallel_size,
+                # transformers-neuronx uses f32/f16 instead of fp32/fp16
+                amp=auto_cast_type.replace("p", ""),
+                attention_layout=self.attention_layout,
+                fuse_qkv=self.fuse_qkv,
+                continuous_batching=(batch_size > 1 and self.continuous_batching),
+                allow_flash_attention=self.allow_flash_attention,
+            )
 
         return export_kwargs
-
-
-@register_in_tasks_manager("gpt2", "text-generation")
-class GPT2NeuronConfig(NeuronDecoderExportConfig):
-    NEURONX_CLASS = "gpt2.model.GPT2ForSampling"
 
 
 @register_in_tasks_manager("llama", "text-generation")
@@ -139,28 +101,6 @@ class LLamaNeuronConfig(NeuronDecoderExportConfig):
     ALLOW_FLASH_ATTENTION = True
     CONTINUOUS_BATCHING = True
     ATTENTION_lAYOUT = "BSH"
-
-
-@register_in_tasks_manager("opt", "text-generation")
-class OPTNeuronConfig(NeuronDecoderExportConfig):
-    NEURONX_CLASS = "opt.model.OPTForSampling"
-
-
-@register_in_tasks_manager("bloom", "text-generation")
-class BloomNeuronConfig(NeuronDecoderExportConfig):
-    NEURONX_CLASS = "bloom.model.BloomForSampling"
-
-
-@register_in_tasks_manager("mistral", "text-generation")
-class MistralNeuronConfig(NeuronDecoderExportConfig):
-    NEURONX_CLASS = "mistral.model.MistralForSampling"
-    CONTINUOUS_BATCHING = True
-
-
-@register_in_tasks_manager("mixtral", "text-generation")
-class MixtralNeuronConfig(NeuronDecoderExportConfig):
-    NEURONX_CLASS = "mixtral.model.MixtralForSampling"
-    CONTINUOUS_BATCHING = False
 
 
 @register_in_tasks_manager("qwen2", "text-generation")
