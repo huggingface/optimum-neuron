@@ -199,7 +199,8 @@ class LlamaAttention(LlamaAttentionHF):
 
         init_method = partial(_init_normal, config.initializer_range)
 
-        self.qkv_linear = self.num_key_value_heads < get_tensor_model_parallel_size()
+        tp_size = get_tensor_model_parallel_size()
+        self.qkv_linear = (self.num_key_value_heads < tp_size) or (self.num_key_value_heads % tp_size != 0)
         if self.qkv_linear:
             if mp_config.kv_size_multiplier is None:
                 self.kv_size_multiplier = mp_config.auto_kv_size_multiplier(self.num_key_value_heads)

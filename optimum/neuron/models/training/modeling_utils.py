@@ -239,8 +239,8 @@ class NeuronModelMixin:
         **kwargs,
     ) -> SpecificPreTrainedModelType:
         state_dict = kwargs.pop("state_dict", None)
-        from_tf = kwargs.pop("from_tf", False)
-        from_flax = kwargs.pop("from_flax", False)
+        kwargs.pop("from_tf", False)
+        kwargs.pop("from_flax", False)
         resume_download = kwargs.pop("resume_download", None)
         proxies = kwargs.pop("proxies", None)
         kwargs.pop("output_loading_info", False)
@@ -538,7 +538,6 @@ class NeuronModelMixin:
                         if case == "local":
                             full_weight = state_dict[name]
                             per_partition_size = full_weight.shape[param.partition_dim] // tp_size
-                            print(name, param.partition_dim, per_partition_size, param.partition_stride)
                             state_dict[name] = create_local_weight(
                                 full_weight, param.partition_dim, per_partition_size, param.partition_stride
                             )
