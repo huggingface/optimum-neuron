@@ -12,7 +12,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 @pytest.mark.parametrize("batch_size, sequence_length, auto_cast_type", [[1, 512, "fp16"], [2, 128, "bf16"]])
 @pytest.mark.parametrize("num_cores", [1, 2])
 def test_export_decoder_cli(batch_size, sequence_length, auto_cast_type, num_cores):
-    model_id = "hf-internal-testing/tiny-random-gpt2"
+    model_id = "llamafactory/tiny-random-Llama-3"
     with TemporaryDirectory() as tempdir:
         subprocess.run(
             [
