@@ -85,9 +85,11 @@ class HloNeuronConfig(NeuronConfig):
 
     def __init__(
         self,
-        n_positions: int = 1024,
+        checkpoint_id: str = None,
+        checkpoint_revision: str = None,
+        sequence_length: int = 1024,
         batch_size: int = 1,
-        amp: str = "bf16",
+        auto_cast_type: str = "bf16",
         tp_degree: int = 2,
         *,
         continuous_batching: Optional[bool] = False,
@@ -102,9 +104,11 @@ class HloNeuronConfig(NeuronConfig):
         allow_flash_attention: bool = True,
     ):
         super().__init__()
-        self.n_positions = n_positions
+        self.checkpoint_id = checkpoint_id
+        self.checkpoint_revision = checkpoint_revision
+        self.sequence_length = sequence_length
         self.batch_size = batch_size
-        self.amp = amp
+        self.auto_cast_type = auto_cast_type
         self.tp_degree = tp_degree
         self.all_reduce_dtype = all_reduce_dtype
         self.fuse_qkv = fuse_qkv

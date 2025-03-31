@@ -34,5 +34,5 @@ class Qwen2HloModel(LlamaHloModel):
         config: PretrainedConfig,
         neuron_config: HloNeuronConfig,
     ):
-        dtype = to_torch_dtype(neuron_config.amp)
+        dtype = to_torch_dtype(neuron_config.auto_cast_type)
         super().__init__(config, neuron_config, cpu_model=Qwen2ForCausalLM(config, dtype))
