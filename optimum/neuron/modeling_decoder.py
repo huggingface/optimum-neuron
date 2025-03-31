@@ -47,9 +47,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def get_exporter(config, task):
+def get_exporter(config):
     return TasksManager.get_exporter_config_constructor(
-        model_type=config.model_type, exporter="neuron", task=task, library_name="transformers"
+        model_type=config.model_type, exporter="neuron", task="text-generation", library_name="transformers"
     )()
 
 
@@ -153,7 +153,6 @@ class NeuronDecoderModel(NeuronModel):
             self.auto_model_class.register(AutoConfig, self.__class__)
 
         # Evaluate the configuration passed during export
-        task = neuron_config["task"]
         batch_size = neuron_config["batch_size"]
         sequence_length = neuron_config["sequence_length"]
         num_cores = neuron_config["num_cores"]
@@ -161,7 +160,7 @@ class NeuronDecoderModel(NeuronModel):
 
         check_compiler_compatibility(neuron_config["compiler_type"], neuron_config["compiler_version"])
 
-        exporter = get_exporter(config, task)
+        exporter = get_exporter(config)
 
         export_kwargs = exporter.get_export_kwargs(
             batch_size=batch_size,
@@ -213,12 +212,11 @@ class NeuronDecoderModel(NeuronModel):
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
-        task: Optional[str] = None,
         **kwargs,
     ) -> TemporaryDirectory:
         # Instantiate the transformers model checkpoint
         model = TasksManager.get_model_from_task(
-            task=task,
+            task="text-generation",
             model_name_or_path=model_id,
             subfolder=subfolder,
             revision=revision,
@@ -252,15 +250,11 @@ class NeuronDecoderModel(NeuronModel):
         config: "PretrainedConfig",
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
-        task: Optional[str] = None,
         batch_size: Optional[int] = None,
         sequence_length: Optional[int] = None,
         num_cores: Optional[int] = None,
         auto_cast_type: Optional[str] = None,
     ) -> "PretrainedConfig":
-        if task is None:
-            task = TasksManager.infer_task_from_model(cls.auto_model_class)
-
         if os.path.isdir(model_id):
             checkpoint_id = None
             checkpoint_revision = None
@@ -294,7 +288,6 @@ class NeuronDecoderModel(NeuronModel):
 
         new_config = copy.deepcopy(config)
         new_config.neuron = {
-            "task": task,
             "batch_size": batch_size,
             "num_cores": num_cores,
             "auto_cast_type": auto_cast_type,
@@ -318,7 +311,6 @@ class NeuronDecoderModel(NeuronModel):
         config: "PretrainedConfig",
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
-        task: Optional[str] = None,
         batch_size: Optional[int] = None,
         sequence_length: Optional[int] = None,
         num_cores: Optional[int] = None,
@@ -334,7 +326,6 @@ class NeuronDecoderModel(NeuronModel):
             config,
             token=token,
             revision=revision,
-            task=task,
             batch_size=batch_size,
             sequence_length=sequence_length,
             num_cores=num_cores,
@@ -347,7 +338,6 @@ class NeuronDecoderModel(NeuronModel):
             # Create the local transformers model checkpoint
             checkpoint_dir = cls._create_checkpoint(
                 model_id,
-                task=new_config.neuron["task"],
                 revision=revision,
                 **kwargs,
             )
@@ -394,14 +384,12 @@ class NeuronDecoderModel(NeuronModel):
         checkpoint_dir, compiled_dir = cls._get_neuron_dirs(model_path)
         if not os.path.isdir(checkpoint_dir):
             # Try to recreate checkpoint from neuron config
-            task = neuron_config["task"]
             checkpoint_id = neuron_config.get("checkpoint_id", None)
             if checkpoint_id is None:
                 raise ValueError("Unable to fetch the neuron model weights files.")
             checkpoint_revision = neuron_config["checkpoint_revision"]
             checkpoint_dir = cls._create_checkpoint(
                 checkpoint_id,
-                task=task,
                 revision=checkpoint_revision,
                 token=token,
                 **kwargs,
