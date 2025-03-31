@@ -21,6 +21,7 @@ from transformers import (
     AudioClassificationPipeline,
     AutoConfig,
     AutomaticSpeechRecognitionPipeline,
+    BaseImageProcessor,
     FillMaskPipeline,
     ImageClassificationPipeline,
     ImageSegmentationPipeline,
@@ -143,10 +144,12 @@ def check_model_type(self, supported_models: Union[List[str], dict]):
 def load_pipeline(
     model,
     targeted_task,
-    load_tokenizer,
-    tokenizer,
-    feature_extractor,
-    load_feature_extractor,
+    tokenizer: Optional[Union[str, PreTrainedTokenizer, "PreTrainedTokenizerFast"]],
+    feature_extractor: Optional[Union[str, PreTrainedFeatureExtractor]],
+    image_processor: Optional[Union[str, BaseImageProcessor]],
+    load_tokenizer: bool,
+    load_feature_extractor: bool,
+    load_image_processor: bool,
     supported_tasks=NEURONX_SUPPORTED_TASKS,
     input_shapes={},
     export=False,
@@ -198,13 +201,22 @@ def load_pipeline(
                     "Could not automatically find a feature extractor for the NeuronModel, you must pass a "
                     "feature_extractor explictly"
                 )
+        if image_processor is None and load_image_processor:
+            for preprocessor in model.preprocessors:
+                if isinstance(preprocessor, BaseImageProcessor):
+                    image_processor = preprocessor
+                    break
+            if image_processor is None:
+                raise ValueError(
+                    "Could not automatically find an image_processor for the NeuronModel, you must pass an image processor explicitly"
+                )
         model_id = None
     else:
         raise ValueError(
             f"""Model {model} is not supported. Please provide a valid model either as string or NeuronModel.
             You can also provide non model then a default one will be used"""
         )
-    return model, model_id, tokenizer, feature_extractor
+    return model, model_id, tokenizer, feature_extractor, image_processor
 
 
 def pipeline(
@@ -212,6 +224,7 @@ def pipeline(
     model: Optional[Union[str, NeuronModel]] = None,
     tokenizer: Optional[Union[str, PreTrainedTokenizer]] = None,
     feature_extractor: Optional[Union[str, PreTrainedFeatureExtractor]] = None,
+    image_processor: Optional[Union[str, BaseImageProcessor]] = None,
     use_fast: bool = True,
     export: bool = False,
     input_shapes: Optional[Dict[str, int]] = {},
@@ -260,13 +273,17 @@ def pipeline(
 
     no_feature_extractor_tasks = set()
     no_tokenizer_tasks = set()
+    no_image_processor_tasks = set()
     for _task, values in NEURONX_SUPPORTED_TASKS.items():
         if values["type"] == "text":
             no_feature_extractor_tasks.add(_task)
+            no_image_processor_tasks.add(_task)
         elif values["type"] in {"image", "video"}:
             no_tokenizer_tasks.add(_task)
+            no_feature_extractor_tasks.add(_task)
         elif values["type"] in {"audio"}:
             no_tokenizer_tasks.add(_task)
+            no_image_processor_tasks.add(_task)
         elif values["type"] not in ["multimodal", "audio", "video"]:
             raise ValueError(f"SUPPORTED_TASK {_task} contains invalid type {values['type']}")
 
@@ -285,13 +302,20 @@ def pipeline(
     else:
         load_feature_extractor = True
 
-    model, model_id, tokenizer, feature_extractor = load_pipeline(
-        model,
-        task,
-        load_tokenizer,
-        tokenizer,
-        feature_extractor,
-        load_feature_extractor,
+    if task in no_image_processor_tasks:
+        load_image_processor = False
+    else:
+        load_image_processor = True
+
+    model, model_id, tokenizer, feature_extractor, image_processor = load_pipeline(
+        model=model,
+        targeted_task=task,
+        tokenizer=tokenizer,
+        feature_extractor=feature_extractor,
+        image_processor=image_processor,
+        load_tokenizer=load_tokenizer,
+        load_feature_extractor=load_feature_extractor,
+        load_image_processor=load_image_processor,
         export=export,
         input_shapes=input_shapes,
         compiler_args=compiler_args,
@@ -304,6 +328,8 @@ def pipeline(
         tokenizer = get_preprocessor(model_id)
     if feature_extractor is None and load_feature_extractor:
         feature_extractor = get_preprocessor(model_id)
+    if image_processor is None and load_image_processor:
+        image_processor = get_preprocessor(model_id)
 
     # If we don't specify a batch_size, the pipeline will assume batch_size 1
     # and it will process the inputs one by one instead of processing them in parallel
@@ -327,6 +353,7 @@ def pipeline(
         model=model,
         tokenizer=tokenizer,
         feature_extractor=feature_extractor,
+        image_processor=image_processor,
         use_fast=use_fast,
         batch_size=batch_size,
         pipeline_class=NEURONX_SUPPORTED_TASKS[task]["impl"],

@@ -61,15 +61,13 @@
       sections:
       - isExpanded: false 
         sections: 
-        - local: model_doc/transformers/albert
-          title: ALBERT
         - local: model_doc/transformers/bert
           title: BERT
         title: TEXT MODELS
       - isExpanded: false
         sections: 
-        - local: model_doc/transformers/beit
-          title: BEiT
+        - local: model_doc/transformers/vit
+          title: ViT
         title: VISION MODELS
       - isExpanded: false 
         sections: 
