@@ -30,7 +30,7 @@ class LlamaHloModel(NeuronHloDecoderModel):
         hlo_builder=None,
     ):
         if cpu_model is None:
-            dtype = to_torch_dtype(neuron_config.amp)
+            dtype = to_torch_dtype(neuron_config.auto_cast_type)
             cpu_model = LlamaForCausalLM(config, dtype)
         if hlo_builder is None:
             hlo_builder = LlamaGraphBuilder(config, neuron_config)

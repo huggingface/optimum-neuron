@@ -46,7 +46,7 @@ class LlamaGraphBuilder(DecoderGraphBuilder):
         mask, active_mask = functional.attention_mask(
             cache_ids,
             start_ids,
-            self.neuron_config.n_positions,
+            self.neuron_config.sequence_length,
         )
 
         return hidden, cache_ids, start_ids, pos_embed, mask, active_mask
