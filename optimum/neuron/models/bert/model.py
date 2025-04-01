@@ -26,7 +26,6 @@ from transformers import (
     AutoModelForSequenceClassification,
     AutoModelForTokenClassification,
 )
-from transformers.file_utils import add_start_docstrings, add_start_docstrings_to_model_forward
 from transformers.modeling_outputs import (
     BaseModelOutputWithPooling,
     MaskedLMOutput,
@@ -47,6 +46,8 @@ from ...utils import (
     NEURON_SEQUENCE_CLASSIFICATION_EXAMPLE,
     NEURON_TEXT_INPUTS_DOCSTRING,
     NEURON_TOKEN_CLASSIFICATION_EXAMPLE,
+    add_start_docstrings,
+    add_start_docstrings_to_model_forward,
 )
 
 
@@ -55,15 +56,11 @@ logger = logging.getLogger(__name__)
 
 @add_start_docstrings(
     """
-    Bare Bert Model transformer outputting raw hidden-states without any specific head on top.
+    Bare Bert Model transformer outputting raw hidden-states without any specific head on top, used for the task "feature-extraction".
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
 class NeuronBertModel(NeuronTracedModel):
-    """
-    Bare Bert Model model on Neuron devices, used for the task "feature-extraction".
-    """
-
     auto_model_class = AutoModel
 
     @add_start_docstrings_to_model_forward(
@@ -107,15 +104,11 @@ class NeuronBertModel(NeuronTracedModel):
 
 @add_start_docstrings(
     """
-    Bert Model with a `language modeling` head on top, for masked language modeling tasks on Neuron devices.
+    Masked language Bert Model with a `language modeling` head on top, for masked language modeling tasks on Neuron devices.
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
 class NeuronBertForMaskedLM(NeuronTracedModel):
-    """
-    Masked language Bert on Neuron devices.
-    """
-
     auto_model_class = AutoModelForMaskedLM
 
     @add_start_docstrings_to_model_forward(
@@ -153,16 +146,12 @@ class NeuronBertForMaskedLM(NeuronTracedModel):
 
 @add_start_docstrings(
     """
-    Neuron Bert with a span classification head on top for extractive question-answering tasks like SQuAD (a linear
+    Bert with a span classification head on top for extractive question-answering tasks like SQuAD (a linear
     layers on top of the hidden-states output to compute `span start logits` and `span end logits`).
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
 class NeuronBertForQuestionAnswering(NeuronTracedModel):
-    """
-    Question Answering Bert on Neuron devices.
-    """
-
     auto_model_class = AutoModelForQuestionAnswering
 
     @add_start_docstrings_to_model_forward(
@@ -207,10 +196,6 @@ class NeuronBertForQuestionAnswering(NeuronTracedModel):
     NEURON_MODEL_START_DOCSTRING,
 )
 class NeuronBertForSequenceClassification(NeuronTracedModel):
-    """
-    Sequence Classification model on Neuron devices.
-    """
-
     auto_model_class = AutoModelForSequenceClassification
 
     @add_start_docstrings_to_model_forward(
@@ -254,10 +239,6 @@ class NeuronBertForSequenceClassification(NeuronTracedModel):
     NEURON_MODEL_START_DOCSTRING,
 )
 class NeuronBertForTokenClassification(NeuronTracedModel):
-    """
-    Token Classification model on Neuron devices.
-    """
-
     auto_model_class = AutoModelForTokenClassification
 
     @add_start_docstrings_to_model_forward(
@@ -302,10 +283,6 @@ class NeuronBertForTokenClassification(NeuronTracedModel):
     NEURON_MODEL_START_DOCSTRING,
 )
 class NeuronBertForMultipleChoice(NeuronTracedModel):
-    """
-    Multiple choice model on Neuron devices.
-    """
-
     auto_model_class = AutoModelForMultipleChoice
 
     @add_start_docstrings_to_model_forward(

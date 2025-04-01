@@ -125,6 +125,8 @@ _import_structure = {
         "NEURON_CAUSALLM_INPUTS_DOCSTRING",
         "NEURON_MODEL_START_DOCSTRING",
         "NEURON_CAUSALLM_MODEL_START_DOCSTRING",
+        "add_start_docstrings",
+        "add_start_docstrings_to_model_forward",
     ],
 }
 
@@ -181,6 +183,8 @@ if TYPE_CHECKING:
         NEURON_TEXT_GENERATION_EXAMPLE,
         NEURON_TEXT_INPUTS_DOCSTRING,
         NEURON_TOKEN_CLASSIFICATION_EXAMPLE,
+        add_start_docstrings,
+        add_start_docstrings_to_model_forward,
     )
     from .hub_cache_utils import (
         ModelCacheEntry,

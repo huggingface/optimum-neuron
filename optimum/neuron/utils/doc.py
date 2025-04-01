@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
+import textwrap
+
 
 _TOKENIZER_FOR_DOC = "AutoTokenizer"
 _PROCESSOR_FOR_IMAGE = "AutoImageProcessor"
@@ -532,3 +535,52 @@ NEURON_CAUSALLM_MODEL_START_DOCSTRING = r"""
             It can be a temporary directory if the model has never been saved locally before.
         generation_config (`transformers.GenerationConfig`): [GenerationConfig](https://huggingface.co/docs/transformers/main_classes/text_generation#transformers.GenerationConfig) holds the configuration for the model generation task.
 """
+
+
+# Copied from https://github.com/huggingface/transformers/blob/257bc670fb0eb5e118468f0adfb6e011ddd96782/src/transformers/utils/doc.py#L25
+def get_docstring_indentation_level(func):
+    """Return the indentation level of the start of the docstring of a class or function (or method)."""
+    # We assume classes are always defined in the global scope
+    if inspect.isclass(func):
+        return 4
+    source = inspect.getsource(func)
+    first_line = source.splitlines()[0]
+    function_def_level = len(first_line) - len(first_line.lstrip())
+    return 4 + function_def_level
+
+
+# Copied from https://github.com/huggingface/transformers/blob/257bc670fb0eb5e118468f0adfb6e011ddd96782/src/transformers/utils/doc.py#L36
+def add_start_docstrings(*docstr):
+    def docstring_decorator(fn):
+        fn.__doc__ = "".join(docstr) + (fn.__doc__ if fn.__doc__ is not None else "")
+        return fn
+
+    return docstring_decorator
+
+
+# Adapted from https://github.com/huggingface/transformers/blob/897ff9af0e8892167af1eb4ec58677001c3a0041/src/transformers/utils/doc.py#L44
+def add_start_docstrings_to_model_forward(*docstr):
+    def docstring_decorator(fn):
+        class_name = f"[`{fn.__qualname__.split('.')[0]}`]"
+        intro = rf"""    The {class_name} forward method, overrides the `__call__` special method. Accepts only the inputs traced during the compilation step. Any additional inputs provided during inference will be ignored. To include extra inputs, recompile the model with those inputs specified."""
+
+        correct_indentation = get_docstring_indentation_level(fn)
+        current_doc = fn.__doc__ if fn.__doc__ is not None else ""
+        try:
+            first_non_empty = next(line for line in current_doc.splitlines() if line.strip() != "")
+            doc_indentation = len(first_non_empty) - len(first_non_empty.lstrip())
+        except StopIteration:
+            doc_indentation = correct_indentation
+
+        docs = docstr
+        # In this case, the correct indentation level (class method, 2 Python levels) was respected, and we should
+        # correctly reindent everything. Otherwise, the doc uses a single indentation level
+        if doc_indentation == 4 + correct_indentation:
+            docs = [textwrap.indent(textwrap.dedent(doc), " " * correct_indentation) for doc in docstr]
+            intro = textwrap.indent(textwrap.dedent(intro), " " * correct_indentation)
+
+        docstring = "".join(docs) + current_doc
+        fn.__doc__ = intro + docstring
+        return fn
+
+    return docstring_decorator
