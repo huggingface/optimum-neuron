@@ -393,8 +393,59 @@ NEURON_TEXT_GENERATION_EXAMPLE = r"""
     ```
 """
 
+NEURON_TRANSLATION_EXAMPLE = r"""
+    *(Following models are compiled with neuronx compiler and can only be run on INF2.)*
+    Example of text-to-text generation:
+
+    ```python
+    from transformers import {processor_class}
+    from optimum.neuron import {model_class}
+    # export
+    neuron_model = {model_class}.from_pretrained({checkpoint}, export=True, dynamic_batch_size=False, batch_size=1, sequence_length=64, num_beams=4)
+    neuron_model.save_pretrained("{save_dir}")
+    del neuron_model
+
+    # inference
+    neuron_model = {model_class}.from_pretrained("{save_dir}")
+    tokenizer = {processor_class}.from_pretrained("{save_dir}")
+    inputs = tokenizer("translate English to German: Lets eat good food.", return_tensors="pt")
+
+    output = neuron_model.generate(
+        **inputs,
+        num_return_sequences=1,
+    )
+    results = [tokenizer.decode(t, skip_special_tokens=True) for t in output]
+    ```
+"""
+
+NEURON_TRANSLATION_TP_EXAMPLE = r"""
+    *(For large models, in order to fit into Neuron cores, we need to apply tensor parallelism. Here below is an example ran on `inf2.24xlarge`.)*
+    Example of text-to-text generation with tensor parallelism:
+    ```python
+    from transformers import {processor_class}
+    from optimum.neuron import {model_class}
+    # export
+    if __name__ == "__main__":  # compulsory for parallel tracing since the API will spawn multiple processes.
+        neuron_model = {model_class}.from_pretrained(
+            {checkpoint}, export=True, tensor_parallel_size=8, dynamic_batch_size=False, batch_size=1, sequence_length=128, num_beams=4,
+        )
+        neuron_model.save_pretrained("{save_dir}")
+        del neuron_model
+    # inference
+    neuron_model = {model_class}.from_pretrained("{save_dir}")
+    tokenizer = {processor_class}.from_pretrained("{save_dir}")
+    inputs = tokenizer("translate English to German: Lets eat good food.", return_tensors="pt")
+
+    output = neuron_model.generate(
+        **inputs,
+        num_return_sequences=1,
+    )
+    results = [tokenizer.decode(t, skip_special_tokens=True) for t in output]
+    ```
+"""
+
 # ==============================================================================
-# MODEL CODE EXAMPLES
+# PIPELINE CODE EXAMPLES
 # ==============================================================================
 
 NEURON_IMAGE_CLASSIFICATION_PIPELINE_EXAMPLE = r"""
@@ -509,6 +560,38 @@ NEURON_CAUSALLM_INPUTS_DOCSTRING = r"""
         start_ids (`torch.LongTensor`): The indices of the first tokens to be processed, deduced form the attention masks.
 """
 
+NEURON_SEQ2SEQ_INPUTS_DOCSTRING = r"""
+    Args:
+        input_ids (`torch.Tensor` of shape `({0})`):
+            Indices of input sequence tokens in the vocabulary.
+            Indices can be obtained using [`AutoTokenizer`](https://huggingface.co/docs/transformers/autoclass_tutorial#autotokenizer).
+            See [`PreTrainedTokenizer.encode`](https://huggingface.co/docs/transformers/main_classes/tokenizer#transformers.PreTrainedTokenizerBase.encode) and
+            [`PreTrainedTokenizer.__call__`](https://huggingface.co/docs/transformers/main_classes/tokenizer#transformers.PreTrainedTokenizerBase.__call__) for details.
+            [What are input IDs?](https://huggingface.co/docs/transformers/glossary#input-ids)
+        attention_mask (`Union[torch.Tensor, None]` of shape `({0})`, defaults to `None`):
+            Mask to avoid performing attention on padding token indices. Mask values selected in `[0, 1]`:
+            - 1 for tokens that are **not masked**,
+            - 0 for tokens that are **masked**.
+            [What are attention masks?](https://huggingface.co/docs/transformers/glossary#attention-mask)
+"""
+
+NEURON_AUDIO_SEQ2SEQ_INPUTS_DOCSTRING = r"""
+    Args:
+        input_features (`Optional[torch.FloatTensor]` of shape `(batch_size, feature_size, sequence_length)`):
+            Float values mel features extracted from the raw speech waveform. Raw speech waveform can be obtained by
+            loading a `.flac` or `.wav` audio file into an array of type `List[float]` or a `numpy.ndarray`, *e.g.* via
+            the soundfile library (`pip install soundfile`). To prepare the array into `input_features`, the
+            [`AutoFeatureExtractor`] should be used for extracting the mel features, padding and conversion into a
+            tensor of type `torch.FloatTensor`. See [`~WhisperFeatureExtractor.__call__`]
+        decoder_input_ids (`Optional[torch.LongTensor]` of shape `(batch_size, max_sequence_length)`):
+            Indices of decoder input sequence tokens in the vocabulary. Indices can be obtained using [`WhisperTokenizer`].
+            See [`PreTrainedTokenizer.encode`] and [`PreTrainedTokenizer.__call__`] for details. Since the cache is not yet
+            supported for Whisper, it needs to be padded to the `sequence_length` used for the compilation.
+        encoder_outputs (`Optional[Tuple[torch.FloatTensor]]`):
+            Tuple consists of `last_hidden_state` of shape `(batch_size, sequence_length, hidden_size)`) is a sequence of
+            hidden-states at the output of the last layer of the encoder. Used in the cross-attention of the decoder.
+"""
+
 # ==============================================================================
 # MODEL START DOCSTRING
 # ==============================================================================
@@ -534,6 +617,18 @@ NEURON_CAUSALLM_MODEL_START_DOCSTRING = r"""
         model_path (`Path`): The directory where the compiled artifacts for the model are stored.
             It can be a temporary directory if the model has never been saved locally before.
         generation_config (`transformers.GenerationConfig`): [GenerationConfig](https://huggingface.co/docs/transformers/main_classes/text_generation#transformers.GenerationConfig) holds the configuration for the model generation task.
+"""
+
+NEURON_SEQ2SEQ_MODEL_START_DOCSTRING = r"""
+    This model inherits from [`~neuron.modeling.NeuronTracedModel`]. Check the superclass documentation for the generic methods the
+    library implements for all its model (such as downloading or saving)
+
+    Args:
+        encoder (`torch.jit._script.ScriptModule`): [torch.jit._script.ScriptModule](https://pytorch.org/docs/stable/generated/torch.jit.ScriptModule.html) is the TorchScript module of the encoder with embedded NEFF(Neuron Executable File Format) compiled by neuron(x) compiler.
+        decoder (`torch.jit._script.ScriptModule`): [torch.jit._script.ScriptModule](https://pytorch.org/docs/stable/generated/torch.jit.ScriptModule.html) is the TorchScript module of the decoder with embedded NEFF(Neuron Executable File Format) compiled by neuron(x) compiler.
+        config (`transformers.PretrainedConfig`): [PretrainedConfig](https://huggingface.co/docs/transformers/main_classes/configuration#transformers.PretrainedConfig) is the Model configuration class with all the parameters of the model.
+            Initializing with a config file does not load the weights associated with the model, only the
+            configuration. Check out the [`optimum.neuron.modeling.NeuronTracedModel.from_pretrained`] method to load the model weights.
 """
 
 

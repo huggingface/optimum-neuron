@@ -87,6 +87,7 @@ _import_structure["models.bert"] = [
     "NeuronBertForTokenClassification",
     "NeuronBertForMultipleChoice",
 ]
+_import_structure["models.whisper"] = ["NeuronWhisperForConditionalGeneration"]
 
 if TYPE_CHECKING:
     from .accelerate import ModelParallelismPlugin, NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
@@ -136,6 +137,7 @@ if TYPE_CHECKING:
         NeuronBertForTokenClassification,
         NeuronBertModel,
     )
+    from .models.whisper import NeuronWhisperForConditionalGeneration
     from .pipelines import pipeline
     from .trainers import NeuronORPOTrainer, NeuronSFTTrainer, NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
