@@ -141,7 +141,6 @@ class NeuronDecoderModel(NeuronModel):
                 "Please convert your model to neuron format by passing export=True."
             )
 
-        self.checkpoint_dir = checkpoint_dir
         self.compiled_dir = compiled_dir
         if generation_config is None:
             logger.info("Generation config file not found, using a generation config created from the model config.")
@@ -422,12 +421,10 @@ class NeuronDecoderModel(NeuronModel):
     def _save_pretrained(self, save_directory: Union[str, Path]):
         dst_checkpoint_path, dst_compiled_path = self._get_neuron_dirs(save_directory)
 
-        neuron_config = getattr(self.config, "neuron")
-        checkpoint_id = neuron_config.get("checkpoint_id", None)
-        if checkpoint_id is None:
+        model_name_or_path = getattr(self.config, "_name_or_path")
+        if os.path.isdir(model_name_or_path):
             # Model was exported from a local path, so we need to save the checkpoint
-            shutil.copytree(self.checkpoint_dir, dst_checkpoint_path, dirs_exist_ok=True)
-        self.checkpoint_dir = dst_checkpoint_path
+            shutil.copytree(model_name_or_path, dst_checkpoint_path, dirs_exist_ok=True)
 
         # Save or create compiled directory
         if self.compiled_dir is None:
