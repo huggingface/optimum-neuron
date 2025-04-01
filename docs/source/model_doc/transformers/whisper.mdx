@@ -27,8 +27,7 @@ You can find all the original Whisper checkpoints under the [Whisper](https://hu
 
 To deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you first need to compile the models and export them to a serialized format for inference. Below are two approaches to compile the model, you can choose the one that best suits your needs:
 
-<hfoptions id="export-to-neuron">
-<hfoption id="cli">
+### Option 1: CLI
   
 You can export the model using the Optimum command-line interface as follows:
 
@@ -36,8 +35,10 @@ You can export the model using the Optimum command-line interface as follows:
 optimum-cli export neuron --model openai/whisper-tiny --task automatic-speech-recognition --batch_size 1 --sequence_length 128 --auto_cast all --auto_cast_type bf16 whisper_tiny_neuronx/
 ```
 
-</hfoption>
-<hfoption id="using-neuron-model-class">
+> [!TIP]
+> Execute `optimum-cli export neuron --help` to display all command line options and their description.
+
+### Option 2: NeuronModel API
 
 ```python
 from optimum.neuron import NeuronWhisperForConditionalGeneration
@@ -60,18 +61,11 @@ neuron_model.push_to_hub(
 )
 ```
 
-</hfoption>
-</hfoptions>
-
-> [!TIP]
-> Execute `optimum-cli export neuron --help` to display all command line options and their description.
-
 ## Usage example
 
 To use the model that we just exported, there are two options. We can eithe use the [`NeuronWhisperForConditionalGeneration`] class or use the [`Pipeline`]. The example below demonstrates how to automatically transcribe speech into text these two approaches.
 
-<hfoptions id="usage">
-<hfoption id="neuron-model">
+### With `NeuronWhisperForConditionalGeneration`
 
 ```python
 from datasets import load_dataset
@@ -95,8 +89,7 @@ transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)
 #  Mr. Quilter is the apostle of the middle classes and we are glad to welcome his gospel.
 ```
 
-</hfoption>
-<hfoption id="pipeline">
+### With `pipeline`
 
 ```python
 from transformers import AutoProcessor
@@ -114,10 +107,6 @@ pipeline = pipeline(
 pipeline("https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/mlk.flac")
 #  I have a dream. Good one day. This nation will rise up. Live out the true meaning of its dream.
 ```
-
-</hfoption>
-</hfoptions>
-
 
 ## NeuronWhisperForConditionalGeneration
 

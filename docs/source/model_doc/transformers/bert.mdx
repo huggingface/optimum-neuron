@@ -27,8 +27,7 @@ You can find all the original BERT checkpoints under the [BERT](https://huggingf
 
 To deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you first need to compile the models and export them to a serialized format for inference. Below are two approaches to compile the model, you can choose the one that best suits your needs. Here we take the `feature-extraction` as an example:
 
-<hfoptions id="export-to-neuron">
-<hfoption id="CLI">
+### Option 1: CLI
   
 You can export the model using the Optimum command-line interface as follows:
 
@@ -36,8 +35,10 @@ You can export the model using the Optimum command-line interface as follows:
 optimum-cli export neuron --model google-bert/bert-base-uncased --task feature-extraction --batch_size 1 --sequence_length 128 bert_feature_extraction_neuronx/
 ```
 
-</hfoption>
-<hfoption id="NeuronModel API">
+> [!TIP]
+> Execute `optimum-cli export neuron --help` to display all command line options and their description.
+
+### Option 2: NeuronModel API
 
 ```python
 from optimum.neuron import NeuronModelForFeatureExtraction
@@ -58,12 +59,6 @@ neuron_model.push_to_hub(
     "bert_feature_extraction_neuronx", repository_id="my-neuron-repo"  # Replace with your HF Hub repo id
 )
 ```
-
-</hfoption>
-</hfoptions>
-
-> [!TIP]
-> Execute `optimum-cli export neuron --help` to display all command line options and their description.
 
 ## NeuronBertModel
 

@@ -656,7 +656,7 @@ def add_start_docstrings(*docstr):
 # Adapted from https://github.com/huggingface/transformers/blob/897ff9af0e8892167af1eb4ec58677001c3a0041/src/transformers/utils/doc.py#L44
 def add_start_docstrings_to_model_forward(*docstr):
     def docstring_decorator(fn):
-        class_name = f"[`{fn.__qualname__.split('.')[0]}`]"
+        class_name = f"`{fn.__qualname__.split('.')[0]}`"
         intro = rf"""    The {class_name} forward method, overrides the `__call__` special method. Accepts only the inputs traced during the compilation step. Any additional inputs provided during inference will be ignored. To include extra inputs, recompile the model with those inputs specified."""
 
         correct_indentation = get_docstring_indentation_level(fn)
