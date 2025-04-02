@@ -15,9 +15,12 @@
 """NeuronModelForXXX classes for inference on neuron devices using the same API as Transformers."""
 
 import logging
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Union
 
 import torch
+from huggingface_hub import HfApi
 from transformers import (
     AutoModel,
     AutoModelForAudioClassification,
@@ -55,8 +58,11 @@ from transformers.modeling_outputs import (
 
 from optimum.exporters.tasks import TasksManager
 
+from .backends.hlo.config import HloNeuronConfig
+from .configuration_utils import NeuronConfig
 from .modeling_base import NeuronModel
 from .modeling_traced import NeuronTracedModel
+from .utils.system import get_available_cores
 
 
 if TYPE_CHECKING:
@@ -1259,16 +1265,51 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
 
     @staticmethod
     def get_neuron_config(
+        model_name_or_path: Union[str, Path],
         config: PretrainedConfig,
+        token: Optional[Union[bool, str]] = None,
+        revision: Optional[str] = None,
         batch_size: Optional[int] = None,
         sequence_length: Optional[int] = None,
         tensor_parallel_size: Optional[int] = None,
         auto_cast_type: Optional[str] = None,
     ):
+        if os.path.isdir(model_name_or_path):
+            checkpoint_id = None
+            checkpoint_revision = None
+        else:
+            checkpoint_id = model_name_or_path
+            # Get the exact checkpoint revision (SHA1)
+            api = HfApi(token=token)
+            model_info = api.repo_info(model_name_or_path, revision=revision)
+            checkpoint_revision = model_info.sha
+
+        if batch_size is None:
+            batch_size = 1
+        # If the sequence_length was not specified, deduce it from the model configuration
+        if sequence_length is None:
+            if hasattr(config, "n_positions"):
+                sequence_length = config.n_positions
+            elif hasattr(config, "max_position_embeddings"):
+                sequence_length = config.max_position_embeddings
+            else:
+                sequence_length = 1024
+        if tensor_parallel_size is None:
+            # Use all available cores
+            tensor_parallel_size = get_available_cores()
+        if auto_cast_type is None:
+            auto_cast_type = "fp32"
+            if config.torch_dtype == "float16":
+                auto_cast_type = "fp16"
+            elif config.torch_dtype == "bfloat16":
+                auto_cast_type = "bf16"
+
         exporter = TasksManager.get_exporter_config_constructor(
             model_type=config.model_type, exporter="neuron", task="text-generation", library_name="transformers"
         )()
         return exporter.get_neuron_config(
+            checkpoint_id=checkpoint_id,
+            checkpoint_revision=checkpoint_revision,
             batch_size=batch_size,
             sequence_length=sequence_length,
             auto_cast_type=auto_cast_type,
@@ -1295,15 +1336,24 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
     ) -> "NeuronModelForCausalLM":
         from .modeling_decoder import HloModelForCausalLM
 
-        return HloModelForCausalLM._export(
+        # Get the neuron config
+        neuron_config = cls.get_neuron_config(
             model_id,
             config,
             token=token,
             revision=revision,
             batch_size=batch_size,
             sequence_length=sequence_length,
-            num_cores=num_cores,
+            tensor_parallel_size=num_cores,
             auto_cast_type=auto_cast_type,
+        )
+
+        return HloModelForCausalLM._export(
+            model_id,
+            config,
+            neuron_config,
+            token=token,
+            revision=revision,
             **kwargs,
         )
 
@@ -1316,11 +1366,10 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
         revision: Optional[str] = None,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
-        neuron_config = getattr(config, "neuron", None)
-        if neuron_config is not None:
+        neuron_config = NeuronConfig.from_pretrained(model_id, token=token, revision=revision)
+        if isinstance(neuron_config, HloNeuronConfig):
             from .modeling_decoder import HloModelForCausalLM
 
-            neuron_config = getattr(config, "neuron", None)
             return HloModelForCausalLM._from_pretrained(
                 model_id, config, neuron_config, token=token, revision=revision, **kwargs
             )
