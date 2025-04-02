@@ -15,10 +15,8 @@
 """Base class for text-generation model architectures on neuron devices."""
 
 import copy
-import functools
 import logging
 import os
-import re
 import shutil
 import warnings
 from pathlib import Path
@@ -33,16 +31,12 @@ from transformers.modeling_outputs import ModelOutput
 from optimum.exporters.tasks import TasksManager
 
 from ..exporters.neuron.model_configs import *  # noqa: F403
+from .backends.hlo.config import HloNeuronConfig
 from .cache.entries.single_model import SingleModelCacheEntry
 from .cache.hub_cache import hub_neuronx_cache
 from .generation import TokenSelector
 from .modeling import NeuronModelForCausalLM
-from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
-
-
-NEURON_DEV_PATTERN = re.compile(r"^neuron\d+$", re.IGNORECASE)
-MAJORS_FILE = "/proc/devices"
-NEURON_MAJOR_LINE = re.compile(r"^\s*(\d+)\s+neuron\s*$")
+from .utils.system import get_available_cores
 
 
 if TYPE_CHECKING:
@@ -60,59 +54,6 @@ def get_exporter(config):
     return TasksManager.get_exporter_config_constructor(
         model_type=config.model_type, exporter="neuron", task="text-generation", library_name="transformers"
     )()
-
-
-# Note: with python 3.9, functools.cache would be more suited
-@functools.lru_cache()
-def get_neuron_major() -> int:
-    with open(MAJORS_FILE, "r") as f:
-        for l in f.readlines():
-            m = NEURON_MAJOR_LINE.match(l)
-            if m:
-                return int(m.group(1))
-    logger.error("No major for neuron device could be found in /proc/devices!")
-    return -1
-
-
-def get_available_cores() -> int:
-    """A helper to get the number of available cores.
-
-    This number depends first on the actual number of cores, then on the
-    content of the NEURON_RT_NUM_CORES and NEURON_RT_VISIBLE_CORES variables.
-    """
-    device_count = 0
-    neuron_major = get_neuron_major()
-    root, _, files = next(os.walk("/dev"))
-    # Just look for devices in dev, non recursively
-    for f in files:
-        if neuron_major > 0:
-            try:
-                dev_major = os.major(os.stat("{}/{}".format(root, f)).st_rdev)
-                if dev_major == neuron_major:
-                    device_count += 1
-            except FileNotFoundError:
-                # Just to avoid race conditions where some devices would be deleted while running this
-                pass
-        else:
-            # We were not able to get the neuron major properly we fallback on counting neuron devices based on the
-            # device name
-            if NEURON_DEV_PATTERN.match(f):
-                device_count += 1
-    max_cores = device_count * 2
-    num_cores = os.environ.get("NEURON_RT_NUM_CORES", max_cores)
-    if num_cores != max_cores:
-        num_cores = int(num_cores)
-    num_cores = min(num_cores, max_cores)
-    visible_cores = os.environ.get("NEURON_RT_VISIBLE_CORES", num_cores)
-    if visible_cores != num_cores:
-        # Assume NEURON_RT_VISIBLE_CORES is in the form '4' or '7-15'
-        if "-" in visible_cores:
-            start, end = visible_cores.split("-")
-            visible_cores = int(end) - int(start) + 1
-        else:
-            visible_cores = 1
-    visible_cores = min(visible_cores, num_cores)
-    return visible_cores
 
 
 class HloModelForCausalLM(NeuronModelForCausalLM):
@@ -138,17 +79,13 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
     def __init__(
         self,
         config: "PretrainedConfig",
+        neuron_config: HloNeuronConfig,
         checkpoint_dir: Union[str, Path, TemporaryDirectory],
         compiled_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         generation_config: Optional[GenerationConfig] = None,
     ):
-        neuron_config = getattr(config, "neuron", None)
-        if neuron_config is None:
-            raise ValueError(
-                "The specified model is not a neuron model."
-                "Please convert your model to neuron format by passing export=True."
-            )
         self.config = config
+        self.neuron_config = neuron_config
 
         self.compiled_dir = compiled_dir
         if generation_config is None:
@@ -161,50 +98,33 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         if hasattr(self.auto_model_class, "register"):
             self.auto_model_class.register(AutoConfig, self.__class__)
 
-        # Evaluate the configuration passed during export
-        batch_size = neuron_config["batch_size"]
-        sequence_length = neuron_config["sequence_length"]
-        num_cores = neuron_config["num_cores"]
-        auto_cast_type = neuron_config["auto_cast_type"]
-
-        check_compiler_compatibility(neuron_config["compiler_type"], neuron_config["compiler_version"])
-
-        exporter = get_exporter(config)
-
-        hlo_neuron_config = self.get_neuron_config(
-            config,
-            batch_size=batch_size,
-            sequence_length=sequence_length,
-            tensor_parallel_size=num_cores,
-            auto_cast_type=auto_cast_type,
-        )
-
         # Instantiate neuronx model
         checkpoint_path = checkpoint_dir.name if isinstance(checkpoint_dir, TemporaryDirectory) else checkpoint_dir
-        neuronx_model = exporter.neuronx_class.from_pretrained(checkpoint_path, neuron_config=hlo_neuron_config)
+        exporter = get_exporter(config)
+        neuronx_model = exporter.neuronx_class.from_pretrained(checkpoint_path, neuron_config=neuron_config)
 
         if compiled_dir is not None:
             # Specify the path where compiled artifacts are stored before conversion
             neuronx_model.load(compiled_dir)
 
         # When compiling, only create a cache entry if the model comes from the hub
-        checkpoint_id = neuron_config.get("checkpoint_id", None)
-        cache_entry = (
-            None
-            if checkpoint_id is None
-            else SingleModelCacheEntry(model_id=checkpoint_id, task="text-generation", config=config)
-        )
+        checkpoint_id = neuron_config.checkpoint_id
+        cache_entry = None
+        if checkpoint_id is not None:
+            cache_config = copy.deepcopy(config)
+            cache_config.neuron = neuron_config.to_dict()
+            cache_entry = SingleModelCacheEntry(model_id=checkpoint_id, task="text-generation", config=cache_config)
 
         # Export the model using the Optimum Neuron Cache
         with hub_neuronx_cache("inference", entry=cache_entry):
             available_cores = get_available_cores()
-            if num_cores > available_cores:
+            if neuron_config.tp_degree > available_cores:
                 raise ValueError(
-                    f"The specified number of cores ({num_cores}) exceeds the number of cores available ({available_cores})."
+                    f"The specified tensor parallelization ({neuron_config.tp_degree}) exceeds the number of cores available ({available_cores})."
                 )
             neuron_rt_num_cores = os.environ.get("NEURON_RT_NUM_CORES", None)
             # Restrict the number of cores used to allow multiple models on the same host
-            os.environ["NEURON_RT_NUM_CORES"] = str(num_cores)
+            os.environ["NEURON_RT_NUM_CORES"] = str(neuron_config.tp_degree)
             # Load the model on neuron cores (if found in cache or compiled directory, the NEFF files
             # will be reloaded instead of compiled)
             neuronx_model.to_neuron()
@@ -213,9 +133,9 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
             else:
                 os.environ["NEURON_RT_NUM_CORES"] = neuron_rt_num_cores
 
-        self.batch_size = config.neuron["batch_size"]
-        self.max_length = config.neuron["sequence_length"]
-        self.continuous_batching = neuronx_model.neuron_config and neuronx_model.neuron_config.continuous_batching
+        self.batch_size = neuron_config.batch_size
+        self.max_length = neuron_config.sequence_length
+        self.continuous_batching = neuron_config.continuous_batching
         self.model = neuronx_model
         # The generate method from GenerationMixin expects the device attribute to be set
         self.device = torch.device("cpu")
@@ -263,62 +183,6 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         return checkpoint_dir
 
     @classmethod
-    def get_export_config(
-        cls,
-        model_id: str,
-        config: "PretrainedConfig",
-        token: Optional[Union[bool, str]] = None,
-        revision: Optional[str] = None,
-        batch_size: Optional[int] = None,
-        sequence_length: Optional[int] = None,
-        num_cores: Optional[int] = None,
-        auto_cast_type: Optional[str] = None,
-    ) -> "PretrainedConfig":
-        if os.path.isdir(model_id):
-            checkpoint_id = None
-            checkpoint_revision = None
-        else:
-            checkpoint_id = model_id
-            # Get the exact checkpoint revision (SHA1)
-            api = HfApi(token=token)
-            model_info = api.repo_info(model_id, revision=revision)
-            checkpoint_revision = model_info.sha
-
-        if batch_size is None:
-            batch_size = 1
-        # If the sequence_length was not specified, deduce it from the model configuration
-        if sequence_length is None:
-            if hasattr(config, "n_positions"):
-                sequence_length = config.n_positions
-            elif hasattr(config, "max_position_embeddings"):
-                sequence_length = config.max_position_embeddings
-            else:
-                # Use transformers-neuronx default
-                sequence_length = 2048
-        if num_cores is None:
-            # Use all available cores
-            num_cores = get_available_cores()
-        if auto_cast_type is None:
-            auto_cast_type = "fp32"
-            if config.torch_dtype == "float16":
-                auto_cast_type = "fp16"
-            elif config.torch_dtype == "bfloat16":
-                auto_cast_type = "bf16"
-
-        new_config = copy.deepcopy(config)
-        new_config.neuron = {
-            "batch_size": batch_size,
-            "num_cores": num_cores,
-            "auto_cast_type": auto_cast_type,
-            "sequence_length": sequence_length,
-            "compiler_type": "neuronx-cc",
-            "compiler_version": get_neuronxcc_version(),
-            "checkpoint_id": checkpoint_id,
-            "checkpoint_revision": checkpoint_revision,
-        }
-        return new_config
-
-    @classmethod
     def _from_transformers(cls, *args, **kwargs):
         # Deprecate it when optimum uses `_export` as from_pretrained_method in a stable release.
         return cls._export(*args, **kwargs)
@@ -328,28 +192,13 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         cls,
         model_id: str,
         config: "PretrainedConfig",
+        neuron_config: HloNeuronConfig,
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
-        batch_size: Optional[int] = None,
-        sequence_length: Optional[int] = None,
-        num_cores: Optional[int] = None,
-        auto_cast_type: Optional[str] = "fp32",
         **kwargs,
     ) -> "HloModelForCausalLM":
         if not os.path.isdir("/sys/class/neuron_device/"):
             raise SystemError("Decoder models can only be exported on a neuron platform.")
-
-        # Update the config
-        new_config = cls.get_export_config(
-            model_id,
-            config,
-            token=token,
-            revision=revision,
-            batch_size=batch_size,
-            sequence_length=sequence_length,
-            num_cores=num_cores,
-            auto_cast_type=auto_cast_type,
-        )
 
         if os.path.isdir(model_id):
             checkpoint_dir = model_id
@@ -357,6 +206,7 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
             # Create the local transformers model checkpoint
             checkpoint_dir = cls._create_checkpoint(
                 model_id,
+                token=token,
                 revision=revision,
                 **kwargs,
             )
@@ -368,7 +218,7 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         except OSError:
             pass
 
-        return cls(new_config, checkpoint_dir, generation_config=generation_config)
+        return cls(config, neuron_config, checkpoint_dir, generation_config=generation_config)
 
     @classmethod
     def _get_neuron_dirs(cls, model_path: Union[str, Path]) -> Tuple[str, str]:
@@ -383,13 +233,11 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         cls,
         model_id: Union[str, Path],
         config: "PretrainedConfig",
-        neuron_config: Dict,
+        neuron_config: "HloNeuronConfig",
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         **kwargs,
     ) -> "HloModelForCausalLM":
-        check_compiler_compatibility(neuron_config["compiler_type"], neuron_config["compiler_version"])
-
         model_path = model_id
         if not os.path.isdir(model_id):
             model_path = snapshot_download(model_id, token=token, revision=revision)
@@ -397,10 +245,10 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         checkpoint_dir, compiled_dir = cls._get_neuron_dirs(model_path)
         if not os.path.isdir(checkpoint_dir):
             # Try to recreate checkpoint from neuron config
-            checkpoint_id = neuron_config.get("checkpoint_id", None)
+            checkpoint_id = neuron_config.checkpoint_id
             if checkpoint_id is None:
                 raise ValueError("Unable to fetch the neuron model weights files.")
-            checkpoint_revision = neuron_config["checkpoint_revision"]
+            checkpoint_revision = neuron_config.checkpoint_revision
             checkpoint_dir = cls._create_checkpoint(
                 checkpoint_id,
                 revision=checkpoint_revision,
@@ -416,7 +264,9 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         except OSError:
             pass
 
-        return cls(config, checkpoint_dir, compiled_dir=compiled_dir, generation_config=generation_config)
+        return cls(
+            config, neuron_config, checkpoint_dir, compiled_dir=compiled_dir, generation_config=generation_config
+        )
 
     def forward(
         self,
@@ -434,6 +284,7 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         return (out_logits,)
 
     def _save_pretrained(self, save_directory: Union[str, Path]):
+        self.neuron_config.save_pretrained(save_directory)
         dst_checkpoint_path, dst_compiled_path = self._get_neuron_dirs(save_directory)
 
         model_name_or_path = getattr(self.config, "_name_or_path")
@@ -468,8 +319,7 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
             private=private,
         )
         ignore_patterns = []
-        neuron_config = getattr(self.config, "neuron")
-        checkpoint_id = neuron_config.get("checkpoint_id", None)
+        checkpoint_id = self.neuron_config.checkpoint_id
         if checkpoint_id is not None:
             # Avoid uploading checkpoints when the original model is available on the hub
             ignore_patterns = [self.CHECKPOINT_DIR + "/*"]

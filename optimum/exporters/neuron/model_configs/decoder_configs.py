@@ -78,9 +78,19 @@ class NeuronDecoderExportConfig(NeuronExportConfig):
     def fuse_qkv(self):
         return self.FUSE_QKV
 
-    def get_neuron_config(self, batch_size: int, sequence_length: int, auto_cast_type: str, tensor_parallel_size: int):
+    def get_neuron_config(
+        self,
+        checkpoint_id: str,
+        checkpoint_revision: str,
+        batch_size: int,
+        sequence_length: int,
+        auto_cast_type: str,
+        tensor_parallel_size: int,
+    ):
         if issubclass(self.neuronx_class, NeuronHloDecoderModel):
             return HloNeuronConfig(
+                checkpoint_id=checkpoint_id,
+                checkpoint_revision=checkpoint_revision,
                 batch_size=batch_size,
                 sequence_length=sequence_length,
                 tp_degree=tensor_parallel_size,

@@ -185,7 +185,7 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
         pytest.skip("Model does not support continuous batching")
 
     # We need at least three inputs
-    assert model.config.neuron["batch_size"] >= 3
+    assert model.neuron_config.batch_size >= 3
 
     inputs = tokenizer("Once upon a time", return_tensors="pt")
 
