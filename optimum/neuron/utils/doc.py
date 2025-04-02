@@ -50,7 +50,6 @@ NEURON_MASKED_LM_EXAMPLE = r"""
     ```python
     >>> from transformers import {processor_class}
     >>> from optimum.neuron import {model_class}
-    >>> import torch
 
     >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
     >>> model = {model_class}.from_pretrained("{checkpoint}")

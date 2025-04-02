@@ -203,7 +203,7 @@ class NeuronBertForSequenceClassification(NeuronTracedModel):
         + NEURON_SEQUENCE_CLASSIFICATION_EXAMPLE.format(
             processor_class=_TOKENIZER_FOR_DOC,
             model_class="NeuronBertForSequenceClassification",
-            checkpoint="optimum/distilbert-base-uncased-finetuned-sst-2-english-neuronx",
+            checkpoint="optimum/bert-base-multilingual-uncased-sentiment-neuronx",
         )
     )
     def forward(
@@ -290,7 +290,7 @@ class NeuronBertForMultipleChoice(NeuronTracedModel):
         + NEURON_MULTIPLE_CHOICE_EXAMPLE.format(
             processor_class=_TOKENIZER_FOR_DOC,
             model_class="NeuronBertForMultipleChoice",
-            checkpoint="optimum/bert-base-uncased_SWAG-neuronx",
+            checkpoint="optimum/bert-base-cased-swag-neuronx",
         )
     )
     def forward(
