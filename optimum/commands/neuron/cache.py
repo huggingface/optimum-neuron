@@ -16,7 +16,7 @@
 
 from typing import TYPE_CHECKING
 
-from ...neuron.utils import get_hub_cached_entries, synchronize_hub_cache
+from ...neuron.cache import get_hub_cached_entries, synchronize_hub_cache
 from ...neuron.utils.cache_utils import (
     CACHE_REPO_NAME,
     HF_HOME_CACHE_REPO_FILE,

@@ -25,6 +25,8 @@ import torch
 from transformers import PreTrainedModel
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
+from ...neuron.cache.entries.cache_entry import ModelCacheEntry
+from ...neuron.cache.traced import cache_traced_neuron_artifacts
 from ...neuron.utils import (
     DiffusersPretrainedConfig,
     convert_neuronx_compiler_args_to_neuron,
@@ -34,11 +36,6 @@ from ...neuron.utils import (
     store_compilation_config,
 )
 from ...neuron.utils.cache_utils import get_model_name_or_path
-from ...neuron.utils.hub_cache_utils import (
-    ModelCacheEntry,
-    build_cache_config,
-    cache_traced_neuron_artifacts,
-)
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
 from ...utils import (
     is_diffusers_available,
@@ -411,8 +408,7 @@ def export_models(
     # cache neuronx model
     if not disable_neuron_cache and is_neuronx_available():
         model_id = get_model_name_or_path(model_config) if model_name_or_path is None else model_name_or_path
-        cache_config = build_cache_config(compile_configs)
-        cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
+        cache_entry = ModelCacheEntry.create(model_id=model_id, config=compile_configs)
         cache_traced_neuron_artifacts(neuron_dir=output_dir, cache_entry=cache_entry)
 
     # remove models failed to export

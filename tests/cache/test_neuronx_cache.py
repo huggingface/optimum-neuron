@@ -32,7 +32,7 @@ from optimum.neuron import (
     NeuronStableDiffusionPipeline,
     NeuronStableDiffusionXLPipeline,
 )
-from optimum.neuron.utils import get_hub_cached_entries, get_hub_cached_models, synchronize_hub_cache
+from optimum.neuron.cache import get_hub_cached_entries, get_hub_cached_models, synchronize_hub_cache
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 

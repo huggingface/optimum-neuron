@@ -30,6 +30,8 @@ from ..exporters.neuron import main_export
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..utils.save_utils import maybe_load_preprocessors
+from .cache.entries.cache_entry import ModelCacheEntry
+from .cache.hub_cache import create_hub_compile_cache_proxy
 from .modeling_base import NeuronModel
 from .utils import (
     NEURON_FILE_NAME,
@@ -39,7 +41,6 @@ from .utils import (
     replace_weights,
     store_compilation_config,
 )
-from .utils.hub_cache_utils import ModelCacheEntry, build_cache_config, create_hub_compile_cache_proxy
 from .utils.import_utils import is_neuronx_available
 from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
@@ -315,8 +316,7 @@ class NeuronTracedModel(NeuronModel):
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
             )
-            cache_config = build_cache_config(compilation_config)
-            cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
+            cache_entry = ModelCacheEntry.create(model_id=model_id, config=compilation_config)
             compile_cache = create_hub_compile_cache_proxy()
             model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
             cache_available = compile_cache.download_folder(model_cache_dir, model_cache_dir)

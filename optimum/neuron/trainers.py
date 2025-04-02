@@ -85,8 +85,11 @@ from transformers.utils import (
     is_sagemaker_mp_enabled,
 )
 
-from ..utils import logging
+from optimum.utils import logging
+
 from .accelerate import NeuronAccelerator, NeuronDistributedType, NeuronPartialState
+from .cache.hub_cache import hub_neuronx_cache, synchronize_hub_cache
+from .cache.training import TrainerModelCacheEntry, patch_neuron_cc_wrapper
 from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
 from .training_args import NeuronTrainingArguments
@@ -102,7 +105,6 @@ from .utils.cache_utils import (
     get_num_neuron_cores_used,
     has_write_access_to_repo,
 )
-from .utils.hub_cache_utils import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.import_utils import is_peft_available
 from .utils.misc import is_main_worker, is_precompilation
 from .utils.peft_utils import NeuronPeftModel, get_peft_model
@@ -218,10 +220,12 @@ class _TrainerForNeuron:
             "tensor_parallel_size": self.args.tensor_parallel_size,
             "pipeline_parallel_size": self.args.pipeline_parallel_size,
         }
-        self.model_cache_entry: Optional[ModelCacheEntry] = None
+        self.model_cache_entry: Optional[TrainerModelCacheEntry] = None
         if model_name_or_path_for_cache_entry is not None:
             model_config_for_cache_entry.neuron = neuron_config_for_cache_entry
-            self.model_cache_entry = ModelCacheEntry(model_name_or_path_for_cache_entry, model_config_for_cache_entry)
+            self.model_cache_entry = TrainerModelCacheEntry(
+                model_name_or_path_for_cache_entry, model_config_for_cache_entry
+            )
 
     @property
     def mp_enabled(self):
