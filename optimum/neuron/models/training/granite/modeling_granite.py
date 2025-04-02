@@ -136,6 +136,12 @@ def eager_attention_forward(
     if attention_mask is not None:
         causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
         attn_weights = attn_weights + causal_mask
+    else:
+        # Instead of using the attention mask, we re-compute a causal mask.
+        # It is more efficient, the only issue is that we do not support custom attention masks.
+        causal_mask = torch.triu(torch.ones((1, 1, query.size(2), key.size(2)), device="xla"), diagonal=1).bool()
+        min_value = torch.finfo(attn_weights.dtype).min
+        attn_weights = attn_weights.masked_fill_(causal_mask, min_value)
 
     attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
     attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
@@ -722,10 +728,8 @@ class GraniteModel(GranitePreTrainedModel):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        causal_mask = self._update_causal_mask(
-            attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
-        )
-
+        # In Neuron, causal mask is recalculated in the attention layer, for performance reasons
+        causal_mask = None
         hidden_states = inputs_embeds
 
         # create position embeddings to be shared across the decoder layers
