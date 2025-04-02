@@ -77,15 +77,6 @@ class LlamaRMSNorm(LlamaRMSNormHF):
         super().__init__(hidden_size, eps=eps)
         setattr(self.weight, "sequence_parallel_enabled", sequence_parallel_enabled)
 
-    # def forward(self, hidden_states):
-    #     input_dtype = hidden_states.dtype
-    #     hidden_states = hidden_states.to(torch.float32)
-    #     variance = hidden_states.pow(2).mean(-1, keepdim=True)
-    #     hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-    #     # output = self.weight * hidden_states
-    #     return self.weight * hidden_states.to(input_dtype)
-    #     # return output.to(input_dtype)
-
 ALL_LAYERNORM_LAYERS.append(LlamaRMSNorm)
 
 
@@ -250,7 +241,7 @@ class LlamaAttention(LlamaAttentionHF):
                 sequence_dimension=0,
                 dtype=self.config.torch_dtype,
             )
-            self.split_size = self.num_heads * self.head_dim // get_tensor_model_parallel_size()
+            self.split_size = self.num_heads * self.head_dim // tp_size
         else:
             self.q_proj = ColumnParallelLinear(
                 self.hidden_size,
@@ -292,7 +283,6 @@ class LlamaAttention(LlamaAttentionHF):
             sequence_dimension=0,
             dtype=self.config.torch_dtype,
         )
-        tp_size = get_tensor_model_parallel_size()
         self.num_heads = neuronx_dist_utils.divide(config.num_attention_heads, tp_size)
         self.num_key_value_heads = neuronx_dist_utils.divide(
             config.num_key_value_heads * self.kv_size_multiplier, tp_size
@@ -467,7 +457,7 @@ class LlamaModel(NeuronModelMixin, LlamaModelHF):
         )
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
 
-        self.gradient_checkpointing = False
+        self.gradient_checkpointing = self.mp_config.gradient_checkpointing
 
         # Initialize weights and apply final processing
         self.post_init()

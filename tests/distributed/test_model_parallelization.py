@@ -977,9 +977,11 @@ def test_flash_attention_v2():
     num_kv_heads = 8
     num_kv_groups = num_heads // num_kv_heads
 
-    query = torch.randn(batch_size, seq_len, num_heads, hidden_dim).transpose(1, 2).to(device="xla")
-    key = torch.randn(batch_size, seq_len, num_kv_heads, hidden_dim).transpose(1, 2).to(device="xla")
-    value = torch.randn(batch_size, seq_len, num_kv_heads, hidden_dim).transpose(1, 2).to(device="xla")
+    dtype = torch.float32
+
+    query = torch.randn(batch_size, seq_len, num_heads, hidden_dim).transpose(1, 2).to(device="xla", dtype=dtype)
+    key = torch.randn(batch_size, seq_len, num_kv_heads, hidden_dim).transpose(1, 2).to(device="xla", dtype=dtype)
+    value = torch.randn(batch_size, seq_len, num_kv_heads, hidden_dim).transpose(1, 2).to(device="xla", dtype=dtype)
 
     key = repeat_kv(key, num_kv_groups)
     value = repeat_kv(value, num_kv_groups)
@@ -1004,7 +1006,7 @@ def test_flash_attention_v2():
         value,
         softmax_scale=scaling,
         causal=True,
-        mixed_precision=False,
+        mixed_precision=True,
     )
     xm.mark_step()
 
