@@ -18,8 +18,8 @@ import torch
 
 def to_torch_dtype(dtype):
     mapping = {
-        "f32": torch.float32,
-        "f16": torch.float16,
+        "fp32": torch.float32,
+        "fp16": torch.float16,
         "bf16": torch.bfloat16,
         "s8": torch.int8,
         "f8e4m3fn": torch.float8_e4m3fn if hasattr(torch, "float8_e4m3fn") else torch.int8,
@@ -35,5 +35,8 @@ def to_pyhlo_type(scribe, dtype):
         "float32": scribe.f32,
         "float16": scribe.f16,
         "bfloat16": scribe.bf16,
+        "fp32": scribe.f32,
+        "fp16": scribe.f16,
+        "bf16": scribe.bf16,
     }
     return mapping[dtype]
