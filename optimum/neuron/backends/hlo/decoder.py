@@ -31,7 +31,7 @@ from .compiler import (
     gen_zero_output,
 )
 from .config import GQA, HloNeuronConfig, Layout
-from .dtypes import to_torch_dtype
+from .dtypes import to_pyhlo_type, to_torch_dtype
 from .parallel import ParallelTensorManipulator
 from .utils import (
     get_pad_size,
@@ -368,7 +368,7 @@ class DecoderGraph(NeuronBaseSerializer):
 
     def _build_program(self):
         def hlo_forward_wrapper(scribe):
-            dtype = getattr(scribe, self.neuron_config.auto_cast_type)
+            dtype = to_pyhlo_type(scribe, self.neuron_config.auto_cast_type)
 
             # Create user parameters
             hidden, cache_ids, start_ids, last_token_id = self.builder.inputs(

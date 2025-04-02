@@ -84,8 +84,7 @@ class NeuronDecoderExportConfig(NeuronExportConfig):
                 batch_size=batch_size,
                 sequence_length=sequence_length,
                 tp_degree=tensor_parallel_size,
-                # transformers-neuronx uses f32/f16 instead of fp32/fp16
-                auto_cast_type=auto_cast_type.replace("p", ""),
+                auto_cast_type=auto_cast_type,
                 attention_layout=self.attention_layout,
                 fuse_qkv=self.fuse_qkv,
                 continuous_batching=(batch_size > 1 and self.continuous_batching),
