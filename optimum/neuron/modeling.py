@@ -33,6 +33,7 @@ from transformers import (
     AutoModelForSemanticSegmentation,
     AutoModelForSequenceClassification,
     AutoModelForTokenClassification,
+    PretrainedConfig,
 )
 from transformers.file_utils import add_start_docstrings, add_start_docstrings_to_model_forward
 from transformers.generation import (
@@ -51,6 +52,8 @@ from transformers.modeling_outputs import (
     TokenClassifierOutput,
     XVectorOutput,
 )
+
+from optimum.exporters.tasks import TasksManager
 
 from .modeling_base import NeuronModel
 from .modeling_traced import NeuronTracedModel
@@ -1253,6 +1256,24 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
     auto_model_class = AutoModelForCausalLM
     main_input_name = "input_ids"
     preprocessors = []  # Required by optimum OptimizedModel
+
+    @staticmethod
+    def get_neuron_config(
+        config: PretrainedConfig,
+        batch_size: Optional[int] = None,
+        sequence_length: Optional[int] = None,
+        tensor_parallel_size: Optional[int] = None,
+        auto_cast_type: Optional[str] = None,
+    ):
+        exporter = TasksManager.get_exporter_config_constructor(
+            model_type=config.model_type, exporter="neuron", task="text-generation", library_name="transformers"
+        )()
+        return exporter.get_neuron_config(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            auto_cast_type=auto_cast_type,
+            tensor_parallel_size=tensor_parallel_size,
+        )
 
     @classmethod
     def _from_transformers(cls, *args, **kwargs):

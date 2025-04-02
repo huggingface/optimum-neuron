@@ -171,7 +171,8 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
 
         exporter = get_exporter(config)
 
-        export_kwargs = exporter.get_export_kwargs(
+        hlo_neuron_config = self.get_neuron_config(
+            config,
             batch_size=batch_size,
             sequence_length=sequence_length,
             tensor_parallel_size=num_cores,
@@ -180,7 +181,7 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
 
         # Instantiate neuronx model
         checkpoint_path = checkpoint_dir.name if isinstance(checkpoint_dir, TemporaryDirectory) else checkpoint_dir
-        neuronx_model = exporter.neuronx_class.from_pretrained(checkpoint_path, **export_kwargs)
+        neuronx_model = exporter.neuronx_class.from_pretrained(checkpoint_path, neuron_config=hlo_neuron_config)
 
         if compiled_dir is not None:
             # Specify the path where compiled artifacts are stored before conversion
