@@ -12,29 +12,28 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import copy
-import hashlib
-import json
 import logging
 import os
 import shutil
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Literal, Optional, Union
 
 from huggingface_hub import HfApi, get_token
 from huggingface_hub.errors import EntryNotFoundError
 from huggingface_hub.hf_api import RepoFile
-from transformers import AutoConfig, PretrainedConfig
 
+from optimum.exporters import TasksManager
+
+from ..utils.cache_utils import get_hf_hub_cache_repo, get_neuron_cache_path
+from ..utils.import_utils import is_neuronx_available
+from ..utils.patching import patch_everywhere
+from ..utils.require_utils import requires_torch_neuronx
+from ..utils.version_utils import get_neuronxcc_version
 from ..version import __version__
-from .cache_utils import get_hf_hub_cache_repo, get_neuron_cache_path
-from .import_utils import is_neuronx_available
-from .patching import patch_everywhere
-from .require_utils import requires_torch_neuronx
-from .version_utils import get_neuronxcc_version
+from .entries.cache_entry import ModelCacheEntry
 
 
 if is_neuronx_available():
@@ -64,25 +63,6 @@ else:
 
 
 logger = logging.getLogger(__name__)
-
-CACHE_WHITE_LIST = [
-    "_name_or_path",
-    "transformers_version",
-    "_diffusers_version",
-    "eos_token_id",
-    "bos_token_id",
-    "pad_token_id",
-    "torchscript",
-    "torch_dtype",
-    "_commit_hash",
-    "sample_size",
-    "projection_dim",
-    "_use_default_values",
-    "_attn_implementation_autoset",
-]
-NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names", "model_type"]
-
-DEFAULT_PATH_FOR_NEURON_CC_WRAPPER = Path(__file__).parent.as_posix()
 
 
 class CompileCacheHfProxy(CompileCache):
@@ -259,35 +239,6 @@ def create_hub_compile_cache_proxy(
     return CompileCacheHfProxy(cache_repo_id, default_cache, endpoint=endpoint, token=token)
 
 
-class ModelCacheEntry:
-    """A class describing a model cache entry
-
-    Args:
-        model_id (`str`):
-            The model id, used as a key for the cache entry.
-        config (`transformers.PretrainedConfig`):
-            The configuration of the model.
-
-    """
-
-    def __init__(self, model_id: str, config: Union[PretrainedConfig, Dict[str, Any]]):
-        self.model_id = model_id
-        # Remove keys set to default values
-        self.config = config.to_diff_dict() if isinstance(config, PretrainedConfig) else dict(config)
-        excluded_keys = ["_name_or_path", "transformers_version"]
-        for key in excluded_keys:
-            self.config.pop(key, None)
-
-    def to_json(self) -> str:
-        return json.dumps(self.config, sort_keys=True)
-
-    @property
-    def hash(self):
-        hash_gen = hashlib.sha512()
-        hash_gen.update(self.to_json().encode("utf-8"))
-        return str(hash_gen.hexdigest())[:20]
-
-
 REGISTRY_FOLDER = f"0_REGISTRY/{__version__}"
 
 
@@ -351,45 +302,15 @@ def hub_neuronx_cache(
             else:
                 # Create cache entry in local cache: it can be later synchronized with the hub cache
                 registry_path = default_cache.get_cache_dir_with_cache_key(registry_folder)
-                model_type = entry.config["model_type"]
-                entry_path = f"{registry_path}/{model_type}/{entry.model_id}"
+                entry_path = f"{registry_path}/{entry.model_type}/{entry.model_id}"
                 config_path = f"{entry_path}/{entry.hash}.json"
                 if not default_cache.exists(config_path):
                     oldmask = os.umask(000)
                     Path(entry_path).mkdir(parents=True, exist_ok=True)
                     os.umask(oldmask)
-                    default_cache.upload_string_to_file(config_path, entry.to_json())
+                    default_cache.upload_string_to_file(config_path, entry.serialize())
     finally:
         patch_everywhere("create_compile_cache", create_compile_cache, "libneuronxla")
-
-
-@contextmanager
-def patch_neuron_cc_wrapper(
-    directory: Optional[Union[str, Path]] = DEFAULT_PATH_FOR_NEURON_CC_WRAPPER, restore_path: bool = True
-):
-    """
-    Patches the `neuron_cc_wrapper` file to force it use our own version of it which essentially makes sure that it
-    uses our caching system.
-    """
-    context_manager = TemporaryDirectory() if directory is None else nullcontext(enter_result=directory)
-    tmpdirname = ""
-    try:
-        with context_manager as dirname:
-            tmpdirname = dirname
-            src = Path(__file__).parent / "neuron_cc_wrapper"
-            dst = Path(tmpdirname) / "neuron_cc_wrapper"
-            if src != dst:
-                shutil.copy(src, dst)
-
-            path = os.environ["PATH"]
-            os.environ["PATH"] = f"{tmpdirname}:{path}"
-
-            yield
-    except Exception as e:
-        raise e
-    finally:
-        if restore_path:
-            os.environ["PATH"] = os.environ["PATH"].replace(f"{tmpdirname}:", "")
 
 
 @requires_torch_neuronx
@@ -415,8 +336,14 @@ def synchronize_hub_cache(cache_path: Optional[Union[str, Path]] = None, cache_r
 
 
 def get_hub_cached_entries(
-    model_id: str, mode: Union[Literal["training"], Literal["inference"], Mode], cache_repo_id: Optional[str] = None
+    model_id: str,
+    mode: Union[Literal["training"], Literal["inference"], Mode],
+    task: Optional[str] = None,
+    cache_repo_id: Optional[str] = None,
 ):
+    if task is None:
+        # Infer task from model_id
+        task = TasksManager.infer_task_from_model(model_id)
     if cache_repo_id is None:
         cache_repo_id = get_hf_hub_cache_repo()
     # Allocate a Hub API with refreshed information (required for tests altering the env)
@@ -425,28 +352,18 @@ def get_hub_cached_entries(
     api = HfApi(endpoint=endpoint, token=token)
     repo_files = api.list_repo_files(cache_repo_id)
     # Get the config corresponding to the model
-    try:
-        config = AutoConfig.from_pretrained(model_id)
-    except Exception:
-        config = get_multimodels_configs_from_hub(model_id)  # Applied on SD, encoder-decoder models
-    target_entry = ModelCacheEntry(model_id, config)
-    # Extract model type: it will be used as primary key for lookup
-    model_type = target_entry.config["model_type"]
+    target_entry = ModelCacheEntry.create(model_id, task)
     registry_folder = get_registry_folder_for_mode(mode)
-    registry_pattern = registry_folder + "/" + model_type
+    registry_pattern = registry_folder + "/" + target_entry.model_type
     model_files = [path for path in repo_files if registry_pattern in path]
-    white_list = CACHE_WHITE_LIST  # All parameters except those in the whitelist must match
     model_entries = []
     with TemporaryDirectory() as tmpdir:
         for model_path in model_files:
             local_path = api.hf_hub_download(cache_repo_id, model_path, local_dir=tmpdir)
             with open(local_path) as f:
-                entry_config = json.load(f)
-                if entry_config:
-                    model_entries = lookup_matched_entries(
-                        entry_config, target_entry, white_list, model_entries, model_type
-                    )
-
+                entry = ModelCacheEntry.deserialize(f.read())
+                if entry.has_same_arch(target_entry):
+                    model_entries.append(entry.neuron_config)
     return model_entries
 
 
@@ -491,139 +408,3 @@ def get_hub_cached_models(
                 # No cached models for the current version
                 continue
     return set()
-
-
-def _prepare_config_for_matching(entry_config: Dict, target_entry: ModelCacheEntry, model_type: str):
-    if model_type == "stable-diffusion":
-        # Remove neuron config for comparison as the target does not have it
-        neuron_config = entry_config["unet"].pop("neuron")
-        non_checked_components = [
-            "vae",
-            "vae_encoder",
-            "vae_decoder",
-        ]  # Exclude vae configs from the check for now since it's complex and not mandatory
-        for param in non_checked_components:
-            entry_config.pop(param, None)
-            target_entry.config.pop(param, None)
-        target_entry_config = target_entry.config
-    else:
-        # Remove neuron config for comparison as the target does not have it
-        neuron_config = entry_config.pop("neuron")
-        entry_config = {"model": entry_config}
-        target_entry_config = {"model": target_entry.config}
-
-    return entry_config, target_entry_config, neuron_config
-
-
-def lookup_matched_entries(entry_config, target_entry, white_list, model_entries, model_type: str):
-    is_matched = True
-    entry_config, target_entry_config, neuron_config = _prepare_config_for_matching(
-        entry_config, target_entry, model_type
-    )
-    for name, value in entry_config.items():
-        if isinstance(value, dict):
-            for param in white_list:
-                value.pop(param, None)
-                target_entry_config[name].pop(param, None)
-            for term in set(entry_config[name]).intersection(set(target_entry_config[name])):
-                if entry_config[name][term] != target_entry_config[name][term]:
-                    is_matched = False
-                    break
-        else:
-            if value != target_entry_config[name]:
-                is_matched = False
-                break
-    if is_matched:
-        neuron_config.pop("model_type", None)
-        model_entries.append(neuron_config)
-
-    return model_entries
-
-
-def get_multimodels_configs_from_hub(model_id):
-    api = HfApi()
-    repo_files = api.list_repo_files(model_id)
-    config_pattern = "/config.json"
-    config_files = [path for path in repo_files if config_pattern in path]
-    lookup_configs = {}
-    with TemporaryDirectory() as tmpdir:
-        for model_path in config_files:
-            local_path = api.hf_hub_download(model_id, model_path, local_dir=tmpdir)
-            with open(local_path) as f:
-                entry_config = json.load(f)
-                white_list = CACHE_WHITE_LIST
-                for param in white_list:
-                    entry_config.pop(param, None)
-                lookup_configs[model_path.split("/")[-2]] = entry_config
-
-    if "unet" in lookup_configs:
-        lookup_configs["model_type"] = "stable-diffusion"
-    if "transformer" in lookup_configs:
-        lookup_configs["model_type"] = "diffusion-transformer"
-    return lookup_configs
-
-
-def exclude_white_list_from_config(
-    config: Dict, white_list: Optional[List] = None, neuron_white_list: Optional[List] = None
-):
-    if white_list is None:
-        white_list = CACHE_WHITE_LIST
-
-    if neuron_white_list is None:
-        neuron_white_list = NEURON_CONFIG_WHITE_LIST
-
-    for param in white_list:
-        config.pop(param, None)
-
-    for param in neuron_white_list:
-        config["neuron"].pop(param, None)
-
-    return config
-
-
-def build_cache_config(
-    configs: Union[PretrainedConfig, Dict[str, PretrainedConfig]],
-    white_list: Optional[List] = None,
-    neuron_white_list: Optional[List] = None,
-):
-    """Only applied on traced TorchScript models."""
-    clean_configs = {}
-    no_check_components = [
-        "vae",
-        "vae_encoder",
-        "vae_decoder",
-    ]  # Exclude vae configs from stable diffusion pipeline since it's complex and not mandatory
-    if isinstance(configs, PretrainedConfig):
-        configs = {"model": configs}
-    for name, config in configs.items():
-        if name in no_check_components:
-            continue
-        config = copy.deepcopy(config).to_diff_dict() if isinstance(config, PretrainedConfig) else config
-        config = exclude_white_list_from_config(config, white_list, neuron_white_list)
-        clean_configs[name] = config
-
-    if len(clean_configs) > 1:
-        if "unet" in configs:
-            # stable diffusion
-            clean_configs["model_type"] = "stable-diffusion"
-        elif "transformer" in configs:
-            # diffusion transformer
-            clean_configs["model_type"] = "diffusion-transformer"
-        else:
-            # seq-to-seq
-            clean_configs["model_type"] = next(iter(clean_configs.values()))["model_type"]
-
-        return clean_configs
-    else:
-        return next(iter(clean_configs.values()))
-
-
-def cache_traced_neuron_artifacts(neuron_dir: Path, cache_entry: ModelCacheEntry):
-    # Use the context manager just for creating registry, AOT compilation won't leverage `create_compile_cache`
-    # in `libneuronxla`, so we will need to cache compiled artifacts to local manually.
-    with hub_neuronx_cache("inference", entry=cache_entry):
-        compile_cache = create_hub_compile_cache_proxy()
-        model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
-        compile_cache.upload_folder(cache_dir=model_cache_dir, src_dir=neuron_dir)
-
-        logger.info(f"Model cached in: {model_cache_dir}.")
