@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from functools import partial
-from typing import Callable, Optional, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
 import torch
@@ -29,16 +29,11 @@ from neuronx_distributed.parallel_layers.parallel_state import (
 )
 from torch import nn
 from transformers.activations import ACT2FN
-from transformers.cache_utils import Cache, StaticCache
 from transformers.generation import GenerationMixin
-from transformers.modeling_attn_mask_utils import AttentionMaskConverter
-from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
-from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, PreTrainedModel
-from transformers.processing_utils import Unpack
+from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import (
-    LossKwargs,
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
     logging,
@@ -127,7 +122,6 @@ def eager_attention_forward(
     attention_mask: Optional[torch.Tensor],
     scaling: float,
     dropout: float = 0.0,
-    **kwargs,
 ):
     key_states = repeat_kv(key, module.num_key_value_groups)
     value_states = repeat_kv(value, module.num_key_value_groups)
@@ -235,7 +229,7 @@ class GraniteAttention(nn.Module):
         hidden_states: torch.Tensor,
         position_embeddings: Tuple[torch.Tensor, torch.Tensor],
         attention_mask: Optional[torch.Tensor],
-        **kwargs: Unpack[FlashAttentionKwargs],
+        **kwargs: Any,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         tp_size = get_tensor_model_parallel_size()
 
@@ -261,17 +255,8 @@ class GraniteAttention(nn.Module):
         cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
-        attention_interface: Callable = eager_attention_forward
-        if self.config._attn_implementation != "eager":
-            if self.config._attn_implementation == "sdpa" and kwargs.get("output_attentions", False):
-                logger.warning_once(
-                    "`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to "
-                    'eager attention. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
-                )
-            else:
-                attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
-
-        attn_output, attn_weights = attention_interface(
+        assert self.config._attn_implementation == "eager"
+        attn_output, attn_weights = eager_attention_forward(
             self,
             query_states,
             key_states,
@@ -279,7 +264,6 @@ class GraniteAttention(nn.Module):
             attention_mask,
             dropout=0.0 if not self.training else self.attention_dropout,
             scaling=self.scaling,
-            **kwargs,
         )
 
         if self.config.sequence_parallel_enabled:
@@ -525,12 +509,12 @@ class GranitePreTrainedModel(PreTrainedModel):
     supports_gradient_checkpointing = True
     _no_split_modules = ["GraniteDecoderLayer"]
     _skip_keys_device_placement = ["past_key_values"]
-    _supports_flash_attn_2 = True
-    _supports_sdpa = True
-    _supports_flex_attn = True
-    _supports_cache_class = True
-    _supports_quantized_cache = True
-    _supports_static_cache = True
+    _supports_flash_attn_2 = False
+    _supports_sdpa = False
+    _supports_flex_attn = False
+    _supports_cache_class = False
+    _supports_quantized_cache = False
+    _supports_static_cache = False
 
     def _init_weights(self, module):
         std = self.config.initializer_range
@@ -638,7 +622,6 @@ class GraniteModel(GranitePreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-        **flash_attn_kwargs: Unpack[FlashAttentionKwargs],
     ) -> Union[Tuple, BaseModelOutputWithPast]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
@@ -661,9 +644,7 @@ class GraniteModel(GranitePreTrainedModel):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        causal_mask = self._update_causal_mask(
-            attention_mask, inputs_embeds, cache_position
-        )
+        causal_mask = self._update_causal_mask(attention_mask, inputs_embeds, cache_position)
 
         hidden_states = inputs_embeds
 
@@ -694,7 +675,6 @@ class GraniteModel(GranitePreTrainedModel):
                     position_ids=position_ids,
                     output_attentions=output_attentions,
                     position_embeddings=position_embeddings,
-                    **flash_attn_kwargs,
                 )
 
             hidden_states = layer_outputs[0]
@@ -806,9 +786,6 @@ class GraniteModel(GranitePreTrainedModel):
         return causal_mask
 
 
-class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
-
-
 class GraniteForCausalLM(GranitePreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
 
@@ -852,7 +829,6 @@ class GraniteForCausalLM(GranitePreTrainedModel, GenerationMixin):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         num_logits_to_keep: int = 0,
-        **kwargs: Unpack[KwargsForCausalLM],
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         r"""
         Args:
@@ -899,7 +875,6 @@ class GraniteForCausalLM(GranitePreTrainedModel, GenerationMixin):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
-            **kwargs,
         )
 
         hidden_states = outputs[0]
@@ -909,7 +884,7 @@ class GraniteForCausalLM(GranitePreTrainedModel, GenerationMixin):
 
         loss = None
         if labels is not None:
-            loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **kwargs)
+            loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size)
 
         if not return_dict:
             output = (logits,) + outputs[1:]
