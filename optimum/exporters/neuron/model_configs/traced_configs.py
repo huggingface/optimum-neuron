@@ -54,7 +54,7 @@ from ..config import (
     VisionNeuronConfig,
 )
 from ..model_wrappers import (
-    CLIPVisionModelNeuronWrapper,
+    CLIPVisionWithProjectionNeuronWrapper,
     ControlNetNeuronWrapper,
     NoCacheModelWrapper,
     PixartTransformerNeuronWrapper,
@@ -258,10 +258,10 @@ class CLIPNormalizedConfig(NormalizedTextAndVisionConfig):
     VISION_CONFIG = "vision_config"
 
 
-@register_in_tasks_manager("clip-vision-model", *["feature-extraction"], library_name="diffusers")
-class CLIPVisionModelNeuronConfig(VisionNeuronConfig):
+@register_in_tasks_manager("clip-vision-with-projection", *["feature-extraction"], library_name="diffusers")
+class CLIPVisionWithProjectionNeuronConfig(VisionNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedVisionConfig
-    CUSTOM_MODEL_WRAPPER = CLIPVisionModelNeuronWrapper
+    CUSTOM_MODEL_WRAPPER = CLIPVisionWithProjectionNeuronWrapper
 
     @property
     def inputs(self) -> List[str]:

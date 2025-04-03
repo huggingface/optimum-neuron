@@ -15,9 +15,11 @@
 
 from . import (
     bert,
+    clip,
     granite,
     llama,
     phi3,
     qwen2,
     whisper,
+    yolos,
 )

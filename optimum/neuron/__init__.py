@@ -65,7 +65,6 @@ _import_structure = {
     "modeling_decoder": ["NeuronDecoderModel"],
     "modeling_seq2seq": [
         "NeuronModelForSeq2SeqLM",
-        "NeuronWhisperForConditionalGeneration",
     ],
     "models": [],
     "accelerate": [
@@ -87,7 +86,9 @@ _import_structure["models.bert"] = [
     "NeuronBertForTokenClassification",
     "NeuronBertForMultipleChoice",
 ]
+_import_structure["models.clip"] = ["NeuronCLIPModel", "NeuronCLIPForImageClassification"]
 _import_structure["models.whisper"] = ["NeuronWhisperForConditionalGeneration"]
+_import_structure["models.yolos"] = ["NeuronYolosForObjectDetection"]
 
 if TYPE_CHECKING:
     from .accelerate import ModelParallelismPlugin, NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
@@ -125,7 +126,7 @@ if TYPE_CHECKING:
         NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
     )
-    from .modeling_seq2seq import NeuronModelForSeq2SeqLM, NeuronWhisperForConditionalGeneration
+    from .modeling_seq2seq import NeuronModelForSeq2SeqLM
     from .modeling_traced import NeuronTracedModel
 
     # Modeling
@@ -137,7 +138,9 @@ if TYPE_CHECKING:
         NeuronBertForTokenClassification,
         NeuronBertModel,
     )
+    from .models.clip import NeuronCLIPModel, NeuronCLIPForImageClassification
     from .models.whisper import NeuronWhisperForConditionalGeneration
+    from .models.yolos import NeuronYolosForObjectDetection
     from .pipelines import pipeline
     from .trainers import NeuronORPOTrainer, NeuronSFTTrainer, NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments

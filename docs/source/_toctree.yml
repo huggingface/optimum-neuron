@@ -66,8 +66,8 @@
         title: TEXT MODELS
       - isExpanded: false
         sections: 
-        - local: model_doc/transformers/vit
-          title: ViT
+        - local: model_doc/transformers/yolos
+          title: YOLOS
         title: VISION MODELS
       - isExpanded: false 
         sections: 

@@ -14,15 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# CLIP
+# YOLOS
 
 ## Overview
 
-The CLIP model was proposed in [Learning Transferable Visual Models From Natural Language Supervision](https://arxiv.org/abs/2103.00020) by Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh,
-Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, Ilya Sutskever. CLIP
-(Contrastive Language-Image Pre-Training) is a neural network trained on a variety of (image, text) pairs. It can be
-instructed in natural language to predict the most relevant text snippet, given an image, without directly optimizing
-for the task, similarly to the zero-shot capabilities of GPT-2 and 3.
+The YOLOS model was proposed in [You Only Look at One Sequence: Rethinking Transformer in Vision through Object Detection](https://arxiv.org/abs/2106.00666) by Yuxin Fang, Bencheng Liao, Xinggang Wang, Jiemin Fang, Jiyang Qi, Rui Wu, Jianwei Niu, Wenyu Liu.
+YOLOS proposes to just leverage the plain [Vision Transformer (ViT)](vit) for object detection, inspired by DETR. It turns out that a base-sized encoder-only Transformer can also achieve 42 AP on COCO, similar to DETR and much more complex frameworks such as Faster R-CNN.
 
 ## Export to Neuron
 
@@ -33,7 +30,7 @@ To deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) mo
 You can export the model using the Optimum command-line interface as follows:
 
 ```bash
-optimum-cli export neuron --model openai/clip-vit-base-patch32 --task object-detection --batch_size 1 yolos_object_detection_neuronx/
+optimum-cli export neuron --model hustvl/yolos-tiny --task object-detection --batch_size 1 yolos_object_detection_neuronx/
 ```
 
 > [!TIP]
@@ -55,26 +52,6 @@ neuron_model.push_to_hub(
 )
 ```
 
-## NeuronCLIPModel
+## NeuronYolosForObjectDetection
 
-[[autodoc]] models.clip.NeuronCLIPModel
-
-## NeuronCLIPTextModel
-
-[[autodoc]] models.clip.NeuronCLIPTextModel
-
-## NeuronCLIPTextModelWithProjection
-
-[[autodoc]] models.clip.NeuronCLIPTextModelWithProjection
-
-## NeuronCLIPVisionModel
-
-[[autodoc]] models.clip.NeuronCLIPVisionModel
-
-## NeuronCLIPVisionModelWithProjection
-
-[[autodoc]] models.clip.NeuronCLIPVisionModelWithProjection
-
-## NeuronCLIPForImageClassification
-
-[[autodoc]] models.clip.NeuronCLIPForImageClassification
+[[autodoc]] models.yolos.NeuronYolosForObjectDetection

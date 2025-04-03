@@ -35,10 +35,7 @@ from transformers import (
     AutoModelForSequenceClassification,
     AutoModelForTokenClassification,
 )
-from transformers.file_utils import add_start_docstrings, add_start_docstrings_to_model_forward
-from transformers.generation import (
-    GenerationMixin,
-)
+from transformers.generation import GenerationMixin
 from transformers.modeling_outputs import (
     BaseModelOutputWithPooling,
     CausalLMOutput,
@@ -81,6 +78,8 @@ from .utils import (
     NEURON_TEXT_GENERATION_EXAMPLE,
     NEURON_TEXT_INPUTS_DOCSTRING,
     NEURON_TOKEN_CLASSIFICATION_EXAMPLE,
+    add_start_docstrings, 
+    add_start_docstrings_to_model_forward,
 )
 
 
