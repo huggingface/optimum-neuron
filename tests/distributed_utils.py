@@ -29,7 +29,8 @@ from typing import List, Union
 import pytest
 import torch
 import torch.distributed as dist
-import torch.multiprocessing as mp
+# import torch.multiprocessing as mp
+import multiprocess as mp
 from _pytest.fixtures import FixtureLookupError
 from _pytest.outcomes import Skipped
 

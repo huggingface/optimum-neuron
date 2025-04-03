@@ -71,11 +71,27 @@ def _test_parallel_granite():
         f"Sharded model text output: {text_output}\n"
     )
 
+import functools
+
+def dist_test(num_procs, tp_size, pp_size):
+    def func_decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            fn = lambda: func(*args, **kwargs)
+            launch_procs(fn, num_procs, tp_size, pp_size)
+        return wrapper
+    return func_decorator
+
 @is_trainium_test
+@dist_test(num_procs=2 ,tp_size=2, pp_size=1)
 def test_parallel_granite():
-    launch_procs(
-        _test_parallel_granite,
-        num_procs=2,
-        tp_size=2,
-        pp_size=1,
-    )
+    _test_parallel_granite()
+
+# @is_trainium_test
+# def test_parallel_granite():
+#     launch_procs(
+#         _test_parallel_granite,
+#         num_procs=2,
+#         tp_size=2,
+#         pp_size=1,
+#     )
