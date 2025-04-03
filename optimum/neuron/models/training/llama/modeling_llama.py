@@ -60,7 +60,13 @@ from transformers.utils import logging
 
 from ....accelerate import ModelParallelismConfig
 from ..loss_utils import ForCausalLMLoss
-from ..modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
+from ..modeling_utils import (
+    ALL_ATTENTION_FUNCTIONS,
+    FusedLinearsSpec,
+    GQAQKVColumnParallelLinearSpecs,
+    ModelWeightTransformationSpecs,
+    NeuronModelMixin,
+)
 
 
 logger = logging.get_logger(__name__)
@@ -90,9 +96,16 @@ class LlamaMLP(LlamaMLPHF):
         self.act_fn = ACT2FN[config.hidden_act]
 
         init_method = partial(_init_normal, config.initializer_range)
-        self.fused_linears = {
-            "gate_up_proj": ["gate_proj", "up_proj"],
-        }
+
+        # Defines the MLP weight transformation specs
+        self.specs = ModelWeightTransformationSpecs(
+            specs=FusedLinearsSpec(
+                fused_linear_name="gate_up_proj",
+                linear_names=["gate_proj", "up_proj"],
+                bias=False,
+            )
+        )
+
         self.gate_up_proj = ColumnParallelLinear(
             self.hidden_size,
             2 * self.intermediate_size,
@@ -200,6 +213,8 @@ class LlamaAttention(LlamaAttentionHF):
         else:
             self.kv_size_multiplier = 1
 
+        self.specs = ModelWeightTransformationSpecs()
+
         if self.qkv_linear:
             self.qkv_proj = GQAQKVColumnParallelLinear(
                 self.hidden_size,
@@ -213,23 +228,29 @@ class LlamaAttention(LlamaAttentionHF):
                 fuse_qkv=mp_config.fuse_qkv,
                 dtype=self.config.torch_dtype,
             )
-            self.gqa_qkv_specs = {
-                "fuse_qkv": mp_config.fuse_qkv,
-                "bias": False,
-                "gqa_qkv_projection": "qkv_proj",
-                "query_projection": "q_proj",
-                "key_projection": "k_proj",
-                "value_projection": "v_proj",
-                "output_projection": "o_proj",
-                "num_attention_heads": self.num_heads,
-                "num_key_value_heads": self.num_key_value_heads,
-                "kv_size_multiplier": self.kv_size_multiplier,
-                "kv_output_size_per_partition": self.qkv_proj.kv_output_size_per_partition,
-            }
+
+            gqa_qkv_specs = GQAQKVColumnParallelLinearSpecs(
+                qga_qkv_projection_name="qkv_proj",
+                query_projection_name="q_proj",
+                key_projection_name="k_proj",
+                value_projection_name="v_proj",
+                output_projection_name="o_proj",
+                num_attention_heads=self.num_heads,
+                num_key_value_heads=self.num_key_value_heads,
+                kv_size_multiplier=self.kv_size_multiplier,
+                kv_output_size_per_partition=self.qkv_proj.kv_output_size_per_partition,
+                fuse_qkv=mp_config.fuse_qkv,
+                bias=False,
+            )
+            self.specs.add_spec(gqa_qkv_specs)
         elif mp_config.fuse_qkv and self.num_heads == self.num_key_value_heads:
-            self.fused_linears = {
-                "qkv_proj": ["q_proj", "k_proj", "v_proj"],
-            }
+            self.specs.add_spec(
+                FusedLinearsSpec(
+                    fused_linear_name="qkv_proj",
+                    linear_names=["q_proj", "k_proj", "v_proj"],
+                    bias=False,
+                )
+            )
             self.qkv_proj = ColumnParallelLinear(
                 self.hidden_size,
                 3 * self.num_heads * self.head_dim,

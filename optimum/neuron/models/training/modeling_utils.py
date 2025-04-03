@@ -19,6 +19,8 @@ import json
 import math
 import os
 import warnings
+from abc import abstractmethod
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, Optional, Type, Union
 
@@ -64,6 +66,7 @@ if is_neuronx_distributed_available():
 
 logger = logging.get_logger(__name__)
 
+
 ALL_ATTENTION_FUNCTIONS: Dict[str, Dict[str, Callable]] = {
     "flash_attention_2": nki_flash_attn_func,
 }
@@ -81,6 +84,153 @@ def create_local_fused_weight(tp_rank, tp_size, individual_weights, partition_di
             out=out_weight,
         )
 
+class ModelWeightTransformationSpec:
+    @abstractmethod
+    def adapt_state_dict(self, module_fully_qualified_name: str, named_parameters: Dict[str, torch.nn.Parameter], orig_state_dict: Dict[str, torch.Tensor], inplace: bool = False):
+        """
+        Adapt the state dict of the model to the custom model.
+        """
+
+@dataclass
+class FusedLinearsSpec(ModelWeightTransformationSpec):
+    fused_linear_name: str
+    linear_names: list[str]
+    bias: bool
+
+    def adapt_state_dict(self, module_fully_qualified_name: str, named_parameters: Dict[str, torch.nn.Parameter], orig_state_dict: Dict[str, torch.Tensor], inplace: bool = False):
+        if inplace:
+            state_dict = orig_state_dict
+        else:
+            state_dict = dict(orig_state_dict)
+        tp_size = get_tensor_model_parallel_size()
+        tp_rank = get_tensor_model_parallel_rank()
+        state_dict = dict(orig_state_dict)
+        param_names = ["weight", "bias"] if self.bias else ["weight"]
+        fused_linear_fully_qualified_name = f"{module_fully_qualified_name}.{self.fused_linear_name}"
+        for param_name in param_names:
+            new_name = f"{fused_linear_fully_qualified_name}.{param_name}"
+            full_weight_names = [f"{module_fully_qualified_name}.{linear_name}.{param_name}" for linear_name in self.linear_names]
+            full_weights = [state_dict.pop(key) for key in full_weight_names]
+            param = named_parameters[new_name]
+            state_dict[new_name] = create_local_fused_weight(tp_rank, tp_size, full_weights, param.partition_dim)
+
+        return state_dict
+
+@dataclass
+class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
+    qga_qkv_projection_name: str
+    query_projection_name: str
+    key_projection_name: str
+    value_projection_name: str
+    output_projection_name: str
+    num_attention_heads: int
+    num_key_value_heads: int
+    kv_size_multiplier: int
+    kv_output_size_per_partition: int
+    fuse_qkv: bool
+    bias: bool
+
+    def adapt_state_dict(self, module_fully_qualified_name: str, named_parameters: Dict[str, torch.nn.Parameter], orig_state_dict: Dict[str, torch.Tensor], inplace: bool = False):
+        if inplace:
+            state_dict = orig_state_dict
+        else:
+            state_dict = dict(orig_state_dict)
+
+        param_names = ["weight", "bias"] if self.bias else ["weight"]
+        for param_name in param_names:
+            q_name = f"{module_fully_qualified_name}.{self.query_projection_name}.{param_name}"
+            k_name = f"{module_fully_qualified_name}.{self.key_projection_name}.{param_name}"
+            v_name = f"{module_fully_qualified_name}.{self.value_projection_name}.{param_name}"
+            if self.fuse_qkv:
+                new_name = f"{module_fully_qualified_name}.{self.qga_qkv_projection_name}.{param_name}_qkv"
+
+                full_weights = [
+                    create_query_or_output_projection_local_weight_from_regular_weight(
+                        state_dict.pop(q_name),
+                        self.num_attention_heads,
+                        self.num_key_value_heads,
+                        self.kv_size_multiplier,
+                        "query",
+                    ),
+                    create_kv_proj_local_weight_from_regular_weight(
+                        state_dict.pop(k_name),
+                        self.kv_size_multiplier,
+                        self.kv_output_size_per_partition,
+                    ),
+                    create_kv_proj_local_weight_from_regular_weight(
+                        state_dict.pop(v_name),
+                        self.kv_size_multiplier,
+                        self.kv_output_size_per_partition,
+                    ),
+                ]
+                state_dict[new_name] = torch.cat(full_weights, dim=0)
+            else:
+                new_name_weight_q = f"{module_fully_qualified_name}.{self.qga_qkv_projection_name}.{param_name}_q"
+                new_name_weight_k = f"{module_fully_qualified_name}.{self.qga_qkv_projection_name}.{param_name}_k"
+                new_name_weight_v = f"{module_fully_qualified_name}.{self.qga_qkv_projection_name}.{param_name}_v"
+
+                state_dict[new_name_weight_q] = create_query_or_output_projection_local_weight_from_regular_weight(state_dict[q_name], self.num_attention_heads, self.num_key_value_heads, self.kv_size_multiplier, "query")
+
+                state_dict[new_name_weight_k] = create_kv_proj_local_weight_from_regular_weight(state_dict[k_name], self.kv_size_multiplier, self.kv_output_size_per_partition)
+
+                state_dict[new_name_weight_v] = create_kv_proj_local_weight_from_regular_weight(state_dict[v_name], self.kv_size_multiplier, self.kv_output_size_per_partition)
+
+            output_projection_name = f"{module_fully_qualified_name}.{self.output_projection_name}.{param_name}"
+            state_dict[output_projection_name] = create_query_or_output_projection_local_weight_from_regular_weight(state_dict[output_projection_name], self.num_attention_heads, self.num_key_value_heads, self.kv_size_multiplier, "output")
+
+        return state_dict
+
+
+@dataclass
+class ModelWeightTransformationSpecs:
+    specs: Union[ModelWeightTransformationSpec, list[ModelWeightTransformationSpec]] = field(default_factory=list)
+
+    def __post_init__(self):
+        if not isinstance(self.specs, list):
+            self.specs = [self.specs]
+
+    def add_spec(self, spec: ModelWeightTransformationSpec):
+        if not isinstance(spec, ModelWeightTransformationSpec):
+            raise TypeError(f"spec must be of type ModelWeightTransformationSpec, but got {type(spec)}")
+        self.specs.append(spec)
+
+
+    def adapt_state_dict(self, module_fully_qualified_name: str, named_parameters: Dict[str, torch.nn.Parameter], orig_state_dict: Dict[str, torch.Tensor], inplace: bool = False):
+        for spec in self.specs:
+            if not isinstance(spec, ModelWeightTransformationSpec):
+                raise TypeError(f"spec must be of type ModelWeightTransformationSpec, but got {type(spec)}")
+            orig_state_dict = spec.adapt_state_dict(module_fully_qualified_name, named_parameters, orig_state_dict, inplace=inplace)
+        return orig_state_dict
+
+    def __iter__(self):
+        return iter(self.specs)
+
+
+def adapt_state_dict(model, state_dict: Dict[str, torch.Tensor], inplace: bool = False):
+    tp_size = get_tensor_model_parallel_size()
+    named_parameters = dict(model.named_parameters())
+    original_state_dict_keys = set(state_dict.keys())
+    for name, module in model.named_modules():
+        model_weight_transformation_specs = getattr(module, "specs", None)
+        if model_weight_transformation_specs is not None:
+            for spec in model_weight_transformation_specs:
+                state_dict = spec.adapt_state_dict(name, named_parameters, state_dict, inplace=True)
+
+    new_keys = set(state_dict.keys()) - original_state_dict_keys
+
+    for name, param in model.named_parameters():
+        if name in new_keys:
+            continue
+        if hasattr(param, "tensor_model_parallel") and param.tensor_model_parallel:
+            if param.partition_dim not in [0, 1]:
+                raise Exception(f"Partiton value of 0,1 are supported, found {param.partition_dim}.")
+
+            full_weight = state_dict[name]
+            per_partition_size = full_weight.shape[param.partition_dim] // tp_size
+            state_dict[name] = create_local_weight(
+                full_weight, param.partition_dim, per_partition_size, param.partition_stride
+            )
+    return state_dict
 
 
 class NeuronModelMixin:
@@ -457,8 +607,8 @@ class NeuronModelMixin:
         num_local_ranks_per_step = mp_config.num_local_ranks_per_step
         local_world_size = get_local_world_size()
         local_rank = xm.get_local_ordinal()
-        tp_size = get_tensor_model_parallel_size()
-        tp_rank = get_tensor_model_parallel_rank()
+        get_tensor_model_parallel_size()
+        get_tensor_model_parallel_rank()
         if num_local_ranks_per_step <= 0:
             num_local_ranks_per_step = local_world_size
 
@@ -477,124 +627,9 @@ class NeuronModelMixin:
                     with safe_open(filename, framework="pt", device="cpu") as fp:
                         state_dict[weight_name] = fp.get_tensor(weight_name)
 
+                # Adapts the state dict to the custom model.
+                state_dict = adapt_state_dict(model, state_dict, inplace=False)
 
-                model2state_dict = {}
-                for name, module in model.named_modules():
-                    if hasattr(module, "fused_linears"):
-                        for fused_linear_specs, linears_specs in module.fused_linears.items():
-                            if isinstance(fused_linear_specs, tuple):
-                                fused_linear_name = fused_linear_specs[0]
-                                param_names = [fused_linear_specs[1]]
-                            else:
-                                fused_linear_name = fused_linear_specs
-                                fused_linear = module.get_submodule(fused_linear_name)
-                                param_names = ["weight", "bias"] if fused_linear.bias is not None else ["weight"]
-
-                            for param_name in param_names:
-                                linear_param_names = []
-                                linear_names = []
-                                for linear_specs in linears_specs:
-                                    if isinstance(linear_specs, tuple):
-                                        linear_names.append(linear_specs[0])
-                                        linear_param_names.append(linear_specs[1])
-                                    else:
-                                        linear_names.append(linear_specs)
-                                        linear_param_names.append(param_name)
-                                fused_linear_full_name = f"{name}.{fused_linear_name}.{param_name}"
-                                linear_full_names = [f"{name}.{linear_name}.{linear_param_name}" for linear_name, linear_param_name in zip(linear_names, linear_param_names)]
-                                model2state_dict[fused_linear_full_name] = ("fused_linears", linear_full_names)
-                    if hasattr(module, "gqa_qkv_specs"):
-                        specs = module.gqa_qkv_specs
-                        fuse_qkv = specs["fuse_qkv"]
-                        bias = specs["bias"]
-
-                        if fuse_qkv:
-                            param_names = ["weight", "bias"] if bias else ["weight"]
-                            for param_name in param_names:
-                                fused_linear_full_name = f"{name}.{specs['gqa_qkv_name_projection']}.{param_name}_qkv"
-                                linear_full_names = [
-                                    f"{name}.{specs['query_projection']}.{param_name}",
-                                    f"{name}.{specs['key_projection']}.{param_name}",
-                                    f"{name}.{specs['value_projection']}.{param_name}",
-                                ]
-                                model2state_dict[fused_linear_full_name] = ("gqa_qkv", linear_full_names, specs)
-                        else:
-                            gqa_qkv_projection_name = f"{name}.{specs['gqa_qkv_projection']}"
-                            model2state_dict[f"{gqa_qkv_projection_name}.weight_q"] = ("gqa_qkv", f"{name}.{specs['query_projection']}.weight", specs)
-                            model2state_dict[f"{gqa_qkv_projection_name}.weight_k"] = ("gqa_qkv", f"{name}.{specs['key_projection']}.weight", specs)
-                            model2state_dict[f"{gqa_qkv_projection_name}.weight_v"] = ("gqa_qkv", f"{name}.{specs['value_projection']}.weight", specs)
-
-                        # Handling output projection.
-                        output_projection_name = f"{name}.{specs['output_projection']}"
-                        model2state_dict[f"{output_projection_name}.weight"] = ("gqa_qkv_output_projection", f"{output_projection_name}.weight", specs)
-                        if module.get_submodule(specs["output_projection"]).bias is not None:
-                            model2state_dict[f"{output_projection_name}.bias"] = ("gqa_qkv_output_projection", f"{output_projection_name}.bias", specs)
-
-                for name, param in model.named_parameters():
-                    if hasattr(param, "tensor_model_parallel") and param.tensor_model_parallel:
-                        if param.partition_dim not in [0, 1]:
-                            raise Exception(f"Partiton value of 0,1 are supported, found {param.partition_dim}.")
-                        case, *information = model2state_dict.get(name, ("local", name))
-                        if case == "local":
-                            full_weight = state_dict[name]
-                            per_partition_size = full_weight.shape[param.partition_dim] // tp_size
-                            state_dict[name] = create_local_weight(
-                                full_weight, param.partition_dim, per_partition_size, param.partition_stride
-                            )
-                        elif case == "fused_linears":
-                            state_dict_names = information[0]
-                            full_weights = [state_dict.pop(key) for key in state_dict_names]
-                            per_partition_size = full_weights[0].shape[param.partition_dim] // tp_size
-                            state_dict[name] = create_local_fused_weight(tp_rank, tp_size, full_weights, param.partition_dim)
-                        elif case == "gqa_qkv":
-                            specs = information[1]
-                            if specs["fuse_qkv"]:
-                                linear_full_names = information[0]
-                                q_name, k_name, v_name = linear_full_names
-                                full_weights = [
-                                    create_query_or_output_projection_local_weight_from_regular_weight(
-                                        state_dict.pop(q_name),
-                                        specs["num_attention_heads"],
-                                        specs["num_key_value_heads"],
-                                        specs["kv_size_multiplier"],
-                                        "query",
-                                    ),
-                                    create_kv_proj_local_weight_from_regular_weight(
-                                        state_dict.pop(k_name),
-                                        specs["kv_size_multiplier"],
-                                        specs["kv_output_size_per_partition"]
-                                    ),
-                                    create_kv_proj_local_weight_from_regular_weight(
-                                        state_dict.pop(v_name),
-                                        specs["kv_size_multiplier"],
-                                        specs["kv_output_size_per_partition"]
-                                    ),
-                                ]
-                                state_dict[name] = torch.cat(full_weights, dim=0)
-                            else:
-                                if "weight_q" in name:
-                                    state_dict[name] = create_query_or_output_projection_local_weight_from_regular_weight(
-                                        state_dict.pop(information[0]),
-                                        specs["num_attention_heads"],
-                                        specs["num_key_value_heads"],
-                                        specs["kv_size_multiplier"],
-                                        "query",
-                                    )
-                                else:
-                                    state_dict[name] = create_kv_proj_local_weight_from_regular_weight(
-                                        state_dict.pop(information[0]),
-                                        specs["kv_size_multiplier"],
-                                        specs["kv_output_size_per_partition"]
-                                    )
-                        elif case == "gqa_qkv_output_projection":
-                            specs = information[1]
-                            state_dict[name] = create_query_or_output_projection_local_weight_from_regular_weight(
-                                state_dict.pop(information[0]),
-                                specs["num_attention_heads"],
-                                specs["num_key_value_heads"],
-                                specs["kv_size_multiplier"],
-                                "output",
-                            )
                 model.load_state_dict(state_dict, strict=True)
                 if torch_dtype is not None:
                     model = model.to(torch_dtype)
