@@ -807,7 +807,7 @@ SPEECH_RECOGNITION_EXAMPLE = r"""
 
     ```python
     from datasets import load_dataset
-    from transformers import {processor_class}
+    from transformers import AutoProcessor,{processor_class}
     from optimum.neuron import {model_class}
 
     # Select an audio file and read it:
