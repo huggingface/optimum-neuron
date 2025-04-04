@@ -528,7 +528,6 @@ def export_neuronx(
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
     dummy_inputs = config.flatten_inputs(dummy_inputs)
     dummy_inputs_tuple = tuple(dummy_inputs.values())
-
     # Prepare the model / function(tp) to trace
     aliases = {}
     tensor_parallel_size = config.tensor_parallel_size
