@@ -45,6 +45,7 @@ jobs:
           doc-builder notebook-to-mdx notebooks/sagemaker/deploy-llama-3-3-70b.ipynb --output_dir docs/source/inference_tutorials/
           doc-builder notebook-to-mdx notebooks/text-classification/fine_tune_bert.ipynb --output_dir docs/source/training_tutorials/
           doc-builder notebook-to-mdx notebooks/sagemaker/deploy-mixtral-8x7b.ipynb --output_dir docs/source/inference_tutorials/
+          doc-builder notebook-to-mdx notebooks/sagemaker/deploy-sdxl.ipynb --output_dir docs/source/inference_tutorials/
           doc-builder build optimum.neuron docs/source/ \
             --repo_name optimum-neuron \
             --build_dir neuron-doc-build/ \
