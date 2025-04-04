@@ -14,9 +14,8 @@
 # limitations under the License.
 """YOLOS model on Neuron devices."""
 
-import copy
 import logging
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import Optional
 
 import torch
 from transformers import AutoModelForObjectDetection
@@ -28,7 +27,7 @@ from ...utils import (
     NEURON_IMAGE_INPUTS_DOCSTRING,
     NEURON_MODEL_START_DOCSTRING,
     NEURON_OBJECT_DETECTION_EXAMPLE,
-    add_start_docstrings, 
+    add_start_docstrings,
     add_start_docstrings_to_model_forward,
 )
 

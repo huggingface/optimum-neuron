@@ -78,7 +78,7 @@ from .utils import (
     NEURON_TEXT_GENERATION_EXAMPLE,
     NEURON_TEXT_INPUTS_DOCSTRING,
     NEURON_TOKEN_CLASSIFICATION_EXAMPLE,
-    add_start_docstrings, 
+    add_start_docstrings,
     add_start_docstrings_to_model_forward,
 )
 

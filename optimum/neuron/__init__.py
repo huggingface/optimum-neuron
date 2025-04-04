@@ -138,7 +138,7 @@ if TYPE_CHECKING:
         NeuronBertForTokenClassification,
         NeuronBertModel,
     )
-    from .models.clip import NeuronCLIPModel, NeuronCLIPForImageClassification
+    from .models.clip import NeuronCLIPForImageClassification, NeuronCLIPModel
     from .models.whisper import NeuronWhisperForConditionalGeneration
     from .models.yolos import NeuronYolosForObjectDetection
     from .pipelines import pipeline

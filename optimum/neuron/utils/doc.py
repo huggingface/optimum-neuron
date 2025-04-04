@@ -44,6 +44,26 @@ NEURON_FEATURE_EXTRACTION_EXAMPLE = r"""
     ```
 """
 
+NEURON_MULTIMODAL_FEATURE_EXTRACTION_EXAMPLE = r"""
+    Example:
+
+    ```python
+    >>> from transformers import {processor_class}
+    >>> from optimum.neuron import {model_class}
+
+    >>> processor = {processor_class}.from_pretrained("{checkpoint}")
+    >>> model = {model_class}.from_pretrained("{checkpoint}")
+
+    >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+    >>> image = Image.open(requests.get(url, stream=True).raw)
+    >>> inputs = processor(text=["a photo of a cat", "a photo of a dog"], images=image, return_tensors="pt", padding=True)
+
+    >>> outputs = model(**inputs)
+    >>> logits_per_image = outputs.logits_per_image  # this is the image-text similarity score
+    >>> probs = logits_per_image.softmax(dim=1)
+    ```
+"""
+
 NEURON_MASKED_LM_EXAMPLE = r"""
     Example:
 
@@ -549,6 +569,24 @@ NEURON_AUDIO_INPUTS_DOCSTRING = r"""
         input_values (`torch.Tensor` of shape `({0})`):
             Float values of input raw speech waveform..
             Input values can be obtained from audio file loaded into an array using [`AutoProcessor`](https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoProcessor).
+"""
+
+NEURON_TEXT_IMAGE_INPUTS_DOCSTRING = r"""
+    Args:
+        input_ids (`torch.Tensor` of shape `(batch_size, sequence_length)`):
+            Indices of input sequence tokens in the vocabulary.
+            Indices can be obtained using [`AutoTokenizer`](https://huggingface.co/docs/transformers/autoclass_tutorial#autotokenizer).
+            See [`PreTrainedTokenizer.encode`](https://huggingface.co/docs/transformers/main_classes/tokenizer#transformers.PreTrainedTokenizerBase.encode) and
+            [`PreTrainedTokenizer.__call__`](https://huggingface.co/docs/transformers/main_classes/tokenizer#transformers.PreTrainedTokenizerBase.__call__) for details.
+            [What are input IDs?](https://huggingface.co/docs/transformers/glossary#input-ids)
+        attention_mask (`Union[torch.Tensor, None]` of shape `(batch_size, sequence_length)`):
+            Mask to avoid performing attention on padding token indices. Mask values selected in `[0, 1]`:
+            - 1 for tokens that are **not masked**,
+            - 0 for tokens that are **masked**.
+            [What are attention masks?](https://huggingface.co/docs/transformers/glossary#attention-mask)
+        pixel_values (`Union[torch.Tensor, None]` of shape `(batch_size, num_channels, height, width)`):
+            Pixel values corresponding to the images in the current batch.
+            Pixel values can be obtained from encoded images using [`AutoImageProcessor`](https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoImageProcessor).
 """
 
 NEURON_CAUSALLM_INPUTS_DOCSTRING = r"""

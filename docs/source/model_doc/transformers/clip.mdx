@@ -33,7 +33,7 @@ To deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) mo
 You can export the model using the Optimum command-line interface as follows:
 
 ```bash
-optimum-cli export neuron --model openai/clip-vit-base-patch32 --task object-detection --batch_size 1 yolos_object_detection_neuronx/
+optimum-cli export neuron --model openai/clip-vit-base-patch32 --task feature-extraction --text_batch_size 2 --sequence_length 77 --image_batch_size 1 --num_channels 3 --width 224 --height 224 clip_feature_extraction_neuronx/
 ```
 
 > [!TIP]
@@ -42,38 +42,28 @@ optimum-cli export neuron --model openai/clip-vit-base-patch32 --task object-det
 ### Option 2: NeuronModel API
 
 ```python
-from optimum.neuron import NeuronModelForObjectDetection
-from transformers import AutoImageProcessor
+from optimum.neuron import NeuronCLIPModel
 
+input_shapes = {"text_batch_size": 2, "sequence_length": 77, "image_batch_size": 1, "num_channels": 3, "width": 224, "height": 224}
+compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+neuron_model = NeuronCLIPModel.from_pretrained(
+    "openai/clip-vit-base-patch32",
+    export=True,
+    **input_shapes,
+    **compiler_args,
+)
+# Save locally
+neuron_model.save_pretrained("clip_feature_extraction_neuronx/")
 
-preprocessor = AutoImageProcessor.from_pretrained("hustvl/yolos-tiny")
-neuron_model = NeuronModelForObjectDetection.from_pretrained("hustvl/yolos-tiny", export=True, batch_size=1)
-
-neuron_model.save_pretrained("yolos_object_detection_neuronx")
+# Upload to the HuggingFace Hub
 neuron_model.push_to_hub(
-    "yolos_object_detection_neuronx", repository_id="optimum/yolos-tiny-neuronx-bs1"  # Replace with your HF Hub repo id
+    "clip_feature_extraction_neuronx/", repository_id="optimum/clip-vit-base-patch32-neuronx"  # Replace with your HF Hub repo id
 )
 ```
 
 ## NeuronCLIPModel
 
 [[autodoc]] models.clip.NeuronCLIPModel
-
-## NeuronCLIPTextModel
-
-[[autodoc]] models.clip.NeuronCLIPTextModel
-
-## NeuronCLIPTextModelWithProjection
-
-[[autodoc]] models.clip.NeuronCLIPTextModelWithProjection
-
-## NeuronCLIPVisionModel
-
-[[autodoc]] models.clip.NeuronCLIPVisionModel
-
-## NeuronCLIPVisionModelWithProjection
-
-[[autodoc]] models.clip.NeuronCLIPVisionModelWithProjection
 
 ## NeuronCLIPForImageClassification
 
