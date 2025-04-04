@@ -27,10 +27,12 @@ class NeuronGraniteConfig(GraniteConfig):
         self,
         sequence_parallel_enabled: bool = False,
         tensor_parallel_size: int = 1,
+        kv_size_multiplier: int = 1,
         gradient_checkpointing: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.sequence_parallel_enabled = sequence_parallel_enabled
         self.tensor_parallel_size = tensor_parallel_size
+        self.kv_size_multiplier = kv_size_multiplier
         self.gradient_checkpointing = gradient_checkpointing
