@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from functools import partial
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
 import torch
@@ -25,9 +25,11 @@ from neuronx_distributed.parallel_layers.layers import (
     create_local_weight,
 )
 from neuronx_distributed.parallel_layers.parallel_state import (
+    get_tensor_model_parallel_rank,
     get_tensor_model_parallel_size,
 )
 from torch import nn
+from torch_xla.utils.checkpoint import checkpoint
 from transformers.activations import ACT2FN
 from transformers.generation import GenerationMixin
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
@@ -62,6 +64,47 @@ def slice_tensor(tensor: torch.Tensor, axis: int) -> torch.Tensor:
     split_len = (axis_len + tp_size - 1) // tp_size
     partition_stride = 1  # assuming that is always 1
     return create_local_weight(tensor, axis, split_len, partition_stride)
+
+
+def _create_local_fused_weight(tp_rank, tp_size, individual_weights, partition_dim, out_weight=None):
+    weight_lists = []
+    for weight in individual_weights:
+        weight_list = torch.split(weight, weight.size(partition_dim) // tp_size, dim=partition_dim)[tp_rank::tp_size]
+        weight_lists.append(weight_list)
+
+    with torch.no_grad():
+        return torch.cat(
+            [torch.cat(weight_list, dim=partition_dim) for weight_list in weight_lists],
+            dim=partition_dim,
+            out=out_weight,
+        )
+
+
+def fuse_weights(
+    keys: List[str],
+    prefix: str,
+    state_dict: Dict,
+    partition_dim: int,
+    full_fused_weights: List[torch.tensor],
+    fused_name: str,
+):
+    """
+    Fuse weights of two Linear layers the same module.
+
+    The function can be called several times, in case the state_dict is not fully loaded.
+    """
+    # check if the weights are in the state_dict, and if so, it will move them to the full_fused_weights list.
+    for k in keys:
+        full_k = prefix + k
+        if full_k in state_dict:
+            full_fused_weights.append(state_dict.pop(full_k))
+    # Once all the expected weights are in the full_fused_weights list, they can be fused and moved back to the
+    # state_dict.
+    if len(full_fused_weights) == len(keys):
+        rank = get_tensor_model_parallel_rank()
+        tp_size = get_tensor_model_parallel_size()
+        state_dict[prefix + fused_name] = _create_local_fused_weight(rank, tp_size, full_fused_weights, partition_dim)
+        full_fused_weights.clear()
 
 
 def _init_normal(std, w):
@@ -305,53 +348,65 @@ class GraniteMLP(nn.Module):
         self.intermediate_size = config.intermediate_size
         init_method = partial(_init_normal, config.initializer_range)
         assert not config.mlp_bias, "GraniteMLP sharding does not support bias for now"
-        self.gate_proj = ColumnParallelLinear(
+        self.gate_up_proj = ColumnParallelLinear(
             self.hidden_size,
-            self.intermediate_size,
-            bias=config.mlp_bias,
-            gather_output=True,
+            2 * self.intermediate_size,
+            stride=2,
+            bias=False,
+            gather_output=False,
             init_method=init_method,
-            dtype=config.torch_dtype,
-            sequence_parallel_enabled=config.sequence_parallel_enabled,
+            sequence_parallel_enabled=self.config.sequence_parallel_enabled,
+            sequence_dimension=0,
+            dtype=self.config.torch_dtype,
         )
-        self.up_proj = ColumnParallelLinear(
-            self.hidden_size,
-            self.intermediate_size,
-            bias=config.mlp_bias,
-            gather_output=True,
-            init_method=init_method,
-            dtype=config.torch_dtype,
-            sequence_parallel_enabled=config.sequence_parallel_enabled,
-        )
+        self.split_size = self.intermediate_size // get_tensor_model_parallel_size()
         self.down_proj = RowParallelLinear(
             self.intermediate_size,
             self.hidden_size,
             bias=config.mlp_bias,
             init_method=init_method,
             dtype=config.torch_dtype,
-            input_is_parallel=False,
+            input_is_parallel=True,
             sequence_parallel_enabled=config.sequence_parallel_enabled,
         )
         self.act_fn = ACT2FN[config.hidden_act]
         # Split parallelized weights
+        self.full_fused_weights = []
         self._register_load_state_dict_pre_hook(self.load_hook)
 
     def load_hook(self, state_dict, prefix, *_args):
         """
         Update the state dict to split the weights of the model across the TP size.
         """
+        fused_gate_up_proj = ["gate_proj.weight", "up_proj.weight"]
+        fuse_weights(
+            keys=fused_gate_up_proj,
+            prefix=prefix,
+            state_dict=state_dict,
+            partition_dim=0,
+            full_fused_weights=self.full_fused_weights,
+            fused_name="gate_up_proj.weight",
+        )
         # Filtering items to slice only the weights of this layer
         filtered_items = filter(lambda x: x[0].startswith(prefix), state_dict.items())
         for k, v in filtered_items:
-            if k.endswith("gate_proj.weight"):
-                state_dict[k] = slice_tensor(v, 0)
-            if k.endswith("up_proj.weight"):
-                state_dict[k] = slice_tensor(v, 0)
             if k.endswith("down_proj.weight"):
                 state_dict[k] = slice_tensor(v, 1)
 
     def forward(self, x):
-        down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+        gate_proj, up_proj = self.gate_up_proj(x).split(self.split_size, dim=2)
+
+        def activation_mlp(gate_proj, up_proj):
+            activation_output = self.act_fn(gate_proj)
+            return activation_output * up_proj
+
+        # We checkpoint the MLP compute too, since we see extra data movement which is more
+        # expensive than the recompute in this case.
+        if self.config.gradient_checkpointing:
+            intermediate_states = checkpoint(activation_mlp, gate_proj, up_proj)
+        else:
+            intermediate_states = self.act_fn(gate_proj) * up_proj
+        down_proj = self.down_proj(intermediate_states)
         return down_proj
 
 
@@ -515,6 +570,10 @@ class GranitePreTrainedModel(PreTrainedModel):
     _supports_cache_class = False
     _supports_quantized_cache = False
     _supports_static_cache = False
+    # This is to suppress the warning about some weights not expected and other not being initialized. This is due to
+    # the way weights are fused, so it is safe to ignore the warnings.
+    _keys_to_ignore_on_load_unexpected = [r".*up_proj.weight", r".*gate_proj.weight"]
+    _keys_to_ignore_on_load_missing = [r".*gate_up_proj.weight"]
 
     def _init_weights(self, module):
         std = self.config.initializer_range
