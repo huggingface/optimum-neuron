@@ -37,6 +37,8 @@
           title: Deploy Llama 3.3 70B on AWS Inferentia2 with SageMaker
         - local: inference_tutorials/deploy-mixtral-8x7b
           title: Deploy Mixtral 8x7B on AWS Inferentia2 with SageMaker
+        - local: inference_tutorials/deploy-embedding
+          title: Deploy Embedding Models on AWS Inferentia2 with SageMaker
         title: SageMaker
       title: Inference Tutorials
     title: Tutorials
