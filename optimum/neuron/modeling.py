@@ -73,7 +73,8 @@ from .utils import (
     NEURON_OBJECT_DETECTION_EXAMPLE,
     NEURON_QUESTION_ANSWERING_EXAMPLE,
     NEURON_SEMANTIC_SEGMENTATION_EXAMPLE,
-    NEURON_SENTENCE_TRANSFORMERS_EXAMPLE,
+    NEURON_SENTENCE_TRANSFORMERS_IMAGE_EXAMPLE,
+    NEURON_SENTENCE_TRANSFORMERS_TEXT_EXAMPLE,
     NEURON_SEQUENCE_CLASSIFICATION_EXAMPLE,
     NEURON_TEXT_GENERATION_EXAMPLE,
     NEURON_TEXT_INPUTS_DOCSTRING,
@@ -162,10 +163,15 @@ class NeuronModelForSentenceTransformers(NeuronTracedModel):
 
     @add_start_docstrings_to_model_forward(
         NEURON_TEXT_INPUTS_DOCSTRING.format("batch_size, sequence_length")
-        + NEURON_SENTENCE_TRANSFORMERS_EXAMPLE.format(
+        + NEURON_SENTENCE_TRANSFORMERS_TEXT_EXAMPLE.format(
             processor_class=_TOKENIZER_FOR_DOC,
             model_class="NeuronModelForSentenceTransformers",
             checkpoint="optimum/bge-base-en-v1.5-neuronx",
+        )
+        + NEURON_SENTENCE_TRANSFORMERS_IMAGE_EXAMPLE.format(
+            processor_class=_GENERIC_PROCESSOR,
+            model_class="NeuronModelForSentenceTransformers",
+            checkpoint="optimum/clip_vit_emb_neuronx",
         )
     )
     def forward(

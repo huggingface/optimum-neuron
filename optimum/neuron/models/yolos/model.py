@@ -56,7 +56,7 @@ class NeuronYolosForObjectDetection(NeuronTracedModel):
         + NEURON_OBJECT_DETECTION_EXAMPLE.format(
             processor_class=_PROCESSOR_FOR_IMAGE,
             model_class="NeuronYolosForObjectDetection",
-            checkpoint="hustvl/yolos-tiny",
+            checkpoint="optimum/yolos-tiny-neuronx-bs1",
         )
     )
     def forward(

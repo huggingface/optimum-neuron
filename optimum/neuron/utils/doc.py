@@ -232,7 +232,7 @@ NEURON_OBJECT_DETECTION_EXAMPLE = r"""
     >>> image = Image.open(requests.get(url, stream=True).raw)
 
     >>> preprocessor = {processor_class}.from_pretrained("{checkpoint}")
-    >>> model = {model_class}.from_pretrained("{checkpoint}", export=True, batch_size=1)
+    >>> model = {model_class}.from_pretrained("{checkpoint}")
 
     >>> inputs = preprocessor(images=image, return_tensors="pt")
 
@@ -376,8 +376,8 @@ NEURON_AUDIO_XVECTOR_EXAMPLE = r"""
     ```
 """
 
-NEURON_SENTENCE_TRANSFORMERS_EXAMPLE = r"""
-    Example:
+NEURON_SENTENCE_TRANSFORMERS_TEXT_EXAMPLE = r"""
+    Text Example:
 
     ```python
     >>> from transformers import {processor_class}
@@ -391,6 +391,27 @@ NEURON_SENTENCE_TRANSFORMERS_EXAMPLE = r"""
     >>> outputs = model(**inputs)
     >>> token_embeddings = outputs.token_embeddings
     >>> sentence_embedding = = outputs.sentence_embedding
+    ```
+"""
+
+NEURON_SENTENCE_TRANSFORMERS_IMAGE_EXAMPLE = r"""
+    Image Example:
+
+    ```python
+    >>> from PIL import Image
+    >>> from transformers import {processor_class}
+    >>> from sentence_transformers import util
+    >>> from optimum.neuron import {model_class}
+
+    >>> processor = {processor_class}.from_pretrained("{checkpoint}")
+    >>> model = {model_class}.from_pretrained("{checkpoint}")
+    >>> util.http_get("https://github.com/UKPLab/sentence-transformers/raw/master/examples/sentence_transformer/applications/image-search/two_dogs_in_snow.jpg", "two_dogs_in_snow.jpg")
+    >>> inputs = processor(
+    >>>     text=["Two dogs in the snow", 'A cat on a table', 'A picture of London at night'], images=Image.open("two_dogs_in_snow.jpg"), return_tensors="pt", padding=True
+    >>> )
+
+    >>> outputs = model(**inputs)
+    >>> cos_scores = util.cos_sim(outputs.image_embeds, outputs.text_embeds)  # Compute cosine similarities
     ```
 """
 
