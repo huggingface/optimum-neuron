@@ -90,6 +90,7 @@ from .accelerate import NeuronAccelerator, NeuronDistributedType, NeuronPartialS
 from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
 from .training_args import NeuronTrainingArguments
+from .models.training.modeling_utils import NeuronModelMixin
 from .utils import (
     is_torch_xla_available,
     is_trl_available,
@@ -571,25 +572,32 @@ class _TrainerForNeuron:
                 logger.info(
                     "Model parallelism is enabled, saving the model sharded state dict instead of the full state dict."
                 )
-            # TODO: how to handle pp?
-            if isinstance(self.model, PreTrainedModel):
-                from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+            if isinstance(self.model, NeuronModelMixin):
+                # This mark_step is needed to avoid hang issues.
+                xm.mark_step()
+                self.model.save_pretrained(
+                    output_dir,
+                    optimizer=self.optimizer if not self.args.save_only_model else None,
+                )
+            else:
+                if isinstance(self.model, PreTrainedModel):
+                    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
-                config = copy.deepcopy(self.model.config)
-                if self.args.mp_config.parallelize_embeddings:
-                    config.vocab_size = config.vocab_size * get_tensor_model_parallel_size()
-                config.save_pretrained(output_dir)
+                    config = copy.deepcopy(self.model.config)
+                    if self.args.mp_config.parallelize_embeddings:
+                        config.vocab_size = config.vocab_size * get_tensor_model_parallel_size()
+                    config.save_pretrained(output_dir)
 
-            # This mark_step is needed to avoid hang issues.
-            xm.mark_step()
-            Parallelizer.save_model_sharded_checkpoint(
-                self.model,
-                output_dir,
-                optimizer=self.optimizer if not self.args.save_only_model else None,
-                use_xser=self.accelerator.state.mp_config.use_xser,
-                async_save=self.accelerator.state.mp_config.async_save,
-                num_local_ranks_per_step=self.accelerator.state.mp_config.num_local_ranks_per_step,
-            )
+                # This mark_step is needed to avoid hang issues.
+                xm.mark_step()
+                Parallelizer.save_model_sharded_checkpoint(
+                    self.model,
+                    output_dir,
+                    optimizer=self.optimizer if not self.args.save_only_model else None,
+                    use_xser=self.accelerator.state.mp_config.use_xser,
+                    async_save=self.accelerator.state.mp_config.async_save,
+                    num_local_ranks_per_step=self.accelerator.state.mp_config.num_local_ranks_per_step,
+                )
         else:
             supported_classes = (PreTrainedModel, NeuronPeftModel)
             if not isinstance(self.model, supported_classes):
