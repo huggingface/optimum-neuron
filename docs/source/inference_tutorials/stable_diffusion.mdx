@@ -746,29 +746,5 @@ images[0].save("hug_lab.png")
 />
 
 
-## PixArt-α
 
-### Compile
 
-```bash
-optimum-cli export neuron --model PixArt-alpha/PixArt-XL-2-512x512 --batch_size 1 --height 512 --width 512 --num_images_per_prompt 1 --torch_dtype bfloat16 --sequence_length 120 pixart_alpha_neuron_512/
-```
-
-### Text-to-Image
-
-```python
-from optimum.neuron import NeuronPixArtAlphaPipeline
-
-neuron_model = NeuronPixArtAlphaPipeline.from_pretrained("pixart_alpha_neuron_512/")
-prompt = "Oppenheimer sits on the beach on a chair, watching a nuclear exposition with a huge mushroom cloud, 120mm."
-image = neuron_model(prompt=prompt).images[0]
-```
-
-<img
-  src="https://huggingface.co/datasets/Jingya/document_images/resolve/main/optimum/neuron/pixart-alpha-oppenheimer.png"
-  width="256"
-  height="256"
-  alt="PixArt-α generated image."
-/>
-
-Are there any other stable diffusion features that you want us to support in 🤗`Optimum-neuron`? Please file an issue to [`Optimum-neuron` Github repo](https://github.com/huggingface/optimum-neuron) or discuss with us on [HuggingFace’s community forum](https://discuss.huggingface.co/c/optimum/), cheers 🤗 !
