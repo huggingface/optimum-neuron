@@ -20,15 +20,18 @@ import math
 import os
 import warnings
 from abc import abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, Optional, Type, Union
+from typing import Callable, Dict, Literal, Optional, Type, Union
 
 import torch
 from safetensors import safe_open
 from transformers import PretrainedConfig
 from transformers.modeling_utils import (
     SpecificPreTrainedModelType,
+    get_parameter_dtype,
+    get_state_dict_dtype,
+    load_state_dict,
     no_init_weights,
 )
 from transformers.utils import (
@@ -48,16 +51,18 @@ from ...distributed.utils import (
     create_query_or_output_projection_local_weight_from_regular_weight,
 )
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
-from ...utils.misc import download_checkpoints_in_cache
+from ...utils.misc import download_checkpoints_in_cache, is_main_worker, is_precompilation
 
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 
 if is_neuronx_distributed_available():
+    import neuronx_distributed
     from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
     from neuronx_distributed.parallel_layers.layers import create_local_weight
     from neuronx_distributed.parallel_layers.parallel_state import (
+        get_data_parallel_size,
         get_tensor_model_parallel_rank,
         get_tensor_model_parallel_size,
     )
@@ -66,6 +71,7 @@ if is_neuronx_distributed_available():
 
 logger = logging.get_logger(__name__)
 
+MODEL_PARALLEL_SHARDS_DIR_NAME = "shards"
 
 ALL_ATTENTION_FUNCTIONS: Dict[str, Dict[str, Callable]] = {
     "flash_attention_2": nki_flash_attn_func,
@@ -98,15 +104,16 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
     bias: bool
 
     def adapt_state_dict(self, module_fully_qualified_name: str, named_parameters: Dict[str, torch.nn.Parameter], orig_state_dict: Dict[str, torch.Tensor], inplace: bool = False):
+        tp_size = get_tensor_model_parallel_size()
+        tp_rank = get_tensor_model_parallel_rank()
+
         if inplace:
             state_dict = orig_state_dict
         else:
             state_dict = dict(orig_state_dict)
-        tp_size = get_tensor_model_parallel_size()
-        tp_rank = get_tensor_model_parallel_rank()
-        state_dict = dict(orig_state_dict)
-        param_names = ["weight", "bias"] if self.bias else ["weight"]
+
         fused_linear_fully_qualified_name = f"{module_fully_qualified_name}.{self.fused_linear_name}"
+        param_names = ["weight", "bias"] if self.bias else ["weight"]
         for param_name in param_names:
             new_name = f"{fused_linear_fully_qualified_name}.{param_name}"
             full_weight_names = [f"{module_fully_qualified_name}.{linear_name}.{param_name}" for linear_name in self.linear_names]
@@ -206,15 +213,14 @@ class ModelWeightTransformationSpecs:
         return iter(self.specs)
 
 
-def adapt_state_dict(model, state_dict: Dict[str, torch.Tensor], inplace: bool = False):
+def adapt_state_dict(model: torch.nn.Module, state_dict: Dict[str, torch.Tensor], inplace: bool = False):
     tp_size = get_tensor_model_parallel_size()
     named_parameters = dict(model.named_parameters())
     original_state_dict_keys = set(state_dict.keys())
     for name, module in model.named_modules():
-        model_weight_transformation_specs = getattr(module, "specs", None)
-        if model_weight_transformation_specs is not None:
-            for spec in model_weight_transformation_specs:
-                state_dict = spec.adapt_state_dict(name, named_parameters, state_dict, inplace=True)
+        model_weight_transformation_specs = getattr(module, "specs", [])
+        for spec in model_weight_transformation_specs:
+            state_dict = spec.adapt_state_dict(name, named_parameters, state_dict, inplace=inplace)
 
     new_keys = set(state_dict.keys()) - original_state_dict_keys
 
@@ -231,6 +237,31 @@ def adapt_state_dict(model, state_dict: Dict[str, torch.Tensor], inplace: bool =
                 full_weight, param.partition_dim, per_partition_size, param.partition_stride
             )
     return state_dict
+
+def create_parameter_metadata(model):
+    metadata = {"parameters": {}, "model_weight_transformation_specs": {}}
+    for name, param in model.named_parameters():
+        tensor_model_parallel = getattr(param, "tensor_model_parallel", False)
+        if tensor_model_parallel:
+            metadata["parameters"][name] = {
+                "tensor_model_parallel": tensor_model_parallel,
+                "partition_dim": param.partition_dim,
+                "partition_stride": param.partition_stride,
+                "num_partitions": param.num_partitions,
+            }
+        else:
+            metadata["parameters"][name] = {
+                "tensor_model_parallel": tensor_model_parallel,
+            }
+    for name, module in model.named_modules():
+        model_weight_transformation_specs = getattr(module, "specs", [])
+        serialized_specs = []
+        for spec in model_weight_transformation_specs:
+            serialized_specs.append((spec.__class__.__name__, asdict(spec)))
+        if serialized_specs:
+            metadata["model_weight_transformation_specs"][name] = serialized_specs
+    return metadata
+
 
 
 class NeuronModelMixin:
@@ -554,6 +585,8 @@ class NeuronModelMixin:
             **kwargs,
         )
 
+        is_sharded = sharded_metadata is not None
+
         if torch_dtype is not None:
             if isinstance(torch_dtype, str):
                 if torch_dtype == "auto":
@@ -566,7 +599,7 @@ class NeuronModelMixin:
                         elif not is_sharded:
                             torch_dtype = get_state_dict_dtype(state_dict)
                         else:
-                            one_state_dict = load_state_dict(resolved_archive_file[0], weights_only=weights_only)
+                            one_state_dict = load_state_dict(filenames[0], weights_only=weights_only)
                             torch_dtype = get_state_dict_dtype(one_state_dict)
                             del one_state_dict  # free CPU memory
                         logger.info(
@@ -641,3 +674,142 @@ class NeuronModelMixin:
             xm.rendezvous(f"load_state_dict_{worker}")
 
         return model
+
+    def save_pretrained(
+        self,
+        save_directory: Union[str, os.PathLike],
+        is_main_process: Union[bool, Literal["auto"]] = "auto",
+        state_dict: Optional[dict] = None,
+        save_function: Callable = torch.save,
+        push_to_hub: bool = False,
+        max_shard_size: Union[int, str] = "5GB",
+        safe_serialization: bool = True,
+        variant: Optional[str] = None,
+        token: Optional[Union[str, bool]] = None,
+        save_peft_format: bool = True,
+        optimizer: Optional[torch.optim.Optimizer] = None,
+        **kwargs,
+    ):
+        if is_precompilation():
+            return
+        if is_main_process == "auto":
+            is_main_process = is_main_worker()
+
+        use_auth_token = kwargs.pop("use_auth_token", None)
+        kwargs.pop("ignore_metadata_errors", False)
+
+        if use_auth_token is not None:
+            warnings.warn(
+                "The `use_auth_token` argument is deprecated and will be removed in v5 of Transformers. Please use `token` instead.",
+                FutureWarning,
+            )
+            if token is not None:
+                raise ValueError(
+                    "`token` and `use_auth_token` are both specified. Please set only the argument `token`."
+                )
+            token = use_auth_token
+
+        if token is not None:
+            kwargs["token"] = token
+
+        _hf_peft_config_loaded = getattr(self, "_hf_peft_config_loaded", False)
+
+        if "save_config" in kwargs:
+            warnings.warn(
+                "`save_config` is deprecated and will be removed in v5 of Transformers. Use `is_main_process` instead."
+            )
+            is_main_process = kwargs.pop("save_config")
+        if safe_serialization:
+            raise ImportError("`safe_serialization` is not supported when saving the sharded checkpoints. It is possible to consolidate the model weights into `safetensors` format.")
+
+        if os.path.isfile(save_directory):
+            logger.error(f"Provided path ({save_directory}) should be a directory, not a file")
+            return
+
+        save_directory = Path(save_directory)
+
+        os.makedirs(save_directory, exist_ok=True)
+
+        if push_to_hub:
+            raise RuntimeError("`push_to_hub` is not supported because checkpoints are sharded. Consolidate them then push to hub.")
+
+        model_to_save = self
+
+        # save the string version of dtype to the config, e.g. convert torch.float32 => "float32"
+        # we currently don't use this setting automatically, but may start to use with v5
+        dtype = get_parameter_dtype(model_to_save)
+        model_to_save.config.torch_dtype = str(dtype).split(".")[1]
+
+        # Attach architecture to the config
+        model_to_save.config.architectures = [model_to_save.__class__.__name__]
+
+        # Unset attn implementation so it can be set to another one when loading back
+        model_to_save.config._attn_implementation_autoset = False
+
+        # Save the config
+        if is_main_process:
+            if not _hf_peft_config_loaded:
+                # If the model config has set attributes that should be in the generation config, move them there.
+                misplaced_generation_parameters = model_to_save.config._get_non_default_generation_parameters()
+                if self.can_generate() and len(misplaced_generation_parameters) > 0:
+                    warnings.warn(
+                        "Moving the following attributes in the config to the generation config: "
+                        f"{misplaced_generation_parameters}. You are seeing this warning because you've set "
+                        "generation parameters in the model config, as opposed to in the generation config.",
+                        UserWarning,
+                    )
+                    for param_name, param_value in misplaced_generation_parameters.items():
+                        setattr(model_to_save.generation_config, param_name, param_value)
+                        setattr(model_to_save.config, param_name, None)
+
+                model_to_save.config.save_pretrained(save_directory)
+            if self.can_generate():
+                model_to_save.generation_config.save_pretrained(save_directory)
+
+            if _hf_peft_config_loaded:
+                logger.info(
+                    "Detected adapters on the model, saving the model in the PEFT format, only adapter weights will be saved."
+                )
+                state_dict = model_to_save.get_adapter_state_dict()
+
+                if save_peft_format:
+                    logger.info(
+                        "To match the expected format of the PEFT library, all keys of the state dict of adapters will be pre-pended with `base_model.model`."
+                    )
+                    peft_state_dict = {}
+                    for key, value in state_dict.items():
+                        peft_state_dict[f"base_model.model.{key}"] = value
+                    state_dict = peft_state_dict
+
+                active_adapter = self.active_adapters()
+
+                if len(active_adapter) > 1:
+                    raise ValueError(
+                        "Multiple active adapters detected, saving multiple active adapters is not supported yet. You can save adapters separately one by one "
+                        "by iteratively calling `model.set_adapter(adapter_name)` then `model.save_pretrained(...)`"
+                    )
+                active_adapter = active_adapter[0]
+
+                current_peft_config = self.peft_config[active_adapter]
+                current_peft_config.save_pretrained(save_directory)
+
+            with open(save_directory / "mp_config.json", "w") as f:
+                f.write(json.dumps(asdict(self.mp_config), indent=4))
+
+
+        # Saving the metadata required to consolidate the checkpoints properly.
+        if get_data_parallel_size() == 0 and get_tensor_model_parallel_size() == 0:
+            metadata = create_parameter_metadata(model_to_save)
+            with open(save_directory / "metadata.json", "w") as f:
+                f.write(json.dumps(metadata, indent=4))
+
+
+        neuronx_distributed.trainer.save_checkpoint(
+            save_directory.as_posix(),
+            tag=MODEL_PARALLEL_SHARDS_DIR_NAME,
+            model=self,
+            optimizer=optimizer,
+            use_xser=self.mp_config.use_xser,
+            async_save=self.mp_config.async_save,
+            num_workers=self.mp_config.num_local_ranks_per_step,
+        )
