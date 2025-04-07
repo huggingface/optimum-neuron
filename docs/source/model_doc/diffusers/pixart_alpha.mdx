@@ -14,3 +14,84 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
+# PixArt-α
+
+## Overview
+
+[PixArt-α: Fast Training of Diffusion Transformer for Photorealistic Text-to-Image Synthesis](https://huggingface.co/papers/2310.00426) is Junsong Chen, Jincheng Yu, Chongjian Ge, Lewei Yao, Enze Xie, Yue Wu, Zhongdao Wang, James Kwok, Ping Luo, Huchuan Lu, and Zhenguo Li.
+
+You can find the original codebase at [PixArt-alpha/PixArt-alpha](https://github.com/PixArt-alpha/PixArt-alpha) and all the available checkpoints at [PixArt-alpha](https://huggingface.co/PixArt-alpha).
+
+🤗 `Optimum` extends `Diffusers` to support inference on the second generation of Neuron devices(powering Trainium and Inferentia 2). It aims at inheriting the ease of Diffusers on Neuron.
+
+## Export to Neuron
+
+To deploy models in the PixArt-α pipeline, you will need to compile them to TorchScript optimized for AWS Neuron. There are four components which need to be exported to the `.neuron` format to boost the performance:
+
+* Text encoder
+* Transformer
+* VAE encoder
+* VAE decoder
+
+You can either compile and export a PixArt-α Checkpoint via CLI or `NeuronPixArtAlphaPipeline` class.
+
+### Option 1: cli
+
+```bash
+optimum-cli export neuron --model PixArt-alpha/PixArt-XL-2-512x512 --batch_size 1 --height 512 --width 512 --num_images_per_prompt 1 --torch_dtype bfloat16 --sequence_length 120 pixart_alpha_neuron_512/
+```
+
+> [!TIP]
+> We recommend using a `inf2.8xlarge` or a larger instance for the model compilation. You will also be able to compile the model with the Optimum CLI on a CPU-only instance (needs ~35 GB memory), and then run the pre-compiled model on `inf2.xlarge` to reduce the expenses. In this case, don't forget to disable validation of inference by adding the `--disable-validation` argument.
+
+### Option 2: NeuronModel API
+
+```python
+import torch
+from optimum.neuron import NeuronPixArtAlphaPipeline
+
+# Compile
+compiler_args = {"auto_cast": "none"}
+input_shapes = {"batch_size": 1, "height": 512, "width": 512, "sequence_length": 120}
+
+neuron_model = NeuronPixArtAlphaPipeline.from_pretrained("PixArt-alpha/PixArt-XL-2-512x512", torch_dtype=torch.bfloat16, export=True, disable_neuron_cache=True, **compiler_args, **input_shapes)
+
+# Save locally
+neuron_model.save_pretrained("pixart_alpha_neuron_512/")
+
+# Upload to the HuggingFace Hub
+neuron_model.push_to_hub(
+    "pixart_alpha_neuron_512/", repository_id="Jingya/PixArt-XL-2-512x512-neuronx"  # Replace with your HF Hub repo id
+)
+```
+
+## Text-to-Image
+
+`NeuronPixArtAlphaPipeline` class allows you to generate images from a text prompt on neuron devices similar to the experience with `Diffusers`.
+
+With pre-compiled PixArt-α models, now generate an image with a prompt on Neuron:
+
+```python
+from optimum.neuron import NeuronPixArtAlphaPipeline
+
+neuron_model = NeuronPixArtAlphaPipeline.from_pretrained("pixart_alpha_neuron_512/")
+prompt = "Oppenheimer sits on the beach on a chair, watching a nuclear exposition with a huge mushroom cloud, 120mm."
+image = neuron_model(prompt=prompt).images[0]
+```
+
+<img
+  src="https://huggingface.co/datasets/Jingya/document_images/resolve/main/optimum/neuron/pixart-alpha-oppenheimer.png"
+  width="256"
+  height="256"
+  alt="PixArt-α generated image."
+/>
+
+## NeuronPixArtAlphaPipeline
+
+Pipeline for text-to-image generation using PixArt-Alpha.
+
+[[autodoc]] modeling_diffusion.NeuronPixArtAlphaPipeline
+    - __call__
+
+
+
