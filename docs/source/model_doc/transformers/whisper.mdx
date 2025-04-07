@@ -38,7 +38,7 @@ optimum-cli export neuron --model openai/whisper-tiny --task automatic-speech-re
 > [!TIP]
 > Execute `optimum-cli export neuron --help` to display all command line options and their description.
 
-### Option 2: NeuronModel API
+### Option 2: Python API
 
 ```python
 from optimum.neuron import NeuronWhisperForConditionalGeneration
@@ -61,7 +61,7 @@ neuron_model.push_to_hub(
 )
 ```
 
-## Usage example
+## Usage Example
 
 To use the model that we just exported, there are two options. We can eithe use the [`NeuronWhisperForConditionalGeneration`] class or use the [`Pipeline`]. The example below demonstrates how to automatically transcribe speech into text these two approaches.
 

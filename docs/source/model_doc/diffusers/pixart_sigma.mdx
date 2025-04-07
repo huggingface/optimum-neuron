@@ -51,7 +51,7 @@ optimum-cli export neuron --model Jingya/pixart_sigma_pipe_xl_2_512_ms --batch_s
 > [!TIP]
 > We recommend using a `inf2.8xlarge` or a larger instance for the model compilation. You will also be able to compile the model with the Optimum CLI on a CPU-only instance (needs ~35 GB memory), and then run the pre-compiled model on `inf2.xlarge` to reduce the expenses. In this case, don't forget to disable validation of inference by adding the `--disable-validation` argument.
 
-### Option 2: NeuronModel API
+### Option 2: Python API
 
 ```python
 import torch
@@ -101,4 +101,4 @@ Pipeline for text-to-image generation using PixArt-Σ.
     - __call__
 
 
-Are there any other stable diffusion features that you want us to support in 🤗`Optimum-neuron`? Please file an issue to [`Optimum-neuron` Github repo](https://github.com/huggingface/optimum-neuron) or discuss with us on [HuggingFace’s community forum](https://discuss.huggingface.co/c/optimum/), cheers 🤗 !
+Are there any other diffusion features that you want us to support in 🤗`Optimum-neuron`? Please file an issue to [`Optimum-neuron` Github repo](https://github.com/huggingface/optimum-neuron) or discuss with us on [HuggingFace’s community forum](https://discuss.huggingface.co/c/optimum/), cheers 🤗 !

@@ -13,3 +13,114 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 -->
+
+# IP-Adapter
+
+## Overview
+
+[IP-Adapter](https://hf.co/papers/2308.06721) is an image prompt adapter that can be plugged into diffusion models to enable image prompting without any changes to the underlying model. Furthermore, this adapter can be reused with other models finetuned from the same base model and it can be combined with other adapters like [ControlNet](../using-diffusers/controlnet). The key idea behind IP-Adapter is the *decoupled cross-attention* mechanism which adds a separate cross-attention layer just for image features instead of using the same cross-attention layer for both text and image features. This allows the model to learn more image-specific features.
+
+🤗 `Optimum` extends `Diffusers` to support inference on the second generation of Neuron devices(powering Trainium and Inferentia 2). It aims at inheriting the ease of Diffusers on Neuron.
+
+## Export to Neuron
+
+To deploy models, you will need to compile them to TorchScript optimized for AWS Neuron.
+
+You can either compile and export a Stable Diffusion Checkpoint via CLI or `NeuronStableDiffusionPipeline` class.
+
+### Option 1: cli
+
+Here is an example of exporting stable diffusion components with `Optimum` CLI:
+
+```bash
+optimum-cli export neuron --model stable-diffusion-v1-5/stable-diffusion-v1-5 
+    --ip_adapter_id h94/IP-Adapter 
+    --ip_adapter_subfolder models
+    --ip_adapter_weight_name ip-adapter-full-face_sd15.bin
+    --ip_adapter_scale 0.5
+    --batch_size 1 --height 512 --width 512 --num_images_per_prompt 1
+    --auto_cast matmul --auto_cast_type bf16 ip_adapter_neuron/
+```
+
+> [!TIP]
+> We recommend using a `inf2.8xlarge` or a larger instance for the model compilation. You will also be able to compile the model with the Optimum CLI on a CPU-only instance (needs ~35 GB memory), and then run the pre-compiled model on `inf2.xlarge` to reduce the expenses. In this case, don't forget to disable validation of inference by adding the `--disable-validation` argument.
+
+### Option 2: Python API
+
+Here is an example of exporting stable diffusion components with `NeuronStableDiffusionPipeline`:
+
+```python
+from optimum.neuron import NeuronStableDiffusionPipeline
+
+model_id = "runwayml/stable-diffusion-v1-5"
+compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+input_shapes = {"batch_size": 1, "height": 512, "width": 512}
+
+stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(
+    model_id, 
+    export=True, 
+    ip_adapter_id="h94/IP-Adapter",
+    ip_adapter_subfolder="models",
+    ip_adapter_weight_name="ip-adapter-full-face_sd15.bin",
+    ip_adapter_scale=0.5,
+    **compiler_args, 
+    **input_shapes,
+)
+
+# Save locally or upload to the HuggingFace Hub
+save_directory = "ip_adapter_neuron/"
+stable_diffusion.save_pretrained(save_directory)
+```
+
+## Text-to-Image
+
+* With `ip_adapter_image` as input
+
+```python
+from optimum.neuron import NeuronStableDiffusionPipeline
+
+model_id = "runwayml/stable-diffusion-v1-5"
+compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+input_shapes = {"batch_size": 1, "height": 512, "width": 512}
+
+stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(
+    model_id, 
+    export=True, 
+    ip_adapter_id="h94/IP-Adapter",
+    ip_adapter_subfolder="models",
+    ip_adapter_weight_name="ip-adapter-full-face_sd15.bin",
+    ip_adapter_scale=0.5,
+    **compiler_args, 
+    **input_shapes,
+)
+
+# Save locally or upload to the HuggingFace Hub
+save_directory = "ip_adapter_neuron/"
+stable_diffusion.save_pretrained(save_directory)
+```
+
+* With `ip_adapter_image_embeds` as input (encode the image first)
+
+```python
+image_embeds = stable_diffusion.prepare_ip_adapter_image_embeds(
+    ip_adapter_image=image,
+    ip_adapter_image_embeds=None,
+    device=None,
+    num_images_per_prompt=1,
+    do_classifier_free_guidance=True,
+)
+torch.save(image_embeds, "image_embeds.ipadpt")
+
+image_embeds = torch.load("image_embeds.ipadpt")
+images = stable_diffusion(
+    prompt="a polar bear sitting in a chair drinking a milkshake",
+    ip_adapter_image_embeds=image_embeds,
+    negative_prompt="deformed, ugly, wrong proportion, low res, bad anatomy, worst quality, low quality",
+    num_inference_steps=100,
+    generator=generator,
+).images[0]
+
+image.save("polar_bear.png")
+```
+
+Are there any other diffusion features that you want us to support in 🤗`Optimum-neuron`? Please file an issue to [`Optimum-neuron` Github repo](https://github.com/huggingface/optimum-neuron) or discuss with us on [HuggingFace’s community forum](https://discuss.huggingface.co/c/optimum/), cheers 🤗 !

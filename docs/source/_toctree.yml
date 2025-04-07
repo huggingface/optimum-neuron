@@ -46,8 +46,6 @@
           title: Create your own chatbot with llama-2-13B on AWS Inferentia
         - local: inference_tutorials/sentence_transformers
           title: Sentence Transformers on AWS Inferentia
-        - local: inference_tutorials/stable_diffusion
-          title: Generate images with Stable Diffusion models on AWS Inferentia
         title: EC2
       - isExpanded: false
         sections:
@@ -89,8 +87,8 @@
       sections:
       - local: model_doc/diffusers/controlnet
         title: ControlNet
-      - local: model_doc/diffusers/controlnet_sdxl
-        title: ControlNet with Stable Diffusion XL
+      - local: model_doc/diffusers/pix2pix
+        title: InstructPix2Pix
       - local: model_doc/diffusers/lcm
         title: Latent Consistency Models
       - local: model_doc/diffusers/pixart_alpha
