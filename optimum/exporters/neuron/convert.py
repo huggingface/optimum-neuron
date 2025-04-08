@@ -557,7 +557,6 @@ def export_neuronx(
         "unet",
         "vae-encoder",
         "vae-decoder",
-        "cvt",
         "hubert",
         "levit",
         "mobilenet-v2",
