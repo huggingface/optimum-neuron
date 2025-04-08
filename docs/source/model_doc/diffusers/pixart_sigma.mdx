@@ -42,7 +42,7 @@ To deploy models in the PixArt-Σ pipeline, you will need to compile them to Tor
 
 You can either compile and export a PixArt-Σ Checkpoint via CLI or `NeuronPixArtSigmaPipeline` class.
 
-### Option 1: cli
+### Option 1: CLI
 
 ```bash
 optimum-cli export neuron --model Jingya/pixart_sigma_pipe_xl_2_512_ms --batch_size 1 --height 512 --width 512 --num_images_per_prompt 1 --torch_dtype bfloat16 --sequence_length 120 pixart_sigma_neuron_512/
