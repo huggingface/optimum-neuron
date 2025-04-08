@@ -13,7 +13,7 @@ except Exception as error:
 
 
 INSTALL_REQUIRES = [
-    "transformers ~= 4.48.1",
+    "transformers ~= 4.49.0",
     "accelerate == 0.29.2",
     "optimum ~= 1.23.3",
     "huggingface_hub >= 0.29.0",
@@ -32,7 +32,7 @@ TESTS_REQUIRE = [
     "diffusers>=0.29.0, <=0.30.3",
     "safetensors",
     "sentence-transformers >= 2.2.0",
-    "peft>=0.14.0",
+    "peft==0.14.0",
     "trl==0.11.4",
     "compel",
     "rjieba",
@@ -81,7 +81,7 @@ EXTRAS_REQUIRE = {
         "neuronx_distributed==0.11.0",
         "libneuronxla==2.2.848.0",
     ],
-    "diffusers": ["diffusers>=0.28.0, <=0.30.3", "peft>=0.14.0"],
+    "diffusers": ["diffusers>=0.28.0, <=0.30.3", "peft==0.14.0"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
 }
 
