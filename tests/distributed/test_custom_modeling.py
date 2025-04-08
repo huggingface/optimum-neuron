@@ -65,10 +65,151 @@ def _test_parallel_granite():
 
 
 @is_trainium_test
-def test_parallel_granite():
+def _test_parallel_granite():
     launch_procs(
         _test_parallel_granite,
         num_procs=2,
         tp_size=2,
         pp_size=1,
     )
+
+
+def _test_training_granite0():
+    model_id = "ibm-granite/granite-3.2-2b-instruct"
+    torch_dtype = torch.bfloat16
+
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    model = GraniteForCausalLM.from_pretrained(model_id, torch_dtype=torch_dtype).to(device="xla")
+    model.train()
+
+    # Sample training data
+    prompt = "What is Artificial Intelligence?"
+    target = "Artificial Intelligence is the simulation of human intelligence in machines."
+    inputs = tokenizer(prompt, return_tensors="pt", padding=True).to("xla")
+    labels = tokenizer(target, return_tensors="pt", padding=True).input_ids.to("xla")
+
+    # Adjust labels to match input shape
+    labels = torch.cat([labels, torch.full((labels.size(0), inputs.input_ids.size(1) - labels.size(1)), -100, device="xla")], dim=1)
+    return
+    # Get initial output for comparison
+    model.eval()
+    with torch.no_grad():
+        initial_outputs = model(**inputs).logits
+    model.train()
+
+    # Define optimizer
+    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5)
+
+    # Training loop (1 step for demonstration purposes)
+    for _ in range(1):
+        optimizer.zero_grad()
+        outputs = model(**inputs, labels=labels)
+        loss = outputs.loss
+        print(f"Training loss: {loss.item()}")
+        loss.backward()
+        xm.optimizer_step(optimizer)
+        xm.mark_step()
+
+    # Get output after training
+    model.eval()
+    with torch.no_grad():
+        trained_outputs = model(**inputs).logits
+
+    # Check if the outputs are different
+    outputs_differ = not torch.allclose(initial_outputs.to("cpu"), trained_outputs.to("cpu"), atol=1e-4)
+    print(f"Outputs differ after training: {outputs_differ}")
+    assert outputs_differ, "Model outputs did not change after training"
+
+from datasets import load_dataset
+from transformers import set_seed
+from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
+
+
+def format_dolly(examples):
+    output_text = []
+    for i in range(len(examples["instruction"])):
+        instruction = f"### Instruction\n{examples['instruction'][i]}"
+        context = f"### Context\n{examples['context'][i]}" if len(examples["context"][i]) > 0 else None
+        response = f"### Answer\n{examples['response'][i]}"
+        prompt = "\n\n".join([i for i in [instruction, context, response] if i is not None])
+        output_text.append(prompt)
+    return output_text
+
+
+def _test_training_granite():
+    # set seed
+    set_seed(42)
+    torch_dtype = torch.bfloat16
+
+    # Load the dataset
+    dataset = load_dataset("databricks/databricks-dolly-15k", split="train")
+    model_id = "ibm-granite/granite-3.2-2b-instruct"
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+    # Tokenize the dataset
+    def tokenize_function(example):
+        ret = tokenizer(
+            example["text"],
+            padding="max_length",
+            truncation=True,
+            max_length=24,
+        )
+        return ret
+
+    # Load the model
+    model = GraniteForCausalLM.from_pretrained(model_id,
+                                               torch_dtype=torch_dtype).to(device="xla")
+
+    output_dir = f"{model_id}-finetuned"
+    # Define training arguments
+    training_args = NeuronTrainingArguments(
+        output_dir=output_dir,
+        overwrite_output_dir=True,
+        per_device_train_batch_size=1,
+        # per_device_eval_batch_size=1,
+        num_train_epochs=1,
+        max_steps=1,
+        do_train=True,
+        bf16=True,
+        logging_strategy="steps",
+        logging_steps=500,
+        save_strategy="epoch",
+        save_total_limit=2,
+        formatting_func=format_dolly,
+    )
+
+    # Initialize the Trainer, only for training (no validation in this test)
+    trainer = NeuronTrainer(
+        model=model,
+        args=training_args,
+        train_dataset=dataset["train"],
+        processing_class=tokenizer,
+    )
+    xm.mark_step()
+    # Train the model
+    train_result = trainer.train()
+    return
+    metrics = train_result.metrics
+
+    eval_dataset = tokenized_emotions["validation"]
+    eval_metrics = trainer.evaluate(eval_dataset=eval_dataset)
+    metrics.update(eval_metrics)
+    trainer.log_metrics("train", metrics)
+
+    trainer.save_model(output_dir)
+    trainer.create_model_card()
+    if args.repository_id:
+        trainer.push_to_hub(repository_id=args.repository_id, token=args.hf_token)
+
+
+
+@is_trainium_test
+def test_training_granite():
+    launch_procs(
+        _test_training_granite,
+        num_procs=2,
+        tp_size=2,
+        pp_size=1,
+    )
+
+

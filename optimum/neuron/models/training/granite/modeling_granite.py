@@ -39,6 +39,7 @@ from transformers.utils import (
 
 from ..config import TrainingNeuronConfig
 from ..sharding import fuse_weights, slice_tensor
+from ..loss_utils import ForCausalLMLoss
 
 
 logger = logging.get_logger(__name__)
@@ -794,6 +795,7 @@ class GraniteForCausalLM(GranitePreTrainedModel):
         loss = None
         if labels is not None:
             loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size)
+            loss = ForCausalLMLoss(logits=logits, labels=labels, vocab_size=self.vocab_size)
 
         if not return_dict:
             output = (logits,) + outputs[1:]
