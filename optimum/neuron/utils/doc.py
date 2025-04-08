@@ -296,7 +296,7 @@ NEURON_CTC_EXAMPLE = r"""
     Example:
 
     ```python
-    >>> from transformers import {processor_class}, Wav2Vec2ForCTC
+    >>> from transformers import {processor_class}
     >>> from optimum.neuron import {model_class}
     >>> from datasets import load_dataset
     >>> import torch
