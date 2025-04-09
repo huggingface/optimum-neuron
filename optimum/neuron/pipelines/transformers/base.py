@@ -123,7 +123,7 @@ NEURONX_SUPPORTED_TASKS = {
         "impl": AutomaticSpeechRecognitionPipeline,
         "class": (NeuronModelForCTC,),
         "default": "facebook/wav2vec2-large-960h-lv60-self",
-        "type": "multimodal",
+        "type": "audio",
     },
     "audio-classification": {
         "impl": AudioClassificationPipeline,
