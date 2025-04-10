@@ -1063,7 +1063,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 compilation_configs[name] = compilation_config
 
             # 3. Lookup cached config
-            cache_entry = MultiModelCacheEntry(model_id=model_id, task=task, configs=compilation_configs)
+            cache_entry = MultiModelCacheEntry(model_id=model_id, configs=compilation_configs)
             compile_cache = create_hub_compile_cache_proxy()
             model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
             cache_exist = compile_cache.download_folder(model_cache_dir, model_cache_dir)
