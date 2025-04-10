@@ -59,19 +59,11 @@ class ModelCacheEntry:
     def to_dict(self) -> Dict[str, Any]:
         raise NotImplementedError
 
-    @classmethod
-    def from_dict(cls, model_id: str, task: str, configs: Dict[str, Any]) -> "ModelCacheEntry":
-        raise NotImplementedError
-
     @property
     def neuron_config(self) -> Dict[str, Any]:
         raise NotImplementedError
 
     def has_same_arch(self, other: "ModelCacheEntry"):
-        raise NotImplementedError
-
-    @classmethod
-    def from_hub(cls, model_id: str, task: str):
         raise NotImplementedError
 
     # Generic methods relying on the API above
@@ -91,7 +83,7 @@ class ModelCacheEntry:
         if api.file_exists(model_id, "config.json"):
             return SingleModelCacheEntry.from_hub(model_id, task)
         elif api.file_exists(model_id, "model_index.json"):
-            return MultiModelCacheEntry.from_hub(model_id, task)
+            return MultiModelCacheEntry.from_hub(model_id)
         raise ValueError(f"Unable to evaluate model type for {model_id}: is it a diffusers or transformers model ?")
 
     def serialize(self) -> str:
@@ -114,5 +106,5 @@ class ModelCacheEntry:
         elif entry_class == "MultiModelCacheEntry":
             from .multi_model import MultiModelCacheEntry
 
-            return MultiModelCacheEntry.from_dict(model_id, task, cache_dict)
+            return MultiModelCacheEntry.from_dict(model_id, cache_dict)
         raise ValueError(f"Invalid cache entry of type {entry_class}")
