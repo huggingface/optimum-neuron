@@ -99,7 +99,7 @@ class ModelCacheEntry:
         cache_dict["_entry_class"] = self.__class__.__name__
         cache_dict["_model_id"] = self.model_id
         cache_dict["_task"] = self.task
-        return json.dumps(cache_dict, sort_keys=True)
+        return json.dumps(cache_dict, indent=2, sort_keys=True)
 
     @staticmethod
     def deserialize(data: str) -> "ModelCacheEntry":
