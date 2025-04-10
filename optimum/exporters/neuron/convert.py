@@ -25,6 +25,9 @@ import torch
 from transformers import PreTrainedModel
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
+from ...neuron.cache.entries.multi_model import MultiModelCacheEntry
+from ...neuron.cache.entries.single_model import SingleModelCacheEntry
+from ...neuron.cache.traced import cache_traced_neuron_artifacts
 from ...neuron.utils import (
     DiffusersPretrainedConfig,
     convert_neuronx_compiler_args_to_neuron,
@@ -34,11 +37,6 @@ from ...neuron.utils import (
     store_compilation_config,
 )
 from ...neuron.utils.cache_utils import get_model_name_or_path
-from ...neuron.utils.hub_cache_utils import (
-    ModelCacheEntry,
-    build_cache_config,
-    cache_traced_neuron_artifacts,
-)
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
 from ...utils import (
     is_diffusers_available,
@@ -295,6 +293,7 @@ def export_models(
     models_and_neuron_configs: Dict[
         str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronDefaultConfig"]
     ],
+    task: str,
     output_dir: Path,
     disable_neuron_cache: Optional[bool] = False,
     compiler_workdir: Optional[Path] = None,
@@ -310,6 +309,8 @@ def export_models(
     Args:
         models_and_neuron_configs (`Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], `NeuronDefaultConfig`]]):
             A dictionnary containing the models to export and their corresponding neuron configs.
+        task (`str`):
+            The task for which the models should be exported.
         output_dir (`Path`):
             Output directory to store the exported Neuron models.
         disable_neuron_cache (`Optional[bool]`, defaults to `False`):
@@ -411,8 +412,12 @@ def export_models(
     # cache neuronx model
     if not disable_neuron_cache and is_neuronx_available():
         model_id = get_model_name_or_path(model_config) if model_name_or_path is None else model_name_or_path
-        cache_config = build_cache_config(compile_configs)
-        cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
+        if len(compile_configs) == 1:
+            # FIXME: this is overly complicated just to pass the config
+            cache_config = list(compile_configs.values())[0]
+            cache_entry = SingleModelCacheEntry(model_id=model_id, task=task, config=cache_config)
+        else:
+            cache_entry = MultiModelCacheEntry(model_id=model_id, task=task, configs=compile_configs)
         cache_traced_neuron_artifacts(neuron_dir=output_dir, cache_entry=cache_entry)
 
     # remove models failed to export

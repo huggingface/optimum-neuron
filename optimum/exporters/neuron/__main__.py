@@ -648,6 +648,7 @@ def main_export(
 
     _, neuron_outputs = export_models(
         models_and_neuron_configs=models_and_neuron_configs,
+        task=task,
         output_dir=output,
         disable_neuron_cache=disable_neuron_cache,
         compiler_workdir=compiler_workdir,

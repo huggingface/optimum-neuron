@@ -30,8 +30,9 @@ from transformers import AutoConfig, AutoModel, GenerationConfig
 
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
+from .cache.entries.single_model import SingleModelCacheEntry
+from .cache.hub_cache import hub_neuronx_cache
 from .modeling_base import NeuronModel
-from .utils import ModelCacheEntry, hub_neuronx_cache
 from .utils.require_utils import requires_transformers_neuronx
 from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
 
@@ -183,7 +184,11 @@ class NeuronDecoderModel(NeuronModel):
 
         # When compiling, only create a cache entry if the model comes from the hub
         checkpoint_id = neuron_config.get("checkpoint_id", None)
-        cache_entry = None if checkpoint_id is None else ModelCacheEntry(checkpoint_id, config)
+        cache_entry = (
+            None
+            if checkpoint_id is None
+            else SingleModelCacheEntry(model_id=checkpoint_id, task="text-generation", config=config)
+        )
 
         # Export the model using the Optimum Neuron Cache
         with hub_neuronx_cache("inference", entry=cache_entry):
