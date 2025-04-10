@@ -29,6 +29,9 @@ from transformers import AutoConfig, AutoModel, GenerationMixin
 from ..exporters.neuron import main_export
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
+from ..utils.save_utils import maybe_load_preprocessors
+from .cache.entries.single_model import SingleModelCacheEntry
+from .cache.hub_cache import create_hub_compile_cache_proxy
 from .modeling_base import NeuronModel
 from .utils import (
     NEURON_FILE_NAME,
@@ -38,9 +41,7 @@ from .utils import (
     replace_weights,
     store_compilation_config,
 )
-from .utils.hub_cache_utils import ModelCacheEntry, build_cache_config, create_hub_compile_cache_proxy
 from .utils.import_utils import is_neuronx_available
-from .utils.misc import maybe_load_preprocessors
 from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
 
@@ -256,6 +257,7 @@ class NeuronTracedModel(NeuronModel):
         force_download: bool = False,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[Union[str, Path]] = None,
+        tensor_parallel_size: Optional[int] = 1,
         disable_neuron_cache: bool = False,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
@@ -268,6 +270,8 @@ class NeuronTracedModel(NeuronModel):
         disable_fast_relayout: Optional[bool] = False,
         disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
+        output_attentions: bool = False,
+        output_hidden_states: bool = False,
         **kwargs_shapes,
     ) -> "NeuronTracedModel":
         """
@@ -292,6 +296,8 @@ class NeuronTracedModel(NeuronModel):
             "disable_fast_relayout": disable_fast_relayout,
             "disable_fallback": disable_fallback,
         }
+        # clean shapes
+        commit_hash = kwargs_shapes.pop("_commit_hash", None)
 
         if not disable_neuron_cache and is_neuronx_available():  # TODO: support caching of Inf1 as well
             # Check if the cache exists
@@ -300,15 +306,17 @@ class NeuronTracedModel(NeuronModel):
                 input_shapes=kwargs_shapes,
                 compiler_kwargs=compiler_kwargs,
                 dynamic_batch_size=dynamic_batch_size,
+                tensor_parallel_size=tensor_parallel_size,
                 compiler_type=NEURON_COMPILER_TYPE,
                 compiler_version=NEURON_COMPILER_VERSION,
                 inline_weights_to_neff=inline_weights_to_neff,
                 optlevel=optlevel,
                 model_type=getattr(config, "model_type", None),
                 task=task,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
             )
-            cache_config = build_cache_config(compilation_config)
-            cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
+            cache_entry = SingleModelCacheEntry(model_id=model_id, task=task, config=compilation_config)
             compile_cache = create_hub_compile_cache_proxy()
             model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
             cache_available = compile_cache.download_folder(model_cache_dir, model_cache_dir)
@@ -330,6 +338,7 @@ class NeuronTracedModel(NeuronModel):
                     local_files_only=local_files_only,
                     force_download=force_download,
                     trust_remote_code=trust_remote_code,
+                    _commit_hash=commit_hash,
                 )
                 if not inline_weights_to_neff:
                     # replace weights
@@ -452,8 +461,8 @@ class NeuronTracedModel(NeuronModel):
             if key.startswith("static_")
         }
 
-        # Neuron config constructuor
-        task = getattr(config, "task") or TasksManager.infer_task_from_model(cls.auto_model_class)
+        # Neuron config constructor
+        task = neuron_config.get("task", None) or TasksManager.infer_task_from_model(cls.auto_model_class)
         task = TasksManager.map_from_synonym(task)
         model_type = neuron_config.get("model_type", None) or config.model_type
         model_type = model_type.replace("_", "-")

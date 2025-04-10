@@ -81,6 +81,7 @@ class InputShapesArguments:
     width: Optional[int] = None
     height: Optional[int] = None
     image_size: Optional[int] = None
+    num_images_per_prompt: Optional[int] = None
     patch_size: Optional[int] = None
     num_channels: Optional[int] = None
     feature_size: Optional[int] = None
@@ -309,6 +310,7 @@ def store_compilation_config(
     # Add args of optional outputs
     config_args["output_attentions"] = output_attentions
     config_args["output_hidden_states"] = output_hidden_states
+    config_args["task"] = task
 
     update_func("neuron", config_args)
 
@@ -316,7 +318,5 @@ def store_compilation_config(
         import diffusers
 
         update_func("_diffusers_version", diffusers.__version__)
-
-    update_func("task", task)
 
     return config

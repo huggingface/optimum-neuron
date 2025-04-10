@@ -42,6 +42,8 @@ from ..exporters.neuron import (
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..utils import is_diffusers_available
+from .cache.entries.multi_model import MultiModelCacheEntry
+from .cache.hub_cache import create_hub_compile_cache_proxy
 from .modeling_traced import NeuronTracedModel
 from .utils import (
     DIFFUSION_MODEL_CONTROLNET_NAME,
@@ -59,11 +61,6 @@ from .utils import (
     is_neuronx_available,
     replace_weights,
     store_compilation_config,
-)
-from .utils.hub_cache_utils import (
-    ModelCacheEntry,
-    build_cache_config,
-    create_hub_compile_cache_proxy,
 )
 from .utils.require_utils import requires_torch_neuronx
 from .utils.version_utils import get_neuronxcc_version
@@ -871,6 +868,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         force_download: bool = True,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[str] = None,
+        tensor_parallel_size: Optional[int] = 1,
         disable_neuron_cache: bool = False,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
@@ -881,6 +879,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         auto_cast: Optional[str] = "matmul",
         auto_cast_type: Optional[str] = "bf16",
         dynamic_batch_size: bool = False,
+        output_attentions: bool = False,
         output_hidden_states: bool = False,
         data_parallel_mode: Optional[Literal["none", "unet", "transformer", "all"]] = None,
         controlnet_ids: Optional[Union[str, List[str]]] = None,
@@ -1051,19 +1050,20 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                     input_names=neuron_config.inputs,
                     output_names=neuron_config.outputs,
                     dynamic_batch_size=neuron_config.dynamic_batch_size,
+                    tensor_parallel_size=tensor_parallel_size,
                     compiler_type=NEURON_COMPILER_TYPE,
                     compiler_version=NEURON_COMPILER_VERSION,
                     inline_weights_to_neff=inline_weights_to_neff,
                     optlevel=optlevel,
                     model_type=getattr(neuron_config, "MODEL_TYPE", None),
                     task=getattr(neuron_config, "task", None),
+                    output_attentions=output_attentions,
                     output_hidden_states=getattr(neuron_config, "output_hidden_states", False),
                 )
                 compilation_configs[name] = compilation_config
 
             # 3. Lookup cached config
-            cache_config = build_cache_config(compilation_configs)
-            cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
+            cache_entry = MultiModelCacheEntry(model_id=model_id, configs=compilation_configs)
             compile_cache = create_hub_compile_cache_proxy()
             model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
             cache_exist = compile_cache.download_folder(model_cache_dir, model_cache_dir)

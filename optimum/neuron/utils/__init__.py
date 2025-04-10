@@ -41,13 +41,6 @@ _import_structure = {
         "ENCODER_NAME",
         "NEURON_FILE_NAME",
     ],
-    "hub_cache_utils": [
-        "ModelCacheEntry",
-        "get_hub_cached_entries",
-        "get_hub_cached_models",
-        "hub_neuronx_cache",
-        "synchronize_hub_cache",
-    ],
     "import_utils": [
         "is_accelerate_available",
         "is_neuron_available",
@@ -64,6 +57,7 @@ _import_structure = {
         "DummyControNetInputGenerator",
         "ASTDummyAudioInputGenerator",
         "DummyIPAdapterInputGenerator",
+        "WhisperDummyTextInputGenerator",
     ],
     "misc": [
         "DiffusersPretrainedConfig",
@@ -119,13 +113,6 @@ if TYPE_CHECKING:
         ENCODER_NAME,
         NEURON_FILE_NAME,
     )
-    from .hub_cache_utils import (
-        ModelCacheEntry,
-        get_hub_cached_entries,
-        get_hub_cached_models,
-        hub_neuronx_cache,
-        synchronize_hub_cache,
-    )
     from .import_utils import (
         is_accelerate_available,
         is_neuron_available,
@@ -142,6 +129,7 @@ if TYPE_CHECKING:
         DummyControNetInputGenerator,
         DummyIPAdapterInputGenerator,
         DummyMaskedPosGenerator,
+        WhisperDummyTextInputGenerator,
     )
     from .misc import (
         DiffusersPretrainedConfig,
