@@ -17,6 +17,9 @@
 import argparse
 import inspect
 import os
+
+
+os.environ["TORCHDYNAMO_DISABLE"] = "1"  # Always turn off torchdynamo as it's incompatible with neuron
 from argparse import ArgumentParser
 from dataclasses import fields
 from pathlib import Path
@@ -700,6 +703,7 @@ def main_export(
 
     _, neuron_outputs = export_models(
         models_and_neuron_configs=models_and_neuron_configs,
+        task=task,
         output_dir=output,
         disable_neuron_cache=disable_neuron_cache,
         compiler_workdir=compiler_workdir,

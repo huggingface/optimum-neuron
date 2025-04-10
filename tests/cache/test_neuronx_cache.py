@@ -32,7 +32,7 @@ from optimum.neuron import (
     NeuronStableDiffusionPipeline,
     NeuronStableDiffusionXLPipeline,
 )
-from optimum.neuron.utils import get_hub_cached_entries, get_hub_cached_models, synchronize_hub_cache
+from optimum.neuron.cache import get_hub_cached_entries, get_hub_cached_models, synchronize_hub_cache
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -186,7 +186,7 @@ def local_cache_size(cache_path):
 @requires_neuronx
 def test_decoder_cache(cache_repos):
     cache_path, cache_repo_id = cache_repos
-    model_id = "hf-internal-testing/tiny-random-gpt2"
+    model_id = "llamafactory/tiny-random-Llama-3"
     # Export the model a first time to populate the local cache
     model = export_decoder_model(model_id)
     check_decoder_generation(model)
@@ -200,7 +200,7 @@ def test_decoder_cache(cache_repos):
     assert model_entries[0] == model.config.neuron
     # Also verify that the model appears in the list of cached models
     cached_models = get_hub_cached_models("inference")
-    assert ("gpt2", "hf-internal-testing", "tiny-random-gpt2") in cached_models
+    assert ("llama", "llamafactory", "tiny-random-Llama-3") in cached_models
     # Clear the local cache
     for root, dirs, files in os.walk(cache_path):
         for f in files:
@@ -209,7 +209,7 @@ def test_decoder_cache(cache_repos):
             shutil.rmtree(os.path.join(root, d))
     assert local_cache_size(cache_path) == 0
     # Export the model again: the compilation artifacts should be fetched from the Hub
-    model = export_decoder_model("hf-internal-testing/tiny-random-gpt2")
+    model = export_decoder_model(model_id)
     check_decoder_generation(model)
     # Verify the local cache directory has not been populated
     assert len(get_local_cached_files(cache_path, "neff")) == 0
@@ -230,7 +230,9 @@ def test_encoder_cache(cache_repos):
     synchronize_hub_cache(cache_repo_id=cache_repo_id)
     assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
     # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
+    model_entries = get_hub_cached_entries(
+        model_id, "inference", task="text-classification", cache_repo_id=cache_repo_id
+    )
     assert len(model_entries) == 1
     # Clear the local cache
     for root, dirs, files in os.walk(cache_path):
@@ -278,7 +280,6 @@ def test_stable_diffusion_cache(cache_repos):
 
 @is_inferentia_test
 @requires_neuronx
-@pytest.mark.skip("Disable the test due to https://github.com/aws-neuron/aws-neuron-sdk/issues/859")
 def test_stable_diffusion_xl_cache(cache_repos):
     cache_path, cache_repo_id = cache_repos
     model_id = "echarlaix/tiny-random-stable-diffusion-xl"
@@ -320,7 +321,7 @@ def test_stable_diffusion_xl_cache(cache_repos):
 )
 def test_decoder_cache_unavailable(cache_repos, var, value, match):
     # Just exporting the model will only emit a warning
-    export_decoder_model("hf-internal-testing/tiny-random-gpt2")
+    export_decoder_model("llamafactory/tiny-random-Llama-3")
     prev_value = os.environ.get(var, None)
     # Modify the specified environment variable to trigger an error
     os.environ[var] = value
@@ -338,7 +339,7 @@ def test_decoder_cache_unavailable(cache_repos, var, value, match):
 @requires_neuronx
 def test_optimum_neuron_cli_cache_synchronize(cache_repos):
     cache_path, cache_repo_id = cache_repos
-    model_id = "hf-internal-testing/tiny-random-gpt2"
+    model_id = "llamafactory/tiny-random-Llama-3"
     # Export a model to populate the local cache
     export_decoder_model(model_id)
     # Synchronize the hub cache with the local cache
