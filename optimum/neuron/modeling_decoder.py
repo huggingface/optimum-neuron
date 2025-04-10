@@ -109,11 +109,13 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
 
         # When compiling, only create a cache entry if the model comes from the hub
         checkpoint_id = neuron_config.checkpoint_id
-        cache_entry = None
-        if checkpoint_id is not None:
-            cache_config = copy.deepcopy(config)
-            cache_config.neuron = neuron_config.to_dict()
-            cache_entry = SingleModelCacheEntry(model_id=checkpoint_id, task="text-generation", config=cache_config)
+        cache_entry = (
+            None
+            if checkpoint_id is None
+            else SingleModelCacheEntry(
+                model_id=checkpoint_id, task="text-generation", config=config, neuron_config=neuron_config
+            )
+        )
 
         # Export the model using the Optimum Neuron Cache
         with hub_neuronx_cache("inference", entry=cache_entry):

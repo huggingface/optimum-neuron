@@ -14,10 +14,11 @@
 # limitations under the License.
 
 import copy
-from typing import Any, Dict, Union
+from typing import Any, Dict, Optional, Union
 
 from transformers import AutoConfig, PretrainedConfig
 
+from ...configuration_utils import NeuronConfig
 from .cache_entry import CACHE_WHITE_LIST, ModelCacheEntry
 
 
@@ -32,15 +33,23 @@ class SingleModelCacheEntry(ModelCacheEntry):
 
     """
 
-    def __init__(self, model_id: str, task: str, config: Union[PretrainedConfig, Dict[str, Any]]):
+    def __init__(
+        self,
+        model_id: str,
+        task: str,
+        config: Union[PretrainedConfig, Dict[str, Any]],
+        neuron_config: Optional[NeuronConfig] = None,
+    ):
         config = copy.deepcopy(config)
         # Remove keys set to default values
         self._config = config.to_diff_dict() if isinstance(config, PretrainedConfig) else config
-        # Store neuron config separately (if any) as eventually it will be passed separately
-        self._neuron_config = self._config.pop("neuron", None)
         # Also remove keys in white-list
         for key in CACHE_WHITE_LIST:
             self._config.pop(key, None)
+        # Legacy modeling code will pass neuron config inside config
+        if neuron_config is None:
+            neuron_config = self._config.pop("neuron", None)
+        self._neuron_config = neuron_config.to_dict() if isinstance(neuron_config, NeuronConfig) else neuron_config
         super().__init__(model_id, self._config["model_type"], task)
 
     # ModelCacheEntry API implementation
