@@ -42,11 +42,15 @@ _NEURON_CONFIG_FOR_BACKEND = {}
 _BACKEND_FOR_NEURON_CONFIG = {}
 
 
-def register_neuron_config(backend):
+def register_neuron_config(backend=None):
     def wrapper(cls):
+        if backend is None:
+            key = cls.__name__
+        else:
+            key = backend
         assert issubclass(cls, NeuronConfig)
-        _BACKEND_FOR_NEURON_CONFIG[cls] = backend
-        _NEURON_CONFIG_FOR_BACKEND[backend] = cls
+        _BACKEND_FOR_NEURON_CONFIG[cls] = key
+        _NEURON_CONFIG_FOR_BACKEND[key] = cls
         return cls
 
     return wrapper
