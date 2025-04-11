@@ -55,7 +55,7 @@ valid_dtypes = [
 ]
 
 
-@register_neuron_config("hlo")
+@register_neuron_config
 class HloNeuronConfig(NeuronConfig):
     """
     Neuron configurations for extra features and performance optimizations.
