@@ -66,9 +66,6 @@ class NeuronConfig(PushToHubMixin):
 
     """
 
-    checkpoint_id: str
-    checkpoint_revision: str
-
     def __hash__(self):
         return hash(self.to_json_string())
 

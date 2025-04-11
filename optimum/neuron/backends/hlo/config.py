@@ -83,6 +83,9 @@ class HloNeuronConfig(NeuronConfig):
         allow_flash_attention: if possible, use flash attention.
     """
 
+    checkpoint_id: str
+    checkpoint_revision: str
+
     def __init__(
         self,
         checkpoint_id: str = None,
