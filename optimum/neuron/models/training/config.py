@@ -18,7 +18,7 @@
 from optimum.neuron.configuration_utils import NeuronConfig, register_neuron_config
 
 
-@register_neuron_config()
+@register_neuron_config
 class TrainingNeuronConfig(NeuronConfig):
     r"""
     Neuron configurations for extra features and performance optimizations.

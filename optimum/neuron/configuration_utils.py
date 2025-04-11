@@ -38,22 +38,16 @@ logger = logging.get_logger(__name__)
 
 NEURON_CONFIG_NAME = "neuron_config.json"
 
-_NEURON_CONFIG_FOR_BACKEND = {}
-_BACKEND_FOR_NEURON_CONFIG = {}
+_NEURON_CONFIG_FOR_KEY = {}
+_KEY_FOR_NEURON_CONFIG = {}
 
 
-def register_neuron_config(backend=None):
-    def wrapper(cls):
-        if backend is None:
-            key = cls.__name__
-        else:
-            key = backend
-        assert issubclass(cls, NeuronConfig)
-        _BACKEND_FOR_NEURON_CONFIG[cls] = key
-        _NEURON_CONFIG_FOR_BACKEND[key] = cls
-        return cls
-
-    return wrapper
+def register_neuron_config(cls):
+    key = cls.__name__
+    assert issubclass(cls, NeuronConfig)
+    _KEY_FOR_NEURON_CONFIG[cls] = key
+    _NEURON_CONFIG_FOR_KEY[key] = cls
+    return cls
 
 
 @dataclass
@@ -250,11 +244,11 @@ class NeuronConfig(PushToHubMixin):
             # We need to identify the actual neuron configuration class for this backend
             if backend is None:
                 raise ValueError("Neuron configuration is invalid: unable to identify the backend")
-            cls = _NEURON_CONFIG_FOR_BACKEND.get(backend, None)
+            cls = _NEURON_CONFIG_FOR_KEY.get(backend, None)
             if cls is None:
                 raise ValueError(f"No neuron configuration registered for the {backend} backend")
         else:
-            assert _BACKEND_FOR_NEURON_CONFIG[cls] == backend
+            assert _KEY_FOR_NEURON_CONFIG[cls] == backend
         config = cls(**{**config_dict})
         logger.info(f"Neuron config {config}")
         return config
@@ -303,7 +297,7 @@ class NeuronConfig(PushToHubMixin):
 
         # Add backend as it is required to identify the NeuronConfig class when deserializing the file
         cls = self.__class__
-        backend = _BACKEND_FOR_NEURON_CONFIG.get(cls, None)
+        backend = _KEY_FOR_NEURON_CONFIG.get(cls, None)
         if backend is None:
             raise ValueError(f"Unable to identify the backend for {cls.__name__}. Did you register it ?")
         output["backend"] = backend
