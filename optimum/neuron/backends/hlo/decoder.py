@@ -635,7 +635,6 @@ class DecoderLayer:
         self.attn_out_transposed = True
         self.mlp_out_sharding = 0
         self.mlp_out_transposed = True
-        self.kv_replication = 1  # default value to denote weight replication factor
         self.layer_num = layer_num
 
     def add_parameter(self, param, sharding=None, allow_transform=False):
@@ -775,9 +774,6 @@ class DecoderLayer:
                 self.attn_k_bias = repeat(self.attn_k_bias)
                 self.attn_v_bias = repeat(self.attn_v_bias)
                 self.n_kv_head *= ratio
-            self.kv_replication = ratio
-            # FIXME: As a workaround to get kv_replication info (after padding) in HLO construction
-            self.neuron_config.kv_replication = self.kv_replication
 
         if self.n_head == self.n_kv_head:
             self.attn_k_weight = qkv_maybe_pad(self.attn_k_weight, dim=1)
