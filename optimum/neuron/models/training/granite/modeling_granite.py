@@ -30,6 +30,7 @@ from neuronx_distributed.parallel_layers.parallel_state import (
 )
 from torch import nn
 from torch_xla.utils.checkpoint import checkpoint
+from transformers import PretrainedConfig
 from transformers.activations import ACT2FN
 from transformers.generation import GenerationMixin
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
@@ -39,14 +40,12 @@ from transformers.utils import (
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
     logging,
-    replace_return_docstrings,
 )
 
-from .configuration_granite import NeuronGraniteConfig
+from ..config import TrainingNeuronConfig
 
 
 logger = logging.get_logger(__name__)
-_CONFIG_FOR_DOC = "NeuronGraniteConfig"
 
 
 def slice_tensor(tensor: torch.Tensor, axis: int) -> torch.Tensor:
@@ -185,9 +184,10 @@ def eager_attention_forward(
 class GraniteAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    def __init__(self, config: NeuronGraniteConfig, layer_idx: Optional[int] = None):
+    def __init__(self, config: PretrainedConfig, mp_config: TrainingNeuronConfig, layer_idx: Optional[int] = None):
         super().__init__()
         self.config = config
+        self.mp_config = mp_config
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_attention_heads
         self.layer_idx = layer_idx
@@ -212,7 +212,7 @@ class GraniteAttention(nn.Module):
             bias=False,
             gather_output=False,
             init_method=init_method,
-            sequence_parallel_enabled=self.config.sequence_parallel_enabled,
+            sequence_parallel_enabled=self.mp_config.sequence_parallel_enabled,
             dtype=self.config.torch_dtype,
         )
         self.k_proj = ColumnParallelLinear(
@@ -221,7 +221,7 @@ class GraniteAttention(nn.Module):
             bias=False,
             gather_output=False,
             init_method=init_method,
-            sequence_parallel_enabled=self.config.sequence_parallel_enabled,
+            sequence_parallel_enabled=self.mp_config.sequence_parallel_enabled,
             dtype=self.config.torch_dtype,
         )
         self.v_proj = ColumnParallelLinear(
@@ -230,7 +230,7 @@ class GraniteAttention(nn.Module):
             bias=False,
             gather_output=False,
             init_method=init_method,
-            sequence_parallel_enabled=self.config.sequence_parallel_enabled,
+            sequence_parallel_enabled=self.mp_config.sequence_parallel_enabled,
             dtype=self.config.torch_dtype,
         )
         self.o_proj = RowParallelLinear(
@@ -239,7 +239,7 @@ class GraniteAttention(nn.Module):
             bias=False,
             input_is_parallel=True,
             init_method=init_method,
-            sequence_parallel_enabled=config.sequence_parallel_enabled,
+            sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
             dtype=self.config.torch_dtype,
         )
         # Split parallelized weights
@@ -276,7 +276,7 @@ class GraniteAttention(nn.Module):
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         tp_size = get_tensor_model_parallel_size()
 
-        if self.config.sequence_parallel_enabled:
+        if self.mp_config.sequence_parallel_enabled:
             q_len, bsz, _ = hidden_states.size()
             q_len = q_len * tp_size
         else:
@@ -286,7 +286,7 @@ class GraniteAttention(nn.Module):
         key_states = self.k_proj(hidden_states)
         value_states = self.v_proj(hidden_states)
 
-        if self.config.sequence_parallel_enabled:
+        if self.mp_config.sequence_parallel_enabled:
             query_states = query_states.view(q_len, bsz, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
             key_states = key_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
             value_states = value_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
@@ -309,7 +309,7 @@ class GraniteAttention(nn.Module):
             scaling=self.scaling,
         )
 
-        if self.config.sequence_parallel_enabled:
+        if self.mp_config.sequence_parallel_enabled:
             attn_output = attn_output.permute(2, 0, 1, 3)
             attn_output = attn_output.reshape(q_len, bsz, self.hidden_size // tp_size)
         else:
@@ -341,9 +341,10 @@ class GraniteRMSNorm(nn.Module):
 
 
 class GraniteMLP(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, mp_config):
         super().__init__()
         self.config = config
+        self.mp_config = mp_config
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
         init_method = partial(_init_normal, config.initializer_range)
@@ -355,7 +356,7 @@ class GraniteMLP(nn.Module):
             bias=False,
             gather_output=False,
             init_method=init_method,
-            sequence_parallel_enabled=self.config.sequence_parallel_enabled,
+            sequence_parallel_enabled=self.mp_config.sequence_parallel_enabled,
             sequence_dimension=0,
             dtype=self.config.torch_dtype,
         )
@@ -367,7 +368,7 @@ class GraniteMLP(nn.Module):
             init_method=init_method,
             dtype=config.torch_dtype,
             input_is_parallel=True,
-            sequence_parallel_enabled=config.sequence_parallel_enabled,
+            sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
         )
         self.act_fn = ACT2FN[config.hidden_act]
         # Split parallelized weights
@@ -402,7 +403,7 @@ class GraniteMLP(nn.Module):
 
         # We checkpoint the MLP compute too, since we see extra data movement which is more
         # expensive than the recompute in this case.
-        if self.config.gradient_checkpointing:
+        if self.mp_config.gradient_checkpointing:
             intermediate_states = checkpoint(activation_mlp, gate_proj, up_proj)
         else:
             intermediate_states = self.act_fn(gate_proj) * up_proj
@@ -411,12 +412,12 @@ class GraniteMLP(nn.Module):
 
 
 class GraniteDecoderLayer(nn.Module):
-    def __init__(self, config: NeuronGraniteConfig, layer_idx: int):
+    def __init__(self, config: PretrainedConfig, mp_config: TrainingNeuronConfig, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.self_attn = GraniteAttention(config=config, layer_idx=layer_idx)
+        self.self_attn = GraniteAttention(config=config, mp_config=mp_config, layer_idx=layer_idx)
 
-        self.mlp = GraniteMLP(config)
+        self.mlp = GraniteMLP(config, mp_config)
         self.input_layernorm = GraniteRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = GraniteRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.residual_multiplier = config.residual_multiplier
@@ -477,7 +478,7 @@ class GraniteDecoderLayer(nn.Module):
 
 
 class GraniteRotaryEmbedding(nn.Module):
-    def __init__(self, config: NeuronGraniteConfig, device=None):
+    def __init__(self, config: PretrainedConfig, device=None):
         super().__init__()
         # BC: "rope_type" was originally "type"
         if hasattr(config, "rope_scaling") and config.rope_scaling is not None:
@@ -547,7 +548,7 @@ GRANITE_START_DOCSTRING = r"""
     and behavior.
 
     Parameters:
-        config ([`NeuronGraniteConfig`]):
+        config ([`PretrainedConfig`]):
             Model configuration class with all the parameters of the model. Initializing with a config file does not
             load the weights associated with the model, only the configuration. Check out the
             [`~PreTrainedModel.from_pretrained`] method to load the model weights.
@@ -559,7 +560,7 @@ GRANITE_START_DOCSTRING = r"""
     GRANITE_START_DOCSTRING,
 )
 class GranitePreTrainedModel(PreTrainedModel):
-    config_class = NeuronGraniteConfig
+    config_class = PretrainedConfig
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
     _no_split_modules = ["GraniteDecoderLayer"]
@@ -643,11 +644,12 @@ class GraniteModel(GranitePreTrainedModel):
     Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`GraniteDecoderLayer`]
 
     Args:
-        config: NeuronGraniteConfig
+        config: PretrainedConfig
     """
 
-    def __init__(self, config: NeuronGraniteConfig):
+    def __init__(self, config: PretrainedConfig, mp_config: TrainingNeuronConfig):
         super().__init__(config)
+        self.mp_config = mp_config
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
         self.rank = xr.global_ordinal()
@@ -655,7 +657,7 @@ class GraniteModel(GranitePreTrainedModel):
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
         self.layers = nn.ModuleList(
-            [GraniteDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
+            [GraniteDecoderLayer(config, mp_config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
         self.norm = GraniteRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = GraniteRotaryEmbedding(config=config)
@@ -848,9 +850,9 @@ class GraniteModel(GranitePreTrainedModel):
 class GraniteForCausalLM(GranitePreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
 
-    def __init__(self, config):
+    def __init__(self, config, mp_config: TrainingNeuronConfig):
         super().__init__(config)
-        self.model = GraniteModel(config)
+        self.model = GraniteModel(config, mp_config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
@@ -876,7 +878,6 @@ class GraniteForCausalLM(GranitePreTrainedModel, GenerationMixin):
         return self.model
 
     @add_start_docstrings_to_model_forward(GRANITE_INPUTS_DOCSTRING)
-    @replace_return_docstrings(output_type=CausalLMOutputWithPast, config_class=_CONFIG_FOR_DOC)
     def forward(
         self,
         input_ids: torch.LongTensor = None,

@@ -1,6 +1,7 @@
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.models.training.granite.modeling_granite import GraniteForCausalLM
 from optimum.neuron.utils.import_utils import (
     is_torch_xla_available,
@@ -43,7 +44,10 @@ def _test_parallel_granite():
     xm.mark_step()
 
     # Note that model is init on CPU, then moved  to XLA
-    model = GraniteForCausalLM.from_pretrained(model_id, torch_dtype=torch_dtype).to(device="xla")
+    mp_config = TrainingNeuronConfig(
+        sequence_parallel_enabled=False,
+    )
+    model = GraniteForCausalLM.from_pretrained(model_id, mp_config, torch_dtype=torch_dtype).to(device="xla")
     model.eval()
     outputs = model(**inputs)
     xm.mark_step()
