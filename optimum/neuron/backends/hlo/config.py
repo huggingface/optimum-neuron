@@ -83,13 +83,8 @@ class HloNeuronConfig(NeuronConfig):
         allow_flash_attention: if possible, use flash attention.
     """
 
-    checkpoint_id: str
-    checkpoint_revision: str
-
     def __init__(
         self,
-        checkpoint_id: str = None,
-        checkpoint_revision: str = None,
         n_positions: int = 1024,
         batch_size: int = 1,
         amp: str = "bf16",
@@ -106,7 +101,7 @@ class HloNeuronConfig(NeuronConfig):
         attn_output_transposed: bool = False,
         allow_flash_attention: bool = True,
     ):
-        super().__init__(checkpoint_id=checkpoint_id, checkpoint_revision=checkpoint_revision)
+        super().__init__()
         self.n_positions = n_positions
         self.batch_size = batch_size
         self.amp = amp
