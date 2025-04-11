@@ -1,0 +1,57 @@
+<!---
+Copyright 2025 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# YOLOS
+
+## Overview
+
+The YOLOS model was proposed in [You Only Look at One Sequence: Rethinking Transformer in Vision through Object Detection](https://arxiv.org/abs/2106.00666) by Yuxin Fang, Bencheng Liao, Xinggang Wang, Jiemin Fang, Jiyang Qi, Rui Wu, Jianwei Niu, Wenyu Liu.
+YOLOS proposes to just leverage the plain [Vision Transformer (ViT)](vit) for object detection, inspired by DETR. It turns out that a base-sized encoder-only Transformer can also achieve 42 AP on COCO, similar to DETR and much more complex frameworks such as Faster R-CNN.
+
+## Export to Neuron
+
+To deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you first need to compile the models and export them to a serialized format for inference. Below are two approaches to compile the model, you can choose the one that best suits your needs. Here we take the `feature-extraction` as an example:
+
+### Option 1: CLI
+  
+You can export the model using the Optimum command-line interface as follows:
+
+```bash
+optimum-cli export neuron --model hustvl/yolos-tiny --task object-detection --batch_size 1 yolos_object_detection_neuronx/
+```
+
+> [!TIP]
+> Execute `optimum-cli export neuron --help` to display all command line options and their description.
+
+### Option 2: Python API
+
+```python
+from optimum.neuron import NeuronModelForObjectDetection
+from transformers import AutoImageProcessor
+
+
+preprocessor = AutoImageProcessor.from_pretrained("hustvl/yolos-tiny")
+neuron_model = NeuronModelForObjectDetection.from_pretrained("hustvl/yolos-tiny", export=True, batch_size=1)
+
+neuron_model.save_pretrained("yolos_object_detection_neuronx")
+neuron_model.push_to_hub(
+    "yolos_object_detection_neuronx", repository_id="optimum/yolos-tiny-neuronx-bs1"  # Replace with your HF Hub repo id
+)
+```
+
+## NeuronYolosForObjectDetection
+
+[[autodoc]] models.yolos.NeuronYolosForObjectDetection

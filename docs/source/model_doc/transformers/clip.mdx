@@ -1,0 +1,70 @@
+<!---
+Copyright 2025 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# CLIP
+
+## Overview
+
+The CLIP model was proposed in [Learning Transferable Visual Models From Natural Language Supervision](https://arxiv.org/abs/2103.00020) by Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh,
+Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, Ilya Sutskever. CLIP
+(Contrastive Language-Image Pre-Training) is a neural network trained on a variety of (image, text) pairs. It can be
+instructed in natural language to predict the most relevant text snippet, given an image, without directly optimizing
+for the task, similarly to the zero-shot capabilities of GPT-2 and 3.
+
+## Export to Neuron
+
+To deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you first need to compile the models and export them to a serialized format for inference. Below are two approaches to compile the model, you can choose the one that best suits your needs. Here we take the `feature-extraction` as an example:
+
+### Option 1: CLI
+  
+You can export the model using the Optimum command-line interface as follows:
+
+```bash
+optimum-cli export neuron --model openai/clip-vit-base-patch32 --task feature-extraction --text_batch_size 2 --sequence_length 77 --image_batch_size 1 --num_channels 3 --width 224 --height 224 clip_feature_extraction_neuronx/
+```
+
+> [!TIP]
+> Execute `optimum-cli export neuron --help` to display all command line options and their description.
+
+### Option 2: Python API
+
+```python
+from optimum.neuron import NeuronCLIPModel
+
+input_shapes = {"text_batch_size": 2, "sequence_length": 77, "image_batch_size": 1, "num_channels": 3, "width": 224, "height": 224}
+compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+neuron_model = NeuronCLIPModel.from_pretrained(
+    "openai/clip-vit-base-patch32",
+    export=True,
+    **input_shapes,
+    **compiler_args,
+)
+# Save locally
+neuron_model.save_pretrained("clip_feature_extraction_neuronx/")
+
+# Upload to the HuggingFace Hub
+neuron_model.push_to_hub(
+    "clip_feature_extraction_neuronx/", repository_id="optimum/clip-vit-base-patch32-neuronx"  # Replace with your HF Hub repo id
+)
+```
+
+## NeuronCLIPModel
+
+[[autodoc]] models.clip.NeuronCLIPModel
+
+## NeuronCLIPForImageClassification
+
+[[autodoc]] models.clip.NeuronCLIPForImageClassification
