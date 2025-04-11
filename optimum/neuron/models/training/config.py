@@ -13,14 +13,27 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Granite model configuration extended for Neuron"""
+"""Multi processing configuration extended for Neuron"""
 
-from transformers.models.granite import GraniteConfig
+from optimum.neuron.configuration_utils import NeuronConfig, register_neuron_config
 
 
-class NeuronGraniteConfig(GraniteConfig):
+@register_neuron_config()
+class TrainingNeuronConfig(NeuronConfig):
     r"""
-    This is an extension to the [`GraniteConfig`] class to add Neuron specific parameters regarding parallelism.
+    Neuron configurations for extra features and performance optimizations.
+
+    Args:
+        sequence_parallel_enabled (`bool`, *optional*, defaults to `False`):
+            Whether to enable sequence parallelism. If `True`, the model will be trained with sequence parallelism.
+        tensor_parallel_size (`int`, *optional*, defaults to `1`):
+            The size of the tensor parallelism. This is the number of devices used for tensor parallelism.
+        kv_size_multiplier (`int`, *optional*, defaults to `1`):
+            The size multiplier for key-value pairs. This is used to control the size of the key-value pairs in the
+            model.
+        gradient_checkpointing (`bool`, *optional*, defaults to `False`):
+            Whether to enable gradient checkpointing. If `True`, the model will use gradient checkpointing to save
+            memory.
     """
 
     def __init__(
