@@ -56,7 +56,7 @@ class NeuronConfig(PushToHubMixin):
     """
     Class that holds a configuration for a neuron model.
 
-    Must be subclassed by backend type.
+    Must be subclassed.
 
     """
 
@@ -222,7 +222,7 @@ class NeuronConfig(PushToHubMixin):
         Returns:
             [`NeuronConfig`]: The configuration object instantiated from those parameters.
         """
-        for key in ["optimum_neuron_version", "backend", "neuronxcc_version"]:
+        for key in ["optimum_neuron_version", "_serialized_key", "neuronxcc_version"]:
             if key not in config_dict:
                 raise ValueError(f"Invalid neuron configuration: missing mandatory {key} attribute.")
         # Check versions
@@ -238,17 +238,17 @@ class NeuronConfig(PushToHubMixin):
                 "This neuron configuration corresponds to a model exported using version"
                 f" {cfg_neuronxcc_version} of the neuronxcc compiler, but {neuronxcc_version} is installed."
             )
-        # Retrieve neuron config class from backend
-        backend = config_dict.pop("backend")
+        # Retrieve neuron config class from serialized key
+        _serialized_key = config_dict.pop("_serialized_key")
         if cls is NeuronConfig:
-            # We need to identify the actual neuron configuration class for this backend
-            if backend is None:
-                raise ValueError("Neuron configuration is invalid: unable to identify the backend")
-            cls = _NEURON_CONFIG_FOR_KEY.get(backend, None)
+            # We need to identify the actual neuron configuration class for this serialized key
+            if _serialized_key is None:
+                raise ValueError("Neuron configuration is invalid: unable to identify the serialized key")
+            cls = _NEURON_CONFIG_FOR_KEY.get(_serialized_key, None)
             if cls is None:
-                raise ValueError(f"No neuron configuration registered for the {backend} backend")
+                raise ValueError(f"No neuron configuration registered for the {_serialized_key} serialized key")
         else:
-            assert _KEY_FOR_NEURON_CONFIG[cls] == backend
+            assert _KEY_FOR_NEURON_CONFIG[cls] == _serialized_key
         config = cls(**{**config_dict})
         logger.info(f"Neuron config {config}")
         return config
@@ -295,12 +295,12 @@ class NeuronConfig(PushToHubMixin):
 
         output = _to_dict(output)
 
-        # Add backend as it is required to identify the NeuronConfig class when deserializing the file
+        # Add serialized key as it is required to identify the NeuronConfig class when deserializing the file
         cls = self.__class__
-        backend = _KEY_FOR_NEURON_CONFIG.get(cls, None)
-        if backend is None:
-            raise ValueError(f"Unable to identify the backend for {cls.__name__}. Did you register it ?")
-        output["backend"] = backend
+        _serialized_key = _KEY_FOR_NEURON_CONFIG.get(cls, None)
+        if _serialized_key is None:
+            raise ValueError(f"Unable to identify the serialized key for {cls.__name__}. Did you register it ?")
+        output["_serialized_key"] = _serialized_key
         # Add optimum-neuron version to check compatibility
         output["optimum_neuron_version"] = __version__
         # Also add compiler version
