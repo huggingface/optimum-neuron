@@ -24,10 +24,6 @@ OPTIMUM_CACHE_REPO_ID = "optimum-internal-testing/neuron-testing-cache"
 
 # All model configurations below will be added to the neuron_model_config fixture
 DECODER_MODEL_CONFIGURATIONS = {
-    "gpt2": {
-        "model_id": "gpt2",
-        "export_kwargs": {"batch_size": 4, "sequence_length": 1024, "num_cores": 2, "auto_cast_type": "fp16"},
-    },
     "llama": {
         "model_id": "unsloth/Llama-3.2-1B-Instruct",
         "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "fp16"},
@@ -39,14 +35,6 @@ DECODER_MODEL_CONFIGURATIONS = {
     "granite": {
         "model_id": "ibm-granite/granite-3.1-2b-instruct",
         "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "bf16"},
-    },
-    "mistral": {
-        "model_id": "optimum/mistral-1.1b-testing",
-        "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "bf16"},
-    },
-    "mixtral": {
-        "model_id": "dacorvo/Mixtral-tiny",
-        "export_kwargs": {"batch_size": 4, "sequence_length": 1024, "num_cores": 2, "auto_cast_type": "fp16"},
     },
     "phi": {
         "model_id": "microsoft/Phi-3-mini-4k-instruct",
@@ -63,6 +51,7 @@ def _export_model(model_id, export_kwargs, neuron_model_path):
     try:
         model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, **export_kwargs)
         model.save_pretrained(neuron_model_path)
+        return model
     except Exception as e:
         raise ValueError(f"Failed to export {model_id}: {e}")
 
@@ -100,17 +89,12 @@ def neuron_decoder_config(request):
             logger.info(f"Fetching {neuron_model_id} from the HuggingFace hub")
             hub.snapshot_download(neuron_model_id, local_dir=neuron_model_path)
         else:
-            _export_model(model_id, export_kwargs, neuron_model_path)
+            model = _export_model(model_id, export_kwargs, neuron_model_path)
             tokenizer = AutoTokenizer.from_pretrained(model_id)
             tokenizer.save_pretrained(neuron_model_path)
             del tokenizer
             # Create the test model on the hub
-            hub.create_repo(neuron_model_id, private=True)
-            hub.upload_folder(
-                folder_path=neuron_model_path,
-                repo_id=neuron_model_id,
-                ignore_patterns=[NeuronModelForCausalLM.CHECKPOINT_DIR + "/*"],
-            )
+            model.push_to_hub(save_directory=neuron_model_path, repository_id=neuron_model_id, private=True)
             # Make sure it is cached
             synchronize_hub_cache(cache_repo_id=OPTIMUM_CACHE_REPO_ID)
         # Add dynamic parameters to the model configuration

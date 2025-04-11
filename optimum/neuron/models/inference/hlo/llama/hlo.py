@@ -17,11 +17,11 @@ from typing import Optional
 
 from transformers.models.llama import LlamaConfig
 
-from ...backends.hlo import functional
-from ...backends.hlo.config import HloNeuronConfig, Layout
-from ...backends.hlo.decoder import DecoderGraphBuilder
-from ...backends.hlo.layers import attention, rotary, transformer
-from ...backends.hlo.utils import get_qkv_padding
+from .....backends.hlo import functional
+from .....backends.hlo.config import HloNeuronConfig, Layout
+from .....backends.hlo.decoder import DecoderGraphBuilder
+from .....backends.hlo.layers import attention, rotary, transformer
+from .....backends.hlo.utils import get_qkv_padding
 
 
 class LlamaGraphBuilder(DecoderGraphBuilder):
@@ -46,7 +46,7 @@ class LlamaGraphBuilder(DecoderGraphBuilder):
         mask, active_mask = functional.attention_mask(
             cache_ids,
             start_ids,
-            self.neuron_config.n_positions,
+            self.neuron_config.sequence_length,
         )
 
         return hidden, cache_ids, start_ids, pos_embed, mask, active_mask

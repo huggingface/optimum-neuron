@@ -11,7 +11,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 def _test_generation(p):
     assert p.task == "text-generation"
     assert isinstance(p.model, NeuronModelForCausalLM)
-    model_batch_size = getattr(p.model.config, "neuron")["batch_size"]
+    model_batch_size = p.model.neuron_config.batch_size
     prompt = "I like you."
     # We check the ability of the pipeline to split the inputs by using different
     # combinations of input_size and batch_size
@@ -44,7 +44,7 @@ def _test_generation(p):
 @is_inferentia_test
 @requires_neuronx
 def test_export_no_parameters():
-    p = pipeline("text-generation", "gpt2", export=True)
+    p = pipeline("text-generation", "Qwen/Qwen2.5-0.5B", export=True)
     _test_generation(p)
 
 
@@ -75,7 +75,7 @@ def test_error_already_exported(neuron_decoder_path):
 @requires_neuronx
 def test_error_needs_export():
     with pytest.raises(ValueError, match="must be exported"):
-        pipeline("text-generation", "gpt2", export=False)
+        pipeline("text-generation", "Qwen/Qwen2.5-0.5B", export=False)
 
 
 @is_inferentia_test
