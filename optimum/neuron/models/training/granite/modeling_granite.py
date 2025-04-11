@@ -32,7 +32,6 @@ from torch import nn
 from torch_xla.utils.checkpoint import checkpoint
 from transformers import PretrainedConfig
 from transformers.activations import ACT2FN
-from transformers.generation import GenerationMixin
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from transformers.modeling_utils import PreTrainedModel
@@ -772,7 +771,7 @@ class GraniteModel(GranitePreTrainedModel):
         return causal_mask
 
 
-class GraniteForCausalLM(GranitePreTrainedModel, GenerationMixin):
+class GraniteForCausalLM(GranitePreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
 
     def __init__(self, config, mp_config: TrainingNeuronConfig):
