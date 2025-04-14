@@ -308,8 +308,9 @@ def pipeline(
     # and it will process the inputs one by one instead of processing them in parallel
     batch_size = 1
     for attr in ["batch_size", "static_batch_size"]:
-        if attr in model.config.neuron:
-            batch_size = model.config.neuron[attr]
+        neuron_config = getattr(config, "neuron", None) or getattr(model.config, "neuron", None)
+        if attr in neuron_config:
+            batch_size = neuron_config[attr]
     if batch_size > 1 and tokenizer is not None and tokenizer.pad_token_id is None:
         # The pipeline needs a pad token to be able to batch
         if isinstance(model.config.eos_token_id, list):

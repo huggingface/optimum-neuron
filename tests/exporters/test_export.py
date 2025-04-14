@@ -238,6 +238,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
             )
             _, neuron_outputs = export_models(
                 models_and_neuron_configs=models_and_neuron_configs,
+                task="text-to-image",
                 output_dir=Path(tmpdirname),
                 output_file_names=output_model_names,
                 compiler_kwargs=compiler_kwargs,
@@ -271,6 +272,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
             )
             _, neuron_outputs = export_models(
                 models_and_neuron_configs=models_and_neuron_configs,
+                task="text-to-image",
                 output_dir=Path(tmpdirname),
                 output_file_names=output_model_names,
                 compiler_kwargs=compiler_kwargs,
@@ -312,6 +314,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
             )
             _, neuron_outputs = export_models(
                 models_and_neuron_configs=models_and_neuron_configs,
+                task="text-to-image",
                 output_dir=Path(tmpdirname),
                 output_file_names=output_model_names,
                 compiler_kwargs=compiler_kwargs,
@@ -352,6 +355,7 @@ class NeuronEncoderDecoderExportTestCase(unittest.TestCase):
             )
             _, neuron_outputs = export_models(
                 models_and_neuron_configs=models_and_neuron_configs,
+                task="text2text-generation",
                 output_dir=Path(tmpdirname),
                 output_file_names=output_model_names,
             )

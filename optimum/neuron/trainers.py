@@ -85,8 +85,13 @@ from transformers.utils import (
     is_sagemaker_mp_enabled,
 )
 
-from ..utils import logging
+from optimum.exporters import TasksManager
+from optimum.utils import logging
+
 from .accelerate import NeuronAccelerator, NeuronDistributedType, NeuronPartialState
+from .cache.entries.single_model import SingleModelCacheEntry
+from .cache.hub_cache import hub_neuronx_cache, synchronize_hub_cache
+from .cache.training import patch_neuron_cc_wrapper
 from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
 from .training_args import NeuronTrainingArguments
@@ -102,7 +107,6 @@ from .utils.cache_utils import (
     get_num_neuron_cores_used,
     has_write_access_to_repo,
 )
-from .utils.hub_cache_utils import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.import_utils import is_peft_available
 from .utils.misc import is_main_worker, is_precompilation
 from .utils.peft_utils import NeuronPeftModel, get_peft_model
@@ -210,6 +214,7 @@ class _TrainerForNeuron:
         model_name_or_path_for_cache_entry = get_model_name_or_path(self.model.config)
         model_config_for_cache_entry = copy.deepcopy(self.model.config)
         precision = "bfloat16" if self.accelerator.state.mixed_precision == "bf16" else "float32"
+
         neuron_config_for_cache_entry = {
             "model_class": self.model.__class__.__name__,
             "precision": precision,
@@ -218,10 +223,15 @@ class _TrainerForNeuron:
             "tensor_parallel_size": self.args.tensor_parallel_size,
             "pipeline_parallel_size": self.args.pipeline_parallel_size,
         }
-        self.model_cache_entry: Optional[ModelCacheEntry] = None
+        self.model_cache_entry: Optional[SingleModelCacheEntry] = None
         if model_name_or_path_for_cache_entry is not None:
+            task = TasksManager.infer_task_from_model(self.model)
             model_config_for_cache_entry.neuron = neuron_config_for_cache_entry
-            self.model_cache_entry = ModelCacheEntry(model_name_or_path_for_cache_entry, model_config_for_cache_entry)
+            self.model_cache_entry = SingleModelCacheEntry(
+                model_id=model_name_or_path_for_cache_entry,
+                task=task,
+                config=model_config_for_cache_entry,
+            )
 
     @property
     def mp_enabled(self):
@@ -404,8 +414,8 @@ class _TrainerForNeuron:
     def _update_input_specs_in_model_cache_entry(self, input_specs: Dict[str, Any]):
         if self.model_cache_entry is None:
             return
-        self.model_cache_entry.config["neuron"]["training"] = self.model.training
-        self.model_cache_entry.config["neuron"]["input_specs"] = input_specs
+        self.model_cache_entry.neuron_config["training"] = self.model.training
+        self.model_cache_entry.neuron_config["input_specs"] = input_specs
 
     def _prepare_inputs(self, inputs: Dict[str, Union[torch.Tensor, Any]]) -> Dict[str, Union[torch.Tensor, Any]]:
         inputs = super()._prepare_inputs(inputs)
@@ -623,7 +633,7 @@ class _TrainerForNeuron:
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
         if not is_precompilation():  # Avoid unnecessary model saving during precompilation
             with patch_neuron_cc_wrapper():
-                if self.model_cache_entry is not None and "input_specs" not in self.model_cache_entry.config["neuron"]:
+                if self.model_cache_entry is not None and "input_specs" not in self.model_cache_entry.neuron_config:
                     model_cache_entry = None
                 else:
                     model_cache_entry = self.model_cache_entry
