@@ -27,7 +27,7 @@ from huggingface_hub.hf_api import RepoFile
 
 from optimum.exporters import TasksManager
 
-from ..utils.cache_utils import get_hf_hub_cache_repo, get_neuron_cache_path
+from ..utils.cache_utils import get_hf_hub_cache_repo
 from ..utils.import_utils import is_neuronx_available
 from ..utils.patching import patch_everywhere
 from ..utils.require_utils import requires_torch_neuronx
@@ -288,8 +288,6 @@ def hub_neuronx_cache(
             return create_compile_cache(cache_url)
 
     try:
-        if mode == "training" and cache_dir is None:
-            cache_dir = get_neuron_cache_path()
         if isinstance(cache_dir, Path):
             cache_dir = cache_dir.as_posix()
         default_cache = create_compile_cache(CacheUrl.get_cache_url(cache_dir=cache_dir))
