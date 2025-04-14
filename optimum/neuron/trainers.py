@@ -224,15 +224,6 @@ class _TrainerForNeuron:
             "tensor_parallel_size": self.args.tensor_parallel_size,
             "pipeline_parallel_size": self.args.pipeline_parallel_size,
         }
-        self.model_cache_entry: Optional[SingleModelCacheEntry] = None
-        if model_name_or_path_for_cache_entry is not None:
-            task = TasksManager.infer_task_from_model(self.model)
-            model_config_for_cache_entry.neuron = neuron_config_for_cache_entry
-            self.model_cache_entry = SingleModelCacheEntry(
-                model_id=model_name_or_path_for_cache_entry,
-                task=task,
-                config=model_config_for_cache_entry,
-            )
 
     @property
     def mp_enabled(self):
@@ -412,16 +403,9 @@ class _TrainerForNeuron:
             return data
         return super()._prepare_input(data)
 
-    def _update_input_specs_in_model_cache_entry(self, input_specs: Dict[str, Any]):
-        if self.model_cache_entry is None:
-            return
-        self.model_cache_entry.neuron_config["training"] = self.model.training
-        self.model_cache_entry.neuron_config["input_specs"] = input_specs
-
     def _prepare_inputs(self, inputs: Dict[str, Union[torch.Tensor, Any]]) -> Dict[str, Union[torch.Tensor, Any]]:
         inputs = super()._prepare_inputs(inputs)
         input_specs_for_cache_entry = {k: v.shape if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-        self._update_input_specs_in_model_cache_entry(input_specs_for_cache_entry)
         return inputs
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
@@ -634,11 +618,7 @@ class _TrainerForNeuron:
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
         if not is_precompilation():  # Avoid unnecessary model saving during precompilation
             with patch_neuron_cc_wrapper():
-                if self.model_cache_entry is not None and "input_specs" not in self.model_cache_entry.neuron_config:
-                    model_cache_entry = None
-                else:
-                    model_cache_entry = self.model_cache_entry
-                with hub_neuronx_cache("training", entry=model_cache_entry):
+                with hub_neuronx_cache("training"):
                     if output_dir is None:
                         output_dir = self.args.output_dir
 
@@ -1467,7 +1447,7 @@ class _TrainerForNeuron:
         ignore_keys_for_eval: Optional[List[str]] = None,
         **kwargs,
     ):
-        with hub_neuronx_cache("training", entry=self.model_cache_entry):
+        with hub_neuronx_cache("training"):
             result = super().train(
                 resume_from_checkpoint=resume_from_checkpoint,
                 trial=trial,
@@ -1484,7 +1464,7 @@ class _TrainerForNeuron:
         ignore_keys: Optional[List[str]] = None,
         metric_key_prefix: str = "eval",
     ) -> Dict[str, float]:
-        with hub_neuronx_cache("training", entry=self.model_cache_entry):
+        with hub_neuronx_cache("training"):
             with self.args.world_size_as_dp_size():
                 result = super().evaluate(
                     eval_dataset=eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix
@@ -1496,7 +1476,7 @@ class _TrainerForNeuron:
     def predict(
         self, test_dataset: Dataset, ignore_keys: Optional[List[str]] = None, metric_key_prefix: str = "test"
     ) -> PredictionOutput:
-        with hub_neuronx_cache("training", entry=self.model_cache_entry):
+        with hub_neuronx_cache("training"):
             with self.args.world_size_as_dp_size():
                 result = super().predict(test_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
         if not is_precompilation():
