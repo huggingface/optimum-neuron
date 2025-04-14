@@ -37,7 +37,7 @@ class NeuronDecoderExportConfig(NeuronExportConfig):
     - INPUT_ARGS (`Tuple[Union[str, Tuple[Union[str, Tuple[str]]]]]`) -- A tuple where each element is either:
         - An argument  name, for instance "batch_size" or "sequence_length", that indicates that the argument can
         be passed to export the model,
-    - NEURONX_CLASS (`type`) -- thethe class to use to instantiate the model.
+    - NEURONX_CLASS (`type`) -- the class to use to instantiate the model.
     - CONTINUOUS_BATCHING (`bool`, defaults to `False`) -- Whether the model supports continuous batching or not.
     - ATTENTION_LAYOUT (`str`, defaults to `HSB`) -- Layout to be used for attention computation.
 
