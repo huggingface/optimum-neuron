@@ -195,11 +195,11 @@ def test_decoder_cache(cache_repos):
     synchronize_hub_cache(cache_repo_id=cache_repo_id)
     assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
     # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
+    model_entries = get_hub_cached_entries(model_id, cache_repo_id=cache_repo_id)
     assert len(model_entries) == 1
     assert model_entries[0] == model.neuron_config.to_dict()
     # Also verify that the model appears in the list of cached models
-    cached_models = get_hub_cached_models("inference")
+    cached_models = get_hub_cached_models()
     assert ("llama", "llamafactory", "tiny-random-Llama-3") in cached_models
     # Clear the local cache
     for root, dirs, files in os.walk(cache_path):
@@ -230,9 +230,7 @@ def test_encoder_cache(cache_repos):
     synchronize_hub_cache(cache_repo_id=cache_repo_id)
     assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
     # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(
-        model_id, "inference", task="text-classification", cache_repo_id=cache_repo_id
-    )
+    model_entries = get_hub_cached_entries(model_id, task="text-classification", cache_repo_id=cache_repo_id)
     assert len(model_entries) == 1
     # Clear the local cache
     for root, dirs, files in os.walk(cache_path):
@@ -262,7 +260,7 @@ def test_stable_diffusion_cache(cache_repos):
     synchronize_hub_cache(cache_repo_id=cache_repo_id)
     assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
     # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
+    model_entries = get_hub_cached_entries(model_id, cache_repo_id=cache_repo_id)
     assert len(model_entries) == 1
     # Clear the local cache
     for root, dirs, files in os.walk(cache_path):
@@ -292,7 +290,7 @@ def test_stable_diffusion_xl_cache(cache_repos):
     synchronize_hub_cache(cache_repo_id=cache_repo_id)
     assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
     # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
+    model_entries = get_hub_cached_entries(model_id, cache_repo_id=cache_repo_id)
     assert len(model_entries) == 1
     # Clear the local cache
     for root, dirs, files in os.walk(cache_path):
