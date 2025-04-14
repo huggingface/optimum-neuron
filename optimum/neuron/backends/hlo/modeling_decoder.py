@@ -118,7 +118,7 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         )
 
         # Export the model using the Optimum Neuron Cache
-        with hub_neuronx_cache("inference", entry=cache_entry):
+        with hub_neuronx_cache(entry=cache_entry):
             available_cores = get_available_cores()
             if neuron_config.tp_degree > available_cores:
                 raise ValueError(

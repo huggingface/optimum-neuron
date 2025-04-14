@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 def cache_traced_neuron_artifacts(neuron_dir: Path, cache_entry: ModelCacheEntry):
     # Use the context manager just for creating registry, AOT compilation won't leverage `create_compile_cache`
     # in `libneuronxla`, so we will need to cache compiled artifacts to local manually.
-    with hub_neuronx_cache("inference", entry=cache_entry):
+    with hub_neuronx_cache(entry=cache_entry):
         compile_cache = create_hub_compile_cache_proxy()
         model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
         compile_cache.upload_folder(cache_dir=model_cache_dir, src_dir=neuron_dir)
