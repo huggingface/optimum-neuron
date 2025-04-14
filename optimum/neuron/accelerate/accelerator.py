@@ -16,6 +16,7 @@
 
 import collections
 import contextlib
+import inspect
 import os
 import re
 import shutil
@@ -442,6 +443,16 @@ class NeuronAccelerator(Accelerator):
         # Since it is not possible to set the best compiler flags for a given model because XLA is initialized before
         # we get access to the model, we simply check if the flags are the best and notify the user otherwise.
         check_neuron_cc_flags_for_model(model)
+
+        if inspect.getmodule(model.__class__).__name__.startswith("optimum.neuron.models.training"):
+            # We do not want to use the cache, or output unused tensors as it would imply more communication that we do not
+            # need.
+            model.config.use_cache = False
+            model.config.output_attentions = False
+            model.config.output_hidden_states = False
+            move_model_to_device(model, self.device)
+            model = super().prepare_model(model, device_placement=False, evaluation_mode=evaluation_mode)
+            return model
 
         model = self.patch_model_for_neuron(model)
 

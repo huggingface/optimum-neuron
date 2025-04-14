@@ -231,6 +231,10 @@ def adapt_state_dict(model: torch.nn.Module, state_dict: Dict[str, torch.Tensor]
             if param.partition_dim not in [0, 1]:
                 raise Exception(f"Partiton value of 0,1 are supported, found {param.partition_dim}.")
 
+            # It means there are no weights in the state dict for the current parameter.
+            if name not in state_dict:
+                continue
+
             full_weight = state_dict[name]
             per_partition_size = full_weight.shape[param.partition_dim] // tp_size
             state_dict[name] = create_local_weight(
@@ -663,15 +667,15 @@ class NeuronModelMixin:
                 # Adapts the state dict to the custom model.
                 state_dict = adapt_state_dict(model, state_dict, inplace=False)
 
-                model.load_state_dict(state_dict, strict=True)
+                model.load_state_dict(state_dict, strict=False)
                 if torch_dtype is not None:
                     model = model.to(torch_dtype)
                 if device_map == "xla":
                     move_model_to_device(model, xm.xla_device())
                 gc.collect()
                 model.tie_weights()
-
             xm.rendezvous(f"load_state_dict_{worker}")
+        xm.mark_step()
 
         return model
 
@@ -683,7 +687,7 @@ class NeuronModelMixin:
         save_function: Callable = torch.save,
         push_to_hub: bool = False,
         max_shard_size: Union[int, str] = "5GB",
-        safe_serialization: bool = True,
+        safe_serialization: bool = False,
         variant: Optional[str] = None,
         token: Optional[Union[str, bool]] = None,
         save_peft_format: bool = True,
@@ -720,7 +724,7 @@ class NeuronModelMixin:
             )
             is_main_process = kwargs.pop("save_config")
         if safe_serialization:
-            raise ImportError("`safe_serialization` is not supported when saving the sharded checkpoints. It is possible to consolidate the model weights into `safetensors` format.")
+            raise logger.error("`safe_serialization` is not supported when saving the sharded checkpoints. It is possible to consolidate the model weights into `safetensors` format.")
 
         if os.path.isfile(save_directory):
             logger.error(f"Provided path ({save_directory}) should be a directory, not a file")
@@ -794,13 +798,19 @@ class NeuronModelMixin:
                 current_peft_config.save_pretrained(save_directory)
 
             with open(save_directory / "mp_config.json", "w") as f:
-                f.write(json.dumps(asdict(self.mp_config), indent=4))
+                mp_config_data = asdict(self.mp_config)
+                if isinstance(mp_config_data["checkpoint_dir"], Path):
+                    mp_config_data["checkpoint_dir"] = mp_config_data["checkpoint_dir"].as_posix()
+                f.write(json.dumps(mp_config_data, indent=4))
 
 
         # Saving the metadata required to consolidate the checkpoints properly.
         if get_data_parallel_size() == 0 and get_tensor_model_parallel_size() == 0:
             metadata = create_parameter_metadata(model_to_save)
-            with open(save_directory / "metadata.json", "w") as f:
+            pp_rank = get_pipeline_model_parallel_rank()
+            metadata_path = save_directory / MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.pt"
+            metadata_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(metadata_path) as f:
                 f.write(json.dumps(metadata, indent=4))
 
 

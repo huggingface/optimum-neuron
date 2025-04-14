@@ -56,6 +56,8 @@ from transformers.models.llama.modeling_llama import LlamaModel as LlamaModelHF
 from transformers.models.llama.modeling_llama import LlamaRMSNorm as LlamaRMSNormHF
 from transformers.processing_utils import Unpack
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
+from transformers.cache_utils import StaticCache
+from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.utils import logging
 
 from ....accelerate import ModelParallelismConfig
@@ -105,7 +107,6 @@ class LlamaMLP(LlamaMLPHF):
                 bias=False,
             )
         )
-
         self.gate_up_proj = ColumnParallelLinear(
             self.hidden_size,
             2 * self.intermediate_size,
@@ -223,7 +224,6 @@ class LlamaAttention(LlamaAttentionHF):
                 gather_output=False,
                 init_method=init_method,
                 sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
-                sequence_dimension=0,
                 kv_size_multiplier=self.kv_size_multiplier,
                 fuse_qkv=mp_config.fuse_qkv,
                 dtype=self.config.torch_dtype,
@@ -378,7 +378,7 @@ class LlamaAttention(LlamaAttentionHF):
                 attention_mask, # It is `None` in this case compared to the original implementation
                 self.scaling,
                 dropout=0.0 if not self.training else self.attention_dropout,
-                causal=True,
+                causal=False,
                 **kwargs,
             )
 
@@ -390,6 +390,9 @@ class LlamaAttention(LlamaAttentionHF):
             attn_output = attn_output.reshape(bsz, q_len, self.hidden_size // get_tensor_model_parallel_size())
 
         attn_output = self.o_proj(attn_output)
+
+        # import torch_xla.core.xla_model as xm
+        # xm.mark_step()
 
         return attn_output, attn_weights
 
@@ -453,13 +456,6 @@ class LlamaDecoderLayer(LlamaDecoderLayerHF):
 
 
 class LlamaModel(NeuronModelMixin, LlamaModelHF):
-    """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`LlamaDecoderLayer`]
-
-    Args:
-        config: LlamaConfig
-    """
-
     def __init__(self, config: LlamaConfig, mp_config: ModelParallelismConfig):
         LlamaPreTrainedModel.__init__(self, config)
         self.padding_idx = config.pad_token_id
@@ -469,8 +465,12 @@ class LlamaModel(NeuronModelMixin, LlamaModelHF):
 
         init_method = partial(_init_normal, config.initializer_range)
         self.embed_tokens = ParallelEmbedding(
-            config.vocab_size, config.hidden_size, self.padding_idx, init_method=init_method,
-            sequence_parallel_enabled=mp_config.sequence_parallel_enabled, dtype=config.torch_dtype,
+            config.vocab_size, 
+            config.hidden_size, 
+            self.padding_idx, 
+            init_method=init_method,
+            sequence_parallel_enabled=mp_config.sequence_parallel_enabled, 
+            dtype=config.torch_dtype,
         )
         self.layers = nn.ModuleList([LlamaDecoderLayer(config, mp_config, layer_idx) for layer_idx in range(config.num_hidden_layers)])
         self.norm = LlamaRMSNorm(
@@ -482,6 +482,111 @@ class LlamaModel(NeuronModelMixin, LlamaModelHF):
 
         # Initialize weights and apply final processing
         self.post_init()
+
+    @staticmethod
+    def _prepare_4d_causal_attention_mask_with_cache_position(
+        attention_mask: torch.Tensor,
+        sequence_length: int,
+        target_length: int,
+        dtype: torch.dtype,
+        device: torch.device,
+        cache_position: torch.Tensor,
+        batch_size: int,
+        **kwargs,
+    ):
+        """
+        Creates a causal 4D mask of shape `(batch_size, 1, query_length, key_value_length)` from a 2D mask of shape
+        `(batch_size, key_value_length)`, or if the input `attention_mask` is already 4D, do nothing.
+
+        Args:
+            attention_mask (`torch.Tensor`):
+                A 2D attention mask of shape `(batch_size, key_value_length)` or a 4D attention mask of shape
+                `(batch_size, 1, query_length, key_value_length)`.
+            sequence_length (`int`):
+                The sequence length being processed.
+            target_length (`int`):
+                The target length: when generating with static cache, the mask should be as long as the static cache,
+                to account for the 0 padding, the part of the cache that is not filled yet.
+            dtype (`torch.dtype`):
+                The dtype to use for the 4D attention mask.
+            device (`torch.device`):
+                The device to plcae the 4D attention mask on.
+            cache_position (`torch.Tensor`):
+                Indices depicting the position of the input sequence tokens in the sequence.
+            batch_size (`torch.Tensor`):
+                Batch size.
+        """
+        if attention_mask is not None and attention_mask.dim() == 4:
+            # In this case we assume that the mask comes already in inverted form and requires no inversion or slicing.
+            causal_mask = attention_mask
+        else:
+            min_dtype = torch.finfo(dtype).min
+            causal_mask = torch.full(
+                (sequence_length, target_length), fill_value=min_dtype, dtype=dtype, device=device
+            )
+            if sequence_length != 1:
+                causal_mask = torch.triu(causal_mask, diagonal=1)
+            causal_mask *= torch.arange(target_length, device=device) > cache_position.reshape(-1, 1)
+            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
+            if attention_mask is not None:
+                causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+                mask_length = attention_mask.shape[-1]
+                padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :]
+                padding_mask = padding_mask == 0
+                causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                    padding_mask, min_dtype
+                )
+
+        return causal_mask
+
+    def _update_causal_mask(
+        self,
+        attention_mask: torch.Tensor,
+        input_tensor: torch.Tensor,
+        cache_position: torch.Tensor,
+        past_key_values: Cache,
+        output_attentions: bool,
+    ):
+        if self.config._attn_implementation == "flash_attention_2":
+            if attention_mask is not None and (attention_mask == 0.0).any():
+                raise RuntimeError(f"Only a causal mask is supported with {self.config._attn_implementation}.")
+                # return attention_mask
+            return None
+
+        # For SDPA, when possible, we will rely on its `is_causal` argument instead of its `attn_mask` argument, in
+        # order to dispatch on Flash Attention 2. This feature is not compatible with static cache, as SDPA will fail
+        # to infer the attention mask.
+        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+        using_static_cache = isinstance(past_key_values, StaticCache)
+
+        dtype, device = input_tensor.dtype, input_tensor.device
+        if self.mp_config.sequence_parallel_enabled:
+            sequence_length = input_tensor.shape[0] * self.mp_config.tensor_parallel_size
+        else:
+            sequence_length = input_tensor.shape[1]
+
+        if using_static_cache:
+            target_length = past_key_values.get_max_cache_shape()
+        else:
+            target_length = (
+                attention_mask.shape[-1]
+                if isinstance(attention_mask, torch.Tensor)
+                else past_seen_tokens + sequence_length + 1
+            )
+
+        # In case the provided `attention` mask is 2D, we generate a causal mask here (4D).
+        batch_size = input_tensor.shape[1] if self.mp_config.sequence_parallel_enabled else input_tensor.shape[0]
+        causal_mask = self._prepare_4d_causal_attention_mask_with_cache_position(
+            attention_mask,
+            sequence_length=sequence_length,
+            target_length=target_length,
+            dtype=dtype,
+            device=device,
+            cache_position=cache_position,
+            batch_size=batch_size,
+        )
+
+        return causal_mask
 
     def forward(
         self,
@@ -531,10 +636,9 @@ class LlamaModel(NeuronModelMixin, LlamaModelHF):
 
         # This is not needed since we recompute a causal mask at each attention layer.
         # We keep this in case we want to support custom attention masks in the future.
-        # causal_mask = self._update_causal_mask(
-        #     attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
-        # )
-        causal_mask = None
+        causal_mask = self._update_causal_mask(
+            attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
+        )
 
         hidden_states = inputs_embeds
 
@@ -607,7 +711,7 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaForCausalLMHF):
             config.hidden_size,
             config.vocab_size,
             bias=False,
-            gather_output=False,
+            gather_output=True,
             init_method=init_method,
             sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
             sequence_dimension=0,
@@ -669,7 +773,9 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaForCausalLMHF):
 
         loss = None
         if labels is not None:
-            loss = ForCausalLMLoss(logits=logits, labels=labels, vocab_size=self.vocab_size, **kwargs)
+            from transformers.loss.loss_utils import ForCausalLMLoss as ForCausalLMLossHF
+            loss = ForCausalLMLossHF(logits, labels, vocab_size=self.vocab_size * 8, **kwargs)
+            # loss = ForCausalLMLoss(logits=logits, labels=labels, vocab_size=self.vocab_size, **kwargs)
 
         if not return_dict:
             output = (logits,) + outputs[1:]

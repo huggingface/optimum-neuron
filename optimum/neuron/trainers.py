@@ -225,14 +225,14 @@ class _TrainerForNeuron:
             "pipeline_parallel_size": self.args.pipeline_parallel_size,
         }
         self.model_cache_entry: Optional[SingleModelCacheEntry] = None
-        if model_name_or_path_for_cache_entry is not None:
-            task = TasksManager.infer_task_from_model(self.model)
-            model_config_for_cache_entry.neuron = neuron_config_for_cache_entry
-            self.model_cache_entry = SingleModelCacheEntry(
-                model_id=model_name_or_path_for_cache_entry,
-                task=task,
-                config=model_config_for_cache_entry,
-            )
+        # if model_name_or_path_for_cache_entry is not None:
+        #     task = TasksManager.infer_task_from_model(self.model)
+        #     model_config_for_cache_entry.neuron = neuron_config_for_cache_entry
+        #     self.model_cache_entry = SingleModelCacheEntry(
+        #         model_id=model_name_or_path_for_cache_entry,
+        #         task=task,
+        #         config=model_config_for_cache_entry,
+        #     )
 
     @property
     def mp_enabled(self):
@@ -395,6 +395,9 @@ class _TrainerForNeuron:
     def get_optimizer_cls_and_kwargs(
         args: TrainingArguments, model: Optional[PreTrainedModel] = None
     ) -> Tuple[Any, Any]:
+        # No need for lazy loading logic when using custom modeling.
+        if isinstance(model, NeuronModelMixin):
+            return transformers_get_optimizer_cls_and_kwargs(args, model=model)
         optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args, model=model)
         lazy_load = args.mp_config.should_parallelize or args.zero_1
         if lazy_load:
@@ -1115,6 +1118,13 @@ class _TrainerForNeuron:
 
                         self.optimizer.step()
                         grad_norm = self.optimizer.grad_norm
+
+                        # xm.mark_step()
+                        # for name, param in self.model.named_parameters():
+                        #     if param.grad is not None:
+                        #         # Assurez-vous de synchroniser pour obtenir la valeur réelle
+                        #         grad_cpu = param.grad.detach().cpu()
+                        #         print(f"{name}: grad stats - mean: {grad_cpu.mean()}, std: {grad_cpu.std()}, max: {grad_cpu.max()}, min: {grad_cpu.min()}")
 
                         self.control = self.callback_handler.on_optimizer_step(args, self.state, self.control)
 
