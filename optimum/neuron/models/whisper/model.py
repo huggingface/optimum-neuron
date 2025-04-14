@@ -30,13 +30,15 @@ from ....exporters.neuron import (
 from ...modeling_seq2seq import NeuronModelForConditionalGeneration, _NeuronSeq2SeqModelPart
 from ...modeling_traced import NeuronTracedModel
 from ...utils import (
-    NEURON_AUDIO_SEQ2SEQ_INPUTS_DOCSTRING,
     NEURON_FILE_NAME,
+    is_neuronx_available,
+    is_neuronx_distributed_available,
+)
+from ...utils.doc import (
+    NEURON_AUDIO_SEQ2SEQ_INPUTS_DOCSTRING,
     NEURON_SEQ2SEQ_MODEL_START_DOCSTRING,
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
-    is_neuronx_available,
-    is_neuronx_distributed_available,
 )
 
 

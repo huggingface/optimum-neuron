@@ -36,7 +36,7 @@ from transformers.modeling_outputs import (
 )
 
 from ...modeling_traced import NeuronTracedModel
-from ...utils import (
+from ...utils.doc import (
     _TOKENIZER_FOR_DOC,
     NEURON_FEATURE_EXTRACTION_EXAMPLE,
     NEURON_MASKED_LM_EXAMPLE,

@@ -40,16 +40,18 @@ from ..utils.save_utils import maybe_load_preprocessors
 from .generation import NeuronGenerationMixin
 from .modeling_traced import NeuronTracedModel
 from .utils import (
-    _TOKENIZER_FOR_DOC,
     DECODER_NAME,
     ENCODER_NAME,
     NEURON_FILE_NAME,
+    is_neuronx_available,
+    is_neuronx_distributed_available,
+)
+from .utils.doc import (
+    _TOKENIZER_FOR_DOC,
     NEURON_SEQ2SEQ_INPUTS_DOCSTRING,
     NEURON_SEQ2SEQ_MODEL_START_DOCSTRING,
     NEURON_TRANSLATION_EXAMPLE,
     NEURON_TRANSLATION_TP_EXAMPLE,
-    is_neuronx_available,
-    is_neuronx_distributed_available,
 )
 
 

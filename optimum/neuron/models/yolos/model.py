@@ -22,7 +22,7 @@ from transformers import AutoModelForObjectDetection
 from transformers.modeling_outputs import ModelOutput
 
 from ...modeling_traced import NeuronTracedModel
-from ...utils import (
+from ...utils.doc import (
     _PROCESSOR_FOR_IMAGE,
     NEURON_IMAGE_INPUTS_DOCSTRING,
     NEURON_MODEL_START_DOCSTRING,

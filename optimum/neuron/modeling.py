@@ -53,7 +53,7 @@ from transformers.modeling_outputs import (
 from .generation import TokenSelector
 from .modeling_decoder import NeuronDecoderModel
 from .modeling_traced import NeuronTracedModel
-from .utils import (
+from .utils.doc import (
     _GENERIC_PROCESSOR,
     _PROCESSOR_FOR_IMAGE,
     _TOKENIZER_FOR_DOC,

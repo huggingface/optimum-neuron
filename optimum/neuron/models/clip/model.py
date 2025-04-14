@@ -26,7 +26,7 @@ from transformers.modeling_outputs import BaseModelOutputWithPooling, ImageClass
 from transformers.models.clip.modeling_clip import CLIPOutput
 
 from ...modeling_traced import NeuronTracedModel
-from ...utils import (
+from ...utils.doc import (
     _GENERIC_PROCESSOR,
     _PROCESSOR_FOR_IMAGE,
     NEURON_IMAGE_CLASSIFICATION_EXAMPLE,
