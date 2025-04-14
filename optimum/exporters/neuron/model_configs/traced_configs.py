@@ -22,10 +22,13 @@ import torch
 
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import (
+    DummyFluxTransformerTextInputGenerator,
+    DummyFluxTransformerVisionInputGenerator,
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
     DummyTextInputGenerator,
     DummyTimestepInputGenerator,
+    DummyTransformerTimestepInputGenerator,
     DummyVisionInputGenerator,
     NormalizedConfig,
     NormalizedConfigManager,
@@ -56,6 +59,7 @@ from ..config import (
 from ..model_wrappers import (
     CLIPVisionModelNeuronWrapper,
     ControlNetNeuronWrapper,
+    FluxTransformerNeuronWrapper,
     NoCacheModelWrapper,
     PixartTransformerNeuronWrapper,
     SentenceTransformersCLIPNeuronWrapper,
@@ -741,6 +745,53 @@ class PixartTransformerNeuronConfig(VisionNeuronConfig):
     @property
     def inputs(self) -> List[str]:
         common_inputs = ["sample", "encoder_hidden_states", "timestep", "encoder_attention_mask"]
+        return common_inputs
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["out_hidden_states"]
+
+
+@register_in_tasks_manager("pixart-transformer-2d", *["semantic-segmentation"], library_name="diffusers")
+class FluxTransformerNeuronConfig(VisionNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    INPUT_ARGS = (
+        "batch_size",
+        "sequence_length",
+        "num_channels",
+        "width",
+        "height",
+        "vae_scale_factor",
+        "encoder_hidden_size",
+    )
+    MODEL_TYPE = "flux-transformer-2d"
+    CUSTOM_MODEL_WRAPPER = FluxTransformerNeuronWrapper
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        height="height",
+        width="width",
+        num_channels="in_channels",
+        hidden_size="cross_attention_dim",
+        vocab_size="norm_num_groups",
+        allow_new=True,
+    )
+
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        DummyTransformerTimestepInputGenerator,
+        DummyFluxTransformerVisionInputGenerator,
+        DummyFluxTransformerTextInputGenerator,
+    )
+
+    @property
+    def inputs(self) -> List[str]:
+        common_inputs = [
+            "hidden_states",
+            "encoder_hidden_states",
+            "pooled_projections",
+            "timestep",
+            "guidance",
+            "txt_ids",
+            "img_ids",
+        ]
         return common_inputs
 
     @property
