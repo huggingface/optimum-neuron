@@ -16,7 +16,7 @@
 import torch
 from transformers import PretrainedConfig
 
-from ...backends.hlo.config import NeuronConfig
+from ...backends.hlo.config import HloNeuronConfig
 from ...backends.hlo.dtypes import to_torch_dtype
 from ..llama.model import LlamaHloModel
 from .modules import Phi3ForCausalLM
@@ -28,13 +28,13 @@ class Phi3HloModel(LlamaHloModel):
     The implementation in this class is very similar to the one used for Llama in Tnx.
     The only difference is that the fused qkv and gate/up linear projection are split when
     loading weights (note that they might be fused again when transferring the weights to the
-    neuron device if the NeuronConfig specifies it).
+    neuron device if the HloNeuronConfig specifies it).
     """
 
     def __init__(
         self,
         config: PretrainedConfig,
-        neuron_config: NeuronConfig,
+        neuron_config: HloNeuronConfig,
     ):
         dtype = to_torch_dtype(neuron_config.amp)
         super().__init__(config, neuron_config, cpu_model=Phi3ForCausalLM(config, dtype))

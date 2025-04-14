@@ -102,7 +102,7 @@ class MultiModelCacheEntry(ModelCacheEntry):
 
     """
 
-    def __init__(self, model_id: str, task: str, configs: Dict[str, Union[PretrainedConfig, Dict[str, Any]]]):
+    def __init__(self, model_id: str, configs: Dict[str, Union[PretrainedConfig, Dict[str, Any]]]):
         self._configs = _clean_configs(configs)
         if "unet" in self._configs:
             model_type = "stable-diffusion"
@@ -112,7 +112,9 @@ class MultiModelCacheEntry(ModelCacheEntry):
             model_type = self._configs["encoder"]["model_type"]
         else:
             raise NotImplementedError
-        super().__init__(model_id, model_type, task)
+        # Task is None for multi model cache entries since we cache the whole pipeline
+        # and not a single combination of sub-models corresponding to one of the tasks
+        super().__init__(model_id, model_type, task=None)
 
     # ModelCacheEntry API implementation
 
@@ -120,8 +122,8 @@ class MultiModelCacheEntry(ModelCacheEntry):
         return self._configs
 
     @classmethod
-    def from_dict(cls, model_id: str, task: str, configs: Dict[str, Any]) -> "MultiModelCacheEntry":
-        return cls(model_id=model_id, task=task, configs=configs)
+    def from_dict(cls, model_id: str, configs: Dict[str, Any]) -> "MultiModelCacheEntry":
+        return cls(model_id=model_id, configs=configs)
 
     @property
     def neuron_config(self) -> Dict[str, Any]:
@@ -135,7 +137,7 @@ class MultiModelCacheEntry(ModelCacheEntry):
     def has_same_arch(self, other: "MultiModelCacheEntry"):
         if not isinstance(other, MultiModelCacheEntry):
             return False
-        if self.model_type != other.model_type or self.task != other.task:
+        if self.model_type != other.model_type:
             return False
         # When comparing configs we remove the neuron configs
         configs = _prepare_configs_for_matching(self._configs, self.model_type)
@@ -160,7 +162,7 @@ class MultiModelCacheEntry(ModelCacheEntry):
         return True
 
     @classmethod
-    def from_hub(cls, model_id: str, task: str):
+    def from_hub(cls, model_id: str):
         api = HfApi()
         repo_files = api.list_repo_files(model_id)
         config_pattern = "/config.json"
@@ -176,4 +178,4 @@ class MultiModelCacheEntry(ModelCacheEntry):
                         entry_config.pop(param, None)
                     lookup_configs[model_path.split("/")[-2]] = entry_config
 
-        return cls(model_id, task, lookup_configs)
+        return cls(model_id, lookup_configs)

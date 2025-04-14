@@ -125,6 +125,7 @@ from .utils.version_utils import get_neuronxcc_version
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
     import torch_xla.debug.metrics as met
+    import torch_xla.runtime as xr
 
 if is_sagemaker_mp_enabled():
     from smdistributed.modelparallel import __version__ as SMP_VERSION
@@ -361,7 +362,7 @@ class _TrainerForNeuron:
     @requires_torch_neuronx
     def synchronize_hub_cache(self):
         repo_id = get_hf_hub_cache_repos()[0]
-        if not self.args.skip_cache_push and xm.get_ordinal() == 0:
+        if not self.args.skip_cache_push and xr.global_ordinal() == 0:
             has_write_access = has_write_access_to_repo(repo_id)
             if has_write_access:
                 cache_path = get_neuron_cache_path()
@@ -507,7 +508,7 @@ class _TrainerForNeuron:
             if model_parallel_is_initialized():
                 dp_size = get_data_parallel_size()
             else:
-                dp_size = xm.xrt_world_size()
+                dp_size = xr.world_size()
 
             tr_loss_div = tr_loss / dp_size
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_replica_groups())

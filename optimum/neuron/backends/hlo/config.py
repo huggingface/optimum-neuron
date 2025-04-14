@@ -18,6 +18,8 @@ from typing import Optional
 
 import torch
 
+from ...configuration_utils import NeuronConfig, register_neuron_config
+
 
 class Layout(enum.Enum):
     HSB = "HSB"
@@ -53,7 +55,8 @@ valid_dtypes = [
 ]
 
 
-class NeuronConfig:
+@register_neuron_config
+class HloNeuronConfig(NeuronConfig):
     """
     Neuron configurations for extra features and performance optimizations.
 
@@ -98,6 +101,7 @@ class NeuronConfig:
         attn_output_transposed: bool = False,
         allow_flash_attention: bool = True,
     ):
+        super().__init__()
         self.n_positions = n_positions
         self.batch_size = batch_size
         self.amp = amp

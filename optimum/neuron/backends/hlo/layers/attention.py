@@ -23,7 +23,7 @@ except ImportError:
 
 
 from .. import functional
-from ..config import Layout, NeuronConfig
+from ..config import HloNeuronConfig, Layout
 from ..nki import nki_call
 from ..utils import parse_dtype_replica_groups
 
@@ -552,7 +552,7 @@ def output(
     out_weight: "HloShape",  # noqa F821
     out_bias: "HloShape",  # noqa F821
     tp_degree: int,
-    neuron_config: Optional[NeuronConfig] = None,
+    neuron_config: Optional[HloNeuronConfig] = None,
     transposed: Optional[bool] = False,
 ):
     """
@@ -565,7 +565,7 @@ def output(
         out_weight: Model attention outout projection weight.
         out_bias: Model attention outout projection bias.
         tp_degree: Tensor parallelism degree.
-        neuron_config: NeuronConfig object that specifies the quantization and
+        neuron_config: HloNeuronConfig object that specifies the quantization and
             collectives configurations.
         transposed: Whether the weight is transposed.
 
