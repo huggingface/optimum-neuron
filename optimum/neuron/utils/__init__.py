@@ -195,13 +195,6 @@ if TYPE_CHECKING:
         add_start_docstrings,
         add_start_docstrings_to_model_forward,
     )
-    from .hub_cache_utils import (
-        ModelCacheEntry,
-        get_hub_cached_entries,
-        get_hub_cached_models,
-        hub_neuronx_cache,
-        synchronize_hub_cache,
-    )
     from .import_utils import (
         is_accelerate_available,
         is_neuron_available,
