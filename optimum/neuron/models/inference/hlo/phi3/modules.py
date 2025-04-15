@@ -14,7 +14,7 @@
 # ==============================================================================
 from transformers.models.phi import PhiConfig
 
-from .....backends.hlo import module
+from ..backend import module
 
 
 class Phi3ForCausalLM(module.PretrainedModel):

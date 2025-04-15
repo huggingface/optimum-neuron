@@ -16,8 +16,8 @@
 import torch
 from transformers import PretrainedConfig
 
-from .....backends.hlo.config import HloNeuronConfig
-from .....backends.hlo.dtypes import to_torch_dtype
+from ..backend.config import HloNeuronConfig
+from ..backend.dtypes import to_torch_dtype
 from ..llama.model import LlamaHloModel
 from .modules import Phi3ForCausalLM
 

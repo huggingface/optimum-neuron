@@ -16,8 +16,8 @@
 
 from optimum.exporters.tasks import TasksManager
 
-from ....neuron.backends.hlo.config import HloNeuronConfig
-from ....neuron.backends.hlo.decoder import NeuronHloDecoderModel
+from ....neuron.models.inference.hlo.backend.config import HloNeuronConfig
+from ....neuron.models.inference.hlo.backend.decoder import NeuronHloDecoderModel
 from ....neuron.models.inference.hlo.granite.model import GraniteHloModel
 from ....neuron.models.inference.hlo.llama.model import LlamaHloModel
 from ....neuron.models.inference.hlo.phi3.model import Phi3HloModel

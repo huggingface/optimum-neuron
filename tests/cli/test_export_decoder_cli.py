@@ -3,8 +3,8 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from optimum.neuron.backends.hlo.config import HloNeuronConfig
 from optimum.neuron.configuration_utils import NeuronConfig
+from optimum.neuron.models.inference.hlo.backend.config import HloNeuronConfig
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 

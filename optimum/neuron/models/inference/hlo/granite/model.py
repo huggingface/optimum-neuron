@@ -14,7 +14,7 @@
 # ==============================================================================
 from transformers import PretrainedConfig
 
-from .....backends.hlo.config import HloNeuronConfig
+from ..backend.config import HloNeuronConfig
 from ..llama.model import LlamaHloModel
 from .hlo import GraniteGraphBuilder
 
