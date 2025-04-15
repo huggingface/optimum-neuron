@@ -15,6 +15,7 @@
 from transformers import PretrainedConfig
 
 from ..backend.config import HloNeuronConfig
+from ..backend.modeling_decoder import HloModelForCausalLM
 from ..llama.model import LlamaHloModel
 from .hlo import GraniteGraphBuilder
 
@@ -42,3 +43,31 @@ class GraniteHloModel(LlamaHloModel):
         logits = super().forward(input_ids, cache_ids, start_ids)
         # Granite specific: divide logits by scaling factor
         return logits / self.config.logits_scaling
+
+
+class GraniteHloModelForCausalLM(HloModelForCausalLM):
+    """GraniteHloModelForCausalLM is a wrapper around GraniteHloModel for causal language modeling tasks.
+
+    It inherits from HloModelForCausalLM and provides the specific export configuration for granite models.
+    """
+
+    neuron_model_class = GraniteHloModel
+
+    @classmethod
+    def _get_neuron_config(
+        cls,
+        checkpoint_id: str,
+        checkpoint_revision: str,
+        batch_size: int,
+        sequence_length: int,
+        auto_cast_type: str,
+        tensor_parallel_size: int,
+    ):
+        return HloModelForCausalLM._get_neuron_config(
+            checkpoint_id=checkpoint_id,
+            checkpoint_revision=checkpoint_revision,
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            tensor_parallel_size=tensor_parallel_size,
+            auto_cast_type=auto_cast_type,
+        )
