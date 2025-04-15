@@ -829,8 +829,6 @@ def main():
         scale=getattr(args, "ip_adapter_scale", None),
     )
 
-    import pdb
-    pdb.set_trace()
     main_export(
         model_name_or_path=args.model,
         output=args.output,

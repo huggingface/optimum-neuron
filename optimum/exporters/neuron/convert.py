@@ -69,6 +69,7 @@ if is_sentence_transformers_available():
 
 if is_neuronx_distributed_available():
     import neuronx_distributed
+    from neuronx_distributed.trace.model_builder import BaseModelInstance, ModelBuilder
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -184,9 +185,9 @@ def validate_model_outputs(
         inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
         ref_inputs = config.unflatten_inputs(inputs)
         if hasattr(reference_model, "config") and getattr(reference_model.config, "is_encoder_decoder", False):
-            reference_model = config.patch_model_for_export(reference_model, device="cpu", **input_shapes)
+            reference_model, _ = config.patch_model_and_prepare_aliases(reference_model, device="cpu", **input_shapes)
         if "SentenceTransformer" in reference_model.__class__.__name__:
-            reference_model = config.patch_model_for_export(reference_model, ref_inputs)
+            reference_model, _ = config.patch_model_and_prepare_aliases(reference_model, ref_inputs)
             ref_outputs = reference_model(**ref_inputs)
             neuron_inputs = tuple(config.flatten_inputs(inputs).values())
         elif "AutoencoderKL" in getattr(config._config, "_class_name", "") or getattr(
@@ -198,7 +199,7 @@ def validate_model_outputs(
             neuron_inputs = tuple(inputs.values())
         elif config.CUSTOM_MODEL_WRAPPER is not None:
             ref_inputs = config.flatten_inputs(inputs)
-            reference_model = config.patch_model_for_export(reference_model, ref_inputs, device="cpu")
+            reference_model, _ = config.patch_model_and_prepare_aliases(reference_model, ref_inputs, device="cpu")
             neuron_inputs = ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
         else:
@@ -530,21 +531,67 @@ def export_neuronx(
     for axis in config.mandatory_axes:
         input_shapes[axis] = getattr(config, axis)
 
-    dummy_inputs = config.generate_dummy_inputs(**input_shapes)
-    dummy_inputs = config.flatten_inputs(dummy_inputs)
-    dummy_inputs_tuple = tuple(dummy_inputs.values())
+    dummy_inputs = prepare_dummy_inputs(config, input_shapes, return_dict=False)
 
     # Prepare the model / function(tp) to trace
-    aliases = {}
-    tensor_parallel_size = config.tensor_parallel_size
     if getattr(config, "is_encoder_decoder", False):
-        checked_model = config.patch_model_for_export(model_or_path, **input_shapes)
-        if tensor_parallel_size == 1 and hasattr(config, "generate_io_aliases"):
-            aliases = config.generate_io_aliases(checked_model)
-    else:
-        checked_model = config.patch_model_for_export(model_or_path, dummy_inputs)
-
+        checked_model, aliases = config.patch_model_and_prepare_aliases(model_or_path, **input_shapes)
+    else: 
+        checked_model, aliases = config.patch_model_and_prepare_aliases(model_or_path, config.input_names)
+    
     # Construct compiler configurations
+    compiler_args = prepare_compiler_flags(
+        config=config, 
+        auto_cast=auto_cast, 
+        auto_cast_type=auto_cast_type, 
+        optlevel=optlevel,
+    )
+
+    # Incompatibility between dynamic batching and uninlined weights/neff
+    if config.dynamic_batch_size and not inline_weights_to_neff:
+        logger.warning(
+            "Dynamic batching is not yet compatible with the weights/neff non-inlined model. `inline_weights_to_neff` is set to True. If you still want to separate the neff and weights, please set `dynamic_batch_size=False`."
+        )
+        inline_weights_to_neff = True
+
+    # Start trace
+    tensor_parallel_size = config.tensor_parallel_size
+    trace_neuronx(
+        model=checked_model,
+        config=config, 
+        dummy_inputs=dummy_inputs, 
+        compiler_args=compiler_args, 
+        output=output,
+        tensor_parallel_size=tensor_parallel_size, 
+        aliases=aliases, 
+        inline_weights_to_neff=inline_weights_to_neff,
+        compiler_workdir=compiler_workdir,
+    )
+
+    del model_or_path
+    del checked_model
+    del dummy_inputs
+
+    return config.inputs, config.outputs
+
+def prepare_dummy_inputs(config: "NeuronDefaultConfig", input_shapes: Dict[str, int], return_dict: bool = True):
+    """
+    Create dummy inputs used for tracing the model.
+    """
+    dummy_inputs = config.generate_dummy_inputs(**input_shapes)
+    dummy_inputs = config.flatten_inputs(dummy_inputs)
+    if return_dict:
+        return dummy_inputs
+    else:
+        dummy_inputs_tuple = tuple(dummy_inputs.values())
+        return dummy_inputs_tuple
+
+def prepare_compiler_flags(
+    config: "NeuronDefaultConfig",
+    auto_cast: Optional[str] = None,
+    auto_cast_type: str = "bf16",
+    optlevel: str = "2",
+):
     if auto_cast is not None:
         logger.info(f"Using Neuron: --auto-cast {auto_cast}")
         auto_cast = "matmult" if auto_cast == "matmul" else auto_cast
@@ -558,8 +605,8 @@ def export_neuronx(
     compiler_args.extend(["--optlevel", optlevel])
     logger.info(f"Using Neuron: --optlevel {optlevel}")
 
-    # no idea what range of models this flag could be applied, here are some exceptions that we have observed so far.
-    excluded_models = {
+    # `--model-type=transformer`` is now required for all models except those explicitly listed, based on our observations.
+    exception_models = {
         "unet",
         "vae-encoder",
         "vae-decoder",
@@ -572,34 +619,30 @@ def export_neuronx(
         "wav2vec2",
         "wavlm",
     }
-    if config.MODEL_TYPE not in excluded_models:
+    if config.MODEL_TYPE not in exception_models:
         compiler_args.extend(["--model-type", "transformer"])
 
-    compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)  # diffusers specific
+    # diffusers specific
+    compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
+    
+    return compiler_args
 
-    if config.dynamic_batch_size and not inline_weights_to_neff:
-        logger.warning(
-            "Dynamic batching is not yet compatible with the weights/neff non-inlined model. `inline_weights_to_neff` is set to True. If you still want to separate the neff and weights, please set `dynamic_batch_size=False`."
-        )
-        inline_weights_to_neff = True
-
-    # Start trace
-    if tensor_parallel_size > 1:
-        # 1. use NxD to trace for parallel
-        neuron_model = neuronx_distributed.trace.parallel_model_trace(
-            checked_model,
-            dummy_inputs_tuple,
-            compiler_args=compiler_args,
-            inline_weights_to_neff=inline_weights_to_neff,
-            compiler_workdir=compiler_workdir,
-            tp_degree=tensor_parallel_size,
-        )
-        neuronx_distributed.trace.parallel_model_save(neuron_model, output)
-    else:
-        # 2. use `torch_neuronx.trace`
+def trace_neuronx(
+    model,
+    config, 
+    dummy_inputs, 
+    compiler_args, 
+    output: Path,
+    tensor_parallel_size: int, 
+    aliases = None, 
+    inline_weights_to_neff: bool = True,
+    compiler_workdir: Optional[Path] = None,
+):
+    if tensor_parallel_size==1:
+        # Case 1: Using `torch_neuronx.trace`
         neuron_model = neuronx.trace(
-            checked_model,
-            dummy_inputs_tuple,
+            model,
+            dummy_inputs,
             compiler_args=compiler_args,
             input_output_aliases=aliases,
             inline_weights_to_neff=inline_weights_to_neff,
@@ -610,14 +653,39 @@ def export_neuronx(
         # diffusers specific
         improve_stable_diffusion_loading(config, neuron_model)
         torch.jit.save(neuron_model, output)
-
-    del model_or_path
-    del checked_model
-    del dummy_inputs
-    del neuron_model
-
-    return config.inputs, config.outputs
-
+    else:
+        # Tensor Parallelism
+        if isinstance(model, BaseModelInstance):
+            # Case 2: Using `neuronx_distributed.trace.model_builder`
+            model_builder = ModelBuilder(
+                router=None,
+                debug=False,
+                tp_degree=tensor_parallel_size,
+                checkpoint_loader=config.load_checkpoint_fn,
+                compiler_workdir=compiler_workdir,
+            )
+            model_builder.add(
+                key=config.model_type,
+                model_instance=model,
+                example_inputs=[dummy_inputs],
+                priority_model_idx=0,
+                compiler_args=compiler_args,
+            )
+            neuron_model = model_builder.trace(initialize_model_weights=True)
+            neuron_model.nxd_model.initialize_with_saved_weights(start_rank_tensor=torch.tensor([0]))
+        else:
+            # Case 3: Using `neuronx_distributed.trace.parallel_model_trace`
+            neuron_model = neuronx_distributed.trace.parallel_model_trace(
+                model,
+                dummy_inputs,
+                compiler_args=compiler_args,
+                inline_weights_to_neff=inline_weights_to_neff,
+                compiler_workdir=compiler_workdir,
+                tp_degree=tensor_parallel_size,
+            )
+            neuronx_distributed.trace.parallel_model_save(neuron_model, output)
+    
+    del neuron_model           
 
 def add_stable_diffusion_compiler_args(config, compiler_args):
     # Combine the model name and its path to identify which is the subcomponent in Stable Diffusion pipeline
@@ -709,7 +777,7 @@ def export_neuron(
 
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
     dummy_inputs_tuple = tuple(dummy_inputs.values())
-    checked_model = config.patch_model_for_export(model, dummy_inputs)
+    checked_model, aliases = config.patch_model_and_prepare_aliases(model, dummy_inputs)
     compiler_args = convert_neuronx_compiler_args_to_neuron(auto_cast, auto_cast_type, disable_fast_relayout)
 
     if config.dynamic_batch_size is True and not inline_weights_to_neff:

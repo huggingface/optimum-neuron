@@ -549,7 +549,7 @@ def get_submodels_for_export_diffusion(
     unet_or_transformer = unet or transformer
     vae_decoder.forward = lambda latent_sample: vae_decoder.decode(z=latent_sample)
     if vae_decoder.dtype is torch.float32 and unet_or_transformer.dtype is not torch.float32:
-        vae_decoder = apply_fp32_wrapper_to_vae_decoder(vae_decoder)
+        vae_decoder = f32Wrapper(vae_decoder)
     models_for_export.append((DIFFUSION_MODEL_VAE_DECODER_NAME, vae_decoder))
 
     # ControlNets
@@ -589,26 +589,21 @@ def replace_stable_diffusion_submodels(pipeline, submodels):
 
     return pipeline
 
+class f32Wrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.original = model
 
-def apply_fp32_wrapper_to_vae_decoder(model):
-    class f32Wrapper(torch.nn.Module):
-        def __init__(self, model):
-            super().__init__()
-            self.original = model
+    def forward(self, x):
+        y = x.to(torch.float32)
+        output = self.original(y)
+        return output
 
-        def forward(self, x):
-            y = x.to(torch.float32)
-            output = self.original(y)
-            return output
-
-        def __getattr__(self, name):
-            # Delegate attribute/method lookup to the wrapped model if not found in this wrapper
-            if name == "original":
-                return super().__getattr__(name)
-            return getattr(self.original, name)
-
-    model = f32Wrapper(model)
-    return model
+    def __getattr__(self, name):
+        # Delegate attribute/method lookup to the wrapped model if not found in this wrapper
+        if name == "original":
+            return super().__getattr__(name)
+        return getattr(self.original, name)
 
 
 # TODO: get it into https://github.com/huggingface/optimum/blob/4a7cb298140ee9bed968d98a780a950d15bb2935/optimum/exporters/utils.py#L77

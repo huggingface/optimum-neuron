@@ -75,6 +75,7 @@ from ..model_wrappers import (
 
 if is_neuronx_distributed_available():
     import neuronx_distributed
+    from neuronx_distributed.trace.model_builder import BaseModelInstance
 
 if TYPE_CHECKING:
     if is_diffusers_available():
@@ -767,7 +768,7 @@ class PixartTransformerNeuronConfig(VisionNeuronConfig):
         return ["out_hidden_states"]
 
 
-@register_in_tasks_manager("pixart-transformer-2d", *["semantic-segmentation"], library_name="diffusers")
+@register_in_tasks_manager("flux-transformer-2d", *["semantic-segmentation"], library_name="diffusers")
 class FluxTransformerNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     INPUT_ARGS = (
@@ -812,6 +813,40 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
     @property
     def outputs(self) -> List[str]:
         return ["out_hidden_states"]
+    
+    def load_checkpoint_fn(self):
+        pass
+    
+    def patch_model_and_prepare_aliases(self, model_or_path, device="xla", **example_inputs):
+        if self.tensor_parallel_size > 1:
+            base_model_instance = BaseModelInstance(create_model, input_output_aliases={})
+            return base_model_instance, None
+        else:
+            return self.CUSTOM_MODEL_WRAPPER(
+                model_or_path,
+                sequence_length=sequence_length,
+                batch_size=batch_size,
+                device=device,
+                tensor_parallel_size=self.tensor_parallel_size,
+            ), {}
+    
+    def get_transformer(
+        self, model_name_or_path, sequence_length, batch_size, device, tensor_parallel_size
+    ):
+        """Unlike `torch_neuronx.trace`, `parallel_model_trace` requires a function returning a model object and a dictionary of states."""
+
+        pipe = TasksManager.get_model_from_task(
+            model_name_or_path=model_name_or_path,
+            task=self.task,
+            torch_dtype=torch.bfloat16,
+            framework="pt",
+            library_name="transformers",
+        )  # TODO: add extra args, eg. revision, trust_remote_code, etc.
+        transformer = pipe.transformer
+        transformer.eval()
+    
+        return transformer
+        
 
 
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")
@@ -904,13 +939,13 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
     def outputs(self) -> List[str]:
         return ["sample"]
 
-    def patch_model_for_export(
+    def patch_model_and_prepare_aliases(
         self,
         model: "VaeDecoder",
         dummy_inputs: Dict[str, torch.Tensor],
         **kwargs,
     ):
-        return super().patch_model_for_export(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
+        return super().patch_model_and_prepare_aliases(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True), {}
 
 
 class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
@@ -942,8 +977,53 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
     def is_encoder_decoder(self) -> bool:
         return True
 
-    def patch_model_for_export(self, model_or_path, **input_shapes):
-        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes)
+    def patch_model_and_prepare_aliases(self, model_or_path, device="xla", **input_shapes):
+        batch_size = input_shapes.pop("batch_size", None)
+        sequence_length = input_shapes.pop("sequence_length", None)
+        if self.tensor_parallel_size > 1:
+            # `torch.nn.modules` objects not eligible for pickling, the model needs to be loaded within the func.
+            return partial(
+                self.get_parallel_callable,
+                model_or_path,
+                sequence_length,
+                batch_size,
+                device,
+                self.tensor_parallel_size,
+            ), None
+        else:
+            return self.CUSTOM_MODEL_WRAPPER(
+                model_or_path,
+                sequence_length=sequence_length,
+                batch_size=batch_size,
+                device=device,
+                tensor_parallel_size=self.tensor_parallel_size,
+            ), {}
+    
+    def get_parallel_callable(
+        self, model_name_or_path, sequence_length, batch_size, num_beams, device, tensor_parallel_size
+    ):
+        """Unlike `torch_neuronx.trace`, `parallel_model_trace` requires a function returning a model object and a dictionary of states."""
+
+        pipe = TasksManager.get_model_from_task(
+            model_name_or_path=model_name_or_path,
+            task=self.task,
+            torch_dtype=torch.bfloat16,
+            framework="pt",
+            library_name="transformers",
+        )  # TODO: add extra args, eg. revision, trust_remote_code, etc.
+        text_encoder = pipe.text_encoder_2
+        text_encoder.eval()
+        
+        # Parallelize the encoder with its custom wrapper
+        sharded_text_encoder = self.CUSTOM_MODEL_WRAPPER(
+            text_encoder,
+            sequence_length=sequence_length,
+            batch_size=batch_size,
+            device=device,
+            tensor_parallel_size=tensor_parallel_size,
+        )
+        
+        return sharded_text_encoder, {}
 
 
 @register_in_tasks_manager("t5-encoder", *["text2text-generation"])
@@ -966,7 +1046,7 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
     def is_encoder_decoder(self) -> bool:
         return True
 
-    def patch_model_for_export(self, model_or_path, device="xla", **kwargs):
+    def patch_model_and_prepare_aliases(self, model_or_path, device="xla", **kwargs):
         num_beams = kwargs.pop("num_beams", 1)
         sequence_length = kwargs.pop("sequence_length", None)
         batch_size = kwargs.pop("batch_size", None)
@@ -981,9 +1061,10 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
                 num_beams,
                 device,
                 self.tensor_parallel_size,
-            )
+            ), None
         else:
-            return self.CUSTOM_MODEL_WRAPPER(
+            # Override T5 encoder and build aliases
+            checked_model = self.CUSTOM_MODEL_WRAPPER(
                 model_or_path,
                 sequence_length=sequence_length,
                 batch_size=batch_size,
@@ -991,6 +1072,9 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
                 device=device,
                 tensor_parallel_size=self.tensor_parallel_size,
             )
+            aliases = self.generate_io_aliases(checked_model)
+            
+            return checked_model, aliases
 
     def get_parallel_callable(
         self, model_name_or_path, sequence_length, batch_size, num_beams, device, tensor_parallel_size
@@ -1100,7 +1184,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
         dummy_inputs_generators.append(dummy_beam_values_generator)
         return dummy_inputs_generators
 
-    def patch_model_for_export(self, model, device="xla", **kwargs):
+    def patch_model_and_prepare_aliases(self, model, device="xla", **kwargs):
         batch_size = kwargs.pop("batch_size", 1)
         sequence_length = kwargs.pop("sequence_length", 1)
         num_beams = kwargs.pop("num_beams", 1)
@@ -1126,9 +1210,13 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
                 self.output_attentions,
                 device,
                 self.tensor_parallel_size,
-            )
+            ), None
         else:
-            return self.CUSTOM_MODEL_WRAPPER(**trace_args)
+            # Override T5 encoder and build aliases
+            checked_model = self.CUSTOM_MODEL_WRAPPER(**trace_args)
+            aliases = self.generate_io_aliases(checked_model)
+            
+            return checked_model, aliases
 
     def get_parallel_callable(
         self,
@@ -1211,8 +1299,8 @@ class WhisperEncoderNeuronConfig(AudioNeuronConfig):
         kwargs["sequence_length"] = 1  # only `decoder_start_token_id`
         return super().generate_dummy_inputs(return_tuple=return_tuple, **kwargs)
 
-    def patch_model_for_export(self, model_or_path, **input_shapes):
-        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes)
+    def patch_model_and_prepare_aliases(self, model_or_path, **input_shapes):
+        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes), {}
 
 
 @register_in_tasks_manager("whisper-decoder", *["automatic-speech-recognition"])
@@ -1242,5 +1330,5 @@ class WhisperDecoderNeuronConfig(AudioNeuronConfig):
     def is_encoder_decoder(self) -> bool:
         return True
 
-    def patch_model_for_export(self, model_or_path, **input_shapes):
-        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes)
+    def patch_model_and_prepare_aliases(self, model_or_path, **input_shapes):
+        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes), {}
