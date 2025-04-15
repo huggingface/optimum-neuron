@@ -16,28 +16,21 @@
 
 import logging
 import os
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import Optional, Union
 
 import torch
 from huggingface_hub import HfApi
-from transformers import AutoModelForCausalLM, GenerationConfig
+from transformers import AutoModelForCausalLM, GenerationConfig, PretrainedConfig
 from transformers.file_utils import add_start_docstrings
-from transformers.generation import GenerationMixin
+from transformers.generation import GenerationMixin, StoppingCriteriaList
 
 from optimum.exporters.tasks import TasksManager
 
-from ..exporters.neuron.model_configs import *  # noqa: F403
 from .configuration_utils import NeuronConfig
 from .modeling_base import NeuronModel
 from .utils.system import get_available_cores
-
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from transformers import GenerationConfig, PretrainedConfig
-    from transformers.generation import StoppingCriteriaList
 
 
 logger = logging.getLogger(__name__)
@@ -98,19 +91,30 @@ TEXT_GENERATION_EXAMPLE = r"""
 """
 
 
+def get_exporter(config: PretrainedConfig):
+    """Get the exporter configuration for the given model configuration."""
+    from ..exporters.neuron import model_configs  # noqa F401
+
+    exporter = TasksManager.get_exporter_config_constructor(
+        model_type=config.model_type, exporter="neuron", task="text-generation", library_name="transformers"
+    )
+    return exporter()
+
+
 @add_start_docstrings(
     r"""
     Neuron model with a causal language modeling head for inference on Neuron devices.
     """,
     NEURON_CAUSALLM_MODEL_START_DOCSTRING,
 )
-class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
+class NeuronModelForCausalLM(NeuronModel, GenerationMixin, ABC):
     auto_model_class = AutoModelForCausalLM
     main_input_name = "input_ids"
     preprocessors = []  # Required by optimum OptimizedModel
 
-    @staticmethod
+    @classmethod
     def get_neuron_config(
+        cls,
         model_name_or_path: Union[str, Path],
         config: "PretrainedConfig",
         token: Optional[Union[bool, str]] = None,
@@ -120,6 +124,34 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
         tensor_parallel_size: Optional[int] = None,
         auto_cast_type: Optional[str] = None,
     ):
+        """
+        Get the Neuron configuration for the target model class.
+
+        Can be called either from the NeuronModelForCausalLM class or from a specific model class.
+        In the first case, the actual model class will be deduced from the model configuration.
+
+        Args:
+            neuron_model_class (`type`):
+                The class of the target neuron model.
+            model_name_or_path (`str` or `Path`):
+                The model name or path to the model directory.
+            config (`PretrainedConfig`):
+                The model configuration.
+            token (`str`, *optional*):
+                The token to use for authentication with the Hugging Face Hub.
+            revision (`str`, *optional*):
+                The revision of the model to use. If not specified, the latest revision will be used.
+            batch_size (`int`, *optional*):
+                The batch size to use for inference. If not specified, defaults to 1.
+            sequence_length (`int`, *optional*):
+                The sequence length to use for inference. If not specified, defaults to the model's maximum sequence length.
+            tensor_parallel_size (`int`, *optional*):
+                The number of cores to use for tensor parallelism. If not specified, all available cores will be used.
+            auto_cast_type (`str`, *optional*):
+                The data type to use for automatic casting. If not specified, defaults to the model's data type.
+        Returns:
+            `NeuronConfig`: The Neuron configuration for the model.
+        """
         if os.path.isdir(model_name_or_path):
             checkpoint_id = None
             checkpoint_revision = None
@@ -150,16 +182,19 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
             elif config.torch_dtype == "bfloat16":
                 auto_cast_type = "bf16"
 
-        exporter = TasksManager.get_exporter_config_constructor(
-            model_type=config.model_type, exporter="neuron", task="text-generation", library_name="transformers"
-        )()
-        return exporter.get_neuron_config(
+        if type(cls) is NeuronModelForCausalLM:
+            # Instantiation through the abstract class: find the correct model class
+            exporter = get_exporter(config)
+            cls = exporter.neuronx_class
+
+        # Call the _get_neuron_config method of the specific model class
+        return cls._get_neuron_config(
             checkpoint_id=checkpoint_id,
             checkpoint_revision=checkpoint_revision,
             batch_size=batch_size,
             sequence_length=sequence_length,
-            auto_cast_type=auto_cast_type,
             tensor_parallel_size=tensor_parallel_size,
+            auto_cast_type=auto_cast_type,
         )
 
     @classmethod
@@ -177,13 +212,49 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
         batch_size: Optional[int] = None,
         sequence_length: Optional[int] = None,
         num_cores: Optional[int] = None,
-        auto_cast_type: Optional[str] = "fp32",
+        auto_cast_type: Optional[str] = "bf16",
         task: Optional[str] = "text-generation",
         **kwargs,
     ) -> "NeuronModelForCausalLM":
-        from .models.inference.hlo.backend.modeling_decoder import HloModelForCausalLM
+        """Implementation of the `optimum.OptimizedModel._export` method.
 
-        # Get the neuron config
+        It accepts simplified parameters and converts them to a NeuronConfig object.
+        This NeuronConfig object is then passed to the `export` method that is in charge
+        of exporting the model to Neuron format.
+
+        Args:
+            model_id (`str`):
+                The model ID or path to the model directory.
+            config (`PretrainedConfig`):
+                The model configuration.
+            token (`str`, *optional*):
+                The token to use for authentication with the Hugging Face Hub.
+            revision (`str`, *optional*):
+                The revision of the model to use. If not specified, the latest revision will be used.
+            batch_size (`int`, *optional*):
+                The batch size to use for inference. If not specified, defaults to 1.
+            sequence_length (`int`, *optional*):
+                The sequence length to use for inference. If not specified, defaults to the model's maximum sequence length.
+            num_cores (`int`, *optional*):
+                The number of cores to use for tensor parallelism. If not specified, all available cores will be used.
+            auto_cast_type (`str`, *optional*):
+                The data type to use for automatic casting. If not specified, defaults to the model's data type.
+            task (`str`, *optional*):
+                The task for which the model is being exported. Defaults to "text-generation".
+
+        Returns:
+            `NeuronModelForCausalLM`: The exported Neuron model.
+        """
+        if task != "text-generation":
+            raise ValueError(
+                f"Task {task} is not supported for causal language models. Please use another base model."
+            )
+        if cls is NeuronModelForCausalLM:
+            # Instantiation through the abstract class: find the correct model class
+            exporter = get_exporter(config)
+            cls = exporter.neuronx_class
+
+        # Create the neuron config for the specified parameters
         neuron_config = cls.get_neuron_config(
             model_id,
             config,
@@ -195,12 +266,7 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
             auto_cast_type=auto_cast_type,
         )
 
-        if task != "text-generation":
-            raise ValueError(
-                f"Task {task} is not supported for causal language models. Please use another base model."
-            )
-
-        return HloModelForCausalLM.export(
+        return cls.export(
             model_id,
             config,
             neuron_config,
@@ -214,13 +280,12 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
         cls,
         model_id: Union[str, "Path"],
         config: "PretrainedConfig",
-        token: Optional[Union[bool, str]] = None,
-        revision: Optional[str] = None,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
-        from .models.inference.hlo.backend.modeling_decoder import HloModelForCausalLM
-
-        return HloModelForCausalLM._from_pretrained(model_id, config, token=token, revision=revision, **kwargs)
+        # Find the correct model class
+        exporter = get_exporter(config)
+        cls = exporter.neuronx_class
+        return cls._from_pretrained(model_id, config, **kwargs)
 
     def can_generate(self) -> bool:
         """Returns True to validate the check made in `GenerationMixin.generate()`."""
@@ -243,6 +308,19 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
         **kwargs,
     ) -> torch.LongTensor:
         raise NotImplementedError
+
+    @classmethod
+    @abstractmethod
+    def _get_neuron_config(
+        cls,
+        checkpoint_id: str,
+        checkpoint_revision: str,
+        batch_size: int,
+        sequence_length: int,
+        tensor_parallel_size: int,
+        auto_cast_type: str,
+    ):
+        raise NotImplementedError("The `get_neuron_config` method must be implemented in the subclass.")
 
     @classmethod
     def export(
