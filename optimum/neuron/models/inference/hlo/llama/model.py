@@ -15,8 +15,8 @@
 # ==============================================================================
 
 
-from .....backends.hlo.decoder import NeuronHloDecoderModel
-from .....backends.hlo.dtypes import to_torch_dtype
+from ..backend.decoder import NeuronHloDecoderModel
+from ..backend.dtypes import to_torch_dtype
 from .hlo import LlamaGraphBuilder
 from .modules import LlamaForCausalLM
 

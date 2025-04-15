@@ -30,12 +30,12 @@ from transformers.modeling_outputs import ModelOutput
 
 from optimum.exporters.tasks import TasksManager
 
-from ....exporters.neuron.model_configs import *  # noqa: F403
-from ...cache.entries.single_model import SingleModelCacheEntry
-from ...cache.hub_cache import hub_neuronx_cache
-from ...generation import TokenSelector
-from ...modeling_decoder import NeuronModelForCausalLM
-from ...utils.system import get_available_cores
+from ......exporters.neuron.model_configs import *  # noqa: F403
+from .....cache.entries.single_model import SingleModelCacheEntry
+from .....cache.hub_cache import hub_neuronx_cache
+from .....generation import TokenSelector
+from .....modeling_decoder import NeuronModelForCausalLM
+from .....utils.system import get_available_cores
 from .config import HloNeuronConfig
 
 

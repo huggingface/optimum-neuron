@@ -28,9 +28,9 @@ from transformers.generation import GenerationMixin
 from optimum.exporters.tasks import TasksManager
 
 from ..exporters.neuron.model_configs import *  # noqa: F403
-from .backends.hlo.config import HloNeuronConfig
 from .configuration_utils import NeuronConfig
 from .modeling_base import NeuronModel
+from .models.inference.hlo.backend.config import HloNeuronConfig
 from .utils.system import get_available_cores
 
 
@@ -182,7 +182,7 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
         task: Optional[str] = "text-generation",
         **kwargs,
     ) -> "NeuronModelForCausalLM":
-        from .backends.hlo.modeling_decoder import HloModelForCausalLM
+        from .models.inference.hlo.backend.modeling_decoder import HloModelForCausalLM
 
         # Get the neuron config
         neuron_config = cls.get_neuron_config(
@@ -221,7 +221,7 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
     ) -> "NeuronModelForCausalLM":
         neuron_config = NeuronConfig.from_pretrained(model_id, token=token, revision=revision)
         if isinstance(neuron_config, HloNeuronConfig):
-            from .backends.hlo.modeling_decoder import HloModelForCausalLM
+            from .models.inference.hlo.backend.modeling_decoder import HloModelForCausalLM
 
             return HloModelForCausalLM._from_pretrained(
                 model_id, config, neuron_config, token=token, revision=revision, **kwargs
