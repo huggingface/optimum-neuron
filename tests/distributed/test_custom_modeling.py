@@ -185,6 +185,7 @@ def _test_training_granite():
         max_steps=max_steps,
         do_train=True,
         eval_strategy="epoch",
+        tensor_parallel_size=2,
     )
 
     # Load the model
@@ -207,8 +208,8 @@ def _test_training_granite():
         data_collator=data_collator,
     )
     print("Trainer initialized")
-    print(trainer.accelerator.distributed_type)
-    return
+    print(f"{trainer.accelerator.distributed_type}")
+    print(f"tensor_parallel_size {training_args.tensor_parallel_size}")
     # Train the model
     print("Training model")
     train_result = trainer.train()

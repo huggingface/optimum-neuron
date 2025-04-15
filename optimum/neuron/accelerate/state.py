@@ -186,6 +186,8 @@ class NeuronAcceleratorState(AcceleratorState):
 
                 if mp_plugin is None:
                     mp_plugin = ModelParallelismPlugin()
+                # print(f"🟡 {mp_plugin.tensor_parallel_size}")
+                # raise RuntimeError("🟡 here")
 
                 if mp_plugin.should_parallelize:
                     self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
