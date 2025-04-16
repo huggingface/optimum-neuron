@@ -30,7 +30,6 @@ from optimum.exporters.tasks import TasksManager
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from .configuration_utils import NeuronConfig
 from .modeling_base import NeuronModel
-from .models.inference.hlo.backend.config import HloNeuronConfig
 from .utils.system import get_available_cores
 
 
@@ -219,17 +218,9 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
         revision: Optional[str] = None,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
-        neuron_config = NeuronConfig.from_pretrained(model_id, token=token, revision=revision)
-        if isinstance(neuron_config, HloNeuronConfig):
-            from .models.inference.hlo.backend.modeling_decoder import HloModelForCausalLM
+        from .models.inference.hlo.backend.modeling_decoder import HloModelForCausalLM
 
-            return HloModelForCausalLM._from_pretrained(
-                model_id, config, neuron_config, token=token, revision=revision, **kwargs
-            )
-        raise ValueError(
-            "The specified directory does not contain a neuron model."
-            "Please convert your model to neuron format by passing export=True."
-        )
+        return HloModelForCausalLM._from_pretrained(model_id, config, token=token, revision=revision, **kwargs)
 
     def can_generate(self) -> bool:
         """Returns True to validate the check made in `GenerationMixin.generate()`."""
