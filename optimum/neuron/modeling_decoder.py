@@ -201,7 +201,7 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
                 f"Task {task} is not supported for causal language models. Please use another base model."
             )
 
-        return HloModelForCausalLM._export(
+        return HloModelForCausalLM.export(
             model_id,
             config,
             neuron_config,
@@ -252,3 +252,34 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin):
         **kwargs,
     ) -> torch.LongTensor:
         raise NotImplementedError
+
+    @classmethod
+    def export(
+        cls,
+        model_id: str,
+        config: "PretrainedConfig",
+        neuron_config: "NeuronConfig",
+        token: Optional[Union[bool, str]] = None,
+        revision: Optional[str] = None,
+        **kwargs,
+    ) -> "NeuronModelForCausalLM":
+        """Export the model to Neuron format.
+
+        This method must be implemented by the subclass. It should handle the export of the model to Neuron format.
+        Args:
+            model_id (`str`):
+                The model ID or path to the model directory.
+            config (`PretrainedConfig`):
+                The model configuration.
+            neuron_config (`NeuronConfig`):
+                The Neuron configuration for the model.
+            token (`str`, *optional*):
+                The token to use for authentication with the Hugging Face Hub.
+            revision (`str`, *optional*):
+                The revision of the model to use. If not specified, the latest revision will be used.
+        Returns:
+            `NeuronModelForCausalLM`: The exported Neuron model.
+        """
+        raise NotImplementedError(
+            "The `export` method must be implemented in the subclass. It should handle the export of the model to Neuron format."
+        )

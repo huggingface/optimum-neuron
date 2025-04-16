@@ -190,7 +190,7 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         return cls._export(*args, **kwargs)
 
     @classmethod
-    def _export(
+    def export(
         cls,
         model_id: str,
         config: "PretrainedConfig",
