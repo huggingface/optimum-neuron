@@ -92,8 +92,8 @@ from .cache.hub_cache import hub_neuronx_cache, synchronize_hub_cache
 from .cache.training import patch_neuron_cc_wrapper
 from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
-from .training_args import NeuronTrainingArguments
 from .models.training.modeling_utils import NeuronModelMixin
+from .training_args import NeuronTrainingArguments
 from .utils import (
     is_torch_xla_available,
     is_trl_available,

@@ -303,7 +303,7 @@ class NeuronAccelerator(Accelerator):
 
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement: Optional[bool] = None):
-        # If we use custom modeling, we do not have to do anything for now. 
+        # If we use custom modeling, we do not have to do anything for now.
         # We will have to do some work when supporting ZeRO-1.
         model = self._models[0] if len(self._models) == 1 else None
         if model is not None and inspect.getmodule(model.__class__).__name__.startswith("optimum.neuron.models.training"):

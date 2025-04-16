@@ -30,7 +30,7 @@ from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_
 from torch import nn
 from torch_xla.utils.checkpoint import checkpoint
 from transformers.activations import ACT2FN
-from transformers.cache_utils import Cache, DynamicCache
+from transformers.cache_utils import Cache, DynamicCache, StaticCache
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import (
     BaseModelOutputWithPast,
@@ -56,8 +56,6 @@ from transformers.models.llama.modeling_llama import LlamaModel as LlamaModelHF
 from transformers.models.llama.modeling_llama import LlamaRMSNorm as LlamaRMSNormHF
 from transformers.processing_utils import Unpack
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
-from transformers.cache_utils import StaticCache
-from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.utils import logging
 
 from ....accelerate import ModelParallelismConfig
@@ -465,11 +463,11 @@ class LlamaModel(NeuronModelMixin, LlamaModelHF):
 
         init_method = partial(_init_normal, config.initializer_range)
         self.embed_tokens = ParallelEmbedding(
-            config.vocab_size, 
-            config.hidden_size, 
-            self.padding_idx, 
+            config.vocab_size,
+            config.hidden_size,
+            self.padding_idx,
             init_method=init_method,
-            sequence_parallel_enabled=mp_config.sequence_parallel_enabled, 
+            sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
             dtype=config.torch_dtype,
         )
         self.layers = nn.ModuleList([LlamaDecoderLayer(config, mp_config, layer_idx) for layer_idx in range(config.num_hidden_layers)])

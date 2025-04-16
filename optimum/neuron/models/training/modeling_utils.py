@@ -25,16 +25,16 @@ from pathlib import Path
 from typing import Callable, Dict, Literal, Optional, Type, Union
 
 import torch
-from torch_xla.utils.checkpoint import checkpoint
 from safetensors import safe_open
+from torch_xla.utils.checkpoint import checkpoint
 from transformers import PretrainedConfig
 from transformers.modeling_utils import (
     SpecificPreTrainedModelType,
     get_parameter_dtype,
     get_state_dict_dtype,
-    set_initialized_submodules,
     load_state_dict,
     no_init_weights,
+    set_initialized_submodules,
 )
 from transformers.utils import (
     CONFIG_NAME,
@@ -65,6 +65,7 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.layers import create_local_weight
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_data_parallel_size,
+        get_pipeline_model_parallel_rank,
         get_tensor_model_parallel_rank,
         get_tensor_model_parallel_size,
     )
@@ -624,7 +625,6 @@ class NeuronModelMixin:
                     raise ValueError(
                         f'`torch_dtype` can be one of: `torch.dtype`, `"auto"` or a string of a valid `torch.dtype`, but received {torch_dtype}'
                     )
-            # dtype_orig = cls._set_default_torch_dtype(torch_dtype)
             config.torch_dtype = torch_dtype
 
         config.name_or_path = pretrained_model_name_or_path
