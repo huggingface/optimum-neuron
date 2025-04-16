@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Callable, Dict, Literal, Optional, Type, Union
 
 import torch
+from torch_xla.utils.checkpoint import checkpoint
 from safetensors import safe_open
 from transformers import PretrainedConfig
 from transformers.modeling_utils import (
@@ -217,7 +218,8 @@ class ModelWeightTransformationSpecs:
 def adapt_state_dict(model: torch.nn.Module, state_dict: Dict[str, torch.Tensor], inplace: bool = False):
     tp_size = get_tensor_model_parallel_size()
     named_parameters = dict(model.named_parameters())
-    original_state_dict = {n: p.data_ptr() for n, p in state_dict.items()}
+    original_data_ptrs = {n: p.data_ptr() for n, p in state_dict.items()}
+    original_state_dict_keys = set(state_dict.keys())
     for name, module in model.named_modules():
         model_weight_transformation_specs = getattr(module, "specs", [])
         for spec in model_weight_transformation_specs:
@@ -227,7 +229,7 @@ def adapt_state_dict(model: torch.nn.Module, state_dict: Dict[str, torch.Tensor]
     # 1. A new key was inserted by the adapt_state_dict function
     # 2. A key was mutated by the adapt_state_dict function
     new_keys = set(state_dict.keys()) - original_state_dict_keys
-    mutated_keys = {n for n, p in state_dict.items() if p.data_ptr() != original_state_dict.get(n, p.data_ptr())}
+    mutated_keys = {n for n, p in state_dict.items() if p.data_ptr() != original_data_ptrs.get(n, p.data_ptr())}
 
     for name, param in model.named_parameters():
         if name in new_keys | mutated_keys:
@@ -412,6 +414,10 @@ class NeuronModelMixin:
         config._attn_implementation_autoset = True
         return config
 
+    # This method uses `torch.xla.utils.checkpoint.checkpoint` instead of the torch one.
+    def _set_gradient_checkpointing(self, enable: bool = True, gradient_checkpointing_func: Callable = checkpoint):
+        return super()._set_gradient_checkpointing(enable=enable, gradient_checkpointing_func=gradient_checkpointing_func)
+
     @classmethod
     def from_pretrained(
         cls: Type[SpecificPreTrainedModelType],
@@ -442,9 +448,6 @@ class NeuronModelMixin:
         _fast_init = kwargs.pop("_fast_init", True)
         torch_dtype = kwargs.pop("torch_dtype", None)
         low_cpu_mem_usage = kwargs.pop("low_cpu_mem_usage", None)
-        # The default is device_map = None in transformers.
-        # Here we want to move the model to the device by default to free up the RAM.
-        # device_map = kwargs.pop("device_map", "xla")
         device_map = kwargs.pop("device_map", None)
         kwargs.pop("max_memory", None)
         kwargs.pop("offload_folder", None)
