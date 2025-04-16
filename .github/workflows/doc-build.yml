@@ -40,7 +40,7 @@ jobs:
           cd optimum
           version=`echo "$(grep '^__version__ =' neuron/version.py | cut -d '=' -f 2- | xargs)"`
 
-          if [[ $version == *.dev0 ]]
+          if [[ $version == *.dev* ]]
           then
             echo "VERSION=main" >> $GITHUB_ENV
           else
