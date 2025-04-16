@@ -26,10 +26,9 @@ from transformers import AutoModelForCausalLM, GenerationConfig, PretrainedConfi
 from transformers.file_utils import add_start_docstrings
 from transformers.generation import GenerationMixin, StoppingCriteriaList
 
-from optimum.exporters.tasks import TasksManager
-
 from .configuration_utils import NeuronConfig
 from .modeling_base import NeuronModel
+from .models.auto_model import get_neuron_model_class
 from .utils.system import get_available_cores
 
 
@@ -91,14 +90,11 @@ TEXT_GENERATION_EXAMPLE = r"""
 """
 
 
-def get_exporter(config: PretrainedConfig):
-    """Get the exporter configuration for the given model configuration."""
-    from ..exporters.neuron import model_configs  # noqa F401
-
-    exporter = TasksManager.get_exporter_config_constructor(
-        model_type=config.model_type, exporter="neuron", task="text-generation", library_name="transformers"
-    )
-    return exporter()
+def get_neuron_causal_lm_model_class(config: PretrainedConfig):
+    cls = get_neuron_model_class(config.model_type, task="text-generation", mode="inference")
+    if not issubclass(cls, NeuronModelForCausalLM):
+        raise ValueError(f"Model {config.model_type} is not a causal language model. Please use another base model.")
+    return cls
 
 
 @add_start_docstrings(
@@ -184,8 +180,7 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin, ABC):
 
         if type(cls) is NeuronModelForCausalLM:
             # Instantiation through the abstract class: find the correct model class
-            exporter = get_exporter(config)
-            cls = exporter.neuronx_class
+            cls = get_neuron_causal_lm_model_class(config)
 
         # Call the _get_neuron_config method of the specific model class
         return cls._get_neuron_config(
@@ -251,8 +246,7 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin, ABC):
             )
         if cls is NeuronModelForCausalLM:
             # Instantiation through the abstract class: find the correct model class
-            exporter = get_exporter(config)
-            cls = exporter.neuronx_class
+            cls = get_neuron_causal_lm_model_class(config)
 
         # Create the neuron config for the specified parameters
         neuron_config = cls.get_neuron_config(
@@ -283,8 +277,7 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin, ABC):
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         # Find the correct model class
-        exporter = get_exporter(config)
-        cls = exporter.neuronx_class
+        cls = get_neuron_causal_lm_model_class(config)
         return cls._from_pretrained(model_id, config, **kwargs)
 
     def can_generate(self) -> bool:
