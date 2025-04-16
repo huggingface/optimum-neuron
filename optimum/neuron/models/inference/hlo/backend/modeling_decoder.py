@@ -235,7 +235,6 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         cls,
         model_id: Union[str, Path],
         config: "PretrainedConfig",
-        neuron_config: "HloNeuronConfig",
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         **kwargs,
@@ -243,6 +242,8 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         model_path = model_id
         if not os.path.isdir(model_id):
             model_path = snapshot_download(model_id, token=token, revision=revision)
+
+        neuron_config = HloNeuronConfig.from_pretrained(model_path)
 
         checkpoint_dir, compiled_dir = cls._get_neuron_dirs(model_path)
         if not os.path.isdir(checkpoint_dir):
