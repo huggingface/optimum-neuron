@@ -16,10 +16,9 @@ import logging
 import os
 import shutil
 from contextlib import contextmanager
-from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Literal, Optional, Union
+from typing import Optional, Union
 
 from huggingface_hub import HfApi, get_token
 from huggingface_hub.errors import EntryNotFoundError
@@ -27,7 +26,7 @@ from huggingface_hub.hf_api import RepoFile
 
 from optimum.exporters import TasksManager
 
-from ..utils.cache_utils import get_hf_hub_cache_repo, get_neuron_cache_path
+from ..utils.cache_utils import get_hf_hub_cache_repo
 from ..utils.import_utils import is_neuronx_available
 from ..utils.patching import patch_everywhere
 from ..utils.require_utils import requires_torch_neuronx
@@ -242,24 +241,9 @@ def create_hub_compile_cache_proxy(
 REGISTRY_FOLDER = f"0_REGISTRY/{__version__}"
 
 
-class Mode(str, Enum):
-    TRAINING = "training"
-    INFERENCE = "inference"
-
-
-def get_registry_folder_for_mode(mode: Union[Literal["training"], Literal["inference"], Mode]) -> str:
-    if isinstance(mode, str) and not isinstance(mode, Mode):
-        mode = Mode(mode)
-    if mode is Mode.TRAINING:
-        return f"{REGISTRY_FOLDER}/training"
-    else:
-        return f"{REGISTRY_FOLDER}/inference"
-
-
 @requires_torch_neuronx
 @contextmanager
 def hub_neuronx_cache(
-    mode: Union[Literal["training"], Literal["inference"], Mode],
     entry: Optional[ModelCacheEntry] = None,
     cache_repo_id: Optional[str] = None,
     cache_dir: Optional[Union[str, Path]] = None,
@@ -267,9 +251,6 @@ def hub_neuronx_cache(
     """A context manager to activate the Hugging Face Hub proxy compiler cache.
 
     Args:
-        mode (`Union[Literal["training"], Literal["inference"], Mode]`):
-            The mode in which the context manager is used. Can be either "training" or "inference".
-            This information will be used to populate the proper registry folder.
         entry (`Optional[ModelCacheEntry]`, defaults to `None`):
             An optional dataclass containing metadata associated with the model corresponding
             to the cache session. Will create a dedicated entry in the cache registry.
@@ -278,7 +259,6 @@ def hub_neuronx_cache(
         cache_dir (`Optional[Union[str, Path]]`, defaults to `None`):
             The directory that is used as local cache directory.
     """
-    registry_folder = get_registry_folder_for_mode(mode)
 
     def hf_create_compile_cache(cache_url):
         try:
@@ -288,8 +268,6 @@ def hub_neuronx_cache(
             return create_compile_cache(cache_url)
 
     try:
-        if mode == "training" and cache_dir is None:
-            cache_dir = get_neuron_cache_path()
         if isinstance(cache_dir, Path):
             cache_dir = cache_dir.as_posix()
         default_cache = create_compile_cache(CacheUrl.get_cache_url(cache_dir=cache_dir))
@@ -301,7 +279,7 @@ def hub_neuronx_cache(
                 logger.warning("Skipping cache metadata update on S3 cache.")
             else:
                 # Create cache entry in local cache: it can be later synchronized with the hub cache
-                registry_path = default_cache.get_cache_dir_with_cache_key(registry_folder)
+                registry_path = default_cache.get_cache_dir_with_cache_key(REGISTRY_FOLDER)
                 entry_path = f"{registry_path}/{entry.model_type}/{entry.model_id}"
                 config_path = f"{entry_path}/{entry.hash}.json"
                 if not default_cache.exists(config_path):
@@ -337,7 +315,6 @@ def synchronize_hub_cache(cache_path: Optional[Union[str, Path]] = None, cache_r
 
 def get_hub_cached_entries(
     model_id: str,
-    mode: Union[Literal["training"], Literal["inference"], Mode],
     task: Optional[str] = None,
     cache_repo_id: Optional[str] = None,
 ):
@@ -353,8 +330,7 @@ def get_hub_cached_entries(
     repo_files = api.list_repo_files(cache_repo_id)
     # Get the config corresponding to the model
     target_entry = ModelCacheEntry.create(model_id, task)
-    registry_folder = get_registry_folder_for_mode(mode)
-    registry_pattern = registry_folder + "/" + target_entry.model_type
+    registry_pattern = REGISTRY_FOLDER + "/" + target_entry.model_type
     model_files = [path for path in repo_files if registry_pattern in path]
     model_entries = []
     with TemporaryDirectory() as tmpdir:
@@ -367,20 +343,16 @@ def get_hub_cached_entries(
     return model_entries
 
 
-def get_hub_cached_models(
-    mode: Union[Literal["training"], Literal["inference"], Mode], cache_repo_id: Optional[str] = None
-):
+def get_hub_cached_models(cache_repo_id: Optional[str] = None):
     """Get the list of cached models for the specified mode for the current version
 
     Args:
-        mode (`Union[Literal["training"], Literal["inference"], Mode]`): the cache mode (inference or training).
         cache_repo_id (`Optional[str]`): the path to a cache repo id if different from the default one.
     Returns:
         A set of (model_arch, model_org, model_id)
     """
     if cache_repo_id is None:
         cache_repo_id = get_hf_hub_cache_repo()
-    registry_folder = get_registry_folder_for_mode(mode)
     api = HfApi()
     root = api.list_repo_tree(cache_repo_id, path_in_repo="", recursive=False)
     for root_file in root:
@@ -390,7 +362,7 @@ def get_hub_cached_models(
             compiler_pattern += get_neuronxcc_version()
         if root_file.path.startswith(compiler_pattern):
             # Look for a registry of cached models for the current optimum-version
-            path_in_repo = root_file.path + "/" + registry_folder
+            path_in_repo = root_file.path + "/" + REGISTRY_FOLDER
             root_sub_paths = path_in_repo.split("/")
             try:
                 registry = api.list_repo_tree(cache_repo_id, path_in_repo=path_in_repo, recursive=True)

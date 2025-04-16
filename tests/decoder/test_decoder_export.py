@@ -22,14 +22,9 @@ from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
-DECODER_MODEL_ARCHITECTURES = ["bloom", "gpt2", "llama", "mistral", "mixtral", "opt", "phi3"]
+DECODER_MODEL_ARCHITECTURES = ["llama", "granite", "qwen2", "phi3"]
 DECODER_MODEL_NAMES = {
-    "bloom": "hf-internal-testing/tiny-random-BloomForCausalLM",
-    "gpt2": "hf-internal-testing/tiny-random-gpt2",
     "llama": "llamafactory/tiny-random-Llama-3",
-    "mistral": "dacorvo/tiny-random-MistralForCausalLM",
-    "mixtral": "dacorvo/Mixtral-tiny",
-    "opt": "hf-internal-testing/tiny-random-OPTForCausalLM",
     "qwen2": "yujiepan/qwen2.5-128k-tiny-random",
     "granite": "hf-internal-testing/tiny-random-GraniteForCausalLM",
     "phi3": "yujiepan/phi-4-tiny-random",
@@ -44,16 +39,15 @@ def export_decoder_id(request):
 
 
 def check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num_cores=None, auto_cast_type=None):
-    neuron_config = getattr(neuron_model.config, "neuron", None)
-    assert neuron_config
+    neuron_config = neuron_model.neuron_config
     if batch_size:
-        assert neuron_config["batch_size"] == batch_size
+        assert neuron_config.batch_size == batch_size
     if sequence_length:
-        assert neuron_config["sequence_length"] == sequence_length
+        assert neuron_config.sequence_length == sequence_length
     if num_cores:
-        assert neuron_config["num_cores"] == num_cores
+        assert neuron_config.tp_degree == num_cores
     if auto_cast_type:
-        assert neuron_config["auto_cast_type"] == auto_cast_type
+        assert neuron_config.auto_cast_type == auto_cast_type
 
 
 @pytest.mark.parametrize(

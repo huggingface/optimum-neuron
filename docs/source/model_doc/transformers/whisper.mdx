@@ -1,0 +1,113 @@
+<!---
+Copyright 2025 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# Whisper
+
+## Overview
+
+[Whisper](https://hf.co/papers/2212.04356) is a encoder-decoder (sequence-to-sequence) transformer pretrained on 680,000 hours of labeled audio data. This amount of pretraining data enables zero-shot performance on audio tasks in English and many other languages. The decoder allows Whisper to map the encoders learned speech representations to useful outputs, such as text, without additional fine-tuning. Whisper just works out of the box.
+
+You can find all the original Whisper checkpoints under the [Whisper](https://huggingface.co/collections/openai/whisper-release-6501bba2cf999715fd953013) collection.
+
+
+## Export to Neuron
+
+To deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you first need to compile the models and export them to a serialized format for inference. Below are two approaches to compile the model, you can choose the one that best suits your needs:
+
+### Option 1: CLI
+  
+You can export the model using the Optimum command-line interface as follows:
+
+```bash
+optimum-cli export neuron --model openai/whisper-tiny --task automatic-speech-recognition --batch_size 1 --sequence_length 128 --auto_cast all --auto_cast_type bf16 whisper_tiny_neuronx/
+```
+
+> [!TIP]
+> Execute `optimum-cli export neuron --help` to display all command line options and their description.
+
+### Option 2: Python API
+
+```python
+from optimum.neuron import NeuronWhisperForConditionalGeneration
+
+compiler_args = {"auto_cast": "all", "auto_cast_type": "bf16"}
+input_shapes = {"batch_size": 1, "sequence_length": 128}
+neuron_model = NeuronWhisperForConditionalGeneration.from_pretrained(
+    "openai/whisper-tiny",
+    export=True,
+    inline_weights_to_neff=False,
+    **compiler_args,
+    **input_shapes,
+)
+# Save locally
+neuron_model.save_pretrained("whisper_tiny_neuronx")
+
+# Upload to the HuggingFace Hub
+neuron_model.push_to_hub(
+    "whisper_tiny_neuronx", repository_id="my-neuron-repo"  # Replace with your repo id, eg. "Jingya/whisper_tiny_neuronx"
+)
+```
+
+## Usage Example
+
+To use the model that we just exported, there are two options. We can eithe use the [`NeuronWhisperForConditionalGeneration`] class or use the [`Pipeline`]. The example below demonstrates how to automatically transcribe speech into text these two approaches.
+
+### With `NeuronWhisperForConditionalGeneration`
+
+```python
+from datasets import load_dataset
+from transformers import AutoProcessor
+from optimum.neuron import NeuronWhisperForConditionalGeneration
+
+# Select an audio file and read it:
+ds = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
+audio_sample = ds[0]["audio"]
+
+# Use the model and processor to transcribe the audio:
+processor = AutoProcessor.from_pretrained("Jingya/whisper_tiny_neuronx")
+input_features = processor(
+    audio_sample["array"], sampling_rate=audio_sample["sampling_rate"], return_tensors="pt"
+).input_features
+
+# Inference
+neuron_model = NeuronWhisperForConditionalGeneration.from_pretrained("Jingya/whisper_tiny_neuronx")
+predicted_ids = neuron_model.generate(input_features)
+transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)
+#  Mr. Quilter is the apostle of the middle classes and we are glad to welcome his gospel.
+```
+
+### With `pipeline`
+
+```python
+from transformers import AutoProcessor
+from optimum.neuron import NeuronWhisperForConditionalGeneration, pipeline
+
+processor = AutoProcessor.from_pretrained("Jingya/whisper_tiny_neuronx")
+neuron_model = NeuronWhisperForConditionalGeneration.from_pretrained("Jingya/whisper_tiny_neuronx")
+
+pipeline = pipeline(
+    task="automatic-speech-recognition",
+    model=neuron_model,
+    tokenizer=processor.tokenizer,
+    feature_extractor=processor.feature_extractor,
+)
+pipeline("https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/mlk.flac")
+#  I have a dream. Good one day. This nation will rise up. Live out the true meaning of its dream.
+```
+
+## NeuronWhisperForConditionalGeneration
+
+[[autodoc]] models.whisper.NeuronWhisperForConditionalGeneration

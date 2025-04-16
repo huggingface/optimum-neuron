@@ -127,7 +127,7 @@ def export_stable_diffusion_xl_model(model_id):
 
 
 def check_decoder_generation(model):
-    batch_size = model.config.neuron["batch_size"]
+    batch_size = model.neuron_config.batch_size
     input_ids = torch.ones((batch_size, 20), dtype=torch.int64)
     with torch.inference_mode():
         sample_output = model.generate(input_ids)
@@ -154,7 +154,7 @@ def get_local_cached_files(cache_path, extension="*"):
 
 def check_decoder_cache_entry(model, cache_path):
     local_files = get_local_cached_files(cache_path, "json")
-    model_id = model.config.neuron["checkpoint_id"]
+    model_id = model.neuron_config.checkpoint_id
     model_configurations = [path for path in local_files if model_id in path]
     assert len(model_configurations) > 0
 
@@ -195,11 +195,11 @@ def test_decoder_cache(cache_repos):
     synchronize_hub_cache(cache_repo_id=cache_repo_id)
     assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
     # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
+    model_entries = get_hub_cached_entries(model_id, cache_repo_id=cache_repo_id)
     assert len(model_entries) == 1
-    assert model_entries[0] == model.config.neuron
+    assert model_entries[0] == model.neuron_config.to_dict()
     # Also verify that the model appears in the list of cached models
-    cached_models = get_hub_cached_models("inference")
+    cached_models = get_hub_cached_models()
     assert ("llama", "llamafactory", "tiny-random-Llama-3") in cached_models
     # Clear the local cache
     for root, dirs, files in os.walk(cache_path):
@@ -230,9 +230,7 @@ def test_encoder_cache(cache_repos):
     synchronize_hub_cache(cache_repo_id=cache_repo_id)
     assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
     # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(
-        model_id, "inference", task="text-classification", cache_repo_id=cache_repo_id
-    )
+    model_entries = get_hub_cached_entries(model_id, task="text-classification", cache_repo_id=cache_repo_id)
     assert len(model_entries) == 1
     # Clear the local cache
     for root, dirs, files in os.walk(cache_path):
@@ -262,7 +260,7 @@ def test_stable_diffusion_cache(cache_repos):
     synchronize_hub_cache(cache_repo_id=cache_repo_id)
     assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
     # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
+    model_entries = get_hub_cached_entries(model_id, cache_repo_id=cache_repo_id)
     assert len(model_entries) == 1
     # Clear the local cache
     for root, dirs, files in os.walk(cache_path):
@@ -292,7 +290,7 @@ def test_stable_diffusion_xl_cache(cache_repos):
     synchronize_hub_cache(cache_repo_id=cache_repo_id)
     assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
     # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
+    model_entries = get_hub_cached_entries(model_id, cache_repo_id=cache_repo_id)
     assert len(model_entries) == 1
     # Clear the local cache
     for root, dirs, files in os.walk(cache_path):

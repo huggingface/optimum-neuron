@@ -21,6 +21,7 @@ from transformers import (
     AudioClassificationPipeline,
     AutoConfig,
     AutomaticSpeechRecognitionPipeline,
+    BaseImageProcessor,
     FillMaskPipeline,
     ImageClassificationPipeline,
     ImageSegmentationPipeline,
@@ -45,9 +46,9 @@ from optimum.neuron.pipelines.transformers.sentence_transformers import (
     is_sentence_transformer_model,
 )
 
+from ...configuration_utils import NeuronConfig
 from ...modeling import (
     NeuronModelForAudioClassification,
-    NeuronModelForCausalLM,
     NeuronModelForCTC,
     NeuronModelForFeatureExtraction,
     NeuronModelForImageClassification,
@@ -58,6 +59,7 @@ from ...modeling import (
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
 )
+from ...modeling_decoder import NeuronModelForCausalLM
 
 
 logger = logging.getLogger(__name__)
@@ -97,7 +99,7 @@ NEURONX_SUPPORTED_TASKS = {
     "text-generation": {
         "impl": TextGenerationPipeline,
         "class": (NeuronModelForCausalLM,),
-        "default": "gpt2",
+        "default": "Qwen/Qwen2.5-0.5B-Instruct",
         "type": "text",
     },
     "image-classification": {
@@ -122,7 +124,7 @@ NEURONX_SUPPORTED_TASKS = {
         "impl": AutomaticSpeechRecognitionPipeline,
         "class": (NeuronModelForCTC,),
         "default": "facebook/wav2vec2-large-960h-lv60-self",
-        "type": "multimodal",
+        "type": "audio",
     },
     "audio-classification": {
         "impl": AudioClassificationPipeline,
@@ -143,10 +145,12 @@ def check_model_type(self, supported_models: Union[List[str], dict]):
 def load_pipeline(
     model,
     targeted_task,
-    load_tokenizer,
-    tokenizer,
-    feature_extractor,
-    load_feature_extractor,
+    tokenizer: Optional[Union[str, PreTrainedTokenizer, "PreTrainedTokenizerFast"]],
+    feature_extractor: Optional[Union[str, PreTrainedFeatureExtractor]],
+    image_processor: Optional[Union[str, BaseImageProcessor]],
+    load_tokenizer: bool,
+    load_feature_extractor: bool,
+    load_image_processor: bool,
     supported_tasks=NEURONX_SUPPORTED_TASKS,
     input_shapes={},
     export=False,
@@ -154,7 +158,6 @@ def load_pipeline(
     token: Optional[Union[bool, str]] = None,
     revision: str = "main",
     compiler_args: Optional[Dict[str, Any]] = {},
-    config: AutoConfig = None,
     hub_kwargs: Optional[Dict[str, Any]] = {},
     **kwargs,
 ):
@@ -199,13 +202,22 @@ def load_pipeline(
                     "Could not automatically find a feature extractor for the NeuronModel, you must pass a "
                     "feature_extractor explictly"
                 )
+        if image_processor is None and load_image_processor:
+            for preprocessor in model.preprocessors:
+                if isinstance(preprocessor, BaseImageProcessor):
+                    image_processor = preprocessor
+                    break
+            if image_processor is None:
+                raise ValueError(
+                    "Could not automatically find an image_processor for the NeuronModel, you must pass an image processor explicitly"
+                )
         model_id = None
     else:
         raise ValueError(
             f"""Model {model} is not supported. Please provide a valid model either as string or NeuronModel.
             You can also provide non model then a default one will be used"""
         )
-    return model, model_id, tokenizer, feature_extractor
+    return model, model_id, tokenizer, feature_extractor, image_processor
 
 
 def pipeline(
@@ -213,6 +225,7 @@ def pipeline(
     model: Optional[Union[str, NeuronModel]] = None,
     tokenizer: Optional[Union[str, PreTrainedTokenizer]] = None,
     feature_extractor: Optional[Union[str, PreTrainedFeatureExtractor]] = None,
+    image_processor: Optional[Union[str, BaseImageProcessor]] = None,
     use_fast: bool = True,
     export: bool = False,
     input_shapes: Optional[Dict[str, int]] = {},
@@ -242,29 +255,47 @@ def pipeline(
             config = AutoConfig.from_pretrained(model, _from_pipeline=task, **hub_kwargs, **kwargs)
             hub_kwargs["_commit_hash"] = config._commit_hash
         elif isinstance(model, (PreTrainedModel, NeuronModel)):
-            config = model.config
+            if hasattr(model, "encoder"):
+                config = model.encoder.config
+            else:
+                config = model.config
+
+    neuron_config = getattr(config, "neuron", None)
+    if neuron_config is None:
+        if isinstance(model, str):
+            try:
+                neuron_config = NeuronConfig.from_pretrained(model, token=token, revision=revision)
+            except EnvironmentError:
+                # If the model is not a Neuron model, we will just ignore the error
+                pass
+        elif isinstance(model, NeuronModel):
+            neuron_config = getattr(model, "neuron_config", None)
 
     if export:
-        if hasattr(config, "neuron"):
+        if neuron_config is not None:
             raise ValueError("This model has already been exported to Neuron format")
         if not input_shapes:
             input_shapes = {"batch_size": 1, "sequence_length": 128}
             logger.warning(f"No input shapes provided, using default shapes, {input_shapes}")
     else:
-        if not hasattr(config, "neuron"):
+        if neuron_config is None:
             raise ValueError("The model must be exported to Neuron format first")
         if input_shapes:
             logger.warning("Input shapes can only be set during export")
 
     no_feature_extractor_tasks = set()
     no_tokenizer_tasks = set()
+    no_image_processor_tasks = set()
     for _task, values in NEURONX_SUPPORTED_TASKS.items():
         if values["type"] == "text":
             no_feature_extractor_tasks.add(_task)
+            no_image_processor_tasks.add(_task)
         elif values["type"] in {"image", "video"}:
             no_tokenizer_tasks.add(_task)
+            no_feature_extractor_tasks.add(_task)
         elif values["type"] in {"audio"}:
             no_tokenizer_tasks.add(_task)
+            no_image_processor_tasks.add(_task)
         elif values["type"] not in ["multimodal", "audio", "video"]:
             raise ValueError(f"SUPPORTED_TASK {_task} contains invalid type {values['type']}")
 
@@ -283,18 +314,24 @@ def pipeline(
     else:
         load_feature_extractor = True
 
-    model, model_id, tokenizer, feature_extractor = load_pipeline(
-        model,
-        task,
-        load_tokenizer,
-        tokenizer,
-        feature_extractor,
-        load_feature_extractor,
+    if task in no_image_processor_tasks:
+        load_image_processor = False
+    else:
+        load_image_processor = True
+
+    model, model_id, tokenizer, feature_extractor, image_processor = load_pipeline(
+        model=model,
+        targeted_task=task,
+        tokenizer=tokenizer,
+        feature_extractor=feature_extractor,
+        image_processor=image_processor,
+        load_tokenizer=load_tokenizer,
+        load_feature_extractor=load_feature_extractor,
+        load_image_processor=load_image_processor,
         export=export,
         input_shapes=input_shapes,
         compiler_args=compiler_args,
         supported_tasks=NEURONX_SUPPORTED_TASKS,
-        config=config,
         hub_kwargs=hub_kwargs,
         token=token,
     )
@@ -303,14 +340,22 @@ def pipeline(
         tokenizer = get_preprocessor(model_id)
     if feature_extractor is None and load_feature_extractor:
         feature_extractor = get_preprocessor(model_id)
+    if image_processor is None and load_image_processor:
+        image_processor = get_preprocessor(model_id)
 
     # If we don't specify a batch_size, the pipeline will assume batch_size 1
     # and it will process the inputs one by one instead of processing them in parallel
     batch_size = 1
-    for attr in ["batch_size", "static_batch_size"]:
-        neuron_config = getattr(config, "neuron", None) or getattr(model.config, "neuron", None)
-        if attr in neuron_config:
-            batch_size = neuron_config[attr]
+    neuron_config = (
+        getattr(config, "neuron", None)
+        or getattr(model.config, "neuron", None)
+        or getattr(model, "neuron_config", None)
+    )
+    if isinstance(neuron_config, NeuronConfig):
+        batch_size = neuron_config.batch_size
+    elif isinstance(neuron_config, dict):
+        for attr in ["batch_size", "static_batch_size"]:
+            batch_size = neuron_config.get(attr, batch_size)
     if batch_size > 1 and tokenizer is not None and tokenizer.pad_token_id is None:
         # The pipeline needs a pad token to be able to batch
         if isinstance(model.config.eos_token_id, list):
@@ -326,6 +371,7 @@ def pipeline(
         model=model,
         tokenizer=tokenizer,
         feature_extractor=feature_extractor,
+        image_processor=image_processor,
         use_fast=use_fast,
         batch_size=batch_size,
         pipeline_class=NEURONX_SUPPORTED_TASKS[task]["impl"],

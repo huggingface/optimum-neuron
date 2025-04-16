@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2023 The HuggingFace Team. All rights reserved.
+# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,9 +14,9 @@
 # limitations under the License.
 """Model specific Neuron configurations."""
 
-from ....neuron.utils.import_utils import is_transformers_neuronx_available
+from ....neuron.utils.import_utils import is_neuronx_available
 from .traced_configs import *
 
 
-if is_transformers_neuronx_available():
+if is_neuronx_available():
     from .decoder_configs import *

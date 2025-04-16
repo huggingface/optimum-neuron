@@ -38,7 +38,6 @@ _import_structure = {
         "NeuronModelForSequenceClassification",
         "NeuronModelForTokenClassification",
         "NeuronModelForMultipleChoice",
-        "NeuronModelForCausalLM",
         "NeuronModelForImageClassification",
         "NeuronModelForSemanticSegmentation",
         "NeuronModelForObjectDetection",
@@ -62,11 +61,11 @@ _import_structure = {
         "NeuronPixArtAlphaPipeline",
         "NeuronPixArtSigmaPipeline",
     ],
-    "modeling_decoder": ["NeuronDecoderModel"],
+    "modeling_decoder": ["NeuronModelForCausalLM"],
     "modeling_seq2seq": [
         "NeuronModelForSeq2SeqLM",
-        "NeuronWhisperForConditionalGeneration",
     ],
+    "models": [],
     "accelerate": [
         "NeuronAccelerator",
         "NeuronAcceleratorState",
@@ -77,13 +76,25 @@ _import_structure = {
     "utils": ["NeuronSFTConfig", "NeuronORPOConfig", "get_peft_model"],
 }
 
+# Model structures
+_import_structure["models.bert"] = [
+    "NeuronBertModel",
+    "NeuronBertForMaskedLM",
+    "NeuronBertForQuestionAnswering",
+    "NeuronBertForSequenceClassification",
+    "NeuronBertForTokenClassification",
+    "NeuronBertForMultipleChoice",
+]
+_import_structure["models.clip"] = ["NeuronCLIPModel", "NeuronCLIPForImageClassification"]
+_import_structure["models.whisper"] = ["NeuronWhisperForConditionalGeneration"]
+_import_structure["models.yolos"] = ["NeuronYolosForObjectDetection"]
+
 if TYPE_CHECKING:
     from .accelerate import ModelParallelismConfig, NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
     from .hf_argparser import NeuronHfArgumentParser
     from .modeling import (
         NeuronModelForAudioClassification,
         NeuronModelForAudioFrameClassification,
-        NeuronModelForCausalLM,
         NeuronModelForCTC,
         NeuronModelForFeatureExtraction,
         NeuronModelForImageClassification,
@@ -97,7 +108,7 @@ if TYPE_CHECKING:
         NeuronModelForTokenClassification,
         NeuronModelForXVector,
     )
-    from .modeling_decoder import NeuronDecoderModel
+    from .modeling_decoder import NeuronModelForCausalLM
     from .modeling_diffusion import (
         NeuronDiffusionPipelineBase,
         NeuronLatentConsistencyModelPipeline,
@@ -113,8 +124,21 @@ if TYPE_CHECKING:
         NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
     )
-    from .modeling_seq2seq import NeuronModelForSeq2SeqLM, NeuronWhisperForConditionalGeneration
+    from .modeling_seq2seq import NeuronModelForSeq2SeqLM
     from .modeling_traced import NeuronTracedModel
+
+    # Modeling
+    from .models.bert import (
+        NeuronBertForMaskedLM,
+        NeuronBertForMultipleChoice,
+        NeuronBertForQuestionAnswering,
+        NeuronBertForSequenceClassification,
+        NeuronBertForTokenClassification,
+        NeuronBertModel,
+    )
+    from .models.clip import NeuronCLIPForImageClassification, NeuronCLIPModel
+    from .models.whisper import NeuronWhisperForConditionalGeneration
+    from .models.yolos import NeuronYolosForObjectDetection
     from .pipelines import pipeline
     from .trainers import NeuronORPOTrainer, NeuronSFTTrainer, NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments

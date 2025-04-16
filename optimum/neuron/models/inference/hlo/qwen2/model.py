@@ -15,13 +15,13 @@
 
 from transformers import PretrainedConfig
 
-from ...backends.hlo.config import NeuronConfig
-from ...backends.hlo.dtypes import to_torch_dtype
+from .....backends.hlo.config import HloNeuronConfig
+from .....backends.hlo.dtypes import to_torch_dtype
 from ..llama.model import LlamaHloModel
 from .modules import Qwen2ForCausalLM
 
 
-class Qwen2ForSampling(LlamaHloModel):
+class Qwen2HloModel(LlamaHloModel):
     """The Qwen2 model is essentially a LLama model with bias in attention projections.
 
     The implementation in this class is very similar to the one used for Llama in Tnx.
@@ -32,7 +32,7 @@ class Qwen2ForSampling(LlamaHloModel):
     def __init__(
         self,
         config: PretrainedConfig,
-        neuron_config: NeuronConfig,
+        neuron_config: HloNeuronConfig,
     ):
-        dtype = to_torch_dtype(neuron_config.amp)
+        dtype = to_torch_dtype(neuron_config.auto_cast_type)
         super().__init__(config, neuron_config, cpu_model=Qwen2ForCausalLM(config, dtype))

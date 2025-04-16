@@ -43,6 +43,7 @@ from .utils.dataclasses import AutocastBackend, ModelParallelismConfig
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+    import torch_xla.runtime as xr
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers import parallel_state
@@ -87,8 +88,8 @@ class NeuronPartialState(PartialState):
                     set_neuron_cc_flags_for_torch_amp()
                 if not torch.distributed.is_initialized():
                     init_process_group()
-                self.num_processes = xm.xrt_world_size()
-                self.process_index = xm.get_ordinal()
+                self.num_processes = xr.world_size()
+                self.process_index = xr.global_ordinal()
                 self.local_process_index = xm.get_local_ordinal()
                 self.device = xm.xla_device()
 

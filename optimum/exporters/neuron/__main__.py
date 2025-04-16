@@ -51,7 +51,6 @@ from ...neuron.utils import (
     LoRAAdapterArguments,
     is_neuron_available,
     is_neuronx_available,
-    is_transformers_neuronx_available,
     map_torch_dtype,
 )
 from ...neuron.utils.version_utils import (
@@ -77,12 +76,9 @@ if is_neuron_available():
 
 if is_neuronx_available():
     from ...commands.export.neuronx import parse_args_neuronx as parse_args_neuron  # noqa: F811
+    from .model_configs import NeuronDecoderExportConfig
 
     NEURON_COMPILER = "Neuronx"
-
-
-if is_transformers_neuronx_available():
-    from .model_configs import NeuronDecoderExportConfig
 
 
 if is_diffusers_available():
@@ -739,7 +735,7 @@ def main():
         submodels = None
     else:
         input_shapes, neuron_config_class = get_input_shapes_and_config_class(task, args)
-        if is_transformers_neuronx_available() and NeuronDecoderExportConfig in inspect.getmro(neuron_config_class):
+        if NeuronDecoderExportConfig in inspect.getmro(neuron_config_class):
             # TODO: warn about ignored args:
             # dynamic_batch_size, compiler_workdir, optlevel,
             # atol, disable_validation, library_name
