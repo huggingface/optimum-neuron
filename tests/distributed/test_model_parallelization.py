@@ -14,14 +14,18 @@
 # limitations under the License.
 """Tests validating that models can be parallelized correctly."""
 
+import importlib
+import math
 from contextlib import nullcontext
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional, Type, Union
+from typing import TYPE_CHECKING, List, Literal, Optional, Type, Union
 
 import pytest
 import torch
 import torch.utils._pytree as pytree
+import transformers
+from torch import nn
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.models.auto.modeling_auto import (
@@ -32,8 +36,11 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING,
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING,
 )
+from transformers.models.llama.modeling_llama import repeat_kv
 
 import optimum
+import optimum.neuron.models.training
+from optimum.neuron.accelerate.utils.dataclasses import ModelParallelismConfig
 from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
 from optimum.neuron.distributed.utils import compute_query_indices_for_rank, lazy_load_for_parallelism
 from optimum.neuron.utils.cache_utils import (
@@ -55,10 +62,13 @@ if is_torch_xla_available():
     import torch_xla.runtime as xr
 
 if is_neuronx_distributed_available():
+    from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
+    from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, RowParallelLinear, create_local_weight
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_kv_shared_group,
         get_pipeline_model_parallel_rank,
         get_tensor_model_parallel_group,
+        get_tensor_model_parallel_rank,
         get_tensor_model_parallel_size,
     )
     from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
@@ -136,6 +146,7 @@ NOT_LLAMA_TO_TEST = _build_models_to_test(MODEL_TYPES_TO_TEST)
 MODELS_TO_TEST = NOT_LLAMA_TO_TEST + LLAMA_MODELS_TO_TEST
 
 
+
 OUTPUTS_TO_IGNORE = {
     # It might not match in the sequence parallel setting because of mistmatched shapes.
     # Since these outputs are not needed during training, we do not want to perform an expensive gather for them.
@@ -177,7 +188,6 @@ def _check_output(name: str, original_output, output):
             kv_size_multiplier = len(get_kv_shared_group(as_list=True)[0])
             output = torch.chunk(output, kv_size_multiplier, dim=1)[0]
 
-        xm.master_print("Diff tensor:", original_output - output)
         torch.testing.assert_close(original_output, output)
     else:
         assert original_output == output, f"Output named {name} do not match."
@@ -736,3 +746,270 @@ def test_compute_query_indices_for_rank(
         print(f"Expected {expected}")
         print(f"Computed {computed}")
         torch.testing.assert_close(expected, computed)
+
+def _custom_model_matches_original_model(
+    model_class_name,
+    model_name_or_path,
+    parallel_sizes,
+    sequence_parallel_enabled,
+    qkv_implementation,
+    attn_implementation,
+    monkeypatch,
+    torch_dtype=torch.float32, # For now we do not match in bfloat16, so we test in float32.
+):
+    monkeypatch.setattr(optimum.neuron.models.training.loss_utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True)
+
+    world_size, tp_size, pp_size = parallel_sizes
+    dp_size = world_size // (tp_size * pp_size)
+    pp_rank = get_pipeline_model_parallel_rank()
+
+    static_seed_patcher = StaticSeedPatcher(SEED)
+
+    accelerator = create_accelerator(tp_size, pp_size, parallelize_embeddings=False, sequence_parallel_enabled=sequence_parallel_enabled)
+
+    orig_model_class = getattr(transformers, model_class_name)
+    with static_seed_patcher:
+        orig_model = orig_model_class.from_pretrained(model_name_or_path, torch_dtype=torch_dtype)
+
+    # It is ok to use this accelerator because `patch_model_for_neuron` does not depend on the TP or PP size.
+    orig_model = accelerator.patch_model_for_neuron(orig_model)
+
+    # Since the new KV cache system it seems that if orig_model.use_cache != model.use_cache, the losses between
+    # the two models will not match. It either comes from Transformers itself or Optimum Neuron.
+    # TODO: investigate this.
+    if pp_size == 1:
+        orig_model.config.use_cache = True
+    else:
+        orig_model.config.use_cache = False
+    move_model_to_device(orig_model, xm.xla_device())
+    orig_model = orig_model.eval()
+
+    if pp_size > 1:
+        pytest.skip(f"Pipeline parallelism is not supported for {model_class_name}.")
+
+    if sequence_parallel_enabled and attn_implementation == "flash_attention_2":
+        pad_to_multiple_of = (2048 * tp_size) // math.gcd(2048, tp_size)
+    elif sequence_parallel_enabled:
+        pad_to_multiple_of = tp_size
+    elif attn_implementation == "flash_attention_2":
+        pad_to_multiple_of = 2048
+    else:
+        pad_to_multiple_of = None
+
+    inputs = get_model_inputs(
+        orig_model,
+        model_name_or_path,
+        batch_size=dp_size,
+        pad_to_multiple_of=pad_to_multiple_of,
+    )
+
+    xla_inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
+    xm.mark_step()
+
+    with torch.no_grad():
+        orig_model_outputs = orig_model(**xla_inputs)
+
+    xm.mark_step()
+
+    mp_config = ModelParallelismConfig(
+        tensor_parallel_size=tp_size,
+        pipeline_parallel_size=pp_size,
+        fuse_qkv=qkv_implementation == "fuse_qkv",
+        use_flash_attention=attn_implementation == "flash_attention_2",
+    )
+
+    training_mod = importlib.import_module("optimum.neuron.models.training")
+    custom_model_class = getattr(training_mod, model_class_name)
+    with static_seed_patcher:
+        model = custom_model_class.from_pretrained(model_name_or_path, mp_config, attn_implementation=attn_implementation, torch_dtype=torch_dtype)
+        move_model_to_device(model, xm.xla_device())
+
+    with static_seed_patcher:
+        model = accelerator.prepare(model)
+
+    xm.mark_step()
+
+    with torch.no_grad():
+        if pp_size == 1:
+            # This is set to False by `accelerator.prepare`, which we want in the general case, but here let's
+            # enable the cache to test that the KV cache matches the original model.
+            model.config.use_cache = True
+            model = model.eval()
+            model_outputs = model(**xla_inputs)
+        else:
+            loss = model.run_eval(**inputs)
+            model_outputs = {"loss": loss}
+
+    xm.mark_step()
+
+    outputs_to_consider = [output_name for output_name in orig_model_outputs if output_name not in OUTPUTS_TO_IGNORE]
+
+    if pp_size > 1:
+        outputs_to_consider = ["loss"]
+
+    outputs_to_check = [
+        (orig_model_outputs[output_name], model_outputs[output_name]) for output_name in outputs_to_consider
+    ]
+    outputs_to_check = pytree.tree_map(move_all_tensor_to_cpu, outputs_to_check)
+
+    for output_name, outputs in zip(outputs_to_consider, outputs_to_check):
+        # For now ignoring past_key_values because they do not match and it is not needed for training.
+        if "past" in output_name:
+            continue
+        if all(output is None for output in outputs):
+            continue
+        if pp_size == 1 or pp_rank == pp_size - 1:
+            _check_output(output_name, outputs[0], outputs[1])
+
+
+CUSTOM_MODELINGS_TO_TEST = [
+    ("LlamaForCausalLM", "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random")
+]
+
+@pytest.mark.parametrize(
+    "sequence_parallel_enabled,attn_implementation",[(False, "flash_attention_2"),(True, "eager")], ids=["sp-disabled-flash_attention_2","sp-enabled-eager"]
+)
+@pytest.mark.parametrize(
+    "qkv_implementation", ["regular_qkv", "fuse_qkv", "qkv_linear"]
+)
+@pytest.mark.parametrize(
+    "world_size,tp_size,pp_size", [[2, 2, 1], [16, 2, 1]], ids=["tp=2","dp=8,tp=2"]
+)
+@pytest.mark.parametrize(
+    "model_specs", CUSTOM_MODELINGS_TO_TEST, ids=[specs[0] for specs in CUSTOM_MODELINGS_TO_TEST]
+)
+def test_custom_modeling_matches_original(
+    model_specs,
+    sequence_parallel_enabled,
+    attn_implementation,
+    qkv_implementation,
+    world_size,
+    tp_size,
+    pp_size,
+    monkeypatch,
+    tmpdir,
+):
+    tmpdir = Path(tmpdir)
+    new_model_name_or_path = tmpdir / "my_custom_model"
+    model_class_name, model_name_or_path = model_specs
+
+    config = AutoConfig.from_pretrained(model_name_or_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+
+    if qkv_implementation == "fuse_qkv":
+        config.num_key_value_heads = config.num_attention_heads
+        model_class = getattr(transformers, model_class_name)
+        model = model_class.from_pretrained(model_name_or_path, config=config, ignore_mismatched_sizes=True)
+        model.save_pretrained(new_model_name_or_path)
+        tokenizer.save_pretrained(new_model_name_or_path)
+        model_name_or_path = new_model_name_or_path
+    elif qkv_implementation == "qkv_linear":
+        tp_size = 2 * config.num_key_value_heads
+
+    run_fn = partial(
+        _custom_model_matches_original_model,
+        model_class_name,
+        model_name_or_path,
+        (world_size, tp_size, pp_size),
+        sequence_parallel_enabled,
+        qkv_implementation,
+        attn_implementation,
+        monkeypatch,
+    )
+    launch_procs(run_fn, world_size, tp_size, pp_size)
+
+def _test_parallel_linear(row_or_column: Literal["column", "row"]):
+    tp_rank = get_tensor_model_parallel_rank()
+    tp_size = get_tensor_model_parallel_size()
+    dtype = torch.bfloat16
+
+    input_dim = 64
+    output_dim = 8
+    batch_size = 1
+
+    torch.manual_seed(42)
+    linear = nn.Linear(input_dim, output_dim, bias=False, dtype=dtype, device="xla")
+    if row_or_column == "column":
+        partition_dim = 0
+        per_partition_size = linear.weight.size(partition_dim) // tp_size
+        parallel_linear = ColumnParallelLinear(
+            input_dim, output_dim, bias=False, dtype=dtype, gather_output=True, reduce_dtype=torch.float32,
+        ).to(device="xla")
+
+        torch.manual_seed(42)
+        input_tensor = torch.randn(batch_size, input_dim).to(dtype=dtype, device="xla")
+        parallel_input = input_tensor
+    else:
+        partition_dim = 1
+        per_partition_size = linear.weight.size(partition_dim) // tp_size
+        parallel_linear = RowParallelLinear(
+            input_dim, output_dim, bias=False, dtype=dtype, input_is_parallel=True, reduce_dtype=torch.float32,
+        ).to(device="xla")
+
+        torch.manual_seed(42)
+        input_tensor = torch.randn(batch_size, input_dim).to(dtype=dtype, device="xla")
+        parallel_input = input_tensor[:, tp_rank * per_partition_size : (tp_rank + 1) * per_partition_size]
+
+    stride = 1
+    with torch.no_grad():
+        parallel_linear.weight.data = create_local_weight(linear.weight, partition_dim, per_partition_size, stride)
+
+
+    output_linear = linear(input_tensor)
+    output_row_parallel = parallel_linear(parallel_input)
+
+    xm.mark_step()
+    torch.testing.assert_allclose(output_linear, output_row_parallel)
+
+def test_row_parallel_linear():
+    run_fn = partial(_test_parallel_linear, "row")
+    launch_procs(run_fn, 8, 8, 1)
+
+def test_column_parallel_linear():
+    run_fn = partial(_test_parallel_linear, "column")
+    launch_procs(run_fn, 8, 8, 1)
+
+
+def test_flash_attention_v2():
+    batch_size = 1
+    seq_len = 2048
+    hidden_dim = 64
+    num_heads = 32
+    num_kv_heads = 8
+    num_kv_groups = num_heads // num_kv_heads
+
+    dtype = torch.float32
+
+    query = torch.randn(batch_size, seq_len, num_heads, hidden_dim).transpose(1, 2).to(device="xla", dtype=dtype)
+    key = torch.randn(batch_size, seq_len, num_kv_heads, hidden_dim).transpose(1, 2).to(device="xla", dtype=dtype)
+    value = torch.randn(batch_size, seq_len, num_kv_heads, hidden_dim).transpose(1, 2).to(device="xla", dtype=dtype)
+
+    key = repeat_kv(key, num_kv_groups)
+    value = repeat_kv(value, num_kv_groups)
+
+    scaling = 0.5
+
+    # Eager attention forward
+    attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
+
+    causal_mask = torch.triu(torch.ones((1, 1, query.size(2), key.size(2)), device="xla"), diagonal=1).bool()
+    min_value = torch.finfo(attn_weights.dtype).min
+    attn_weights = attn_weights.masked_fill_(causal_mask, min_value)
+
+    attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
+    eager_attn_output = torch.matmul(attn_weights, value)
+    xm.mark_step()
+
+    # Flash attention forward
+    flash_attention_output = nki_flash_attn_func(
+        query,
+        key,
+        value,
+        softmax_scale=scaling,
+        causal=True,
+        mixed_precision=True,
+    )
+    xm.mark_step()
+
+    torch.testing.assert_allclose(eager_attn_output, flash_attention_output)
+

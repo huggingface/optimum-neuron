@@ -15,7 +15,7 @@
 
 from .dataclasses import (
     AutocastBackend,
-    ModelParallelismPlugin,
+    ModelParallelismConfig,
     NeuronDistributedType,
 )
 from .misc import patch_accelerate_is_torch_xla_available
