@@ -36,8 +36,8 @@ from optimum.utils import (
     is_diffusers_available,
 )
 
-from ....neuron.distributed import ParallelizersManager
-from ....neuron.utils import (
+from ...neuron.distributed import ParallelizersManager
+from ...neuron.utils import (
     ASTDummyAudioInputGenerator,
     DummyBeamValuesGenerator,
     DummyControNetInputGenerator,
@@ -46,14 +46,14 @@ from ....neuron.utils import (
     WhisperDummyTextInputGenerator,
     is_neuronx_distributed_available,
 )
-from ..config import (
+from .config import (
     AudioNeuronConfig,
     TextAndVisionNeuronConfig,
     TextEncoderNeuronConfig,
     TextSeq2SeqNeuronConfig,
     VisionNeuronConfig,
 )
-from ..model_wrappers import (
+from .model_wrappers import (
     CLIPVisionWithProjectionNeuronWrapper,
     ControlNetNeuronWrapper,
     NoCacheModelWrapper,
