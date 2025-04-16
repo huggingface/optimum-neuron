@@ -185,11 +185,6 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         return checkpoint_dir
 
     @classmethod
-    def _from_transformers(cls, *args, **kwargs):
-        # Deprecate it when optimum uses `_export` as from_pretrained_method in a stable release.
-        return cls._export(*args, **kwargs)
-
-    @classmethod
     def export(
         cls,
         model_id: str,
