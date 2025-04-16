@@ -103,6 +103,8 @@ class LlamaMLP(LlamaMLPHF):
                 fused_linear_name="gate_up_proj",
                 linear_names=["gate_proj", "up_proj"],
                 bias=False,
+                fuse_axis=0,
+                original_dims=[self.intermediate_size] * 2,
             )
         )
         self.gate_up_proj = ColumnParallelLinear(
@@ -247,6 +249,8 @@ class LlamaAttention(LlamaAttentionHF):
                     fused_linear_name="qkv_proj",
                     linear_names=["q_proj", "k_proj", "v_proj"],
                     bias=False,
+                    fuse_axis=0,
+                    original_dims=[self.num_heads * self.head_dim] * 3,
                 )
             )
             self.qkv_proj = ColumnParallelLinear(

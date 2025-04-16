@@ -103,7 +103,7 @@ def create_gqa_query_or_output_projection_weight_from_full_weight(
     return full_weight
 
 
-def consolidate_tensor_parallel_checkpoints(
+def old_consolidate_tensor_parallel_checkpoints(
     sharded_checkpoints: List[Path],
     load_function: Callable[[Union[str, Path]], Dict[str, Any]],
     metadata: Dict[str, Any],
@@ -204,6 +204,97 @@ def consolidate_tensor_parallel_checkpoints(
 
     return consolidated_state_dict
 
+def consolidate_tensor_parallel_checkpoints(
+    sharded_checkpoints: List[Path],
+    load_function: Callable[[Union[str, Path]], Dict[str, Any]],
+    metadata: Dict[str, Any],
+) -> Dict[str, "torch.Tensor"]:
+    state_dicts = []
+    sharded_checkpoints = sorted(sharded_checkpoints)
+    for sharded_checkpoint in sharded_checkpoints:
+        if not sharded_checkpoint.is_file():
+            continue
+        state_dicts.append(load_function(sharded_checkpoint.as_posix()))
+
+    parameters_metadata = metadata["parameters"]
+    model_weight_transformation_specs = metadata["model_weight_transformation_specs"]
+
+    parameter_names = state_dicts[0].keys()
+
+    consolidated_state_dict = {}
+    for name in parameter_names:
+        # We need to handle the mapping between the GQA parameter names and the original names.
+        is_gqa_qkv_weight = name in gqa_qkv_names_to_original_names
+        is_fuse_qkv = gqa_qkv_metadata["fuse_qkv"]
+        if is_gqa_qkv_weight:
+            if is_fuse_qkv:
+                original_names = [k for k, v in original_parameter_names_to_gqa_qkv_names.items() if v == name]
+                weight_names = [name.rsplit(".", maxsplit=1)[1] for name in original_names]
+                weight_names = ["weight_q", "weight_k", "weight_v"]
+            else:
+                original_names = [gqa_qkv_names_to_original_names[name]]
+                weight_names = [name.rsplit(".", maxsplit=1)[1]]
+        else:
+            original_names = [name]
+            weight_names = [""]  # Not needed.
+
+        # For now all parameter metadatas are equal so it is enough to take the first element.
+        # This might not be the case anymore when `ParameterMetadata` uses slices.
+        sharded_metadata = sharded_metadatas[name]
+        for original_name, weight_name in zip(original_names, weight_names):
+            if sharded_metadata.is_tied:
+                consolidated_state_dict[original_name] = state_dicts[0][name].to("cpu").contiguous()
+            else:
+                if is_fuse_qkv:
+                    if weight_name == "weight_q":
+                        s = slice(0, gqa_qkv_metadata["q_output_size_per_partition"])
+                    elif weight_name == "weight_k":
+                        s = slice(
+                            gqa_qkv_metadata["q_output_size_per_partition"],
+                            gqa_qkv_metadata["q_output_size_per_partition"]
+                            + gqa_qkv_metadata["kv_output_size_per_partition"],
+                        )
+                    elif weight_name == "weight_v":
+                        s = slice(
+                            gqa_qkv_metadata["q_output_size_per_partition"]
+                            + gqa_qkv_metadata["kv_output_size_per_partition"],
+                            None,
+                        )
+                    else:
+                        s = slice(None, None)
+                else:
+                    s = slice(None, None)
+
+                # Ensure that all tensors are contiguous before concatenating or further processing
+                weights = [state_dict[name][s].contiguous() for state_dict in state_dicts]
+                tp_size = len(weights)
+
+                full_weight = (
+                    torch.cat(
+                        weights,
+                        dim=sharded_metadata.partition_dim,
+                    )
+                    .to("cpu")
+                    .contiguous()
+                )  # Ensure the result is also contiguous
+
+                if weight_name in ["weight_k", "weight_v", "bias_k", "bias_v"]:
+                    full_weight = (
+                        torch.chunk(full_weight, gqa_qkv_metadata["kv_size_multiplier"], dim=0)[0].detach().clone()
+                    )
+                elif weight_name == "weight_q" or original_name in gqa_qkv_output_projections_names:
+                    full_weight = create_gqa_query_or_output_projection_weight_from_full_weight(
+                        full_weight,
+                        tp_size,
+                        gqa_qkv_metadata["num_attention_heads"],
+                        gqa_qkv_metadata["num_key_value_heads"],
+                        gqa_qkv_metadata["kv_size_multiplier"],
+                        "query" if weight_name == "weight_q" else "output",
+                    )
+                consolidated_state_dict[original_name] = full_weight
+
+    return consolidated_state_dict
+
 
 @requires_neuronx_distributed
 def consolidate_model_parallel_checkpoints(checkpoint_dir: Path) -> Dict[str, "torch.Tensor"]:
@@ -229,18 +320,28 @@ def consolidate_model_parallel_checkpoints(checkpoint_dir: Path) -> Dict[str, "t
     pp_size = max((int(checkpoint_path.stem[-2:]) for checkpoint_path in sharded_checkpoints)) + 1
     checkpoints_grouped_by_pp_ranks = [[] for _ in range(pp_size)]
     metadatas = []
+    is_old_metadata = False
     for pp_rank in range(pp_size):
         for checkpoint_path in sharded_checkpoints:
             checkpoint_name = checkpoint_path.stem
             if int(checkpoint_name[-2:]) == pp_rank:
                 checkpoints_grouped_by_pp_ranks[pp_rank].append(checkpoint_path)
-        metadatas.append(torch.load(checkpoint_dir / f"mp_metadata_pp_rank_{pp_rank}.pt"))
+        if (checkpoint_dir / f"mp_metadata_pp_rank_{pp_rank}.pt").is_file():
+            is_old_metadata = True
+            metadatas.append(torch.load(checkpoint_dir / f"mp_metadata_pp_rank_{pp_rank}.pt"))
+        else:
+            metadatas.append(json.load(checkpoint_dir / f"metadata_pp_rank_{pp_rank}.json"))
 
     consolidated_state_dict = {}
     for pp_rank, checkpoint_group_for_pp_rank in enumerate(checkpoints_grouped_by_pp_ranks):
-        consolidated_for_pp_rank = consolidate_tensor_parallel_checkpoints(
-            checkpoint_group_for_pp_rank, load_function, metadatas[pp_rank]
-        )
+        if is_old_metadata:
+            consolidated_for_pp_rank = old_consolidate_tensor_parallel_checkpoints(
+                checkpoint_group_for_pp_rank, load_function, metadatas[pp_rank]
+            )
+        else:
+            consolidated_for_pp_rank = consolidate_tensor_parallel_checkpoints(
+                checkpoint_group_for_pp_rank, load_function, metadatas[pp_rank]["metadata"]
+            )
         consolidated_state_dict.update(**consolidated_for_pp_rank)
 
     for key, tensor in consolidated_state_dict.items():

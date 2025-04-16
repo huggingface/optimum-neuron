@@ -22,7 +22,7 @@ import warnings
 from abc import abstractmethod
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, Literal, Optional, Type, Union
+from typing import Callable, Dict, Literal, Optional, Type, Union, Any
 
 import torch
 from safetensors import safe_open
@@ -64,7 +64,7 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
     from neuronx_distributed.parallel_layers.layers import create_local_weight
     from neuronx_distributed.parallel_layers.parallel_state import (
-        get_data_parallel_size,
+        get_data_parallel_rank,
         get_pipeline_model_parallel_rank,
         get_tensor_model_parallel_rank,
         get_tensor_model_parallel_size,
@@ -80,7 +80,7 @@ ALL_ATTENTION_FUNCTIONS: Dict[str, Dict[str, Callable]] = {
     "flash_attention_2": nki_flash_attn_func,
 }
 
-def create_local_fused_weight(tp_rank, tp_size, individual_weights, partition_dim, out_weight=None):
+def create_local_fused_weight(tp_rank, tp_size, individual_weights, partition_dim, fuse_axis, out_weight=None):
     weight_lists = []
     for weight in individual_weights:
         weight_list = torch.split(weight, weight.size(partition_dim) //  tp_size, dim=partition_dim)[tp_rank::tp_size]
@@ -89,7 +89,7 @@ def create_local_fused_weight(tp_rank, tp_size, individual_weights, partition_di
     with torch.no_grad():
         return torch.cat(
             [torch.cat(weight_list, dim=partition_dim) for weight_list in weight_lists],
-            dim=partition_dim,
+            dim=fuse_axis,
             out=out_weight,
         )
 
@@ -100,11 +100,19 @@ class ModelWeightTransformationSpec:
         Adapt the state dict of the model to the custom model.
         """
 
+    @abstractmethod
+    def to_original_weights(self, module_fully_qualified_name: str, transformed_weights: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        Transform the weights back to the original weights.
+        """
+
 @dataclass
 class FusedLinearsSpec(ModelWeightTransformationSpec):
     fused_linear_name: str
     linear_names: list[str]
     bias: bool
+    fuse_axis: int
+    original_dims: list[int]
 
     def adapt_state_dict(self, module_fully_qualified_name: str, named_parameters: Dict[str, torch.nn.Parameter], orig_state_dict: Dict[str, torch.Tensor], inplace: bool = False):
         tp_size = get_tensor_model_parallel_size()
@@ -122,9 +130,42 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
             full_weight_names = [f"{module_fully_qualified_name}.{linear_name}.{param_name}" for linear_name in self.linear_names]
             full_weights = [state_dict.pop(key) for key in full_weight_names]
             param = named_parameters[new_name]
-            state_dict[new_name] = create_local_fused_weight(tp_rank, tp_size, full_weights, param.partition_dim)
+            state_dict[new_name] = create_local_fused_weight(tp_rank, tp_size, full_weights, param.partition_dim, self.fuse_axis)
 
         return state_dict
+
+    def to_original_weights(self, module_fully_qualified_name: str, sharded_state_dicts: Dict[str, List[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]) -> Tuple[Dict[str, torch.Tensor], list[str]]:
+        # To recreate original weights we need to:
+        # 1. Unfuse the sharded weights
+        # 2. Concat each unsharded local weight accross the partion_dim
+
+        original_weights = {}
+        keys_to_remove = []
+        for param_name in ["weight", "bias"] if self.bias else ["weight"]:
+            unfused_local_weights = []
+            fused_linear_weight_name = f"{module_fully_qualified_name}.{self.fused_linear_name}.{param_name}"
+            fused_linear_sharded_weights = sharded_state_dicts[fused_linear_weight_name]
+            for fused_local_weight in fused_linear_sharded_weights:
+                unfused_local_weights.append(
+                    torch.split(
+                        fused_local_weight,
+                        self.original_dims,
+                        dim=self.fuse_axis,
+                    )
+                )
+
+            for idx, linear_name in enumerate(self.linear_names):
+                original_weight_name = f"{module_fully_qualified_name}.{linear_name}.{param_name}"
+                partition_dim = parameters_metadata[original_weight_name]["partition_dim"]
+                original_weight = torch.cat(
+                    [unfused_local_weights[tp_rank][idx] for tp_rank in range(len(unfused_local_weights))],
+                    dim=partition_dim,
+                )
+                original_weights[original_weight_name] = original_weight
+
+            keys_to_remove.append(fused_linear_weight_name)
+                
+        return original_weights, keys_to_remove
 
 @dataclass
 class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
@@ -655,8 +696,6 @@ class NeuronModelMixin:
         num_local_ranks_per_step = mp_config.num_local_ranks_per_step
         local_world_size = get_local_world_size()
         local_rank = xm.get_local_ordinal()
-        get_tensor_model_parallel_size()
-        get_tensor_model_parallel_rank()
         if num_local_ranks_per_step <= 0:
             num_local_ranks_per_step = local_world_size
 
@@ -702,7 +741,6 @@ class NeuronModelMixin:
                 model.get_output_embeddings().weight.data.copy_(model.get_input_embeddings().weight)
 
         xm.mark_step()
-
 
         return model
 
@@ -832,12 +870,12 @@ class NeuronModelMixin:
 
 
         # Saving the metadata required to consolidate the checkpoints properly.
-        if get_data_parallel_size() == 0 and get_tensor_model_parallel_size() == 0:
+        if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
             metadata = create_parameter_metadata(model_to_save)
             pp_rank = get_pipeline_model_parallel_rank()
-            metadata_path = save_directory / MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.pt"
+            metadata_path = save_directory / MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.json"
             metadata_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(metadata_path) as f:
+            with open(metadata_path, "w") as f:
                 f.write(json.dumps(metadata, indent=4))
 
 
