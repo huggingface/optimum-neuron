@@ -473,7 +473,6 @@ class _TrainerForNeuron:
                 output = loss / self.args.gradient_accumulation_steps
         else:
             output = super().training_step(model, inputs, num_items_in_batch=num_items_in_batch)
-        output = output.detach()
         return output
 
     @requires_neuronx_distributed
@@ -801,15 +800,10 @@ class _TrainerForNeuron:
             else:
                 debug_overflow = DebugUnderflowOverflow(self.model)  # noqa
 
-        delay_optimizer_creation = is_sagemaker_mp_enabled() or self.is_fsdp_xla_enabled or self.is_fsdp_enabled
-
         # We need to reset the scheduler, as its parameters may be different on subsequent calls
         if self._created_lr_scheduler:
             self.lr_scheduler = None
             self._created_lr_scheduler = False
-
-        if not delay_optimizer_creation:
-            self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
         self.state = TrainerState()
         self.state.is_hyper_param_search = trial is not None
@@ -848,10 +842,9 @@ class _TrainerForNeuron:
         # FSDP-XLA, SageMaker MP/DP, DataParallel, IPEX
         use_accelerator_prepare = True if model is self.model else False
 
-        if delay_optimizer_creation:
-            if use_accelerator_prepare:
-                self.model = self.accelerator.prepare(self.model)
-            self.create_optimizer_and_scheduler(num_training_steps=max_steps)
+        if use_accelerator_prepare:
+            self.model = self.accelerator.prepare(self.model)
+        self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
         # prepare using `accelerator` prepare
         if use_accelerator_prepare:
@@ -988,6 +981,9 @@ class _TrainerForNeuron:
                     sampler = sampler if sampler is not None else []
                     _ = list(sampler)
 
+        # from optimum.neuron.accelerate.optimizer import NeuronAcceleratedOptimizer
+        # optimizer = torch.optim.AdamW(self.model.parameters(), lr=2e-4)
+        # self.optimizer = NeuronAcceleratedOptimizer(optimizer)
         for epoch in range(epochs_trained, num_train_epochs):
             epoch_dataloader = train_dataloader
             if hasattr(epoch_dataloader, "set_epoch"):
@@ -1116,15 +1112,24 @@ class _TrainerForNeuron:
 
                         self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
 
+                        xm.mark_step()
+                        orig_params = {name: param.detach().cpu() for name, param in model.named_parameters()}
                         self.optimizer.step()
                         grad_norm = self.optimizer.grad_norm
-
-                        # xm.mark_step()
-                        # for name, param in self.model.named_parameters():
-                        #     if param.grad is not None:
-                        #         # Assurez-vous de synchroniser pour obtenir la valeur réelle
-                        #         grad_cpu = param.grad.detach().cpu()
-                        #         print(f"{name}: grad stats - mean: {grad_cpu.mean()}, std: {grad_cpu.std()}, max: {grad_cpu.max()}, min: {grad_cpu.min()}")
+                        xm.mark_step()
+                        updated_params = {name: param.cpu() for name, param in model.named_parameters()}
+                        model_parameters = {id(p) for p in model.parameters()}
+                        opt_parameters = {id(p) for param_group in self.optimizer.param_groups for p in param_group["params"]}
+                        print("zazou", model_parameters - opt_parameters)
+                        model_state_dict = dict(model.named_parameters())
+                        for name, param in updated_params.items():
+                            update = param - orig_params[name]
+                            grad = model_state_dict[name].grad
+                            if grad is not None:
+                                grad_mean = grad.cpu().mean()
+                            else:
+                                grad_mean = "N/A"
+                            print(f"{name} => mean={update.mean()}, max={update.max()}, min={update.min()}, grad_mean={grad_mean}")
 
                         self.control = self.callback_handler.on_optimizer_step(args, self.state, self.control)
 

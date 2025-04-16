@@ -31,6 +31,7 @@ from transformers.modeling_utils import (
     SpecificPreTrainedModelType,
     get_parameter_dtype,
     get_state_dict_dtype,
+    set_initialized_submodules,
     load_state_dict,
     no_init_weights,
 )
@@ -216,16 +217,20 @@ class ModelWeightTransformationSpecs:
 def adapt_state_dict(model: torch.nn.Module, state_dict: Dict[str, torch.Tensor], inplace: bool = False):
     tp_size = get_tensor_model_parallel_size()
     named_parameters = dict(model.named_parameters())
-    original_state_dict_keys = set(state_dict.keys())
+    original_state_dict = {n: p.data_ptr() for n, p in state_dict.items()}
     for name, module in model.named_modules():
         model_weight_transformation_specs = getattr(module, "specs", [])
         for spec in model_weight_transformation_specs:
             state_dict = spec.adapt_state_dict(name, named_parameters, state_dict, inplace=inplace)
 
+    # There are 2 cases:
+    # 1. A new key was inserted by the adapt_state_dict function
+    # 2. A key was mutated by the adapt_state_dict function
     new_keys = set(state_dict.keys()) - original_state_dict_keys
+    mutated_keys = {n for n, p in state_dict.items() if p.data_ptr() != original_state_dict.get(n, p.data_ptr())}
 
     for name, param in model.named_parameters():
-        if name in new_keys:
+        if name in new_keys | mutated_keys:
             continue
         if hasattr(param, "tensor_model_parallel") and param.tensor_model_parallel:
             if param.partition_dim not in [0, 1]:
@@ -625,6 +630,9 @@ class NeuronModelMixin:
         init_contexts = [no_init_weights(_enable=_fast_init)]
 
         config = copy.deepcopy(config)  # We do not want to modify the config inplace in from_pretrained.
+        # This is due to a Neuron compiler bug, and it should be removed when the bug is fixed.
+        should_fake_tie = config.tie_word_embeddings
+        config.tie_word_embeddings = False
         if not getattr(config, "_attn_implementation_autoset", False):
             # We do not check for the device_map because we are going to move the model to XLA anyway on our own.
             config = cls._autoset_attn_implementation(
@@ -674,8 +682,24 @@ class NeuronModelMixin:
                     move_model_to_device(model, xm.xla_device())
                 gc.collect()
                 model.tie_weights()
+
+            # It is important to initialize modules that are not in the state dict.
+            if _fast_init:
+                not_initialized_submodules = set_initialized_submodules(model, state_dict.keys())
+                for name, mod in not_initialized_submodules.items():
+                    logger.debug(f"Initializing {name} with default weights")
+                    model._initialize_weights(mod)
+
             xm.rendezvous(f"load_state_dict_{worker}")
+
+        # Currently tie_word_embeddings leads to a compiler bug.
+        # If weights are initially tied, we still copy the value but we do not tie them.
+        if should_fake_tie:
+            with torch.no_grad():
+                model.get_output_embeddings().weight.data.copy_(model.get_input_embeddings().weight)
+
         xm.mark_step()
+
 
         return model
 

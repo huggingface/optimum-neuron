@@ -711,7 +711,7 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaForCausalLMHF):
             config.hidden_size,
             config.vocab_size,
             bias=False,
-            gather_output=True,
+            gather_output=False,
             init_method=init_method,
             sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
             sequence_dimension=0,
@@ -773,9 +773,7 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaForCausalLMHF):
 
         loss = None
         if labels is not None:
-            from transformers.loss.loss_utils import ForCausalLMLoss as ForCausalLMLossHF
-            loss = ForCausalLMLossHF(logits, labels, vocab_size=self.vocab_size * 8, **kwargs)
-            # loss = ForCausalLMLoss(logits=logits, labels=labels, vocab_size=self.vocab_size, **kwargs)
+            loss = ForCausalLMLoss(logits=logits, labels=labels, vocab_size=self.vocab_size, **kwargs)
 
         if not return_dict:
             output = (logits,) + outputs[1:]
