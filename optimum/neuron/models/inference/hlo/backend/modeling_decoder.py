@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import torch
 from huggingface_hub import HfApi, snapshot_download
-from transformers import AutoConfig, AutoModel, GenerationConfig
+from transformers import AutoConfig, AutoModel, GenerationConfig, GenerationMixin
 from transformers.modeling_outputs import ModelOutput
 
 from optimum.exporters.tasks import TasksManager
@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class HloModelForCausalLM(NeuronModelForCausalLM):
+class HloModelForCausalLM(NeuronModelForCausalLM, GenerationMixin):
     """
     Base class to convert and run pre-trained transformers decoder models on Neuron devices.
 
@@ -328,6 +328,15 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         )
 
     # GenerationMixin implementation below
+
+    def can_generate(self) -> bool:
+        """
+        Called by the transformers code to identify generation models.
+
+        Returns:
+            `bool`: `True` if the model can generate sequences, `False` otherwise.
+        """
+        return True
 
     def get_start_ids(
         self,
