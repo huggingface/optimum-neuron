@@ -2,8 +2,8 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from optimum.neuron.backends.hlo.config import GQA, HloNeuronConfig, Layout
 from optimum.neuron.configuration_utils import NeuronConfig
+from optimum.neuron.models.inference.hlo.backend.config import GQA, HloNeuronConfig, Layout
 
 
 @pytest.mark.parametrize(

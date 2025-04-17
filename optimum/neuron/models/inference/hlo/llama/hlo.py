@@ -17,11 +17,11 @@ from typing import Optional
 
 from transformers.models.llama import LlamaConfig
 
-from .....backends.hlo import functional
-from .....backends.hlo.config import HloNeuronConfig, Layout
-from .....backends.hlo.decoder import DecoderGraphBuilder
-from .....backends.hlo.layers import attention, rotary, transformer
-from .....backends.hlo.utils import get_qkv_padding
+from ..backend import functional
+from ..backend.config import HloNeuronConfig, Layout
+from ..backend.decoder import DecoderGraphBuilder
+from ..backend.layers import attention, rotary, transformer
+from ..backend.utils import get_qkv_padding
 
 
 class LlamaGraphBuilder(DecoderGraphBuilder):

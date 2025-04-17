@@ -30,12 +30,11 @@ from transformers.modeling_outputs import ModelOutput
 
 from optimum.exporters.tasks import TasksManager
 
-from ....exporters.neuron.model_configs import *  # noqa: F403
-from ...cache.entries.single_model import SingleModelCacheEntry
-from ...cache.hub_cache import hub_neuronx_cache
-from ...generation import TokenSelector
-from ...modeling_decoder import NeuronModelForCausalLM
-from ...utils.system import get_available_cores
+from .....cache.entries.single_model import SingleModelCacheEntry
+from .....cache.hub_cache import hub_neuronx_cache
+from .....generation import TokenSelector
+from .....modeling_decoder import NeuronModelForCausalLM
+from .....utils.system import get_available_cores
 from .config import HloNeuronConfig
 
 
@@ -48,12 +47,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-
-
-def get_exporter(config):
-    return TasksManager.get_exporter_config_constructor(
-        model_type=config.model_type, exporter="neuron", task="text-generation", library_name="transformers"
-    )()
 
 
 class HloModelForCausalLM(NeuronModelForCausalLM):
@@ -72,6 +65,7 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
 
     model_type = "neuron_model"
     auto_model_class = AutoModel
+    neuron_model_class = None
 
     CHECKPOINT_DIR = "checkpoint"
     COMPILED_DIR = "compiled"
@@ -84,6 +78,11 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         compiled_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         generation_config: Optional[GenerationConfig] = None,
     ):
+        if self.neuron_model_class is None:
+            raise ValueError(
+                f"{self.__class__.__name__} must not be instantiated directly: it must be subclassed by a class specifying a neuron_model_class attribute."
+            )
+
         self.config = config
         self.neuron_config = neuron_config
 
@@ -100,8 +99,7 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
 
         # Instantiate neuronx model
         checkpoint_path = checkpoint_dir.name if isinstance(checkpoint_dir, TemporaryDirectory) else checkpoint_dir
-        exporter = get_exporter(config)
-        neuronx_model = exporter.neuronx_class.from_pretrained(checkpoint_path, neuron_config=neuron_config)
+        neuronx_model = self.neuron_model_class.from_pretrained(checkpoint_path, neuron_config=neuron_config)
 
         if compiled_dir is not None:
             # Specify the path where compiled artifacts are stored before conversion
@@ -185,12 +183,7 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         return checkpoint_dir
 
     @classmethod
-    def _from_transformers(cls, *args, **kwargs):
-        # Deprecate it when optimum uses `_export` as from_pretrained_method in a stable release.
-        return cls._export(*args, **kwargs)
-
-    @classmethod
-    def _export(
+    def export(
         cls,
         model_id: str,
         config: "PretrainedConfig",
@@ -235,7 +228,6 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         cls,
         model_id: Union[str, Path],
         config: "PretrainedConfig",
-        neuron_config: "HloNeuronConfig",
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         **kwargs,
@@ -243,6 +235,8 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
         model_path = model_id
         if not os.path.isdir(model_id):
             model_path = snapshot_download(model_id, token=token, revision=revision)
+
+        neuron_config = HloNeuronConfig.from_pretrained(model_path)
 
         checkpoint_dir, compiled_dir = cls._get_neuron_dirs(model_path)
         if not os.path.isdir(checkpoint_dir):
@@ -533,3 +527,33 @@ class HloModelForCausalLM(NeuronModelForCausalLM):
             )
 
         return input_ids
+
+    @classmethod
+    def _get_neuron_config(
+        cls,
+        checkpoint_id: str,
+        checkpoint_revision: str,
+        batch_size: int,
+        sequence_length: int,
+        auto_cast_type: str,
+        tensor_parallel_size: int,
+        allow_flash_attention: bool = True,
+        continuous_batching: bool = None,
+        attention_layout: str = "HSB",
+        fuse_qkv=True,
+    ):
+        if continuous_batching is None:
+            continuous_batching = batch_size > 1
+
+        return HloNeuronConfig(
+            checkpoint_id=checkpoint_id,
+            checkpoint_revision=checkpoint_revision,
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            tp_degree=tensor_parallel_size,
+            auto_cast_type=auto_cast_type,
+            attention_layout=attention_layout,
+            fuse_qkv=fuse_qkv,
+            continuous_batching=continuous_batching,
+            allow_flash_attention=allow_flash_attention,
+        )

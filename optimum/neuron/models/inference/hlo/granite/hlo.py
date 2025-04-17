@@ -16,10 +16,10 @@ from typing import Optional
 
 from transformers.models.granite import GraniteConfig
 
-from .....backends.hlo import functional
-from .....backends.hlo.config import HloNeuronConfig, Layout
-from .....backends.hlo.layers import attention, rotary
-from .....backends.hlo.utils import get_qkv_padding
+from ..backend import functional
+from ..backend.config import HloNeuronConfig, Layout
+from ..backend.layers import attention, rotary
+from ..backend.utils import get_qkv_padding
 from ..llama.hlo import LlamaGraphBuilder
 
 
