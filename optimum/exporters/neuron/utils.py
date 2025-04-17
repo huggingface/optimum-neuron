@@ -116,6 +116,85 @@ def build_stable_diffusion_components_mandatory_shapes(
 
     return components_shapes
 
+def get_flux_diffusion_models_for_export(
+    pipeline: "FluxPipeline",
+    text_encoder_2_input_shapes: Dict[str, int],
+    transformer_input_shapes: Dict[str, int],
+    vae_decoder_input_shapes: Dict[str, int],
+    output_hidden_states: bool = False,
+) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronDefaultConfig"]]:
+    #TBD add to get_submodels_for_export_diffusion
+    models_for_export = get_submodels_for_export_diffusion(
+      pipeline=pipeline,
+    )
+    library_name = "diffusers"
+    if DIFFUSION_MODEL_TEXT_ENCODER_NAME in models_for_export:
+        text_encoder = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME]
+        text_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
+          model=text_encoder,
+          exporter="neuron",
+          task="feature-extraction",
+          library_name=library_name,
+        )
+        text_encoder_neuron_config = text_encoder_config_constructor(
+          text_encoder.config,
+          task="feature-extraction",
+          output_hidden_states=output_hidden_states,
+        )
+        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (text_encoder, text_encoder_neuron_config)
+
+    if DIFFUSION_MODEL_TEXT_ENCODER_2_NAME in models_for_export:
+        text_encoder_2 = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME]
+        text_encoder_config_constructor_2 = TasksManager.get_exporter_config_constructor(
+          model=text_encoder_2,
+          exporter="neuron",
+          task="feature-extraction",
+          model_type="t5",
+          library_name=library_name,
+        )
+        text_encoder_neuron_config_2 = text_encoder_config_constructor_2(
+          text_encoder_2.config,
+          task="feature-extraction",
+          output_hidden_states=output_hidden_states,
+          **text_encoder_2_input_shapes
+        )
+        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = (text_encoder_2, text_encoder_neuron_config_2)
+
+    transformer = None
+    if DIFFUSION_MODEL_TRANSFORMER_NAME in models_for_export:
+        transformer = models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME]
+        model_type = get_diffusers_submodel_type(transformer)
+        transformer_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
+          model=transformer,
+          exporter="neuron",
+          task="semantic-segmentation",
+          model_type=model_type,
+          library_name=library_name,
+        )
+        transformer.config.export_model_type = model_type
+        transformer_neuron_config = transformer_neuron_config_constructor(
+          transformer.config,
+          task="semantic-segmentation",
+          float_dtype=transformer.dtype,
+          **transformer_input_shapes,
+        )
+        models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (transformer, transformer_neuron_config)
+
+    vae_decoder = models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME]
+    vae_decoder_config_constructor = TasksManager.get_exporter_config_constructor(
+        model=vae_decoder,
+        exporter="neuron",
+        task="semantic-segmentation",
+        model_type="vae-decoder",
+        library_name=library_name,
+    )
+    vae_decoder_neuron_config = vae_decoder_config_constructor(
+        vae_decoder.config,
+        task="semantic-segmentation",
+        float_dtype=transformer.dtype if transformer else vae_decoder.dtype,
+        **vae_decoder_input_shapes,
+    )
+    models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME] = (vae_decoder, vae_decoder_neuron_config)
 
 def get_diffusion_models_for_export(
     pipeline: "DiffusionPipeline",
@@ -470,7 +549,7 @@ def get_submodels_for_export_diffusion(
     unet_or_transformer = unet or transformer
     vae_decoder.forward = lambda latent_sample: vae_decoder.decode(z=latent_sample)
     if vae_decoder.dtype is torch.float32 and unet_or_transformer.dtype is not torch.float32:
-        vae_decoder = apply_fp32_wrapper_to_vae_decoder(vae_decoder)
+        vae_decoder = f32Wrapper(vae_decoder)
     models_for_export.append((DIFFUSION_MODEL_VAE_DECODER_NAME, vae_decoder))
 
     # ControlNets
@@ -510,26 +589,21 @@ def replace_stable_diffusion_submodels(pipeline, submodels):
 
     return pipeline
 
+class f32Wrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.original = model
 
-def apply_fp32_wrapper_to_vae_decoder(model):
-    class f32Wrapper(torch.nn.Module):
-        def __init__(self, model):
-            super().__init__()
-            self.original = model
+    def forward(self, x):
+        y = x.to(torch.float32)
+        output = self.original(y)
+        return output
 
-        def forward(self, x):
-            y = x.to(torch.float32)
-            output = self.original(y)
-            return output
-
-        def __getattr__(self, name):
-            # Delegate attribute/method lookup to the wrapped model if not found in this wrapper
-            if name == "original":
-                return super().__getattr__(name)
-            return getattr(self.original, name)
-
-    model = f32Wrapper(model)
-    return model
+    def __getattr__(self, name):
+        # Delegate attribute/method lookup to the wrapped model if not found in this wrapper
+        if name == "original":
+            return super().__getattr__(name)
+        return getattr(self.original, name)
 
 
 # TODO: get it into https://github.com/huggingface/optimum/blob/4a7cb298140ee9bed968d98a780a950d15bb2935/optimum/exporters/utils.py#L77
