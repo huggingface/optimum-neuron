@@ -22,7 +22,7 @@ from typing import Optional, Union
 
 import torch
 from huggingface_hub import HfApi
-from transformers import AutoModelForCausalLM, GenerationConfig, PretrainedConfig
+from transformers import GenerationConfig, PretrainedConfig
 from transformers.file_utils import add_start_docstrings
 from transformers.generation import StoppingCriteriaList
 
@@ -104,8 +104,6 @@ def get_neuron_causal_lm_model_class(config: PretrainedConfig):
     NEURON_CAUSALLM_MODEL_START_DOCSTRING,
 )
 class NeuronModelForCausalLM(NeuronModel, ABC):
-    auto_model_class = AutoModelForCausalLM
-    main_input_name = "input_ids"
     preprocessors = []  # Required by optimum OptimizedModel
 
     @classmethod
