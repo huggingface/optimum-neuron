@@ -104,8 +104,7 @@ def get_neuron_causal_lm_model_class(config: PretrainedConfig):
     NEURON_CAUSALLM_MODEL_START_DOCSTRING,
 )
 class NeuronModelForCausalLM(NeuronModel, ABC):
-    auto_model_class = AutoModelForCausalLM
-    main_input_name = "input_ids"
+
     preprocessors = []  # Required by optimum OptimizedModel
 
     @classmethod

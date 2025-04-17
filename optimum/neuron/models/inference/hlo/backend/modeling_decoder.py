@@ -63,8 +63,9 @@ class HloModelForCausalLM(NeuronModelForCausalLM, GenerationMixin):
         - generation_config ([`~transformers.GenerationConfig`]) -- The generation configuration used by default when calling `generate()`.
     """
 
-    model_type = "neuron_model"
-    auto_model_class = AutoModel
+    # The class used to instantiate the neuron model
+    # This attribute must be set by the model subclass
+    # (e.g. LlamaHloModelForCausalLM, Qwen2HloModelForCausalLM, etc.)
     neuron_model_class = None
 
     CHECKPOINT_DIR = "checkpoint"
@@ -93,9 +94,8 @@ class HloModelForCausalLM(NeuronModelForCausalLM, GenerationMixin):
         self.generation_config = generation_config
         # Registers the NeuronModelForXXX classes into the transformers AutoModel classes to avoid warnings when creating
         # a pipeline https://github.com/huggingface/transformers/blob/3d3204c025b6b5de013e07dd364208e28b4d9589/src/transformers/pipelines/base.py#L940
-        AutoConfig.register(self.model_type, AutoConfig)
-        if hasattr(self.auto_model_class, "register"):
-            self.auto_model_class.register(AutoConfig, self.__class__)
+        AutoConfig.register("neuron_model", AutoConfig)
+        AutoModel.register(AutoConfig, self.__class__)
 
         # Instantiate neuronx model
         checkpoint_path = checkpoint_dir.name if isinstance(checkpoint_dir, TemporaryDirectory) else checkpoint_dir
