@@ -418,7 +418,7 @@ def export_models(
             cache_config = list(compile_configs.values())[0]
             cache_entry = SingleModelCacheEntry(model_id=model_id, task=task, config=cache_config)
         else:
-            cache_entry = MultiModelCacheEntry(model_id=model_id, task=task, configs=compile_configs)
+            cache_entry = MultiModelCacheEntry(model_id=model_id, configs=compile_configs)
         cache_traced_neuron_artifacts(neuron_dir=output_dir, cache_entry=cache_entry)
 
     # remove models failed to export

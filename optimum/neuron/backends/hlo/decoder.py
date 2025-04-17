@@ -30,8 +30,8 @@ from .compiler import (
     gen_zero_input,
     gen_zero_output,
 )
-from .config import GQA, Layout, NeuronConfig
-from .dtypes import to_torch_dtype
+from .config import GQA, HloNeuronConfig, Layout
+from .dtypes import to_pyhlo_type, to_torch_dtype
 from .parallel import ParallelTensorManipulator
 from .utils import (
     get_pad_size,
@@ -44,7 +44,7 @@ from .utils import (
 
 
 class GraphBuilder(ABC):
-    def __init__(self, config: PretrainedConfig, neuron_config: NeuronConfig):
+    def __init__(self, config: PretrainedConfig, neuron_config: HloNeuronConfig):
         self.config = config
         self.neuron_config = neuron_config
 
@@ -201,7 +201,7 @@ class DecoderGraph(NeuronBaseSerializer):
         self,
         n_active_tokens,
         config: PretrainedConfig,
-        neuron_config: NeuronConfig,
+        neuron_config: HloNeuronConfig,
         is_prefill=True,
         builder=None,
         tag=None,
@@ -265,7 +265,7 @@ class DecoderGraph(NeuronBaseSerializer):
         return cls(
             config=config,
             neuron_config=neuron_config,
-            n_active_tokens=neuron_config.n_positions,
+            n_active_tokens=neuron_config.sequence_length,
             is_prefill=True,
             builder=builder,
             tag="context",
@@ -368,7 +368,7 @@ class DecoderGraph(NeuronBaseSerializer):
 
     def _build_program(self):
         def hlo_forward_wrapper(scribe):
-            dtype = getattr(scribe, self.neuron_config.amp)
+            dtype = to_pyhlo_type(scribe, self.neuron_config.auto_cast_type)
 
             # Create user parameters
             hidden, cache_ids, start_ids, last_token_id = self.builder.inputs(
@@ -378,7 +378,7 @@ class DecoderGraph(NeuronBaseSerializer):
 
             # Create inputs for all weights & caches
             in_caches, layers_weights, lm_head_params = self._hlo_parameters(
-                self.neuron_config.n_positions, self.batch_size, param_builder
+                self.neuron_config.sequence_length, self.batch_size, param_builder
             )
 
             # Unroll the graph
@@ -635,7 +635,6 @@ class DecoderLayer:
         self.attn_out_transposed = True
         self.mlp_out_sharding = 0
         self.mlp_out_transposed = True
-        self.kv_replication = 1  # default value to denote weight replication factor
         self.layer_num = layer_num
 
     def add_parameter(self, param, sharding=None, allow_transform=False):
@@ -775,9 +774,6 @@ class DecoderLayer:
                 self.attn_k_bias = repeat(self.attn_k_bias)
                 self.attn_v_bias = repeat(self.attn_v_bias)
                 self.n_kv_head *= ratio
-            self.kv_replication = ratio
-            # FIXME: As a workaround to get kv_replication info (after padding) in HLO construction
-            self.neuron_config.kv_replication = self.kv_replication
 
         if self.n_head == self.n_kv_head:
             self.attn_k_weight = qkv_maybe_pad(self.attn_k_weight, dim=1)
@@ -878,18 +874,18 @@ class DecoderLayer:
         # Select manipulator based on device
         manipulator = ParallelTensorManipulator(self.neuron_config.tp_degree)
         cpu_cache_shape = [
-            self.neuron_config.n_positions,
+            self.neuron_config.sequence_length,
             self.batch_size,
             n_heads_kv_cache,
             self.attention_head_size,
         ]
         self.cache_shape = [
-            self.neuron_config.n_positions,
+            self.neuron_config.sequence_length,
             self.batch_size,
             n_heads_kv_cache // self.neuron_config.tp_degree,
             self.attention_head_size,
         ]
-        cache_dtype = to_torch_dtype(self.neuron_config.amp)
+        cache_dtype = to_torch_dtype(self.neuron_config.auto_cast_type)
         cpu_cache = torch.zeros(cpu_cache_shape, dtype=cache_dtype)
         assert (n_heads_kv_cache >= self.neuron_config.tp_degree) and (
             n_heads_kv_cache % self.neuron_config.tp_degree == 0
@@ -1037,9 +1033,9 @@ class DecoderProgram:
         self.layers = layers
         self.batch_size = batch_size
         self.input_buffers = [gen_zero_input(hlo_module, idx) for idx in range(num_inputs)]
-        kernel_tag = f"seqlen{neuron_config.n_positions}-batch{batch_size}"
+        kernel_tag = f"seqlen{neuron_config.sequence_length}-batch{batch_size}"
         if tag is not None:
-            kernel_tag = f"{tag}-seqlen{neuron_config.n_positions}-batch{batch_size}"
+            kernel_tag = f"{tag}-seqlen{neuron_config.sequence_length}-batch{batch_size}"
         self.kernel = ParallelKernel(
             hlo_module,
             neuron_config.tp_degree,
@@ -1081,7 +1077,7 @@ class DecoderProgram:
             return None
 
     def _fill_io_tensors(self, input_tensors, output_tensors, layers):
-        end = self.neuron_config.n_positions
+        end = self.neuron_config.sequence_length
         for layer in layers:
             for cache in layer.attn_k_cache, layer.attn_v_cache:
                 cache_slice = self.manipulator.slice_on_nc(cache, 0, start=0, end=end, step=1)
@@ -1192,7 +1188,7 @@ class NeuronHloDecoderModel(NeuronModelBase):
             # token generation
             return input_ids, cache_ids, last_token_id
 
-        estimate = self.neuron_config.n_positions
+        estimate = self.neuron_config.sequence_length
 
         if estimate:
             # when context length is larger than estimate, last_token_id=estimate-1
@@ -1240,7 +1236,7 @@ class NeuronHloDecoderModel(NeuronModelBase):
         if (n_active_tokens > 1) and cache_ids.flatten()[0].item() == 0:
             # context encoding
             n_active_seqs, n_active_tokens = input_ids.shape
-            n_positions = self.neuron_config.n_positions
+            n_positions = self.neuron_config.sequence_length
             assert n_active_seqs == cache_ids.shape[0], (
                 f"invalid n_active_seqs ({n_active_seqs} vs {cache_ids.shape[0]})"
             )

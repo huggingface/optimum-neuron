@@ -25,12 +25,6 @@ It is used as the base class for all tasks but text generation.
 
 [[autodoc]] modeling_traced.NeuronTracedModel
 
-### NeuronDecoderModel
-
-The `NeuronDecoderModel` class is the base class for text generation models.
-
-[[autodoc]] modeling_decoder.NeuronDecoderModel
-
 ## Natural Language Processing
 
 The following Neuron model classes are available for natural language processing tasks.
@@ -65,7 +59,7 @@ The following Neuron model classes are available for natural language processing
 
 ### NeuronModelForCausalLM
 
-[[autodoc]] modeling.NeuronModelForCausalLM
+[[autodoc]] modeling_decoder.NeuronModelForCausalLM
     - forward
 
 ### NeuronModelForSeq2SeqLM
@@ -102,9 +96,6 @@ The following auto classes are available for the following audio tasks.
 
 ### NeuronModelForXVector
 [[autodoc]] modeling.NeuronModelForXVector
-
-### NeuronWhisperForConditionalGeneration
-[[autodoc]] modeling_seq2seq.NeuronWhisperForConditionalGeneration
 
 ## Stable Diffusion
 

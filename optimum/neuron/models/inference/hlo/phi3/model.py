@@ -1,5 +1,4 @@
 # Copyright Amazon Web Services and its Affiliates. All Rights Reserved.
-# Copyright 2025 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,27 +13,31 @@
 # limitations under the License.
 # ==============================================================================
 
+import torch
+from transformers import PretrainedConfig
 
-from ...backends.hlo.decoder import NeuronHloDecoderModel
-from ...backends.hlo.dtypes import to_torch_dtype
-from .hlo import LlamaGraphBuilder
-from .modules import LlamaForCausalLM
+from .....backends.hlo.config import HloNeuronConfig
+from .....backends.hlo.dtypes import to_torch_dtype
+from ..llama.model import LlamaHloModel
+from .modules import Phi3ForCausalLM
 
 
-class LlamaHloModel(NeuronHloDecoderModel):
+class Phi3HloModel(LlamaHloModel):
+    """The Phi3 model is essentially a LLama model with fused qkv and gate_up projections.
+
+    The implementation in this class is very similar to the one used for Llama in Tnx.
+    The only difference is that the fused qkv and gate/up linear projection are split when
+    loading weights (note that they might be fused again when transferring the weights to the
+    neuron device if the HloNeuronConfig specifies it).
+    """
+
     def __init__(
         self,
-        config,
-        neuron_config,
-        cpu_model=None,
-        hlo_builder=None,
+        config: PretrainedConfig,
+        neuron_config: HloNeuronConfig,
     ):
-        if cpu_model is None:
-            dtype = to_torch_dtype(neuron_config.amp)
-            cpu_model = LlamaForCausalLM(config, dtype)
-        if hlo_builder is None:
-            hlo_builder = LlamaGraphBuilder(config, neuron_config)
-        super().__init__(config, neuron_config, cpu_model, hlo_builder)
+        dtype = to_torch_dtype(neuron_config.auto_cast_type)
+        super().__init__(config, neuron_config, cpu_model=Phi3ForCausalLM(config, dtype))
 
     def load_weights(self):
         # Materialize the embedding to CPU
@@ -46,34 +49,27 @@ class LlamaHloModel(NeuronHloDecoderModel):
             mlp = layer.mlp
             new_layer = self.decoder_lm_head.new_layer()
             new_layer.add_pre_attention_layer_norm(layer.input_layernorm.weight.detach(), None)
-            new_layer.add_attention_query(
-                attn.q_proj.weight.detach().T,
-                None if attn.q_proj.bias is None else attn.q_proj.bias.detach(),
-            )
-            new_layer.add_attention_key(
-                attn.k_proj.weight.detach().T,
-                None if attn.k_proj.bias is None else attn.k_proj.bias.detach(),
-            )
-            new_layer.add_attention_value(
-                attn.v_proj.weight.detach().T,
-                None if attn.v_proj.bias is None else attn.v_proj.bias.detach(),
-            )
+            # Transpose and split fused qkv_proj into separate weights
+            fused_attn = attn.qkv_proj.weight.clone().detach().T
+            # Extract the larger query weights first
+            q_features = attn.num_heads * attn.head_dim
+            q_weight = fused_attn[:, :q_features]
+            # Then split the remaining into key and value weights
+            k_weight, v_weight = torch.chunk(fused_attn[:, q_features:], 2, dim=1)
+            new_layer.add_attention_query(q_weight, None)
+            new_layer.add_attention_key(k_weight, None)
+            new_layer.add_attention_value(v_weight, None)
             if self.neuron_config and self.neuron_config.attn_output_transposed:
                 new_layer.add_attention_output(attn.o_proj.weight.T.detach(), None, sharding=0, transposed=True)
             else:
                 new_layer.add_attention_output(attn.o_proj.weight.detach(), None, sharding=1, transposed=False)
 
             new_layer.add_pre_mlp_layer_norm(layer.post_attention_layernorm.weight.detach(), None)
-            new_layer.add_parameter(
-                mlp.gate_proj.weight.T,
-                sharding=1,
-                allow_transform=True,
-            )
-            new_layer.add_parameter(
-                mlp.up_proj.weight.T,
-                sharding=1,
-                allow_transform=True,
-            )
+            # Tanspose and split fused mlp into separate weights
+            fused_gate_up = mlp.gate_up_proj.weight.clone().detach().T
+            gate, up = torch.chunk(fused_gate_up, 2, dim=1)
+            new_layer.add_parameter(gate, sharding=1, allow_transform=True)
+            new_layer.add_parameter(up, sharding=1, allow_transform=True)
             new_layer.add_parameter(mlp.down_proj.weight, sharding=1)
             new_layer.to_neuron()
             layer.nullify()

@@ -85,11 +85,9 @@ from transformers.utils import (
     is_sagemaker_mp_enabled,
 )
 
-from optimum.exporters import TasksManager
 from optimum.utils import logging
 
 from .accelerate import NeuronAccelerator, NeuronDistributedType, NeuronPartialState
-from .cache.entries.single_model import SingleModelCacheEntry
 from .cache.hub_cache import hub_neuronx_cache, synchronize_hub_cache
 from .cache.training import patch_neuron_cc_wrapper
 from .distributed import Parallelizer, ParallelizersManager
@@ -102,9 +100,7 @@ from .utils import (
 )
 from .utils.cache_utils import (
     get_hf_hub_cache_repos,
-    get_model_name_or_path,
     get_neuron_cache_path,
-    get_num_neuron_cores_used,
     has_write_access_to_repo,
 )
 from .utils.import_utils import is_peft_available
@@ -119,12 +115,12 @@ from .utils.training_utils import (
     skip_first_batches,
 )
 from .utils.trl_utils import NeuronSFTConfig
-from .utils.version_utils import get_neuronxcc_version
 
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
     import torch_xla.debug.metrics as met
+    import torch_xla.runtime as xr
 
 if is_sagemaker_mp_enabled():
     from smdistributed.modelparallel import __version__ as SMP_VERSION
@@ -209,29 +205,6 @@ class _TrainerForNeuron:
 
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
-
-        # Model cache entry management.
-        model_name_or_path_for_cache_entry = get_model_name_or_path(self.model.config)
-        model_config_for_cache_entry = copy.deepcopy(self.model.config)
-        precision = "bfloat16" if self.accelerator.state.mixed_precision == "bf16" else "float32"
-
-        neuron_config_for_cache_entry = {
-            "model_class": self.model.__class__.__name__,
-            "precision": precision,
-            "num_neuron_cores_per_node": get_num_neuron_cores_used(),
-            "compiler_version": get_neuronxcc_version(),
-            "tensor_parallel_size": self.args.tensor_parallel_size,
-            "pipeline_parallel_size": self.args.pipeline_parallel_size,
-        }
-        self.model_cache_entry: Optional[SingleModelCacheEntry] = None
-        if model_name_or_path_for_cache_entry is not None:
-            task = TasksManager.infer_task_from_model(self.model)
-            model_config_for_cache_entry.neuron = neuron_config_for_cache_entry
-            self.model_cache_entry = SingleModelCacheEntry(
-                model_id=model_name_or_path_for_cache_entry,
-                task=task,
-                config=model_config_for_cache_entry,
-            )
 
     @property
     def mp_enabled(self):
@@ -361,7 +334,7 @@ class _TrainerForNeuron:
     @requires_torch_neuronx
     def synchronize_hub_cache(self):
         repo_id = get_hf_hub_cache_repos()[0]
-        if not self.args.skip_cache_push and xm.get_ordinal() == 0:
+        if not self.args.skip_cache_push and xr.global_ordinal() == 0:
             has_write_access = has_write_access_to_repo(repo_id)
             if has_write_access:
                 cache_path = get_neuron_cache_path()
@@ -411,16 +384,8 @@ class _TrainerForNeuron:
             return data
         return super()._prepare_input(data)
 
-    def _update_input_specs_in_model_cache_entry(self, input_specs: Dict[str, Any]):
-        if self.model_cache_entry is None:
-            return
-        self.model_cache_entry.neuron_config["training"] = self.model.training
-        self.model_cache_entry.neuron_config["input_specs"] = input_specs
-
     def _prepare_inputs(self, inputs: Dict[str, Union[torch.Tensor, Any]]) -> Dict[str, Union[torch.Tensor, Any]]:
         inputs = super()._prepare_inputs(inputs)
-        input_specs_for_cache_entry = {k: v.shape if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-        self._update_input_specs_in_model_cache_entry(input_specs_for_cache_entry)
         return inputs
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
@@ -507,7 +472,7 @@ class _TrainerForNeuron:
             if model_parallel_is_initialized():
                 dp_size = get_data_parallel_size()
             else:
-                dp_size = xm.xrt_world_size()
+                dp_size = xr.world_size()
 
             tr_loss_div = tr_loss / dp_size
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_replica_groups())
@@ -633,11 +598,7 @@ class _TrainerForNeuron:
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
         if not is_precompilation():  # Avoid unnecessary model saving during precompilation
             with patch_neuron_cc_wrapper():
-                if self.model_cache_entry is not None and "input_specs" not in self.model_cache_entry.neuron_config:
-                    model_cache_entry = None
-                else:
-                    model_cache_entry = self.model_cache_entry
-                with hub_neuronx_cache("training", entry=model_cache_entry):
+                with hub_neuronx_cache(cache_dir=get_neuron_cache_path()):
                     if output_dir is None:
                         output_dir = self.args.output_dir
 
@@ -1466,7 +1427,7 @@ class _TrainerForNeuron:
         ignore_keys_for_eval: Optional[List[str]] = None,
         **kwargs,
     ):
-        with hub_neuronx_cache("training", entry=self.model_cache_entry):
+        with hub_neuronx_cache(cache_dir=get_neuron_cache_path()):
             result = super().train(
                 resume_from_checkpoint=resume_from_checkpoint,
                 trial=trial,
@@ -1483,7 +1444,7 @@ class _TrainerForNeuron:
         ignore_keys: Optional[List[str]] = None,
         metric_key_prefix: str = "eval",
     ) -> Dict[str, float]:
-        with hub_neuronx_cache("training", entry=self.model_cache_entry):
+        with hub_neuronx_cache(cache_dir=get_neuron_cache_path()):
             with self.args.world_size_as_dp_size():
                 result = super().evaluate(
                     eval_dataset=eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix
@@ -1495,7 +1456,7 @@ class _TrainerForNeuron:
     def predict(
         self, test_dataset: Dataset, ignore_keys: Optional[List[str]] = None, metric_key_prefix: str = "test"
     ) -> PredictionOutput:
-        with hub_neuronx_cache("training", entry=self.model_cache_entry):
+        with hub_neuronx_cache(cache_dir=get_neuron_cache_path()):
             with self.args.world_size_as_dp_size():
                 result = super().predict(test_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
         if not is_precompilation():

@@ -57,7 +57,7 @@ from ..config import (
     VisionNeuronConfig,
 )
 from ..model_wrappers import (
-    CLIPVisionModelNeuronWrapper,
+    CLIPVisionWithProjectionNeuronWrapper,
     ControlNetNeuronWrapper,
     FluxTransformerNeuronWrapper,
     NoCacheModelWrapper,
@@ -263,10 +263,11 @@ class CLIPNormalizedConfig(NormalizedTextAndVisionConfig):
     VISION_CONFIG = "vision_config"
 
 
-@register_in_tasks_manager("clip-vision-model", *["feature-extraction"], library_name="diffusers")
-class CLIPVisionModelNeuronConfig(VisionNeuronConfig):
+@register_in_tasks_manager("clip-vision-with-projection", *["feature-extraction"], library_name="diffusers")
+class CLIPVisionWithProjectionNeuronConfig(VisionNeuronConfig):
+    MODEL_TYPE = "clip-vision-with-projection"
     NORMALIZED_CONFIG_CLASS = NormalizedVisionConfig
-    CUSTOM_MODEL_WRAPPER = CLIPVisionModelNeuronWrapper
+    CUSTOM_MODEL_WRAPPER = CLIPVisionWithProjectionNeuronWrapper
 
     @property
     def inputs(self) -> List[str]:
@@ -280,17 +281,46 @@ class CLIPVisionModelNeuronConfig(VisionNeuronConfig):
         return common_outputs
 
 
-@register_in_tasks_manager("clip", *["feature-extraction", "zero-shot-image-classification"])
+@register_in_tasks_manager("clip", *["feature-extraction", "zero-shot-image-classification", "image-classification"])
 class CLIPNeuronConfig(TextAndVisionNeuronConfig):
     NORMALIZED_CONFIG_CLASS = CLIPNormalizedConfig
+    INPUT_ARGS = ("text_batch_size", "image_batch_size", "sequence_length", "num_channels", "width", "height")
 
     @property
     def inputs(self) -> List[str]:
-        return ["input_ids", "pixel_values", "attention_mask"]
+        if self.task == "image-classification":
+            return ["pixel_values"]
+        else:
+            return ["input_ids", "pixel_values", "attention_mask"]
 
     @property
     def outputs(self) -> List[str]:
-        return ["logits_per_image", "logits_per_text", "text_embeds", "image_embeds"]
+        if self.task == "image-classification":
+            return ["logits"]
+        else:
+            return [
+                "logits_per_image",
+                "logits_per_text",
+                "text_embeds",
+                "image_embeds",
+                "text_model_output",
+                "vision_model_output",
+            ]
+
+    def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
+        for name, axis_dim in self._axes.items():
+            self._axes[name] = kwargs.pop(name, axis_dim)
+
+        self._validate_mandatory_axes()
+
+        other_axes = copy.deepcopy(self._axes)
+        text_batch_size = other_axes.pop("text_batch_size")
+        images_batch_size = other_axes.pop("image_batch_size")
+
+        return [
+            DummyTextInputGenerator(self.task, self._normalized_config, batch_size=text_batch_size, **other_axes),
+            DummyVisionInputGenerator(self.task, self._normalized_config, batch_size=images_batch_size, **other_axes),
+        ]
 
 
 @register_in_tasks_manager("clip-text-with-projection", *["feature-extraction"], library_name="diffusers")
@@ -341,26 +371,10 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
 class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
     CUSTOM_MODEL_WRAPPER = SentenceTransformersCLIPNeuronWrapper
     ATOL_FOR_VALIDATION = 1e-3
-    INPUT_ARGS = ("text_batch_size", "image_batch_size", "sequence_length", "num_channels", "width", "height")
 
     @property
     def outputs(self) -> List[str]:
         return ["text_embeds", "image_embeds"]
-
-    def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
-        for name, axis_dim in self._axes.items():
-            self._axes[name] = kwargs.pop(name, axis_dim)
-
-        self._validate_mandatory_axes()
-
-        other_axes = copy.deepcopy(self._axes)
-        text_batch_size = other_axes.pop("text_batch_size")
-        images_batch_size = other_axes.pop("image_batch_size")
-
-        return [
-            DummyTextInputGenerator(self.task, self._normalized_config, batch_size=text_batch_size, **other_axes),
-            DummyVisionInputGenerator(self.task, self._normalized_config, batch_size=images_batch_size, **other_axes),
-        ]
 
 
 @register_in_tasks_manager("vit", *["feature-extraction", "image-classification"])

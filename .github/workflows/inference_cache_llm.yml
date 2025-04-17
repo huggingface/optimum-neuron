@@ -24,17 +24,13 @@ jobs:
       fail-fast: false
       matrix:
         config: [
-          gpt2,
           llama,
           qwen2.5,
           granite,
           phi4,
           llama3.1-70b,
           qwen2.5-large,
-          mistral,
           llama-variants,
-          mistral-variants,
-          mixtral
         ]
     steps:
       - name: Checkout
@@ -45,6 +41,9 @@ jobs:
         uses: ./.github/actions/prepare_venv
       - name: Install optimum-neuron
         uses: ./.github/actions/install_optimum_neuron
+      - name: Install cv2 dependencies
+        run: |
+          sudo apt-get install python3-opencv -y
       - name: Create cache for ${{matrix.config}} models
         run: |
           source aws_neuron_venv_pytorch/bin/activate
