@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import torch
 from huggingface_hub import HfApi, snapshot_download
-from transformers import AutoConfig, AutoModel, GenerationConfig
+from transformers import AutoConfig, AutoModel, GenerationConfig, GenerationMixin
 from transformers.modeling_outputs import ModelOutput
 
 from optimum.exporters.tasks import TasksManager
@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class HloModelForCausalLM(NeuronModelForCausalLM):
+class HloModelForCausalLM(NeuronModelForCausalLM, GenerationMixin):
     """
     Base class to convert and run pre-trained transformers decoder models on Neuron devices.
 
