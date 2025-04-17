@@ -24,7 +24,7 @@ import torch
 from huggingface_hub import HfApi
 from transformers import AutoModelForCausalLM, GenerationConfig, PretrainedConfig
 from transformers.file_utils import add_start_docstrings
-from transformers.generation import GenerationMixin, StoppingCriteriaList
+from transformers.generation import StoppingCriteriaList
 
 from .configuration_utils import NeuronConfig
 from .modeling_base import NeuronModel
@@ -103,7 +103,7 @@ def get_neuron_causal_lm_model_class(config: PretrainedConfig):
     """,
     NEURON_CAUSALLM_MODEL_START_DOCSTRING,
 )
-class NeuronModelForCausalLM(NeuronModel, GenerationMixin, ABC):
+class NeuronModelForCausalLM(NeuronModel, ABC):
     auto_model_class = AutoModelForCausalLM
     main_input_name = "input_ids"
     preprocessors = []  # Required by optimum OptimizedModel
@@ -279,10 +279,6 @@ class NeuronModelForCausalLM(NeuronModel, GenerationMixin, ABC):
         # Find the correct model class
         cls = get_neuron_causal_lm_model_class(config)
         return cls._from_pretrained(model_id, config, **kwargs)
-
-    def can_generate(self) -> bool:
-        """Returns True to validate the check made in `GenerationMixin.generate()`."""
-        return True
 
     @add_start_docstrings(
         NEURON_CAUSALLM_MODEL_GENERATE_DOCSTRING
