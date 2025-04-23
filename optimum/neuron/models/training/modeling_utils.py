@@ -18,11 +18,12 @@ import gc
 import json
 import math
 import os
+import sys
 import warnings
 from abc import abstractmethod
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, Literal, Optional, Type, Union, Any
+from typing import Any, Callable, Dict, Literal, Optional, Type, Union
 
 import torch
 from safetensors import safe_open
@@ -62,7 +63,7 @@ if is_torch_xla_available():
 if is_neuronx_distributed_available():
     import neuronx_distributed
     from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
-    from neuronx_distributed.parallel_layers.layers import create_local_weight
+    from neuronx_distributed.parallel_layers.layers import BaseParallelLinear, create_local_weight
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_data_parallel_rank,
         get_pipeline_model_parallel_rank,
@@ -113,6 +114,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
     bias: bool
     fuse_axis: int
     original_dims: list[int]
+    tp_size: int = field(default_factory=get_tensor_model_parallel_size)
 
     def adapt_state_dict(self, module_fully_qualified_name: str, named_parameters: Dict[str, torch.nn.Parameter], orig_state_dict: Dict[str, torch.Tensor], inplace: bool = False):
         tp_size = get_tensor_model_parallel_size()
@@ -123,6 +125,10 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
         else:
             state_dict = dict(orig_state_dict)
 
+        # To go from original weights to fused weights we need to:
+        # 1. Gather all the weights of the linear layers
+        # 2. Shard them across the tensor model parallel size if TP is enabled
+        # 3. Concatenate them along the fuse axis
         fused_linear_fully_qualified_name = f"{module_fully_qualified_name}.{self.fused_linear_name}"
         param_names = ["weight", "bias"] if self.bias else ["weight"]
         for param_name in param_names:
@@ -134,11 +140,10 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
 
         return state_dict
 
-    def to_original_weights(self, module_fully_qualified_name: str, sharded_state_dicts: Dict[str, List[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]) -> Tuple[Dict[str, torch.Tensor], list[str]]:
-        # To recreate original weights we need to:
+    def to_original_weights(self, module_fully_qualified_name: str, sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]) -> tuple[Dict[str, torch.Tensor], list[str]]:
+        # To recreate original weights from the fused weights we need to:
         # 1. Unfuse the sharded weights
-        # 2. Concat each unsharded local weight accross the partion_dim
-
+        # 2. Concat each unsharded local weight accross the partion_dim if TP is enabled
         original_weights = {}
         keys_to_remove = []
         for param_name in ["weight", "bias"] if self.bias else ["weight"]:
@@ -149,14 +154,14 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 unfused_local_weights.append(
                     torch.split(
                         fused_local_weight,
-                        self.original_dims,
+                        [dim // self.tp_size for dim in self.original_dims],
                         dim=self.fuse_axis,
                     )
                 )
 
             for idx, linear_name in enumerate(self.linear_names):
                 original_weight_name = f"{module_fully_qualified_name}.{linear_name}.{param_name}"
-                partition_dim = parameters_metadata[original_weight_name]["partition_dim"]
+                partition_dim = parameters_metadata[fused_linear_weight_name]["partition_dim"]
                 original_weight = torch.cat(
                     [unfused_local_weights[tp_rank][idx] for tp_rank in range(len(unfused_local_weights))],
                     dim=partition_dim,
@@ -164,7 +169,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 original_weights[original_weight_name] = original_weight
 
             keys_to_remove.append(fused_linear_weight_name)
-                
+
         return original_weights, keys_to_remove
 
 @dataclass
@@ -234,7 +239,32 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
 
 @dataclass
 class ModelWeightTransformationSpecs:
+    module_fully_qualified_name: Optional[str] = None
     specs: Union[ModelWeightTransformationSpec, list[ModelWeightTransformationSpec]] = field(default_factory=list)
+
+    @classmethod
+    def from_metadata(cls, specs_metadata: Dict[str, Any]):
+        specs = cls(module_fully_qualified_name=specs_metadata["module_fully_qualified_name"])
+        for spec_metadata in specs_metadata["specs"]:
+            cls_name, metadata = spec_metadata
+            # We dynamically import the class from the module.
+            # We could use a dictionary as it is cleaner.
+            cls_ = getattr(sys.modules[__name__], cls_name)
+            spec = cls_(**metadata)
+            specs.add_spec(spec)
+        return specs
+
+    def to_metadata(self) -> Dict[str, Any]:
+        if self.module_fully_qualified_name is None:
+            raise ValueError("`module_fully_qualified_name` must be set to serialize the specs")
+        serialized_specs = []
+        for spec in self.specs:
+            serialized_specs.append((spec.__class__.__name__, asdict(spec)))
+
+        return {
+            "module_fully_qualified_name": self.module_fully_qualified_name,
+            "specs": serialized_specs,
+        }
 
     def __post_init__(self):
         if not isinstance(self.specs, list):
@@ -246,15 +276,37 @@ class ModelWeightTransformationSpecs:
         self.specs.append(spec)
 
 
-    def adapt_state_dict(self, module_fully_qualified_name: str, named_parameters: Dict[str, torch.nn.Parameter], orig_state_dict: Dict[str, torch.Tensor], inplace: bool = False):
+    def adapt_state_dict(self, named_parameters: Dict[str, torch.nn.Parameter], orig_state_dict: Dict[str, torch.Tensor], inplace: bool = False):
+        if self.module_fully_qualified_name is None:
+            raise ValueError("`module_fully_qualified_name` must be set to adapt the state dict")
         for spec in self.specs:
             if not isinstance(spec, ModelWeightTransformationSpec):
                 raise TypeError(f"spec must be of type ModelWeightTransformationSpec, but got {type(spec)}")
-            orig_state_dict = spec.adapt_state_dict(module_fully_qualified_name, named_parameters, orig_state_dict, inplace=inplace)
+            orig_state_dict = spec.adapt_state_dict(self.module_fully_qualified_name, named_parameters, orig_state_dict, inplace=inplace)
         return orig_state_dict
+
+    def to_original_weights(self, sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]) -> tuple[Dict[str, torch.Tensor], list[str]]:
+        if self.module_fully_qualified_name is None:
+            raise ValueError("`module_fully_qualified_name` must be set to adapt the state dict")
+        original_weights = {}
+        keys_to_remove = []
+        for spec in self.specs:
+            if not isinstance(spec, ModelWeightTransformationSpec):
+                raise TypeError(f"spec must be of type ModelWeightTransformationSpec, but got {type(spec)}")
+            spec_weights, spec_keys_to_remove = spec.to_original_weights(self.module_fully_qualified_name, sharded_state_dicts, parameters_metadata)
+            original_weights.update(spec_weights)
+            keys_to_remove.extend(spec_keys_to_remove)
+        return original_weights, keys_to_remove
 
     def __iter__(self):
         return iter(self.specs)
+
+
+def set_module_names_in_transformation_specs(model: torch.nn.Module):
+    for name, mod in model.named_modules():
+        specs = getattr(mod, "specs", None)
+        if isinstance(specs, ModelWeightTransformationSpecs):
+            specs.module_fully_qualified_name = name
 
 
 def adapt_state_dict(model: torch.nn.Module, state_dict: Dict[str, torch.Tensor], inplace: bool = False):
@@ -263,9 +315,9 @@ def adapt_state_dict(model: torch.nn.Module, state_dict: Dict[str, torch.Tensor]
     original_data_ptrs = {n: p.data_ptr() for n, p in state_dict.items()}
     original_state_dict_keys = set(state_dict.keys())
     for name, module in model.named_modules():
-        model_weight_transformation_specs = getattr(module, "specs", [])
-        for spec in model_weight_transformation_specs:
-            state_dict = spec.adapt_state_dict(name, named_parameters, state_dict, inplace=inplace)
+        model_weight_transformation_specs = getattr(module, "specs", None)
+        if model_weight_transformation_specs is not None:
+            state_dict = model_weight_transformation_specs.adapt_state_dict(named_parameters, state_dict, inplace=inplace)
 
     # There are 2 cases:
     # 1. A new key was inserted by the adapt_state_dict function
@@ -291,8 +343,34 @@ def adapt_state_dict(model: torch.nn.Module, state_dict: Dict[str, torch.Tensor]
             )
     return state_dict
 
+def to_original_weights(transformations_specs: list[ModelWeightTransformationSpecs], sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+    consolidated_state_dict = {}
+    parameters_to_remove = set()
+    for specs in transformations_specs:
+        original_weights, keys_to_remove = specs.to_original_weights(
+            sharded_state_dicts, parameters_metadata
+        )
+        consolidated_state_dict.update(original_weights)
+        parameters_to_remove.update(keys_to_remove)
+
+    for name, metadata in parameters_metadata.items():
+        # It means it was already processed by the transformation specs.
+        if name in consolidated_state_dict or name in parameters_to_remove:
+            continue
+
+        is_tensor_model_parallel = metadata["tensor_model_parallel"]
+        if is_tensor_model_parallel:
+            consolidated_weight = torch.cat(
+                sharded_state_dicts[name], dim=metadata["partition_dim"]
+            )
+            consolidated_state_dict[name] = consolidated_weight
+        else:
+            consolidated_state_dict[name] = sharded_state_dicts[name][0]
+    return consolidated_state_dict
+
+
 def create_parameter_metadata(model):
-    metadata = {"parameters": {}, "model_weight_transformation_specs": {}}
+    metadata = {"parameters": {}, "model_weight_transformation_specs": []}
     for name, param in model.named_parameters():
         tensor_model_parallel = getattr(param, "tensor_model_parallel", False)
         if tensor_model_parallel:
@@ -307,12 +385,10 @@ def create_parameter_metadata(model):
                 "tensor_model_parallel": tensor_model_parallel,
             }
     for name, module in model.named_modules():
-        model_weight_transformation_specs = getattr(module, "specs", [])
-        serialized_specs = []
-        for spec in model_weight_transformation_specs:
-            serialized_specs.append((spec.__class__.__name__, asdict(spec)))
-        if serialized_specs:
-            metadata["model_weight_transformation_specs"][name] = serialized_specs
+        model_weight_transformation_specs = getattr(module, "specs", None)
+        if model_weight_transformation_specs is not None:
+            serialized_specs = model_weight_transformation_specs.to_metadata()
+            metadata["model_weight_transformation_specs"].append(serialized_specs)
     return metadata
 
 
@@ -700,6 +776,7 @@ class NeuronModelMixin:
             num_local_ranks_per_step = local_world_size
 
         for worker in range(math.ceil(local_world_size / num_local_ranks_per_step)):
+            model_to_load = model
             if local_rank // num_local_ranks_per_step == worker:
                 if sharded_metadata:
                     weight_map = sharded_metadata["weight_map"]
@@ -714,22 +791,64 @@ class NeuronModelMixin:
                     with safe_open(filename, framework="pt", device="cpu") as fp:
                         state_dict[weight_name] = fp.get_tensor(weight_name)
 
-                # Adapts the state dict to the custom model.
-                state_dict = adapt_state_dict(model, state_dict, inplace=False)
+                prefix = model.base_model_prefix
+                loaded_keys = state_dict.keys()
+                expected_keys = model.state_dict().keys()
+                if len(prefix) > 0:
+                    has_prefix_module = any(s.startswith(prefix) for s in loaded_keys)
+                    expects_prefix_module = any(s.startswith(prefix) for s in expected_keys)
+                else:
+                    has_prefix_module = False
+                    expects_prefix_module = False
 
-                model.load_state_dict(state_dict, strict=False)
+                # key re-naming operations are never done on the keys
+                # that are loaded, but always on the keys of the newly initialized model
+                remove_prefix_from_model = not has_prefix_module and expects_prefix_module
+                add_prefix_to_model = has_prefix_module and not expects_prefix_module
+
+                if remove_prefix_from_model:
+                    model_to_load = getattr(model, prefix)
+                    # expected_keys_not_prefixed = [s for s in expected_keys if not s.startswith(_prefix)]
+                    # expected_keys = [s[len(_prefix) :] if s.startswith(_prefix) else s for s in expected_keys]
+                elif add_prefix_to_model:
+                    state_dict = {".".join([prefix, key]): value for key, value in state_dict.items()}
+                    # expected_keys = [".".join([prefix, s]) for s in expected_keys]
+
+                # This is required to have the specs properly defined.
+                set_module_names_in_transformation_specs(model_to_load)
+
+                # Adapts the state dict to the custom model.
+                state_dict = adapt_state_dict(model_to_load, state_dict, inplace=False)
+                model_to_load.load_state_dict(state_dict, strict=False)
+
                 if torch_dtype is not None:
                     model = model.to(torch_dtype)
                 if device_map == "xla":
                     move_model_to_device(model, xm.xla_device())
+
                 gc.collect()
                 model.tie_weights()
 
+                # Now we set the modules names using the full model regardless of prefixes.
+                # This is this name that will be saved and used when re-loading the model.
+                set_module_names_in_transformation_specs(model)
+
             # It is important to initialize modules that are not in the state dict.
             if _fast_init:
-                not_initialized_submodules = set_initialized_submodules(model, state_dict.keys())
+                # We call "set_initialized_submodules" twice:
+                # One with `model_to_load` to handle the base submodules from the state dict
+                # And one with `model`, which should contain anything that is not in the base model
+                not_initialized_submodules = set_initialized_submodules(model_to_load, state_dict.keys())
+                if model is not model_to_load:
+                    not_initialized_submodules.update(set_initialized_submodules(model, state_dict.keys()))
                 for name, mod in not_initialized_submodules.items():
-                    logger.debug(f"Initializing {name} with default weights")
+                    if getattr(mod, "_is_hf_initialized", False):
+                        # It means that it was set as initialized by the first `set_initialized_submodules`, we can
+                        # skip.
+                        continue
+                    elif isinstance(mod, BaseParallelLinear):
+                        mod.initialize_weight_and_bias()
+                    print(f"Initializing {name} with default weights")
                     model._initialize_weights(mod)
 
             xm.rendezvous(f"load_state_dict_{worker}")
@@ -877,7 +996,6 @@ class NeuronModelMixin:
             metadata_path.parent.mkdir(parents=True, exist_ok=True)
             with open(metadata_path, "w") as f:
                 f.write(json.dumps(metadata, indent=4))
-
 
         neuronx_distributed.trainer.save_checkpoint(
             save_directory.as_posix(),

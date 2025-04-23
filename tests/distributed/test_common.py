@@ -22,6 +22,7 @@ import safetensors
 import torch
 from transformers import LlamaForCausalLM
 
+from optimum.neuron.accelerate import ModelParallelismConfig
 from optimum.neuron.accelerate.optimizer import NeuronAcceleratedOptimizer
 from optimum.neuron.accelerate.utils.dataclasses import NeuronDistributedType
 from optimum.neuron.distributed.checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
@@ -29,6 +30,7 @@ from optimum.neuron.distributed.utils import (
     MODEL_PARALLEL_SHARDS_DIR_NAME,
     make_optimizer_constructor_lazy,
 )
+from optimum.neuron.models.training import LlamaForCausalLM as NeuronLlamaForCausalLM
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
@@ -488,6 +490,55 @@ class TestCommonDistributed(DistributedTest):
             )
             consolidated_state_dict = torch.load(consolidation_dir / "pytorch_model.bin")
             orig_state_dict = torch.load(orig_model_path / "pytorch_model.bin")
+
+            assert orig_state_dict.keys() == consolidated_state_dict.keys()
+            for key in orig_state_dict:
+                orig_tensor = orig_state_dict[key]
+                consolidated_tensor = consolidated_state_dict[key]
+                print(f"Testing that {key} match")
+                torch.testing.assert_close(orig_tensor, consolidated_tensor)
+
+
+
+    @pytest.mark.parametrize(
+        "world_size,tp_size,pp_size,kv_size_multiplier",
+        [
+            [8, 2, 1, None],
+            # [8, 8, 1, None],
+            # [8, 8, 1, 4],
+        ],
+        ids=[
+            "dp=4,tp=2,pp=1",
+            # "dp=1,tp=8,pp=1,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
+            # "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
+        ],
+    )
+    def test_consolidate_custom_model_parallel_checkpoints(self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, use_xser):
+        tmpdir = Path(tmpdir)
+        orig_model = LlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS)
+
+        if xr.global_ordinal() == 0:
+            orig_model.save_pretrained(tmpdir / "orig_model", safe_serialization=False)
+
+        mp_config = ModelParallelismConfig(
+            tensor_parallel_size=tp_size,
+            pipeline_parallel_size=pp_size,
+            use_xser=use_xser,
+            async_save=False,
+        )
+        custom_model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, mp_config)
+        custom_model.save_pretrained(tmpdir / "custom_model")
+
+        xm.rendezvous("Saving done.")
+
+        if xr.global_ordinal() == 0:
+            consolidate_model_parallel_checkpoints_to_unified_checkpoint(
+                tmpdir / "custom_model",
+                tmpdir / "consolidated_model",
+                save_format="pytorch",
+            )
+            orig_state_dict = torch.load(tmpdir / "orig_model" / "pytorch_model.bin", weights_only=True)
+            consolidated_state_dict = torch.load(tmpdir / "consolidated_model" / "pytorch_model.bin", weights_only=True)
 
             assert orig_state_dict.keys() == consolidated_state_dict.keys()
             for key in orig_state_dict:
