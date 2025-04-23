@@ -504,13 +504,13 @@ class TestCommonDistributed(DistributedTest):
         "world_size,tp_size,pp_size,kv_size_multiplier",
         [
             [8, 2, 1, None],
-            # [8, 8, 1, None],
-            # [8, 8, 1, 4],
+            [8, 8, 1, None],
+            [8, 8, 1, 4],
         ],
         ids=[
             "dp=4,tp=2,pp=1",
-            # "dp=1,tp=8,pp=1,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
-            # "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
+            "dp=1,tp=8,pp=1,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
+            "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
         ],
     )
     def test_consolidate_custom_model_parallel_checkpoints(self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, use_xser):
@@ -528,6 +528,7 @@ class TestCommonDistributed(DistributedTest):
         )
         custom_model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, mp_config)
         custom_model.save_pretrained(tmpdir / "custom_model")
+        print("Custom model", custom_model)
 
         xm.rendezvous("Saving done.")
 

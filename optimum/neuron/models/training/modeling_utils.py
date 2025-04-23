@@ -49,10 +49,6 @@ from transformers.utils import (
     logging,
 )
 
-from ...distributed.utils import (
-    create_kv_proj_local_weight_from_regular_weight,
-    create_query_or_output_projection_local_weight_from_regular_weight,
-)
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from ...utils.misc import download_checkpoints_in_cache, is_main_worker, is_precompilation
 
@@ -102,7 +98,7 @@ class ModelWeightTransformationSpec:
         """
 
     @abstractmethod
-    def to_original_weights(self, module_fully_qualified_name: str, transformed_weights: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def to_original_weights(self, sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]) -> tuple[Dict[str, torch.Tensor], list[str]]:
         """
         Transform the weights back to the original weights.
         """
@@ -174,7 +170,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
 
 @dataclass
 class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
-    qga_qkv_projection_name: str
+    gqa_qkv_projection_name: str
     query_projection_name: str
     key_projection_name: str
     value_projection_name: str
@@ -182,9 +178,140 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
     num_attention_heads: int
     num_key_value_heads: int
     kv_size_multiplier: int
+    q_output_size_per_partition: int
     kv_output_size_per_partition: int
     fuse_qkv: bool
     bias: bool
+    tp_size: int = field(default_factory=get_tensor_model_parallel_size)
+
+    @staticmethod
+    def compute_query_indices_for_rank(
+        tp_size: int, tp_rank: int, num_attention_heads: int, num_key_value_heads: int, kv_size_multiplier: int
+    ):
+        """
+        Computes the permutation for the query weight wheun using GQAQKVColumnParallelLinear.
+        """
+        num_attention_heads_per_rank = num_attention_heads // tp_size
+        num_key_value_heads_per_rank = (num_key_value_heads * kv_size_multiplier) // tp_size
+        query_group_size = num_attention_heads // num_key_value_heads
+        query_group_size_per_rank = num_attention_heads_per_rank // num_key_value_heads_per_rank
+
+        queries_indices = [torch.arange(query_group_size_per_rank) for _ in range(num_key_value_heads_per_rank)]
+
+        keys_indices = torch.arange(num_key_value_heads).repeat(kv_size_multiplier)
+        keys_indices = torch.repeat_interleave(keys_indices, num_attention_heads_per_rank // num_key_value_heads_per_rank)
+        keys_indices = torch.chunk(keys_indices, tp_size)
+
+        shift_per_key = torch.arange(0, num_attention_heads, query_group_size)
+
+        shift_within_query_group = torch.arange(0, query_group_size, query_group_size_per_rank)
+        num_ranks_to_fit_all_key_value_heads = num_key_value_heads // num_key_value_heads_per_rank
+        num_query_heads_before_next_head_of_same_group = (
+            num_ranks_to_fit_all_key_value_heads * num_attention_heads_per_rank
+        )
+        shift_within_query_group = torch.repeat_interleave(
+            shift_within_query_group, num_query_heads_before_next_head_of_same_group
+        )
+        shift_within_query_group = torch.chunk(shift_within_query_group, tp_size)
+
+        indices = []
+        for idx, q_indices in enumerate(queries_indices):
+            s = slice(idx * query_group_size_per_rank, (idx + 1) * query_group_size_per_rank)
+            k_indices = keys_indices[tp_rank][s]
+            k_shift = shift_per_key[k_indices]
+            group_shift = shift_within_query_group[tp_rank][s]
+            indices.append(q_indices + k_shift + group_shift)
+
+        indices = torch.cat(indices, dim=0)
+        return indices
+
+    @staticmethod
+    def create_kv_proj_local_weight_from_regular_weight(
+        weight_data: torch.Tensor, kv_size_multiplier: int, output_size_per_partition: int
+    ) -> torch.Tensor:
+        """
+        Creates the local version of the key or value projections weight for the given TP rank when using
+        GQAQKVColumnParallelLinear.
+        """
+        assert not isinstance(weight_data, torch.nn.Parameter)
+
+        tp_size = get_tensor_model_parallel_size()
+        tp_rank = get_tensor_model_parallel_rank()
+        repeated_weight = weight_data.repeat(kv_size_multiplier, 1)
+        split = torch.split(repeated_weight, output_size_per_partition, dim=0)
+        return torch.cat(split[tp_rank::tp_size], dim=0)
+
+    @staticmethod
+    def create_query_or_output_projection_local_weight_from_regular_weight(
+        weight_data: torch.Tensor,
+        num_attention_heads: int,
+        num_key_value_heads: int,
+        kv_size_multiplier: int,
+        query_or_output_proj: Union[Literal["query"], Literal["output"]],
+    ) -> torch.Tensor:
+        """
+        Creates the local version of the query or output projections weight for the given TP rank when using
+        GQAQKVColumnParallelLinear.
+        """
+        assert query_or_output_proj in ["query", "output"]
+        assert not isinstance(weight_data, torch.nn.Parameter)
+
+        tp_size = get_tensor_model_parallel_size()
+        tp_rank = get_tensor_model_parallel_rank()
+
+        if query_or_output_proj == "query":
+            hidden_size = weight_data.size(1)
+            head_dim = weight_data.size(0) // num_attention_heads
+        else:
+            hidden_size = weight_data.size(0)
+            head_dim = weight_data.size(1) // num_attention_heads
+            weight_data = weight_data.transpose(0, 1)
+
+        indices = GQAQKVColumnParallelLinearSpecs.compute_query_indices_for_rank(
+            tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
+        )
+        reshaped_weight = weight_data.view(num_attention_heads, head_dim, hidden_size)
+        shuffled_weight = reshaped_weight[indices]
+        shuffled_weight = shuffled_weight.reshape(-1, hidden_size)
+
+        if query_or_output_proj == "output":
+            shuffled_weight = shuffled_weight.transpose(0, 1)
+
+        return shuffled_weight
+
+    @staticmethod
+    def create_gqa_query_or_output_projection_weight_from_full_weight(
+        full_weight: torch.Tensor,
+        tp_size: int,
+        num_attention_heads: int,
+        num_key_value_heads: int,
+        kv_size_multiplier: int,
+        query_or_output: Union[Literal["query"], Literal["output"]],
+    ):
+        assert query_or_output in ["query", "output"]
+        assert full_weight.device == torch.device("cpu")
+        if query_or_output == "query":
+            hidden_size = full_weight.size(1)
+        else:
+            hidden_size = full_weight.size(0)
+            full_weight = full_weight.transpose(0, 1)
+
+        indices = [
+            GQAQKVColumnParallelLinearSpecs.compute_query_indices_for_rank(tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier)
+            for tp_rank in range(tp_size)
+        ]
+        indices = torch.cat(indices, dim=0)
+        reversed_indices = torch.sort(indices, dim=0).indices
+
+        full_weight = full_weight.reshape(num_attention_heads, -1, hidden_size)
+        full_weight = full_weight[reversed_indices]
+        full_weight = full_weight.reshape(-1, hidden_size)
+
+        if query_or_output == "output":
+            full_weight = full_weight.transpose(0, 1)
+
+        return full_weight
+
 
     def adapt_state_dict(self, module_fully_qualified_name: str, named_parameters: Dict[str, torch.nn.Parameter], orig_state_dict: Dict[str, torch.Tensor], inplace: bool = False):
         if inplace:
@@ -198,22 +325,22 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
             k_name = f"{module_fully_qualified_name}.{self.key_projection_name}.{param_name}"
             v_name = f"{module_fully_qualified_name}.{self.value_projection_name}.{param_name}"
             if self.fuse_qkv:
-                new_name = f"{module_fully_qualified_name}.{self.qga_qkv_projection_name}.{param_name}_qkv"
+                new_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_qkv"
 
                 full_weights = [
-                    create_query_or_output_projection_local_weight_from_regular_weight(
+                    GQAQKVColumnParallelLinearSpecs.create_query_or_output_projection_local_weight_from_regular_weight(
                         state_dict.pop(q_name),
                         self.num_attention_heads,
                         self.num_key_value_heads,
                         self.kv_size_multiplier,
                         "query",
                     ),
-                    create_kv_proj_local_weight_from_regular_weight(
+                    GQAQKVColumnParallelLinearSpecs.create_kv_proj_local_weight_from_regular_weight(
                         state_dict.pop(k_name),
                         self.kv_size_multiplier,
                         self.kv_output_size_per_partition,
                     ),
-                    create_kv_proj_local_weight_from_regular_weight(
+                    GQAQKVColumnParallelLinearSpecs.create_kv_proj_local_weight_from_regular_weight(
                         state_dict.pop(v_name),
                         self.kv_size_multiplier,
                         self.kv_output_size_per_partition,
@@ -221,22 +348,97 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
                 ]
                 state_dict[new_name] = torch.cat(full_weights, dim=0)
             else:
-                new_name_weight_q = f"{module_fully_qualified_name}.{self.qga_qkv_projection_name}.{param_name}_q"
-                new_name_weight_k = f"{module_fully_qualified_name}.{self.qga_qkv_projection_name}.{param_name}_k"
-                new_name_weight_v = f"{module_fully_qualified_name}.{self.qga_qkv_projection_name}.{param_name}_v"
+                new_name_weight_q = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_q"
+                new_name_weight_k = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_k"
+                new_name_weight_v = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_v"
 
-                state_dict[new_name_weight_q] = create_query_or_output_projection_local_weight_from_regular_weight(state_dict[q_name], self.num_attention_heads, self.num_key_value_heads, self.kv_size_multiplier, "query")
+                state_dict[new_name_weight_q] = GQAQKVColumnParallelLinearSpecs.create_query_or_output_projection_local_weight_from_regular_weight(state_dict[q_name], self.num_attention_heads, self.num_key_value_heads, self.kv_size_multiplier, "query")
 
-                state_dict[new_name_weight_k] = create_kv_proj_local_weight_from_regular_weight(state_dict[k_name], self.kv_size_multiplier, self.kv_output_size_per_partition)
+                state_dict[new_name_weight_k] = GQAQKVColumnParallelLinearSpecs.create_kv_proj_local_weight_from_regular_weight(state_dict[k_name], self.kv_size_multiplier, self.kv_output_size_per_partition)
 
-                state_dict[new_name_weight_v] = create_kv_proj_local_weight_from_regular_weight(state_dict[v_name], self.kv_size_multiplier, self.kv_output_size_per_partition)
+                state_dict[new_name_weight_v] = GQAQKVColumnParallelLinearSpecs.create_kv_proj_local_weight_from_regular_weight(state_dict[v_name], self.kv_size_multiplier, self.kv_output_size_per_partition)
 
             output_projection_name = f"{module_fully_qualified_name}.{self.output_projection_name}.{param_name}"
-            state_dict[output_projection_name] = create_query_or_output_projection_local_weight_from_regular_weight(state_dict[output_projection_name], self.num_attention_heads, self.num_key_value_heads, self.kv_size_multiplier, "output")
+            state_dict[output_projection_name] = GQAQKVColumnParallelLinearSpecs.create_query_or_output_projection_local_weight_from_regular_weight(state_dict[output_projection_name], self.num_attention_heads, self.num_key_value_heads, self.kv_size_multiplier, "output")
 
         return state_dict
 
+    def to_original_weights(self, module_fully_qualified_name: str, sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]) -> tuple[Dict[str, torch.Tensor], list[str]]:
+        param_names = ["weight", "bias"] if self.bias else ["weight"]
+        state_dict = {}
+        keys_to_remove = []
+        for param_name in param_names:
+            if self.fuse_qkv:
+                fuse_qkv_weight_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_qkv"
+                fused_qkv_local_weights = sharded_state_dicts[fuse_qkv_weight_name]
 
+                slice_q = slice(0, self.q_output_size_per_partition)
+                weights_q = [fused_qkv_local_weights[tp_rank][slice_q].contiguous() for tp_rank in range(self.tp_size)]
+
+                slice_k = slice(
+                    self.q_output_size_per_partition,
+                    self.q_output_size_per_partition + self.kv_output_size_per_partition,
+                )
+                weights_k = [fused_qkv_local_weights[tp_rank][slice_k].contiguous() for tp_rank in range(self.tp_size)]
+
+                slice_v = slice(
+                    self.q_output_size_per_partition + self.kv_output_size_per_partition,
+                    None,
+                )
+                weights_v = [fused_qkv_local_weights[tp_rank][slice_v].contiguous() for tp_rank in range(self.tp_size)]
+
+                qkv_partition_dim = parameters_metadata[fuse_qkv_weight_name]["partition_dim"]
+                keys_to_remove += [f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_qkv"]
+            else:
+                weights_q = sharded_state_dicts[f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_q"]
+                weights_k = sharded_state_dicts[f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_k"]
+                weights_v = sharded_state_dicts[f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_v"]
+                # The query, key and value share the same partition dim.
+                qkv_partition_dim = parameters_metadata[f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_q"]["partition_dim"]
+                keys_to_remove += [
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_q",
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_k",
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_v",
+                ]
+
+            weights_o = sharded_state_dicts[f"{module_fully_qualified_name}.{self.output_projection_name}.{param_name}"]
+
+
+            full_weight_q = torch.cat(weights_q, dim=qkv_partition_dim).contiguous()
+            full_weight_k = torch.cat(weights_k, dim=qkv_partition_dim).contiguous()
+            full_weight_v = torch.cat(weights_v, dim=qkv_partition_dim).contiguous()
+
+            o_partition_dim = parameters_metadata[f"{module_fully_qualified_name}.{self.output_projection_name}.{param_name}"]["partition_dim"]
+            full_weight_o = torch.cat(weights_o, dim=o_partition_dim).contiguous()
+
+            full_weight_q = GQAQKVColumnParallelLinearSpecs.create_gqa_query_or_output_projection_weight_from_full_weight(
+                full_weight_q,
+                self.tp_size,
+                self.num_attention_heads,
+                self.num_key_value_heads,
+                self.kv_size_multiplier,
+                "query",
+            )
+            full_weight_o = GQAQKVColumnParallelLinearSpecs.create_gqa_query_or_output_projection_weight_from_full_weight(
+                full_weight_o,
+                self.tp_size,
+                self.num_attention_heads,
+                self.num_key_value_heads,
+                self.kv_size_multiplier,
+                "output",
+            )
+
+            full_weight_k = torch.chunk(full_weight_k, self.kv_size_multiplier, dim=0)[0].detach().clone()
+            full_weight_v = torch.chunk(full_weight_v, self.kv_size_multiplier, dim=0)[0].detach().clone()
+
+            state_dict.update({
+                f"{module_fully_qualified_name}.{self.query_projection_name}.{param_name}": full_weight_q,
+                f"{module_fully_qualified_name}.{self.key_projection_name}.{param_name}": full_weight_k,
+                f"{module_fully_qualified_name}.{self.value_projection_name}.{param_name}": full_weight_v,
+                f"{module_fully_qualified_name}.{self.output_projection_name}.{param_name}": full_weight_o,
+            })
+        return state_dict, keys_to_remove
+            
 @dataclass
 class ModelWeightTransformationSpecs:
     module_fully_qualified_name: Optional[str] = None

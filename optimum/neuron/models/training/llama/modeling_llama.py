@@ -230,7 +230,7 @@ class LlamaAttention(LlamaAttentionHF):
             )
 
             gqa_qkv_specs = GQAQKVColumnParallelLinearSpecs(
-                qga_qkv_projection_name="qkv_proj",
+                gqa_qkv_projection_name="qkv_proj",
                 query_projection_name="q_proj",
                 key_projection_name="k_proj",
                 value_projection_name="v_proj",
@@ -238,6 +238,7 @@ class LlamaAttention(LlamaAttentionHF):
                 num_attention_heads=self.num_heads,
                 num_key_value_heads=self.num_key_value_heads,
                 kv_size_multiplier=self.kv_size_multiplier,
+                q_output_size_per_partition=self.qkv_proj.q_output_size_per_partition,
                 kv_output_size_per_partition=self.qkv_proj.kv_output_size_per_partition,
                 fuse_qkv=mp_config.fuse_qkv,
                 bias=False,
