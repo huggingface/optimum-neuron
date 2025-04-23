@@ -537,7 +537,7 @@ def export_neuronx(
     if getattr(config, "is_encoder_decoder", False):
         checked_model, aliases = config.patch_model_and_prepare_aliases(model_or_path, **input_shapes)
     else: 
-        checked_model, aliases = config.patch_model_and_prepare_aliases(model_or_path, config.input_names)
+        checked_model, aliases = config.patch_model_and_prepare_aliases(model_or_path, config.inputs)
     
     # Construct compiler configurations
     compiler_args = prepare_compiler_flags(

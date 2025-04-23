@@ -800,8 +800,9 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
         height="height",
         width="width",
         num_channels="in_channels",
-        hidden_size="cross_attention_dim",
-        vocab_size="norm_num_groups",
+        vocab_size="attention_head_dim",
+        hidden_size="joint_attention_dim",
+        projection_size="pooled_projection_dim",
         allow_new=True,
     )
 

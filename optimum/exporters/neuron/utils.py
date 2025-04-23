@@ -65,6 +65,9 @@ if is_diffusers_available():
         StableDiffusionXLInpaintPipeline,
         StableDiffusionXLPipeline,
         UNet2DConditionModel,
+        FluxPipeline, 
+        FluxImg2ImgPipeline, 
+        FluxInpaintPipeline,
     )
     from diffusers.models import ImageProjection
     from diffusers.models.attention_processor import Attention
@@ -116,86 +119,6 @@ def build_stable_diffusion_components_mandatory_shapes(
 
     return components_shapes
 
-def get_flux_diffusion_models_for_export(
-    pipeline: "FluxPipeline",
-    text_encoder_2_input_shapes: Dict[str, int],
-    transformer_input_shapes: Dict[str, int],
-    vae_decoder_input_shapes: Dict[str, int],
-    output_hidden_states: bool = False,
-) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronDefaultConfig"]]:
-    #TBD add to get_submodels_for_export_diffusion
-    models_for_export = get_submodels_for_export_diffusion(
-      pipeline=pipeline,
-    )
-    library_name = "diffusers"
-    if DIFFUSION_MODEL_TEXT_ENCODER_NAME in models_for_export:
-        text_encoder = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME]
-        text_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
-          model=text_encoder,
-          exporter="neuron",
-          task="feature-extraction",
-          library_name=library_name,
-        )
-        text_encoder_neuron_config = text_encoder_config_constructor(
-          text_encoder.config,
-          task="feature-extraction",
-          output_hidden_states=output_hidden_states,
-        )
-        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (text_encoder, text_encoder_neuron_config)
-
-    if DIFFUSION_MODEL_TEXT_ENCODER_2_NAME in models_for_export:
-        text_encoder_2 = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME]
-        text_encoder_config_constructor_2 = TasksManager.get_exporter_config_constructor(
-          model=text_encoder_2,
-          exporter="neuron",
-          task="feature-extraction",
-          model_type="t5",
-          library_name=library_name,
-        )
-        text_encoder_neuron_config_2 = text_encoder_config_constructor_2(
-          text_encoder_2.config,
-          task="feature-extraction",
-          output_hidden_states=output_hidden_states,
-          **text_encoder_2_input_shapes
-        )
-        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = (text_encoder_2, text_encoder_neuron_config_2)
-
-    transformer = None
-    if DIFFUSION_MODEL_TRANSFORMER_NAME in models_for_export:
-        transformer = models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME]
-        model_type = get_diffusers_submodel_type(transformer)
-        transformer_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-          model=transformer,
-          exporter="neuron",
-          task="semantic-segmentation",
-          model_type=model_type,
-          library_name=library_name,
-        )
-        transformer.config.export_model_type = model_type
-        transformer_neuron_config = transformer_neuron_config_constructor(
-          transformer.config,
-          task="semantic-segmentation",
-          float_dtype=transformer.dtype,
-          **transformer_input_shapes,
-        )
-        models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (transformer, transformer_neuron_config)
-
-    vae_decoder = models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME]
-    vae_decoder_config_constructor = TasksManager.get_exporter_config_constructor(
-        model=vae_decoder,
-        exporter="neuron",
-        task="semantic-segmentation",
-        model_type="vae-decoder",
-        library_name=library_name,
-    )
-    vae_decoder_neuron_config = vae_decoder_config_constructor(
-        vae_decoder.config,
-        task="semantic-segmentation",
-        float_dtype=transformer.dtype if transformer else vae_decoder.dtype,
-        **vae_decoder_input_shapes,
-    )
-    models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME] = (vae_decoder, vae_decoder_neuron_config)
-
 def get_diffusion_models_for_export(
     pipeline: "DiffusionPipeline",
     text_encoder_input_shapes: Dict[str, Any],
@@ -209,9 +132,10 @@ def get_diffusion_models_for_export(
     controlnet_ids: Optional[Union[str, List[str]]] = None,
     controlnet_input_shapes: Optional[Dict[str, Any]] = None,
     image_encoder_input_shapes: Optional[Dict[str, Any]] = None,
+    text_encoder_2_input_shapes: Dict[str, Any] = None,
 ) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronDefaultConfig"]]:
     """
-    Returns the components of a Stable Diffusion model and their subsequent neuron configs.
+    Returns the components of a Stable Diffusion / Diffusion Transformer(eg. Pixart) / Flux model and their subsequent neuron configs.
     These components are chosen because they represent the bulk of the compute in the pipeline,
     and performance benchmarking has shown that running them on Neuron yields significant
     performance benefit (CLIP text encoder, VAE encoder, VAE decoder, Unet).
@@ -242,6 +166,8 @@ def get_diffusion_models_for_export(
             Static shapes used for compiling ControlNets.
         image_encoder_input_shapes (`Optional[Dict[str, Any]]`, defaults to `None`):
             Static shapes used for compiling the image encoder.
+        text_encoder_2_input_shapes (`Optional[Dict[str, Any]]`, defaults to `None`):
+            Static shapes used for compiling text encoder 2.
 
     Returns:
         `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronDefaultConfig`]`: A Dict containing the model and
@@ -278,7 +204,6 @@ def get_diffusion_models_for_export(
             model=text_encoder_2,
             exporter="neuron",
             task="feature-extraction",
-            model_type="clip-text-with-projection",
             library_name=library_name,
         )
         text_encoder_neuron_config_2 = text_encoder_config_constructor_2(
@@ -286,7 +211,7 @@ def get_diffusion_models_for_export(
             task="feature-extraction",
             dynamic_batch_size=dynamic_batch_size,
             output_hidden_states=output_hidden_states,
-            input_shapes=text_encoder_input_shapes,
+            input_shapes=text_encoder_2_input_shapes,
         )
         models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = (text_encoder_2, text_encoder_neuron_config_2)
 
@@ -297,7 +222,6 @@ def get_diffusion_models_for_export(
             model=unet,
             exporter="neuron",
             task="semantic-segmentation",
-            model_type="unet",
             library_name=library_name,
         )
         unet_neuron_config = unet_neuron_config_constructor(
@@ -320,15 +244,12 @@ def get_diffusion_models_for_export(
     transformer = None
     if DIFFUSION_MODEL_TRANSFORMER_NAME in models_for_export:
         transformer = models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME]
-        model_type = get_diffusers_submodel_type(transformer)
         transformer_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model=transformer,
             exporter="neuron",
             task="semantic-segmentation",
-            model_type=model_type,
             library_name=library_name,
         )
-        transformer.config.export_model_type = model_type
         transformer_neuron_config = transformer_neuron_config_constructor(
             transformer.config,
             task="semantic-segmentation",
@@ -459,18 +380,20 @@ def load_controlnets(controlnet_ids: Optional[Union[str, List[str]]] = None):
             contronets.append(model)
     return contronets
 
-
 def get_submodels_for_export_diffusion(
     pipeline: "DiffusionPipeline",
     lora_args: LoRAAdapterArguments,
     output_hidden_states: bool = False,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
 ) -> Dict[str, Union["PreTrainedModel", "ModelMixin"]]:
-    """
-    Returns the components of a Stable Diffusion model.
+    """Stable Diffusion / Diffusion Transformer(eg. Pixart) / Flux
+    Returns the components of a  model.
     """
     is_stable_diffusion_xl = isinstance(
         pipeline, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline, StableDiffusionXLPipeline)
+    )
+    is_flux = isinstance(
+        pipeline, (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline)
     )
 
     # Lora
@@ -479,15 +402,19 @@ def get_submodels_for_export_diffusion(
     models_for_export = []
 
     # Text encoders
-    if pipeline.text_encoder is not None:
+    text_encoder = getattr(pipeline, "text_encoder", None)
+    if text_encoder is not None:
         if is_stable_diffusion_xl or output_hidden_states:
             pipeline.text_encoder.config.output_hidden_states = True
-        models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_NAME, copy.deepcopy(pipeline.text_encoder)))
+        text_encoder.config.export_model_type = _get_diffusers_submodel_type(text_encoder)
+        models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_NAME, copy.deepcopy(text_encoder)))
 
     text_encoder_2 = getattr(pipeline, "text_encoder_2", None)
     if text_encoder_2 is not None:
-        text_encoder_2.config.output_hidden_states = True
-        text_encoder_2.text_model.config.output_hidden_states = True
+        if text_encoder_2.config.model_type=="clip_text_model":
+            text_encoder_2.config.output_hidden_states = True
+            text_encoder_2.text_model.config.output_hidden_states = True
+        text_encoder_2.config.export_model_type = _get_diffusers_submodel_type(text_encoder_2)
         models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, copy.deepcopy(text_encoder_2)))
         projection_dim = getattr(pipeline.text_encoder_2.config, "projection_dim", None)
     else:
@@ -515,25 +442,28 @@ def get_submodels_for_export_diffusion(
                 "You are not applying optimized attention score computation. If you want better performance, please"
                 " set the environment variable with `export NEURON_FUSE_SOFTMAX=1` and recompile the unet model."
             )
+        unet.config.export_model_type = _get_diffusers_submodel_type(unet)
         models_for_export.append((DIFFUSION_MODEL_UNET_NAME, copy.deepcopy(unet)))
 
     # Diffusion transformer
     transformer = getattr(pipeline, "transformer", None)
     if transformer is not None:
-        transformer.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
-        transformer.config.text_encoder_projection_dim = projection_dim
-        # apply optimized scaled_dot_product_attention
-        sdpa_original = torch.nn.functional.scaled_dot_product_attention
+        if not is_flux: # The following will be handled by `ModelBuilder` if `is_flux`. 
+            transformer.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
+            transformer.config.text_encoder_projection_dim = projection_dim
+            # apply optimized scaled_dot_product_attention
+            sdpa_original = torch.nn.functional.scaled_dot_product_attention
 
-        def attention_wrapper(query, key, value, attn_mask=None, dropout_p=None, is_causal=None):
-            if attn_mask is not None:
-                return sdpa_original(query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal)
-            else:
-                return neuron_scaled_dot_product_attention(
-                    query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal
-                )
+            def attention_wrapper(query, key, value, attn_mask=None, dropout_p=None, is_causal=None):
+                if attn_mask is not None:
+                    return sdpa_original(query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal)
+                else:
+                    return neuron_scaled_dot_product_attention(
+                        query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal
+                    )
 
-        torch.nn.functional.scaled_dot_product_attention = attention_wrapper
+            torch.nn.functional.scaled_dot_product_attention = attention_wrapper
+        transformer.config.export_model_type = _get_diffusers_submodel_type(transformer)
         models_for_export.append((DIFFUSION_MODEL_TRANSFORMER_NAME, copy.deepcopy(transformer)))
 
     if pipeline.vae.config.get("force_upcast", None) is True:
@@ -605,14 +535,17 @@ class f32Wrapper(torch.nn.Module):
             return super().__getattr__(name)
         return getattr(self.original, name)
 
-
-# TODO: get it into https://github.com/huggingface/optimum/blob/4a7cb298140ee9bed968d98a780a950d15bb2935/optimum/exporters/utils.py#L77
 _DIFFUSERS_CLASS_NAME_TO_SUBMODEL_TYPE = {
+    "CLIPTextModel": "clip-text-model",
+    "CLIPTextModelWithProjection": "clip-text-with-projection",
+    "FluxTransformer2DModel": "flux-transformer-2d",
+    "SD3Transformer2DModel": "sd3-transformer-2d",
+    "UNet2DConditionModel": "unet",
     "PixArtTransformer2DModel": "pixart-transformer-2d",
+    "T5EncoderModel": "t5",
 }
 
-
-def get_diffusers_submodel_type(submodel):
+def _get_diffusers_submodel_type(submodel):
     return _DIFFUSERS_CLASS_NAME_TO_SUBMODEL_TYPE.get(submodel.__class__.__name__)
 
 
