@@ -498,8 +498,6 @@ class TestCommonDistributed(DistributedTest):
                 print(f"Testing that {key} match")
                 torch.testing.assert_close(orig_tensor, consolidated_tensor)
 
-
-
     @pytest.mark.parametrize(
         "world_size,tp_size,pp_size,kv_size_multiplier",
         [
@@ -513,7 +511,9 @@ class TestCommonDistributed(DistributedTest):
             "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
         ],
     )
-    def test_consolidate_custom_model_parallel_checkpoints(self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, use_xser):
+    def test_consolidate_custom_model_parallel_checkpoints(
+        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, use_xser
+    ):
         tmpdir = Path(tmpdir)
         orig_model = LlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS)
 
@@ -539,7 +539,9 @@ class TestCommonDistributed(DistributedTest):
                 save_format="pytorch",
             )
             orig_state_dict = torch.load(tmpdir / "orig_model" / "pytorch_model.bin", weights_only=True)
-            consolidated_state_dict = torch.load(tmpdir / "consolidated_model" / "pytorch_model.bin", weights_only=True)
+            consolidated_state_dict = torch.load(
+                tmpdir / "consolidated_model" / "pytorch_model.bin", weights_only=True
+            )
 
             assert orig_state_dict.keys() == consolidated_state_dict.keys()
             for key in orig_state_dict:

@@ -77,10 +77,11 @@ ALL_ATTENTION_FUNCTIONS: Dict[str, Dict[str, Callable]] = {
     "flash_attention_2": nki_flash_attn_func,
 }
 
+
 def create_local_fused_weight(tp_rank, tp_size, individual_weights, partition_dim, fuse_axis, out_weight=None):
     weight_lists = []
     for weight in individual_weights:
-        weight_list = torch.split(weight, weight.size(partition_dim) //  tp_size, dim=partition_dim)[tp_rank::tp_size]
+        weight_list = torch.split(weight, weight.size(partition_dim) // tp_size, dim=partition_dim)[tp_rank::tp_size]
         weight_lists.append(weight_list)
 
     with torch.no_grad():
@@ -90,18 +91,28 @@ def create_local_fused_weight(tp_rank, tp_size, individual_weights, partition_di
             out=out_weight,
         )
 
+
 class ModelWeightTransformationSpec:
     @abstractmethod
-    def adapt_state_dict(self, module_fully_qualified_name: str, named_parameters: Dict[str, torch.nn.Parameter], orig_state_dict: Dict[str, torch.Tensor], inplace: bool = False):
+    def adapt_state_dict(
+        self,
+        module_fully_qualified_name: str,
+        named_parameters: Dict[str, torch.nn.Parameter],
+        orig_state_dict: Dict[str, torch.Tensor],
+        inplace: bool = False,
+    ):
         """
         Adapt the state dict of the model to the custom model.
         """
 
     @abstractmethod
-    def to_original_weights(self, sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]) -> tuple[Dict[str, torch.Tensor], list[str]]:
+    def to_original_weights(
+        self, sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]
+    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
         """
         Transform the weights back to the original weights.
         """
+
 
 @dataclass
 class FusedLinearsSpec(ModelWeightTransformationSpec):
@@ -112,7 +123,13 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
     original_dims: list[int]
     tp_size: int = field(default_factory=get_tensor_model_parallel_size)
 
-    def adapt_state_dict(self, module_fully_qualified_name: str, named_parameters: Dict[str, torch.nn.Parameter], orig_state_dict: Dict[str, torch.Tensor], inplace: bool = False):
+    def adapt_state_dict(
+        self,
+        module_fully_qualified_name: str,
+        named_parameters: Dict[str, torch.nn.Parameter],
+        orig_state_dict: Dict[str, torch.Tensor],
+        inplace: bool = False,
+    ):
         tp_size = get_tensor_model_parallel_size()
         tp_rank = get_tensor_model_parallel_rank()
 
@@ -129,14 +146,23 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
         param_names = ["weight", "bias"] if self.bias else ["weight"]
         for param_name in param_names:
             new_name = f"{fused_linear_fully_qualified_name}.{param_name}"
-            full_weight_names = [f"{module_fully_qualified_name}.{linear_name}.{param_name}" for linear_name in self.linear_names]
+            full_weight_names = [
+                f"{module_fully_qualified_name}.{linear_name}.{param_name}" for linear_name in self.linear_names
+            ]
             full_weights = [state_dict.pop(key) for key in full_weight_names]
             param = named_parameters[new_name]
-            state_dict[new_name] = create_local_fused_weight(tp_rank, tp_size, full_weights, param.partition_dim, self.fuse_axis)
+            state_dict[new_name] = create_local_fused_weight(
+                tp_rank, tp_size, full_weights, param.partition_dim, self.fuse_axis
+            )
 
         return state_dict
 
-    def to_original_weights(self, module_fully_qualified_name: str, sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]) -> tuple[Dict[str, torch.Tensor], list[str]]:
+    def to_original_weights(
+        self,
+        module_fully_qualified_name: str,
+        sharded_state_dicts: Dict[str, list[torch.Tensor]],
+        parameters_metadata: Dict[str, Dict[str, Any]],
+    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
         # To recreate original weights from the fused weights we need to:
         # 1. Unfuse the sharded weights
         # 2. Concat each unsharded local weight accross the partion_dim if TP is enabled
@@ -167,6 +193,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
             keys_to_remove.append(fused_linear_weight_name)
 
         return original_weights, keys_to_remove
+
 
 @dataclass
 class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
@@ -199,7 +226,9 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
         queries_indices = [torch.arange(query_group_size_per_rank) for _ in range(num_key_value_heads_per_rank)]
 
         keys_indices = torch.arange(num_key_value_heads).repeat(kv_size_multiplier)
-        keys_indices = torch.repeat_interleave(keys_indices, num_attention_heads_per_rank // num_key_value_heads_per_rank)
+        keys_indices = torch.repeat_interleave(
+            keys_indices, num_attention_heads_per_rank // num_key_value_heads_per_rank
+        )
         keys_indices = torch.chunk(keys_indices, tp_size)
 
         shift_per_key = torch.arange(0, num_attention_heads, query_group_size)
@@ -297,7 +326,9 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
             full_weight = full_weight.transpose(0, 1)
 
         indices = [
-            GQAQKVColumnParallelLinearSpecs.compute_query_indices_for_rank(tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier)
+            GQAQKVColumnParallelLinearSpecs.compute_query_indices_for_rank(
+                tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
+            )
             for tp_rank in range(tp_size)
         ]
         indices = torch.cat(indices, dim=0)
@@ -312,8 +343,13 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
 
         return full_weight
 
-
-    def adapt_state_dict(self, module_fully_qualified_name: str, named_parameters: Dict[str, torch.nn.Parameter], orig_state_dict: Dict[str, torch.Tensor], inplace: bool = False):
+    def adapt_state_dict(
+        self,
+        module_fully_qualified_name: str,
+        named_parameters: Dict[str, torch.nn.Parameter],
+        orig_state_dict: Dict[str, torch.Tensor],
+        inplace: bool = False,
+    ):
         if inplace:
             state_dict = orig_state_dict
         else:
@@ -352,18 +388,47 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
                 new_name_weight_k = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_k"
                 new_name_weight_v = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_v"
 
-                state_dict[new_name_weight_q] = GQAQKVColumnParallelLinearSpecs.create_query_or_output_projection_local_weight_from_regular_weight(state_dict[q_name], self.num_attention_heads, self.num_key_value_heads, self.kv_size_multiplier, "query")
+                state_dict[new_name_weight_q] = (
+                    GQAQKVColumnParallelLinearSpecs.create_query_or_output_projection_local_weight_from_regular_weight(
+                        state_dict[q_name],
+                        self.num_attention_heads,
+                        self.num_key_value_heads,
+                        self.kv_size_multiplier,
+                        "query",
+                    )
+                )
 
-                state_dict[new_name_weight_k] = GQAQKVColumnParallelLinearSpecs.create_kv_proj_local_weight_from_regular_weight(state_dict[k_name], self.kv_size_multiplier, self.kv_output_size_per_partition)
+                state_dict[new_name_weight_k] = (
+                    GQAQKVColumnParallelLinearSpecs.create_kv_proj_local_weight_from_regular_weight(
+                        state_dict[k_name], self.kv_size_multiplier, self.kv_output_size_per_partition
+                    )
+                )
 
-                state_dict[new_name_weight_v] = GQAQKVColumnParallelLinearSpecs.create_kv_proj_local_weight_from_regular_weight(state_dict[v_name], self.kv_size_multiplier, self.kv_output_size_per_partition)
+                state_dict[new_name_weight_v] = (
+                    GQAQKVColumnParallelLinearSpecs.create_kv_proj_local_weight_from_regular_weight(
+                        state_dict[v_name], self.kv_size_multiplier, self.kv_output_size_per_partition
+                    )
+                )
 
             output_projection_name = f"{module_fully_qualified_name}.{self.output_projection_name}.{param_name}"
-            state_dict[output_projection_name] = GQAQKVColumnParallelLinearSpecs.create_query_or_output_projection_local_weight_from_regular_weight(state_dict[output_projection_name], self.num_attention_heads, self.num_key_value_heads, self.kv_size_multiplier, "output")
+            state_dict[output_projection_name] = (
+                GQAQKVColumnParallelLinearSpecs.create_query_or_output_projection_local_weight_from_regular_weight(
+                    state_dict[output_projection_name],
+                    self.num_attention_heads,
+                    self.num_key_value_heads,
+                    self.kv_size_multiplier,
+                    "output",
+                )
+            )
 
         return state_dict
 
-    def to_original_weights(self, module_fully_qualified_name: str, sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]) -> tuple[Dict[str, torch.Tensor], list[str]]:
+    def to_original_weights(
+        self,
+        module_fully_qualified_name: str,
+        sharded_state_dicts: Dict[str, list[torch.Tensor]],
+        parameters_metadata: Dict[str, Dict[str, Any]],
+    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
         param_names = ["weight", "bias"] if self.bias else ["weight"]
         state_dict = {}
         keys_to_remove = []
@@ -390,55 +455,73 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
                 qkv_partition_dim = parameters_metadata[fuse_qkv_weight_name]["partition_dim"]
                 keys_to_remove += [f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_qkv"]
             else:
-                weights_q = sharded_state_dicts[f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_q"]
-                weights_k = sharded_state_dicts[f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_k"]
-                weights_v = sharded_state_dicts[f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_v"]
+                weights_q = sharded_state_dicts[
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_q"
+                ]
+                weights_k = sharded_state_dicts[
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_k"
+                ]
+                weights_v = sharded_state_dicts[
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_v"
+                ]
                 # The query, key and value share the same partition dim.
-                qkv_partition_dim = parameters_metadata[f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_q"]["partition_dim"]
+                qkv_partition_dim = parameters_metadata[
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_q"
+                ]["partition_dim"]
                 keys_to_remove += [
                     f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_q",
                     f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_k",
                     f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_v",
                 ]
 
-            weights_o = sharded_state_dicts[f"{module_fully_qualified_name}.{self.output_projection_name}.{param_name}"]
-
+            weights_o = sharded_state_dicts[
+                f"{module_fully_qualified_name}.{self.output_projection_name}.{param_name}"
+            ]
 
             full_weight_q = torch.cat(weights_q, dim=qkv_partition_dim).contiguous()
             full_weight_k = torch.cat(weights_k, dim=qkv_partition_dim).contiguous()
             full_weight_v = torch.cat(weights_v, dim=qkv_partition_dim).contiguous()
 
-            o_partition_dim = parameters_metadata[f"{module_fully_qualified_name}.{self.output_projection_name}.{param_name}"]["partition_dim"]
+            o_partition_dim = parameters_metadata[
+                f"{module_fully_qualified_name}.{self.output_projection_name}.{param_name}"
+            ]["partition_dim"]
             full_weight_o = torch.cat(weights_o, dim=o_partition_dim).contiguous()
 
-            full_weight_q = GQAQKVColumnParallelLinearSpecs.create_gqa_query_or_output_projection_weight_from_full_weight(
-                full_weight_q,
-                self.tp_size,
-                self.num_attention_heads,
-                self.num_key_value_heads,
-                self.kv_size_multiplier,
-                "query",
+            full_weight_q = (
+                GQAQKVColumnParallelLinearSpecs.create_gqa_query_or_output_projection_weight_from_full_weight(
+                    full_weight_q,
+                    self.tp_size,
+                    self.num_attention_heads,
+                    self.num_key_value_heads,
+                    self.kv_size_multiplier,
+                    "query",
+                )
             )
-            full_weight_o = GQAQKVColumnParallelLinearSpecs.create_gqa_query_or_output_projection_weight_from_full_weight(
-                full_weight_o,
-                self.tp_size,
-                self.num_attention_heads,
-                self.num_key_value_heads,
-                self.kv_size_multiplier,
-                "output",
+            full_weight_o = (
+                GQAQKVColumnParallelLinearSpecs.create_gqa_query_or_output_projection_weight_from_full_weight(
+                    full_weight_o,
+                    self.tp_size,
+                    self.num_attention_heads,
+                    self.num_key_value_heads,
+                    self.kv_size_multiplier,
+                    "output",
+                )
             )
 
             full_weight_k = torch.chunk(full_weight_k, self.kv_size_multiplier, dim=0)[0].detach().clone()
             full_weight_v = torch.chunk(full_weight_v, self.kv_size_multiplier, dim=0)[0].detach().clone()
 
-            state_dict.update({
-                f"{module_fully_qualified_name}.{self.query_projection_name}.{param_name}": full_weight_q,
-                f"{module_fully_qualified_name}.{self.key_projection_name}.{param_name}": full_weight_k,
-                f"{module_fully_qualified_name}.{self.value_projection_name}.{param_name}": full_weight_v,
-                f"{module_fully_qualified_name}.{self.output_projection_name}.{param_name}": full_weight_o,
-            })
+            state_dict.update(
+                {
+                    f"{module_fully_qualified_name}.{self.query_projection_name}.{param_name}": full_weight_q,
+                    f"{module_fully_qualified_name}.{self.key_projection_name}.{param_name}": full_weight_k,
+                    f"{module_fully_qualified_name}.{self.value_projection_name}.{param_name}": full_weight_v,
+                    f"{module_fully_qualified_name}.{self.output_projection_name}.{param_name}": full_weight_o,
+                }
+            )
         return state_dict, keys_to_remove
-            
+
+
 @dataclass
 class ModelWeightTransformationSpecs:
     module_fully_qualified_name: Optional[str] = None
@@ -477,17 +560,25 @@ class ModelWeightTransformationSpecs:
             raise TypeError(f"spec must be of type ModelWeightTransformationSpec, but got {type(spec)}")
         self.specs.append(spec)
 
-
-    def adapt_state_dict(self, named_parameters: Dict[str, torch.nn.Parameter], orig_state_dict: Dict[str, torch.Tensor], inplace: bool = False):
+    def adapt_state_dict(
+        self,
+        named_parameters: Dict[str, torch.nn.Parameter],
+        orig_state_dict: Dict[str, torch.Tensor],
+        inplace: bool = False,
+    ):
         if self.module_fully_qualified_name is None:
             raise ValueError("`module_fully_qualified_name` must be set to adapt the state dict")
         for spec in self.specs:
             if not isinstance(spec, ModelWeightTransformationSpec):
                 raise TypeError(f"spec must be of type ModelWeightTransformationSpec, but got {type(spec)}")
-            orig_state_dict = spec.adapt_state_dict(self.module_fully_qualified_name, named_parameters, orig_state_dict, inplace=inplace)
+            orig_state_dict = spec.adapt_state_dict(
+                self.module_fully_qualified_name, named_parameters, orig_state_dict, inplace=inplace
+            )
         return orig_state_dict
 
-    def to_original_weights(self, sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]) -> tuple[Dict[str, torch.Tensor], list[str]]:
+    def to_original_weights(
+        self, sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]
+    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
         if self.module_fully_qualified_name is None:
             raise ValueError("`module_fully_qualified_name` must be set to adapt the state dict")
         original_weights = {}
@@ -495,7 +586,9 @@ class ModelWeightTransformationSpecs:
         for spec in self.specs:
             if not isinstance(spec, ModelWeightTransformationSpec):
                 raise TypeError(f"spec must be of type ModelWeightTransformationSpec, but got {type(spec)}")
-            spec_weights, spec_keys_to_remove = spec.to_original_weights(self.module_fully_qualified_name, sharded_state_dicts, parameters_metadata)
+            spec_weights, spec_keys_to_remove = spec.to_original_weights(
+                self.module_fully_qualified_name, sharded_state_dicts, parameters_metadata
+            )
             original_weights.update(spec_weights)
             keys_to_remove.extend(spec_keys_to_remove)
         return original_weights, keys_to_remove
@@ -519,7 +612,9 @@ def adapt_state_dict(model: torch.nn.Module, state_dict: Dict[str, torch.Tensor]
     for name, module in model.named_modules():
         model_weight_transformation_specs = getattr(module, "specs", None)
         if model_weight_transformation_specs is not None:
-            state_dict = model_weight_transformation_specs.adapt_state_dict(named_parameters, state_dict, inplace=inplace)
+            state_dict = model_weight_transformation_specs.adapt_state_dict(
+                named_parameters, state_dict, inplace=inplace
+            )
 
     # There are 2 cases:
     # 1. A new key was inserted by the adapt_state_dict function
@@ -545,13 +640,16 @@ def adapt_state_dict(model: torch.nn.Module, state_dict: Dict[str, torch.Tensor]
             )
     return state_dict
 
-def to_original_weights(transformations_specs: list[ModelWeightTransformationSpecs], sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+
+def to_original_weights(
+    transformations_specs: list[ModelWeightTransformationSpecs],
+    sharded_state_dicts: Dict[str, list[torch.Tensor]],
+    parameters_metadata: Dict[str, Dict[str, Any]],
+) -> Dict[str, torch.Tensor]:
     consolidated_state_dict = {}
     parameters_to_remove = set()
     for specs in transformations_specs:
-        original_weights, keys_to_remove = specs.to_original_weights(
-            sharded_state_dicts, parameters_metadata
-        )
+        original_weights, keys_to_remove = specs.to_original_weights(sharded_state_dicts, parameters_metadata)
         consolidated_state_dict.update(original_weights)
         parameters_to_remove.update(keys_to_remove)
 
@@ -562,9 +660,7 @@ def to_original_weights(transformations_specs: list[ModelWeightTransformationSpe
 
         is_tensor_model_parallel = metadata["tensor_model_parallel"]
         if is_tensor_model_parallel:
-            consolidated_weight = torch.cat(
-                sharded_state_dicts[name], dim=metadata["partition_dim"]
-            )
+            consolidated_weight = torch.cat(sharded_state_dicts[name], dim=metadata["partition_dim"])
             consolidated_state_dict[name] = consolidated_weight
         else:
             consolidated_state_dict[name] = sharded_state_dicts[name][0]
@@ -592,7 +688,6 @@ def create_parameter_metadata(model):
             serialized_specs = model_weight_transformation_specs.to_metadata()
             metadata["model_weight_transformation_specs"].append(serialized_specs)
     return metadata
-
 
 
 class NeuronModelMixin:
@@ -681,7 +776,9 @@ class NeuronModelMixin:
             ] + list(ALL_ATTENTION_FUNCTIONS.keys()):
                 message = f'Specified `attn_implementation="{config._attn_implementation}"` is not supported. The only possible arguments are `attn_implementation="eager"` (manual attention implementation)'
                 if cls._supports_flash_attn_2:
-                    message += ', `"attn_implementation=flash_attention_2"` (implementation using nki flash attention 2)'
+                    message += (
+                        ', `"attn_implementation=flash_attention_2"` (implementation using nki flash attention 2)'
+                    )
                 # Keeping this if supported one day.
                 # if cls._supports_flex_attn:
                 #     message += (
@@ -736,7 +833,9 @@ class NeuronModelMixin:
 
     # This method uses `torch.xla.utils.checkpoint.checkpoint` instead of the torch one.
     def _set_gradient_checkpointing(self, enable: bool = True, gradient_checkpointing_func: Callable = checkpoint):
-        return super()._set_gradient_checkpointing(enable=enable, gradient_checkpointing_func=gradient_checkpointing_func)
+        return super()._set_gradient_checkpointing(
+            enable=enable, gradient_checkpointing_func=gradient_checkpointing_func
+        )
 
     @classmethod
     def from_pretrained(
@@ -869,7 +968,6 @@ class NeuronModelMixin:
             logger.info("Offline mode: forcing local_files_only=True")
             local_files_only = True
 
-
         # Load config if we don't provide a configuration
         if not isinstance(config, PretrainedConfig):
             config_path = config if config is not None else pretrained_model_name_or_path
@@ -958,7 +1056,11 @@ class NeuronModelMixin:
         if not getattr(config, "_attn_implementation_autoset", False):
             # We do not check for the device_map because we are going to move the model to XLA anyway on our own.
             config = cls._autoset_attn_implementation(
-                config, use_flash_attention_2=use_flash_attention_2, torch_dtype=torch_dtype, device_map=device_map, check_device_map=False,
+                config,
+                use_flash_attention_2=use_flash_attention_2,
+                torch_dtype=torch_dtype,
+                device_map=device_map,
+                check_device_map=False,
             )
 
         with ContextManagers(init_contexts):
@@ -968,7 +1070,7 @@ class NeuronModelMixin:
         # make sure we use the model's config since the __init__ call might have copied it
         config = model.config
 
-        state_dict  = {}
+        state_dict = {}
 
         mp_config = model.mp_config
         num_local_ranks_per_step = mp_config.num_local_ranks_per_step
@@ -986,7 +1088,7 @@ class NeuronModelMixin:
                     filename = Path(filenames)
                     # TODO: manage the safetensor check dependency.
                     with safe_open(filename, framework="pt", device="cpu") as fp:
-                        weight_map = {weight_name: filename for weight_name in fp.keys()}
+                        weight_map = dict.fromkeys(fp.keys(), filename)
 
                 state_dict = {}
                 for weight_name, filename in weight_map.items():
@@ -1110,7 +1212,9 @@ class NeuronModelMixin:
             )
             is_main_process = kwargs.pop("save_config")
         if safe_serialization:
-            raise logger.error("`safe_serialization` is not supported when saving the sharded checkpoints. It is possible to consolidate the model weights into `safetensors` format.")
+            raise logger.error(
+                "`safe_serialization` is not supported when saving the sharded checkpoints. It is possible to consolidate the model weights into `safetensors` format."
+            )
 
         if os.path.isfile(save_directory):
             logger.error(f"Provided path ({save_directory}) should be a directory, not a file")
@@ -1121,7 +1225,9 @@ class NeuronModelMixin:
         os.makedirs(save_directory, exist_ok=True)
 
         if push_to_hub:
-            raise RuntimeError("`push_to_hub` is not supported because checkpoints are sharded. Consolidate them then push to hub.")
+            raise RuntimeError(
+                "`push_to_hub` is not supported because checkpoints are sharded. Consolidate them then push to hub."
+            )
 
         model_to_save = self
 
@@ -1188,7 +1294,6 @@ class NeuronModelMixin:
                 if isinstance(mp_config_data["checkpoint_dir"], Path):
                     mp_config_data["checkpoint_dir"] = mp_config_data["checkpoint_dir"].as_posix()
                 f.write(json.dumps(mp_config_data, indent=4))
-
 
         # Saving the metadata required to consolidate the checkpoints properly.
         if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:

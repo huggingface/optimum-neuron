@@ -1052,4 +1052,3 @@ class Parallelizer(ABC):
     @classmethod
     def load_optimizer_sharded_checkpoint(cls, optimizer: "torch.optim.Optimizer", load_dir: Union[str, Path]):
         return cls.load_sharded_checkpoint(load_dir, optimizer=optimizer)
-

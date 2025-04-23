@@ -146,7 +146,6 @@ NOT_LLAMA_TO_TEST = _build_models_to_test(MODEL_TYPES_TO_TEST)
 MODELS_TO_TEST = NOT_LLAMA_TO_TEST + LLAMA_MODELS_TO_TEST
 
 
-
 OUTPUTS_TO_IGNORE = {
     # It might not match in the sequence parallel setting because of mistmatched shapes.
     # Since these outputs are not needed during training, we do not want to perform an expensive gather for them.
@@ -747,6 +746,7 @@ def test_compute_query_indices_for_rank(
         print(f"Computed {computed}")
         torch.testing.assert_close(expected, computed)
 
+
 def _custom_model_matches_original_model(
     model_class_name,
     model_name_or_path,
@@ -755,9 +755,11 @@ def _custom_model_matches_original_model(
     qkv_implementation,
     attn_implementation,
     monkeypatch,
-    torch_dtype=torch.float32, # For now we do not match in bfloat16, so we test in float32.
+    torch_dtype=torch.float32,  # For now we do not match in bfloat16, so we test in float32.
 ):
-    monkeypatch.setattr(optimum.neuron.models.training.loss_utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True)
+    monkeypatch.setattr(
+        optimum.neuron.models.training.loss_utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
+    )
 
     world_size, tp_size, pp_size = parallel_sizes
     dp_size = world_size // (tp_size * pp_size)
@@ -765,7 +767,9 @@ def _custom_model_matches_original_model(
 
     static_seed_patcher = StaticSeedPatcher(SEED)
 
-    accelerator = create_accelerator(tp_size, pp_size, parallelize_embeddings=False, sequence_parallel_enabled=sequence_parallel_enabled)
+    accelerator = create_accelerator(
+        tp_size, pp_size, parallelize_embeddings=False, sequence_parallel_enabled=sequence_parallel_enabled
+    )
 
     orig_model_class = getattr(transformers, model_class_name)
     with static_seed_patcher:
@@ -821,7 +825,9 @@ def _custom_model_matches_original_model(
     training_mod = importlib.import_module("optimum.neuron.models.training")
     custom_model_class = getattr(training_mod, model_class_name)
     with static_seed_patcher:
-        model = custom_model_class.from_pretrained(model_name_or_path, mp_config, attn_implementation=attn_implementation, torch_dtype=torch_dtype)
+        model = custom_model_class.from_pretrained(
+            model_name_or_path, mp_config, attn_implementation=attn_implementation, torch_dtype=torch_dtype
+        )
         move_model_to_device(model, xm.xla_device())
 
     with static_seed_patcher:
@@ -862,22 +868,17 @@ def _custom_model_matches_original_model(
             _check_output(output_name, outputs[0], outputs[1])
 
 
-CUSTOM_MODELINGS_TO_TEST = [
-    ("LlamaForCausalLM", "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random")
-]
+CUSTOM_MODELINGS_TO_TEST = [("LlamaForCausalLM", "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random")]
+
 
 @pytest.mark.parametrize(
-    "sequence_parallel_enabled,attn_implementation",[(False, "flash_attention_2"),(True, "eager")], ids=["sp-disabled-flash_attention_2","sp-enabled-eager"]
+    "sequence_parallel_enabled,attn_implementation",
+    [(False, "flash_attention_2"), (True, "eager")],
+    ids=["sp-disabled-flash_attention_2", "sp-enabled-eager"],
 )
-@pytest.mark.parametrize(
-    "qkv_implementation", ["regular_qkv", "fuse_qkv", "qkv_linear"]
-)
-@pytest.mark.parametrize(
-    "world_size,tp_size,pp_size", [[2, 2, 1], [16, 2, 1]], ids=["tp=2","dp=8,tp=2"]
-)
-@pytest.mark.parametrize(
-    "model_specs", CUSTOM_MODELINGS_TO_TEST, ids=[specs[0] for specs in CUSTOM_MODELINGS_TO_TEST]
-)
+@pytest.mark.parametrize("qkv_implementation", ["regular_qkv", "fuse_qkv", "qkv_linear"])
+@pytest.mark.parametrize("world_size,tp_size,pp_size", [[2, 2, 1], [16, 2, 1]], ids=["tp=2", "dp=8,tp=2"])
+@pytest.mark.parametrize("model_specs", CUSTOM_MODELINGS_TO_TEST, ids=[specs[0] for specs in CUSTOM_MODELINGS_TO_TEST])
 def test_custom_modeling_matches_original(
     model_specs,
     sequence_parallel_enabled,
@@ -918,6 +919,7 @@ def test_custom_modeling_matches_original(
     )
     launch_procs(run_fn, world_size, tp_size, pp_size)
 
+
 def _test_parallel_linear(row_or_column: Literal["column", "row"]):
     tp_rank = get_tensor_model_parallel_rank()
     tp_size = get_tensor_model_parallel_size()
@@ -933,7 +935,12 @@ def _test_parallel_linear(row_or_column: Literal["column", "row"]):
         partition_dim = 0
         per_partition_size = linear.weight.size(partition_dim) // tp_size
         parallel_linear = ColumnParallelLinear(
-            input_dim, output_dim, bias=False, dtype=dtype, gather_output=True, reduce_dtype=torch.float32,
+            input_dim,
+            output_dim,
+            bias=False,
+            dtype=dtype,
+            gather_output=True,
+            reduce_dtype=torch.float32,
         ).to(device="xla")
 
         torch.manual_seed(42)
@@ -943,7 +950,12 @@ def _test_parallel_linear(row_or_column: Literal["column", "row"]):
         partition_dim = 1
         per_partition_size = linear.weight.size(partition_dim) // tp_size
         parallel_linear = RowParallelLinear(
-            input_dim, output_dim, bias=False, dtype=dtype, input_is_parallel=True, reduce_dtype=torch.float32,
+            input_dim,
+            output_dim,
+            bias=False,
+            dtype=dtype,
+            input_is_parallel=True,
+            reduce_dtype=torch.float32,
         ).to(device="xla")
 
         torch.manual_seed(42)
@@ -954,16 +966,17 @@ def _test_parallel_linear(row_or_column: Literal["column", "row"]):
     with torch.no_grad():
         parallel_linear.weight.data = create_local_weight(linear.weight, partition_dim, per_partition_size, stride)
 
-
     output_linear = linear(input_tensor)
     output_row_parallel = parallel_linear(parallel_input)
 
     xm.mark_step()
     torch.testing.assert_allclose(output_linear, output_row_parallel)
 
+
 def test_row_parallel_linear():
     run_fn = partial(_test_parallel_linear, "row")
     launch_procs(run_fn, 8, 8, 1)
+
 
 def test_column_parallel_linear():
     run_fn = partial(_test_parallel_linear, "column")
@@ -1012,4 +1025,3 @@ def test_flash_attention_v2():
     xm.mark_step()
 
     torch.testing.assert_allclose(eager_attn_output, flash_attention_output)
-
