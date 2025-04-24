@@ -22,6 +22,7 @@ import torch
 
 from ...utils.import_utils import is_neuronx_distributed_available
 
+
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.layers import create_local_weight
     from neuronx_distributed.parallel_layers.parallel_state import (

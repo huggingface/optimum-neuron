@@ -127,7 +127,10 @@ class NeuronTrainingArgumentsMixin:
     fuse_qkv: bool = field(
         default=False,
         metadata={
-            "help": "Whether to fuse the query, key, and value linear layers in the self-attention layers.",
+            "help": (
+                "Whether to fuse the query, key, and value linear layers in the self-attention layers. Only works if "
+                "there is the same number of query and key/value heads."
+            ),
         },
     )
     use_flash_attention: bool = field(

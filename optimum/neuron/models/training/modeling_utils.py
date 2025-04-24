@@ -502,11 +502,8 @@ class NeuronModelMixin:
 
                 if remove_prefix_from_model:
                     model_to_load = getattr(model, prefix)
-                    # expected_keys_not_prefixed = [s for s in expected_keys if not s.startswith(_prefix)]
-                    # expected_keys = [s[len(_prefix) :] if s.startswith(_prefix) else s for s in expected_keys]
                 elif add_prefix_to_model:
                     state_dict = {".".join([prefix, key]): value for key, value in state_dict.items()}
-                    # expected_keys = [".".join([prefix, s]) for s in expected_keys]
 
                 # This is required to have the specs properly defined.
                 set_module_names_in_transformation_specs(model_to_load)
