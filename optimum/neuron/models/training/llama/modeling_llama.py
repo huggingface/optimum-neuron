@@ -55,7 +55,7 @@ from ..loss_utils import ForCausalLMLoss
 from ..modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
 from ..transformations_utils import (
     FusedLinearsSpec,
-    GQAQKVColumnParallelLinearSpecs,
+    GQAQKVColumnParallelLinearSpec,
     ModelWeightTransformationSpecs,
 )
 
@@ -238,7 +238,7 @@ class LlamaAttention(LlamaAttentionHF):
                 dtype=self.config.torch_dtype,
             )
 
-            gqa_qkv_specs = GQAQKVColumnParallelLinearSpecs(
+            gqa_qkv_specs = GQAQKVColumnParallelLinearSpec(
                 gqa_qkv_projection_name="qkv_proj",
                 query_projection_name="q_proj",
                 key_projection_name="k_proj",

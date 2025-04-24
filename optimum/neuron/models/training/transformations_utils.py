@@ -29,6 +29,10 @@ if is_neuronx_distributed_available():
         get_tensor_model_parallel_rank,
         get_tensor_model_parallel_size,
     )
+else:
+    # We define this dummy function in case we do not have neuronx_distributed, for instance when building the docs.
+    def get_tensor_model_parallel_rank():
+        return 0
 
 
 def create_local_fused_weight(tp_rank, tp_size, individual_weights, partition_dim, fuse_axis, out_weight=None):
@@ -258,7 +262,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
 
 
 @dataclass
-class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
+class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
     """
     Represents the transformation of separate query, key, and value projections into a single GQAQKVColumnParalleLinear
     projection.
@@ -361,7 +365,7 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
             head_dim = weight_data.size(1) // num_attention_heads
             weight_data = weight_data.transpose(0, 1)
 
-        indices = GQAQKVColumnParallelLinearSpecs.compute_query_indices_for_rank(
+        indices = GQAQKVColumnParallelLinearSpec.compute_query_indices_for_rank(
             tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
         )
         reshaped_weight = weight_data.view(num_attention_heads, head_dim, hidden_size)
@@ -391,7 +395,7 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
             full_weight = full_weight.transpose(0, 1)
 
         indices = [
-            GQAQKVColumnParallelLinearSpecs.compute_query_indices_for_rank(
+            GQAQKVColumnParallelLinearSpec.compute_query_indices_for_rank(
                 tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
             )
             for tp_rank in range(tp_size)
@@ -429,19 +433,19 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
                 new_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_qkv"
 
                 full_weights = [
-                    GQAQKVColumnParallelLinearSpecs.create_query_or_output_projection_local_weight_from_regular_weight(
+                    GQAQKVColumnParallelLinearSpec.create_query_or_output_projection_local_weight_from_regular_weight(
                         state_dict.pop(q_name),
                         self.num_attention_heads,
                         self.num_key_value_heads,
                         self.kv_size_multiplier,
                         "query",
                     ),
-                    GQAQKVColumnParallelLinearSpecs.create_kv_proj_local_weight_from_regular_weight(
+                    GQAQKVColumnParallelLinearSpec.create_kv_proj_local_weight_from_regular_weight(
                         state_dict.pop(k_name),
                         self.kv_size_multiplier,
                         self.kv_output_size_per_partition,
                     ),
-                    GQAQKVColumnParallelLinearSpecs.create_kv_proj_local_weight_from_regular_weight(
+                    GQAQKVColumnParallelLinearSpec.create_kv_proj_local_weight_from_regular_weight(
                         state_dict.pop(v_name),
                         self.kv_size_multiplier,
                         self.kv_output_size_per_partition,
@@ -454,7 +458,7 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
                 new_name_weight_v = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_v"
 
                 state_dict[new_name_weight_q] = (
-                    GQAQKVColumnParallelLinearSpecs.create_query_or_output_projection_local_weight_from_regular_weight(
+                    GQAQKVColumnParallelLinearSpec.create_query_or_output_projection_local_weight_from_regular_weight(
                         state_dict[q_name],
                         self.num_attention_heads,
                         self.num_key_value_heads,
@@ -464,20 +468,20 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
                 )
 
                 state_dict[new_name_weight_k] = (
-                    GQAQKVColumnParallelLinearSpecs.create_kv_proj_local_weight_from_regular_weight(
+                    GQAQKVColumnParallelLinearSpec.create_kv_proj_local_weight_from_regular_weight(
                         state_dict[k_name], self.kv_size_multiplier, self.kv_output_size_per_partition
                     )
                 )
 
                 state_dict[new_name_weight_v] = (
-                    GQAQKVColumnParallelLinearSpecs.create_kv_proj_local_weight_from_regular_weight(
+                    GQAQKVColumnParallelLinearSpec.create_kv_proj_local_weight_from_regular_weight(
                         state_dict[v_name], self.kv_size_multiplier, self.kv_output_size_per_partition
                     )
                 )
 
             output_projection_name = f"{module_fully_qualified_name}.{self.output_projection_name}.{param_name}"
             state_dict[output_projection_name] = (
-                GQAQKVColumnParallelLinearSpecs.create_query_or_output_projection_local_weight_from_regular_weight(
+                GQAQKVColumnParallelLinearSpec.create_query_or_output_projection_local_weight_from_regular_weight(
                     state_dict[output_projection_name],
                     self.num_attention_heads,
                     self.num_key_value_heads,
@@ -543,7 +547,7 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
             full_weight_o = torch.cat(weights_o, dim=o_partition_dim).contiguous()
 
             full_weight_q = (
-                GQAQKVColumnParallelLinearSpecs.create_gqa_query_or_output_projection_weight_from_full_weight(
+                GQAQKVColumnParallelLinearSpec.create_gqa_query_or_output_projection_weight_from_full_weight(
                     full_weight_q,
                     self.tp_size,
                     self.num_attention_heads,
@@ -553,7 +557,7 @@ class GQAQKVColumnParallelLinearSpecs(ModelWeightTransformationSpec):
                 )
             )
             full_weight_o = (
-                GQAQKVColumnParallelLinearSpecs.create_gqa_query_or_output_projection_weight_from_full_weight(
+                GQAQKVColumnParallelLinearSpec.create_gqa_query_or_output_projection_weight_from_full_weight(
                     full_weight_o,
                     self.tp_size,
                     self.num_attention_heads,

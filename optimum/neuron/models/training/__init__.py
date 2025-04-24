@@ -17,7 +17,7 @@ from .llama.modeling_llama import LlamaForCausalLM
 from .modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
 from .transformations_utils import (
     FusedLinearsSpec,
-    GQAQKVColumnParallelLinearSpecs,
+    GQAQKVColumnParallelLinearSpec,
     ModelWeightTransformationSpec,
     ModelWeightTransformationSpecs,
     adapt_state_dict,
