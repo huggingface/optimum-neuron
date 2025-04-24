@@ -15,12 +15,11 @@
 """LlaMa model implementation for Neuron."""
 
 from functools import partial
-from typing import Callable, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
-import torch
-from torch import nn
-import torch.utils.checkpoint
 import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
+import torch
+import torch.utils.checkpoint
 from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
@@ -28,6 +27,7 @@ from neuronx_distributed.parallel_layers.layers import (
     RowParallelLinear,
 )
 from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+from torch import nn
 from torch_xla.utils.checkpoint import checkpoint
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
@@ -60,12 +60,11 @@ from transformers.utils import logging
 
 from ....accelerate import ModelParallelismConfig
 from ..loss_utils import ForCausalLMLoss
-from ..modeling_utils import (
-    ALL_ATTENTION_FUNCTIONS,
+from ..modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
+from ..transformations_utils import (
     FusedLinearsSpec,
     GQAQKVColumnParallelLinearSpecs,
     ModelWeightTransformationSpecs,
-    NeuronModelMixin,
 )
 
 
@@ -380,7 +379,7 @@ class LlamaAttention(LlamaAttentionHF):
                 attention_mask,
                 self.scaling,
                 dropout=0.0 if not self.training else self.attention_dropout,
-                causal=False, # For now we do not enabled this because it cannot handle padding.
+                causal=False,  # For now we do not enabled this because it cannot handle padding.
                 **kwargs,
             )
 

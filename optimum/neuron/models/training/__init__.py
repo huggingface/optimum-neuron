@@ -14,4 +14,13 @@
 # limitations under the License.
 
 from .llama.modeling_llama import LlamaForCausalLM
-from .modeling_utils import NeuronModelMixin
+from .modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
+from .transformations_utils import (
+    FusedLinearsSpec,
+    GQAQKVColumnParallelLinearSpecs,
+    ModelWeightTransformationSpec,
+    ModelWeightTransformationSpecs,
+    adapt_state_dict,
+    create_parameter_metadata,
+    to_original_weights,
+)
