@@ -16,9 +16,13 @@
 from typing import Optional
 
 import torch.nn as nn
-from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
 from ...distributed.utils import parallel_cross_entropy
+from ...utils import is_neuronx_distributed_available
+
+
+if is_neuronx_distributed_available():
+    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
 
 _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT: bool = False
