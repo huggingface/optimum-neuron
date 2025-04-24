@@ -50,6 +50,7 @@ from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla
 from ...utils.misc import download_checkpoints_in_cache, is_main_worker, is_precompilation
 from .transformations_utils import (
     adapt_state_dict,
+    create_parameter_metadata,
     set_module_names_in_transformation_specs,
 )
 
@@ -62,10 +63,16 @@ else:
     def checkpoint(*args, **kwargs):
         pass
 
+
 if is_neuronx_distributed_available():
     import neuronx_distributed
     from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
     from neuronx_distributed.parallel_layers.layers import BaseParallelLinear
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_data_parallel_rank,
+        get_pipeline_model_parallel_rank,
+        get_tensor_model_parallel_rank,
+    )
     from neuronx_distributed.parallel_layers.utils import get_local_world_size, move_model_to_device
 else:
     # This is a placeholder for the nki_flash_attn_func function for doc building.
@@ -574,6 +581,7 @@ class NeuronModelMixin:
     ):
         if is_precompilation():
             return
+
         if is_main_process == "auto":
             is_main_process = is_main_worker()
 
@@ -632,6 +640,26 @@ class NeuronModelMixin:
         # Unset attn implementation so it can be set to another one when loading back
         model_to_save.config._attn_implementation_autoset = False
 
+        # Save the model
+        neuronx_distributed.trainer.save_checkpoint(
+            save_directory.as_posix(),
+            tag=MODEL_PARALLEL_SHARDS_DIR_NAME,
+            model=model_to_save,
+            optimizer=optimizer,
+            use_xser=self.mp_config.use_xser,
+            async_save=self.mp_config.async_save,
+            num_workers=self.mp_config.num_local_ranks_per_step,
+        )
+
+        # Save the metadata required to consolidate the checkpoints properly.
+        if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
+            metadata = create_parameter_metadata(model_to_save)
+            pp_rank = get_pipeline_model_parallel_rank()
+            metadata_path = save_directory / MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.json"
+            metadata_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(metadata_path, "w") as f:
+                f.write(json.dumps(metadata, indent=4))
+
         # Save the config
         if is_main_process:
             if not _hf_peft_config_loaded:
@@ -684,22 +712,3 @@ class NeuronModelMixin:
                 if isinstance(mp_config_data["checkpoint_dir"], Path):
                     mp_config_data["checkpoint_dir"] = mp_config_data["checkpoint_dir"].as_posix()
                 f.write(json.dumps(mp_config_data, indent=4))
-
-        # Saving the metadata required to consolidate the checkpoints properly.
-        if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
-            metadata = create_parameter_metadata(model_to_save)
-            pp_rank = get_pipeline_model_parallel_rank()
-            metadata_path = save_directory / MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.json"
-            metadata_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(metadata_path, "w") as f:
-                f.write(json.dumps(metadata, indent=4))
-
-        neuronx_distributed.trainer.save_checkpoint(
-            save_directory.as_posix(),
-            tag=MODEL_PARALLEL_SHARDS_DIR_NAME,
-            model=self,
-            optimizer=optimizer,
-            use_xser=self.mp_config.use_xser,
-            async_save=self.mp_config.async_save,
-            num_workers=self.mp_config.num_local_ranks_per_step,
-        )
