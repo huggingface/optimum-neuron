@@ -17,16 +17,8 @@
 from functools import partial
 from typing import List, Optional, Tuple, Union
 
-import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
 import torch
 import torch.utils.checkpoint
-from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
-from neuronx_distributed.parallel_layers.layers import (
-    ColumnParallelLinear,
-    ParallelEmbedding,
-    RowParallelLinear,
-)
-from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 from torch import nn
 from torch_xla.utils.checkpoint import checkpoint
 from transformers.activations import ACT2FN
@@ -59,6 +51,7 @@ from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from transformers.utils import logging
 
 from ....accelerate import ModelParallelismConfig
+from ....utils import is_neuronx_distributed_available
 from ..loss_utils import ForCausalLMLoss
 from ..modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
 from ..transformations_utils import (
@@ -66,6 +59,16 @@ from ..transformations_utils import (
     GQAQKVColumnParallelLinearSpecs,
     ModelWeightTransformationSpecs,
 )
+
+if is_neuronx_distributed_available():
+    import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
+    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
+    from neuronx_distributed.parallel_layers.layers import (
+        ColumnParallelLinear,
+        ParallelEmbedding,
+        RowParallelLinear,
+    )
+    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
 
 logger = logging.get_logger(__name__)

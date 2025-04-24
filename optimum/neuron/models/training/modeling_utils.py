@@ -480,7 +480,6 @@ class NeuronModelMixin:
                     with safe_open(filename, framework="pt", device="cpu") as fp:
                         weight_map = dict.fromkeys(fp.keys(), filename)
 
-                state_dict = {}
                 for weight_name, filename in weight_map.items():
                     with safe_open(filename, framework="pt", device="cpu") as fp:
                         state_dict[weight_name] = fp.get_tensor(weight_name)
@@ -524,23 +523,25 @@ class NeuronModelMixin:
                 # This is this name that will be saved and used when re-loading the model.
                 set_module_names_in_transformation_specs(model)
 
-            # It is important to initialize modules that are not in the state dict.
-            if _fast_init:
-                # We call "set_initialized_submodules" twice:
-                # One with `model_to_load` to handle the base submodules from the state dict
-                # And one with `model`, which should contain anything that is not in the base model
-                not_initialized_submodules = set_initialized_submodules(model_to_load, state_dict.keys())
-                if model is not model_to_load:
-                    not_initialized_submodules.update(set_initialized_submodules(model, state_dict.keys()))
-                for name, mod in not_initialized_submodules.items():
-                    if getattr(mod, "_is_hf_initialized", False):
-                        # It means that it was set as initialized by the first `set_initialized_submodules`, we can
-                        # skip.
-                        continue
-                    elif isinstance(mod, BaseParallelLinear):
-                        mod.initialize_weight_and_bias()
-                    print(f"Initializing {name} with default weights")
-                    model._initialize_weights(mod)
+                # It is important to initialize modules that are not in the state dict.
+                if _fast_init:
+                    # We call "set_initialized_submodules" twice:
+                    # One with `model_to_load` to handle the base submodules from the state dict
+                    # And one with `model`, which should contain anything that is not in the base model.
+                    not_initialized_submodules = set_initialized_submodules(model_to_load, state_dict.keys())
+                    if model is not model_to_load:
+                        not_initialized_submodules.update(set_initialized_submodules(model, state_dict.keys()))
+                    for name, mod in not_initialized_submodules.items():
+                        if getattr(mod, "_is_hf_initialized", False):
+                            # It means that it was set as initialized by the first `set_initialized_submodules`, we can
+                            # skip.
+                            continue
+                        else:
+                            logger.debug(f"Initializing {name} with default weights")
+                            if isinstance(mod, BaseParallelLinear):
+                                mod.initialize_weight_and_bias()
+                            else:
+                                model._initialize_weights(mod)
 
             xm.rendezvous(f"load_state_dict_{worker}")
 
