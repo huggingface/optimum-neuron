@@ -12,14 +12,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""LlaMa model implementation for Neuron"""
+"""LlaMa model implementation for Neuron."""
 
 from functools import partial
 from typing import Callable, List, Optional, Tuple, Union
 
-import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
 import torch
+from torch import nn
 import torch.utils.checkpoint
+import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
 from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
@@ -27,7 +28,6 @@ from neuronx_distributed.parallel_layers.layers import (
     RowParallelLinear,
 )
 from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
-from torch import nn
 from torch_xla.utils.checkpoint import checkpoint
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
@@ -105,7 +105,7 @@ class LlamaMLP(LlamaMLPHF):
                 fused_linear_name="gate_up_proj",
                 linear_names=["gate_proj", "up_proj"],
                 bias=False,
-                fuse_axis=0,
+                fuse_axis="column",
                 original_dims=[self.intermediate_size] * 2,
             )
         )
@@ -249,15 +249,6 @@ class LlamaAttention(LlamaAttentionHF):
             )
             self.specs.add_spec(gqa_qkv_specs)
         elif mp_config.fuse_qkv and self.num_heads == self.num_key_value_heads:
-            self.specs.add_spec(
-                FusedLinearsSpec(
-                    fused_linear_name="qkv_proj",
-                    linear_names=["q_proj", "k_proj", "v_proj"],
-                    bias=False,
-                    fuse_axis=0,
-                    original_dims=[self.num_heads * self.head_dim] * 3,
-                )
-            )
             self.qkv_proj = ColumnParallelLinear(
                 self.hidden_size,
                 3 * self.num_heads * self.head_dim,
@@ -268,6 +259,15 @@ class LlamaAttention(LlamaAttentionHF):
                 sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
                 sequence_dimension=0,
                 dtype=self.config.torch_dtype,
+            )
+            self.specs.add_spec(
+                FusedLinearsSpec(
+                    fused_linear_name="qkv_proj",
+                    linear_names=["q_proj", "k_proj", "v_proj"],
+                    bias=False,
+                    fuse_axis="column",
+                    original_dims=[self.num_heads * self.head_dim] * 3,
+                )
             )
             self.split_size = self.num_heads * self.head_dim // tp_size
         else:
@@ -359,7 +359,6 @@ class LlamaAttention(LlamaAttentionHF):
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
-        attention_interface: Callable = eager_attention_forward
         if self.config._attn_implementation == "flash_attention_2":
             attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
             attn_output = attention_interface(
@@ -373,15 +372,15 @@ class LlamaAttention(LlamaAttentionHF):
             )
             attn_weights = None
         else:
-            attn_output, attn_weights = attention_interface(
+            attn_output, attn_weights = eager_attention_forward(
                 self,
                 query_states,
                 key_states,
                 value_states,
-                attention_mask,  # It is `None` in this case compared to the original implementation
+                attention_mask,
                 self.scaling,
                 dropout=0.0 if not self.training else self.attention_dropout,
-                causal=False,
+                causal=False, # For now we do not enabled this because it cannot handle padding.
                 **kwargs,
             )
 
@@ -393,9 +392,6 @@ class LlamaAttention(LlamaAttentionHF):
             attn_output = attn_output.reshape(bsz, q_len, self.hidden_size // get_tensor_model_parallel_size())
 
         attn_output = self.o_proj(attn_output)
-
-        # import torch_xla.core.xla_model as xm
-        # xm.mark_step()
 
         return attn_output, attn_weights
 
@@ -415,48 +411,6 @@ class LlamaDecoderLayer(LlamaDecoderLayerHF):
         self.post_attention_layernorm = LlamaRMSNorm(
             config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=mp_config.sequence_parallel_enabled
         )
-
-    def forward(
-        self,
-        hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Cache] = None,
-        output_attentions: Optional[bool] = False,
-        use_cache: Optional[bool] = False,
-        cache_position: Optional[torch.LongTensor] = None,
-        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
-        **kwargs: Unpack[FlashAttentionKwargs],
-    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
-        residual = hidden_states
-
-        hidden_states = self.input_layernorm(hidden_states)
-
-        # Self Attention
-        hidden_states, self_attn_weights = self.self_attn(
-            hidden_states=hidden_states,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_value=past_key_value,
-            output_attentions=output_attentions,
-            use_cache=use_cache,
-            cache_position=cache_position,
-            position_embeddings=position_embeddings,
-            **kwargs,
-        )
-        hidden_states = residual + hidden_states
-
-        # Fully Connected
-        residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
-        hidden_states = self.mlp(hidden_states)
-        hidden_states = residual + hidden_states
-
-        outputs = (hidden_states,)
-        if output_attentions:
-            outputs += (self_attn_weights,)
-
-        return outputs
 
 
 class LlamaModel(NeuronModelMixin, LlamaModelHF):
@@ -488,62 +442,6 @@ class LlamaModel(NeuronModelMixin, LlamaModelHF):
 
         # Initialize weights and apply final processing
         self.post_init()
-
-    @staticmethod
-    def _prepare_4d_causal_attention_mask_with_cache_position(
-        attention_mask: torch.Tensor,
-        sequence_length: int,
-        target_length: int,
-        dtype: torch.dtype,
-        device: torch.device,
-        cache_position: torch.Tensor,
-        batch_size: int,
-        **kwargs,
-    ):
-        """
-        Creates a causal 4D mask of shape `(batch_size, 1, query_length, key_value_length)` from a 2D mask of shape
-        `(batch_size, key_value_length)`, or if the input `attention_mask` is already 4D, do nothing.
-
-        Args:
-            attention_mask (`torch.Tensor`):
-                A 2D attention mask of shape `(batch_size, key_value_length)` or a 4D attention mask of shape
-                `(batch_size, 1, query_length, key_value_length)`.
-            sequence_length (`int`):
-                The sequence length being processed.
-            target_length (`int`):
-                The target length: when generating with static cache, the mask should be as long as the static cache,
-                to account for the 0 padding, the part of the cache that is not filled yet.
-            dtype (`torch.dtype`):
-                The dtype to use for the 4D attention mask.
-            device (`torch.device`):
-                The device to plcae the 4D attention mask on.
-            cache_position (`torch.Tensor`):
-                Indices depicting the position of the input sequence tokens in the sequence.
-            batch_size (`torch.Tensor`):
-                Batch size.
-        """
-        if attention_mask is not None and attention_mask.dim() == 4:
-            # In this case we assume that the mask comes already in inverted form and requires no inversion or slicing.
-            causal_mask = attention_mask
-        else:
-            min_dtype = torch.finfo(dtype).min
-            causal_mask = torch.full(
-                (sequence_length, target_length), fill_value=min_dtype, dtype=dtype, device=device
-            )
-            if sequence_length != 1:
-                causal_mask = torch.triu(causal_mask, diagonal=1)
-            causal_mask *= torch.arange(target_length, device=device) > cache_position.reshape(-1, 1)
-            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            if attention_mask is not None:
-                causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-                mask_length = attention_mask.shape[-1]
-                padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :]
-                padding_mask = padding_mask == 0
-                causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
-                    padding_mask, min_dtype
-                )
-
-        return causal_mask
 
     def _update_causal_mask(
         self,
@@ -730,9 +628,6 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaForCausalLMHF):
         )
 
         self.vocab_size = config.vocab_size // get_tensor_model_parallel_size()
-
-        # Initialize weights and apply final processing
-        self.post_init()
 
         # Initialize weights and apply final processing
         self.post_init()

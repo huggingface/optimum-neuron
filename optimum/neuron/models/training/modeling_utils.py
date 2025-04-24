@@ -119,9 +119,15 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
     fused_linear_name: str
     linear_names: list[str]
     bias: bool
-    fuse_axis: int
+    fuse_axis: Union[Literal[0], Literal[1], Literal["column"], Literal["row"]]
     original_dims: list[int]
     tp_size: int = field(default_factory=get_tensor_model_parallel_size)
+
+    def __post_init__(self):
+        if self.fuse_axis == "column":
+            self.fuse_axis = 0
+        elif self.fuse_axis == "row":
+            self.fuse_axis = 1
 
     def adapt_state_dict(
         self,
