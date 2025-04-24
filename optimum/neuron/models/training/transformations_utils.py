@@ -31,7 +31,7 @@ if is_neuronx_distributed_available():
     )
 else:
     # We define this dummy function in case we do not have neuronx_distributed, for instance when building the docs.
-    def get_tensor_model_parallel_rank():
+    def get_tensor_model_parallel_size():
         return 0
 
 
