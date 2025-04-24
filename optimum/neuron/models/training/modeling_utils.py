@@ -57,6 +57,10 @@ from .transformations_utils import (
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
     from torch_xla.utils.checkpoint import checkpoint
+else:
+    # This is a placeholder for the checkpoint function for doc building.
+    def checkpoint(*args, **kwargs):
+        pass
 
 if is_neuronx_distributed_available():
     import neuronx_distributed
@@ -682,13 +686,13 @@ class NeuronModelMixin:
                 f.write(json.dumps(mp_config_data, indent=4))
 
         # Saving the metadata required to consolidate the checkpoints properly.
-        # if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
-        #     metadata = create_parameter_metadata(model_to_save)
-        #     pp_rank = get_pipeline_model_parallel_rank()
-        #     metadata_path = save_directory / MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.json"
-        #     metadata_path.parent.mkdir(parents=True, exist_ok=True)
-        #     with open(metadata_path, "w") as f:
-        #         f.write(json.dumps(metadata, indent=4))
+        if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
+            metadata = create_parameter_metadata(model_to_save)
+            pp_rank = get_pipeline_model_parallel_rank()
+            metadata_path = save_directory / MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.json"
+            metadata_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(metadata_path, "w") as f:
+                f.write(json.dumps(metadata, indent=4))
 
         neuronx_distributed.trainer.save_checkpoint(
             save_directory.as_posix(),
