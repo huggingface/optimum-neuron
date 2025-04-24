@@ -211,7 +211,7 @@ def consolidate_tensor_parallel_checkpoints(
     load_function: Callable[[Union[str, Path]], Dict[str, Any]],
     metadata: Dict[str, Any],
 ) -> Dict[str, "torch.Tensor"]:
-    from ..models.training.modeling_utils import ModelWeightTransformationSpecs, to_original_weights
+    from ..models.training import ModelWeightTransformationSpecs, to_original_weights
 
     state_dicts = []
     sharded_checkpoints = sorted(sharded_checkpoints)

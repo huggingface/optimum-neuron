@@ -113,8 +113,8 @@ class TestCommonDistributed(DistributedTest):
     # Anything related to PP seems broken because of the way the model is traced.
     @pytest.fixture(
         scope="class",
-        params=[[2, 1, 1], [2, 2, 1], # , [2, 1, 2]],
-        ids=["dp=2", "tp=2"], # "pp=2"],
+        params=[[2, 1, 1], [2, 2, 1]],  # , [2, 1, 2]],
+        ids=["dp=2", "tp=2"],  # "pp=2"],
     )
     def parallel_sizes(self, request):
         return request.param
@@ -529,7 +529,6 @@ class TestCommonDistributed(DistributedTest):
         )
         custom_model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, mp_config)
         custom_model.save_pretrained(tmpdir / "custom_model")
-        print("Custom model", custom_model)
 
         xm.rendezvous("Saving done.")
 

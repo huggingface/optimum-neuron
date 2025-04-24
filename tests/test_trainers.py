@@ -60,8 +60,8 @@ class TestNeuronTrainingUtils(DistributedTest):
     @pytest.fixture(
         scope="class",
         # Anything related to PP seems broken because of the way the model is traced.
-        params=[[2, 1, 1], [2, 2, 1]] #, [2, 1, 2]],  # , [32, 2, 2]],
-        ids=["dp=2", "tp=2"] # , "pp=2"],  # , "dp=8,tp=pp=2"],
+        params=[[2, 1, 1], [2, 2, 1]],  # , [2, 1, 2]],  # , [32, 2, 2]],
+        ids=["dp=2", "tp=2"],  # , "pp=2"],  # , "dp=8,tp=pp=2"],
     )
     def parallel_sizes(self, request):
         return request.param
