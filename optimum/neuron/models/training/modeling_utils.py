@@ -50,7 +50,6 @@ from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla
 from ...utils.misc import download_checkpoints_in_cache, is_main_worker, is_precompilation
 from .transformations_utils import (
     adapt_state_dict,
-    create_parameter_metadata,
     set_module_names_in_transformation_specs,
 )
 
@@ -63,12 +62,11 @@ if is_neuronx_distributed_available():
     import neuronx_distributed
     from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
     from neuronx_distributed.parallel_layers.layers import BaseParallelLinear
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_data_parallel_rank,
-        get_pipeline_model_parallel_rank,
-        get_tensor_model_parallel_rank,
-    )
     from neuronx_distributed.parallel_layers.utils import get_local_world_size, move_model_to_device
+else:
+    # This is a placeholder for the nki_flash_attn_func function for doc building.
+    def nki_flash_attn_func(*args, **kwargs):
+        pass
 
 
 logger = logging.get_logger(__name__)
@@ -684,13 +682,13 @@ class NeuronModelMixin:
                 f.write(json.dumps(mp_config_data, indent=4))
 
         # Saving the metadata required to consolidate the checkpoints properly.
-        if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
-            metadata = create_parameter_metadata(model_to_save)
-            pp_rank = get_pipeline_model_parallel_rank()
-            metadata_path = save_directory / MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.json"
-            metadata_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(metadata_path, "w") as f:
-                f.write(json.dumps(metadata, indent=4))
+        # if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
+        #     metadata = create_parameter_metadata(model_to_save)
+        #     pp_rank = get_pipeline_model_parallel_rank()
+        #     metadata_path = save_directory / MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.json"
+        #     metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        #     with open(metadata_path, "w") as f:
+        #         f.write(json.dumps(metadata, indent=4))
 
         neuronx_distributed.trainer.save_checkpoint(
             save_directory.as_posix(),
