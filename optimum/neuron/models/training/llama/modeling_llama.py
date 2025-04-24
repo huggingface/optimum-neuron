@@ -20,7 +20,6 @@ from typing import List, Optional, Tuple, Union
 import torch
 import torch.utils.checkpoint
 from torch import nn
-from torch_xla.utils.checkpoint import checkpoint
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
@@ -51,7 +50,7 @@ from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from transformers.utils import logging
 
 from ....accelerate import ModelParallelismConfig
-from ....utils import is_neuronx_distributed_available
+from ....utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..loss_utils import ForCausalLMLoss
 from ..modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
 from ..transformations_utils import (
@@ -59,6 +58,9 @@ from ..transformations_utils import (
     GQAQKVColumnParallelLinearSpecs,
     ModelWeightTransformationSpecs,
 )
+
+if is_torch_xla_available():
+    from torch_xla.utils.checkpoint import checkpoint
 
 if is_neuronx_distributed_available():
     import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
