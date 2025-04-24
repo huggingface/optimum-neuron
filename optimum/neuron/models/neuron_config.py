@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
+# Copyright 2025 The HuggingFace Inc. team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,11 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Model specific Neuron configurations."""
+# This file is used by the NeuronConfig create method to register the model configurations
 
-from ....neuron.utils.import_utils import is_neuronx_available
-from .traced_configs import *
-
-
-if is_neuronx_available():
-    from .decoder_configs import *
+from .inference.hlo.backend.config import HloNeuronConfig  # noqa F401
+from .training.config import TrainingNeuronConfig  # noqa F401

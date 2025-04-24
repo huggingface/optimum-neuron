@@ -16,7 +16,7 @@
 
 from transformers.models.qwen2 import Qwen2Config
 
-from .....backends.hlo import module
+from ..backend import module
 from ..llama.modules import LlamaMLP, LlamaRMSNorm
 
 

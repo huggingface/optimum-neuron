@@ -251,7 +251,6 @@ def parse_args_neuronx(parser: "ArgumentParser"):
     input_group.add_argument(
         "--num_beams",
         type=int,
-        default=1,
         help=f"Number of beams for beam search {doc_input}",
     )
     input_group.add_argument(
@@ -287,7 +286,6 @@ def parse_args_neuronx(parser: "ArgumentParser"):
     input_group.add_argument(
         "--num_images_per_prompt",
         type=int,
-        default=1,
         help=f"Stable diffusion only. Number of images per prompt {doc_input}",
     )
     input_group.add_argument(

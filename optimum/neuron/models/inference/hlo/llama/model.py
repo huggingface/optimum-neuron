@@ -15,8 +15,9 @@
 # ==============================================================================
 
 
-from .....backends.hlo.decoder import NeuronHloDecoderModel
-from .....backends.hlo.dtypes import to_torch_dtype
+from ..backend.decoder import NeuronHloDecoderModel
+from ..backend.dtypes import to_torch_dtype
+from ..backend.modeling_decoder import HloModelForCausalLM
 from .hlo import LlamaGraphBuilder
 from .modules import LlamaForCausalLM
 
@@ -93,3 +94,32 @@ class LlamaHloModel(NeuronHloDecoderModel):
 
         self.decoder_lm_head_for_context.load_shared_weights(self.decoder_lm_head)
         self.decoder_lm_head_for_context.use_executor = True
+
+
+class LlamaHloModelForCausalLM(HloModelForCausalLM):
+    """LlamaHloModelForCausalLM is a wrapper around LlamaHloModel for causal language modeling tasks.
+
+    It inherits from HloModelForCausalLM and provides the specific export configuration for Llama models.
+    """
+
+    neuron_model_class = LlamaHloModel
+
+    @classmethod
+    def _get_neuron_config(
+        cls,
+        checkpoint_id: str,
+        checkpoint_revision: str,
+        batch_size: int,
+        sequence_length: int,
+        auto_cast_type: str,
+        tensor_parallel_size: int,
+    ):
+        return HloModelForCausalLM._get_neuron_config(
+            checkpoint_id=checkpoint_id,
+            checkpoint_revision=checkpoint_revision,
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            tensor_parallel_size=tensor_parallel_size,
+            auto_cast_type=auto_cast_type,
+            attention_layout="BSH",  # TODO: check why this differs from others
+        )

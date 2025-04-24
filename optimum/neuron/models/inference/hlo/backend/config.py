@@ -18,7 +18,7 @@ from typing import Optional
 
 import torch
 
-from ...configuration_utils import NeuronConfig, register_neuron_config
+from .....configuration_utils import NeuronConfig, register_neuron_config
 
 
 class Layout(enum.Enum):

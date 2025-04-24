@@ -34,6 +34,7 @@ from optimum.exporters.tasks import TasksManager
 from optimum.utils import is_diffusers_available, logging
 from optimum.utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
 
+from ...neuron.models.auto_model import get_neuron_model_class, has_neuron_model_class
 from ...neuron.utils import (
     DECODER_NAME,
     DIFFUSION_MODEL_CONTROLNET_NAME,
@@ -76,7 +77,6 @@ if is_neuron_available():
 
 if is_neuronx_available():
     from ...commands.export.neuronx import parse_args_neuronx as parse_args_neuron  # noqa: F811
-    from .model_configs import NeuronDecoderExportConfig
 
     NEURON_COMPILER = "Neuronx"
 
@@ -109,28 +109,25 @@ def infer_compiler_kwargs(args: argparse.Namespace) -> Dict[str, Any]:
     return compiler_kwargs
 
 
-def infer_task(task: str, model_name_or_path: str) -> str:
-    if task == "auto":
-        try:
-            task = TasksManager.infer_task_from_model(model_name_or_path)
-        except KeyError as e:
-            raise KeyError(
-                "The task could not be automatically inferred. Please provide the argument --task with the task "
-                f"from {', '.join(TasksManager.get_all_tasks())}. Detailed error: {e}"
-            )
-        except RequestsConnectionError as e:
-            raise RequestsConnectionError(
-                f"The task could not be automatically inferred as this is available only for models hosted on the Hugging Face Hub. Please provide the argument --task with the relevant task from {', '.join(TasksManager.get_all_tasks())}. Detailed error: {e}"
-            )
-    return task
+def infer_task(model_name_or_path: str) -> str:
+    try:
+        return TasksManager.infer_task_from_model(model_name_or_path)
+    except KeyError as e:
+        raise KeyError(
+            "The task could not be automatically inferred. Please provide the argument --task with the task "
+            f"from {', '.join(TasksManager.get_all_tasks())}. Detailed error: {e}"
+        )
+    except RequestsConnectionError as e:
+        raise RequestsConnectionError(
+            f"The task could not be automatically inferred as this is available only for models hosted on the Hugging Face Hub. Please provide the argument --task with the relevant task from {', '.join(TasksManager.get_all_tasks())}. Detailed error: {e}"
+        )
 
 
 # This function is not applicable for diffusers / sentence transformers models
-def get_input_shapes_and_config_class(task: str, args: argparse.Namespace) -> Dict[str, int]:
+def get_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int]:
     neuron_config_constructor = get_neuron_config_class(task, args.model)
     input_args = neuron_config_constructor.func.get_input_args_for_task(task)
-    input_shapes = {name: getattr(args, name) for name in input_args}
-    return input_shapes, neuron_config_constructor.func
+    return {name: getattr(args, name) for name in input_args}
 
 
 def get_neuron_config_class(task: str, model_id: str) -> NeuronExportConfig:
@@ -693,27 +690,56 @@ def main_export(
             )
 
 
-def decoder_export(
-    model_name_or_path: str,
+def maybe_export_from_neuron_model_class(
+    model: str,
     output: Union[str, Path],
-    trust_remote_code: Optional[bool] = None,
+    task: str = "auto",
+    cache_dir: Optional[str] = None,
+    subfolder: str = "",
+    trust_remote_code: bool = False,
     **kwargs,
 ):
-    from ...neuron import NeuronModelForCausalLM
-
+    """Export the model from the neuron model class if it exists."""
+    if task == "auto":
+        task = infer_task(model)
     output = Path(output)
+    # Remove None values from the kwargs
+    kwargs = {key: value for key, value in kwargs.items() if value is not None}
+    # Also remove some arguments that are not supported in this context
+    kwargs.pop("disable_neuron_cache", None)
+    kwargs.pop("inline_weights_neff", None)
+    kwargs.pop("O1", None)
+    kwargs.pop("O2", None)
+    kwargs.pop("O3", None)
+    kwargs.pop("disable_validation", None)
+    kwargs.pop("dynamic_batch_size", None)
+    kwargs.pop("output_hidden_states", None)
+    kwargs.pop("output_attentions", None)
+    kwargs.pop("tensor_parallel_size", None)
+    # Fetch the model config
+    config = AutoConfig.from_pretrained(model)
+    # Check if we have an auto-model class for the model_type and task
+    if not has_neuron_model_class(model_type=config.model_type, task=task, mode="inference"):
+        return False
+    neuron_model_class = get_neuron_model_class(model_type=config.model_type, task=task, mode="inference")
+    neuron_model = neuron_model_class.from_pretrained(
+        model_id=model,
+        export=True,
+        cache_dir=cache_dir,
+        subfolder=subfolder,
+        config=config,
+        trust_remote_code=trust_remote_code,
+        **kwargs,
+    )
     if not output.parent.exists():
         output.parent.mkdir(parents=True)
-
-    model = NeuronModelForCausalLM.from_pretrained(
-        model_name_or_path, export=True, trust_remote_code=trust_remote_code, **kwargs
-    )
-    model.save_pretrained(output)
+    neuron_model.save_pretrained(output)
     try:
-        tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, trust_remote_code=trust_remote_code)
+        tokenizer = AutoTokenizer.from_pretrained(model, trust_remote_code=trust_remote_code)
         tokenizer.save_pretrained(output)
     except Exception:
-        logger.warning(f"No tokenizer found while exporting {model_name_or_path}.")
+        logger.info(f"No tokenizer found while exporting {model}.")
+    return True
 
 
 def main():
@@ -724,7 +750,7 @@ def main():
     # Retrieve CLI arguments
     args = parser.parse_args()
 
-    task = infer_task(args.task, args.model)
+    task = infer_task(args.model) if args.task == "auto" else args.task
     library_name = TasksManager.infer_library_from_model(args.model, cache_dir=args.cache_dir)
 
     if library_name == "diffusers":
@@ -734,23 +760,12 @@ def main():
         input_shapes = normalize_sentence_transformers_input_shapes(args)
         submodels = None
     else:
-        input_shapes, neuron_config_class = get_input_shapes_and_config_class(task, args)
-        if NeuronDecoderExportConfig in inspect.getmro(neuron_config_class):
-            # TODO: warn about ignored args:
-            # dynamic_batch_size, compiler_workdir, optlevel,
-            # atol, disable_validation, library_name
-            decoder_export(
-                model_name_or_path=args.model,
-                output=args.output,
-                task=task,
-                cache_dir=args.cache_dir,
-                trust_remote_code=args.trust_remote_code,
-                subfolder=args.subfolder,
-                auto_cast_type=args.auto_cast_type,
-                num_cores=args.num_cores,
-                **input_shapes,
-            )
+        # New export mode using dedicated neuron model classes
+        kwargs = vars(args).copy()
+        if maybe_export_from_neuron_model_class(**kwargs):
             return
+        # Fallback to legacy export
+        input_shapes = get_input_shapes(task, args)
         submodels = None
 
     disable_neuron_cache = args.disable_neuron_cache

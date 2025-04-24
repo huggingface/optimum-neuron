@@ -241,6 +241,9 @@ class NeuronConfig(PushToHubMixin):
         # Retrieve neuron config class from serialized key
         _serialized_key = config_dict.pop("_serialized_key")
         if cls is NeuronConfig:
+            # Force the registration of the neuron configuration classes
+            from .models import neuron_config  # noqa F401
+
             # We need to identify the actual neuron configuration class for this serialized key
             if _serialized_key is None:
                 raise ValueError("Neuron configuration is invalid: unable to identify the serialized key")

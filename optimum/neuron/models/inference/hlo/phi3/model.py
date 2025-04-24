@@ -16,8 +16,9 @@
 import torch
 from transformers import PretrainedConfig
 
-from .....backends.hlo.config import HloNeuronConfig
-from .....backends.hlo.dtypes import to_torch_dtype
+from ..backend.config import HloNeuronConfig
+from ..backend.dtypes import to_torch_dtype
+from ..backend.modeling_decoder import HloModelForCausalLM
 from ..llama.model import LlamaHloModel
 from .modules import Phi3ForCausalLM
 
@@ -89,3 +90,32 @@ class Phi3HloModel(LlamaHloModel):
 
         self.decoder_lm_head_for_context.load_shared_weights(self.decoder_lm_head)
         self.decoder_lm_head_for_context.use_executor = True
+
+
+class Phi3HloModelForCausalLM(HloModelForCausalLM):
+    """Phi3HloModelForCausalLM is a wrapper around Phi3HloModel for causal language modeling tasks.
+
+    It inherits from HloModelForCausalLM and provides the specific export configuration for phi3 models.
+    """
+
+    neuron_model_class = Phi3HloModel
+
+    @classmethod
+    def _get_neuron_config(
+        cls,
+        checkpoint_id: str,
+        checkpoint_revision: str,
+        batch_size: int,
+        sequence_length: int,
+        auto_cast_type: str,
+        tensor_parallel_size: int,
+    ):
+        return HloModelForCausalLM._get_neuron_config(
+            checkpoint_id=checkpoint_id,
+            checkpoint_revision=checkpoint_revision,
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            tensor_parallel_size=tensor_parallel_size,
+            auto_cast_type=auto_cast_type,
+            allow_flash_attention=False,  # Phi3 does not support flash attention
+        )
