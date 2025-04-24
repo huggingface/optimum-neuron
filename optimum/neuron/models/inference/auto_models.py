@@ -24,6 +24,7 @@ from .hlo.granite.model import GraniteHloModelForCausalLM
 from .hlo.llama.model import LlamaHloModelForCausalLM
 from .hlo.phi3.model import Phi3HloModelForCausalLM
 from .hlo.qwen2.model import Qwen2HloModelForCausalLM
+from .nxd.mixtral.modeling_mixtral import MixtralNxDModelForCausalLM
 
 
 def register_neuron_model_for_inference(model_type: str, task: str):
@@ -64,6 +65,15 @@ class Phi3ModelForCausalLM(Phi3HloModelForCausalLM):
 class Qwen2ModelForCausalLM(Qwen2HloModelForCausalLM):
     """
     Qwen2 model with HLO backend for inference on AWS Neuron.
+    """
+
+    pass
+
+
+@register_neuron_model_for_inference("mixtral", "text-generation")
+class MixtralNeuronModelForCausalLM(MixtralNxDModelForCausalLM):
+    """
+    Mixtral model with NxD backend for inference on AWS Neuron.
     """
 
     pass
