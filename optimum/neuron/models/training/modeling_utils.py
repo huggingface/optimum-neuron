@@ -25,7 +25,6 @@ from typing import Callable, Dict, Literal, Optional, Type, Union
 
 import torch
 from safetensors import safe_open
-from torch_xla.utils.checkpoint import checkpoint
 from transformers import PretrainedConfig
 from transformers.modeling_utils import (
     SpecificPreTrainedModelType,
@@ -58,6 +57,7 @@ from .transformations_utils import (
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+    from torch_xla.utils.checkpoint import checkpoint
 
 if is_neuronx_distributed_available():
     import neuronx_distributed
