@@ -13,5 +13,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .model import NeuronLoraModel
 from .layer import NEURON_LORA_MODULES
+from .model import NeuronLoraModel

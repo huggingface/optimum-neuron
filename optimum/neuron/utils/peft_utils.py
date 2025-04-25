@@ -16,7 +16,6 @@
 
 import collections
 import functools
-import inspect
 import os
 import warnings
 from dataclasses import asdict
@@ -24,7 +23,6 @@ from pathlib import Path
 from typing import Any, List, Optional, Tuple, Union
 
 import torch
-from transformers import PreTrainedModel
 
 from .import_utils import is_peft_available
 from .patching import Patcher, replace_class_in_inheritance_hierarchy
@@ -87,21 +85,6 @@ def get_peft_model_state_dict(*args, **kwargs):
 
 
 class NeuronPeftModel(PeftModel):
-    def __init__(
-        self,
-        model: PreTrainedModel,
-        peft_config: PeftConfig,
-        adapter_name: str = "default",
-        autocast_adapter_dtype: bool = True,
-        low_cpu_mem_usage: bool = False,
-    ) -> None:
-        self.is_custom_modeling = inspect.getmodule(model.__class__).__name__.startswith(
-            "optimum.neuron.models.training"
-        )
-        if self.is_custom_modeling:
-            print("zazou", peft_config)
-        return super().__init__(model, peft_config, adapter_name, autocast_adapter_dtype, low_cpu_mem_usage)
-
     @requires_neuronx_distributed
     @requires_safetensors
     def save_pretrained(

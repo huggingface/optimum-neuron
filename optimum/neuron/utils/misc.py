@@ -640,3 +640,12 @@ def map_torch_dtype(dtype: Union[str, torch.dtype]):
         dtype = dtype_mapping.get(dtype)
 
     return dtype
+
+
+def is_custom_modeling_model(model) -> bool:
+    from peft import PeftModel
+
+    model_to_consider = model
+    if isinstance(model, PeftModel):
+        model_to_consider = model.get_base_model()
+    return inspect.getmodule(model_to_consider.__class__).__name__.startswith("optimum.neuron.models.training")
