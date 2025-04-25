@@ -106,7 +106,7 @@ from .utils.cache_utils import (
     has_write_access_to_repo,
 )
 from .utils.import_utils import is_peft_available
-from .utils.misc import is_main_worker, is_precompilation
+from .utils.misc import is_custom_modeling_model, is_main_worker, is_precompilation
 from .utils.peft_utils import NeuronPeftModel
 from .utils.peft_utils import get_peft_model as old_get_peft_model
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
@@ -1538,7 +1538,7 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
             from peft import PeftConfig, prepare_model_for_kbit_training
 
         # We choose the proper get_peft_model function depending on whether we have a custom modeling or not.
-        if inspect.getmodule(model.__class__).__name__.startswith("optimum.neuron.models.training"):
+        if is_custom_modeling_model(model):
             get_peft_model_func = get_peft_model
         else:
             get_peft_model_func = old_get_peft_model
@@ -1879,7 +1879,7 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
         from trl.trainer.utils import DPODataCollatorWithPadding, disable_dropout_in_model, peft_module_casting_to_bf16
 
         # We choose the proper get_peft_model function depending on whether we have a custom modeling or not.
-        if inspect.getmodule(model.__class__).__name__.startswith("optimum.neuron.models.training"):
+        if is_custom_modeling_model(model):
             get_peft_model_func = get_peft_model
         else:
             get_peft_model_func = old_get_peft_model

@@ -32,4 +32,3 @@ class NeuronLoraModel(LoraModel):
         adapter_config = config[adapter_name]
         adapter_config._register_custom_module(NEURON_LORA_MODULES)
         super().__init__(model, config, adapter_name, low_cpu_mem_usage=low_cpu_mem_usage)
-        

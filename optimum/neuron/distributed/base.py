@@ -16,7 +16,6 @@
 
 import contextlib
 import gc
-import inspect
 import math
 from abc import ABC, abstractclassmethod
 from collections import defaultdict
@@ -30,7 +29,7 @@ from transformers import PreTrainedModel
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
-from ..utils.misc import is_main_worker, is_precompilation
+from ..utils.misc import is_custom_modeling_model, is_main_worker, is_precompilation
 from ..utils.model_utils import (
     get_parent_module_and_param_name_from_fully_qualified_name,
     get_tied_parameters_dict,
@@ -561,7 +560,7 @@ class Parallelizer(ABC):
         model_class = orig_model.__class__
 
         # We skip parallelization if the model is coming from a custom modeling since it is already parallelized.
-        if inspect.getmodule(orig_model.__class__).__name__.startswith("optimum.neuron.models.training"):
+        if is_custom_modeling_model(model):
             return orig_model
 
         if peft_prefix:
