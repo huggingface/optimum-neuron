@@ -93,6 +93,7 @@ from .cache.training import patch_neuron_cc_wrapper
 from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
 from .models.training.modeling_utils import NeuronModelMixin
+from .peft import get_peft_model
 from .training_args import NeuronTrainingArguments
 from .utils import (
     is_torch_xla_available,
@@ -106,7 +107,8 @@ from .utils.cache_utils import (
 )
 from .utils.import_utils import is_peft_available
 from .utils.misc import is_main_worker, is_precompilation
-from .utils.peft_utils import NeuronPeftModel, get_peft_model
+from .utils.peft_utils import NeuronPeftModel
+from .utils.peft_utils import get_peft_model as old_get_peft_model
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils.training_utils import (
     get_model_param_count,
@@ -1535,6 +1537,12 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
         if is_peft_available():
             from peft import PeftConfig, prepare_model_for_kbit_training
 
+        # We choose the proper get_peft_model function depending on whether we have a custom modeling or not.
+        if inspect.getmodule(model.__class__).__name__.startswith("optimum.neuron.models.training"):
+            get_peft_model_func = get_peft_model
+        else:
+            get_peft_model_func = old_get_peft_model
+
         if args is None:
             output_dir = "tmp_trainer"
             warnings.warn(f"No `SFTConfig` passed, using `output_dir={output_dir}`.")
@@ -1626,13 +1634,13 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
                         model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
                 if (
-                    "autocast_adapter_dtype" in list(inspect.signature(get_peft_model).parameters)
+                    "autocast_adapter_dtype" in list(inspect.signature(get_peft_model_func).parameters)
                     and getattr(model, "is_loaded_in_4bit", False)
                     and is_sharded_qlora
                 ):
-                    model = get_peft_model(model, peft_config, autocast_adapter_dtype=False)
+                    model = get_peft_model_func(model, peft_config, autocast_adapter_dtype=False)
                 else:
-                    model = get_peft_model(model, peft_config)
+                    model = get_peft_model_func(model, peft_config)
                 if (
                     args is not None
                     and args.bf16
@@ -1870,6 +1878,12 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
 
         from trl.trainer.utils import DPODataCollatorWithPadding, disable_dropout_in_model, peft_module_casting_to_bf16
 
+        # We choose the proper get_peft_model function depending on whether we have a custom modeling or not.
+        if inspect.getmodule(model.__class__).__name__.startswith("optimum.neuron.models.training"):
+            get_peft_model_func = get_peft_model
+        else:
+            get_peft_model_func = old_get_peft_model
+
         if args.model_init_kwargs is None:
             model_init_kwargs = {}
         elif not isinstance(model, str):
@@ -1934,7 +1948,7 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
                     model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
             # get peft model with the given config
-            model = get_peft_model(model, peft_config)
+            model = get_peft_model_func(model, peft_config)
             if args.bf16 and getattr(model, "is_loaded_in_4bit", False):
                 peft_module_casting_to_bf16(model)
                 # If args.bf16 we need to explicitly call `generate` with torch amp autocast context manager
