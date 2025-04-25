@@ -453,6 +453,7 @@ class NeuronAccelerator(Accelerator):
         # we get access to the model, we simply check if the flags are the best and notify the user otherwise.
         check_neuron_cc_flags_for_model(model)
 
+        print(model)
         if inspect.getmodule(model.__class__).__name__.startswith("optimum.neuron.models.training"):
             # We do not want to use the cache, or output unused tensors as it would imply more communication that we do not
             # need.

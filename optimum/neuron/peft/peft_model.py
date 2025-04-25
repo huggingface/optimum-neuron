@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
+# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Utilities related to the PEFT library and support."""
 
 import collections
 import functools
@@ -26,9 +25,9 @@ from typing import Any, List, Optional, Tuple, Union
 import torch
 from transformers import PreTrainedModel
 
-from .import_utils import is_peft_available
-from .patching import Patcher, replace_class_in_inheritance_hierarchy
-from .require_utils import requires_neuronx_distributed, requires_safetensors
+from ...import_utils import is_peft_available
+from ...patching import Patcher, replace_class_in_inheritance_hierarchy
+from ...require_utils import requires_neuronx_distributed, requires_safetensors
 from .training_utils import _get_model_param_count
 
 
