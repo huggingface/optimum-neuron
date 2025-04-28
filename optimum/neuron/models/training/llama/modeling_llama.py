@@ -15,14 +15,13 @@
 """LlaMa model implementation for Neuron."""
 
 from functools import partial
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 
 import torch
 import torch.utils.checkpoint
 from torch import nn
 from transformers import PreTrainedModel
 from transformers.activations import ACT2FN
-from transformers.cache_utils import Cache, DynamicCache, StaticCache
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import (
     BaseModelOutputWithPast,
@@ -431,8 +430,6 @@ class LlamaAttention(nn.Module):
         hidden_states: torch.Tensor,
         position_embeddings: Tuple[torch.Tensor, torch.Tensor],
         attention_mask: Optional[torch.Tensor],
-        past_key_value: Optional[Cache] = None,
-        cache_position: Optional[torch.LongTensor] = None,
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         if self.mp_config.sequence_parallel_enabled:
@@ -462,11 +459,6 @@ class LlamaAttention(nn.Module):
 
         cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-
-        if past_key_value is not None:
-            # sin and cos are specific to RoPE models; cache_position needed for the static cache
-            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
-            key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
         if self.config._attn_implementation == "flash_attention_2":
             attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
@@ -525,10 +517,7 @@ class LlamaDecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Cache] = None,
         output_attentions: Optional[bool] = False,
-        use_cache: Optional[bool] = False,
-        cache_position: Optional[torch.LongTensor] = None,
         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
@@ -541,10 +530,7 @@ class LlamaDecoderLayer(nn.Module):
             hidden_states=hidden_states,
             attention_mask=attention_mask,
             position_ids=position_ids,
-            past_key_value=past_key_value,
             output_attentions=output_attentions,
-            use_cache=use_cache,
-            cache_position=cache_position,
             position_embeddings=position_embeddings,
             **kwargs,
         )
@@ -570,12 +556,12 @@ class LlamaPreTrainedModel(PreTrainedModel):
     _no_split_modules = ["LlamaDecoderLayer"]
     _skip_keys_device_placement = ["past_key_values"]
     _supports_flash_attn_2 = True
-    _supports_sdpa = True
-    _supports_flex_attn = True
-    _supports_cache_class = True
-    _supports_quantized_cache = True
-    _supports_static_cache = True
-    _supports_attention_backend = True
+    _supports_sdpa = False
+    _supports_flex_attn = False
+    _supports_cache_class = False
+    _supports_quantized_cache = False
+    _supports_static_cache = False
+    _supports_attention_backend = False
 
     def _init_weights(self, module):
         std = self.config.initializer_range
@@ -630,13 +616,11 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         input_ids: torch.LongTensor = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Cache] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-        cache_position: Optional[torch.LongTensor] = None,
         **flash_attn_kwargs: Unpack[FlashAttentionKwargs],
     ) -> Union[Tuple, BaseModelOutputWithPast]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
@@ -658,19 +642,14 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        if use_cache and past_key_values is None:
-            past_key_values = DynamicCache()
-
-        if cache_position is None:
-            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-            current_length = (
-                inputs_embeds.size(0) * self.mp_config.tensor_parallel_size
-                if self.mp_config.sequence_parallel_enabled
-                else inputs_embeds.size(1)
-            )
-            cache_position = torch.arange(
-                past_seen_tokens, past_seen_tokens + current_length, device=inputs_embeds.device
-            )
+        current_length = (
+            inputs_embeds.size(0) * self.mp_config.tensor_parallel_size
+            if self.mp_config.sequence_parallel_enabled
+            else inputs_embeds.size(1)
+        )
+        cache_position = torch.arange(
+            0, current_length, device=inputs_embeds.device
+        )
 
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
@@ -678,7 +657,7 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         # This is not needed since we recompute a causal mask at each attention layer.
         # We keep this in case we want to support custom attention masks in the future.
         causal_mask = self._update_causal_mask(
-            attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
+            attention_mask, inputs_embeds, cache_position
         )
 
         hidden_states = inputs_embeds
@@ -700,10 +679,7 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
                     hidden_states,
                     causal_mask,
                     position_ids,
-                    past_key_values,
                     output_attentions,
-                    use_cache,
-                    cache_position,
                     position_embeddings,
                 )
             else:
@@ -711,10 +687,7 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
                     hidden_states,
                     attention_mask=causal_mask,
                     position_ids=position_ids,
-                    past_key_value=past_key_values,
                     output_attentions=output_attentions,
-                    use_cache=use_cache,
-                    cache_position=cache_position,
                     position_embeddings=position_embeddings,
                     **flash_attn_kwargs,
                 )
@@ -732,7 +705,7 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
 
         output = BaseModelOutputWithPast(
             last_hidden_state=hidden_states,
-            past_key_values=past_key_values if use_cache else None,
+            past_key_values=None,
             hidden_states=all_hidden_states,
             attentions=all_self_attns,
         )
@@ -743,20 +716,11 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         attention_mask: torch.Tensor,
         input_tensor: torch.Tensor,
         cache_position: torch.Tensor,
-        past_key_values: Cache,
-        output_attentions: bool,
     ):
         if self.config._attn_implementation == "flash_attention_2":
             if attention_mask is not None and (attention_mask == 0.0).any():
                 raise RuntimeError(f"Only a causal mask is supported with {self.config._attn_implementation}.")
-                # return attention_mask
             return None
-
-        # For SDPA, when possible, we will rely on its `is_causal` argument instead of its `attn_mask` argument, in
-        # order to dispatch on Flash Attention 2. This feature is not compatible with static cache, as SDPA will fail
-        # to infer the attention mask.
-        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-        using_static_cache = isinstance(past_key_values, StaticCache)
 
         dtype, device = input_tensor.dtype, input_tensor.device
         if self.mp_config.sequence_parallel_enabled:
@@ -764,14 +728,11 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         else:
             sequence_length = input_tensor.shape[1]
 
-        if using_static_cache:
-            target_length = past_key_values.get_max_cache_shape()
-        else:
-            target_length = (
-                attention_mask.shape[-1]
-                if isinstance(attention_mask, torch.Tensor)
-                else past_seen_tokens + sequence_length + 1
-            )
+        target_length = (
+            attention_mask.shape[-1]
+            if isinstance(attention_mask, torch.Tensor)
+            else sequence_length + 1
+        )
 
         # In case the provided `attention` mask is 2D, we generate a causal mask here (4D).
         batch_size = input_tensor.shape[1] if self.mp_config.sequence_parallel_enabled else input_tensor.shape[0]
@@ -798,28 +759,6 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         batch_size: int,
         **kwargs,
     ):
-        """
-        Creates a causal 4D mask of shape `(batch_size, 1, query_length, key_value_length)` from a 2D mask of shape
-        `(batch_size, key_value_length)`, or if the input `attention_mask` is already 4D, do nothing.
-
-        Args:
-            attention_mask (`torch.Tensor`):
-                A 2D attention mask of shape `(batch_size, key_value_length)` or a 4D attention mask of shape
-                `(batch_size, 1, query_length, key_value_length)`.
-            sequence_length (`int`):
-                The sequence length being processed.
-            target_length (`int`):
-                The target length: when generating with static cache, the mask should be as long as the static cache,
-                to account for the 0 padding, the part of the cache that is not filled yet.
-            dtype (`torch.dtype`):
-                The dtype to use for the 4D attention mask.
-            device (`torch.device`):
-                The device to plcae the 4D attention mask on.
-            cache_position (`torch.Tensor`):
-                Indices depicting the position of the input sequence tokens in the sequence.
-            batch_size (`torch.Tensor`):
-                Batch size.
-        """
         if attention_mask is not None and attention_mask.dim() == 4:
             # In this case we assume that the mask comes already in inverted form and requires no inversion or slicing.
             causal_mask = attention_mask
@@ -898,14 +837,11 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
         input_ids: torch.LongTensor = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
         labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-        cache_position: Optional[torch.LongTensor] = None,
         num_logits_to_keep: int = 0,
         **kwargs: Unpack[KwargsForCausalLM],
     ) -> Union[Tuple, CausalLMOutputWithPast]:
@@ -920,13 +856,10 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
             input_ids=input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
-            past_key_values=past_key_values,
             inputs_embeds=inputs_embeds,
-            use_cache=use_cache,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
-            cache_position=cache_position,
             **kwargs,
         )
 
@@ -948,7 +881,7 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
         return CausalLMOutputWithPast(
             loss=loss,
             logits=logits,
-            past_key_values=outputs.past_key_values,
+            past_key_values=None,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
