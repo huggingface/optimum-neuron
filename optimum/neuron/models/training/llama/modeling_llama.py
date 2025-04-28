@@ -38,6 +38,7 @@ from ....utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..loss_utils import ForCausalLMLoss
 from ..modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
 from ..transformations_utils import (
+    CustomModule,
     FusedLinearsSpec,
     GQAQKVColumnParallelLinearSpec,
     ModelWeightTransformationSpecs,
@@ -184,7 +185,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
     return q_embed, k_embed
 
 
-class LlamaMLP(nn.Module):
+class LlamaMLP(nn.Module, CustomModule):
     def __init__(self, config, mp_config: ModelParallelismConfig):
         nn.Module.__init__(self)
         self.config = config
@@ -298,7 +299,7 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-class LlamaAttention(nn.Module):
+class LlamaAttention(nn.Module, CustomModule):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: LlamaConfig, mp_config: ModelParallelismConfig, layer_idx: int):

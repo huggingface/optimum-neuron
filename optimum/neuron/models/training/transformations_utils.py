@@ -169,6 +169,26 @@ class ModelWeightTransformationSpecs:
         return original_weights, keys_to_remove
 
 
+class CustomModule:
+    """
+    This class is used to mark a module as a custom module. It is used to identify the modules that contain weights
+    that need to transformed when loading and saving the model.
+    """
+    @property
+    def specs(self) -> ModelWeightTransformationSpecs:
+        if not hasattr(self, "_specs"):
+            self._specs = ModelWeightTransformationSpecs()
+        return self._specs
+
+    @specs.setter
+    def specs(self, specs: ModelWeightTransformationSpecs):
+        if not isinstance(specs, ModelWeightTransformationSpecs):
+            raise TypeError(f"specs must be of type ModelWeightTransformationSpecs, but got {type(specs)}")
+        self._specs = specs
+
+    def __repr__(self):
+        return f"CustomModule(specs={self.specs})"
+
 @dataclass
 class FusedLinearsSpec(ModelWeightTransformationSpec):
     """
@@ -583,9 +603,9 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
 
 def set_module_names_in_transformation_specs(model: torch.nn.Module):
     for name, mod in model.named_modules():
-        specs = getattr(mod, "specs", None)
-        if isinstance(specs, ModelWeightTransformationSpecs):
-            specs.module_fully_qualified_name = name
+        if not isinstance(mod, CustomModule):
+            continue
+        mod.specs.module_fully_qualified_name = name
 
 
 def adapt_state_dict(
@@ -600,13 +620,11 @@ def adapt_state_dict(
     original_data_ptrs = {n: p.data_ptr() for n, p in state_dict.items()}
     original_state_dict_keys = set(state_dict.keys())
     for name, module in model.named_modules():
-        model_weight_transformation_specs = getattr(module, "specs", None)
-        # If a submodule has a transformation specs, we use them to transform the associated weights from the original
-        # state dict.
-        if model_weight_transformation_specs is not None:
-            state_dict = model_weight_transformation_specs.adapt_state_dict(
-                named_parameters, state_dict, inplace=inplace
-            )
+        if not isinstance(module, CustomModule):
+            continue
+        # If a submodule is a CustomModule, it has transformation specs and we use them to transform the associated
+        # weights from the original state dict.
+        state_dict = module.specs.adapt_state_dict(named_parameters, state_dict, inplace=inplace)
 
     # There are 2 cases:
     # 1. A new key was inserted by the adapt_state_dict function
@@ -685,8 +703,8 @@ def create_parameter_metadata(model) -> Dict[str, Dict[str, Any]]:
                 "tensor_model_parallel": tensor_model_parallel,
             }
     for name, module in model.named_modules():
-        model_weight_transformation_specs = getattr(module, "specs", None)
-        if model_weight_transformation_specs is not None:
-            serialized_specs = model_weight_transformation_specs.to_metadata()
-            metadata["model_weight_transformation_specs"].append(serialized_specs)
+        if not isinstance(module, CustomModule):
+            continue
+        serialized_specs = module.specs.to_metadata()
+        metadata["model_weight_transformation_specs"].append(serialized_specs)
     return metadata
