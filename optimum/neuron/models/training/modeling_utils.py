@@ -178,11 +178,6 @@ class NeuronModelMixin:
                     message += (
                         ', `"attn_implementation=flash_attention_2"` (implementation using nki flash attention 2)'
                     )
-                # Keeping this if supported one day.
-                # if cls._supports_flex_attn:
-                #     message += (
-                #         ', `"attn_implementation=flex_attention"` (implementation using torch\'s flex_attention)'
-                #     )
                 raise ValueError(message + ".")
 
             # If a config is passed with a preset attn_implementation, we skip the automatic dispatch and use the user-provided config, with hard checks that the requested attention implementation is available.
@@ -217,9 +212,6 @@ class NeuronModelMixin:
                 hard_check_only=False,
                 check_device_map=check_device_map,
             )
-        # Keeping it if supported one day.
-        # elif requested_attn_implementation == "flex_attention":
-        #     config = cls._check_and_enable_flex_attn(config, hard_check_only=True)
         elif requested_attn_implementation in list(ALL_ATTENTION_FUNCTIONS.keys()):
             config._attn_implementation = requested_attn_implementation
         elif isinstance(requested_attn_implementation, dict):
