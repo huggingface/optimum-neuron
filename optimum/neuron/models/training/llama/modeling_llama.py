@@ -193,6 +193,14 @@ class LlamaMLP(nn.Module):
         self.intermediate_size = config.intermediate_size
         self.act_fn = ACT2FN[config.hidden_act]
 
+        tp_size = get_tensor_model_parallel_size()
+        if self.intermediate_size % tp_size != 0:
+            raise RuntimeError(
+                f"Intermediate size {self.intermediate_size} must be divisible by the tensor model parallel size "
+                f"{tp_size}."
+            )
+        self.split_size = self.intermediate_size // tp_size
+
         init_method = partial(_init_normal, config.initializer_range)
 
         # Defines the MLP weight transformation specs
@@ -226,7 +234,6 @@ class LlamaMLP(nn.Module):
             sequence_dimension=0,
             dtype=self.config.torch_dtype,
         )
-        self.split_size = self.intermediate_size // get_tensor_model_parallel_size()
 
     def forward(self, x):
         gate_proj, up_proj = self.gate_up_proj(x).split(self.split_size, dim=2)
