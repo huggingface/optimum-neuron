@@ -1073,6 +1073,11 @@ class _TrainerForNeuron:
                         self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
 
                         self.optimizer.step()
+                        xm.mark_step()
+                        for n, p in model.named_parameters():
+                            if p.grad is not None:
+                                print(f"Gradient for {n} is {p.grad.mean()}")
+                        xm.mark_step()
                         grad_norm = self.optimizer.grad_norm
 
                         self.control = self.callback_handler.on_optimizer_step(args, self.state, self.control)
