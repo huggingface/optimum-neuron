@@ -24,6 +24,7 @@ from neuronx_distributed.trace.model_builder import ModelBuilder
 from safetensors.torch import load_file
 from transformers import AutoModelForCausalLM, PretrainedConfig
 
+from .cache import neff_cache
 from .config import NxDNeuronConfig
 from .model_wrapper import NxDModelWrapper
 from .modules.checkpoint import (
@@ -147,7 +148,8 @@ class NxDPreTrainedModel:
     @staticmethod
     def compile(neuron_config, model_wrappers: List[NxDModelWrapper], compiler_args: str, debug: bool = False):
         builder = get_builder(neuron_config, model_wrappers, debug=debug, compiler_args=compiler_args)
-        return builder.trace(initialize_model_weights=False)
+        with neff_cache():
+            return builder.trace(initialize_model_weights=False)
 
     def save(self, dest_path, weight_path: Optional[str] = None):
         if self._traced_model is None:
