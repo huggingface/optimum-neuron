@@ -174,6 +174,7 @@ class CustomModule:
     This class is used to mark a module as a custom module. It is used to identify the modules that contain weights
     that need to transformed when loading and saving the model.
     """
+
     @property
     def specs(self) -> ModelWeightTransformationSpecs:
         if not hasattr(self, "_specs"):
@@ -188,6 +189,7 @@ class CustomModule:
 
     def __repr__(self):
         return f"CustomModule(specs={self.specs})"
+
 
 @dataclass
 class FusedLinearsSpec(ModelWeightTransformationSpec):
@@ -479,7 +481,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
 
                 state_dict[new_name_weight_q] = (
                     GQAQKVColumnParallelLinearSpec.create_query_or_output_projection_local_weight_from_regular_weight(
-                        state_dict[q_name],
+                        state_dict.pop(q_name),
                         self.num_attention_heads,
                         self.num_key_value_heads,
                         self.kv_size_multiplier,
@@ -489,13 +491,13 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
 
                 state_dict[new_name_weight_k] = (
                     GQAQKVColumnParallelLinearSpec.create_kv_proj_local_weight_from_regular_weight(
-                        state_dict[k_name], self.kv_size_multiplier, self.kv_output_size_per_partition
+                        state_dict.pop(k_name), self.kv_size_multiplier, self.kv_output_size_per_partition
                     )
                 )
 
                 state_dict[new_name_weight_v] = (
                     GQAQKVColumnParallelLinearSpec.create_kv_proj_local_weight_from_regular_weight(
-                        state_dict[v_name], self.kv_size_multiplier, self.kv_output_size_per_partition
+                        state_dict.pop(v_name), self.kv_size_multiplier, self.kv_output_size_per_partition
                     )
                 )
 
@@ -695,6 +697,7 @@ def get_tensor_model_parallel_attributes(tensor: torch.Tensor) -> Dict[str, Any]
         "partition_stride": tensor.partition_stride,
         "num_partitions": tensor.num_partitions,
     }
+
 
 def create_parameter_metadata(model) -> Dict[str, Dict[str, Any]]:
     """

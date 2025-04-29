@@ -848,7 +848,7 @@ def _custom_model_matches_original_model(
 
     xm.mark_step()
 
-    outputs_to_consider = [output_name for output_name in orig_model_outputs if output_name not in OUTPUTS_TO_IGNORE]
+    outputs_to_consider = [output_name for output_name in model_outputs if output_name not in OUTPUTS_TO_IGNORE]
 
     if pp_size > 1:
         outputs_to_consider = ["loss"]

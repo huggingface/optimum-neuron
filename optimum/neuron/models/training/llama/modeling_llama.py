@@ -655,18 +655,14 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
             if self.mp_config.sequence_parallel_enabled
             else inputs_embeds.size(1)
         )
-        cache_position = torch.arange(
-            0, current_length, device=inputs_embeds.device
-        )
+        cache_position = torch.arange(0, current_length, device=inputs_embeds.device)
 
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
         # This is not needed since we recompute a causal mask at each attention layer.
         # We keep this in case we want to support custom attention masks in the future.
-        causal_mask = self._update_causal_mask(
-            attention_mask, inputs_embeds, cache_position
-        )
+        causal_mask = self._update_causal_mask(attention_mask, inputs_embeds, cache_position)
 
         hidden_states = inputs_embeds
 
@@ -736,11 +732,7 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         else:
             sequence_length = input_tensor.shape[1]
 
-        target_length = (
-            attention_mask.shape[-1]
-            if isinstance(attention_mask, torch.Tensor)
-            else sequence_length + 1
-        )
+        target_length = attention_mask.shape[-1] if isinstance(attention_mask, torch.Tensor) else sequence_length + 1
 
         # In case the provided `attention` mask is 2D, we generate a causal mask here (4D).
         batch_size = input_tensor.shape[1] if self.mp_config.sequence_parallel_enabled else input_tensor.shape[0]
@@ -794,6 +786,7 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
 
 
 class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
+
 
 class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
