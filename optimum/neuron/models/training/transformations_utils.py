@@ -683,6 +683,19 @@ def to_original_weights(
     return consolidated_state_dict
 
 
+def get_tensor_model_parallel_attributes(tensor: torch.Tensor) -> Dict[str, Any]:
+    """
+    Returns the tensor model parallel attributes of a tensor.
+    """
+    if not hasattr(tensor, "tensor_model_parallel"):
+        return {}
+    return {
+        "tensor_model_parallel": tensor.tensor_model_parallel,
+        "partition_dim": tensor.partition_dim,
+        "partition_stride": tensor.partition_stride,
+        "num_partitions": tensor.num_partitions,
+    }
+
 def create_parameter_metadata(model) -> Dict[str, Dict[str, Any]]:
     """
     Creates the metadata to be saved with the model weights to be able to reconstruct the original weights when
@@ -692,12 +705,7 @@ def create_parameter_metadata(model) -> Dict[str, Dict[str, Any]]:
     for name, param in model.named_parameters():
         tensor_model_parallel = getattr(param, "tensor_model_parallel", False)
         if tensor_model_parallel:
-            metadata["parameters"][name] = {
-                "tensor_model_parallel": tensor_model_parallel,
-                "partition_dim": param.partition_dim,
-                "partition_stride": param.partition_stride,
-                "num_partitions": param.num_partitions,
-            }
+            metadata["parameters"][name] = get_tensor_model_parallel_attributes(param)
         else:
             metadata["parameters"][name] = {
                 "tensor_model_parallel": tensor_model_parallel,

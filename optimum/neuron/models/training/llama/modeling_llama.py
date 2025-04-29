@@ -592,6 +592,7 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         self.mp_config = mp_config
 
         init_method = partial(_init_normal, config.initializer_range)
+        print("zazou", config.torch_dtype)
         self.embed_tokens = ParallelEmbedding(
             config.vocab_size,
             config.hidden_size,

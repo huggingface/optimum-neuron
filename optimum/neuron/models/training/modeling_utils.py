@@ -26,42 +26,25 @@ from threading import Thread
 from typing import Callable, Dict, Literal, Optional, Type, Union
 
 import torch
-from torch import nn
+from accelerate.utils import find_tied_parameters
 from safetensors import safe_open
+from torch import nn
 from transformers import PretrainedConfig
-from transformers.quantizers import AutoHfQuantizer, HfQuantizer
 from transformers.modeling_utils import (
     SpecificPreTrainedModelType,
+    _add_variant,
+    check_support_param_buffer_assignment,
     get_parameter_dtype,
     get_state_dict_dtype,
     load_state_dict,
     no_init_weights,
     set_initialized_submodules,
-    check_support_param_buffer_assignment,
-    _add_variant,
 )
 from transformers.pytorch_utils import id_tensor_storage
+from transformers.quantizers import AutoHfQuantizer
 from transformers.safetensors_conversion import auto_conversion
-from transformers.utils.hub import get_checkpoint_shard_files
 from transformers.utils import (
-    is_remote_url,
-    download_url,
-    cached_file,
     CONFIG_NAME,
-    ContextManagers,
-    cached_file,
-    has_file,
-    extract_commit_hash,
-    find_adapter_config_file,
-    is_offline_mode,
-    is_peft_available,
-    is_safetensors_available,
-    logging,
-    ACCELERATE_MIN_VERSION,
-    ADAPTER_SAFE_WEIGHTS_NAME,
-    ADAPTER_WEIGHTS_NAME,
-    CONFIG_NAME,
-    DUMMY_INPUTS,
     FLAX_WEIGHTS_NAME,
     SAFE_WEIGHTS_INDEX_NAME,
     SAFE_WEIGHTS_NAME,
@@ -69,15 +52,26 @@ from transformers.utils import (
     TF_WEIGHTS_NAME,
     WEIGHTS_INDEX_NAME,
     WEIGHTS_NAME,
+    ContextManagers,
+    cached_file,
+    download_url,
+    extract_commit_hash,
+    find_adapter_config_file,
+    has_file,
+    is_offline_mode,
+    is_peft_available,
+    is_remote_url,
+    is_safetensors_available,
+    logging,
 )
-
-from accelerate.utils import find_tied_parameters
+from transformers.utils.hub import get_checkpoint_shard_files
 
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
-from ...utils.misc import download_checkpoints_in_cache, is_main_worker, is_precompilation
+from ...utils.misc import is_main_worker, is_precompilation
 from .transformations_utils import (
     adapt_state_dict,
     create_parameter_metadata,
+    get_tensor_model_parallel_attributes,
     set_module_names_in_transformation_specs,
 )
 
@@ -100,7 +94,10 @@ if is_neuronx_distributed_available():
         get_pipeline_model_parallel_rank,
         get_tensor_model_parallel_rank,
     )
-    from neuronx_distributed.parallel_layers.utils import get_local_world_size, move_model_to_device
+    from neuronx_distributed.parallel_layers.utils import (
+        get_local_world_size,
+        move_model_to_device,
+    )
 else:
     # This is a placeholder for the nki_flash_attn_func function for doc building.
     def nki_flash_attn_func(*args, **kwargs):
@@ -128,10 +125,10 @@ def _load_state_dict_into_model(model_to_load, state_dict, start_prefix, assign_
     # We do not have the same weights as the state_dict since we use a custom model.
 
     # First we set the module names, this is required to have the specs properly defined.
-    set_module_names_in_transformation_specs(model_to_load)
+    # set_module_names_in_transformation_specs(model_to_load)
 
     # Then we adapt the state dict to the custom model.
-    state_dict = adapt_state_dict(model_to_load, state_dict, inplace=False)
+    # state_dict = adapt_state_dict(model_to_load, state_dict, inplace=False)
 
     # PyTorch's `_load_from_state_dict` does not copy parameters in a module's descendants
     # so we need to apply the function recursively.
@@ -145,7 +142,21 @@ def _load_state_dict_into_model(model_to_load, state_dict, start_prefix, assign_
         if len([key for key in state_dict if key.startswith(prefix)]) > 0:
             # ** Difference from original _load_state_dict_into_model  **
             # We do not add the code related to `deepspeed` here, since we do not support it.
+
+            # ** Difference from original _load_state_dict_into_model  **
+            # module._load_from_state_dict can mutate the parameters in the module, we must cache the tensor parallel
+            # metadata.
+            tensor_model_parallel_attributes = {
+                k: get_tensor_model_parallel_attributes(v) for k,v in module._parameters.items()
+            }
+
             module._load_from_state_dict(*args)
+
+            # Restoring the tensor model parallel attributes.
+            for name, param in module._parameters.items():
+                attributes = tensor_model_parallel_attributes[name]
+                for attr_name, attr in attributes.items():
+                    setattr(param, attr_name, attr)
 
         for name, child in module._modules.items():
             if child is not None:
@@ -380,18 +391,17 @@ class NeuronModelMixin:
 
         model.tie_weights()
         # TODO: stopped here, start from here tomorrow.
-        tied_params = []
-        # if device_map is None:
-        #     ptrs = collections.defaultdict(list)
-        #     for name, tensor in model.state_dict().items():
-        #         id_tensor = id_tensor_storage(tensor)
-        #         ptrs[id_tensor].append(name)
+        if device_map is None:
+            ptrs = collections.defaultdict(list)
+            for name, tensor in model.state_dict().items():
+                id_tensor = id_tensor_storage(tensor)
+                ptrs[id_tensor].append(name)
 
-        #     # These are all the pointers of shared tensors.
-        #     tied_params = [names for _, names in ptrs.items() if len(names) > 1]
-        # else:
-        #     # id function doesn't work for meta tensor so we need this function
-        #     tied_params = find_tied_parameters(model)
+            # These are all the pointers of shared tensors.
+            tied_params = [names for _, names in ptrs.items() if len(names) > 1]
+        else:
+            # id function doesn't work for meta tensor so we need this function
+            tied_params = find_tied_parameters(model)
 
         for group in tied_params:
             if remove_prefix_from_model:
@@ -438,9 +448,9 @@ class NeuronModelMixin:
                             output_embeddings._is_hf_initialized = True
             else:
                 not_initialized_submodules = dict(model.named_modules())
-            
+
             # ** Difference from original _load_pretrained_model  **
-            # We initialize the parallel modules. 
+            # We initialize the parallel modules.
             for name, mod in not_initialized_submodules.items():
                 if isinstance(mod, BaseParallelLinear):
                     mod.initialize_weight_and_bias()
@@ -521,7 +531,15 @@ class NeuronModelMixin:
         # We do not handle the `device_map` here, since our cases are much simpler.
         offload_index = None
 
+        # ** Difference from original _load_pretrained_model  **
+        # We set the module names in the transformation specs, this is required to have the specs properly defined.
+        set_module_names_in_transformation_specs(model_to_load)
+
         if state_dict is not None:
+            # ** Difference from original _load_pretrained_model  **
+            # We adapt the state dict to the custom model.
+            state_dict = adapt_state_dict(model_to_load, state_dict, inplace=False)
+
             # Whole checkpoint
             mismatched_keys = _find_mismatched_keys(
                 state_dict,
@@ -543,7 +561,7 @@ class NeuronModelMixin:
             error_msgs = []
             mismatched_keys = []
             # ** Difference from original _load_pretrained_model  **
-            # We do not add the offload_index code here, since we do not support it. 
+            # We do not add the offload_index code here, since we do not support it.
 
             disk_only_shard_files = []
 
@@ -560,6 +578,10 @@ class NeuronModelMixin:
                 state_dict = load_state_dict(
                     shard_file, is_quantized=is_quantized, map_location=map_location, weights_only=weights_only
                 )
+
+                # ** Difference from original _load_state_dict_into_model  **
+                # We adapt the state dict to the custom model.
+                state_dict = adapt_state_dict(model_to_load, state_dict, inplace=False)
 
                 # Mistmatched keys contains tuples key/shape1/shape2 of weights in the checkpoint that have a shape not
                 # matching the weights in the model.
@@ -596,7 +618,7 @@ class NeuronModelMixin:
                 set_module_names_in_transformation_specs(model)
 
             # ** Difference from original _load_pretrained_model  **
-            # We do not add the offload_index code here, since we do not support it. 
+            # We do not add the offload_index code here, since we do not support it.
 
         if len(error_msgs) > 0:
             error_msg = "\n\t".join(error_msgs)
@@ -670,7 +692,7 @@ class NeuronModelMixin:
         from_flax = kwargs.pop("from_flax", False)
         resume_download = kwargs.pop("resume_download", None)
         proxies = kwargs.pop("proxies", None)
-        kwargs.pop("output_loading_info", False)
+        output_loading_info = kwargs.pop("output_loading_info", False)
         use_auth_token = kwargs.pop("use_auth_token", None)
         trust_remote_code = kwargs.pop("trust_remote_code", None)
         _ = kwargs.pop("mirror", None)
@@ -697,7 +719,7 @@ class NeuronModelMixin:
         gguf_file = kwargs.pop("gguf_file", None)
         # Cache path to the GGUF file
         gguf_path = None
-        
+
         # ** Difference from original from_pretrained **
         # We do not support gguf files for now.
         if gguf_file is not None:
@@ -790,7 +812,7 @@ class NeuronModelMixin:
             raise RuntimeError("Quantization is not supported yet.")
 
         from_pt = not (from_tf | from_flax)
-         
+
         if not from_pt:
             raise ValueError(
                 "Loading from TensorFlow or Flax is not supported in optimum-neuron. Please use PyTorch weights."
@@ -841,7 +863,7 @@ class NeuronModelMixin:
         # ** Difference from original from_pretrained **
         # In the original from_pretrained, here there some work done for quantization.
         # We just do not add it here because it is not supported.
-        is_quantized = False 
+        is_quantized = False
         pre_quantized = hasattr(config, "quantization_config")
         if pre_quantized and not AutoHfQuantizer.supports_quant_method(config.quantization_config):
             pre_quantized = False
@@ -1173,6 +1195,8 @@ class NeuronModelMixin:
             # 2. If torch_dtype is "auto", we auto-detect dtype from the loaded state_dict, by checking its first
             #    weights entry that is of a floating type - we assume all floating dtype weights are of the same dtype
             # we also may have config.torch_dtype available, but we won't rely on it till v5
+            dtype_orig = None
+
             if torch_dtype is not None:
                 if isinstance(torch_dtype, str):
                     if torch_dtype == "auto":
@@ -1242,17 +1266,23 @@ class NeuronModelMixin:
         init_contexts = [no_init_weights(_enable=_fast_init)]
 
         # ** Difference from original from_pretrained **
-        # In the original from_pretrained implementation there is deepspeed and low_cpu_mem_usage code for 
+        # In the original from_pretrained implementation there is deepspeed and low_cpu_mem_usage code for
         # `init_contexts`.
         # We do not put it here since we do not support it.
 
         config = copy.deepcopy(config)  # We do not want to modify the config inplace in from_pretrained.
+
+        # ** Difference from original from_pretrained **
+        # We make sure that config.torch_dtype is of type torch.dtype.
+        # We do not change the config inplace since we are working from a deepcopy.
+        if isinstance(config.torch_dtype , str):
+            config.torch_dtype = getattr(torch, config.torch_dtype)
+
         if not getattr(config, "_attn_implementation_autoset", False):
             # We do not check for the device_map because we are going to move the model to XLA anyway on our own.
             config = cls._autoset_attn_implementation(
                 config, use_flash_attention_2=use_flash_attention_2, torch_dtype=torch_dtype, device_map=device_map
             )
-
 
         # ** Difference from original from_pretrained **
         # This is due to a Neuron compiler bug, and it should be removed when the bug is fixed.
@@ -1292,6 +1322,7 @@ class NeuronModelMixin:
             for worker in range(math.ceil(local_world_size / num_local_ranks_per_step)):
                 model_to_load = model
                 if local_rank // num_local_ranks_per_step == worker:
+
                     (
                         model,
                         missing_keys,
@@ -1313,7 +1344,10 @@ class NeuronModelMixin:
                         offload_folder=offload_folder,
                         offload_state_dict=offload_state_dict,
                         dtype=torch_dtype,
-                        hf_quantizer=hf_quantizer,
+                        # ** Difference from original from_pretrained **
+                        # We do not support hf_quantizer.
+                        hf_quantizer=None,
+                        # hf_quantizer=hf_quantizer,
                         keep_in_fp32_modules=keep_in_fp32_modules,
                         gguf_path=gguf_path,
                         weights_only=weights_only,
