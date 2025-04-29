@@ -19,12 +19,18 @@ Add each neuron model class supported for inference below to allow it to be inst
 automatically by the neuron factory classes such as NeuronModelForCausalLM.
 """
 
+import os
+
 from ..auto_model import register_neuron_model
 from .hlo.granite.model import GraniteHloModelForCausalLM
 from .hlo.llama.model import LlamaHloModelForCausalLM
 from .hlo.phi3.model import Phi3HloModelForCausalLM
 from .hlo.qwen2.model import Qwen2HloModelForCausalLM
+from .nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
 from .nxd.mixtral.modeling_mixtral import MixtralNxDModelForCausalLM
+
+
+prioritize_nxd_backend = os.environ.get("OPTIMUM_NEURON_PRIORITIZE_NXD_BACKEND", "0") == "1"
 
 
 def register_neuron_model_for_inference(model_type: str, task: str):
@@ -43,13 +49,24 @@ class GraniteModelForCausalLM(GraniteHloModelForCausalLM):
     pass
 
 
-@register_neuron_model_for_inference("llama", "text-generation")
-class LLamaModelForCausalLM(LlamaHloModelForCausalLM):
-    """
-    Llama model with HLO backend for inference on AWS Neuron.
-    """
+if prioritize_nxd_backend:
 
-    pass
+    @register_neuron_model_for_inference("llama", "text-generation")
+    class LLamaModelForCausalLM(LlamaNxDModelForCausalLM):
+        """
+        Llama model with NxD backend for inference on AWS Neuron.
+        """
+
+        pass
+else:
+
+    @register_neuron_model_for_inference("llama", "text-generation")
+    class LLamaModelForCausalLM(LlamaHloModelForCausalLM):
+        """
+        Llama model with HLO backend for inference on AWS Neuron.
+        """
+
+        pass
 
 
 @register_neuron_model_for_inference("phi3", "text-generation")
