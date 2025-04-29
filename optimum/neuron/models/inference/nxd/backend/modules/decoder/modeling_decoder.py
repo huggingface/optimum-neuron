@@ -800,12 +800,13 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         trust_remote_code: Optional[bool] = False,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
+        if len(kwargs) > 0:
+            logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
         neuron_config = cls.get_neuron_config_cls().from_pretrained(model_id)
         context_encoding_model, token_generation_model, speculation_model = cls.create_model_wrappers(
             model_cls=cls._model_cls,
             config=config,
             neuron_config=neuron_config,
-            **kwargs,
         )
         traced_model = torch.jit.load(os.path.join(model_id, cls.COMPILED_MODEL_FILE_NAME))
         model = cls(
@@ -854,6 +855,8 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         trust_remote_code: Optional[bool] = False,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
+        if len(kwargs) > 0:
+            logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
         config = AutoConfig.from_pretrained(
             model_id,
             token=token,
@@ -868,7 +871,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             model_cls=cls._model_cls,
             config=config,
             neuron_config=neuron_config,
-            **kwargs,
         )
         model_wrappers = []
         for wrapper in context_encoding_model, token_generation_model, speculation_model:
