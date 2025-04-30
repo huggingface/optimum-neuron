@@ -104,6 +104,21 @@ class NxDNeuronConfig(NeuronConfig):
         capacity_factor: float = None,
         glu_mlp: bool = True,
     ) -> None:
+        # TODO: these flags are suposed to work in NxDI. Either make them work or remove them
+        if is_chunked_prefill:
+            raise ValueError("`is_chunked_prefill` is not supported in optimum-neuron.")
+        if flash_decoding_enabled:
+            raise ValueError("`flash_decoding_enabled` is not supported in optimum-neuron.")
+        if async_mode:
+            raise ValueError("`async_mode` is not supported in optimum-neuron.")
+        if qkv_kernel_enabled or mlp_kernel_enabled:
+            raise ValueError("`qkv_kernel_enabled` and `mlp_kernel_enabled` are not supported for trn1 chips.")
+        if vocab_parallel:
+            raise ValueError("`vocab_parallel` is not supported in optimum-neuron.")
+        if qk_layernorm:
+            raise ValueError(
+                "`qk_layernorm` is not supported in optimum-neuron. It is actually a modeling flag that affects the attention layer."
+            )
         # Required to retrieve a checkpoint from the hub
         self.checkpoint_id = checkpoint_id
         self.checkpoint_revision = checkpoint_revision
