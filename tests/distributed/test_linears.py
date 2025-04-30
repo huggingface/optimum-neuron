@@ -51,7 +51,7 @@ def _test_parallel_linear_check(row_or_column: Literal["row", "column"],  weight
     set_seed(42)
     device = "xla"
 
-    inputs = torch.randn(1, 2, input_size, dtype=inputs_dtype).to(device)
+    inputs = torch.randn(1, 12, input_size, dtype=inputs_dtype).to(device)
 
     # First we compute the expected output using the linear.
     linear = nn.Linear(input_size, output_size, bias=False, dtype=weights_dtype, device=device)
