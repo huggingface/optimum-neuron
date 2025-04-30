@@ -129,15 +129,6 @@ def _load_state_dict_into_model(model_to_load, state_dict, start_prefix, assign_
 
     error_msgs = []
 
-    # ** Difference from original _load_state_dict_into_model **
-    # We do not have the same weights as the state_dict since we use a custom model.
-
-    # First we set the module names, this is required to have the specs properly defined.
-    # set_module_names_in_transformation_specs(model_to_load)
-
-    # Then we adapt the state dict to the custom model.
-    # state_dict = adapt_state_dict(model_to_load, state_dict, inplace=False)
-
     # PyTorch's `_load_from_state_dict` does not copy parameters in a module's descendants
     # so we need to apply the function recursively.
     def load(module: nn.Module, state_dict, prefix="", assign_to_params_buffers=False):
@@ -434,7 +425,6 @@ class NeuronModelMixin:
             unexpected_keys = {k for k in unexpected_keys if "rotary_emb.inv_freq" not in k}
 
         model.tie_weights()
-        # TODO: stopped here, start from here tomorrow.
         if device_map is None:
             ptrs = collections.defaultdict(list)
             for name, tensor in model.state_dict().items():
@@ -877,7 +867,7 @@ class NeuronModelMixin:
             model_kwargs = kwargs
 
         # ** Difference from original from_pretrained **
-        # In the original from_pretrained, here there some work done for quantization.
+        # In the original from_pretrained, here there was some initialization to support quantization.
         # We just do not add it here because it is not supported.
         pre_quantized = hasattr(config, "quantization_config")
         if pre_quantized and not AutoHfQuantizer.supports_quant_method(config.quantization_config):
