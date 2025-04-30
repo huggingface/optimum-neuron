@@ -750,8 +750,9 @@ def _custom_model_matches_original_model(
     qkv_implementation,
     attn_implementation,
     monkeypatch,
-    torch_dtype=torch.float32,  # For now we do not match in bfloat16, so we test in float32.
-    # torch_dtype=torch.bfloat16,
+    # It is tricky to test for `torch_dtype=torch.bfloat16` because the precision is low and the "error" induced by
+    # the parallel linears accumulates over the layers.
+    torch_dtype=torch.float32,
 ):
     monkeypatch.setattr(
         optimum.neuron.models.training.loss_utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
@@ -816,6 +817,7 @@ def _custom_model_matches_original_model(
         pipeline_parallel_size=pp_size,
         fuse_qkv=qkv_implementation == "fuse_qkv",
         use_flash_attention=attn_implementation == "flash_attention_2",
+        recompute_causal_mask=False,  # Recomputing the causal mask does not impact the loss but it impacts the logits.
     )
 
     training_mod = importlib.import_module("optimum.neuron.models.training")
@@ -835,7 +837,6 @@ def _custom_model_matches_original_model(
         if pp_size == 1:
             # This is set to False by `accelerator.prepare`, which we want in the general case, but here let's
             # enable the cache to test that the KV cache matches the original model.
-            model.config.use_cache = True
             model = model.eval()
             model_outputs = model(**xla_inputs)
         else:

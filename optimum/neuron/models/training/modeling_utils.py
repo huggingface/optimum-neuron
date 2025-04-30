@@ -1261,8 +1261,7 @@ class NeuronModelMixin:
         # ** Difference from original from_pretrained **
         # We make sure that config.torch_dtype is of type torch.dtype.
         # We do not change the config inplace since we are working from a deepcopy.
-        if isinstance(config.torch_dtype, str):
-            config.torch_dtype = getattr(torch, config.torch_dtype)
+        config.torch_dtype = torch_dtype
 
         if not getattr(config, "_attn_implementation_autoset", False):
             # We do not check for the device_map because we are going to move the model to XLA anyway on our own.
