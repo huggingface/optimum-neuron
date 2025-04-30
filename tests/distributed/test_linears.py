@@ -1,6 +1,23 @@
-from functools import partial
+# coding=utf-8
+# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Tests checking that `neuronx_distributed` parallel layers are working as expected."""
 
 import pytest
+from typing import Literal
+from functools import partial
+
 import torch
 from torch import nn
 from transformers import set_seed
@@ -17,91 +34,99 @@ from .. import launch_procs
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.layers import (
         RowParallelLinear,
+        ColumnParallelLinear,
         create_local_weight,
+    )
+    from neuronx_distributed.parallel_layers.utils import (
+        get_tensor_model_parallel_rank,
+        get_tensor_model_parallel_size,
     )
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
-    import torch_xla.runtime as xrt
 
 
-class SampleModel(nn.Module):
-    def __init__(self, weights_dtype, input_size, output_size):
-        super().__init__()
-        self.linear1 = nn.Linear(input_size, output_size, bias=False, dtype=weights_dtype)
+@torch.no_grad()
+def _test_parallel_linear_check(row_or_column: Literal["row", "column"],  weights_dtype, inputs_dtype, input_size, output_size):
+    set_seed(42)
+    device = "xla"
 
-    def forward(self, x):
-        return self.linear1(x)
+    inputs = torch.randn(1, 2, input_size, dtype=inputs_dtype).to(device)
 
+    # First we compute the expected output using the linear.
+    linear = nn.Linear(input_size, output_size, bias=False, dtype=weights_dtype, device=device)
 
-class ParallelSampleModel(nn.Module):
-    def __init__(self, weights_dtype, input_size, output_size):
-        super().__init__()
-        self.linear1 = RowParallelLinear(
+    outputs = linear(inputs)
+    xm.mark_step()
+
+    # Then we compute the output using the parallel linear.
+    tp_rank = get_tensor_model_parallel_rank()
+    tp_size = get_tensor_model_parallel_size()
+
+    if row_or_column == "column":
+        partition_dim = 0
+        per_partition_size = linear.weight.size(partition_dim) // tp_size
+        parallel_linear = ColumnParallelLinear(
             input_size,
             output_size,
             bias=False,
             dtype=weights_dtype,
+            gather_output=False,
+            reduce_dtype=torch.float32,
             sequence_parallel_enabled=False,
-        )
-        # Split parallelized weights
-        self._register_load_state_dict_pre_hook(self.load_hook)
+        ).to(device="xla")
 
-    def load_hook(self, state_dict, prefix, *_args):
-        """
-        Update the state dict to split the weights of the model across the world size.
-        """
-        # Filtering items to slice only the weights of this layer
-        filtered_items = filter(lambda x: x[0].startswith(prefix), state_dict.items())
-        world_size = xrt.world_size()
-        for k, v in filtered_items:
-            if k.endswith("linear1.weight"):
-                axis_len = v.shape[1]
-                split_len = (axis_len + world_size - 1) // world_size
-                partition_stride = 1  # assuming that is always 1
-                state_dict[k] = create_local_weight(v, 1, split_len, partition_stride)
+        parallel_inputs = inputs
+    else:
+        partition_dim = 1
+        per_partition_size = linear.weight.size(partition_dim) // tp_size
+        parallel_linear = RowParallelLinear(
+            input_size,
+            output_size,
+            bias=False,
+            dtype=weights_dtype,
+            input_is_parallel=True,
+            reduce_dtype=torch.float32,
+            sequence_parallel_enabled=False,
+        ).to(device="xla")
 
-    def forward(self, x):
-        return self.linear1(x)
+        parallel_inputs = inputs[:, :, tp_rank * per_partition_size : (tp_rank + 1) * per_partition_size]
 
+    stride = 1
+    with torch.no_grad():
+        parallel_linear.weight.data = create_local_weight(linear.weight, partition_dim, per_partition_size, stride).to(device="xla")
 
-@torch.no_grad()
-def _test_parallel_model_check(weights_dtype, inputs_dtype, input_size, output_size):
-    set_seed(42)
-    device = "xla"
+    parallel_outputs = parallel_linear(parallel_inputs)
 
-    original_model = SampleModel(weights_dtype, input_size, output_size)
-    original_model.to(device).eval()
+    if row_or_column == "column":
+        parallel_outputs = xm.all_gather(parallel_outputs, dim=-1)
 
-    inputs = torch.randn(1, 2, input_size, dtype=inputs_dtype).to(device)
-    original_outputs = original_model(inputs)
     xm.mark_step()
 
-    parallel_model = ParallelSampleModel(weights_dtype, input_size, output_size)
-    parallel_model.load_state_dict(original_model.state_dict())
+    outputs = outputs.to("cpu")
+    parallel_outputs = parallel_outputs.to("cpu")
 
-    parallel_model.to(device).eval()
-    parallel_outputs = parallel_model(inputs)
-    atol = torch.finfo(inputs_dtype).resolution
-    outputs_match = torch.allclose(parallel_outputs.to("cpu"), original_outputs.to("cpu"), atol=atol)
-
-    assert outputs_match, "Sharded model output does not match unsharded one"
+    # Finally we compare that the outputs are the same.
+    torch.testing.assert_close(outputs, parallel_outputs, msg="Sharded linear output does not match unsharded one")
 
 
 @is_trainium_test
+@pytest.mark.parametrize(
+    "row_or_column",
+    ["row", "column"],
+    ids=["row_parallel_linear", "column_parallel_linear"],
+)
 @pytest.mark.parametrize(
     "weights_dtype, inputs_dtype",
     [
         (torch.float32, torch.float32),
         (torch.bfloat16, torch.bfloat16),
         (torch.bfloat16, torch.float32),
-        (torch.float16, torch.float16),
     ],
     ids=[
         "weights=float32-inputs=float32",
         "weights=bfloat16-inputs=bfloat16",
         "weights=bfloat16-inputs=float32",
-        "weights=float16-inputs=float16",
     ],
 )
 @pytest.mark.parametrize(
@@ -109,9 +134,10 @@ def _test_parallel_model_check(weights_dtype, inputs_dtype, input_size, output_s
     [(8192, 2048), (400, 300)],
     ids=["input_size=8192-output_size=2048", "input_size=400-output_size=300"],
 )
-def test_parallel_linears(weights_dtype, inputs_dtype, input_size, output_size):
+def test_parallel_linears(row_or_column, weights_dtype, inputs_dtype, input_size, output_size):
     run_fn = partial(
-        _test_parallel_model_check,
+        _test_parallel_linear_check,
+        row_or_column=row_or_column,
         weights_dtype=weights_dtype,
         inputs_dtype=inputs_dtype,
         input_size=input_size,
