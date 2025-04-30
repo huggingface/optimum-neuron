@@ -4,15 +4,19 @@ import os
 import time
 
 import torch
-from transformers import AutoConfig, AutoTokenizer, set_seed
+from transformers import AutoTokenizer, set_seed
 
 from optimum.neuron import NeuronModelForCausalLM
 
 
-def generate(model, input_ids, output_length):
+def generate(model, input_ids, max_new_tokens):
     start = time.time()
+    sequence_length = input_ids.shape[1]
+    min_length = sequence_length + max_new_tokens
     with torch.inference_mode():
-        output_tokens = model.generate(input_ids, do_sample=False, min_length=output_length, max_length=output_length)
+        output_tokens = model.generate(
+            input_ids, do_sample=False, min_length=min_length, max_new_tokens=max_new_tokens
+        )
     end = time.time()
     return output_tokens, (end - start)
 
@@ -25,21 +29,19 @@ def run(model_id, inc_length, max_length, json_path=None):
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokens = tokenizer([prompt], return_tensors="pt")
     # Evaluate the batch size
-    config = AutoConfig.from_pretrained(model_id)
-    batch_size = config.neuron["batch_size"]
     model = NeuronModelForCausalLM.from_pretrained(model_id, export=False, low_cpu_mem_usage=True)
+    batch_size = model.neuron_config.batch_size
 
     def get_input_ids(tokens, batch_size, input_length):
         return tokens.input_ids[0, :input_length].repeat((batch_size, 1))
 
-    neuron_config = getattr(model.config, "neuron")
-    benchmark = {"neuron_config": neuron_config, "results": []}
+    benchmark = {"neuron_config": model.neuron_config.to_dict(), "results": []}
     for input_length in range(inc_length, max_length - inc_length + 1, inc_length):
         # Generate a single input, just to evaluate the context encoding time
-        input_ids = get_input_ids(tokens, batch_size, input_length + 1)
+        input_ids = get_input_ids(tokens, batch_size, input_length)
         _, encoding_time = generate(model, input_ids, 1)
         new_tokens = inc_length
-        output_ids, duration = generate(model, input_ids, input_length + new_tokens)
+        output_ids, duration = generate(model, input_ids, new_tokens)
         latency = (duration - encoding_time) / new_tokens * 1000
         throughput = new_tokens * batch_size / duration
         result = {
