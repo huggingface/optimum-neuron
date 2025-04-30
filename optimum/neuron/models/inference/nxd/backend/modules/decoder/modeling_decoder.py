@@ -34,8 +34,9 @@ from torch import nn
 from transformers import AutoConfig, PretrainedConfig
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from optimum.neuron import NeuronModelForCausalLM
-
+from .......cache.entries.single_model import SingleModelCacheEntry
+from .......cache.hub_cache import hub_neuronx_cache
+from .......modeling_decoder import NeuronModelForCausalLM
 from ...config import NxDNeuronConfig
 from ...pretrained_model import NxDPreTrainedModel
 from ...utils.random import set_random_seed
@@ -876,11 +877,20 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         for wrapper in context_encoding_model, token_generation_model, speculation_model:
             if wrapper is not None:
                 model_wrappers.append(wrapper)
-        traced_model = NxDPreTrainedModel.compile(
-            neuron_config=neuron_config,
-            model_wrappers=model_wrappers,
-            compiler_args=cls.get_compiler_args(neuron_config),
+
+        # The model NEFF files will be cached locally, but if the model_id corresponds
+        # to a hub model, we also create a cache entry for it.
+        cache_entry = (
+            None
+            if os.path.exists(model_id)
+            else SingleModelCacheEntry(model_id, task="text-generation", config=config, neuron_config=neuron_config)
         )
+        with hub_neuronx_cache(entry=cache_entry):
+            traced_model = NxDPreTrainedModel.compile(
+                neuron_config=neuron_config,
+                model_wrappers=model_wrappers,
+                compiler_args=cls.get_compiler_args(neuron_config),
+            )
         model = cls(
             config=config,
             neuron_config=neuron_config,
