@@ -14,10 +14,10 @@
 # limitations under the License.
 """Tests checking that `neuronx_distributed` parallel layers are working as expected."""
 
-import pytest
-from typing import Literal
 from functools import partial
+from typing import Literal
 
+import pytest
 import torch
 from torch import nn
 from transformers import set_seed
@@ -33,8 +33,8 @@ from .. import launch_procs
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.layers import (
-        RowParallelLinear,
         ColumnParallelLinear,
+        RowParallelLinear,
         create_local_weight,
     )
     from neuronx_distributed.parallel_layers.utils import (
@@ -47,7 +47,9 @@ if is_torch_xla_available():
 
 
 @torch.no_grad()
-def _test_parallel_linear_check(row_or_column: Literal["row", "column"],  weights_dtype, inputs_dtype, input_size, output_size):
+def _test_parallel_linear_check(
+    row_or_column: Literal["row", "column"], weights_dtype, inputs_dtype, input_size, output_size
+):
     set_seed(42)
     device = "xla"
 
@@ -94,7 +96,9 @@ def _test_parallel_linear_check(row_or_column: Literal["row", "column"],  weight
 
     stride = 1
     with torch.no_grad():
-        parallel_linear.weight.data = create_local_weight(linear.weight, partition_dim, per_partition_size, stride).to(device="xla")
+        parallel_linear.weight.data = create_local_weight(linear.weight, partition_dim, per_partition_size, stride).to(
+            device="xla"
+        )
 
     parallel_outputs = parallel_linear(parallel_inputs)
 

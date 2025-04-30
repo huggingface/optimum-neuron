@@ -285,9 +285,9 @@ def eager_attention_forward(
         causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
         attn_weights = attn_weights + causal_mask
     elif causal:
+        # ** Difference from the original eager_attention_forward implementation **
         # Instead of using the attention mask, we re-compute a causal mask.
         # It is more efficient, the only issue is that we do not support custom attention masks.
-        # Change this if a customer requests for it.
         causal_mask = torch.triu(torch.ones((1, 1, query.size(2), key.size(2)), device="xla"), diagonal=1).bool()
         min_value = torch.finfo(attn_weights.dtype).min
         attn_weights = attn_weights.masked_fill_(causal_mask, min_value)
@@ -489,7 +489,7 @@ class LlamaAttention(nn.Module, CustomModule):
                 attention_mask,
                 self.scaling,
                 dropout=0.0 if not self.training else self.attention_dropout,
-                causal=False,  # For now we do not enabled this because it cannot handle padding.
+                causal=attention_mask is None,
                 **kwargs,
             )
 
@@ -660,9 +660,10 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        # This is not needed since we recompute a causal mask at each attention layer.
-        # We keep this in case we want to support custom attention masks in the future.
-        causal_mask = self._update_causal_mask(attention_mask, inputs_embeds, cache_position)
+        if self.mp_config.recompute_causal_mask:
+            causal_mask = None
+        else:
+            causal_mask = self._update_causal_mask(attention_mask, inputs_embeds, cache_position)
 
         hidden_states = inputs_embeds
 

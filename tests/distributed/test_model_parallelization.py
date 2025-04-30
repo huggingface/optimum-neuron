@@ -19,13 +19,12 @@ import math
 from contextlib import nullcontext
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Literal, Optional, Type, Union
+from typing import TYPE_CHECKING, List, Optional, Type, Union
 
 import pytest
 import torch
 import torch.utils._pytree as pytree
 import transformers
-from torch import nn
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.models.auto.modeling_auto import (
@@ -36,7 +35,6 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING,
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING,
 )
-from transformers.models.llama.modeling_llama import repeat_kv
 
 import optimum
 import optimum.neuron.models.training
@@ -62,13 +60,10 @@ if is_torch_xla_available():
     import torch_xla.runtime as xr
 
 if is_neuronx_distributed_available():
-    from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
-    from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, RowParallelLinear, create_local_weight
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_kv_shared_group,
         get_pipeline_model_parallel_rank,
         get_tensor_model_parallel_group,
-        get_tensor_model_parallel_rank,
         get_tensor_model_parallel_size,
     )
     from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu

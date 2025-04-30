@@ -639,8 +639,6 @@ def adapt_state_dict(
     """
     Transforms the state dict from the original Transformers model to match the custom modeling implementation.
     """
-    tp_size = get_tensor_model_parallel_size()
-
     named_parameters = dict(model.named_parameters())
     original_data_ptrs = {n: p.data_ptr() for n, p in state_dict.items()}
     original_state_dict_keys = set(state_dict.keys())
@@ -671,9 +669,8 @@ def adapt_state_dict(
 
             # If the parameter associated to the weight is parallel, we shard the weight.
             full_weight = state_dict[name]
-            per_partition_size = full_weight.shape[param.partition_dim] // tp_size
             state_dict[name] = create_local_weight_with_padding(
-                full_weight, param.partition_dim, per_partition_size, param.partition_stride
+                full_weight, param.partition_dim, param.partition_stride
             )
     return state_dict
 

@@ -139,6 +139,16 @@ class NeuronTrainingArgumentsMixin:
             "help": "Whether to use the flash attention kernel for self-attention layers.",
         },
     )
+    recompute_causal_mask: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to recompute the causal mask in the forward pass. This is more efficient than passing the  "
+                "causal mask computed from the attention mask to the attention layers but it does not support custom "
+                "attention masks."
+            ),
+        },
+    )
 
     def __post_init__(self):
         if self.neuron_cc_flags_model_type is not None:
@@ -195,6 +205,7 @@ class NeuronTrainingArgumentsMixin:
             async_save=self.async_save,
             fuse_qkv=self.fuse_qkv,
             use_flash_attention=self.use_flash_attention,
+            recompute_causal_mask=self.recompute_causal_mask,
         )
 
         if self.bf16 and self.half_precision_backend == "amp":
