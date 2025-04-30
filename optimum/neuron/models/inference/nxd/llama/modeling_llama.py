@@ -541,4 +541,6 @@ class LlamaNxDModelForCausalLM(NxDModelForCausalLM):
             sequence_length=sequence_length,
             tp_degree=tensor_parallel_size,
             torch_dtype=auto_cast_type,
+            on_device_sampling=True,
+            fused_qkv=True,
         )
