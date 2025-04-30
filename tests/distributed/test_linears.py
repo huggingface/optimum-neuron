@@ -29,6 +29,7 @@ from optimum.neuron.utils.import_utils import (
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .. import launch_procs
+from .utils import assert_close
 
 
 if is_neuronx_distributed_available():
@@ -111,7 +112,7 @@ def _test_parallel_linear_check(
     parallel_outputs = parallel_outputs.to("cpu")
 
     # Finally we compare that the outputs are the same.
-    torch.testing.assert_close(outputs, parallel_outputs, msg="Sharded linear output does not match unsharded one")
+    assert_close(outputs, parallel_outputs, msg="Sharded linear output does not match the unsharded one.")
 
 
 @is_trainium_test

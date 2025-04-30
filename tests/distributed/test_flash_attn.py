@@ -9,6 +9,8 @@ from optimum.neuron.utils.import_utils import (
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
+from .utils import assert_close
+
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
@@ -92,14 +94,4 @@ def test_nki_flash_attention(model_id, dtype):
         mixed_precision=True,
     )
     xm.mark_step()
-
-    atol = torch.finfo(dtype).resolution
-    # Please refer to that discussion for default rtol values based on the float type:
-    # https://scicomp.stackexchange.com/questions/43111/float-equality-tolerance-for-single-and-half-precision
-    rtol = {torch.float32: 1e-5, torch.float16: 1e-3, torch.bfloat16: 1e-1}[dtype]
-    torch.testing.assert_close(
-        eager_attn_output.to("cpu"),
-        flash_attention_output.to("cpu"),
-        atol=atol,
-        rtol=rtol,
-    )
+    assert_close(eager_attn_output, flash_attention_output)
