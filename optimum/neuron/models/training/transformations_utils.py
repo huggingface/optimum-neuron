@@ -12,6 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Defines the API to represent model weights transformations that happen between the original Transformers 
+implementation and the custom implementation for Neuron.
+"""
 
 import sys
 from abc import abstractmethod
