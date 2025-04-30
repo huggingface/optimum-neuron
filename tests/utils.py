@@ -69,6 +69,7 @@ TOKEN_STAGING = "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"
 
 SEED = 42
 OPTIMUM_INTERNAL_TESTING_CACHE_REPO = "optimum-internal-testing/optimum-neuron-cache-for-testing"
+OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI = "optimum-internal-testing/optimum-neuron-cache-ci"
 
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
 
