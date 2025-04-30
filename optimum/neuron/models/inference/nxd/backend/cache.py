@@ -22,9 +22,10 @@ import pathlib
 from contextlib import contextmanager
 from typing import List, Optional, Union
 
-from libneuronxla.neuron_cc_cache import CacheUrl, create_compile_cache
+from libneuronxla.neuron_cc_cache import CacheUrl
 from torch_neuronx.xla_impl.trace import HloArtifacts, NeffArtifacts, generate_neff, hlo_compile, setup_compiler_dirs
 
+from .....cache.hub_cache import create_hub_compile_cache_proxy
 from .....utils.patching import patch_everywhere
 
 
@@ -109,9 +110,10 @@ def neff_cache(cache_dir: Optional[str] = None):
             inline_weights_to_neff,
         )
 
-        # Create compile cache
+        # Create a hub compile cache proxying the libneuronxla cache
+        # It will fetch contents from the hub if they are not found in the local cache
         cache_url = CacheUrl.get_cache_url(cache_dir=cache_dir)
-        compile_cache = create_compile_cache(cache_url)
+        compile_cache = create_hub_compile_cache_proxy(cache_url)
 
         # The cache key is a hash of the HLO module and the compiler arguments
         cache_key = get_hash_module(hlo_artifacts.hlo_module, compiler_args)
