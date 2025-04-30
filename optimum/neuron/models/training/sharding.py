@@ -1,30 +1,10 @@
 from typing import Dict, List
 
 import torch
-from neuronx_distributed.parallel_layers.layers import (
-    create_local_weight,
-)
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_tensor_model_parallel_rank,
     get_tensor_model_parallel_size,
 )
-
-
-def slice_tensor(tensor: torch.Tensor, axis: int) -> torch.Tensor:
-    """Slice a tensor along a given axis and return a slice corresponding to the rank.
-    This will round up the layer to the next multiple if there is need to pad the tensor.
-
-    Args:
-        tensor (:obj:`torch.Tensor`): The tensor to slice.
-        axis (:obj:`int`): The axis along which to slice the tensor.
-    """
-    tp_size = get_tensor_model_parallel_size()
-    axis_len = tensor.shape[axis]
-
-    # round up to the next multiple of tp_size
-    split_len = (axis_len + tp_size - 1) // tp_size
-    partition_stride = 1  # assuming that is always 1
-    return create_local_weight(tensor, axis, split_len, partition_stride)
 
 
 def _create_local_fused_weight(tp_rank, tp_size, individual_weights, partition_dim, out_weight=None):
