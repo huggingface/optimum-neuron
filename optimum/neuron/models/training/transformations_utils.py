@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Defines the API to represent model weights transformations that happen between the original Transformers 
+Defines the API to represent model weights transformations that happen between the original Transformers
 implementation and the custom implementation for Neuron.
 """
 
@@ -37,6 +37,25 @@ else:
     # We define this dummy function in case we do not have neuronx_distributed, for instance when building the docs.
     def get_tensor_model_parallel_size():
         return 0
+
+
+def create_local_weight_with_padding(
+    full_weight: torch.Tensor,
+    partition_dim: int,
+    stride: int,
+    out_weight: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """
+    Shards a tensor along a given axis and return a slice corresponding to the rank.
+    This will round up the layer to the next multiple if there is need to pad the tensor.
+    """
+    tp_size = get_tensor_model_parallel_size()
+    axis_len = full_weight.shape[partition_dim]
+
+    # Round up to the next multiple of tp_size
+    split_len = (axis_len + tp_size - 1) // tp_size
+
+    return create_local_weight(full_weight, partition_dim, split_len, stride, out_weight=out_weight)
 
 
 def create_local_fused_weight(tp_rank, tp_size, individual_weights, partition_dim, fuse_axis, out_weight=None):
@@ -653,7 +672,7 @@ def adapt_state_dict(
             # If the parameter associated to the weight is parallel, we shard the weight.
             full_weight = state_dict[name]
             per_partition_size = full_weight.shape[param.partition_dim] // tp_size
-            state_dict[name] = create_local_weight(
+            state_dict[name] = create_local_weight_with_padding(
                 full_weight, param.partition_dim, per_partition_size, param.partition_stride
             )
     return state_dict
