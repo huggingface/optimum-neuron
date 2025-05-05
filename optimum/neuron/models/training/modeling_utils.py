@@ -576,6 +576,10 @@ class NeuronModelMixin:
         if len(resolved_archive_file) > 1:
             resolved_archive_file = logging.tqdm(resolved_archive_file, desc="Loading checkpoint shards")
         assign_to_params_buffers = None
+
+        # In case some parameters weights are sharded across multiple files, we keep track of them to be able to adapt
+        # them in successive calls to `adapt_state_dict`.
+        upstanding_sharded_params = {}
         for shard_file in resolved_archive_file:
             # ** Difference from original _load_pretrained_model **
             # We do not use map_location here so we do not add the code associated to it.
@@ -589,7 +593,12 @@ class NeuronModelMixin:
 
             # ** Difference from original _load_state_dict_into_model **
             # We adapt the state dict to the custom model.
-            state_dict = adapt_state_dict(model_to_load, state_dict, inplace=True)
+            state_dict = adapt_state_dict(
+                model_to_load,
+                state_dict,
+                inplace=True,
+                upstanding_sharded_params=upstanding_sharded_params,
+            )
 
             # Mistmatched keys contains tuples key/shape1/shape2 of weights in the checkpoint that have a shape not
             # matching the weights in the model.
