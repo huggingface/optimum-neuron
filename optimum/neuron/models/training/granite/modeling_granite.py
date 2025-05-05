@@ -37,8 +37,14 @@ from transformers.utils import (
     logging,
 )
 
-from ..config import TrainingNeuronConfig
-from ..sharding import fuse_weights, slice_tensor
+from optimum.neuron.accelerate import ModelParallelismConfig
+
+from ..modeling_utils import NeuronModelMixin
+from ..transformations_utils import (
+    CustomModule,
+    FusedLinearsSpec,
+    ModelWeightTransformationSpecs,
+)
 
 
 logger = logging.get_logger(__name__)
@@ -119,10 +125,10 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-class GraniteAttention(nn.Module):
+class GraniteAttention(nn.Module, CustomModule):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    def __init__(self, config: PretrainedConfig, mp_config: TrainingNeuronConfig, layer_idx: Optional[int] = None):
+    def __init__(self, config: PretrainedConfig, mp_config: ModelParallelismConfig, layer_idx: Optional[int] = None):
         super().__init__()
         self.config = config
         self.mp_config = mp_config
@@ -144,6 +150,8 @@ class GraniteAttention(nn.Module):
             )
 
         init_method = partial(_init_normal, config.initializer_range)
+        self.specs = ModelWeightTransformationSpecs()
+
         self.q_proj = ColumnParallelLinear(
             self.hidden_size,
             self.num_heads * self.head_dim,
@@ -180,30 +188,12 @@ class GraniteAttention(nn.Module):
             sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
             dtype=self.config.torch_dtype,
         )
-        # Split parallelized weights
-        self._register_load_state_dict_pre_hook(self.load_hook)
 
         # Some variables are initialized regardless of the TP size, to consider sharded weights
         tp_size = get_tensor_model_parallel_size()
         self.num_heads = neuronx_dist_utils.divide(config.num_attention_heads, tp_size)
         self.num_key_value_heads = neuronx_dist_utils.divide(config.num_key_value_heads, tp_size)
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
-
-    def load_hook(self, state_dict, prefix, *_args):
-        """
-        Update the state dict to split the weights of the model across the TP size.
-        """
-        # Filtering items to slice only the weights of this layer
-        filtered_items = filter(lambda x: x[0].startswith(prefix), state_dict.items())
-        for k, v in filtered_items:
-            if k.endswith("q_proj.weight"):
-                state_dict[k] = slice_tensor(v, 0)
-            if k.endswith("k_proj.weight"):
-                state_dict[k] = slice_tensor(v, 0)
-            if k.endswith("v_proj.weight"):
-                state_dict[k] = slice_tensor(v, 0)
-            if k.endswith("o_proj.weight"):
-                state_dict[k] = slice_tensor(v, 1)
 
     def forward(
         self,
@@ -278,15 +268,27 @@ class GraniteRMSNorm(nn.Module):
         return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
 
 
-class GraniteMLP(nn.Module):
+class GraniteMLP(nn.Module, CustomModule):
     def __init__(self, config, mp_config):
         super().__init__()
         self.config = config
         self.mp_config = mp_config
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
+        self.act_fn = ACT2FN[config.hidden_act]
         init_method = partial(_init_normal, config.initializer_range)
         assert not config.mlp_bias, "GraniteMLP sharding does not support bias for now"
+
+        # Defines the MLP weight transformation specs
+        self.specs = ModelWeightTransformationSpecs(
+            specs=FusedLinearsSpec(
+                fused_linear_name="gate_up_proj",
+                linear_names=["gate_proj", "up_proj"],
+                bias=False,
+                fuse_axis="column",
+                original_dims=[self.intermediate_size] * 2,
+            )
+        )
         self.gate_up_proj = ColumnParallelLinear(
             self.hidden_size,
             2 * self.intermediate_size,
@@ -298,7 +300,6 @@ class GraniteMLP(nn.Module):
             sequence_dimension=0,
             dtype=self.config.torch_dtype,
         )
-        self.split_size = self.intermediate_size // get_tensor_model_parallel_size()
         self.down_proj = RowParallelLinear(
             self.intermediate_size,
             self.hidden_size,
@@ -308,29 +309,7 @@ class GraniteMLP(nn.Module):
             input_is_parallel=True,
             sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
         )
-        self.act_fn = ACT2FN[config.hidden_act]
-        # Split parallelized weights
-        self.full_fused_weights = []
-        self._register_load_state_dict_pre_hook(self.load_hook)
-
-    def load_hook(self, state_dict, prefix, *_args):
-        """
-        Update the state dict to split the weights of the model across the TP size.
-        """
-        fused_gate_up_proj = ["gate_proj.weight", "up_proj.weight"]
-        fuse_weights(
-            keys=fused_gate_up_proj,
-            prefix=prefix,
-            state_dict=state_dict,
-            partition_dim=0,
-            full_fused_weights=self.full_fused_weights,
-            fused_name="gate_up_proj.weight",
-        )
-        # Filtering items to slice only the weights of this layer
-        filtered_items = filter(lambda x: x[0].startswith(prefix), state_dict.items())
-        for k, v in filtered_items:
-            if k.endswith("down_proj.weight"):
-                state_dict[k] = slice_tensor(v, 1)
+        self.split_size = self.intermediate_size // get_tensor_model_parallel_size()
 
     def forward(self, x):
         gate_proj, up_proj = self.gate_up_proj(x).split(self.split_size, dim=2)
@@ -350,7 +329,7 @@ class GraniteMLP(nn.Module):
 
 
 class GraniteDecoderLayer(nn.Module):
-    def __init__(self, config: PretrainedConfig, mp_config: TrainingNeuronConfig, layer_idx: int):
+    def __init__(self, config: PretrainedConfig, mp_config: ModelParallelismConfig, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.self_attn = GraniteAttention(config=config, mp_config=mp_config, layer_idx=layer_idx)
@@ -488,10 +467,7 @@ class GranitePreTrainedModel(PreTrainedModel):
     _supports_cache_class = False
     _supports_quantized_cache = False
     _supports_static_cache = False
-    # This is to suppress the warning about some weights not expected and other not being initialized. This is due to
-    # the way weights are fused, so it is safe to ignore the warnings.
-    _keys_to_ignore_on_load_unexpected = [r".*up_proj.weight", r".*gate_proj.weight"]
-    _keys_to_ignore_on_load_missing = [r".*gate_up_proj.weight"]
+
 
     def _init_weights(self, module):
         std = self.config.initializer_range
@@ -505,7 +481,7 @@ class GranitePreTrainedModel(PreTrainedModel):
                 module.weight.data[module.padding_idx].zero_()
 
 
-class GraniteModel(GranitePreTrainedModel):
+class GraniteModel(NeuronModelMixin, GranitePreTrainedModel):
     """
     Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`GraniteDecoderLayer`]
 
@@ -513,7 +489,7 @@ class GraniteModel(GranitePreTrainedModel):
         config: PretrainedConfig
     """
 
-    def __init__(self, config: PretrainedConfig, mp_config: TrainingNeuronConfig):
+    def __init__(self, config: PretrainedConfig, mp_config: ModelParallelismConfig):
         super().__init__(config)
         self.mp_config = mp_config
         self.padding_idx = config.pad_token_id
@@ -712,11 +688,12 @@ class GraniteModel(GranitePreTrainedModel):
         return causal_mask
 
 
-class GraniteForCausalLM(GranitePreTrainedModel):
+class GraniteForCausalLM(NeuronModelMixin, GranitePreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
 
-    def __init__(self, config, mp_config: TrainingNeuronConfig):
+    def __init__(self, config, mp_config: ModelParallelismConfig):
         super().__init__(config)
+        self.mp_config = mp_config
         self.model = GraniteModel(config, mp_config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)

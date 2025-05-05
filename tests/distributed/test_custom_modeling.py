@@ -1,11 +1,9 @@
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from optimum.neuron.models.training.config import TrainingNeuronConfig
+from optimum.neuron.accelerate import ModelParallelismConfig
 from optimum.neuron.models.training.granite.modeling_granite import GraniteForCausalLM
-from optimum.neuron.utils.import_utils import (
-    is_torch_xla_available,
-)
+from optimum.neuron.utils.import_utils import is_neuronx_available, is_torch_xla_available
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .. import launch_procs
@@ -13,6 +11,12 @@ from .. import launch_procs
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+
+if is_neuronx_available():
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_tensor_model_parallel_size,
+    )
+    from neuronx_distributed.utils.model_utils import move_model_to_device
 
 
 @torch.no_grad()
@@ -44,10 +48,14 @@ def _test_parallel_granite():
     xm.mark_step()
 
     # Note that model is init on CPU, then moved  to XLA
-    mp_config = TrainingNeuronConfig(
+    tp_size = get_tensor_model_parallel_size()
+    mp_config = ModelParallelismConfig(
+        tensor_parallel_size=tp_size,
         sequence_parallel_enabled=False,
+        use_flash_attention=False,
     )
-    model = GraniteForCausalLM.from_pretrained(model_id, mp_config, torch_dtype=torch_dtype).to(device="xla")
+    model = GraniteForCausalLM.from_pretrained(model_id, mp_config, torch_dtype=torch_dtype)
+    move_model_to_device(model, xm.xla_device())
     model.eval()
     outputs = model(**inputs)
     xm.mark_step()
