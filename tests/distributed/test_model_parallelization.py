@@ -650,7 +650,7 @@ def _overfit_causal_lm(
         if last_loss is None:
             raise ValueError("No loss found in the logs.")
         print("Last loss", last_loss)
-        assert last_loss != 0.0, "The model did not overfit the dataset."
+        assert last_loss == 0.0, "The model did not overfit the dataset."
 
 
 @pytest.mark.parametrize(
