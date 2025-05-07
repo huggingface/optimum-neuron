@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
+# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,10 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Utilities related to the PEFT library and support."""
 
 import collections
 import functools
+import inspect
 import os
 import warnings
 from dataclasses import asdict
@@ -23,10 +23,11 @@ from pathlib import Path
 from typing import Any, List, Optional, Tuple, Union
 
 import torch
+from transformers import PreTrainedModel
 
-from .import_utils import is_peft_available
-from .patching import Patcher, replace_class_in_inheritance_hierarchy
-from .require_utils import requires_neuronx_distributed, requires_safetensors
+from ...import_utils import is_peft_available
+from ...patching import Patcher, replace_class_in_inheritance_hierarchy
+from ...require_utils import requires_neuronx_distributed, requires_safetensors
 from .training_utils import _get_model_param_count
 
 
@@ -85,6 +86,21 @@ def get_peft_model_state_dict(*args, **kwargs):
 
 
 class NeuronPeftModel(PeftModel):
+    def __init__(
+        self,
+        model: PreTrainedModel,
+        peft_config: PeftConfig,
+        adapter_name: str = "default",
+        autocast_adapter_dtype: bool = True,
+        low_cpu_mem_usage: bool = False,
+    ) -> None:
+        self.is_custom_modeling = inspect.getmodule(model.__class__).__name__.startswith(
+            "optimum.neuron.models.training"
+        )
+        if self.is_custom_modeling:
+            print("zazou", peft_config)
+        return super().__init__(model, peft_config, adapter_name, autocast_adapter_dtype, low_cpu_mem_usage)
+
     @requires_neuronx_distributed
     @requires_safetensors
     def save_pretrained(
