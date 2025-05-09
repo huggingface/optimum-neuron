@@ -14,11 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# [DRAFT] Llama 3.2 1B Pretraining on SageMaker Hyperpod with Pre-built Containers
+# [DRAFT] Llama 3.2 Continuous Pretraining on SageMaker Hyperpod with Pre-built Containers
 
-This tutorial will demonstrate how to continuously pre-train the Llama 3.2 1B model using the Hugging Face Optimum Neuron library on AWS SageMaker Hyperpod. We will leverage several performance optimizations such as tensor parallelism, sequence parallelism, selective checkpointing, and ZeRO-1 to efficiently train large language models on Trainium-powered instances.
+This tutorial demonstrates how to continuously pre-train the Llama 3.2 1B model using the Hugging Face Optimum Neuron library on AWS SageMaker Hyperpod. We leverage several performance optimizations such as tensor parallelism, sequence parallelism, and ZeRO-1 to efficiently train large language models on Trainium-powered instances.
 
-One of the key benefits of using SageMaker Hyperpod is the ability to leverage the pre-built Optimum Neuron containers provided by Hugging Face. These containers come with all the necessary libraries and dependencies pre-installed, making it easy to get started with training and inference on AWS Trainium and Inferentia instances.
+One of the key benefits of using SageMaker Hyperpod is the ability to leverage the pre-built Optimum Neuron containers provided by Hugging Face. These containers come with all the necessary libraries and dependencies pre-installed, making it easy to get started with training on AWS Trainium instances.
+
 
 By using the SageMaker pre-built containers, you can avoid the hassle of manually setting up the environment and focus on the core training and fine-tuning tasks. The containers are optimized for performance and include various optimization techniques, such as tensor parallelism and selective checkpointing, to efficiently train large language models like Llama 3.2 1B.
 
@@ -59,86 +60,24 @@ from datasets import load_dataset
 dataset = load_dataset("wikicorpus", "raw_en", split="train")
 ```
 
-To prepare the dataset for pretraining, we need to tokenize the text and format it in a way that is compatible with the Optimum Neuron library. You can refer to the [Supervised Fine-Tuning of Llama 3 8B on one AWS Trainium instance](./sft_lora_finetune_llm.md) tutorial for an example of how to do this.
+The script includes functions to tokenize and preprocess the dataset for pretraining.
 
 ## 3. Continuous Pretraining on SageMaker Hyperpod
 
-The Optimum Neuron library provides the `NeuronSFTTrainer` class, which is a specialized version of the Hugging Face Trainer that is optimized for training on AWS Trainium instances. In this tutorial, we will use a similar approach, but adapted for the SageMaker Hyperpod environment.
+The script uses the `Trainer` class from the Optimum Neuron library, which is a specialized version of the Hugging Face Trainer optimized for training on AWS Trainium instances. 
 
-Here's an example of how you can set up the pretraining process:
+Here's an overview of the main components in the script:
 
-```python
-from peft import LoraConfig
-from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer
-from optimum.neuron.distributed import lazy_load_for_parallelism
+1. **Model Loading**: The model is loaded using `AutoModelForCausalLM.from_pretrained()` with lazy loading for parallelism.
 
-# Define the tensor_parallel_size
-tensor_parallel_size = 32
+2. **Data Processing**: The dataset is tokenized and processed into chunks suitable for language modeling.
 
-with lazy_load_for_parallelism(tensor_parallel_size=tensor_parallel_size):
-    model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B")
+3. **Training Arguments**: The script uses `NeuronTrainingArguments` to configure training hyperparameters, including options for tensor parallelism and pipeline parallelism.
 
-config = LoraConfig(
-    r=16,
-    lora_alpha=16,
-    lora_dropout=0.05,
-    target_modules=[
-        "q_proj",
-        "gate_proj",
-        "v_proj",
-        "o_proj",
-        "k_proj",
-        "up_proj",
-        "down_proj"
-    ],
-    bias="none",
-    task_type="CAUSAL_LM",
-)
+4. **Trainer Setup**: A `Trainer` instance is created with the model, training arguments, datasets, and other necessary components.
 
-args = NeuronTrainingArguments(
-    output_dir="llama-3.2-1b-pretrained",
-    num_train_epochs=3,
-    per_device_train_batch_size=1,
-    gradient_accumulation_steps=8,
-    warmup_ratio=0.03,
-    learning_rate=5e-5,
-    bf16=True,
-    tensor_parallel_size=tensor_parallel_size,
-    pipeline_parallel_size=1,
-    do_train=True,
-    save_strategy="steps",
-    save_steps=1000,
-    logging_steps=100,
-    report_to="tensorboard",
-    load_best_model_at_end=True,
-    metric_for_best_model="loss",
-    greater_is_better=False,
-)
+5. **Training Loop**: The `trainer.train()` method is called to start the continuous pretraining process.
 
-sft_config = NeuronSFTConfig(
-    max_seq_length=2048,
-    packing=False,
-    **args.to_dict(),
-)
-
-trainer = NeuronSFTTrainer(
-    args=sft_config,
-    model=model,
-    peft_config=config,
-    tokenizer=tokenizer,
-    train_dataset=dataset,
-)
-
-# Start training
-trainer.train()
-```
-
-In this example, we:
-
-1. Use the `lazy_load_for_parallelism` context manager to efficiently load the model with tensor parallelism.
-2. Define a LoRA configuration to enable parameter-efficient fine-tuning.
-3. Configure the `NeuronTrainingArguments` and `NeuronSFTConfig` with appropriate hyperparameters for pretraining.
-4. Create a `NeuronSFTTrainer` instance and start the training process.
 
 ## 4. Launch Training Job
 
