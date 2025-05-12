@@ -177,7 +177,7 @@ class NxDDecoderModel(nn.Module):
         return past_key_values
 
     def _is_reorder_needed(self, is_for_context_encoding, is_for_speculation):
-        return not is_for_context_encoding and not is_for_speculation and self.neuron_config.is_continuous_batching
+        return not is_for_context_encoding and not is_for_speculation and self.neuron_config.continuous_batching
 
     def forward(
         self,
