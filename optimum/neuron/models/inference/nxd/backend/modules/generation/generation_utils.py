@@ -47,10 +47,28 @@ class NxDGenerationMixin(GenerationMixin):
         # Still required in transformers <= 4.50
         return True
 
-    def generate(self, *args, **kwargs):
+    def generate(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        generation_config: Optional["GenerationConfig"] = None,
+        **kwargs,
+    ):
+        # Sanity check
+        batch_size, sequence_length = input_ids.shape
+        if sequence_length > self.neuron_config.sequence_length:
+            raise ValueError(
+                f"The input sequence length ({sequence_length}) exceeds the model static sequence length ({self.neuron_config.sequence_length})"
+            )
+        if batch_size > self.neuron_config.batch_size:
+            raise ValueError(
+                f"The specified batch_size ({batch_size}) exceeds the model static batch size ({self.neuron_config.batch_size})"
+            )
         # Keep generation stateless.
         self.reset()
-        return super().generate(*args, **kwargs)
+        return super().generate(
+            input_ids, attention_mask=attention_mask, generation_config=generation_config, **kwargs
+        )
 
     # TODO: Remove _sample and define separate flow for on-device sampling that doesn't use HF.
     def _sample(
@@ -96,7 +114,9 @@ class NxDGenerationMixin(GenerationMixin):
         # auto-regressive generation
         while not this_peer_finished:
             # prepare model inputs
-            model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
+            model_inputs = self.prepare_inputs_for_generation(
+                input_ids, is_decode=is_for_token_generation, **model_kwargs
+            )
             model_kwargs["attention_mask"] = model_inputs.get("attention_mask")
 
             # forward pass to get next token
@@ -150,11 +170,12 @@ class NxDGenerationMixin(GenerationMixin):
     def prepare_inputs_for_generation(
         self,
         input_ids,
+        is_decode,
         attention_mask=None,
         sampling_params=None,
         **kwargs,
     ):
-        if self.kv_cache_populated:
+        if is_decode:
             input_ids = input_ids[:, -1:]
 
         position_ids = kwargs.get("position_ids", None)
@@ -162,7 +183,7 @@ class NxDGenerationMixin(GenerationMixin):
             # create position_ids on the fly for batch generation
             position_ids = attention_mask.long().cumsum(-1) - 1
             position_ids.masked_fill_(attention_mask == 0, 1)
-            if self.kv_cache_populated:
+            if is_decode:
                 position_ids = torch.amax(position_ids, 1, keepdim=True)
                 position_ids = position_ids + 1
 
@@ -179,6 +200,36 @@ class NxDGenerationMixin(GenerationMixin):
             model_inputs.update({arg: kwargs.get(arg, None)})
 
         return model_inputs
+
+    def prepare_inputs_for_prefill(
+        self,
+        input_ids,
+        attention_mask=None,
+        sampling_params=None,
+        **kwargs,
+    ):
+        return self.prepare_inputs_for_generation(
+            input_ids,
+            is_decode=False,
+            attention_mask=attention_mask,
+            sampling_params=sampling_params,
+            **kwargs,
+        )
+
+    def prepare_inputs_for_decode(
+        self,
+        input_ids,
+        attention_mask=None,
+        sampling_params=None,
+        **kwargs,
+    ):
+        return self.prepare_inputs_for_generation(
+            input_ids,
+            is_decode=True,
+            attention_mask=attention_mask,
+            sampling_params=sampling_params,
+            **kwargs,
+        )
 
     # We override this function because we want to change the way attention_mask
     # is updated each iteration.
