@@ -69,7 +69,7 @@ class NxDNeuronConfig(NeuronConfig):
         ctx_batch_size: Optional[int] = None,
         tkg_batch_size: Optional[int] = None,
         max_batch_size: Optional[int] = None,
-        is_continuous_batching: Optional[bool] = False,
+        continuous_batching: Optional[bool] = False,
         speculation_length: Optional[int] = 0,
         sequence_length: Optional[int] = 128,
         tp_degree: Optional[int] = 1,
@@ -157,7 +157,7 @@ class NxDNeuronConfig(NeuronConfig):
         self.ctx_batch_size = batch_size if ctx_batch_size is None else ctx_batch_size
         self.tkg_batch_size = batch_size if tkg_batch_size is None else tkg_batch_size
         self.max_batch_size = batch_size if max_batch_size is None else max_batch_size
-        self.is_continuous_batching = is_continuous_batching
+        self.continuous_batching = continuous_batching
 
         # On-device sampling
         self.on_device_sampling = on_device_sampling
