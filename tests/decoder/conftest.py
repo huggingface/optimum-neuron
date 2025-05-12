@@ -2,13 +2,16 @@ import copy
 import logging
 import sys
 from tempfile import TemporaryDirectory
+from typing import Dict
 
 import huggingface_hub
 import pytest
-from transformers import AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.cache import synchronize_hub_cache
+from optimum.neuron.models.auto_model import get_neuron_model_class
+from optimum.neuron.models.inference.nxd.backend.modules.decoder import NxDModelForCausalLM
 from optimum.neuron.version import __sdk_version__ as sdk_version
 from optimum.neuron.version import __version__ as version
 
@@ -43,8 +46,14 @@ DECODER_MODEL_CONFIGURATIONS = {
 }
 
 
-def _get_hub_neuron_model_id(config_name: str):
-    return f"optimum-internal-testing/neuron-testing-{version}-{sdk_version}-{config_name}"
+def _get_hub_neuron_model_id(config_name: str, model_config: Dict[str, str]):
+    hub_neuron_model_id = f"optimum-internal-testing/neuron-testing-{version}-{sdk_version}-{config_name}"
+    config = AutoConfig.from_pretrained(model_config["model_id"])
+    model_type = config.model_type
+    auto_model_class = get_neuron_model_class(model_type, "text-generation", "inference")
+    if issubclass(auto_model_class, NxDModelForCausalLM):
+        hub_neuron_model_id += "-nxd"
+    return hub_neuron_model_id
 
 
 def _export_model(model_id, export_kwargs, neuron_model_path):
@@ -82,7 +91,7 @@ def neuron_decoder_config(request):
     model_config = copy.deepcopy(DECODER_MODEL_CONFIGURATIONS[request.param])
     model_id = model_config["model_id"]
     export_kwargs = model_config["export_kwargs"]
-    neuron_model_id = _get_hub_neuron_model_id(config_name)
+    neuron_model_id = _get_hub_neuron_model_id(config_name, model_config)
     with TemporaryDirectory() as neuron_model_path:
         hub = huggingface_hub.HfApi()
         if hub.repo_exists(neuron_model_id):
