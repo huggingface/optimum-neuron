@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .granite.modeling_granite import GraniteForCausalLM
 from .llama.modeling_llama import LlamaForCausalLM
 from .modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
 from .transformations_utils import (
