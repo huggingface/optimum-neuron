@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/models/config.py
 from typing import List, Optional, Union
 
 import torch
@@ -59,6 +60,8 @@ class NxDNeuronConfig(NeuronConfig):
 
     This class contains attributes that are needed for various inference
     optimization/features in NxD.
+
+    These attributes are a subset of the attributes in the original NxDI config class.
     """
 
     def __init__(
