@@ -4,7 +4,7 @@
 export AWS_REGION=$(aws ec2 describe-availability-zones --output text --query 'AvailabilityZones[0].[RegionName]')
 export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 export REGISTRY=${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/
-export IMAGE=optimum-neuron-llama-training
+export IMAGE=optimum-neuron-llama-pretraining
 export TAG=:latest
 export IMAGE_URI=${REGISTRY}${IMAGE}${TAG}
 
@@ -33,4 +33,5 @@ export MAX_STEPS=1000
 export BATCH_SIZE=1
 
 # Generate the final yaml file from template
-cat llama_train.yaml-template | envsubst > llama_train.yaml
+cat llama3_train.yaml-template | envsubst > llama_train.yaml
+echo "Generated job spec: llama_train.yaml"

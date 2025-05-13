@@ -63,10 +63,20 @@ To run the pretraining job on the SageMaker Hyperpod cluster, we need to package
    mkdir ~/pre-training
    cd pre-training
 
-   cp -r ../optimum-neuron/docs/source/training_tutorials/amazon_eks/ .
+   cp -r ../optimum-neuron/docs/source/training_tutorials/amazon_eks .
+   cd amazon_eks
+   ```
+2. Login to ECR and pull the `huggingface-pytorch-training-neuronx` image
+
+   ```
+   region=us-east-1
+   dlc_account_id=763104351884
+   aws ecr get-login-password --region $region | docker login --username AWS --password-stdin $dlc_account_id.dkr.ecr.$region.amazonaws.com
+
+   docker pull ${dlc_account_id}.dkr.ecr.${region}.amazonaws.com/huggingface-pytorch-training-neuronx:2.1.2-transformers4.43.2-neuronx-py310-sdk2.20.0-ubuntu20.04-v1.0
    ```
 
-2. Build and push the Docker image to your ECR registry:
+3. Build and push the Docker image to your ECR registry:
 
    ```
    export AWS_REGION=$(aws ec2 describe-availability-zones --output text --query 'AvailabilityZones[0].[RegionName]')
@@ -76,24 +86,41 @@ To run the pretraining job on the SageMaker Hyperpod cluster, we need to package
    export TAG=:latest
 
    docker build -t ${REGISTRY}${IMAGE}${TAG} .
-   aws ecr get-login-password | docker login --username AWS --password-stdin ${REGISTRY}
-   docker push ${REGISTRY}${IMAGE}${TAG}
    ```
 
-3. Next, you will generate the script to be used by the pre-training job. Begin by logging into Hugging Face using your access token mentioned in the prerequisite steps.
+4. Push the image to your private registry
+   ```
+   # Create registry if needed
+   export REGISTRY_COUNT=$(aws ecr describe-repositories | grep \"${IMAGE}\" | wc -l)
+   if [ "${REGISTRY_COUNT//[!0-9]/}" == "0" ]; then
+      echo "Creating repository ${REGISTRY}${IMAGE} ..."
+      aws ecr create-repository --repository-name ${IMAGE}
+   else
+      echo "Repository ${REGISTRY}${IMAGE} already exists"
+   fi
+
+   # Login to registry
+   echo "Logging in to $REGISTRY ..."
+   aws ecr get-login-password | docker login --username AWS --password-stdin $REGISTRY
+
+   # Push image to registry
+   docker image push ${REGISTRY}${IMAGE}${TAG}
+   ```
+
+5. Next, you will generate the script to be used by the pre-training job. Begin by logging into Hugging Face using your access token mentioned in the prerequisite steps.
    Modify the `generate-jobspec.sh` script to include the Hugging Face access token before running it:
 
    ```bash
    export HF_ACCESS_TOKEN="<your_HF_token_here>"
    ```
 
-4. Generate the Kubernetes job specification:
+6. Generate the Kubernetes job specification:
 
    ```
    ./generate-jobspec.sh
    ```
 
-4. Deploy the training job to your Kubernetes cluster:
+7. Deploy the training job to your Kubernetes cluster:
 
    ```
    kubectl apply -f llama_train.yaml
