@@ -1,18 +1,19 @@
 from functools import partial
-import pytest
 
+import pytest
 import torch
 from torch import nn
-
 from transformers import AutoConfig, set_seed
+
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from .utils import assert_close
 from ..distributed_utils import launch_procs
+from .utils import assert_close
+
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
