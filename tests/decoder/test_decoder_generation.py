@@ -22,6 +22,7 @@ from transformers.generation import StoppingCriteria
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.models.inference.nxd.backend.modules.decoder import NxDModelForCausalLM
+from optimum.neuron.models.inference.nxd.backend.modules.generation.generation_utils import prepare_sampling_params
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -195,14 +196,21 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
     if not model.neuron_config.continuous_batching:
         pytest.skip("Model does not support continuous batching")
 
+    # Assume by default that we are not doing on-device sampling
+    on_device_sampling = getattr(model.neuron_config, "on_device_sampling", False)
+    nxd_backend = isinstance(model, NxDModelForCausalLM)
+
     # We need at least three inputs
     assert model.neuron_config.batch_size >= 3
 
     inputs = tokenizer("Once upon a time", return_tensors="pt")
 
     # A few helper functions we need while prefilling and decoding
-    def get_next_tokens(input_ids, cache_ids, start_ids):
-        outputs = model.forward(input_ids, cache_ids, start_ids)
+    def get_next_tokens(**kwargs):
+        outputs = model.forward(**kwargs)
+        if on_device_sampling:
+            # on-device sampling directly returns the next token
+            return outputs.hidden_states.unsqueeze(1)
         return outputs.logits[:, -1, :].argmax(dim=-1, keepdim=True)
 
     def increase_attention_mask(attention_mask):
@@ -216,30 +224,47 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
         return new_attention_mask
 
     # Prefill a single input at index 0, remembering the generated token
-    first_inputs = model.prepare_inputs_for_prefill(**inputs, seq_ids=torch.tensor([0]))
-    first_generated_tokens = get_next_tokens(**first_inputs)
+    first_inputs = {
+        "input_ids": inputs.input_ids,
+        "attention_mask": inputs.attention_mask,
+        "seq_ids": torch.tensor([0]),
+    }
+    if nxd_backend:
+        first_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
+    first_generated_tokens = get_next_tokens(**model.prepare_inputs_for_prefill(**first_inputs))
     # Decode a few tokens
-    next_tokens = first_generated_tokens
-    attention_mask = inputs.attention_mask
+    first_inputs["input_ids"] = first_generated_tokens
     for _ in range(5):
         # For decode we can only pass the next token, but we need to pass the full attention mask
-        attention_mask = increase_attention_mask(attention_mask)
-        decode_inputs = model.prepare_inputs_for_decode(next_tokens, attention_mask)
-        next_tokens = get_next_tokens(**decode_inputs)
+        first_inputs["attention_mask"] = increase_attention_mask(first_inputs["attention_mask"])
+        next_tokens = get_next_tokens(**model.prepare_inputs_for_decode(**first_inputs))
         first_generated_tokens = torch.cat([first_generated_tokens, next_tokens], dim=-1)
+        first_inputs["input_ids"] = next_tokens
     # Prefill a second input at index 2
-    second_inputs = model.prepare_inputs_for_prefill(**inputs, seq_ids=torch.tensor([2]))
-    second_generated_tokens = get_next_tokens(**second_inputs)
+    second_inputs = {
+        "input_ids": inputs.input_ids,
+        "attention_mask": inputs.attention_mask,
+        "seq_ids": torch.tensor([2]),
+    }
+    if nxd_backend:
+        second_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
+    second_generated_tokens = get_next_tokens(**model.prepare_inputs_for_prefill(**second_inputs))
+    # Resize the second request attention mask to the size of the first request
+    second_attention_mask = torch.zeros_like(first_inputs["attention_mask"])
+    second_attention_mask[:, : second_inputs["attention_mask"].shape[1]] = 1
     # Concatenate the last decode token from the first input and the prefill token from the second
-    next_tokens = torch.cat([next_tokens, second_generated_tokens], dim=0)
-    second_attention_mask = torch.zeros_like(attention_mask)
-    second_attention_mask[:, : inputs.attention_mask.shape[1]] = 1
-    attention_mask = torch.cat([attention_mask, second_attention_mask], dim=0)
+    two_requests_inputs = {
+        "input_ids": torch.cat([first_generated_tokens[:, -1:], second_generated_tokens], dim=0),
+        "attention_mask": torch.cat([first_inputs["attention_mask"], second_attention_mask], dim=0),
+        "seq_ids": torch.tensor([0, 2]),
+    }
+    if nxd_backend:
+        two_requests_inputs["sampling_params"] = prepare_sampling_params(batch_size=2)
     # Decode more tokens
     for _ in range(10):
-        attention_mask = increase_attention_mask(attention_mask)
-        decode_inputs = model.prepare_inputs_for_decode(next_tokens, attention_mask, seq_ids=torch.tensor([0, 2]))
-        next_tokens = get_next_tokens(**decode_inputs)
+        two_requests_inputs["attention_mask"] = increase_attention_mask(two_requests_inputs["attention_mask"])
+        next_tokens = get_next_tokens(**model.prepare_inputs_for_decode(**two_requests_inputs))
         first_generated_tokens = torch.cat([first_generated_tokens, next_tokens[0:1, :]], dim=-1)
         second_generated_tokens = torch.cat([second_generated_tokens, next_tokens[1:, :]], dim=-1)
+        two_requests_inputs["input_ids"] = next_tokens
     assert torch.equal(second_generated_tokens, first_generated_tokens[:, : second_generated_tokens.shape[1]])
