@@ -1,8 +1,10 @@
+from functools import partial
 import pytest
+
 import torch
 from torch import nn
-from transformers import AutoConfig, set_seed
 
+from transformers import AutoConfig, set_seed
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
@@ -10,7 +12,7 @@ from optimum.neuron.utils.import_utils import (
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .utils import assert_close
-
+from ..distributed_utils import launch_procs
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
@@ -31,24 +33,7 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 
-@is_trainium_test
-@pytest.mark.parametrize(
-    "model_id, dtype",
-    [
-        pytest.param(
-            "meta-llama/Llama-3.2-1B",
-            torch.float32,
-            marks=pytest.mark.xfail(strict=True, reason="Flash attention does not seem to work right in float32"),
-        ),
-        ("ibm-granite/granite-3.2-2b-instruct", torch.bfloat16),
-    ],
-    ids=["llama", "granite"],
-)
-def test_nki_flash_attention(model_id, dtype):
-    """Test the flash attention kernel with a simple example, comparing
-    the output with the one from the eager implementation.
-    Configuration is taken from the model config.
-    """
+def _test_nki_flash_attention(model_id, dtype):
     set_seed(42)
     config = AutoConfig.from_pretrained(model_id)
     hidden_size = config.hidden_size
@@ -95,3 +80,27 @@ def test_nki_flash_attention(model_id, dtype):
     )
     xm.mark_step()
     assert_close(eager_attn_output, flash_attention_output)
+
+
+@is_trainium_test
+@pytest.mark.parametrize(
+    "model_id, dtype",
+    [
+        pytest.param(
+            "meta-llama/Llama-3.2-1B",
+            torch.float32,
+            marks=pytest.mark.xfail(strict=True, reason="Flash attention does not seem to work right in float32"),
+        ),
+        ("ibm-granite/granite-3.2-2b-instruct", torch.bfloat16),
+    ],
+    ids=["llama", "granite"],
+)
+def test_nki_flash_attention(model_id, dtype):
+    """Test the flash attention kernel with a simple example, comparing
+    the output with the one from the eager implementation.
+    Configuration is taken from the model config.
+    """
+    run_fn = partial(_test_nki_flash_attention, model_id=model_id, dtype=dtype)
+    # Run the function in a distributed environment but with only one worker here.
+    # This is required to make sure the NC are freed after the test.
+    launch_procs(run_fn, 1, 1, 1)
