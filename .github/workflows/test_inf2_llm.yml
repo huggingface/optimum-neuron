@@ -41,3 +41,8 @@ jobs:
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/decoder
+      - name: Run llama tests with NxD backend
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export OPTIMUM_NEURON_PRIORITIZE_NXD_BACKEND=1
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/decoder -k llama
