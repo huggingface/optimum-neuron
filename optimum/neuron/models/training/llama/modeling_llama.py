@@ -468,8 +468,10 @@ class LlamaAttention(nn.Module, CustomModule):
         cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
-        if self.config._attn_implementation == "flash_attention_2":
-            attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
+        # We allow the user to specify the attention implementation in the config, but also use the
+        # mp_config.use_flash_attention flag.
+        if self.config._attn_implementation == "flash_attention_2" or self.mp_config.use_flash_attention:
+            attention_interface = ALL_ATTENTION_FUNCTIONS["flash_attention_2"]
             attn_output = attention_interface(
                 query_states,
                 repeat_kv(key_states, self.num_key_value_groups),
