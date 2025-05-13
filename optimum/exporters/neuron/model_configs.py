@@ -14,9 +14,10 @@
 # limitations under the License.
 """Model specific Neuron configurations."""
 
+import os
 import copy
 from functools import partial
-from typing import TYPE_CHECKING, Dict, List
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
 
@@ -79,7 +80,10 @@ if is_neuronx_distributed_available():
 
 if TYPE_CHECKING:
     if is_diffusers_available():
+        from diffusers.models import FluxTransformer2DModel
         from diffusers.models.vae import Decoder as VaeDecoder
+        from diffusers.models.model_loading_utils import _fetch_index_file, load_state_dict
+        from diffusers.utils import _get_checkpoint_shard_files
 
 
 COMMON_TEXT_TASKS = [
@@ -832,35 +836,104 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
     def load_checkpoint_fn(self):
         pass
     
-    def patch_model_and_prepare_aliases(self, model_or_path, device="xla", **example_inputs):
-        if self.tensor_parallel_size > 1:
-            base_model_instance = BaseModelInstance(create_model, input_output_aliases={})
-            return base_model_instance, None
-        else:
-            return self.CUSTOM_MODEL_WRAPPER(
-                model_or_path,
-                sequence_length=sequence_length,
-                batch_size=batch_size,
-                device=device,
-                tensor_parallel_size=self.tensor_parallel_size,
-            ), {}
+    def patch_model_and_prepare_aliases(self, model_or_path, **kwargs):
+        import pdb
+        pdb.set_trace()
+        
+        base_model_instance = BaseModelInstance(
+            partial(self.get_parallel_callable, model_or_path.config), 
+            input_output_aliases={},
+        )
+        return base_model_instance, None
     
-    def get_transformer(
-        self, model_name_or_path, sequence_length, batch_size, device, tensor_parallel_size
-    ):
+    def get_parallel_callable(self, config):
         """Unlike `torch_neuronx.trace`, `parallel_model_trace` requires a function returning a model object and a dictionary of states."""
-
-        pipe = TasksManager.get_model_from_task(
-            model_name_or_path=model_name_or_path,
-            task=self.task,
-            torch_dtype=torch.bfloat16,
-            framework="pt",
-            library_name="transformers",
-        )  # TODO: add extra args, eg. revision, trust_remote_code, etc.
-        transformer = pipe.transformer
-        transformer.eval()
+        model = FluxTransformer2DModel(**config)
+        # Parallelize the encoder with its custom wrapper
+        model = self.CUSTOM_MODEL_WRAPPER(
+            model,
+            input_names=self.inputs,
+            device=torch.device("cpu"),
+        )
+        model.eval()
+        
+        if self.config.float_dtype == torch.bfloat16:
+            model.bfloat16()
     
-        return transformer
+        return model
+    
+    # Adapted from diffusers.models.modeling_utils.ModelMixin.from_pretrained, this is a helper function for loading checkpoints required by `ModelBuilder`.
+    def get_checkpoint_loader_fn(
+        self, 
+        pretrained_model_name_or_path: Optional[Union[str, os.PathLike]], 
+        **kwargs
+    ):
+        subfolder = kwargs.pop("subfolder", None)
+        cache_dir = kwargs.pop("cache_dir", None)
+        variant = kwargs.pop("variant", None)
+        force_download = kwargs.pop("force_download", False)
+        proxies = kwargs.pop("proxies", None)
+        local_files_only = kwargs.pop("local_files_only", None)
+        token = kwargs.pop("token", None)
+        revision = kwargs.pop("revision", None)
+        # Determine if we're loading from a directory of sharded checkpoints.
+        index_file = None
+        is_local = os.path.isdir(pretrained_model_name_or_path)
+        index_file_kwargs = {
+            "is_local": is_local,
+            "pretrained_model_name_or_path": pretrained_model_name_or_path,
+            "subfolder": subfolder or "",
+            "use_safetensors": True,
+            "cache_dir": cache_dir,
+            "variant": variant,
+            "force_download": force_download,
+            "proxies": proxies,
+            "local_files_only": local_files_only,
+            "token": token,
+            "revision": revision,
+        }
+        index_file = _fetch_index_file(**index_file_kwargs)
+        
+        resolved_model_file = None
+        resolved_model_file, _ = _get_checkpoint_shard_files(
+            pretrained_model_name_or_path,
+            index_file,
+            cache_dir=cache_dir,
+            proxies=proxies,
+            local_files_only=local_files_only,
+            token=token,
+            revision=revision,
+            subfolder=subfolder or "",
+        )
+        
+        if not isinstance(resolved_model_file, list):
+            resolved_model_file = [resolved_model_file]
+        
+        merged_state_dict = {}
+        for shard_file in resolved_model_file:
+            state_dict = load_state_dict(shard_file)
+            merged_state_dict.update(state_dict)
+
+        inner_dim = self.config.num_attention_heads * self.config.attention_head_dim
+        for i in range(self.config.num_single_layers):
+            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_attn.weight"] = (
+                merged_state_dict[f"single_transformer_blocks.{i}.proj_out.weight"][
+                    :, :inner_dim
+                ].contiguous()
+            )
+            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_attn.bias"] = (
+                merged_state_dict[f"single_transformer_blocks.{i}.proj_out.bias"]
+                .clone()
+                .detach()
+                .contiguous()
+            )
+            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_mlp.weight"] = (
+                merged_state_dict[f"single_transformer_blocks.{i}.proj_out.weight"][
+                    :, inner_dim:
+                ].contiguous()
+            )
+        
+        return merged_state_dict
         
 
 

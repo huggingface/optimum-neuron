@@ -349,6 +349,8 @@ def export_models(
     failed_models = []
     total_compilation_time = 0
     compile_configs = {}
+    models_and_neuron_configs.pop("text_encoder")
+    models_and_neuron_configs.pop("text_encoder_2")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -661,7 +663,7 @@ def trace_neuronx(
                 router=None,
                 debug=False,
                 tp_degree=tensor_parallel_size,
-                checkpoint_loader=config.load_checkpoint_fn,
+                checkpoint_loader=config.get_checkpoint_loader_fn,
                 compiler_workdir=compiler_workdir,
             )
             model_builder.add(
