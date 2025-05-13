@@ -21,6 +21,7 @@ from transformers import AutoTokenizer
 from transformers.generation import StoppingCriteria
 
 from optimum.neuron import NeuronModelForCausalLM
+from optimum.neuron.models.inference.nxd.backend.modules.decoder import NxDModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -119,12 +120,20 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
     prompt = "What is Deep Learning?"
     inputs = tokenizer(prompt, return_tensors="pt")
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17)
-    expectations = {
-        "llama": " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial",
-        "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
-        "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
-        "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
-    }
+    if isinstance(model, NxDModelForCausalLM):
+        expectations = {
+            "llama": " And how does it differ from other Machine Learning approaches?\n\n**What is Deep Learning?",
+            "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
+            "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
+            "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
+        }
+    else:
+        expectations = {
+            "llama": " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial",
+            "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
+            "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
+            "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
+        }
     config_name = neuron_decoder_config["name"]
     assert tokenizer.decode(outputs[0]).endswith(expectations[config_name])
 
