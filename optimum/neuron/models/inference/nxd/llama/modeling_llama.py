@@ -544,4 +544,5 @@ class LlamaNxDModelForCausalLM(NxDModelForCausalLM):
             torch_dtype=auto_cast_type,
             on_device_sampling=True,
             fused_qkv=True,
+            continuous_batching=(batch_size > 1) if batch_size else False,
         )
