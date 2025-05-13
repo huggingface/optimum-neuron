@@ -22,7 +22,7 @@ from typing import List, Optional, Tuple, Union
 import neuronx_distributed as nxd
 import torch
 import torch_xla.core.xla_model as xm
-from huggingface_hub import snapshot_download
+from huggingface_hub import HfApi, snapshot_download
 from neuronx_distributed.operators.argmax import argmax as nxd_argmax
 from neuronx_distributed.parallel_layers.layers import SPMDRank
 from neuronx_distributed.parallel_layers.mappings import (
@@ -921,3 +921,33 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         # If the model was exported from a local path, we need to save the checkpoint (not that we also shard it)
         weight_path = model_name_or_path if os.path.isdir(model_name_or_path) else None
         self.save(save_directory, weight_path=weight_path)
+
+    def push_to_hub(
+        self,
+        save_directory: str,
+        repository_id: str,
+        private: Optional[bool] = None,
+        revision: Optional[str] = None,
+        token: Union[bool, str] = True,
+        endpoint: Optional[str] = None,
+    ) -> str:
+        api = HfApi(endpoint=endpoint)
+
+        api.create_repo(
+            token=token,
+            repo_id=repository_id,
+            exist_ok=True,
+            private=private,
+        )
+        ignore_patterns = []
+        checkpoint_id = self.neuron_config.checkpoint_id
+        if checkpoint_id is not None:
+            # Avoid uploading checkpoints when the original model is available on the hub
+            ignore_patterns = [self.CHECKPOINT_DIR + "/*"]
+        api.upload_folder(
+            repo_id=repository_id,
+            folder_path=save_directory,
+            token=token,
+            revision=revision,
+            ignore_patterns=ignore_patterns,
+        )
