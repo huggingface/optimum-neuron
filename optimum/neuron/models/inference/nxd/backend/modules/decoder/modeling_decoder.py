@@ -809,7 +809,22 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             config=config,
             neuron_config=neuron_config,
         )
-        traced_model = torch.jit.load(os.path.join(model_id, cls.COMPILED_MODEL_FILE_NAME))
+        if not os.path.exists(model_id):
+            # The model_id is a model hub id: download the model from the hub.
+            with TemporaryDirectory() as tmpdir:
+                snapshot_download(
+                    repo_id=model_id,
+                    revision=revision,
+                    cache_dir=cache_dir,
+                    local_dir=tmpdir,
+                    force_download=force_download,
+                    local_files_only=local_files_only,
+                    token=token,
+                    allow_patterns=[cls.COMPILED_MODEL_FILE_NAME],
+                )
+                traced_model = torch.jit.load(os.path.join(tmpdir, cls.COMPILED_MODEL_FILE_NAME))
+        else:
+            traced_model = torch.jit.load(os.path.join(model_id, cls.COMPILED_MODEL_FILE_NAME))
         model = cls(
             config=config,
             neuron_config=neuron_config,
