@@ -19,8 +19,8 @@ import pytest
 from transformers import AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.models.inference.nxd.backend.config import to_torch_dtype
 from optimum.neuron.models.inference.nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
+from optimum.neuron.utils import map_torch_dtype
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -53,7 +53,7 @@ def check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num_
         if hasattr(neuron_config, "auto_cast_type"):
             assert neuron_config.auto_cast_type == auto_cast_type
         elif hasattr(neuron_config, "torch_dtype"):
-            assert neuron_config.torch_dtype == to_torch_dtype(auto_cast_type)
+            assert neuron_config.torch_dtype == map_torch_dtype(auto_cast_type)
 
 
 def _test_decoder_export_save_reload(
