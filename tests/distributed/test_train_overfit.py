@@ -28,6 +28,7 @@ def _overfit_causal_lm(
     learning_rate,
     warmup_ratio,
     training_kwargs,
+    max_length,
     max_expected_loss,
     tp_size,
     pp_size,
@@ -38,9 +39,8 @@ def _overfit_causal_lm(
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
     if getattr(tokenizer, "pad_token", None) is None:
         tokenizer.pad_token = tokenizer.eos_token
-    # We use a big sequence length to test that the model trains when there is padding since it can be tricky with
-    # `recompute_causal_mask=True` or when using flash attention.
-    inputs = tokenizer(sample_to_overfit, return_tensors="pt", padding="max_length", max_length=512)
+
+    inputs = tokenizer(sample_to_overfit, return_tensors="pt", padding="max_length", max_length=max_length)
     inputs["labels"] = inputs["input_ids"].clone()
     # We basically remove the batch dimension to have a single example, the batch dimension is added when creating the
     # dataset.
@@ -114,7 +114,7 @@ def _overfit_causal_lm(
 
 
 @pytest.mark.parametrize(
-    "model_class_name,model_name_or_path,learning_rate,warmup_ratio,training_kwargs, max_expected_loss",
+    "model_class_name,model_name_or_path,learning_rate,warmup_ratio,training_kwargs,max_expected_loss,max_length",
     [
         [
             "LlamaForCausalLM",
@@ -125,6 +125,7 @@ def _overfit_causal_lm(
                 "use_flash_attention": True,
             },
             0.0,
+            2048,
         ],
         [
             "GraniteForCausalLM",
@@ -136,6 +137,7 @@ def _overfit_causal_lm(
                 "disable_sequence_parallel": True,
             },
             0.07,
+            512,
         ],
     ],
     ids=["meta-llama/Llama-3.2-1B-Instruct", "ibm-granite/granite-3.2-2b-instruct"],
@@ -152,6 +154,7 @@ def test_overfit_causal_lm(
     warmup_ratio,
     training_kwargs,
     max_expected_loss,
+    max_length,
     world_size,
     tp_size,
     pp_size,
@@ -165,6 +168,7 @@ def test_overfit_causal_lm(
         learning_rate,
         warmup_ratio,
         training_kwargs,
+        max_length,
         max_expected_loss,
         tp_size,
         pp_size,
