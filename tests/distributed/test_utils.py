@@ -25,7 +25,6 @@ from safetensors.torch import save_file
 
 from optimum.neuron.distributed.utils import (
     WeightInformation,
-    embedding_to_parallel_embedding,
     linear_to_parallel_linear,
     load_tensor_for_weight,
 )
@@ -86,106 +85,6 @@ class ParallelUtilsTestCase(TrainiumTestMixin, TestCase):
 
     def get_tensor_model_parallel_rank(self):
         return self.tp_rank
-
-    def _test_embedding_to_parallel_embedding(self, with_weight_info: bool):
-        shard_size = 23
-        vocab_size = shard_size * self.tp_size  # We need to be a multiple of self.TP_SIZE.
-        embedding = torch.nn.Embedding(vocab_size, 300)
-        lm_head = torch.nn.Linear(300, vocab_size)
-
-        with TemporaryDirectory() as tmpdirname:
-            tmpdir = Path(tmpdirname)
-            weight_filename = tmpdir / "weights.safetensors"
-
-            if with_weight_info:
-                embedding_weight = torch.randn(vocab_size, 300)
-                lm_head_weight = torch.randn(vocab_size, 300)
-                lm_head_bias_weight = torch.rand(vocab_size)
-                state_dict = {
-                    "embedding": embedding_weight,
-                    "lm_head_weight": lm_head_weight,
-                    "lm_head_bias_weight": lm_head_bias_weight,
-                }
-                save_file(state_dict, weight_filename)
-                embedding_weight_info = WeightInformation(weight_filename, "embedding")
-                lm_head_weight_info = WeightInformation(weight_filename, "lm_head_weight")
-                lm_head_bias_weight_info = WeightInformation(weight_filename, "lm_head_bias_weight")
-            else:
-                embedding_weight = embedding.weight
-                lm_head_weight = lm_head.weight
-                lm_head_bias_weight = lm_head.bias
-                embedding_weight_info = None
-                lm_head_weight_info = None
-                lm_head_bias_weight_info = None
-
-            # Without lm_head.
-            for tp_rank in range(self.TP_SIZE):
-                self.tp_rank = tp_rank
-                parallel_embedding = embedding_to_parallel_embedding(
-                    copy.deepcopy(embedding),
-                    embedding_weight_info=embedding_weight_info,
-                    lm_head_weight_info=lm_head_weight_info,
-                    lm_head_bias_weight_info=lm_head_bias_weight_info,
-                )
-                torch.testing.assert_close(
-                    parallel_embedding.weight, embedding_weight[tp_rank * shard_size : (tp_rank + 1) * shard_size, :]
-                )
-
-            # With embedding and lm_head untied.
-            for tp_rank in range(self.TP_SIZE):
-                self.tp_rank = tp_rank
-                parallel_embedding, parallel_lm_head = embedding_to_parallel_embedding(
-                    copy.deepcopy(embedding),
-                    lm_head_layer=copy.deepcopy(lm_head),
-                    embedding_weight_info=embedding_weight_info,
-                    lm_head_weight_info=lm_head_weight_info,
-                    lm_head_bias_weight_info=lm_head_bias_weight_info,
-                )
-                torch.testing.assert_close(
-                    parallel_embedding.weight, embedding_weight[tp_rank * shard_size : (tp_rank + 1) * shard_size, :]
-                )
-                torch.testing.assert_close(
-                    parallel_lm_head.weight, lm_head_weight[tp_rank * shard_size : (tp_rank + 1) * shard_size, :]
-                )
-                torch.testing.assert_close(
-                    parallel_lm_head.bias, lm_head_bias_weight[tp_rank * shard_size : (tp_rank + 1) * shard_size]
-                )
-                assert id(parallel_embedding.weight) != id(parallel_lm_head.weight)
-                assert id(parallel_lm_head.bias) != id(lm_head.bias)
-
-            # With embedding and lm_head tied.
-            for tp_rank in range(self.TP_SIZE):
-                self.tp_rank = tp_rank
-                embedding_copy = copy.deepcopy(embedding)
-                tied_lm_head = copy.deepcopy(lm_head)
-                tied_lm_head.weight = embedding_copy.weight
-                parallel_embedding, parallel_lm_head = embedding_to_parallel_embedding(
-                    embedding_copy,
-                    lm_head_layer=tied_lm_head,
-                    embedding_weight_info=embedding_weight_info,
-                    lm_head_weight_info=lm_head_weight_info,
-                    lm_head_bias_weight_info=lm_head_bias_weight_info,
-                )
-                torch.testing.assert_close(
-                    parallel_embedding.weight, embedding_weight[tp_rank * shard_size : (tp_rank + 1) * shard_size, :]
-                )
-                # We check that
-                # parallel_lm_head.weight == embedding.weight[tp_rank * shard_size: (tp_rank + 1) * shard_size, :] because
-                # embedding_to_parallel_embedding is suppose to tie parallel_embedding and parallel_lm_head in this case.
-                torch.testing.assert_close(
-                    parallel_lm_head.weight, embedding_weight[tp_rank * shard_size : (tp_rank + 1) * shard_size, :]
-                )
-                torch.testing.assert_close(
-                    parallel_lm_head.bias, lm_head_bias_weight[tp_rank * shard_size : (tp_rank + 1) * shard_size]
-                )
-                assert id(parallel_embedding.weight) == id(parallel_lm_head.weight)
-                assert id(parallel_lm_head.bias) != id(lm_head.bias)
-
-    def test_embedding_to_parallel_embedding_without_weight_info(self):
-        self._test_embedding_to_parallel_embedding(False)
-
-    def test_embedding_to_parallel_embedding_with_weight_info(self):
-        self._test_embedding_to_parallel_embedding(True)
 
     def _test_linear_to_parallel_linear(
         self,
