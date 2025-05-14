@@ -122,6 +122,7 @@ def build_stable_diffusion_components_mandatory_shapes(
 
 def get_diffusion_models_for_export(
     pipeline: "DiffusionPipeline",
+    tensor_parallel_size: int,
     text_encoder_input_shapes: Dict[str, Any],
     unet_input_shapes: Dict[str, Any],
     transformer_input_shapes: Dict[str, Any],
@@ -144,6 +145,8 @@ def get_diffusion_models_for_export(
     Args:
         pipeline ([`"DiffusionPipeline"`]):
             The model to export.
+        tensor_parallel_size (`int`):
+            Tensor parallelism size, the number of Neuron cores on which to shard the model.
         text_encoder_input_shapes (`Dict[str, Any]`):
             Static shapes used for compiling text encoder.
         unet_input_shapes (`Dict[str, Any]`):
@@ -210,6 +213,7 @@ def get_diffusion_models_for_export(
         text_encoder_neuron_config_2 = text_encoder_config_constructor_2(
             text_encoder_2.config,
             task="feature-extraction",
+            tensor_parallel_size=tensor_parallel_size,
             dynamic_batch_size=dynamic_batch_size,
             output_hidden_states=output_hidden_states,
             input_shapes=text_encoder_2_input_shapes,

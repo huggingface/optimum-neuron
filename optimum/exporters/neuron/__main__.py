@@ -333,6 +333,7 @@ def get_submodels_and_neuron_configs(
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_diffusion(
             model=model,
             input_shapes=input_shapes,
+            tensor_parallel_size=tensor_parallel_size,
             output=output,
             dynamic_batch_size=dynamic_batch_size,
             submodels=submodels,
@@ -386,6 +387,7 @@ def get_submodels_and_neuron_configs(
 def _get_submodels_and_neuron_configs_for_diffusion(
     model: Union["PreTrainedModel", "DiffusionPipeline"],
     input_shapes: Dict[str, int],
+    tensor_parallel_size: int,
     output: Path,
     dynamic_batch_size: bool = False,
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
@@ -418,6 +420,7 @@ def _get_submodels_and_neuron_configs_for_diffusion(
 
     models_and_neuron_configs = get_diffusion_models_for_export(
         pipeline=model,
+        tensor_parallel_size=tensor_parallel_size,
         text_encoder_input_shapes=input_shapes["text_encoder"],
         unet_input_shapes=input_shapes.get("unet", None),
         transformer_input_shapes=input_shapes.get("transformer", None),
