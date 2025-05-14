@@ -14,19 +14,26 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# [DRAFT] Continuous Pretraining of Llama 3.2 1B on SageMaker Hyperpod with Pre-built Containers
+# Continuous Pretraining of Llama 3.2 1B on SageMaker Hyperpod with Pre-built Containers
 
 This tutorial demonstrates how to continuously pre-train the [Llama 3.2 1B](https://huggingface.co/meta-llama/Llama-3.2-1B) model using the Hugging Face [Optimum Neuron](https://huggingface.co/docs/optimum-neuron/index) library on [Amazon SageMaker Hyperpod](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod.html). We leverage several performance optimizations such as tensor parallelism, sequence parallelism, and ZeRO-1 to efficiently train large language models on Trainium-powered instances.
 
 One of the key benefits of using SageMaker Hyperpod is the ability to leverage the pre-built Optimum Neuron containers provided by Hugging Face. These containers come with all the necessary libraries and dependencies pre-installed, making it easy to get started with training on AWS Trainium instances.
 
-
 By using the SageMaker pre-built containers, you can avoid the hassle of manually setting up the environment and focus on the core training and fine-tuning tasks. The containers are optimized for performance and include various optimization techniques, such as tensor parallelism and selective checkpointing, to efficiently train large language models like Llama 3.2 1B.
 
+You will learn how to:
+
+- [Continuous Pretraining of Llama 3.2 1B on SageMaker Hyperpod with Pre-built Containers](#continuous-pretraining-of-llama-32-1b-on-sagemaker-hyperpod-with-pre-built-containers)
+  - [1. Setup AWS Environment](#1-setup-aws-environment)
+  - [2. Prepare the Training Environment](#2-prepare-the-training-environment)
+  - [3. Configure the Training Job](#3-configure-the-training-job)
+  - [4. Launch Training on SageMaker Hyperpod](#4-launch-training-on-sagemaker-hyperpod)
+  - [5. Monitor and Validate Training](#5-monitor-and-validate-training)
 
 ## 1. Setup AWS Environment
 
-Before starting this tutorial, you will need to set up your AWS environment:
+Before starting this tutorial, you need to set up your AWS environment:
 
 1. Create an AWS SageMaker Hyperpod cluster with at least one `trn1.32xlarge` instance. You can follow the [Hyperpod EKS workshop](https://catalog.workshops.aws/sagemaker-hyperpod-eks/en-US/00-setup/own-account) to set up the cluster.
 2. Since Llama 3.2 is a gated model users have to register in Hugging Face and obtain an [access token](https://huggingface.co/docs/hub/en/security-tokens) before running this example. You will also need to review and accept the license agreement on the [meta-llama/Llama-3.2-1B](https://huggingface.co/meta-llama/Llama-3.2-1B) model page.
@@ -39,129 +46,134 @@ Before starting this tutorial, you will need to set up your AWS environment:
    Default output format [None]: json
    ```
 
-## 2. Continuous Pretraining on SageMaker Hyperpod
+## 2. Prepare the Training Environment
 
-In this toturial, we will use the pre-built script from Optimum-neuron. The script uses the `Trainer` class from the Optimum Neuron library, which is a specialized version of the Hugging Face Trainer optimized for training on AWS Trainium instances. 
+Set up your training environment with the necessary dependencies:
 
-Here's an overview of the main components in the script:
+```bash
+git clone https://github.com/huggingface/optimum-neuron.git
+mkdir ~/pre-training
+cd pre-training
 
-1. **Model Loading**: The model is loaded using `AutoModelForCausalLM.from_pretrained()` with lazy loading for parallelism.
+cp -r ../optimum-neuron/docs/source/training_tutorials/amazon_eks .
+cd amazon_eks
+```
 
-2. **Data Processing**: The dataset is tokenized and processed into chunks suitable for language modeling.
+Login to ECR and pull the `huggingface-pytorch-training-neuronx` image:
 
-3. **Training Arguments**: The script uses `NeuronTrainingArguments` to configure training hyperparameters, including options for tensor parallelism and pipeline parallelism.
+```bash
+region=us-east-1
+dlc_account_id=************
+aws ecr get-login-password --region $region | docker login --username AWS --password-stdin $dlc_account_id.dkr.ecr.$region.amazonaws.com
 
-4. **Trainer Setup**: A `Trainer` instance [`optimum.neuron.NeuronTrainer`] is created with the model, training arguments, datasets, and other necessary components.
+docker pull ${dlc_account_id}.dkr.ecr.${region}.amazonaws.com/huggingface-pytorch-training-neuronx:2.1.2-transformers4.43.2-neuronx-py310-sdk2.20.0-ubuntu20.04-v1.0
+```
 
-5. **Training Loop**: The `trainer.train()` method is called to start the continuous pretraining process.
+Build and push the Docker image to your ECR registry:
 
-To run the pretraining job on the SageMaker Hyperpod cluster, we need to package the training script and dependencies into a Docker image and deploy it to the cluster. The Optimum Neuron repository includes a `Dockerfile` and a `generate-jobspec.sh` script that you can use as a starting point.
+```bash
+export AWS_REGION=$(aws ec2 describe-availability-zones --output text --query 'AvailabilityZones[0].[RegionName]')
+export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+export REGISTRY=${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/
+export IMAGE=optimum-neuron-llama-pretraining
+export TAG=:latest
 
-1. First download the script for the EKS job:
-   ```bash
-   git clone https://github.com/huggingface/optimum-neuron.git
-   mkdir ~/pre-training
-   cd pre-training
+docker build -t ${REGISTRY}${IMAGE}${TAG} .
+```
 
-   cp -r ../optimum-neuron/docs/source/training_tutorials/amazon_eks .
-   cd amazon_eks
-   ```
-2. Login to ECR and pull the `huggingface-pytorch-training-neuronx` image
+Push the image to your private registry:
 
-   ```
-   region=us-east-1
-   dlc_account_id=763104351884
-   aws ecr get-login-password --region $region | docker login --username AWS --password-stdin $dlc_account_id.dkr.ecr.$region.amazonaws.com
+```bash
+# Create registry if needed
+export REGISTRY_COUNT=$(aws ecr describe-repositories | grep \"${IMAGE}\" | wc -l)
+if [ "${REGISTRY_COUNT//[!0-9]/}" == "0" ]; then
+   echo "Creating repository ${REGISTRY}${IMAGE} ..."
+   aws ecr create-repository --repository-name ${IMAGE}
+else
+   echo "Repository ${REGISTRY}${IMAGE} already exists"
+fi
 
-   docker pull ${dlc_account_id}.dkr.ecr.${region}.amazonaws.com/huggingface-pytorch-training-neuronx:2.1.2-transformers4.43.2-neuronx-py310-sdk2.20.0-ubuntu20.04-v1.0
-   ```
+# Login to registry
+echo "Logging in to $REGISTRY ..."
+aws ecr get-login-password | docker login --username AWS --password-stdin $REGISTRY
 
-3. Build and push the Docker image to your ECR registry:
+# Push image to registry
+docker image push ${REGISTRY}${IMAGE}${TAG}
+```
 
-   ```
-   export AWS_REGION=$(aws ec2 describe-availability-zones --output text --query 'AvailabilityZones[0].[RegionName]')
-   export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-   export REGISTRY=${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/
-   export IMAGE=optimum-neuron-llama-pretraining
-   export TAG=:latest
+## 3. Configure the Training Job
 
-   docker build -t ${REGISTRY}${IMAGE}${TAG} .
-   ```
+Next, you will generate the script to be used by the pre-training job. Begin by logging into Hugging Face using your access token mentioned in the prerequisite steps.
+Modify the `generate-jobspec.sh` script to include the Hugging Face access token before running it:
 
-4. Push the image to your private registry
-   ```
-   # Create registry if needed
-   export REGISTRY_COUNT=$(aws ecr describe-repositories | grep \"${IMAGE}\" | wc -l)
-   if [ "${REGISTRY_COUNT//[!0-9]/}" == "0" ]; then
-      echo "Creating repository ${REGISTRY}${IMAGE} ..."
-      aws ecr create-repository --repository-name ${IMAGE}
-   else
-      echo "Repository ${REGISTRY}${IMAGE} already exists"
-   fi
+```bash
+export HF_ACCESS_TOKEN="<your_HF_token_here>"
+```
 
-   # Login to registry
-   echo "Logging in to $REGISTRY ..."
-   aws ecr get-login-password | docker login --username AWS --password-stdin $REGISTRY
+Generate the Kubernetes job specification by executing `generate-jobspec.sh`. This will create a deployment manifest called `llama_train.yaml` for the Amazon SageMaker Hyperpod EKS cluster.
 
-   # Push image to registry
-   docker image push ${REGISTRY}${IMAGE}${TAG}
-   ```
+```bash
+./generate-jobspec.sh
+```
 
-5. Next, you will generate the script to be used by the pre-training job. Begin by logging into Hugging Face using your access token mentioned in the prerequisite steps.
-   Modify the `generate-jobspec.sh` script to include the Hugging Face access token before running it:
+## 4. Launch Training on SageMaker Hyperpod
 
-   ```bash
-   export HF_ACCESS_TOKEN="<your_HF_token_here>"
-   ```
+Deploy the training job to your Kubernetes cluster:
 
-6. Generate the Kubernetes job specification by executing `generate-jobspec.sh`. This will create a deployment manifest called `llama_train.yaml` for the Amazon SageMaker Hyperpod EKS cluster.
+```bash
+kubectl apply -f llama_train.yaml
+```
 
-   ```
-   ./generate-jobspec.sh
-   ```
+The manifest runs the training script on the cluster using torchrun for distributed training. You can explore the complete training script at [run_clm.py](https://github.com/huggingface/optimum-neuron/blob/main/examples/language-modeling/run_clm.py).
 
-7. Deploy the training job to your Kubernetes cluster:
+You will use the following distributed training techniques in this script:
+- Distributed Training: Uses torchrun with 8 processes per node for efficient multi-device training
+- Model Parallelism: Implements both tensor parallelism (TP=8) and pipeline parallelism (PP=1)
+- Mixed Precision: Utilizes BFloat16 for improved training efficiency
+- Gradient Checkpointing: Enables memory-efficient training
 
-   ```
-   kubectl apply -f llama_train.yaml
-   ```
+The manifest runs the following command on the cluster. The environment variables are set when creating the manifest in `generate-jobspec.sh`. 
 
-   The manifest runs the following command on the cluster. The environment variables are set when creating the manifest in `generate-jobspec.sh`. You can explore the complete training script at [run_clm.py](https://github.com/huggingface/optimum-neuron/blob/main/examples/language-modeling/run_clm.py)
-    ```
-    torchrun --nproc_per_node=8 --nnodes=${NUM_NODES} run_clm.py \
-        --model_name_or_path=${HF_MODEL_NAME}
-        --token=${HF_ACCESS_TOKEN}
-        --dataset_name=${DATASET_NAME}
-        --dataset_config_name=${DATASET_CONFIG_NAME}
-        --streaming=True
-        --cache_dir=${TOKENIZED_DATA_PATH}
-        --num_train_epochs=1
-        --do_train
-        --learning_rate=1e-4
-        --max_steps=${MAX_STEPS}
-        --per_device_train_batch_size=${BATCH_SIZE}
-        --per_device_eval_batch_size=4
-        --gradient_accumulation_steps=1
-        --gradient_checkpointing
-        --block_size=4096
-        --bf16
-        --torch_dtype=bfloat16
-        --weight_decay=0.01
-        --max_grad_norm=1.0
-        --lr_scheduler_type=linear
-        --tensor_parallel_size=8
-        --pipeline_parallel_size=1
-        --logging_steps=1
-        --save_total_limit=1
-        --output_dir=${CHECKPOINT_DIR}
-        --overwrite_output_dir
-    ```
+```bash
+torchrun --nproc_per_node=8 --nnodes=${NUM_NODES} run_clm.py \
+    --model_name_or_path=${HF_MODEL_NAME}
+    --token=${HF_ACCESS_TOKEN}
+    --dataset_name=${DATASET_NAME}
+    --dataset_config_name=${DATASET_CONFIG_NAME}
+    --streaming=True
+    --cache_dir=${TOKENIZED_DATA_PATH}
+    --num_train_epochs=1
+    --do_train
+    --learning_rate=1e-4
+    --max_steps=${MAX_STEPS}
+    --per_device_train_batch_size=${BATCH_SIZE}
+    --per_device_eval_batch_size=4
+    --gradient_accumulation_steps=1
+    --gradient_checkpointing
+    --block_size=4096
+    --bf16
+    --max_grad_norm=1.0
+    --lr_scheduler_type=linear
+    --tensor_parallel_size=8
+    --pipeline_parallel_size=1
+    --logging_steps=1
+    --save_total_limit=1
+    --output_dir=${CHECKPOINT_DIR}
+    --overwrite_output_dir
+```
 
+The training job will now start running on the SageMaker Hyperpod cluster. 
 
-   The training job will now start running on the SageMaker Hyperpod cluster. You can monitor the progress through Kubernetes logs:
+## 5. Monitor and Validate Training
 
-   ```
-   kubectl logs -f -n kubeflow -l app=llama-training-eks
-   ```
+You can monitor the progress through Kubernetes logs:
 
-   Once the pretraining is complete, you can fine-tune the model for specific tasks using the techniques covered in the previous tutorials.
+```bash
+# Monitor training logs
+kubectl logs -f -n kubeflow llama-training-eks-worker-0
+
+# Validate saved checkpoints
+kubectl exec -it llama-training-eks-worker-0 -- ls -l /fsx/output
+```
+
+Once the pretraining is complete, you can fine-tune the model for specific tasks using the techniques covered in the previous tutorials. Congrats on pre-training Llama on AWS Trainium!
