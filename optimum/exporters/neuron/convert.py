@@ -538,14 +538,14 @@ def export_neuronx(
     # Prepare the model / function(tp) to trace
     if getattr(config, "is_encoder_decoder", False):
         checked_model, aliases = config.patch_model_and_prepare_aliases(model_or_path, **input_shapes)
-    else: 
+    else:
         checked_model, aliases = config.patch_model_and_prepare_aliases(model_or_path, config.inputs)
-    
+
     # Construct compiler configurations
     compiler_args = prepare_compiler_flags(
-        config=config, 
-        auto_cast=auto_cast, 
-        auto_cast_type=auto_cast_type, 
+        config=config,
+        auto_cast=auto_cast,
+        auto_cast_type=auto_cast_type,
         optlevel=optlevel,
     )
 
@@ -560,12 +560,12 @@ def export_neuronx(
     tensor_parallel_size = config.tensor_parallel_size
     trace_neuronx(
         model=checked_model,
-        config=config, 
-        dummy_inputs=dummy_inputs, 
-        compiler_args=compiler_args, 
+        config=config,
+        dummy_inputs=dummy_inputs,
+        compiler_args=compiler_args,
         output=output,
-        tensor_parallel_size=tensor_parallel_size, 
-        aliases=aliases, 
+        tensor_parallel_size=tensor_parallel_size,
+        aliases=aliases,
         inline_weights_to_neff=inline_weights_to_neff,
         compiler_workdir=compiler_workdir,
     )
@@ -575,6 +575,7 @@ def export_neuronx(
     del dummy_inputs
 
     return config.inputs, config.outputs
+
 
 def prepare_dummy_inputs(config: "NeuronDefaultConfig", input_shapes: Dict[str, int], return_dict: bool = True):
     """
@@ -587,6 +588,7 @@ def prepare_dummy_inputs(config: "NeuronDefaultConfig", input_shapes: Dict[str, 
     else:
         dummy_inputs_tuple = tuple(dummy_inputs.values())
         return dummy_inputs_tuple
+
 
 def prepare_compiler_flags(
     config: "NeuronDefaultConfig",
@@ -626,21 +628,22 @@ def prepare_compiler_flags(
 
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
-    
+
     return compiler_args
+
 
 def trace_neuronx(
     model,
-    config, 
-    dummy_inputs, 
-    compiler_args, 
+    config,
+    dummy_inputs,
+    compiler_args,
     output: Path,
-    tensor_parallel_size: int, 
-    aliases = None, 
+    tensor_parallel_size: int,
+    aliases=None,
     inline_weights_to_neff: bool = True,
     compiler_workdir: Optional[Path] = None,
 ):
-    if tensor_parallel_size==1:
+    if tensor_parallel_size == 1:
         # Case 1: Using `torch_neuronx.trace`
         neuron_model = neuronx.trace(
             model,
@@ -686,8 +689,9 @@ def trace_neuronx(
                 tp_degree=tensor_parallel_size,
             )
             neuronx_distributed.trace.parallel_model_save(neuron_model, output)
-    
-    del neuron_model           
+
+    del neuron_model
+
 
 def add_stable_diffusion_compiler_args(config, compiler_args):
     # Combine the model name and its path to identify which is the subcomponent in Stable Diffusion pipeline

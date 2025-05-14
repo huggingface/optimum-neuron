@@ -60,14 +60,14 @@ if is_diffusers_available():
     from diffusers import (
         ControlNetModel,
         DiffusionPipeline,
+        FluxImg2ImgPipeline,
+        FluxInpaintPipeline,
+        FluxPipeline,
         ModelMixin,
         StableDiffusionXLImg2ImgPipeline,
         StableDiffusionXLInpaintPipeline,
         StableDiffusionXLPipeline,
         UNet2DConditionModel,
-        FluxPipeline, 
-        FluxImg2ImgPipeline, 
-        FluxInpaintPipeline,
     )
     from diffusers.models import ImageProjection
     from diffusers.models.attention_processor import Attention
@@ -118,6 +118,7 @@ def build_stable_diffusion_components_mandatory_shapes(
     }
 
     return components_shapes
+
 
 def get_diffusion_models_for_export(
     pipeline: "DiffusionPipeline",
@@ -380,6 +381,7 @@ def load_controlnets(controlnet_ids: Optional[Union[str, List[str]]] = None):
             contronets.append(model)
     return contronets
 
+
 def get_submodels_for_export_diffusion(
     pipeline: "DiffusionPipeline",
     lora_args: LoRAAdapterArguments,
@@ -392,9 +394,7 @@ def get_submodels_for_export_diffusion(
     is_stable_diffusion_xl = isinstance(
         pipeline, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline, StableDiffusionXLPipeline)
     )
-    is_flux = isinstance(
-        pipeline, (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline)
-    )
+    is_flux = isinstance(pipeline, (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline))
 
     # Lora
     pipeline = _load_lora_weights_to_pipeline(pipeline=pipeline, lora_args=lora_args)
@@ -411,7 +411,7 @@ def get_submodels_for_export_diffusion(
 
     text_encoder_2 = getattr(pipeline, "text_encoder_2", None)
     if text_encoder_2 is not None:
-        if text_encoder_2.config.model_type=="clip_text_model":
+        if text_encoder_2.config.model_type == "clip_text_model":
             text_encoder_2.config.output_hidden_states = True
             text_encoder_2.text_model.config.output_hidden_states = True
         text_encoder_2.config.export_model_type = _get_diffusers_submodel_type(text_encoder_2)
@@ -448,7 +448,7 @@ def get_submodels_for_export_diffusion(
     # Diffusion transformer
     transformer = getattr(pipeline, "transformer", None)
     if transformer is not None:
-        if not is_flux: # The following will be handled by `ModelBuilder` if `is_flux`. 
+        if not is_flux:  # The following will be handled by `ModelBuilder` if `is_flux`.
             transformer.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
             transformer.config.text_encoder_projection_dim = projection_dim
             # apply optimized scaled_dot_product_attention
@@ -456,7 +456,9 @@ def get_submodels_for_export_diffusion(
 
             def attention_wrapper(query, key, value, attn_mask=None, dropout_p=None, is_causal=None):
                 if attn_mask is not None:
-                    return sdpa_original(query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal)
+                    return sdpa_original(
+                        query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal
+                    )
                 else:
                     return neuron_scaled_dot_product_attention(
                         query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal
@@ -519,6 +521,7 @@ def replace_stable_diffusion_submodels(pipeline, submodels):
 
     return pipeline
 
+
 class f32Wrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
@@ -535,6 +538,7 @@ class f32Wrapper(torch.nn.Module):
             return super().__getattr__(name)
         return getattr(self.original, name)
 
+
 _DIFFUSERS_CLASS_NAME_TO_SUBMODEL_TYPE = {
     "CLIPTextModel": "clip-text-model",
     "CLIPTextModelWithProjection": "clip-text-with-projection",
@@ -544,6 +548,7 @@ _DIFFUSERS_CLASS_NAME_TO_SUBMODEL_TYPE = {
     "PixArtTransformer2DModel": "pixart-transformer-2d",
     "T5EncoderModel": "t5",
 }
+
 
 def _get_diffusers_submodel_type(submodel):
     return _DIFFUSERS_CLASS_NAME_TO_SUBMODEL_TYPE.get(submodel.__class__.__name__)

@@ -22,9 +22,9 @@ Adapted from `neuronx_distributed_inference/models/diffusers/activations.py`.
 """
 
 import torch
+from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear
 from torch import nn as nn
 from torch.nn import functional as F
-from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear
 
 
 class NeuronGELU(nn.Module):

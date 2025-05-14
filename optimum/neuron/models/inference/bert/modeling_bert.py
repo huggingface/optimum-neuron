@@ -35,8 +35,8 @@ from transformers.modeling_outputs import (
     TokenClassifierOutput,
 )
 
-from ...modeling_traced import NeuronTracedModel
-from ...utils.doc import (
+from ....modeling_traced import NeuronTracedModel
+from ....utils.doc import (
     _TOKENIZER_FOR_DOC,
     NEURON_FEATURE_EXTRACTION_EXAMPLE,
     NEURON_MASKED_LM_EXAMPLE,

@@ -86,11 +86,11 @@ if TYPE_CHECKING:
 
     if is_diffusers_available():
         from diffusers import (
-            DiffusionPipeline, 
-            ModelMixin, 
+            DiffusionPipeline,
+            FluxPipeline,
+            ModelMixin,
             StableDiffusionPipeline,
             StableDiffusionXLPipeline,
-            FluxPipeline,
         )
 
 
@@ -216,13 +216,16 @@ def normalize_diffusers_input_shapes(
     input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)
     return input_shapes
 
+
 def infer_shapes_of_diffusers(
     input_shapes: Dict[str, Dict[str, int]],
     model: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline", "FluxPipeline"],
     has_controlnets: bool,
 ):
     max_sequence_length_1 = model.tokenizer.model_max_length if model.tokenizer is not None else None
-    max_sequence_length_2 = model.tokenizer_2.model_max_length if hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None else None
+    max_sequence_length_2 = (
+        model.tokenizer_2.model_max_length if hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None else None
+    )
 
     vae_encoder_num_channels = model.vae.config.in_channels
     vae_decoder_num_channels = model.vae.config.latent_channels
@@ -251,7 +254,7 @@ def infer_shapes_of_diffusers(
             "width": scaled_width,
         }
     )
-    if input_shapes["unet_or_transformer"].get("sequence_length") is None:  
+    if input_shapes["unet_or_transformer"].get("sequence_length") is None:
         input_shapes["unet_or_transformer"]["sequence_length"] = max_sequence_length_2 or max_sequence_length_1
     input_shapes["unet_or_transformer"]["vae_scale_factor"] = vae_scale_factor
     input_shapes[unet_or_transformer_name] = input_shapes.pop("unet_or_transformer")
@@ -378,6 +381,7 @@ def get_submodels_and_neuron_configs(
         models_and_neuron_configs = {model_name: (model, neuron_config)}
         maybe_save_preprocessors(model_name_or_path, output, src_subfolder=subfolder)
     return models_and_neuron_configs, output_model_names
+
 
 def _get_submodels_and_neuron_configs_for_diffusion(
     model: Union["PreTrainedModel", "DiffusionPipeline"],

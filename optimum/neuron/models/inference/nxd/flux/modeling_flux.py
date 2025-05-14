@@ -35,6 +35,7 @@ from neuronx_distributed.parallel_layers.layers import (
 from neuronx_distributed.parallel_layers.mappings import reduce_from_tensor_model_parallel_region
 from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
+from ..backend.modules.custom_calls import CustomRMSNorm
 from .modules.activations import NeuronGELU
 from .modules.embeddings import (
     FluxPosEmbed,
@@ -47,7 +48,7 @@ from .modules.normalization import (
     NeuronAdaLayerNormZero,
     NeuronAdaLayerNormZeroSingle,
 )
-from ..backend.modules.custom_calls import CustomRMSNorm
+
 
 try:
     from neuronxcc.nki._private_kernels.attention import attention_isa_kernel  # noqa: E402
@@ -56,6 +57,7 @@ except ImportError:
 
 from neuronxcc.nki.language import nc
 from torch_neuronx.xla_impl.ops import nki_jit  # noqa: E402
+
 
 _flash_fwd_call = nki_jit()(attention_isa_kernel)
 
@@ -76,9 +78,7 @@ def attention_wrapper_sharded_without_swap(query, key, value):
 
     if use_sharded_attention_kernel:
         grid = (nc(2),)
-        _flash_fwd_call[grid](
-            q, k, v, scale, attn_output, kernel_name="AttentionMMSoftmaxMMWithoutSwap"
-        )
+        _flash_fwd_call[grid](q, k, v, scale, attn_output, kernel_name="AttentionMMSoftmaxMMWithoutSwap")
     else:
         _flash_fwd_call(q, k, v, scale, attn_output, kernel_name="AttentionMMSoftmaxMMWithoutSwap")
 
@@ -241,10 +241,7 @@ class NeuronFluxTransformer2DModel(torch.nn.Module):
         if joint_attention_kwargs is not None:
             joint_attention_kwargs = joint_attention_kwargs.copy()
 
-        if (
-            joint_attention_kwargs is not None
-            and joint_attention_kwargs.get("scale", None) is not None
-        ):
+        if joint_attention_kwargs is not None and joint_attention_kwargs.get("scale", None) is not None:
             logger.warning(
                 "Passing `scale` via `joint_attention_kwargs` when not using the PEFT backend is ineffective."
             )
@@ -280,13 +277,10 @@ class NeuronFluxTransformer2DModel(torch.nn.Module):
                 # For Xlabs ControlNet.
                 if controlnet_blocks_repeat:
                     hidden_states = (
-                        hidden_states
-                        + controlnet_block_samples[index_block % len(controlnet_block_samples)]
+                        hidden_states + controlnet_block_samples[index_block % len(controlnet_block_samples)]
                     )
                 else:
-                    hidden_states = (
-                        hidden_states + controlnet_block_samples[index_block // interval_control]
-                    )
+                    hidden_states = hidden_states + controlnet_block_samples[index_block // interval_control]
         hidden_states = torch.cat([encoder_hidden_states, hidden_states], dim=1)
 
         for index_block, block in enumerate(self.single_transformer_blocks):
@@ -299,9 +293,7 @@ class NeuronFluxTransformer2DModel(torch.nn.Module):
 
             # controlnet residual
             if controlnet_single_block_samples is not None:
-                interval_control = len(self.single_transformer_blocks) / len(
-                    controlnet_single_block_samples
-                )
+                interval_control = len(self.single_transformer_blocks) / len(controlnet_single_block_samples)
                 interval_control = int(np.ceil(interval_control))
                 hidden_states[:, encoder_hidden_states.shape[1] :, ...] = (
                     hidden_states[:, encoder_hidden_states.shape[1] :, ...]
@@ -341,9 +333,7 @@ class NeuronFluxSingleTransformerBlock(nn.Module):
         self.mlp_hidden_dim = int(dim * mlp_ratio)
 
         self.norm = NeuronAdaLayerNormZeroSingle(dim, use_parallel_layer=True)
-        self.proj_mlp = ColumnParallelLinear(
-            dim, self.mlp_hidden_dim, gather_output=False, reduce_dtype=reduce_dtype
-        )
+        self.proj_mlp = ColumnParallelLinear(dim, self.mlp_hidden_dim, gather_output=False, reduce_dtype=reduce_dtype)
         self.act_mlp = nn.GELU(approximate="tanh")
         # To avoid all_gathers after Q K V projections in the Attention block, we use two separated proj_outs,
         # one for the MLP output and one for the Attention output at the end we simply add them together, it's same as
@@ -456,9 +446,7 @@ class NeuronFluxTransformerBlock(nn.Module):
         )
 
         self.norm2 = LayerNorm(dim, elementwise_affine=False, eps=1e-6)
-        self.ff = NeuronFeedForward(
-            dim=dim, dim_out=dim, activation_fn="gelu-approximate", reduce_dtype=reduce_dtype
-        )
+        self.ff = NeuronFeedForward(dim=dim, dim_out=dim, activation_fn="gelu-approximate", reduce_dtype=reduce_dtype)
 
         self.norm2_context = LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.ff_context = NeuronFeedForward(
@@ -477,9 +465,7 @@ class NeuronFluxTransformerBlock(nn.Module):
         image_rotary_emb=None,
         joint_attention_kwargs=None,
     ):
-        norm_hidden_states, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.norm1(
-            hidden_states, emb=temb
-        )
+        norm_hidden_states, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.norm1(hidden_states, emb=temb)
 
         (
             norm_encoder_hidden_states,
@@ -513,9 +499,7 @@ class NeuronFluxTransformerBlock(nn.Module):
         encoder_hidden_states = encoder_hidden_states + context_attn_output
 
         norm_encoder_hidden_states = self.norm2_context(encoder_hidden_states)
-        norm_encoder_hidden_states = (
-            norm_encoder_hidden_states * (1 + c_scale_mlp[:, None]) + c_shift_mlp[:, None]
-        )
+        norm_encoder_hidden_states = norm_encoder_hidden_states * (1 + c_scale_mlp[:, None]) + c_shift_mlp[:, None]
 
         context_ff_output = self.ff_context(norm_encoder_hidden_states)
         encoder_hidden_states = encoder_hidden_states + c_gate_mlp.unsqueeze(1) * context_ff_output
@@ -573,9 +557,7 @@ class NeuronFeedForward(nn.Module):
         self.net.append(nn.Dropout(dropout))
         # project out
         self.net.append(
-            RowParallelLinear(
-                inner_dim, dim_out, bias=bias, input_is_parallel=True, reduce_dtype=reduce_dtype
-            )
+            RowParallelLinear(inner_dim, dim_out, bias=bias, input_is_parallel=True, reduce_dtype=reduce_dtype)
         )
         # FF as used in Vision Transformer, MLP-Mixer, etc. have a final dropout
         if final_dropout:
@@ -676,9 +658,7 @@ class NeuronAttention(nn.Module):
         self.query_dim = query_dim
         self.use_bias = bias
         self.is_cross_attention = cross_attention_dim is not None
-        self.cross_attention_dim = (
-            cross_attention_dim if cross_attention_dim is not None else query_dim
-        )
+        self.cross_attention_dim = cross_attention_dim if cross_attention_dim is not None else query_dim
         self.upcast_attention = upcast_attention
         self.upcast_softmax = upcast_softmax
         self.rescale_output_factor = rescale_output_factor
@@ -726,9 +706,7 @@ class NeuronAttention(nn.Module):
         if cross_attention_norm is None:
             self.norm_cross = None
         else:
-            raise ValueError(
-                f"unknown cross_attention_norm: {cross_attention_norm}. Should be None"
-            )
+            raise ValueError(f"unknown cross_attention_norm: {cross_attention_norm}. Should be None")
         # breakpoint()
         self.to_q = ColumnParallelLinear(
             query_dim,
@@ -842,9 +820,7 @@ class NeuronAttention(nn.Module):
         Returns:
             `torch.Tensor`: The output of the attention layer.
         """
-        batch_size, _, _ = (
-            hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
-        )
+        batch_size, _, _ = hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
 
         # `sample` projections.
         query = self.to_q(hidden_states)
@@ -881,9 +857,7 @@ class NeuronAttention(nn.Module):
             ).transpose(1, 2)
 
             if self.norm_added_q is not None:
-                encoder_hidden_states_query_proj = self.norm_added_q(
-                    encoder_hidden_states_query_proj
-                )
+                encoder_hidden_states_query_proj = self.norm_added_q(encoder_hidden_states_query_proj)
             if self.norm_added_k is not None:
                 encoder_hidden_states_key_proj = self.norm_added_k(encoder_hidden_states_key_proj)
 

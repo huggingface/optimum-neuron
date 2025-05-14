@@ -25,12 +25,12 @@ from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from torch import nn as nn
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
     ParallelEmbedding,
     RowParallelLinear,
 )
+from torch import nn as nn
 
 from .activations import FP32SiLU, get_activation
 
@@ -84,9 +84,7 @@ def apply_rotary_emb(
 
 
 class NeuronCombinedTimestepLabelEmbeddings(nn.Module):
-    def __init__(
-        self, num_classes, embedding_dim, class_dropout_prob=0.1, reduce_dtype=torch.bfloat16
-    ):
+    def __init__(self, num_classes, embedding_dim, class_dropout_prob=0.1, reduce_dtype=torch.bfloat16):
         super().__init__()
 
         self.time_proj = Timesteps(num_channels=256, flip_sin_to_cos=True, downscale_freq_shift=1)
@@ -218,10 +216,7 @@ def get_1d_rotary_pos_embed(
     theta = theta * ntk_factor
     freqs = (
         1.0
-        / (
-            theta
-            ** (torch.arange(0, dim, 2, dtype=freqs_dtype, device=pos.device)[: (dim // 2)] / dim)
-        )
+        / (theta ** (torch.arange(0, dim, 2, dtype=freqs_dtype, device=pos.device)[: (dim // 2)] / dim))
         / linear_factor
     )  # [D/2]
     freqs = torch.outer(pos, freqs)  # type: ignore   # [S, D/2]
@@ -242,9 +237,7 @@ def get_1d_rotary_pos_embed(
 
 
 class NeuronCombinedTimestepGuidanceTextProjEmbeddings(nn.Module):
-    def __init__(
-        self, embedding_dim, pooled_projection_dim, reduce_dtype: torch.dtype = torch.bfloat16
-    ):
+    def __init__(self, embedding_dim, pooled_projection_dim, reduce_dtype: torch.dtype = torch.bfloat16):
         super().__init__()
 
         self.time_proj = Timesteps(num_channels=256, flip_sin_to_cos=True, downscale_freq_shift=0)
@@ -260,14 +253,10 @@ class NeuronCombinedTimestepGuidanceTextProjEmbeddings(nn.Module):
 
     def forward(self, timestep, guidance, pooled_projection):
         timesteps_proj = self.time_proj(timestep)
-        timesteps_emb = self.timestep_embedder(
-            timesteps_proj.to(dtype=pooled_projection.dtype)
-        )  # (N, D)
+        timesteps_emb = self.timestep_embedder(timesteps_proj.to(dtype=pooled_projection.dtype))  # (N, D)
 
         guidance_proj = self.time_proj(guidance)
-        guidance_emb = self.guidance_embedder(
-            guidance_proj.to(dtype=pooled_projection.dtype)
-        )  # (N, D)
+        guidance_emb = self.guidance_embedder(guidance_proj.to(dtype=pooled_projection.dtype))  # (N, D)
 
         time_guidance_emb = timesteps_emb + guidance_emb
 
@@ -291,9 +280,7 @@ class NeuronCombinedTimestepTextProjEmbeddings(nn.Module):
 
     def forward(self, timestep, pooled_projection):
         timesteps_proj = self.time_proj(timestep)
-        timesteps_emb = self.timestep_embedder(
-            timesteps_proj.to(dtype=pooled_projection.dtype)
-        )  # (N, D)
+        timesteps_emb = self.timestep_embedder(timesteps_proj.to(dtype=pooled_projection.dtype))  # (N, D)
 
         pooled_projections = self.text_embedder(pooled_projection)
 
@@ -396,9 +383,7 @@ class NeuronTimestepEmbedding(nn.Module):
 
 
 class Timesteps(nn.Module):
-    def __init__(
-        self, num_channels: int, flip_sin_to_cos: bool, downscale_freq_shift: float, scale: int = 1
-    ):
+    def __init__(self, num_channels: int, flip_sin_to_cos: bool, downscale_freq_shift: float, scale: int = 1):
         super().__init__()
         self.num_channels = num_channels
         self.flip_sin_to_cos = flip_sin_to_cos

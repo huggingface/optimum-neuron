@@ -122,6 +122,7 @@ class PixartTransformerNeuronWrapper(torch.nn.Module):
 
         return out_tuple
 
+
 class FluxTransformerNeuronWrapper(torch.nn.Module):
     def __init__(self, model, input_names: List[str], device: str = None):
         super().__init__()
@@ -160,6 +161,7 @@ class FluxTransformerNeuronWrapper(torch.nn.Module):
         )
 
         return out_tuple
+
 
 class ControlNetNeuronWrapper(torch.nn.Module):
     def __init__(self, model, input_names: List[str], device: str = None):
@@ -208,12 +210,12 @@ class ControlNetNeuronWrapper(torch.nn.Module):
 # For text encoding
 class T5EncoderWrapper(torch.nn.Module):
     def __init__(
-        self, 
-        model: "PreTrainedModel", 
-        sequence_length: int, 
-        batch_size: Optional[int] = None, 
+        self,
+        model: "PreTrainedModel",
+        sequence_length: int,
+        batch_size: Optional[int] = None,
         device: str = "xla",
-        tensor_parallel_size: int = 1, 
+        tensor_parallel_size: int = 1,
     ):
         super().__init__()
         self.model = model
@@ -222,7 +224,7 @@ class T5EncoderWrapper(torch.nn.Module):
         self.batch_size = batch_size
         self.device = device
         self.tensor_parallel_size = tensor_parallel_size
-        
+
         for block in self.model.encoder.block:
             block.layer[1].DenseReluDense.act = torch.nn.GELU(approximate="tanh")
         precomputed_bias = (
@@ -231,9 +233,9 @@ class T5EncoderWrapper(torch.nn.Module):
         if self.tensor_parallel_size > 1:
             self.model = self.parallelize(self.model)
             precomputed_bias_tp = self.shard_weights(precomputed_bias, 1)
-            self.model.encoder.block[0].layer[
-                0
-            ].SelfAttention.compute_bias = lambda *args, **kwargs: precomputed_bias_tp
+            self.model.encoder.block[0].layer[0].SelfAttention.compute_bias = (
+                lambda *args, **kwargs: precomputed_bias_tp
+            )
         else:
             self.model.encoder.block[0].layer[0].SelfAttention.compute_bias = lambda *args, **kwargs: precomputed_bias
 
@@ -247,9 +249,9 @@ class T5EncoderWrapper(torch.nn.Module):
             block.layer[0].SelfAttention = self.shard_self_attention(selfAttention, self.tensor_parallel_size)
             block.layer[0].layer_norm = f32Wrapper(layer_norm_0)
             block.layer[1].layer_norm = f32Wrapper(layer_norm_1)
-        
+
         return model
-    
+
     @staticmethod
     def shard_weights(data, dim):
         tp_rank = neuronx_distributed.parallel_layers.parallel_state.get_tensor_model_parallel_rank()
@@ -258,7 +260,7 @@ class T5EncoderWrapper(torch.nn.Module):
             return data[s * tp_rank : s * (tp_rank + 1)].clone()
         elif dim == 1:
             return data[:, s * tp_rank : s * (tp_rank + 1)].clone()
-    
+
     @staticmethod
     def shard_ff(ff: "T5LayerFF"):
         orig_wi_0 = ff.DenseReluDense.wi_0
@@ -278,7 +280,7 @@ class T5EncoderWrapper(torch.nn.Module):
         ff.DenseReluDense.wo.weight.data = T5EncoderWrapper.shard_weights(orig_wo.weight.data, 1)
         ff.DenseReluDense.act = torch.nn.GELU(approximate="tanh")
         return ff
-    
+
     @staticmethod
     def shard_self_attention(selfAttention: "T5Attention", tensor_parallel_size: int):
         orig_inner_dim = selfAttention.q.out_features
@@ -319,7 +321,7 @@ class T5EncoderWrapper(torch.nn.Module):
         selfAttention.o.weight.data = T5EncoderWrapper.shard_weights(orig_out.weight.data, 1)
         del orig_out
         return selfAttention
-    
+
     def forward(self, input_ids, attention_mask):
         return self.model(input_ids, attention_mask=attention_mask)
 

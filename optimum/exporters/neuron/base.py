@@ -396,7 +396,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         of the generated dummy inputs. This ensures the dummy inputs tuple is correctly ordered
         for tracing.
         2. Applies model sharding if tensor parallelism is enabled (using `CUSTOM_MODEL_WRAPPER`).
-        3. Prepares I/O aliases to identify specific input tensors as state tensors. 
+        3. Prepares I/O aliases to identify specific input tensors as state tensors.
         These state tensors will remain on the device, helping to reduce host-device I/O overhead.
         """
         output_hidden_states = self.output_hidden_states
