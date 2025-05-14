@@ -21,6 +21,7 @@ from transformers import AutoTokenizer
 from transformers.generation import StoppingCriteria
 
 from optimum.neuron import NeuronModelForCausalLM
+from optimum.neuron.models.inference.nxd.backend.modules.decoder import NxDModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -51,21 +52,23 @@ def _test_generation(model, batch_size, input_length, **gen_kwargs):
 @requires_neuronx
 def test_decoder_generation_base(model_and_tokenizer, gen_kwargs):
     model = model_and_tokenizer[0]
-    _test_generation(model, model.batch_size, 10, **gen_kwargs)
+    _test_generation(model, model.neuron_config.batch_size, 10, **gen_kwargs)
 
 
 @is_inferentia_test
 @requires_neuronx
 def test_decoder_generation_input_dimensions(model_and_tokenizer):
     model, tokenizer = model_and_tokenizer
+    batch_size = model.neuron_config.batch_size
+    sequence_length = model.neuron_config.sequence_length
     # Using valid input dimensions
-    _test_generation(model, model.batch_size, model.max_length // 2)
+    _test_generation(model, batch_size, sequence_length // 2)
     # Using an incompatible batch_size
     with pytest.raises(ValueError, match="The specified batch_size"):
-        _test_generation(model, model.batch_size + 1, model.max_length)
+        _test_generation(model, batch_size + 1, sequence_length)
     # Using an incompatible input length
     with pytest.raises(ValueError, match="The input sequence length"):
-        _test_generation(model, model.batch_size, input_length=model.max_length * 2)
+        _test_generation(model, batch_size, input_length=sequence_length * 2)
 
 
 @is_inferentia_test
@@ -117,12 +120,20 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
     prompt = "What is Deep Learning?"
     inputs = tokenizer(prompt, return_tensors="pt")
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17)
-    expectations = {
-        "llama": " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial",
-        "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
-        "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
-        "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
-    }
+    if isinstance(model, NxDModelForCausalLM):
+        expectations = {
+            "llama": " And how does it differ from other Machine Learning approaches?\n\n**What is Deep Learning?",
+            "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
+            "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
+            "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
+        }
+    else:
+        expectations = {
+            "llama": " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial",
+            "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
+            "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
+            "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
+        }
     config_name = neuron_decoder_config["name"]
     assert tokenizer.decode(outputs[0]).endswith(expectations[config_name])
 
@@ -153,7 +164,7 @@ def test_decoder_generation_stop_strings(model_and_tokenizer):
     prompt = "Name three fruits:"
     tokens = tokenizer(prompt, return_tensors="pt")
     generation_config = copy.deepcopy(model.generation_config)
-    generation_config.max_new_tokens = model.max_length - tokens["input_ids"].shape[-1]
+    generation_config.max_new_tokens = model.neuron_config.sequence_length - tokens["input_ids"].shape[-1]
     # Generate once
     outputs = model.generate(**tokens, do_sample=False, generation_config=generation_config)
     output_string = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
@@ -181,7 +192,7 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
     Both generated tokens must match since we are using greedy.
     """
     model, tokenizer = model_and_tokenizer
-    if not model.model.neuron_config.continuous_batching:
+    if not model.neuron_config.continuous_batching:
         pytest.skip("Model does not support continuous batching")
 
     # We need at least three inputs

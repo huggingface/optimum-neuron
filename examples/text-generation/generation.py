@@ -86,7 +86,7 @@ if __name__ == "__main__":
         model = NeuronModelForCausalLM.from_pretrained(args.model, export=False, low_cpu_mem_usage=True)
         end = time.time()
         print(f"Neuron model loaded in {end - start:.2f} s.")
-        batch_size = model.config.neuron["batch_size"]
+        batch_size = model.neuron_config.batch_size
         prompts = args.prompts.split("|")
         if len(prompts) < batch_size:
             prompts = prompts + [prompts[-1]] * (batch_size - len(prompts))

@@ -436,5 +436,21 @@ docker run --entrypoint optimum-cli \
 
 The exported model will be saved under `./data/<neuron_model_path>`.
 
+## Exporting options and Docker / SageMaker environment variables
+
+You must make sure that the options used for compilation match the options used for deployment.  
+
+You can see examples of these parameters in the .env and docker-compose.yaml files in the [TGI Neuron backend documentation](https://github.com/huggingface/text-generation-inference/blob/main/docs/source/backends/neuron.md). 
+
+For Docker and SageMaker, you can see these reflected in the following options and their optimum-cli equivalent:
+
+```MODEL_ID = model
+HF_AUTO_CAST_TYPE = auto_cast_type
+MAX_BATCH_SIZE = batch_size
+MAX_TOTAL_TOKENS = sequence_length
+HF_NUM_CORES = num_cores
+```
+
+
 
 

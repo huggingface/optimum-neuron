@@ -27,7 +27,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 
 @is_inferentia_test
 @requires_neuronx
-@pytest.mark.parametrize("from_local", [False, True], ids=["from_hub", "from_local"])
+@pytest.mark.parametrize("from_local", [False, True], ids=["llama_from_hub", "llama_from_local"])
 def test_decoder_push_to_hub(from_local):
     model_id = "llamafactory/tiny-random-Llama-3"
     with TemporaryDirectory() as model_path:

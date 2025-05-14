@@ -631,6 +631,9 @@ def map_torch_dtype(dtype: Union[str, torch.dtype]):
         "float64": torch.float64,
         "int32": torch.int32,
         "int64": torch.int64,
+        "bf16": torch.bfloat16,
+        "fp16": torch.float16,
+        "fp32": torch.float32,
     }
 
     if isinstance(dtype, str) and dtype in dtype_mapping:
