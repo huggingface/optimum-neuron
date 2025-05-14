@@ -133,7 +133,7 @@ spec:
               - name: FI_EFA_FORK_SAFE
                 value: "1"
               - name: NEURON_CC_FLAGS
-                value: "--model-type transformer --distribution-strategy=llm-training --enable-saturate-infinity --cache_dir=${NEURON_CACHE_DIR} --target=trn1"
+                value: "--model-type transformer --distribution-strategy=llm-training --enable-saturate-infinity --cache_dir=${NEURON_CACHE_DIR} --target=trn1 --auto-cast=none"
               command:
                 - torchrun
                 - --nproc_per_node=8
@@ -143,7 +143,7 @@ spec:
                 - --token=${HF_ACCESS_TOKEN}
                 - --dataset_name=${DATASET_NAME}
                 - --dataset_config_name=${DATASET_CONFIG_NAME}
-                - --streaming=True
+                - --streaming=False
                 - --cache_dir=${TOKENIZED_DATA_PATH}
                 - --num_train_epochs=1
                 - --do_train

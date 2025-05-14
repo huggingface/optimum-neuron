@@ -29,7 +29,7 @@ export HF_MODEL_NAME=meta-llama/Llama-3.2-1B
 # Training Configuration
 export NEURON_CACHE_DIR=/fsx/neuron_cache
 export CHECKPOINT_DIR=/fsx/output
-export MAX_STEPS=1000
+export MAX_STEPS=-1
 export BATCH_SIZE=1
 
 # Generate the final yaml file from template
