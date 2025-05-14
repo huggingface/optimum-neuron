@@ -276,7 +276,6 @@ def test_resize_embedding_unsupported():
         launch_procs(run_fn, world_size, tp_size, pp_size)
 
 
-
 @pytest.mark.parametrize(
     "tp_size,num_attention_heads,num_key_value_heads,kv_size_multiplier,ground_truth",
     [
