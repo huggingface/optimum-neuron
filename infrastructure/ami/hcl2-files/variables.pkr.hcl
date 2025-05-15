@@ -36,7 +36,7 @@ variable "optimum_version" {
 }
 
 variable "transformers_version" {
-  default     = "4.36.2"
+  default     = "4.51.0"
   description = "Transformers version to install"
   type        = string
 }
