@@ -16,6 +16,7 @@
 
 import contextlib
 import gc
+import inspect
 import math
 from abc import ABC, abstractclassmethod
 from collections import defaultdict
@@ -558,6 +559,10 @@ class Parallelizer(ABC):
 
         orig_model, peft_prefix = get_base_model_and_peft_prefix(model)
         model_class = orig_model.__class__
+
+        # We skip parallelization if the model is coming from a custom modeling since it is already parallelized.
+        if inspect.getmodule(orig_model.__class__).__name__.startswith("optimum.neuron.models.training"):
+            return orig_model
 
         if peft_prefix:
             # We update the weight_map to contain both the original parameter names, and the ones in the PeftModel.

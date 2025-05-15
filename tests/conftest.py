@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import os
 import shutil
 from pathlib import Path
@@ -26,7 +27,13 @@ from optimum.neuron.utils.cache_utils import (
     set_neuron_cache_path,
 )
 
-from .utils import OPTIMUM_INTERNAL_TESTING_CACHE_REPO, TOKEN_STAGING, USER_STAGING, get_random_string
+from .utils import (
+    OPTIMUM_INTERNAL_TESTING_CACHE_REPO,
+    OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI,
+    TOKEN_STAGING,
+    USER_STAGING,
+    get_random_string,
+)
 
 
 # Inferentia fixtures
@@ -141,6 +148,37 @@ def hub_test():
 @pytest.fixture(scope="module")
 def hub_test_with_local_cache():
     yield from _hub_test(create_local_cache=True)
+
+
+@pytest.fixture(scope="module")
+def set_cache_for_ci():
+    orig_token = get_token()
+    orig_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
+
+    token = os.environ.get("HF_TOKEN", None)
+    if token is None:
+        if orig_token is None:
+            raise ValueError(
+                "The token of the `optimum-internal-testing` member on the Hugging Face Hub must be specified via the "
+                "HF_TOKEN environment variable."
+            )
+        else:
+            print("Warning: No HF_TOKEN provided. Using the original token.")
+    else:
+        login(token=token)
+
+    set_custom_cache_repo_name_in_hf_home(OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI)
+
+    yield
+
+    if orig_token is not None:
+        login(token=orig_token)
+    else:
+        logout()
+    if orig_custom_cache_repo is not None:
+        set_custom_cache_repo_name_in_hf_home(orig_custom_cache_repo, check_repo=False)
+    else:
+        delete_custom_cache_repo_name_from_hf_home()
 
 
 ### The following part is for running distributed tests.

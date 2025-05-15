@@ -14,15 +14,19 @@
 # limitations under the License.
 """Tests validating that models can be parallelized correctly."""
 
+import importlib
+import math
 from contextlib import nullcontext
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Type, Union
 
+import datasets
 import pytest
 import torch
 import torch.utils._pytree as pytree
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
+import transformers
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, TrainerCallback
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_CAUSAL_LM_MAPPING,
@@ -34,7 +38,9 @@ from transformers.models.auto.modeling_auto import (
 )
 
 import optimum
-from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
+import optimum.neuron.models.training
+from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
+from optimum.neuron.accelerate.utils.dataclasses import ModelParallelismConfig
 from optimum.neuron.distributed.utils import compute_query_indices_for_rank, lazy_load_for_parallelism
 from optimum.neuron.utils.cache_utils import (
     get_num_neuron_cores,
@@ -46,8 +52,8 @@ from optimum.neuron.utils.import_utils import (
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from .. import DistributedTest, launch_procs
-from ..utils import SEED, StaticSeedPatcher, create_accelerator, get_model, get_model_inputs
+from .. import launch_procs
+from ..utils import SEED, StaticSeedPatcher, create_accelerator, get_model_inputs
 
 
 if is_torch_xla_available():
@@ -177,298 +183,12 @@ def _check_output(name: str, original_output, output):
             kv_size_multiplier = len(get_kv_shared_group(as_list=True)[0])
             output = torch.chunk(output, kv_size_multiplier, dim=1)[0]
 
-        xm.master_print("Diff tensor:", original_output - output)
         torch.testing.assert_close(original_output, output)
     else:
         assert original_output == output, f"Output named {name} do not match."
 
 
-def _parallel_model_matches_original_model(
-    model_class,
-    model_name_or_path,
-    config_overwrite,
-    parallel_sizes,
-    from_pretrained,
-    lazy_load,
-    sequence_parallel_enabled,
-    parallelize_embeddings,
-):
-    world_size, tp_size, pp_size = parallel_sizes
-    dp_size = world_size // (tp_size * pp_size)
-    pp_rank = get_pipeline_model_parallel_rank()
-
-    orig_model = get_model(
-        model_class,
-        model_name_or_path,
-        from_config=not from_pretrained,
-        config_overwrite=config_overwrite,
-        use_static_seed_patcher=True,
-    )
-
-    accelerator = create_accelerator(
-        tp_size,
-        pp_size,
-        parallelize_embeddings=parallelize_embeddings,
-        sequence_parallel_enabled=sequence_parallel_enabled,
-    )
-
-    # It is ok to use this accelerator because `patch_model_for_neuron` does not depend on the TP or PP size.
-    orig_model = accelerator.patch_model_for_neuron(orig_model)
-
-    # Since the new KV cache system it seems that if orig_model.use_cache != model.use_cache, the losses between
-    # the two models will not match. It either comes from Transformers itself or Optimum Neuron.
-    # TODO: investigate this.
-    if pp_size == 1:
-        orig_model.config.use_cache = True
-    else:
-        orig_model.config.use_cache = False
-
-    move_model_to_device(orig_model, xm.xla_device())
-    orig_model = orig_model.eval()
-
-    manager = ParallelizersManager.parallelizer_for_model(orig_model)
-
-    if pp_size > 1 and not manager.supports_pipeline_parallelism():
-        pytest.skip(f"Pipeline parallelism is not supported for {model_class.__name__}.")
-
-    if sequence_parallel_enabled and not manager.supports_sequence_parallelism():
-        pytest.skip(f"Sequence parallelism is not supported for {model_class.__name__}.")
-
-    if not from_pretrained and lazy_load:
-        pytest.skip("This is not supported, issue with tying weights.")
-
-    pad_to_multiple_of = None if not sequence_parallel_enabled else tp_size
-    inputs = get_model_inputs(
-        orig_model,
-        model_name_or_path,
-        batch_size=dp_size,
-        pad_to_multiple_of=pad_to_multiple_of,
-    )
-
-    xla_inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
-    xm.mark_step()
-
-    with torch.no_grad():
-        orig_model_outputs = orig_model(**xla_inputs)
-
-    xm.mark_step()
-
-    # The parallel model needs to be defined after the forward pass of the first model because there is a
-    # global monkey patching of the `torch.nn.CrossEntropyLoss` class when doing sequence parallelism.
-    model = get_model(
-        model_class,
-        model_name_or_path,
-        tp_size=tp_size,
-        pp_size=pp_size,
-        lazy_load=lazy_load,
-        from_config=not from_pretrained,
-        config_overwrite=config_overwrite,
-        use_static_seed_patcher=True,
-    )
-
-    static_seed_patcher = StaticSeedPatcher(SEED)
-    with static_seed_patcher:
-        model = accelerator.prepare(model)
-
-    xm.mark_step()
-
-    with torch.no_grad():
-        if pp_size == 1:
-            # This is set to False by `accelerator.prepare`, which we want in the general case, but here let's
-            # enable the cache to test that the KV cache matches the original model.
-            model.config.use_cache = True
-            model = model.eval()
-            model_outputs = model(**xla_inputs)
-        else:
-            loss = model.run_eval(**inputs)
-            model_outputs = {"loss": loss}
-
-    xm.mark_step()
-
-    outputs_to_consider = [output_name for output_name in orig_model_outputs if output_name not in OUTPUTS_TO_IGNORE]
-
-    if pp_size > 1:
-        outputs_to_consider = ["loss"]
-
-    outputs_to_check = [
-        (orig_model_outputs[output_name], model_outputs[output_name]) for output_name in outputs_to_consider
-    ]
-    outputs_to_check = pytree.tree_map(move_all_tensor_to_cpu, outputs_to_check)
-
-    for output_name, outputs in zip(outputs_to_consider, outputs_to_check):
-        # For now ignoring past_key_values because they do not match and it is not needed for training.
-        if "past" in output_name:
-            continue
-        if all(output is None for output in outputs):
-            continue
-        if pp_size == 1 or pp_rank == pp_size - 1:
-            _check_output(output_name, outputs[0], outputs[1])
-
-
 @is_trainium_test
-class TestModelParallelization(DistributedTest):
-    @pytest.fixture(scope="class", params=[[2, 2, 1], [2, 1, 2], [16, 2, 2]], ids=["tp=2", "pp=2", "dp=4,tp=pp=2"])
-    def parallel_sizes(self, request):
-        return request.param
-
-    @pytest.fixture(scope="class", params=MODELS_TO_TEST, ids=[specs[1].__name__ for specs in MODELS_TO_TEST])
-    def model_specs(self, request):
-        return request.param
-
-    @pytest.fixture(scope="class", params=[True, False], ids=["from_pretrained", "from_config"])
-    def from_pretrained(self, request):
-        return request.param
-
-    @pytest.fixture(scope="class", params=[False, True], ids=["regular_load", "lazy_load"])
-    def lazy_load(self, request):
-        return request.param
-
-    @pytest.fixture(
-        scope="class", params=[False, True], ids=["sequence_parallel_disabled", "sequence_parallel_enabled"]
-    )
-    def sequence_parallel_enabled(self, request):
-        return request.param
-
-    @pytest.fixture(scope="class", params=[False, True], ids=["embeddings_not_parallel", "parallelized_embeddings"])
-    def parallelize_embeddings(self, request):
-        return request.param
-
-    @pytest.mark.skipif(
-        NUM_NEURON_CORES_AVAILABLE < 32,
-        reason=f"This test requires 32 Neuron cores, but only {NUM_NEURON_CORES_AVAILABLE} are available",
-    )
-    @pytest.mark.parametrize(
-        "world_size,tp_size,pp_size,config_overwrite",
-        [
-            [
-                8,
-                2,
-                1,
-                {
-                    "num_hidden_layers": "2",
-                    "hidden_size": "32",
-                    "num_attention_heads": "8",
-                    "num_key_value_heads": "8",
-                },
-            ],
-            [
-                8,
-                2,
-                1,
-                {
-                    "num_hidden_layers": "2",
-                    "hidden_size": "32",
-                    "num_attention_heads": "8",
-                    "num_key_value_heads": "4",
-                },
-            ],
-            [
-                8,
-                8,
-                1,
-                {
-                    "num_hidden_layers": "2",
-                    "hidden_size": "32",
-                    "num_attention_heads": "16",
-                    "num_key_value_heads": "8",
-                },
-            ],
-            [
-                8,
-                8,
-                1,
-                {
-                    "num_hidden_layers": "2",
-                    "hidden_size": "32",
-                    "num_attention_heads": "16",
-                    "num_key_value_heads": "2",
-                },
-            ],
-            [
-                16,
-                8,
-                2,
-                {
-                    "num_hidden_layers": "2",
-                    "hidden_size": "32",
-                    "num_attention_heads": "16",
-                    "num_key_value_heads": "2",
-                },
-            ],
-            [
-                8,
-                8,
-                1,
-                {
-                    "num_hidden_layers": "2",
-                    "hidden_size": "32",
-                    "num_attention_heads": "16",
-                    "num_key_value_heads": "1",
-                },
-            ],
-        ],
-        ids=[
-            "MHA-setup",
-            "num_key_value_heads bigger than tp_size",
-            "num_key_value_heads equal to tp_size",
-            "num_key_value_heads lower than tp_size",
-            "num_key_value_heads lower than tp_size,pp enabled",
-            "MQA-setup",
-        ],
-    )
-    def test_llama_v2_gqa(
-        self,
-        monkeypatch,
-        tmpdir,
-        world_size,
-        tp_size,
-        pp_size,
-        config_overwrite,
-        from_pretrained,
-        lazy_load,
-        sequence_parallel_enabled,
-        parallelize_embeddings,
-    ):
-        monkeypatch.setattr(optimum.neuron.distributed.utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True)
-        num_kv_heads = int(config_overwrite["num_key_value_heads"])
-        # if num_kv_heads >= tp_size and (from_pretrained or lazy_load or sequence_parallel_enabled):
-        #     pytest.skip("No need to test this setting.")
-
-        # The following case can be skipped because since we set the seed, we would need to shuffle the output
-        # projections for this case to work. This is not needed in the real-case scenario, and since we test for every
-        # other setting, we can skip.
-        if num_kv_heads < tp_size and (not from_pretrained):
-            pytest.skip("This case will  not work here because we set the seed. We can skip.")
-
-        model_name_or_path = Path(tmpdir) / "llama_v2_gqa"
-
-        # Since we are creating the model from config, we actually first create a model locally from config and then
-        # use that as a `from_pretrained` to have proper initialization. Without that we can end-up with uninitialized
-        # weights.
-        if xr.global_ordinal() == 0:
-            tokenizer = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
-            tokenizer.save_pretrained(model_name_or_path)
-            model = get_model(
-                LlamaForCausalLM,
-                LLAMA_V2_MODEL_NAME,
-                from_config=True,
-                config_overwrite=config_overwrite,
-            )
-            model.save_pretrained(model_name_or_path)
-        xm.rendezvous("Model creation done.")
-
-        return _parallel_model_matches_original_model(
-            LlamaForCausalLM,
-            model_name_or_path,
-            config_overwrite,
-            (world_size, tp_size, pp_size),
-            from_pretrained,
-            lazy_load,
-            sequence_parallel_enabled,
-            parallelize_embeddings,
-        )
-
-
 def _test_resize_embedding(tie_embeddings, lazy_load):
     tp_size = get_tensor_model_parallel_size()
     tp_group = get_tensor_model_parallel_group()
@@ -554,74 +274,6 @@ def test_resize_embedding_unsupported():
     run_fn = partial(_test_resize_embedding, tie_embeddings, lazy_load)
     with pytest.raises(RuntimeError, match="Cannot resize token embeddings"):
         launch_procs(run_fn, world_size, tp_size, pp_size)
-
-
-def _test_parallelized_layers_model_matches_original(
-    model_specs,
-    world_size,
-    tp_size,
-    pp_size,
-    monkeypatch,
-):
-    _, model_class, model_name_or_path, config_overwrite = model_specs
-
-    # This is very important otherwise the parallel cross entropy loss will modify the logits inplace.
-    monkeypatch.setattr(optimum.neuron.distributed.utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True)
-
-    parallel_sizes = world_size, tp_size, pp_size
-    run_fn = partial(
-        _parallel_model_matches_original_model,
-        model_class,
-        model_name_or_path,
-        config_overwrite,
-        parallel_sizes,
-        True,
-        True,
-        True,
-        True,
-    )
-    launch_procs(run_fn, world_size, tp_size, pp_size)
-
-
-@is_trainium_test
-@pytest.mark.parametrize("model_specs", NOT_LLAMA_TO_TEST, ids=[specs[1].__name__ for specs in NOT_LLAMA_TO_TEST])
-def test_parallelized_layers_model_matches_original(
-    model_specs,
-    monkeypatch,
-):
-    world_size = 2
-    tp_size = 2
-    pp_size = 1
-    return _test_parallelized_layers_model_matches_original(
-        model_specs,
-        world_size,
-        tp_size,
-        pp_size,
-        monkeypatch,
-    )
-
-
-@is_trainium_test
-@pytest.mark.parametrize(
-    "world_size,tp_size,pp_size", [[2, 2, 1], [2, 1, 2], [16, 2, 2]], ids=["tp=2", "pp=2", "dp=4,tp=pp=2"]
-)
-@pytest.mark.parametrize(
-    "model_specs", LLAMA_MODELS_TO_TEST, ids=[specs[1].__name__ for specs in LLAMA_MODELS_TO_TEST]
-)
-def test_parallelized_llama_matches_original(
-    model_specs,
-    world_size,
-    tp_size,
-    pp_size,
-    monkeypatch,
-):
-    return _test_parallelized_layers_model_matches_original(
-        model_specs,
-        world_size,
-        tp_size,
-        pp_size,
-        monkeypatch,
-    )
 
 
 @pytest.mark.parametrize(
@@ -736,3 +388,306 @@ def test_compute_query_indices_for_rank(
         print(f"Expected {expected}")
         print(f"Computed {computed}")
         torch.testing.assert_close(expected, computed)
+
+
+def _custom_model_matches_original_model(
+    model_class_name,
+    model_name_or_path,
+    parallel_sizes,
+    sequence_parallel_enabled,
+    qkv_implementation,
+    attn_implementation,
+    monkeypatch,
+    # It is tricky to test for `torch_dtype=torch.bfloat16` because the precision is low and the "error" induced by
+    # the parallel linears accumulates over the layers.
+    torch_dtype=torch.float32,
+):
+    monkeypatch.setattr(
+        optimum.neuron.models.training.loss_utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
+    )
+
+    world_size, tp_size, pp_size = parallel_sizes
+    dp_size = world_size // (tp_size * pp_size)
+    pp_rank = get_pipeline_model_parallel_rank()
+
+    static_seed_patcher = StaticSeedPatcher(SEED)
+
+    accelerator = create_accelerator(
+        tp_size, pp_size, parallelize_embeddings=False, sequence_parallel_enabled=sequence_parallel_enabled
+    )
+
+    orig_model_class = getattr(transformers, model_class_name)
+    with static_seed_patcher:
+        orig_model = orig_model_class.from_pretrained(model_name_or_path, torch_dtype=torch_dtype)
+
+    # It is ok to use this accelerator because `patch_model_for_neuron` does not depend on the TP or PP size.
+    orig_model = accelerator.patch_model_for_neuron(orig_model)
+
+    # Since the new KV cache system it seems that if orig_model.use_cache != model.use_cache, the losses between
+    # the two models will not match. It either comes from Transformers itself or Optimum Neuron.
+    # TODO: investigate this.
+    if pp_size == 1:
+        orig_model.config.use_cache = True
+    else:
+        orig_model.config.use_cache = False
+    move_model_to_device(orig_model, xm.xla_device())
+    orig_model = orig_model.eval()
+
+    if pp_size > 1:
+        pytest.skip(f"Pipeline parallelism is not supported for {model_class_name}.")
+
+    if sequence_parallel_enabled and attn_implementation == "flash_attention_2":
+        pad_to_multiple_of = (2048 * tp_size) // math.gcd(2048, tp_size)
+    elif sequence_parallel_enabled:
+        pad_to_multiple_of = tp_size
+    elif attn_implementation == "flash_attention_2":
+        pad_to_multiple_of = 2048
+    else:
+        pad_to_multiple_of = None
+
+    inputs = get_model_inputs(
+        orig_model,
+        model_name_or_path,
+        batch_size=dp_size,
+        pad_to_multiple_of=pad_to_multiple_of,
+    )
+
+    xla_inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
+    xm.mark_step()
+
+    with torch.no_grad():
+        orig_model_outputs = orig_model(**xla_inputs)
+
+    xm.mark_step()
+
+    mp_config = ModelParallelismConfig(
+        tensor_parallel_size=tp_size,
+        pipeline_parallel_size=pp_size,
+        fuse_qkv=qkv_implementation == "fuse_qkv",
+        use_flash_attention=attn_implementation == "flash_attention_2",
+        recompute_causal_mask=False,  # Recomputing the causal mask does not impact the loss but it impacts the logits.
+    )
+
+    training_mod = importlib.import_module("optimum.neuron.models.training")
+    custom_model_class = getattr(training_mod, model_class_name)
+    with static_seed_patcher:
+        model = custom_model_class.from_pretrained(
+            model_name_or_path, mp_config, attn_implementation=attn_implementation, torch_dtype=torch_dtype
+        )
+        move_model_to_device(model, xm.xla_device())
+
+    with static_seed_patcher:
+        model = accelerator.prepare(model)
+
+    xm.mark_step()
+
+    with torch.no_grad():
+        if pp_size == 1:
+            # This is set to False by `accelerator.prepare`, which we want in the general case, but here let's
+            # enable the cache to test that the KV cache matches the original model.
+            model = model.eval()
+            model_outputs = model(**xla_inputs)
+        else:
+            loss = model.run_eval(**inputs)
+            model_outputs = {"loss": loss}
+
+    xm.mark_step()
+
+    outputs_to_consider = [output_name for output_name in model_outputs if output_name not in OUTPUTS_TO_IGNORE]
+
+    if pp_size > 1:
+        outputs_to_consider = ["loss"]
+
+    outputs_to_check = [
+        (orig_model_outputs[output_name], model_outputs[output_name]) for output_name in outputs_to_consider
+    ]
+    outputs_to_check = pytree.tree_map(move_all_tensor_to_cpu, outputs_to_check)
+
+    for output_name, outputs in zip(outputs_to_consider, outputs_to_check):
+        # For now ignoring past_key_values because they do not match and it is not needed for training.
+        if "past" in output_name:
+            continue
+        if all(output is None for output in outputs):
+            continue
+        if pp_size == 1 or pp_rank == pp_size - 1:
+            _check_output(output_name, outputs[0], outputs[1])
+
+
+CUSTOM_MODELINGS_TO_TEST = [("LlamaForCausalLM", "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random")]
+
+
+@pytest.mark.parametrize("qkv_implementation", ["regular_qkv", "fuse_qkv", "qkv_linear"])
+# We only test for [world_size, tp_size, pp_size] = [16, 2, 1] e.g. dp=8,tp=2,pp=1
+@pytest.mark.parametrize("world_size,tp_size,pp_size", [[16, 2, 1]], ids=["dp=8,tp=2,pp=1"])
+@pytest.mark.parametrize("model_specs", CUSTOM_MODELINGS_TO_TEST, ids=[specs[0] for specs in CUSTOM_MODELINGS_TO_TEST])
+def test_custom_modeling_matches_original(
+    model_specs,
+    qkv_implementation,
+    world_size,
+    tp_size,
+    pp_size,
+    monkeypatch,
+    tmpdir,
+):
+    # We could make these parameters but we do not want to test all combinations.
+    sequence_parallel_enabled = True
+    # The best default to test would be flash attention since it's the most performant, but it seems to produce
+    # different outputs and cannot handle padding (to validate).
+    attn_implementation = "eager"
+
+    tmpdir = Path(tmpdir)
+    new_model_name_or_path = tmpdir / "my_custom_model"
+    model_class_name, model_name_or_path = model_specs
+
+    config = AutoConfig.from_pretrained(model_name_or_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+
+    if qkv_implementation == "fuse_qkv":
+        config.num_key_value_heads = config.num_attention_heads
+        model_class = getattr(transformers, model_class_name)
+        model = model_class.from_pretrained(model_name_or_path, config=config, ignore_mismatched_sizes=True)
+        model.save_pretrained(new_model_name_or_path)
+        tokenizer.save_pretrained(new_model_name_or_path)
+        model_name_or_path = new_model_name_or_path
+    elif qkv_implementation == "qkv_linear":
+        tp_size = 2 * config.num_key_value_heads
+
+    run_fn = partial(
+        _custom_model_matches_original_model,
+        model_class_name,
+        model_name_or_path,
+        (world_size, tp_size, pp_size),
+        sequence_parallel_enabled,
+        qkv_implementation,
+        attn_implementation,
+        monkeypatch,
+    )
+    launch_procs(run_fn, world_size, tp_size, pp_size)
+
+
+def _overfit_causal_lm(
+    model_class_name,
+    model_name_or_path,
+    training_kwargs,
+    tp_size,
+    pp_size,
+    output_dir,
+):
+    # Dataset creation.
+    sample_to_overfit = "Paris is the most beautiful city in the world."
+    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+    if getattr(tokenizer, "pad_token", None) is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    # We use a big sequence length to test that the model trains when there is padding since it can be tricky with
+    # `recompute_causal_mask=True` or when using flash attention.
+    inputs = tokenizer(sample_to_overfit, return_tensors="pt", padding="max_length", max_length=512)
+    inputs["labels"] = inputs["input_ids"].clone()
+    # We basically remove the batch dimension to have a single example, the batch dimension is added when creating the
+    # dataset.
+    inputs = {k: v[0, :] for k, v in inputs.items()}
+
+    def gen():
+        yield inputs
+
+    dataset = datasets.Dataset.from_generator(gen)
+    dataset = dataset.select([0] * 1000)
+
+    # Training args creation.
+    training_args = NeuronTrainingArguments(
+        tensor_parallel_size=tp_size,
+        pipeline_parallel_size=pp_size,
+        do_train=True,
+        do_eval=False,
+        learning_rate=1e-4,
+        warmup_ratio=0.03,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=16,
+        lr_scheduler_type="cosine",
+        gradient_checkpointing=True,
+        max_grad_norm=1,
+        bf16=True,
+        logging_steps=1,
+        save_strategy="no",
+        max_steps=30,
+        output_dir=output_dir,
+        **training_kwargs,
+    )
+
+    # Model creation.
+    training_mod = importlib.import_module("optimum.neuron.models.training")
+    model_class = getattr(training_mod, model_class_name)
+    model = model_class.from_pretrained(
+        model_name_or_path,
+        training_args.mp_config,
+        torch_dtype=torch.bfloat16,
+    )
+
+    stored_logs = []
+
+    class StoreLogsCallback(TrainerCallback):
+        def on_log(self, args, state, control, logs=None, **kwargs):
+            if logs is not None:
+                stored_logs.append(logs)
+
+    # Training
+    trainer = NeuronTrainer(
+        model=model,
+        args=training_args,
+        train_dataset=dataset,
+        callbacks=[StoreLogsCallback()],
+    )
+
+    trainer.train()
+
+    # The master worker checks the logs, since it is the only worker to have access to them, to retrieve the last logged
+    # loss. It then checks if it is equal to 0.0.
+    if xr.global_ordinal() == 0:
+        last_loss = None
+        for logs in reversed(stored_logs):
+            if "loss" in logs:
+                last_loss = logs["loss"]
+                break
+        if last_loss is None:
+            raise ValueError("No loss found in the logs.")
+        print("Last loss", last_loss)
+        assert last_loss != 0.0, "The model did not overfit the dataset."
+
+
+@pytest.mark.parametrize(
+    "model_class_name,model_name_or_path,training_kwargs",
+    [
+        [
+            "LlamaForCausalLM",
+            "meta-llama/Llama-3.2-1B-Instruct",
+            {
+                "use_flash_attention": True,
+            },
+        ],
+    ],
+    ids=["meta-llama/Llama-3.2-1B-Instruct"],
+)
+@pytest.mark.parametrize(
+    "world_size,tp_size,pp_size",
+    [[8, 8, 1]],
+    ids=["dp=1,tp=8,pp=1"],
+)
+def test_overfit_causal_lm(
+    model_class_name,
+    model_name_or_path,
+    training_kwargs,
+    world_size,
+    tp_size,
+    pp_size,
+    tmpdir,
+    set_cache_for_ci,  # This fixture will handle setting the remote cache to make this test faster.
+):
+    run_fn = partial(
+        _overfit_causal_lm,
+        model_class_name,
+        model_name_or_path,
+        training_kwargs,
+        tp_size,
+        pp_size,
+        tmpdir,
+    )
+    launch_procs(run_fn, world_size, tp_size, pp_size)

@@ -92,6 +92,7 @@ from .cache.hub_cache import hub_neuronx_cache, synchronize_hub_cache
 from .cache.training import patch_neuron_cc_wrapper
 from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
+from .models.training.modeling_utils import NeuronModelMixin
 from .training_args import NeuronTrainingArguments
 from .utils import (
     is_torch_xla_available,
@@ -274,7 +275,7 @@ class _TrainerForNeuron:
         # create accelerator object
         self.accelerator = NeuronAccelerator(
             *args,
-            mp_plugin=self.args.mp_plugin,
+            mp_config=self.args.mp_config,
             zero_1=self.args.zero_1,
             mixed_precision="bf16" if self.args.bf16 else "no",
             autocast_backend=self.args.half_precision_backend,
@@ -367,8 +368,11 @@ class _TrainerForNeuron:
     def get_optimizer_cls_and_kwargs(
         args: TrainingArguments, model: Optional[PreTrainedModel] = None
     ) -> Tuple[Any, Any]:
+        # No need for lazy loading logic when using custom modeling.
+        if isinstance(model, NeuronModelMixin):
+            return transformers_get_optimizer_cls_and_kwargs(args, model=model)
         optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args, model=model)
-        lazy_load = args.mp_plugin.should_parallelize or args.zero_1
+        lazy_load = args.mp_config.should_parallelize or args.zero_1
         if lazy_load:
             optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)
         return optimizer_cls, optimizer_kwargs
@@ -380,7 +384,7 @@ class _TrainerForNeuron:
     def _prepare_input(self, data: Union[torch.Tensor, Any]) -> Union[torch.Tensor, Any]:
         # When pipeline parallelism is enabled, we should not put any tensor on device.
         # It is handled by the NxDPPModel class.
-        if self.args.mp_plugin.pipeline_parallel_size > 1:
+        if self.args.mp_config.pipeline_parallel_size > 1:
             return data
         return super()._prepare_input(data)
 
@@ -434,7 +438,6 @@ class _TrainerForNeuron:
                 output = loss / self.args.gradient_accumulation_steps
         else:
             output = super().training_step(model, inputs, num_items_in_batch=num_items_in_batch)
-        output = output.detach()
         return output
 
     @requires_neuronx_distributed
@@ -546,25 +549,32 @@ class _TrainerForNeuron:
                 logger.info(
                     "Model parallelism is enabled, saving the model sharded state dict instead of the full state dict."
                 )
-            # TODO: how to handle pp?
-            if isinstance(self.model, PreTrainedModel):
-                from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+            if isinstance(self.model, NeuronModelMixin):
+                # This mark_step is needed to avoid hang issues.
+                xm.mark_step()
+                self.model.save_pretrained(
+                    output_dir,
+                    optimizer=self.optimizer if not self.args.save_only_model else None,
+                )
+            else:
+                if isinstance(self.model, PreTrainedModel):
+                    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
-                config = copy.deepcopy(self.model.config)
-                if self.args.mp_plugin.parallelize_embeddings:
-                    config.vocab_size = config.vocab_size * get_tensor_model_parallel_size()
-                config.save_pretrained(output_dir)
+                    config = copy.deepcopy(self.model.config)
+                    if self.args.mp_config.parallelize_embeddings:
+                        config.vocab_size = config.vocab_size * get_tensor_model_parallel_size()
+                    config.save_pretrained(output_dir)
 
-            # This mark_step is needed to avoid hang issues.
-            xm.mark_step()
-            Parallelizer.save_model_sharded_checkpoint(
-                self.model,
-                output_dir,
-                optimizer=self.optimizer if not self.args.save_only_model else None,
-                use_xser=self.accelerator.state.mp_plugin.use_xser,
-                async_save=self.accelerator.state.mp_plugin.async_save,
-                num_local_ranks_per_step=self.accelerator.state.mp_plugin.num_local_ranks_per_step,
-            )
+                # This mark_step is needed to avoid hang issues.
+                xm.mark_step()
+                Parallelizer.save_model_sharded_checkpoint(
+                    self.model,
+                    output_dir,
+                    optimizer=self.optimizer if not self.args.save_only_model else None,
+                    use_xser=self.accelerator.state.mp_config.use_xser,
+                    async_save=self.accelerator.state.mp_config.async_save,
+                    num_local_ranks_per_step=self.accelerator.state.mp_config.num_local_ranks_per_step,
+                )
         else:
             supported_classes = (PreTrainedModel, NeuronPeftModel)
             if not isinstance(self.model, supported_classes):
@@ -751,15 +761,10 @@ class _TrainerForNeuron:
             else:
                 debug_overflow = DebugUnderflowOverflow(self.model)  # noqa
 
-        delay_optimizer_creation = is_sagemaker_mp_enabled() or self.is_fsdp_xla_enabled or self.is_fsdp_enabled
-
         # We need to reset the scheduler, as its parameters may be different on subsequent calls
         if self._created_lr_scheduler:
             self.lr_scheduler = None
             self._created_lr_scheduler = False
-
-        if not delay_optimizer_creation:
-            self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
         self.state = TrainerState()
         self.state.is_hyper_param_search = trial is not None
@@ -798,10 +803,9 @@ class _TrainerForNeuron:
         # FSDP-XLA, SageMaker MP/DP, DataParallel, IPEX
         use_accelerator_prepare = True if model is self.model else False
 
-        if delay_optimizer_creation:
-            if use_accelerator_prepare:
-                self.model = self.accelerator.prepare(self.model)
-            self.create_optimizer_and_scheduler(num_training_steps=max_steps)
+        if use_accelerator_prepare:
+            self.model = self.accelerator.prepare(self.model)
+        self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
         # prepare using `accelerator` prepare
         if use_accelerator_prepare:
@@ -2056,7 +2060,7 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
             preprocess_logits_for_metrics=preprocess_logits_for_metrics,
         )
 
-        if self.accelerator.state.mp_plugin.should_parallelize:
+        if self.accelerator.state.mp_config.should_parallelize:
             raise RuntimeError("Model parallelism is not supported with the NeuronORPOTrainer yet.")
 
         # Add tags for models that have been loaded with the correct transformers version

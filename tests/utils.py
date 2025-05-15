@@ -48,7 +48,7 @@ from transformers.models.auto.modeling_auto import (
 )
 from transformers.testing_utils import ENDPOINT_STAGING
 
-from optimum.neuron import ModelParallelismPlugin, NeuronAccelerator
+from optimum.neuron import ModelParallelismConfig, NeuronAccelerator
 from optimum.neuron.distributed import lazy_load_for_parallelism
 from optimum.neuron.utils.cache_utils import (
     delete_custom_cache_repo_name_from_hf_home,
@@ -69,6 +69,7 @@ TOKEN_STAGING = "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"
 
 SEED = 42
 OPTIMUM_INTERNAL_TESTING_CACHE_REPO = "optimum-internal-testing/optimum-neuron-cache-for-testing"
+OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI = "optimum-internal-testing/optimum-neuron-cache-ci"
 
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
 
@@ -416,7 +417,7 @@ def create_accelerator(
     checkpoint_dir: Optional[Union[Path, str]] = None,
     use_xser: bool = True,
 ) -> NeuronAccelerator:
-    mp_plugin = ModelParallelismPlugin(
+    mp_config = ModelParallelismConfig(
         tensor_parallel_size=tp_size,
         kv_size_multiplier=kv_size_multiplier,
         parallelize_embeddings=parallelize_embeddings,
@@ -426,7 +427,7 @@ def create_accelerator(
         use_xser=use_xser,
     )
     return NeuronAccelerator(
-        mp_plugin=mp_plugin, zero_1=zero_1, gradient_accumulation_steps=gradient_accumulation_steps
+        mp_config=mp_config, zero_1=zero_1, gradient_accumulation_steps=gradient_accumulation_steps
     )
 
 
