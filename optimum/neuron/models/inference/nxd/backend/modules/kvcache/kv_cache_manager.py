@@ -19,7 +19,6 @@ from typing import List
 import torch
 from neuronx_distributed.parallel_layers import parallel_state, utils
 from torch import Tensor, nn
-from torch_neuronx.xla_impl.ops import ConcatenateOp
 from transformers import PretrainedConfig
 
 from ...config import NxDNeuronConfig
@@ -27,31 +26,28 @@ from ..attention.gqa import (
     determine_sharding_strategy,
     get_shardable_head_counts,
 )
-from ..autobucketing import slice_lhs, slice_rhs
 from ..flashdecode.utils import get_cache_size
-from .utils import fill_prefix
+from .utils import dynamic_update_slice, fill_prefix
 
 
-def _slice_kv_cacheline(padding_side, seq_len: int, cache: Tensor):
+def _reshape_tiled_cache(cache: Tensor):
+    # We merge the tiles BHS(128 tiled)D -> BHSD
+    cache_shape = cache.shape
+    desired_shape = (
+        cache_shape[0],
+        cache_shape[1],
+        cache_shape[2] * cache_shape[3],
+        cache_shape[4],
+    )
+    cache = cache.reshape(desired_shape)
+    return cache
+
+
+def _slice_kv_cacheline(padding_side: str, seq_len: int, cache: Tensor):
     if padding_side == "right":
-        return slice_lhs(cache, seq_len, 2)
-    else:
-        max_idx = cache.shape[2]
-        return slice_rhs(cache, seq_len, max_idx, 2)
-
-
-def _gather_slice_into_kv_cacheline(cache, padding_side, seq_len: int, bucket_slice: Tensor):
+        return torch.ops.aten.slice(cache, dim=2, start=0, end=seq_len)
     max_idx = cache.shape[2]
-    if padding_side == "right":
-        remaining = slice_rhs(cache, max_idx - seq_len, max_idx, dim=2)
-        if remaining.dtype == torch.float8_e4m3fn:
-            return ConcatenateOp.apply(bucket_slice, remaining, dim=2)
-        return torch.cat([bucket_slice, remaining], dim=2)
-    else:
-        remaining = slice_lhs(cache, max_idx - seq_len, dim=2)
-        if remaining.dtype == torch.float8_e4m3fn:
-            return ConcatenateOp.apply(bucket_slice, remaining, dim=2)
-        return torch.cat([remaining, bucket_slice], dim=2)
+    return torch.ops.aten.slice(cache, dim=2, start=max_idx - seq_len, end=max_idx)
 
 
 class KVCacheManager(nn.Module):
@@ -136,6 +132,14 @@ class KVCacheManager(nn.Module):
                 hidden_dim_per_head,
             )
 
+    def _fetch_cache(self, idx: int, kvcache_buffer=None):
+        if kvcache_buffer is not None:
+            return kvcache_buffer[idx][0], kvcache_buffer[idx][1]
+        k_cache, v_cache = self.past_key_values[idx * 2], self.past_key_values[idx * 2 + 1]
+        if self.is_kv_cache_tiled:
+            return _reshape_tiled_cache(k_cache), _reshape_tiled_cache(v_cache)
+        return k_cache, v_cache
+
     def get_kv_by_layer_id(self, key_layer_idx, gather_index=None, slice_index=None):
         k_cache = self.past_key_values[key_layer_idx]
         v_cache = self.past_key_values[key_layer_idx + 1]
@@ -157,19 +161,8 @@ class KVCacheManager(nn.Module):
             )
 
             if self.is_kv_cache_tiled:
-                # We merge the tiles BHS(128 tiled)D ->  BHSD
-                k_cache = k_cache.reshape(
-                    self.kv_shape[0],
-                    self.kv_shape[1],
-                    self.kv_shape[2] * self.kv_shape[3],
-                    self.kv_shape[4],
-                )
-                v_cache = v_cache.reshape(
-                    self.kv_shape[0],
-                    self.kv_shape[1],
-                    self.kv_shape[2] * self.kv_shape[3],
-                    self.kv_shape[4],
-                )
+                k_cache = _reshape_tiled_cache(k_cache)
+                v_cache = _reshape_tiled_cache(v_cache)
 
             # slice for partial view
             if not skip_slice:
@@ -211,48 +204,25 @@ class KVCacheManager(nn.Module):
         updated_kv_cache = []
         for idx, kv_per_layer in enumerate(new_key_values):
             latest_k, latest_v = kv_per_layer[0], kv_per_layer[1]
-
-            if kvcache_buffer is None:
-                cache_shape = self.past_key_values[idx * 2].shape
-                if self.is_kv_cache_tiled:
-                    k_cache_buffer = self.past_key_values[idx * 2].reshape(
-                        cache_shape[0],
-                        cache_shape[1],
-                        cache_shape[2] * cache_shape[3],
-                        cache_shape[4],
-                    )
-                    v_cache_buffer = self.past_key_values[idx * 2 + 1].reshape(
-                        cache_shape[0],
-                        cache_shape[1],
-                        cache_shape[2] * cache_shape[3],
-                        cache_shape[4],
-                    )
-                    k_cache = k_cache_buffer
-                    v_cache = v_cache_buffer
-                else:
-                    k_cache = self.past_key_values[idx * 2]
-                    v_cache = self.past_key_values[idx * 2 + 1]
-
-            else:
-                cache_shape = kvcache_buffer[idx][0].shape
-                k_cache = kvcache_buffer[idx][0]
-                v_cache = kvcache_buffer[idx][1]
+            k_cache, v_cache = self._fetch_cache(idx, kvcache_buffer)
 
             if is_for_context_encoding:
                 if self.is_continuous_batching:
-                    # scatter back to the desired seq_ids
-                    sliced_k_cache = _slice_kv_cacheline(self.padding_side, seq_len, k_cache)
-                    sliced_v_cache = _slice_kv_cacheline(self.padding_side, seq_len, v_cache)
+                    assert seq_ids.dim() == 1 and seq_ids.shape[0] == 1, "only supports single seq_id"
 
-                    seq_id_index_shape = seq_ids.shape[:1] + sliced_k_cache.shape[1:]
-                    seq_id_index = seq_ids.view(-1, 1, 1, 1).expand(seq_id_index_shape)
+                    cache_idx = seq_ids
 
-                    sliced_k_cache = torch.scatter(input=sliced_k_cache, dim=0, index=seq_id_index, src=latest_k)
-                    sliced_v_cache = torch.scatter(input=sliced_v_cache, dim=0, index=seq_id_index, src=latest_v)
+                    indices = torch.zeros(k_cache.dim(), dtype=seq_ids.dtype, device=seq_ids.device)
+                    indices = indices.scatter(
+                        dim=0,
+                        index=torch.tensor([0], dtype=torch.int64, device=k_cache.device),
+                        src=cache_idx,
+                    ).to(torch.int32)
 
-                    read_len = sliced_k_cache.shape[2]
-                    k_cache = _gather_slice_into_kv_cacheline(k_cache, self.padding_side, read_len, sliced_k_cache)
-                    v_cache = _gather_slice_into_kv_cacheline(v_cache, self.padding_side, read_len, sliced_v_cache)
+                    indices = indices.split(1)
+                    indices = [t.squeeze() for t in indices]
+                    k_cache = dynamic_update_slice(k_cache, latest_k, indices)
+                    v_cache = dynamic_update_slice(v_cache, latest_v, indices)
                 else:
                     k_cache = fill_prefix(k_cache, latest_k)
                     v_cache = fill_prefix(v_cache, latest_v)
