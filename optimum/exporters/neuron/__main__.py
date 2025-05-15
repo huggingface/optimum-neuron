@@ -336,6 +336,7 @@ def get_submodels_and_neuron_configs(
             tensor_parallel_size=tensor_parallel_size,
             output=output,
             dynamic_batch_size=dynamic_batch_size,
+            model_name_or_path=model_name_or_path,
             submodels=submodels,
             output_hidden_states=output_hidden_states,
             controlnet_ids=controlnet_ids,
@@ -390,6 +391,7 @@ def _get_submodels_and_neuron_configs_for_diffusion(
     tensor_parallel_size: int,
     output: Path,
     dynamic_batch_size: bool = False,
+    model_name_or_path: Optional[Union[str, Path]] = None,
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
     output_hidden_states: bool = False,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
@@ -433,6 +435,7 @@ def _get_submodels_and_neuron_configs_for_diffusion(
         controlnet_input_shapes=input_shapes.get("controlnet", None),
         image_encoder_input_shapes=input_shapes.get("image_encoder", None),
         text_encoder_2_input_shapes=input_shapes.get("text_encoder_2", None),
+        model_name_or_path=model_name_or_path,
     )
     output_model_names = {
         DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),

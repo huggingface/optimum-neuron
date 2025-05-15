@@ -1040,6 +1040,7 @@ class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
 class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
     CUSTOM_MODEL_WRAPPER = T5EncoderWrapper
     INPUT_ARGS = ("batch_size", "sequence_length")
+    MODEL_TYPE = "t5-encoder"
 
     @property
     def outputs(self) -> List[str]:
@@ -1071,9 +1072,7 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
                 tensor_parallel_size=self.tensor_parallel_size,
             ), {}
 
-    def get_parallel_callable(
-        self, model_name_or_path, sequence_length, batch_size, num_beams, device, tensor_parallel_size
-    ):
+    def get_parallel_callable(self, model_name_or_path, sequence_length, batch_size, device, tensor_parallel_size):
         """Unlike `torch_neuronx.trace`, `parallel_model_trace` requires a function returning a model object and a dictionary of states."""
 
         pipe = TasksManager.get_model_from_task(
@@ -1081,7 +1080,7 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
             task=self.task,
             torch_dtype=torch.bfloat16,
             framework="pt",
-            library_name="transformers",
+            library_name="diffusers",
         )  # TODO: add extra args, eg. revision, trust_remote_code, etc.
         text_encoder = pipe.text_encoder_2
         text_encoder.eval()

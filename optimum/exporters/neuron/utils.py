@@ -135,6 +135,7 @@ def get_diffusion_models_for_export(
     controlnet_input_shapes: Optional[Dict[str, Any]] = None,
     image_encoder_input_shapes: Optional[Dict[str, Any]] = None,
     text_encoder_2_input_shapes: Dict[str, Any] = None,
+    model_name_or_path: Optional[Union[str, Path]] = None,
 ) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronDefaultConfig"]]:
     """
     Returns the components of a Stable Diffusion / Diffusion Transformer(eg. Pixart) / Flux model and their subsequent neuron configs.
@@ -172,6 +173,8 @@ def get_diffusion_models_for_export(
             Static shapes used for compiling the image encoder.
         text_encoder_2_input_shapes (`Optional[Dict[str, Any]]`, defaults to `None`):
             Static shapes used for compiling text encoder 2.
+        model_name_or_path (`Optional[str]`, defaults to `None`):
+            Path to pretrained model or model identifier from the Hugging Face Hub.
 
     Returns:
         `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronDefaultConfig`]`: A Dict containing the model and
@@ -218,7 +221,18 @@ def get_diffusion_models_for_export(
             output_hidden_states=output_hidden_states,
             input_shapes=text_encoder_2_input_shapes,
         )
-        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = (text_encoder_2, text_encoder_neuron_config_2)
+        if not tensor_parallel_size > 1:
+            models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = (text_encoder_2, text_encoder_neuron_config_2)
+        else:
+            if model_name_or_path:
+                models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = (
+                    model_name_or_path,
+                    text_encoder_neuron_config_2,
+                )
+            else:
+                raise ValueError(
+                    f"you need to precise `model_name_or_path` when the parallelism is on, but now it's {model_name_or_path}."
+                )
 
     # U-NET
     if DIFFUSION_MODEL_UNET_NAME in models_for_export:
@@ -262,7 +276,15 @@ def get_diffusion_models_for_export(
             float_dtype=transformer.dtype,
             input_shapes=transformer_input_shapes,
         )
-        models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (transformer, transformer_neuron_config)
+        if not tensor_parallel_size > 1:
+            models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (transformer, transformer_neuron_config)
+        else:
+            if model_name_or_path:
+                models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (model_name_or_path, transformer_neuron_config)
+            else:
+                raise ValueError(
+                    f"you need to precise `model_name_or_path` when the parallelism is on, but now it's {model_name_or_path}."
+                )
 
     # VAE Encoder
     vae_encoder = models_for_export[DIFFUSION_MODEL_VAE_ENCODER_NAME]
