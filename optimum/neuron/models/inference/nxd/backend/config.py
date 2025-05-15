@@ -57,8 +57,6 @@ class NxDNeuronConfig(NeuronConfig):
         checkpoint_id: str = None,
         checkpoint_revision: str = None,
         batch_size: Optional[int] = 1,
-        ctx_batch_size: Optional[int] = None,
-        tkg_batch_size: Optional[int] = None,
         max_batch_size: Optional[int] = None,
         continuous_batching: Optional[bool] = False,
         speculation_length: Optional[int] = 0,
@@ -145,10 +143,8 @@ class NxDNeuronConfig(NeuronConfig):
         # Continuous batching
         # TODO: Check if we really need different batch size for CTE and TKG, given
         # that we anyway provide two different config instance for them.
-        self.ctx_batch_size = batch_size if ctx_batch_size is None else ctx_batch_size
-        self.tkg_batch_size = batch_size if tkg_batch_size is None else tkg_batch_size
-        self.max_batch_size = batch_size if max_batch_size is None else max_batch_size
         self.continuous_batching = continuous_batching
+        self.max_batch_size = batch_size if max_batch_size is None else max_batch_size
 
         # On-device sampling
         self.on_device_sampling = on_device_sampling
@@ -198,6 +194,14 @@ class NxDNeuronConfig(NeuronConfig):
         # MoE specific
         self.capacity_factor = float(capacity_factor) if capacity_factor is not None else None
         self.glu_mlp = glu_mlp
+
+    @property
+    def ctx_batch_size(self) -> int:
+        return 1 if self.continuous_batching else self.batch_size
+
+    @property
+    def tkg_batch_size(self) -> int:
+        return self.batch_size
 
     @property
     def world_size(self) -> int:
