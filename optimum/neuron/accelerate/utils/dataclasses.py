@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 
 import torch
 
+from ...configuration_utils import NeuronConfig, register_neuron_config
 from ...distributed import ParallelizersManager
 from ...utils import is_neuronx_distributed_available
 from ...utils.torch_xla_and_neuronx_initialization import init_process_group
@@ -55,7 +56,8 @@ class AutocastBackend(str, enum.Enum):
 
 
 @dataclass
-class ModelParallelismConfig:
+@register_neuron_config
+class ModelParallelismConfig(NeuronConfig):
     tensor_parallel_size: int = 1
     parallelize_embeddings: bool = True
     sequence_parallel_enabled: bool = False
