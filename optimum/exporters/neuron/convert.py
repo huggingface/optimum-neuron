@@ -350,7 +350,7 @@ def export_models(
     total_compilation_time = 0
     compile_configs = {}
     models_and_neuron_configs.pop("text_encoder")
-    # models_and_neuron_configs.pop("text_encoder_2")
+    models_and_neuron_configs.pop("text_encoder_2")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -670,7 +670,7 @@ def trace_neuronx(
                 compiler_workdir=compiler_workdir,
             )
             model_builder.add(
-                key=config.model_type,
+                key=config.MODEL_TYPE,
                 model_instance=model,
                 example_inputs=[dummy_inputs],
                 priority_model_idx=0,
@@ -703,6 +703,9 @@ def add_stable_diffusion_compiler_args(config, compiler_args):
         compiler_args.append("--enable-fast-loading-neuron-binaries")
     # unet or transformer or controlnet
     if any(model_type in identifier for model_type in ["unet", "transformer", "controlnet"]):
+        if hasattr(config, "MODEL_TYPE") and "flux" in config.MODEL_TYPE.lower():
+            compiler_args.append(" --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'")
+            return compiler_args
         # SDXL unet doesn't support fast loading neuron binaries(sdk 2.19.1)
         if not getattr(config, "is_sdxl", False):
             compiler_args.append("--enable-fast-loading-neuron-binaries")

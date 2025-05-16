@@ -272,6 +272,7 @@ def get_diffusion_models_for_export(
         transformer_neuron_config = transformer_neuron_config_constructor(
             transformer.config,
             task="semantic-segmentation",
+            tensor_parallel_size=tensor_parallel_size,
             dynamic_batch_size=dynamic_batch_size,
             float_dtype=transformer.dtype,
             input_shapes=transformer_input_shapes,

@@ -838,7 +838,7 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
 
     def patch_model_and_prepare_aliases(self, model_or_path, *args):
         base_model_instance = BaseModelInstance(
-            partial(self.get_parallel_callable, model_or_path.config),
+            partial(self.get_parallel_callable, self._config),
             input_output_aliases={},
         )
         return base_model_instance, None
