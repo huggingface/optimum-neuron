@@ -1,7 +1,7 @@
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from optimum.neuron.accelerate import ModelParallelismConfig
+from optimum.neuron.accelerate import TrainingNeuronConfig
 from optimum.neuron.models.training.granite.modeling_granite import GraniteForCausalLM
 from optimum.neuron.utils.import_utils import is_neuronx_available, is_torch_xla_available
 from optimum.neuron.utils.testing_utils import is_trainium_test
@@ -49,7 +49,7 @@ def _test_parallel_granite():
 
     # Note that model is init on CPU, then moved  to XLA
     tp_size = get_tensor_model_parallel_size()
-    mp_config = ModelParallelismConfig(
+    mp_config = TrainingNeuronConfig(
         tensor_parallel_size=tp_size,
         sequence_parallel_enabled=False,
         use_flash_attention=False,
