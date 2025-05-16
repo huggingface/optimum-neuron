@@ -1281,6 +1281,11 @@ class NeuronModelMixin:
         # ** Difference from original from_pretrained **
         # This is due to a Neuron compiler bug, and it should be removed when the bug is fixed.
         should_fake_tie = config.tie_word_embeddings
+        if should_fake_tie:
+            logger.warning(
+                "`config.tie_word_embeddings` is set to True, but it produces compiler errors with the current Neuron "
+                "SDK. Setting it to False until resolved. The weights will be copied but not tied."
+            )
         config.tie_word_embeddings = False
 
         with ContextManagers(init_contexts):
