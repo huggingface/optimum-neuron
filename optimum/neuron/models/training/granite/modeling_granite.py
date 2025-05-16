@@ -251,8 +251,7 @@ class GraniteModel(LlamaModel):
             causal_mask = self._update_causal_mask(attention_mask, inputs_embeds, cache_position)
 
         hidden_states = inputs_embeds
-        # print(f"🟡 hidden_states {hidden_states.shape}")
-        # raise ValueError("hidden_states")
+
         # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
