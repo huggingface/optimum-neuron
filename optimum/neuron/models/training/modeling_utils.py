@@ -35,7 +35,6 @@ from transformers import PretrainedConfig
 from transformers.modeling_utils import (
     SpecificPreTrainedModelType,
     _add_variant,
-    check_support_param_buffer_assignment,
     get_parameter_dtype,
     get_state_dict_dtype,
     load_state_dict,
@@ -120,7 +119,7 @@ class NotSupportedError(Exception):
     pass
 
 
-def _load_state_dict_into_model(model_to_load, state_dict, start_prefix, assign_to_params_buffers=False):
+def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):
     # copy state_dict so _load_from_state_dict can modify it
     metadata = getattr(state_dict, "_metadata", None)
     state_dict = state_dict.copy()
@@ -131,9 +130,8 @@ def _load_state_dict_into_model(model_to_load, state_dict, start_prefix, assign_
 
     # PyTorch's `_load_from_state_dict` does not copy parameters in a module's descendants
     # so we need to apply the function recursively.
-    def load(module: nn.Module, state_dict, prefix="", assign_to_params_buffers=False):
+    def load(module: nn.Module, state_dict, prefix=""):
         local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
-        local_metadata["assign_to_params_buffers"] = assign_to_params_buffers
 
         args = (state_dict, prefix, local_metadata, True, [], [], error_msgs)
         # Parameters of module and children will start with prefix. We can exit early if there are none in this
@@ -159,9 +157,9 @@ def _load_state_dict_into_model(model_to_load, state_dict, start_prefix, assign_
 
         for name, child in module._modules.items():
             if child is not None:
-                load(child, state_dict, prefix + name + ".", assign_to_params_buffers)
+                load(child, state_dict, prefix + name + ".")
 
-    load(model_to_load, state_dict, prefix=start_prefix, assign_to_params_buffers=assign_to_params_buffers)
+    load(model_to_load, state_dict, prefix=start_prefix)
     # Delete `state_dict` so it could be collected by GC earlier. Note that `state_dict` is a copy of the argument, so
     # it's safe to delete it.
     del state_dict
@@ -335,6 +333,38 @@ class NeuronModelMixin:
                 return key.replace("parametrizations.weight.original1", "weight_v"), True
 
         return key, False
+
+    @classmethod
+    def _fix_state_dict_keys_on_load(cls, state_dict):
+        """Fixes state dict keys by replacing legacy parameter names with their modern equivalents.
+        Logs if any parameters have been renamed.
+
+        NOTE: this function comes from tranformers 4.49.0, and it has been removed afterwards. We keep it here
+        to prevent having to modify all the from_pretrained code here.
+        """
+
+        renamed_keys = {}
+        state_dict_keys = list(state_dict.keys())
+        for key in state_dict_keys:
+            new_key, has_changed = cls._fix_state_dict_key_on_load(key)
+            if has_changed:
+                state_dict[new_key] = state_dict.pop(key)
+
+                # track gamma/beta rename for logging
+                if key.endswith("LayerNorm.gamma"):
+                    renamed_keys["LayerNorm.gamma"] = (key, new_key)
+                elif key.endswith("LayerNorm.beta"):
+                    renamed_keys["LayerNorm.beta"] = (key, new_key)
+
+        if renamed_keys:
+            warning_msg = f"A pretrained model of type `{cls.__name__}` "
+            warning_msg += "contains parameters that have been renamed internally (a few are listed below but more are present in the model):\n"
+            for old_key, new_key in renamed_keys.values():
+                warning_msg += f"* `{old_key}` -> `{new_key}`\n"
+            warning_msg += "If you are using a model from the Hub, consider submitting a PR to adjust these weights and help future users."
+            logger.info_once(warning_msg)
+
+        return state_dict
 
     @classmethod
     def _load_pretrained_model(
@@ -575,7 +605,6 @@ class NeuronModelMixin:
 
         if len(resolved_archive_file) > 1:
             resolved_archive_file = logging.tqdm(resolved_archive_file, desc="Loading checkpoint shards")
-        assign_to_params_buffers = None
 
         # In case some parameters weights are sharded across multiple files, we keep track of them to be able to adapt
         # them in successive calls to `adapt_state_dict`.
@@ -615,15 +644,9 @@ class NeuronModelMixin:
             # ** Difference from original _load_pretrained_model **
             # We do not add the code related to `low_cpu_mem_usage` here.
 
-            # Sharded checkpoint or whole but low_cpu_mem_usage==True
-            if assign_to_params_buffers is None:
-                assign_to_params_buffers = check_support_param_buffer_assignment(
-                    model_to_load, state_dict, start_prefix
-                )
+            # Sharded checkpoint or whole
             fixed_state_dict = cls._fix_state_dict_keys_on_load(state_dict)
-            error_msgs += _load_state_dict_into_model(
-                model_to_load, fixed_state_dict, start_prefix, assign_to_params_buffers
-            )
+            error_msgs += _load_state_dict_into_model(model_to_load, fixed_state_dict, start_prefix)
 
             # force memory release
             del state_dict
@@ -1258,7 +1281,7 @@ class NeuronModelMixin:
         config.name_or_path = pretrained_model_name_or_path
 
         # Instantiate model.
-        init_contexts = [no_init_weights(_enable=_fast_init)]
+        init_contexts = [no_init_weights()]
 
         # ** Difference from original from_pretrained **
         # In the original from_pretrained implementation there is deepspeed and low_cpu_mem_usage code for
