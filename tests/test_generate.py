@@ -104,12 +104,12 @@ class GenerateTestCase(TrainiumTestMixin, TestCase):
 
         cpu_samples = _test_generative_decoding(model_name=model_name, device="cpu", decoder_only=decoder_only)
 
-        assert np.array_equal(cpu_samples, xla_neuron_samples_fp32), (
-            "XLA Neuron FP32 output doesn't match CPU only output"
-        )
-        assert np.array_equal(cpu_samples, xla_neuron_samples_bf16), (
-            "XLA Neuron bf16 output doesn't match CPU only output"
-        )
+        assert np.array_equal(
+            cpu_samples, xla_neuron_samples_fp32
+        ), "XLA Neuron FP32 output doesn't match CPU only output"
+        assert np.array_equal(
+            cpu_samples, xla_neuron_samples_bf16
+        ), "XLA Neuron bf16 output doesn't match CPU only output"
 
     @parameterized.expand(BEAM_SEARCH_TESTDATA)
     @pytest.mark.skip("Remove once generate fix (#262) has been merged.")
@@ -130,9 +130,9 @@ class GenerateTestCase(TrainiumTestMixin, TestCase):
             model_name=model_name, device="cpu", decoder_only=decoder_only, generation_config_update=config_update
         )
 
-        assert np.array_equal(cpu_samples, xla_neuron_samples_fp32), (
-            "XLA Neuron FP32 output doesn't match CPU only output"
-        )
-        assert np.array_equal(cpu_samples, xla_neuron_samples_bf16), (
-            "XLA Neuron bf16 output doesn't match CPU only output"
-        )
+        assert np.array_equal(
+            cpu_samples, xla_neuron_samples_fp32
+        ), "XLA Neuron FP32 output doesn't match CPU only output"
+        assert np.array_equal(
+            cpu_samples, xla_neuron_samples_bf16
+        ), "XLA Neuron bf16 output doesn't match CPU only output"
