@@ -33,16 +33,6 @@ def generate_buckets(min_length: int, max_length: int):
     return buckets
 
 
-def slice_rhs(tensor, bucket: int, max_idx: int, dim: int):
-    tensor = torch.ops.aten.slice(tensor, dim, max_idx - bucket, max_idx, 1)
-    return tensor
-
-
-def slice_lhs(tensor, bucket: int, dim: int):
-    tensor = torch.ops.aten.slice(tensor, dim, 0, bucket, 1)
-    return tensor
-
-
 @torch.jit.script
 def generation_model_bk(
     tensors: List[torch.Tensor], buckets: torch.Tensor, padding_side: str, speculation_length: int
@@ -79,9 +69,9 @@ def generation_model_bk(
         bucket = buckets[bucket_idx]
         # slice the attention mask based on the selected bucket size
         if padding_side == "right":
-            tensors[1] = slice_lhs(attention_mask, bucket, 1)
+            tensors[1] = torch.ops.aten.slice(attention_mask, dim=1, start=0, end=bucket)
         else:
-            tensors[1] = slice_rhs(attention_mask, bucket, buckets[-1], 1)
+            tensors[1] = torch.ops.aten.slice(attention_mask, dim=1, start=buckets[-1] - bucket, end=buckets[-1])
 
     return tensors, bucket_idx.to(torch.int)
 
@@ -141,7 +131,7 @@ def context_encoder_bk(tensors: List[torch.Tensor], buckets, padding_side: str, 
             if len(tens.shape) == 1:
                 new_tensors.append(tens)
             else:  # all other tensors are of shape (batch_size,seq_len) so we slice on seq_len
-                new_tensors.append(slice_lhs(tens, bucket, 1))
+                new_tensors.append(torch.ops.aten.slice(tens, dim=1, start=0, end=bucket))
     else:
         max_idx = buckets[-1][-1]
         for i, tens in enumerate(tensors):
@@ -149,7 +139,7 @@ def context_encoder_bk(tensors: List[torch.Tensor], buckets, padding_side: str, 
             if len(tens.shape) == 1:
                 new_tensors.append(tens)
             else:
-                new_tensors.append(slice_rhs(tens, bucket, max_idx, 1))
+                new_tensors.append(torch.ops.aten.slice(tens, dim=1, start=max_idx - bucket, end=max_idx))
 
     return new_tensors, bucket_idx.to(torch.int)
 
