@@ -24,7 +24,7 @@ from transformers.processing_utils import Unpack
 from transformers.utils import LossKwargs, logging
 
 from ....utils import is_neuronx_distributed_available, is_torch_xla_available
-from ..config import ModelParallelismConfig
+from ..config import TrainingNeuronConfig
 from ..llama.modeling_llama import (
     LlamaAttention,
     LlamaDecoderLayer,
@@ -125,13 +125,13 @@ def eager_attention_forward(
 
 
 class GraniteAttention(LlamaAttention):
-    def __init__(self, config: GraniteConfig, mp_config: ModelParallelismConfig, layer_idx: int):
+    def __init__(self, config: GraniteConfig, mp_config: TrainingNeuronConfig, layer_idx: int):
         super().__init__(config, mp_config, layer_idx)
         self.scaling = config.attention_multiplier
 
 
 class GraniteDecoderLayer(LlamaDecoderLayer):
-    def __init__(self, config: GraniteConfig, mp_config: ModelParallelismConfig, layer_idx: int):
+    def __init__(self, config: GraniteConfig, mp_config: TrainingNeuronConfig, layer_idx: int):
         super().__init__(config, mp_config, layer_idx)
         self.residual_multiplier = config.residual_multiplier
         self.self_attn = GraniteAttention(config=config, mp_config=mp_config, layer_idx=layer_idx)
@@ -176,7 +176,7 @@ class GraniteDecoderLayer(LlamaDecoderLayer):
 class GraniteModel(LlamaModel):
     config_class = GraniteConfig
 
-    def __init__(self, config: GraniteConfig, mp_config: ModelParallelismConfig):
+    def __init__(self, config: GraniteConfig, mp_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)
         self.embedding_multiplier = config.embedding_multiplier
         self.padding_idx = config.pad_token_id
@@ -307,7 +307,7 @@ class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
 class GraniteForCausalLM(LlamaForCausalLM):
     config_class = GraniteConfig
 
-    def __init__(self, config, mp_config: ModelParallelismConfig):
+    def __init__(self, config, mp_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)
         self.mp_config = mp_config
         self.model = GraniteModel(config, mp_config)

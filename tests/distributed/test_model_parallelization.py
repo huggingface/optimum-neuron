@@ -39,7 +39,7 @@ from transformers.models.auto.modeling_auto import (
 import optimum
 import optimum.neuron.models.training
 from optimum.neuron.distributed.utils import compute_query_indices_for_rank, lazy_load_for_parallelism
-from optimum.neuron.models.training.config import ModelParallelismConfig
+from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.utils.cache_utils import (
     get_num_neuron_cores,
 )
@@ -457,7 +457,7 @@ def _custom_model_matches_original_model(
 
     xm.mark_step()
 
-    mp_config = ModelParallelismConfig(
+    mp_config = TrainingNeuronConfig(
         tensor_parallel_size=tp_size,
         pipeline_parallel_size=pp_size,
         fuse_qkv=qkv_implementation == "fuse_qkv",

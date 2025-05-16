@@ -50,7 +50,7 @@ from transformers.testing_utils import ENDPOINT_STAGING
 
 from optimum.neuron import NeuronAccelerator
 from optimum.neuron.distributed import lazy_load_for_parallelism
-from optimum.neuron.models.training.config import ModelParallelismConfig
+from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.utils.cache_utils import (
     delete_custom_cache_repo_name_from_hf_home,
     load_custom_cache_repo_name_from_hf_home,
@@ -418,7 +418,7 @@ def create_accelerator(
     checkpoint_dir: Optional[Union[Path, str]] = None,
     use_xser: bool = True,
 ) -> NeuronAccelerator:
-    mp_config = ModelParallelismConfig(
+    mp_config = TrainingNeuronConfig(
         tensor_parallel_size=tp_size,
         kv_size_multiplier=kv_size_multiplier,
         parallelize_embeddings=parallelize_embeddings,

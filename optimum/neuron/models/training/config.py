@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 @dataclass
 @register_neuron_config
-class ModelParallelismConfig(NeuronConfig):
+class TrainingNeuronConfig(NeuronConfig):
     tensor_parallel_size: int = 1
     parallelize_embeddings: bool = True
     sequence_parallel_enabled: bool = False

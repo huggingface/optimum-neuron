@@ -31,7 +31,7 @@ from transformers.utils import (
 from ..utils import logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
 from .accelerate.utils import patch_accelerate_is_torch_xla_available
-from .models.training.config import ModelParallelismConfig
+from .models.training.config import TrainingNeuronConfig
 from .utils import is_main_worker
 from .utils.patching import Patcher, patch_within_function
 from .utils.torch_xla_and_neuronx_initialization import set_neuron_cc_optlevel
@@ -192,7 +192,7 @@ class NeuronTrainingArgumentsMixin:
                     f"per-device eval batch size ({self.per_device_eval_batch_size})."
                 )
 
-        self.mp_config = ModelParallelismConfig(
+        self.mp_config = TrainingNeuronConfig(
             self.tensor_parallel_size,
             parallelize_embeddings=not self.disable_embedding_parallelization,
             sequence_parallel_enabled=not self.disable_sequence_parallel,
