@@ -228,8 +228,7 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
         "attention_mask": inputs.attention_mask,
         "seq_ids": torch.tensor([0]),
     }
-    if on_device_sampling:
-        first_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
+    first_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
     first_generated_tokens = get_next_tokens(**model.prepare_inputs_for_prefill(**first_inputs))
     # Decode a few tokens
     first_inputs["input_ids"] = first_generated_tokens
@@ -245,8 +244,7 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
         "attention_mask": inputs.attention_mask,
         "seq_ids": torch.tensor([2]),
     }
-    if on_device_sampling:
-        second_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
+    second_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
     second_generated_tokens = get_next_tokens(**model.prepare_inputs_for_prefill(**second_inputs))
     # Resize the second request attention mask to the size of the first request
     second_attention_mask = torch.zeros_like(first_inputs["attention_mask"])
