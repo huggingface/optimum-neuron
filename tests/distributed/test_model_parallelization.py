@@ -38,8 +38,8 @@ from transformers.models.auto.modeling_auto import (
 
 import optimum
 import optimum.neuron.models.training
-from optimum.neuron.accelerate.utils.dataclasses import ModelParallelismConfig
 from optimum.neuron.distributed.utils import compute_query_indices_for_rank, lazy_load_for_parallelism
+from optimum.neuron.models.training.config import ModelParallelismConfig
 from optimum.neuron.utils.cache_utils import (
     get_num_neuron_cores,
 )

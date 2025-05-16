@@ -33,8 +33,8 @@ from transformers.processing_utils import Unpack
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from transformers.utils import LossKwargs, logging
 
-from ....accelerate import ModelParallelismConfig
 from ....utils import is_neuronx_distributed_available, is_torch_xla_available
+from ..config import ModelParallelismConfig
 from ..loss_utils import ForCausalLMLoss
 from ..modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
 from ..transformations_utils import (

@@ -48,8 +48,9 @@ from transformers.models.auto.modeling_auto import (
 )
 from transformers.testing_utils import ENDPOINT_STAGING
 
-from optimum.neuron import ModelParallelismConfig, NeuronAccelerator
+from optimum.neuron import NeuronAccelerator
 from optimum.neuron.distributed import lazy_load_for_parallelism
+from optimum.neuron.models.training.config import ModelParallelismConfig
 from optimum.neuron.utils.cache_utils import (
     delete_custom_cache_repo_name_from_hf_home,
     load_custom_cache_repo_name_from_hf_home,

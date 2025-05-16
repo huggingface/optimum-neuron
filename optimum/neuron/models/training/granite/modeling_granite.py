@@ -23,9 +23,8 @@ from transformers.models.granite.configuration_granite import GraniteConfig
 from transformers.processing_utils import Unpack
 from transformers.utils import LossKwargs, logging
 
-from optimum.neuron.accelerate import ModelParallelismConfig
-
 from ....utils import is_neuronx_distributed_available, is_torch_xla_available
+from ..config import ModelParallelismConfig
 from ..llama.modeling_llama import (
     LlamaAttention,
     LlamaDecoderLayer,
