@@ -33,9 +33,9 @@ def turn_2d_mask_to_4d(attention_mask, n_positions, batch_size):
 
 
 def calculate_num_cores_per_group(num_attn_heads, num_kv_heads, tp_degree):
-    assert num_attn_heads % tp_degree == 0, (
-        f"expect num attention heads is multiples of tp degree but got {num_attn_heads} and {tp_degree}"
-    )
+    assert (
+        num_attn_heads % tp_degree == 0
+    ), f"expect num attention heads is multiples of tp degree but got {num_attn_heads} and {tp_degree}"
     num_cores_per_group = divide(min(tp_degree, num_attn_heads), num_kv_heads)
     return num_cores_per_group
 

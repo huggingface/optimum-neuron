@@ -87,8 +87,8 @@ class ModelWeightTransformationSpec:
         module_fully_qualified_name: str,
         named_parameters: Dict[str, torch.nn.Parameter],
         orig_state_dict: Dict[str, torch.Tensor],
+        upstanding_sharded_params: Dict[str, torch.Tensor],
         inplace: bool = False,
-        upstanding_sharded_params: Dict[str, torch.Tensor] = {},
     ) -> Dict[str, torch.Tensor]:
         """
         Transforms the state dict from the original Transformers model to match the custom modeling implementation.
@@ -163,8 +163,8 @@ class ModelWeightTransformationSpecs:
         self,
         named_parameters: Dict[str, torch.nn.Parameter],
         orig_state_dict: Dict[str, torch.Tensor],
+        upstanding_sharded_params: Dict[str, torch.Tensor],
         inplace: bool = False,
-        upstanding_sharded_params: Dict[str, torch.Tensor] = {},
     ):
         if self.module_fully_qualified_name is None:
             raise ValueError("`module_fully_qualified_name` must be set to adapt the state dict")
@@ -175,8 +175,8 @@ class ModelWeightTransformationSpecs:
                 self.module_fully_qualified_name,
                 named_parameters,
                 orig_state_dict,
-                inplace=inplace,
                 upstanding_sharded_params=upstanding_sharded_params,
+                inplace=inplace,
             )
         return orig_state_dict
 
@@ -245,8 +245,8 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
         module_fully_qualified_name: str,
         named_parameters: Dict[str, torch.nn.Parameter],
         orig_state_dict: Dict[str, torch.Tensor],
+        upstanding_sharded_params: Dict[str, torch.Tensor],
         inplace: bool = False,
-        upstanding_sharded_params: Dict[str, torch.Tensor] = {},
     ) -> Dict[str, torch.Tensor]:
         tp_size = get_tensor_model_parallel_size()
         tp_rank = get_tensor_model_parallel_rank()
@@ -481,8 +481,8 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
         module_fully_qualified_name: str,
         named_parameters: Dict[str, torch.nn.Parameter],
         orig_state_dict: Dict[str, torch.Tensor],
+        upstanding_sharded_params: Dict[str, torch.Tensor],
         inplace: bool = False,
-        upstanding_sharded_params: Dict[str, torch.Tensor] = {},
     ) -> Dict[str, torch.Tensor]:
         if inplace:
             state_dict = orig_state_dict
@@ -656,8 +656,8 @@ def set_module_names_in_transformation_specs(model: torch.nn.Module):
 def adapt_state_dict(
     model: torch.nn.Module,
     state_dict: Dict[str, torch.Tensor],
+    upstanding_sharded_params: Dict[str, torch.Tensor],
     inplace: bool = False,
-    upstanding_sharded_params: Dict[str, torch.Tensor] = {},
 ) -> Dict[str, torch.Tensor]:
     """
     Transforms the state dict from the original Transformers model to match the custom modeling implementation.
@@ -671,7 +671,10 @@ def adapt_state_dict(
         # If a submodule is a CustomModule, it has transformation specs and we use them to transform the associated
         # weights from the original state dict.
         state_dict = module.specs.adapt_state_dict(
-            named_parameters, state_dict, inplace=inplace, upstanding_sharded_params=upstanding_sharded_params
+            named_parameters,
+            state_dict,
+            upstanding_sharded_params=upstanding_sharded_params,
+            inplace=inplace,
         )
 
     # There are 2 cases:

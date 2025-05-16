@@ -50,18 +50,18 @@ class TestNeuronCacheCLI:
         try:
             repo_id = cache_repo_id if cache_repo_id is not None else CACHE_REPO_NAME
             info = HfApi().repo_info(repo_id, repo_type="model")
-            assert info.private == (not public), (
-                "The privacy of the repo should match the presence of the --public flag."
-            )
+            assert info.private == (
+                not public
+            ), "The privacy of the repo should match the presence of the --public flag."
 
         except RepositoryNotFoundError:
             pytest.fail("The repo was not created.")
         finally:
             delete_repo(repo_id)
 
-        assert repo_id == load_custom_cache_repo_name_from_hf_home(), (
-            f"Saved local Neuron cache name should be equal to {repo_id}."
-        )
+        assert (
+            repo_id == load_custom_cache_repo_name_from_hf_home()
+        ), f"Saved local Neuron cache name should be equal to {repo_id}."
 
     def test_optimum_neuron_cache_create_with_custom_name(self, hub_test):
         seed = random.randint(0, 100)
@@ -79,9 +79,9 @@ class TestNeuronCacheCLI:
         p = subprocess.Popen(command)
         returncode = p.wait()
         assert returncode == 0
-        assert repo_id == load_custom_cache_repo_name_from_hf_home(), (
-            f"Saved local Neuron cache name should be equal to {repo_id}."
-        )
+        assert (
+            repo_id == load_custom_cache_repo_name_from_hf_home()
+        ), f"Saved local Neuron cache name should be equal to {repo_id}."
 
     def test_optimum_neuron_cache_add(self, hub_test):
         with TemporaryDirectory() as tmpdir:

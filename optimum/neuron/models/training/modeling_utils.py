@@ -596,8 +596,8 @@ class NeuronModelMixin:
             state_dict = adapt_state_dict(
                 model_to_load,
                 state_dict,
-                inplace=True,
                 upstanding_sharded_params=upstanding_sharded_params,
+                inplace=True,
             )
 
             # Mistmatched keys contains tuples key/shape1/shape2 of weights in the checkpoint that have a shape not
