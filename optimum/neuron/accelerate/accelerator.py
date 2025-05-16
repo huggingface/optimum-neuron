@@ -37,6 +37,7 @@ from transformers import PreTrainedModel
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
+from ..models.neuron_config import ModelParallelismConfig
 from ..utils import (
     DynamicPatch,
     ModelPatcher,
@@ -57,7 +58,6 @@ from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
 from .utils import (
     AutocastBackend,
-    ModelParallelismConfig,
     NeuronDistributedType,
     patch_accelerate_is_torch_xla_available,
 )

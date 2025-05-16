@@ -15,4 +15,4 @@
 # This file is used by the NeuronConfig create method to register the model configurations
 
 from .inference.hlo.backend.config import HloNeuronConfig  # noqa F401
-from ..accelerate.utils.dataclasses import ModelParallelismConfig  # noqa F401
+from .training.config import ModelParallelismConfig  # noqa F401

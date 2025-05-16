@@ -30,7 +30,8 @@ from transformers.utils import (
 
 from ..utils import logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
-from .accelerate.utils import ModelParallelismConfig, patch_accelerate_is_torch_xla_available
+from .accelerate.utils import patch_accelerate_is_torch_xla_available
+from .models.training.config import ModelParallelismConfig
 from .utils import is_main_worker
 from .utils.patching import Patcher, patch_within_function
 from .utils.torch_xla_and_neuronx_initialization import set_neuron_cc_optlevel

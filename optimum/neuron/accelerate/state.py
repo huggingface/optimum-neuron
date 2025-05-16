@@ -31,6 +31,7 @@ from accelerate.utils import (
 from accelerate.utils.dataclasses import SageMakerDistributedType
 
 from ...utils import logging
+from ..models.neuron_config import ModelParallelismConfig
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.torch_xla_and_neuronx_initialization import (
     init_process_group,
@@ -38,7 +39,7 @@ from ..utils.torch_xla_and_neuronx_initialization import (
     set_neuron_cc_flags_for_torch_amp,
 )
 from .utils import NeuronDistributedType
-from .utils.dataclasses import AutocastBackend, ModelParallelismConfig
+from .utils.dataclasses import AutocastBackend
 
 
 if is_torch_xla_available():
