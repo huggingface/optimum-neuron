@@ -70,7 +70,6 @@ _import_structure = {
         "NeuronAccelerator",
         "NeuronAcceleratorState",
         "NeuronPartialState",
-        "ModelParallelismConfig",
     ],
     "pipelines": ["pipeline"],
     "utils": ["NeuronSFTConfig", "NeuronORPOConfig", "get_peft_model"],
@@ -90,7 +89,7 @@ _import_structure["models.whisper"] = ["NeuronWhisperForConditionalGeneration"]
 _import_structure["models.yolos"] = ["NeuronYolosForObjectDetection"]
 
 if TYPE_CHECKING:
-    from .accelerate import ModelParallelismConfig, NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
+    from .accelerate import NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
     from .hf_argparser import NeuronHfArgumentParser
     from .modeling import (
         NeuronModelForAudioClassification,

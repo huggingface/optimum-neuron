@@ -175,9 +175,9 @@ def fused_kv_update_cache(cached_keys, cached_vals, cache_ids, keys, vals, start
     # K/V cache layout is always SBH
     n_positions, n_seqs, n_kv_heads, d_head = cached_keys.sizes
     n_active_tokens, n_active_seqs, _, _ = keys.sizes
-    assert cache_ids.sizes[0] == n_active_tokens, (
-        f"inconsistent sizes between cache_ids ({cache_ids.sizes}) and values ({keys.sizes})"
-    )
+    assert (
+        cache_ids.sizes[0] == n_active_tokens
+    ), f"inconsistent sizes between cache_ids ({cache_ids.sizes}) and values ({keys.sizes})"
 
     # reshape cache, and scatter values in a for loop.
     #

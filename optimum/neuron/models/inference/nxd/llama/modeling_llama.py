@@ -153,9 +153,9 @@ class NeuronLlamaMLP(nn.Module):
 
         # Choose which kernel to call
         if fused_residual:
-            assert not self.sequence_parallel_enabled, (
-                "MLP kernel cannot have both fused residual add and sequence parallel RMSnorm!"
-            )
+            assert (
+                not self.sequence_parallel_enabled
+            ), "MLP kernel cannot have both fused residual add and sequence parallel RMSnorm!"
             # Using fused residual add
             _mlp_fwd_call = nki_jit()(mlp_fused_add_isa_kernel)
         else:
@@ -416,9 +416,9 @@ class NeuronLlamaDecoderLayer(nn.Module):
         )
 
         if self.mlp_kernel_enabled and self.mlp_kernel_fuse_residual_add:
-            assert not self.sequence_parallel_enabled, (
-                "mlp_kernel_fuse_residual_add should be off when sequence parallelism is enabled"
-            )
+            assert (
+                not self.sequence_parallel_enabled
+            ), "mlp_kernel_fuse_residual_add should be off when sequence parallelism is enabled"
             # First residual add handled in the MLP kernel
             hidden_states, residual = self.mlp(
                 hidden_states,

@@ -87,10 +87,8 @@ def prepare_sampling_params(batch_size, top_k=[1], top_p=[1.0], temperature=[1.0
     top_p = prepare_tensor(top_p)
     temperature = prepare_tensor(temperature)
 
-    assert top_k.shape[0] == top_p.shape[0] == temperature.shape[0], (
-        f"sampling params shapes don't match. \
+    assert top_k.shape[0] == top_p.shape[0] == temperature.shape[0], f"sampling params shapes don't match. \
         Got top_k shape: {top_k.shape}, top_p shape: {top_p.shape}, temperature shape: {temperature.shape}"
-    )
 
     if top_k.shape[0] == 1:
         top_k = top_k.broadcast_to(batch_size)

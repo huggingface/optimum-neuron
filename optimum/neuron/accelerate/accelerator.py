@@ -37,6 +37,7 @@ from transformers import PreTrainedModel
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
+from ..models.neuron_config import TrainingNeuronConfig
 from ..utils import (
     DynamicPatch,
     ModelPatcher,
@@ -57,7 +58,6 @@ from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
 from .utils import (
     AutocastBackend,
-    ModelParallelismConfig,
     NeuronDistributedType,
     patch_accelerate_is_torch_xla_available,
 )
@@ -100,7 +100,7 @@ class NeuronAccelerator(Accelerator):
     def __init__(
         self,
         *args,
-        mp_config: Optional[ModelParallelismConfig] = None,
+        mp_config: Optional[TrainingNeuronConfig] = None,
         zero_1: bool = False,
         autocast_backend: Union[str, AutocastBackend] = "xla",
         **kwargs,

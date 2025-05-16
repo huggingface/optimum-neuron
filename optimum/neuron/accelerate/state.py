@@ -31,6 +31,7 @@ from accelerate.utils import (
 from accelerate.utils.dataclasses import SageMakerDistributedType
 
 from ...utils import logging
+from ..models.neuron_config import TrainingNeuronConfig
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.torch_xla_and_neuronx_initialization import (
     init_process_group,
@@ -38,7 +39,7 @@ from ..utils.torch_xla_and_neuronx_initialization import (
     set_neuron_cc_flags_for_torch_amp,
 )
 from .utils import NeuronDistributedType
-from .utils.dataclasses import AutocastBackend, ModelParallelismConfig
+from .utils.dataclasses import AutocastBackend
 
 
 if is_torch_xla_available():
@@ -128,7 +129,7 @@ class NeuronAcceleratorState(AcceleratorState):
         deepspeed_plugin=None,
         fsdp_plugin=None,
         megatron_lm_plugin=None,
-        mp_config: Optional[ModelParallelismConfig] = None,
+        mp_config: Optional[TrainingNeuronConfig] = None,
         autocast_backend: Optional[Union[str, AutocastBackend]] = None,
         _from_accelerator: bool = False,
         **kwargs,
@@ -185,7 +186,7 @@ class NeuronAcceleratorState(AcceleratorState):
                     os.environ["NEURON_RT_STOCHASTIC_ROUNDING_EN"] = "1"
 
                 if mp_config is None:
-                    mp_config = ModelParallelismConfig()
+                    mp_config = TrainingNeuronConfig()
 
                 if mp_config.should_parallelize:
                     self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
