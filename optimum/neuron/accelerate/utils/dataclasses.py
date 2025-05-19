@@ -15,17 +15,6 @@
 """Custom dataclasses for Neuron."""
 
 import enum
-from typing import TYPE_CHECKING
-
-from ...utils import is_neuronx_distributed_available
-
-
-if is_neuronx_distributed_available():
-    pass
-
-
-if TYPE_CHECKING:
-    pass
 
 
 class NeuronDistributedType(str, enum.Enum):

@@ -88,9 +88,9 @@ def get_shardable_head_counts(
     else:  # GQA / MQA
         if (num_key_value_heads < tp_degree) or (num_key_value_heads % tp_degree != 0):
             if sharding_strategy == GQA.REPLICATE_TO_TP_DEGREE:
-                assert (
-                    tp_degree % num_key_value_heads == 0
-                ), "GQA.REPLICATE_TO_TP_DEGREE requires tp_degree to be divisible by num_key_value_heads"
+                assert tp_degree % num_key_value_heads == 0, (
+                    "GQA.REPLICATE_TO_TP_DEGREE requires tp_degree to be divisible by num_key_value_heads"
+                )
                 updated_num_key_value_heads = tp_degree
             elif sharding_strategy == GQA.CONVERT_TO_MHA:
                 updated_num_key_value_heads = updated_num_attention_heads
@@ -185,9 +185,9 @@ class BaseGroupQueryAttention(nn.Module):
                 # update default value
                 tp_degree = tensor_model_parallel_group.size()
             else:
-                assert (
-                    tp_degree == self.tensor_model_parallel_group.size()
-                ), f"TP Degree {tp_degree} and tensor model parallel group size {self.tensor_model_parallel_group.size()} does not match"
+                assert tp_degree == self.tensor_model_parallel_group.size(), (
+                    f"TP Degree {tp_degree} and tensor model parallel group size {self.tensor_model_parallel_group.size()} does not match"
+                )
 
         self.hidden_size = hidden_size
         self.tp_degree = tp_degree

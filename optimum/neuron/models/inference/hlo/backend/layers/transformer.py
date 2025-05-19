@@ -135,9 +135,9 @@ def _dynamic_logits_slice(hidden, last_token_id, neuron_config):
 
         # [6,3,9] -> [(0,6),(1,3),(2,9)] -> [6+0*128,3+1*128,9+2*128] -> [6,131,265]
         # last_token_id + iota * n_active_tokens
-        assert (
-            last_token_id.sizes[0] == batch_size
-        ), f"vectorized last_token_id length ({last_token_id.sizes[0]}) is expected to equal to batch size ({batch_size})"
+        assert last_token_id.sizes[0] == batch_size, (
+            f"vectorized last_token_id length ({last_token_id.sizes[0]}) is expected to equal to batch size ({batch_size})"
+        )
         offset = functional.iota(last_token_id.dtype, last_token_id.sizes, [0])
         offset = functional.multiply(offset, n_active_tokens)
         last_token_id = functional.add(last_token_id, offset)

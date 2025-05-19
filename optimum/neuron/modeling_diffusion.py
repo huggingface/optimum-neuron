@@ -1232,9 +1232,10 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
     ):
         if output_hidden_states:
             assert (
-                (self.config.output_hidden_states or self.config.neuron.get("output_hidden_states"))
-                == output_hidden_states
-            ), "output_hidden_states is expected to be False since the model was compiled without hidden_states as output."
+                self.config.output_hidden_states or self.config.neuron.get("output_hidden_states")
+            ) == output_hidden_states, (
+                "output_hidden_states is expected to be False since the model was compiled without hidden_states as output."
+            )
 
         input_ids = input_ids.to(torch.long)  # dummy generator uses long int for tracing
         inputs = (input_ids,)

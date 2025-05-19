@@ -569,9 +569,9 @@ class MaybePadder:
 
             new_size = self.size
             if self.split_size:
-                assert (
-                    weight_shapes[dim] % self.split_size == 0
-                ), f"shape on dim_{dim} {weight_shapes[dim]} cannot be evenly divisible by provided split_size {self.split_size}"
+                assert weight_shapes[dim] % self.split_size == 0, (
+                    f"shape on dim_{dim} {weight_shapes[dim]} cannot be evenly divisible by provided split_size {self.split_size}"
+                )
                 new_shape = (
                     weight_shapes[:dim]
                     + [self.split_size]
@@ -887,10 +887,11 @@ class DecoderLayer:
         ]
         cache_dtype = to_torch_dtype(self.neuron_config.auto_cast_type)
         cpu_cache = torch.zeros(cpu_cache_shape, dtype=cache_dtype)
-        assert (
-            (n_heads_kv_cache >= self.neuron_config.tp_degree)
-            and (n_heads_kv_cache % self.neuron_config.tp_degree == 0)
-        ), f"cannot shard along kv_heads dimension: n_kv_head={n_heads_kv_cache}, tp_degree={self.neuron_config.tp_degree}"
+        assert (n_heads_kv_cache >= self.neuron_config.tp_degree) and (
+            n_heads_kv_cache % self.neuron_config.tp_degree == 0
+        ), (
+            f"cannot shard along kv_heads dimension: n_kv_head={n_heads_kv_cache}, tp_degree={self.neuron_config.tp_degree}"
+        )
         self.attn_k_cache = manipulator.shard_along(cpu_cache, dim=2)
         self.attn_v_cache = manipulator.shard_along(cpu_cache, dim=2)
 
@@ -1057,9 +1058,9 @@ class DecoderProgram:
         for idx, (buf, tensor) in enumerate(zip(self.input_buffers, input_tensors)):
             tensor = tensor.to(buf.dtype)
             tensor = self.manipulator.duplicate_on_cpu(tensor)
-            assert (
-                buf.shape == tensor[0].shape
-            ), f"Copying tensor from host to device: buffer ({buf.shape}) and tensor ({tensor[0].shape}) have different shapes!"
+            assert buf.shape == tensor[0].shape, (
+                f"Copying tensor from host to device: buffer ({buf.shape}) and tensor ({tensor[0].shape}) have different shapes!"
+            )
             ops.parallel_write(buf, tensor)
 
     def run(self):
@@ -1236,9 +1237,9 @@ class NeuronHloDecoderModel(NeuronModelBase):
             # context encoding
             n_active_seqs, n_active_tokens = input_ids.shape
             n_positions = self.neuron_config.sequence_length
-            assert (
-                n_active_seqs == cache_ids.shape[0]
-            ), f"invalid n_active_seqs ({n_active_seqs} vs {cache_ids.shape[0]})"
+            assert n_active_seqs == cache_ids.shape[0], (
+                f"invalid n_active_seqs ({n_active_seqs} vs {cache_ids.shape[0]})"
+            )
             assert n_active_tokens <= n_positions, f"invalid input prompt length ({n_active_tokens} <= {n_positions})"
             cache_ids_pad = torch.zeros(
                 n_active_seqs,
@@ -1309,9 +1310,9 @@ class NeuronHloDecoderModel(NeuronModelBase):
 
         running_batch_size = 1
         if input_batch_size > running_batch_size:
-            assert (
-                input_batch_size % running_batch_size == 0
-            ), "input batch size ({input_batch_size}) not divisible by running batch size ({running_batch_size})"
+            assert input_batch_size % running_batch_size == 0, (
+                "input batch size ({input_batch_size}) not divisible by running batch size ({running_batch_size})"
+            )
             n_iters = input_batch_size // running_batch_size
             all_logits = []
             cache_ids, start_ids, last_token_id = args[0], args[1], args[2]
@@ -1334,9 +1335,9 @@ class NeuronHloDecoderModel(NeuronModelBase):
                 all_logits.append(logits_per_batch)
             logits = torch.cat(all_logits, dim=-1)
         else:
-            assert (
-                input_batch_size == running_batch_size
-            ), "input batch size ({input_batch_size}) not equal to running batch size ({running_batch_size})"
+            assert input_batch_size == running_batch_size, (
+                "input batch size ({input_batch_size}) not equal to running batch size ({running_batch_size})"
+            )
             logits = self.context(hidden, *args)
         return logits
 
