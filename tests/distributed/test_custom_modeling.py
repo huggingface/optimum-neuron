@@ -52,7 +52,6 @@ def _test_parallel_granite():
     mp_config = TrainingNeuronConfig(
         tensor_parallel_size=tp_size,
         sequence_parallel_enabled=False,
-        use_flash_attention=False,
     )
     model = GraniteForCausalLM.from_pretrained(model_id, mp_config, torch_dtype=torch_dtype)
     move_model_to_device(model, xm.xla_device())

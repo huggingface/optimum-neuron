@@ -32,6 +32,7 @@ def _overfit_causal_lm(
     max_expected_loss,
     tp_size,
     pp_size,
+    use_flash_attention_2,
     output_dir,
 ):
     # Dataset creation.
@@ -80,6 +81,7 @@ def _overfit_causal_lm(
         model_name_or_path,
         training_args.mp_config,
         torch_dtype=torch.bfloat16,
+        use_flash_attention_2=use_flash_attention_2,
     )
 
     stored_logs = []
@@ -114,16 +116,15 @@ def _overfit_causal_lm(
 
 
 @pytest.mark.parametrize(
-    "model_class_name,model_name_or_path,learning_rate,warmup_ratio,training_kwargs,max_expected_loss,max_length",
+    "model_class_name,model_name_or_path,learning_rate,warmup_ratio,training_kwargs,use_flash_attention_2,max_expected_loss,max_length",
     [
         [
             "LlamaForCausalLM",
             "meta-llama/Llama-3.2-1B-Instruct",
             1e-4,
             0.03,
-            {
-                "use_flash_attention": True,
-            },
+            {},
+            True,
             0.0,
             2048,
         ],
@@ -133,9 +134,9 @@ def _overfit_causal_lm(
             2e-3,
             0,
             {
-                "use_flash_attention": False,
                 "disable_sequence_parallel": True,
             },
+            False,
             0.07,
             512,
         ],
@@ -158,6 +159,7 @@ def test_overfit_causal_lm(
     world_size,
     tp_size,
     pp_size,
+    use_flash_attention_2,
     tmpdir,
     set_cache_for_ci,  # This fixture will handle setting the remote cache to make this test faster.
 ):
@@ -172,6 +174,7 @@ def test_overfit_causal_lm(
         max_expected_loss,
         tp_size,
         pp_size,
+        use_flash_attention_2,
         tmpdir,
     )
     launch_procs(run_fn, world_size, tp_size, pp_size)

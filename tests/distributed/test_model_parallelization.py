@@ -461,7 +461,6 @@ def _custom_model_matches_original_model(
         tensor_parallel_size=tp_size,
         pipeline_parallel_size=pp_size,
         fuse_qkv=qkv_implementation == "fuse_qkv",
-        use_flash_attention=attn_implementation == "flash_attention_2",
         recompute_causal_mask=False,  # Recomputing the causal mask does not impact the loss but it impacts the logits.
     )
 

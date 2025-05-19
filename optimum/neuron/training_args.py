@@ -134,12 +134,6 @@ class NeuronTrainingArgumentsMixin:
             ),
         },
     )
-    use_flash_attention: bool = field(
-        default=True,
-        metadata={
-            "help": "Whether to use the flash attention kernel for self-attention layers.",
-        },
-    )
     recompute_causal_mask: bool = field(
         default=True,
         metadata={
@@ -205,7 +199,6 @@ class NeuronTrainingArgumentsMixin:
             use_xser=self.use_xser,
             async_save=self.async_save,
             fuse_qkv=self.fuse_qkv,
-            use_flash_attention=self.use_flash_attention,
             recompute_causal_mask=self.recompute_causal_mask,
         )
 
