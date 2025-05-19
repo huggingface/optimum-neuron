@@ -535,6 +535,10 @@ class LlamaNxDModelForCausalLM(NxDModelForCausalLM):
         tensor_parallel_size: int,
         auto_cast_type: str,
     ):
+        continuous_batching = (batch_size > 1) if batch_size else False
+        # Neuron SDK 2.22 bug: the model will crash when continuous_batching is enabled
+        # if the tensor parallel size is 2 and on_device_sampling is enabled.
+        on_device_sampling = True if not continuous_batching or tensor_parallel_size != 2 else False
         return NxDNeuronConfig(
             checkpoint_id=checkpoint_id,
             checkpoint_revision=checkpoint_revision,
@@ -542,7 +546,7 @@ class LlamaNxDModelForCausalLM(NxDModelForCausalLM):
             sequence_length=sequence_length,
             tp_degree=tensor_parallel_size,
             torch_dtype=auto_cast_type,
-            on_device_sampling=True,
+            on_device_sampling=on_device_sampling,
             fused_qkv=True,
-            continuous_batching=(batch_size > 1) if batch_size else False,
+            continuous_batching=continuous_batching,
         )
