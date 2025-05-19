@@ -703,6 +703,9 @@ def add_stable_diffusion_compiler_args(config, compiler_args):
         compiler_args.append("--enable-fast-loading-neuron-binaries")
     # unet or transformer or controlnet
     if any(model_type in identifier for model_type in ["unet", "transformer", "controlnet"]):
+        if hasattr(config, "MODEL_TYPE") and "flux" in config.MODEL_TYPE.lower():
+            compiler_args.append(" --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'")
+            return compiler_args
         # SDXL unet doesn't support fast loading neuron binaries(sdk 2.19.1)
         if not getattr(config, "is_sdxl", False):
             compiler_args.append("--enable-fast-loading-neuron-binaries")
