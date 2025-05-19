@@ -133,7 +133,7 @@ To alleviate that you can create your own private cache repository using the `op
 The Optimum CLI offers 2 subcommands for cache creation and setting:
 
 - `create`: To create a new cache repository that you can use as a private Neuron Model cache.
-- `set`: To set the name of the Neuron cache repository locally, the repository needs to exists
+- `set`: To set the name of the Neuron cache repository locally, the repository needs to exist
 and will be used by default by `optimum-neuron`.
 
 Create a new Neuron cache repository:
@@ -215,7 +215,7 @@ You have to be [logged into the Hugging Face Hub](https://huggingface.co/docs/hu
 </p>
 
 
-At each the beginning of each training step, the  [`NeuronTrainer`] computes a `NeuronHash` and checks the cache repo(s) (official and custom) on the Hugging Face Hub to see if there are compiled files associated to this hash.
+At the beginning of each training step, the  [`NeuronTrainer`] computes a `NeuronHash` and checks the cache repo(s) (official and custom) on the Hugging Face Hub to see if there are compiled files associated to this hash.
 If that is the case, the files are downloaded directly to the local cache directory and no compilation is needed. Otherwise compilation is performed.
 
 

@@ -917,7 +917,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             disable_neuron_cache (`bool`, defaults to `False`):
                 Whether to disable automatic caching of compiled models. If set to True, will not load neuron cache nor cache the compiled artifacts.
             inline_weights_to_neff (`bool`, defaults to `True`):
-                Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
+                Whether to inline the weights to the neff graph. If set to False, weights will be separated from the neff.
             optlevel (`str`, defaults to `"2"`):
             The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.

@@ -273,7 +273,7 @@ def create_block_diagonal_attn_mask(
     max_key_len: torch.Tensor,
 ):
     """
-    Return a block diagonal atttention mask which can be used by chunked
+    Return a block diagonal attention mask which can be used by chunked
     prefill.
 
     This function is written in a way that it can be traced, so it can

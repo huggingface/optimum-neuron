@@ -686,7 +686,7 @@ def main_export(
             )
         except Exception as e:
             logger.error(
-                f"An error occured with the error message: {e}.\n The exported model was saved at: {output.as_posix()}"
+                f"An error occurred with the error message: {e}.\n The exported model was saved at: {output.as_posix()}"
             )
 
 
