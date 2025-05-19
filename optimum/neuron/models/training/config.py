@@ -34,7 +34,6 @@ class TrainingNeuronConfig(NeuronConfig):
     use_xser: bool = True
     async_save: bool = False
     fuse_qkv: bool = False
-    use_flash_attention: bool = True
     recompute_causal_mask: bool = True
 
     def __post_init__(self):
