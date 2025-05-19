@@ -94,7 +94,7 @@ class NxDDecoderModel(nn.Module):
         self.num_cores_per_group = neuron_config.num_cores_per_group
         if neuron_config.on_device_sampling:
             # Instantiate a multinomial Sampler (it can still be used for greedy by passing topk=1)
-            self.sampler = Sampler(do_sample=True, max_topk=neuron_config.max_topk)
+            self.sampler = Sampler(neuron_config, do_sample=True)
         self.kv_mgr = KVCacheManager(config, neuron_config, num_kv_head=config.num_key_value_heads)
 
     def initialize_process_group(self, seed: int = 0):

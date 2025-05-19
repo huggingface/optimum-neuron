@@ -22,6 +22,8 @@ from neuronx_distributed.operators.topk import topk as nxd_topk
 from neuronx_distributed.parallel_layers import parallel_state
 from torch_neuronx.xla_impl.ops import xla_hlo_call
 
+from ...config import NxDNeuronConfig
+
 
 logger = logging.getLogger("Neuron")
 
@@ -126,14 +128,14 @@ class Sampler(torch.nn.Module):
         on_cpu(`Optional[bool]`): whether to run on CPU or not
     """
 
-    def __init__(self, do_sample: Optional[bool] = True, max_topk: Optional[int] = 0, on_cpu=False):
+    def __init__(self, neuron_config: NxDNeuronConfig, do_sample: Optional[bool] = True, on_cpu: Optional[bool] = False):
         super().__init__()
         if not do_sample:
             logger.warning("Greedy sampling is used. Sampling parameters will be ignored at runtime.")
+        self.neuron_config = neuron_config
         self.do_sample = do_sample
-        if max_topk < 0:
+        if self.neuron_config.max_topk < 0:
             logger.warning("max_topk optimization is disabled: this can lead to extremely long compilation times.")
-        self.max_topk = max_topk
         self.IGNORED_LOGITS_VALUE = -3000  # large negative values will be transformed to ~0 in softmax, this is to ignore tokens that are beyond topk range
 
         self.on_cpu = on_cpu
@@ -146,13 +148,13 @@ class Sampler(torch.nn.Module):
         return torch.nn.functional.softmax(input=logits, dim=dim)
 
     def _top_k_masked(self, logits, top_k, dim):
-        if self.max_topk > 0:
+        if self.neuron_config.max_topk > 0:
             if self.on_cpu:
-                sorted_logits, indeces = torch.topk(input=logits, k=self.max_topk, dim=dim)
+                sorted_logits, indeces = torch.topk(input=logits, k=self.neuron_config.max_topk, dim=dim)
             else:
                 sorted_logits, indeces = nxd_topk(
                     tensor=logits,
-                    k=self.max_topk,
+                    k=self.neuron_config.max_topk,
                     dim=dim,
                     gather_dim=dim,
                     process_group=self.process_group,
