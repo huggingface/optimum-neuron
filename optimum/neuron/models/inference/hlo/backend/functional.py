@@ -218,9 +218,9 @@ def dot_general(lhs, rhs, dimension_numbers, dtype=None):
     assert lhs_batch_sizes == rhs_batch_sizes, f"unmatched batch_sizes ({lhs_batch_sizes}) vs ({rhs_batch_sizes})"
     lhs_contracting_sizes = [lhs_sizes[idx] for idx in dot_dims["lhs_contracting_dimensions"]]
     rhs_contracting_sizes = [rhs_sizes[idx] for idx in dot_dims["rhs_contracting_dimensions"]]
-    assert (
-        lhs_contracting_sizes == rhs_contracting_sizes
-    ), f"unmatched contracting_sizes ({lhs_contracting_sizes}) vs ({rhs_contracting_sizes})"
+    assert lhs_contracting_sizes == rhs_contracting_sizes, (
+        f"unmatched contracting_sizes ({lhs_contracting_sizes}) vs ({rhs_contracting_sizes})"
+    )
     lhs_free_sizes = [lhs_sizes[idx] for idx in lhs_free_dimensions]
     rhs_free_sizes = [rhs_sizes[idx] for idx in rhs_free_dimensions]
 
@@ -895,9 +895,9 @@ def concatenate(operands, dimension):
     for op_idx in range(1, len(operands)):
         for dim_idx in range(len(sizes)):
             if dim_idx != dimension:
-                assert (
-                    sizes[dim_idx] == operands[op_idx].sizes[dim_idx]
-                ), "All tensors must have the same shape (except in the concatenating dimension)."
+                assert sizes[dim_idx] == operands[op_idx].sizes[dim_idx], (
+                    "All tensors must have the same shape (except in the concatenating dimension)."
+                )
         sizes[dimension] = sizes[dimension] + operands[op_idx].sizes[dimension]
     output = dtype[sizes].Concatenate(*operands, dimensions=[dimension])
     return output
@@ -1099,17 +1099,17 @@ def broadcast(tensor, out_dim_size, broadcast_dimensions):
     dtype = tensor.dtype
     sizes = list(tensor.sizes)
 
-    assert len(broadcast_dimensions) == len(
-        tensor.sizes
-    ), f"Input operand rank ({len(tensor.sizes)}) does not match broadcast dimensions ({broadcast_dimensions})"
+    assert len(broadcast_dimensions) == len(tensor.sizes), (
+        f"Input operand rank ({len(tensor.sizes)}) does not match broadcast dimensions ({broadcast_dimensions})"
+    )
 
     br_dims_to_keep = []
     reshape_sizes = []
     for i, (dim, size) in enumerate(zip(broadcast_dimensions, sizes)):
         # Broadcast dimension must be within the output shape
-        assert (
-            dim < len(out_dim_size)
-        ), f"Broadcasting dimension {dim} is out of range of destination size {out_dim_size} (src={tensor.sizes} dst={out_dim_size})"
+        assert dim < len(out_dim_size), (
+            f"Broadcasting dimension {dim} is out of range of destination size {out_dim_size} (src={tensor.sizes} dst={out_dim_size})"
+        )
 
         # Sizes of 1 may always be broadcast to any other size
         if size == 1:
@@ -1296,9 +1296,9 @@ def reshape(tensor, shape):
         return tensor.dtype[shape].Reshape(tensor)
     dst_numel = functools.reduce(operator.mul, shape)
     src_numel = functools.reduce(operator.mul, tensor.sizes)
-    assert (
-        dst_numel == src_numel
-    ), f"Shape {tensor.sizes} with {src_numel} elements cannot be reshaped to {shape} with {dst_numel} elements"
+    assert dst_numel == src_numel, (
+        f"Shape {tensor.sizes} with {src_numel} elements cannot be reshaped to {shape} with {dst_numel} elements"
+    )
     return tensor.dtype[shape].Reshape(tensor)
 
 
@@ -1307,9 +1307,9 @@ def scatter(operands, scatter_indices, updates, scatter_dims, to_apply):
     index_vector_dim = scatter_dims.get("index_vector_dim", [])
     update_window_dims = scatter_dims.get("update_window_dims", [])
     inserted_window_dims = scatter_dims.get("inserted_window_dims", [])
-    assert operand_rank == (
-        len(update_window_dims) + len(inserted_window_dims)
-    ), "operand.rank must equal the sum of update_window_dims.size and inserted_window_dims.size"
+    assert operand_rank == (len(update_window_dims) + len(inserted_window_dims)), (
+        "operand.rank must equal the sum of update_window_dims.size and inserted_window_dims.size"
+    )
     assert operands.dtype == updates.dtype, "inconsistent dtype between operands and updates"
     scatter_dims_to_operand_dims = scatter_dims.get("scatter_dims_to_operand_dims", [])
     if index_vector_dim == len(scatter_indices.sizes):
@@ -1318,17 +1318,17 @@ def scatter(operands, scatter_indices, updates, scatter_dims, to_apply):
         scatter_indices_sizes = list(scatter_indices.sizes) + [1]
     else:
         scatter_indices_sizes = list(scatter_indices.sizes)
-    assert (
-        len(scatter_dims_to_operand_dims) == scatter_indices_sizes[index_vector_dim]
-    ), "scatter_dims_to_operand_dims.size must be equal to scatter_indices.shape.dims[index_vector_dim]"
-    assert len(updates.sizes) == (
-        len(update_window_dims) + len(scatter_indices_sizes) - 1
-    ), "Each updates array must be of rank (update_window_dims.size + scatter_indices.rank - 1)"
+    assert len(scatter_dims_to_operand_dims) == scatter_indices_sizes[index_vector_dim], (
+        "scatter_dims_to_operand_dims.size must be equal to scatter_indices.shape.dims[index_vector_dim]"
+    )
+    assert len(updates.sizes) == (len(update_window_dims) + len(scatter_indices_sizes) - 1), (
+        "Each updates array must be of rank (update_window_dims.size + scatter_indices.rank - 1)"
+    )
     dtype = updates.dtype
     updated_sizes = operands.sizes
-    assert (
-        scatter_indices.sizes[0] == updates.sizes[0]
-    ), "update window size must match betwen scatter_indices and updates."
+    assert scatter_indices.sizes[0] == updates.sizes[0], (
+        "update window size must match betwen scatter_indices and updates."
+    )
     updated = dtype[updated_sizes].Scatter(
         operands,
         scatter_indices,
