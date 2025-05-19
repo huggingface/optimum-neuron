@@ -14,18 +14,27 @@
 # limitations under the License.
 
 import math
-from typing import Union
+from typing import Any, Union
 
+import torch
 from torch import nn
 
+from ....models.training.modeling_utils import NotSupportedError
 from ....utils.import_utils import is_neuronx_distributed_available, is_peft_available
 
 
 if is_peft_available():
+    from peft.tuners.lora import Embedding as LoraEmbedding
     from peft.tuners.lora import Linear as LoraLinear
     from peft.tuners.lora import LoraLayer
     from peft.utils.integrations import gather_params_ctx
 else:
+
+    class LoraLinear:
+        pass
+
+    class LoraEmbedding:
+        pass
 
     class LoraLayer:
         pass
@@ -36,10 +45,12 @@ else:
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.layers import (
+        BaseParallelLinear,
         ColumnParallelLinear,
         ParallelEmbedding,
         RowParallelLinear,
     )
+    from neuronx_distributed.parallel_layers.mappings import scatter_to_sequence_parallel_region
 else:
 
     class ParallelEmbedding:
@@ -51,8 +62,49 @@ else:
     class RowParallelLinear:
         pass
 
+    def scatter_to_sequence_parallel_region(*args, **kwargs):
+        pass
+
 
 class NeuronLoraLayer(LoraLayer):
+    def __init__(self, base_layer: nn.Module, ephemeral_gpu_offload: bool = False, **kwargs) -> None:
+        self.base_layer = base_layer
+        self.r = {}
+        self.lora_alpha = {}
+        self.scaling = {}
+        self.lora_dropout = nn.ModuleDict({})
+        self.lora_A = nn.ModuleDict({})
+        self.lora_B = nn.ModuleDict({})
+        # For Embedding layer
+        self.lora_embedding_A = nn.ParameterDict({})
+        self.lora_embedding_B = nn.ParameterDict({})
+        # Mark the weight as unmerged
+        self._disable_adapters = False
+        self.merged_adapters = []
+        self.use_dora: dict[str, bool] = {}
+        self.lora_bias: dict[str, bool] = {}
+        self.lora_magnitude_vector = torch.nn.ModuleDict()  # for DoRA
+        self._caches: dict[str, Any] = {}
+        self.ephemeral_gpu_offload: bool = ephemeral_gpu_offload
+        self.kwargs = kwargs
+
+        base_layer = self.get_base_layer()
+        if isinstance(base_layer, BaseParallelLinear):
+            in_features, out_features = base_layer.input_size, base_layer.output_size
+        elif isinstance(base_layer, nn.Conv2d):
+            raise NotSupportedError("Conv2d is not supported for LoRA with optimum-neuron.")
+        elif isinstance(base_layer, nn.Conv3d):
+            raise NotSupportedError("Conv3d is not supported for LoRA with optimum-neuron.")
+        elif isinstance(base_layer, ParallelEmbedding):
+            in_features, out_features = base_layer.num_embeddings, base_layer.embedding_dim
+        elif isinstance(base_layer, nn.Conv1D):
+            raise NotSupportedError("Conv1d is not supported for LoRA with optimum-neuron.")
+        else:
+            raise NotSupportedError(f"LoRA is not supported for {base_layer.__class__.__name__} with optimum-neuron.")
+
+        self.in_features = in_features
+        self.out_features = out_features
+
     def update_layer(
         self,
         adapter_name,
@@ -212,10 +264,72 @@ class LoraParallelEmbedding(nn.Module, NeuronLoraLayer):
             lora_bias=lora_bias,
         )
 
+    update_layer = LoraEmbedding.update_layer
+    dora_init = LoraEmbedding.dora_init
+    merge = LoraEmbedding.merge
+    unmerge = LoraEmbedding.unmerge
+    get_delta_weight = LoraEmbedding.get_delta_weight
+    _mixed_batch_forward = LoraEmbedding._mixed_batch_forward
+    _embed = LoraEmbedding._embed
+
+    def forward(self, x: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
+        # TODO: no dtype conversion here, unlike in Linear, is that correct?
+        self._check_forward_args(x, *args, **kwargs)
+        adapter_names = kwargs.pop("adapter_names", None)
+
+        if self.disable_adapters:
+            if self.merged:
+                self.unmerge()
+            result = self.base_layer(x, *args, **kwargs)
+        elif adapter_names is not None:
+            result = self._mixed_batch_forward(x, *args, adapter_names=adapter_names, **kwargs)
+        elif self.merged:
+            result = self.base_layer(x, *args, **kwargs)
+        else:
+            result = self.base_layer(x, *args, **kwargs)
+
+            # If sequence parallelism is enabled, we need to scatter the input to the sequence parallel region.
+            sequence_parallel_enabled = self.get_base_layer().sequence_parallel_enabled
+            sequence_dimension = self.get_base_layer().sequence_dim
+            if sequence_dimension is None:
+                sequence_dimension = 0
+            if sequence_parallel_enabled:
+                if sequence_dimension == 0:
+                    x = x.transpose(0, 1).contiguous()
+                x = scatter_to_sequence_parallel_region(x, sequence_dimension=sequence_dimension)
+
+            torch_result_dtype = result.dtype
+            for active_adapter in self.active_adapters:
+                if active_adapter not in self.lora_embedding_A:
+                    continue
+                embedding_A = self.lora_embedding_A[active_adapter].T
+                embedding_B = self.lora_embedding_B[active_adapter].T
+                scaling = self.scaling[active_adapter]
+
+                if not self.use_dora[active_adapter]:
+                    after_A = self._embed(x, embedding_A)
+                    result = result + (after_A @ embedding_B) * scaling
+                else:
+                    mag_norm_scale, dora_result = self.lora_magnitude_vector[active_adapter](
+                        x,
+                        lora_A=embedding_A,
+                        lora_B=embedding_B,
+                        scaling=scaling,
+                        base_layer=self.get_base_layer(),
+                        embed_fn=self._embed,
+                    )
+                    result = mag_norm_scale * result + dora_result
+            result = result.to(torch_result_dtype)
+
+        return result
+
+    def __repr__(self):
+        rep = super().__repr__()
+        return "lora." + rep
+
 
 NEURON_LORA_MODULES = {
-    # TODO: handle embeddings
-    # ParallelEmbedding: LoraParallelEmbedding,
+    ParallelEmbedding: LoraParallelEmbedding,
     ColumnParallelLinear: ParallelLinear,
     RowParallelLinear: ParallelLinear,
 }
