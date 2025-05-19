@@ -139,7 +139,7 @@ class NxDGenerationMixin(GenerationMixin):
                         raw_logits += (next_token_logits,)
 
                 if self.sampler is None:
-                    self.sampler = Sampler(do_sample=True, max_topk=self.neuron_config.max_topk, on_cpu=True)
+                    self.sampler = Sampler(self.neuron_config, do_sample=True, on_cpu=True)
 
                 next_tokens = self.sampler(next_token_scores, sampling_params)
 
