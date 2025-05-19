@@ -371,7 +371,7 @@ class _TrainerForNeuron:
         args: TrainingArguments, model: Optional[PreTrainedModel] = None
     ) -> Tuple[Any, Any]:
         # No need for lazy loading logic when using custom modeling.
-        if isinstance(model, NeuronModelMixin):
+        if is_custom_modeling_model(model):
             return transformers_get_optimizer_cls_and_kwargs(args, model=model)
         optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args, model=model)
         lazy_load = args.mp_config.should_parallelize or args.zero_1
@@ -1073,11 +1073,6 @@ class _TrainerForNeuron:
                         self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
 
                         self.optimizer.step()
-                        xm.mark_step()
-                        for n, p in model.named_parameters():
-                            if p.grad is not None:
-                                print(f"Gradient for {n} is {p.grad.mean()}")
-                        xm.mark_step()
                         grad_norm = self.optimizer.grad_norm
 
                         self.control = self.callback_handler.on_optimizer_step(args, self.state, self.control)
