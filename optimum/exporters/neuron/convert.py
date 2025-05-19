@@ -350,7 +350,7 @@ def export_models(
     total_compilation_time = 0
     compile_configs = {}
     models_and_neuron_configs.pop("text_encoder")
-    # models_and_neuron_configs.pop("text_encoder_2")
+    models_and_neuron_configs.pop("text_encoder_2")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -670,7 +670,7 @@ def trace_neuronx(
                 compiler_workdir=compiler_workdir,
             )
             model_builder.add(
-                key=config.model_type,
+                key=config.MODEL_TYPE,
                 model_instance=model,
                 example_inputs=[dummy_inputs],
                 priority_model_idx=0,

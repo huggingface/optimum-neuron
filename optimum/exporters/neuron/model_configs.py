@@ -818,14 +818,14 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
 
     @property
     def inputs(self) -> List[str]:
+        # Q: Why `image_rotary_emb` but not `txt_ids` and `img_ids`? We compute the rotary positional embeddings in CPU to save Neuron memory.
         common_inputs = [
             "hidden_states",
             "encoder_hidden_states",
             "pooled_projections",
             "timestep",
             "guidance",
-            "txt_ids",
-            "img_ids",
+            "image_rotary_emb",
         ]
         return common_inputs
 
@@ -833,12 +833,9 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
     def outputs(self) -> List[str]:
         return ["out_hidden_states"]
 
-    def load_checkpoint_fn(self):
-        pass
-
     def patch_model_and_prepare_aliases(self, model_or_path, *args):
         base_model_instance = BaseModelInstance(
-            partial(self.get_parallel_callable, model_or_path.config),
+            partial(self.get_parallel_callable, self._config),
             input_output_aliases={},
         )
         return base_model_instance, None
@@ -851,7 +848,7 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
         model_config = {k: v for k, v in config.items() if k in valid_params and k != "self"}
         model = NeuronFluxTransformer2DModel(**model_config)
         model.eval()
-        if self.config.float_dtype == torch.bfloat16:
+        if self.float_dtype == torch.bfloat16:
             model.bfloat16()
 
         return model
