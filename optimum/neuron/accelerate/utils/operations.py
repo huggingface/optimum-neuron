@@ -47,7 +47,7 @@ def _xla_gather(tensor, out_of_graph: bool = False):
             if groups is not None:
                 new_gathered_tensors = []
                 # Since groups is containing list of group of replicas, we consider that visiting the first group of
-                # replicas is enough since the value should be the same accross other axes.
+                # replicas is enough since the value should be the same across other axes.
                 replicas_to_consider = set(groups[0])
                 for idx, tensor in enumerate(gathered_tensors):
                     if idx not in replicas_to_consider:

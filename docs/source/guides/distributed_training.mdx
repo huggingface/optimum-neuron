@@ -210,7 +210,7 @@ model, optimizer = accelerator.prepare(model, lazy_optimizer)
 
 ### Checkpoint consolidation
 
-Since Tensor Parallelism consists in sharding the model weights accross different workers, only sharded checkpoints will be saved during training. It is necessary to consolidate the sharded checkpoints to be able to share and use them outside of the specific training configuration there were created under.
+Since Tensor Parallelism consists in sharding the model weights across different workers, only sharded checkpoints will be saved during training. It is necessary to consolidate the sharded checkpoints to be able to share and use them outside of the specific training configuration there were created under.
 
 The Optimum CLI provides a way of doing that very easily via the `optimum neuron consolidate` command:
 

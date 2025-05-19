@@ -206,7 +206,7 @@ def _dist_run(run_fn, run_id, local_rank, num_procs, master_port, tp_size, pp_si
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
             raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
 
-        # Intializing NxD.
+        # Initializing NxD.
         neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(
             tensor_model_parallel_size=tp_size,
             pipeline_model_parallel_size=pp_size,

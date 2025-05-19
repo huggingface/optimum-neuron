@@ -548,7 +548,7 @@ class NeuronModelMixin:
                             and state_dict[checkpoint_key].numel() * 2 == model_state_dict[model_key].numel()
                         ):
                             # This skips size mismatches for 4-bit weights. Two 4-bit values share an 8-bit container, causing size differences.
-                            # Without matching with module type or paramter type it seems like a practical way to detect valid 4bit weights.
+                            # Without matching with module type or parameter type it seems like a practical way to detect valid 4bit weights.
                             pass
                         else:
                             mismatched_keys.append(
