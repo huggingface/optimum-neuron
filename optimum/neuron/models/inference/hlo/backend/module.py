@@ -160,7 +160,7 @@ class LowMemoryModule(torch.nn.Module):
 
     def load_pytorch_model_bin_sharded(self, state_dict_dir):
         """
-        Eagerly load the the pytorch model binary shards.
+        Eagerly load the pytorch model binary shards.
         """
         index = os.path.join(state_dict_dir, _PYTORCH_MODEL_BIN_INDEX_FILENAME_JSON)
         with open(index, "r") as f:

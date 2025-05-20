@@ -83,7 +83,7 @@ class SequenceParallelismSpecs:
     @abstractclassmethod
     def patch_for_sequence_parallelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         """
-        This method needs to be overriden. It must patch anything model-specfic to make the model compatible with
+        This method needs to be overridden. It must patch anything model-specfic to make the model compatible with
         sequence parallelism.
         """
         if sequence_parallel_enabled:
@@ -595,7 +595,7 @@ class Parallelizer(ABC):
         sequence_parallel_enabled = sequence_parallel_enabled and tp_size > 1
 
         # Parallelizing the model.
-        # This needs to be done prior to preparing the model for sequence parallelism because modules can be overriden.
+        # This needs to be done prior to preparing the model for sequence parallelism because modules can be overridden.
         name_to_parameter = dict(model.named_parameters(remove_duplicate=False))
         parameter_to_name = {p: n for n, p in name_to_parameter.items()}
 
