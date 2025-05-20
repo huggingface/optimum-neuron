@@ -173,6 +173,7 @@ class NxDGenerationMixin(GenerationMixin):
         is_decode,
         attention_mask=None,
         sampling_params=None,
+        seq_ids=None,
         **kwargs,
     ):
         if is_decode:
@@ -187,11 +188,15 @@ class NxDGenerationMixin(GenerationMixin):
                 position_ids = torch.amax(position_ids, 1, keepdim=True)
                 position_ids = position_ids + 1
 
+        if seq_ids is None:
+            seq_ids = torch.arange(input_ids.shape[0])
+
         model_inputs = {
             "input_ids": input_ids,
             "position_ids": position_ids,
             "attention_mask": attention_mask,
             "sampling_params": sampling_params,
+            "seq_ids": seq_ids,
         }
 
         # WARNING: This is needed for propagating additional kwargs to the neuron model
