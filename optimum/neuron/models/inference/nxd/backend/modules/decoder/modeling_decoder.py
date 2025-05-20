@@ -115,6 +115,12 @@ class NxDDecoderModel(nn.Module):
         # set seed
         set_random_seed(seed)
 
+    def _is_context_encoding(self, input_ids: torch.Tensor):
+        return input_ids.shape[-1] > 1 and input_ids.shape[-1] != self.speculation_length
+
+    def _is_for_speculation(self, input_ids: torch.Tensor):
+        return input_ids.shape[-1] == self.speculation_length
+
     def _create_context_attn_mask(self, attention_mask, **kwargs):
         # Block diagonal causal mask for chunked prefill
         if self.neuron_config.is_chunked_prefill:
@@ -191,13 +197,11 @@ class NxDDecoderModel(nn.Module):
         inputs_embeds: Optional[torch.FloatTensor] = None,
         kv_cache: Optional[torch.Tensor] = None,
     ):
-        # TODO: This will not work for a context encoding model with bucket size
-        # equal to the speculation length
-        is_for_context_encoding = input_ids.shape[-1] > 1 and input_ids.shape[-1] != self.speculation_length
-        is_for_speculation = input_ids.shape[-1] == self.speculation_length
+        is_for_context_encoding = self._is_context_encoding(input_ids)
+        is_for_speculation = self._is_for_speculation(input_ids)
 
         cache_size = (
-            get_cache_size(self.n_positions, self.num_cores_per_group)
+            get_cache_size(self.n_positions, self.num_cores_per_group, is_for_context_encoding)
             if self.neuron_config.flash_decoding_enabled
             else self.n_positions
         )
@@ -259,27 +263,16 @@ class NxDDecoderModel(nn.Module):
             inputs_embeds=inputs_embeds,
         )
 
-        if kv_cache is None:
-            updated_kv_cache = self.kv_mgr.update_cache(
-                is_for_context_encoding=is_for_context_encoding,
-                seq_ids=seq_ids,
-                position_ids=position_ids,
-                new_key_values=past_key_values,
-                seq_len=cache_size,
-                scatter_index=scatter_index,
-                active_mask=active_mask_2d,
-            )
-        else:
-            updated_kv_cache = self.kv_mgr.update_cache(
-                is_for_context_encoding=is_for_context_encoding,
-                seq_ids=seq_ids,
-                position_ids=position_ids,
-                new_key_values=past_key_values,
-                seq_len=cache_size,
-                scatter_index=scatter_index,
-                active_mask=active_mask_2d,
-                kvcache_buffer=kv_cache,
-            )
+        updated_kv_cache = self.kv_mgr.update_cache(
+            is_for_context_encoding=is_for_context_encoding,
+            seq_ids=seq_ids,
+            position_ids=position_ids,
+            new_key_values=past_key_values,
+            seq_len=cache_size,
+            scatter_index=scatter_index,
+            active_mask=active_mask_2d,
+            kvcache_buffer=kv_cache,
+        )
 
         batch_size, num_tokens, hidden_size = hidden_states.shape
         if self.padding_side == "left":
@@ -287,16 +280,8 @@ class NxDDecoderModel(nn.Module):
             index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
             hidden_states = torch.gather(hidden_states, dim=1, index=index)
         else:
-            # speculative decoding case; only batch_size=1
-            # will need to extend the logic to support multi-batch later
-            # maybe just use position_ids for index?
-            if position_ids.shape[-1] == self.speculation_length:
-                index = torch.min(position_ids)
-                index = torch.arange(index, index + self.speculation_length, device=hidden_states.device)
-                index = index.unsqueeze(0).unsqueeze(2).expand(batch_size, self.speculation_length, hidden_size)
-                hidden_states = torch.gather(hidden_states, dim=1, index=index)
-            else:
-                # simple token generation
+            if not (position_ids.shape[-1] == self.speculation_length or position_ids.shape[-1] == 1):
+                # context encoding
                 index = torch.max(position_ids, dim=1, keepdim=True).indices
                 index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
                 hidden_states = torch.gather(hidden_states, dim=1, index=index)
@@ -308,7 +293,7 @@ class NxDDecoderModel(nn.Module):
         if self.neuron_config.on_device_sampling:
             # perform sampling on Neuron to get tokens
             # FIXME, logits[:, -1, :] is not correct for speculation model, this is a tempory fix.
-            if is_for_speculation and not self.neuron_config.on_device_sampling_config.do_sample:
+            if is_for_speculation:
                 res = nxd_argmax(tensor=logits, dim=2, gather_dim=2, keepdim=False)
             else:
                 res = self.sampler(logits[:, -1, :], sampling_params)
