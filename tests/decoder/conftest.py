@@ -58,6 +58,10 @@ DECODER_MODEL_CONFIGURATIONS = {
         "model_id": "microsoft/Phi-3-mini-4k-instruct",
         "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "bf16"},
     },
+    "qwen3": {
+        "model_id": "Qwen/Qwen3-0.6B",
+        "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "bf16"},
+    },
 }
 
 
