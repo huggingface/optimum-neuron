@@ -27,6 +27,7 @@ from .hlo.phi3.model import Phi3HloModelForCausalLM
 from .nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
 from .nxd.mixtral.modeling_mixtral import MixtralNxDModelForCausalLM
 from .nxd.qwen2.modeling_qwen2 import Qwen2NxDModelForCausalLM
+from .nxd.qwen3.modeling_qwen3 import Qwen3NxDModelForCausalLM
 
 
 prioritize_hlo_backend = os.environ.get("OPTIMUM_NEURON_PRIORITIZE_HLO_BACKEND", "0") == "1"
@@ -79,6 +80,15 @@ class Qwen2ModelForCausalLM(Qwen2NxDModelForCausalLM):
 class MixtralNeuronModelForCausalLM(MixtralNxDModelForCausalLM):
     """
     Mixtral model with NxD backend for inference on AWS Neuron.
+    """
+
+    pass
+
+
+@register_neuron_model_for_inference("qwen3", "text-generation")
+class Qwen3NeuronModelForCausalLM(Qwen3NxDModelForCausalLM):
+    """
+    Qwen3 model with NxD backend for inference on AWS Neuron.
     """
 
     pass
