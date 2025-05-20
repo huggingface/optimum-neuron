@@ -164,6 +164,21 @@ torchrun --nproc_per_node=8 --nnodes=${NUM_NODES} run_clm.py \
 
 The training job will now start running on the SageMaker Hyperpod cluster. 
 
+This uses a pre-built script from Optimum-neuron. The script uses the Trainer class from the Optimum Neuron library, which is a specialized version of the Hugging Face Trainer optimized for training on AWS Trainium instances.
+
+Here's an overview of the main components in the script:
+
+   - Model Loading: The model is loaded using AutoModelForCausalLM.from_pretrained() with lazy loading for parallelism.
+
+   - Data Processing: The dataset is tokenized and processed into chunks suitable for language modeling.
+
+   - Training Arguments: The script uses NeuronTrainingArguments to configure training hyperparameters, including options for tensor parallelism and pipeline parallelism.
+
+   - Trainer Setup: A Trainer instance [optimum.neuron.NeuronTrainer] is created with the model, training arguments, datasets, and other necessary components.
+
+   - Training Loop: The trainer.train() method is called to start the continuous pretraining process.
+
+
 ## 5. Monitor and Validate Training
 
 You can monitor the progress through Kubernetes logs:
