@@ -303,7 +303,7 @@ class NxDGenerationMixin(GenerationMixin):
         spec_len = self.neuron_config.speculation_length
 
         # Run the target model once and get the first generated token
-        model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
+        model_inputs = self.prepare_inputs_for_prefill(input_ids, **model_kwargs)
         outputs = self.forward(**model_inputs)
 
         curr_pos = model_inputs["position_ids"][0].argmax(dim=-1)
@@ -318,13 +318,14 @@ class NxDGenerationMixin(GenerationMixin):
         # Speculation loop
         while True:
             # 1 Token generation using draft model
+            is_for_token_generation = assistant_model.kv_cache_populated
             for _ in range(int(num_assistant_tokens)):
                 # 1.1 Prepare assistant model inputs
                 assistant_inputs = assistant_model.prepare_inputs_for_generation(
                     candidate_input_ids,
+                    is_decode=is_for_token_generation,
                     **assistant_kwargs,
                 )
-                is_for_token_generation = assistant_model.kv_cache_populated
 
                 # 1.2 Use the assistant model to obtain the next candidate logits
                 assistant_model_outputs = assistant_model.forward(**assistant_inputs)
