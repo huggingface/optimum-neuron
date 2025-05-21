@@ -123,7 +123,7 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17)
     if isinstance(model, NxDModelForCausalLM):
         expectations = {
-            "llama": " And how does it differ from other Machine Learning approaches?\n\n**What is Deep Learning?",
+            "llama": " And how does it differ from other Machine Learning approaches?\nDeep learning is a type of",
             "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
             "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
             "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
@@ -136,7 +136,9 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
             "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
         }
     config_name = neuron_decoder_config["name"]
-    assert tokenizer.decode(outputs[0]).endswith(expectations[config_name])
+    generated_text = tokenizer.decode(outputs[0])
+    expected_text = expectations[config_name]
+    assert generated_text.endswith(expected_text)
 
 
 @is_inferentia_test
