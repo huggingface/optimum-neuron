@@ -1,5 +1,6 @@
 import copy
 import logging
+import os
 import sys
 from tempfile import TemporaryDirectory
 from typing import Dict
@@ -11,7 +12,9 @@ from transformers import AutoConfig, AutoTokenizer
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.cache import synchronize_hub_cache
 from optimum.neuron.models.auto_model import get_neuron_model_class
+from optimum.neuron.models.inference.nxd.backend.config import NxDNeuronConfig
 from optimum.neuron.models.inference.nxd.backend.modules.decoder import NxDModelForCausalLM
+from optimum.neuron.models.inference.nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
 from optimum.neuron.version import __sdk_version__ as sdk_version
 from optimum.neuron.version import __version__ as version
 
@@ -46,8 +49,13 @@ DECODER_MODEL_CONFIGURATIONS = {
 }
 
 
+def _get_hub_neuron_model_prefix():
+    """Get the prefix for the neuron model id on the hub"""
+    return f"optimum-internal-testing/neuron-testing-{version}-{sdk_version}"
+
+
 def _get_hub_neuron_model_id(config_name: str, model_config: Dict[str, str]):
-    hub_neuron_model_id = f"optimum-internal-testing/neuron-testing-{version}-{sdk_version}-{config_name}"
+    hub_neuron_model_id = f"{_get_hub_neuron_model_prefix()}-{config_name}"
     config = AutoConfig.from_pretrained(model_config["model_id"])
     model_type = config.model_type
     auto_model_class = get_neuron_model_class(model_type, "text-generation", "inference")
@@ -122,3 +130,64 @@ def neuron_decoder_config(request):
 @pytest.fixture(scope="module")
 def neuron_decoder_path(neuron_decoder_config):
     yield neuron_decoder_config["neuron_model_path"]
+
+
+@pytest.fixture(scope="module")
+def speculation():
+    model_id = "unsloth/Llama-3.2-1B-Instruct"
+    neuron_model_id = f"{_get_hub_neuron_model_prefix()}-speculation"
+    draft_neuron_model_id = f"{_get_hub_neuron_model_prefix()}-speculation-draft"
+    with TemporaryDirectory() as speculation_path:
+        hub = huggingface_hub.HfApi()
+        neuron_model_path = os.path.join(speculation_path, "model")
+        if hub.repo_exists(neuron_model_id):
+            logger.info(f"Fetching {neuron_model_id} from the HuggingFace hub")
+            hub.snapshot_download(neuron_model_id, local_dir=neuron_model_path)
+        else:
+            neuron_config = NxDNeuronConfig(
+                checkpoint_id=model_id,
+                batch_size=1,
+                sequence_length=4096,
+                tp_degree=2,
+                torch_dtype="bf16",
+                speculation_length=5,
+            )
+            model = LlamaNxDModelForCausalLM.export(
+                model_id,
+                config=AutoConfig.from_pretrained(model_id),
+                neuron_config=neuron_config,
+            )
+            model.save_pretrained(neuron_model_path)
+            tokenizer = AutoTokenizer.from_pretrained(model_id)
+            tokenizer.save_pretrained(neuron_model_path)
+            del tokenizer
+            # Create the speculation model on the hub
+            model.push_to_hub(save_directory=neuron_model_path, repository_id=neuron_model_id, private=False)
+            # Make sure it is cached
+            synchronize_hub_cache(cache_repo_id=OPTIMUM_CACHE_REPO_ID)
+        draft_neuron_model_path = os.path.join(speculation_path, "draft-model")
+        if hub.repo_exists(draft_neuron_model_id):
+            logger.info(f"Fetching {draft_neuron_model_id} from the HuggingFace hub")
+            hub.snapshot_download(draft_neuron_model_id, local_dir=draft_neuron_model_path)
+        else:
+            neuron_config = NxDNeuronConfig(
+                checkpoint_id=model_id,
+                batch_size=1,
+                sequence_length=4096,
+                tp_degree=2,
+                torch_dtype="bf16",
+            )
+            model = LlamaNxDModelForCausalLM.export(
+                model_id,
+                config=AutoConfig.from_pretrained(model_id),
+                neuron_config=neuron_config,
+            )
+            model.save_pretrained(draft_neuron_model_path)
+            # Create the draft model on the hub
+            model.push_to_hub(
+                save_directory=draft_neuron_model_path, repository_id=draft_neuron_model_id, private=False
+            )
+            # Make sure it is cached
+            synchronize_hub_cache(cache_repo_id=OPTIMUM_CACHE_REPO_ID)
+        yield neuron_model_path, draft_neuron_model_path
+        logger.info(f"Done with speculation models at {speculation_path}")
