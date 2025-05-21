@@ -23,6 +23,7 @@ from transformers.generation import StoppingCriteria
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.models.inference.nxd.backend.modules.decoder import NxDModelForCausalLM
 from optimum.neuron.models.inference.nxd.backend.modules.generation.generation_utils import prepare_sampling_params
+from optimum.neuron.models.inference.nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -270,3 +271,18 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
         second_generated_tokens = torch.cat([second_generated_tokens, next_tokens[1:, :]], dim=-1)
         two_requests_inputs["input_ids"] = next_tokens
     assert torch.equal(second_generated_tokens, first_generated_tokens[:, : second_generated_tokens.shape[1]])
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_generation_assisted_decoding(speculation):
+    model_path, draft_model_path = speculation
+    model = LlamaNxDModelForCausalLM.from_pretrained(model_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    assistant_model = LlamaNxDModelForCausalLM.from_pretrained(draft_model_path)
+    prompt = "What is Deep Learning?"
+    inputs = tokenizer(prompt, return_tensors="pt")
+    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17, assistant_model=assistant_model)
+    generated_text = tokenizer.decode(outputs[0])
+    expected_text = " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial neural"
+    assert generated_text.endswith(expected_text)
