@@ -205,6 +205,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
                 hidden_size=getattr(input_shapes.image_encoder_shapes, "hidden_size", None),
                 projection_dim=getattr(input_shapes.image_encoder_shapes, "projection_dim", None),
             ),
+            "rotary_axes_dim": input_shapes.rotary_axes_dim,
         }
         valid_input_shapes = {}
         for name, value in axes_values.items():

@@ -56,6 +56,7 @@ _import_structure = {
         "DummyControNetInputGenerator",
         "ASTDummyAudioInputGenerator",
         "DummyIPAdapterInputGenerator",
+        "DummyFluxTransformerRotaryEmbGenerator",
         "WhisperDummyTextInputGenerator",
     ],
     "misc": [
@@ -125,6 +126,7 @@ if TYPE_CHECKING:
         ASTDummyAudioInputGenerator,
         DummyBeamValuesGenerator,
         DummyControNetInputGenerator,
+        DummyFluxTransformerRotaryEmbGenerator,
         DummyIPAdapterInputGenerator,
         DummyMaskedPosGenerator,
         WhisperDummyTextInputGenerator,

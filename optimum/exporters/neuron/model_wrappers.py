@@ -145,8 +145,7 @@ class FluxTransformerNeuronWrapper(torch.nn.Module):
         pooled_projections = ordered_inputs.pop("pooled_projections", None)
         timestep = ordered_inputs.pop("timestep", None)
         guidance = ordered_inputs.pop("guidance", None)
-        txt_ids = ordered_inputs.pop("txt_ids", None)
-        img_ids = ordered_inputs.pop("img_ids", None)
+        image_rotary_emb = ordered_inputs.pop("image_rotary_emb", None)
 
         out_tuple = self.model(
             hidden_states=hidden_states,
@@ -154,8 +153,7 @@ class FluxTransformerNeuronWrapper(torch.nn.Module):
             guidance=guidance,
             pooled_projections=pooled_projections,
             encoder_hidden_states=encoder_hidden_states,
-            txt_ids=txt_ids,
-            img_ids=img_ids,
+            image_rotary_emb=image_rotary_emb,
             joint_attention_kwargs=None,
             return_dict=False,
         )

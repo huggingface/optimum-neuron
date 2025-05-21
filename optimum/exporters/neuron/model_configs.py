@@ -46,6 +46,7 @@ from ...neuron.utils import (
     ASTDummyAudioInputGenerator,
     DummyBeamValuesGenerator,
     DummyControNetInputGenerator,
+    DummyFluxTransformerRotaryEmbGenerator,
     DummyIPAdapterInputGenerator,
     DummyMaskedPosGenerator,
     WhisperDummyTextInputGenerator,
@@ -797,6 +798,7 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
         "height",
         "vae_scale_factor",
         "encoder_hidden_size",
+        "rotary_axes_dim",
     )
     MODEL_TYPE = "flux-transformer-2d"
     CUSTOM_MODEL_WRAPPER = FluxTransformerNeuronWrapper
@@ -814,17 +816,19 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
         DummyTransformerTimestepInputGenerator,
         DummyFluxTransformerVisionInputGenerator,
         DummyFluxTransformerTextInputGenerator,
+        DummyFluxTransformerRotaryEmbGenerator,
     )
 
     @property
     def inputs(self) -> List[str]:
-        # Q: Why `image_rotary_emb` but not `txt_ids` and `img_ids`? We compute the rotary positional embeddings in CPU to save Neuron memory.
         common_inputs = [
             "hidden_states",
             "encoder_hidden_states",
             "pooled_projections",
             "timestep",
             "guidance",
+            # Q: Why `image_rotary_emb` but not `txt_ids` and `img_ids`? We compute the rotary positional embeddings in CPU to save Neuron memory.
+            # shape: [txt_ids.shape(0)+img_ids.shape(0), sum(axes_dim), 2]
             "image_rotary_emb",
         ]
         return common_inputs
