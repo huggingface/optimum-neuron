@@ -148,8 +148,18 @@ def _overfit_causal_lm(
             0.07,
             512,  # Do 2048 once we have flash_attention enabled.
         ],
+        [
+            "Qwen3ForCausalLM",
+            "Qwen/Qwen3-0.6B",
+            1e-4,
+            0.03,
+            {},
+            True,
+            0.0,
+            2048,
+        ],
     ],
-    ids=["meta-llama/Llama-3.2-1B-Instruct", "ibm-granite/granite-3.2-2b-instruct"],
+    ids=["meta-llama/Llama-3.2-1B-Instruct", "ibm-granite/granite-3.2-2b-instruct", "Qwen/Qwen3-0.6B"],
 )
 @pytest.mark.parametrize(
     "world_size,tp_size,pp_size",
