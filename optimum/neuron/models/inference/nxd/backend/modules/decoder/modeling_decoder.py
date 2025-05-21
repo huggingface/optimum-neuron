@@ -761,7 +761,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         compiler_args = (
             "--auto-cast=none --model-type=transformer "
             f"--tensorizer-options='{tensorizer_options}'"
-            " -O1 "
+            " -O2 "
             f" --internal-num-neuroncores-per-sengine={neuron_config.logical_nc_config}"
         )
 
