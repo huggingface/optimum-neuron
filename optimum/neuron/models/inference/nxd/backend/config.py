@@ -158,8 +158,11 @@ class NxDNeuronConfig(NeuronConfig):
 
         # Speculative decoding
         self.speculation_length = speculation_length
-        if self.speculation_length > 0 and self.async_mode:
-            raise IncompatibleConfigError("Speculative Decoding is not yet supported with async.")
+        if self.speculation_length > 0:
+            if self.async_mode:
+                raise IncompatibleConfigError("Speculative Decoding is not yet supported with async.")
+            if self.on_device_sampling:
+                raise IncompatibleConfigError("Speculative decoding is incompatible with on-device sampling")
 
         # Distributed config
         self.pp_degree = pp_degree

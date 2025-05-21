@@ -281,6 +281,9 @@ class NxDGenerationMixin(GenerationMixin):
         eos_token_id = generation_config.eos_token_id
         assistant_model = candidate_generator.assistant_model
 
+        if assistant_model.neuron_config.on_device_sampling:
+            raise ValueError("Assistant model must not use on-device sampling")
+
         # Initialize the num_assistant_tokens used for speculation.
         if hasattr(assistant_model, "num_assistant_tokens"):
             num_assistant_tokens = assistant_model.num_assistant_tokens
