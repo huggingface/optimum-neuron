@@ -315,7 +315,7 @@ class LlamaAttention(nn.Module, CustomModule):
         self.attention_dropout = config.attention_dropout
         self.is_causal = True
 
-        if (self.head_dim * self.num_heads) != self.hidden_size:
+        if (self.hidden_size % self.num_heads) != 0:
             raise ValueError(
                 f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
                 f" and `num_heads`: {self.num_heads})."
@@ -500,10 +500,10 @@ class LlamaAttention(nn.Module, CustomModule):
 
         if self.mp_config.sequence_parallel_enabled:
             attn_output = attn_output.permute(2, 0, 1, 3)
-            attn_output = attn_output.reshape(q_len, bsz, self.hidden_size // get_tensor_model_parallel_size())
+            attn_output = attn_output.reshape(q_len, bsz, self.num_heads * self.head_dim)
         else:
             attn_output = attn_output.transpose(1, 2).contiguous()
-            attn_output = attn_output.reshape(bsz, q_len, self.hidden_size // get_tensor_model_parallel_size())
+            attn_output = attn_output.reshape(bsz, q_len, self.num_heads * self.head_dim)
 
         attn_output = self.o_proj(attn_output)
 
