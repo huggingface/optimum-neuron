@@ -150,10 +150,10 @@ class NxDGenerationMixin(GenerationMixin):
             # update generated ids, model inputs, and length for next step
             input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
 
+            is_for_token_generation = True
             model_kwargs = self._update_model_kwargs_for_generation(
                 outputs, model_kwargs, is_for_token_generation=is_for_token_generation
             )
-            is_for_token_generation = True
 
             unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, None)
             this_peer_finished = unfinished_sequences.max() == 0
@@ -186,7 +186,6 @@ class NxDGenerationMixin(GenerationMixin):
             position_ids.masked_fill_(attention_mask == 0, 1)
             if is_decode:
                 position_ids = torch.amax(position_ids, 1, keepdim=True)
-                position_ids = position_ids + 1
 
         if seq_ids is None:
             seq_ids = torch.arange(input_ids.shape[0])
