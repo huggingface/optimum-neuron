@@ -284,12 +284,6 @@ class NxDGenerationMixin(GenerationMixin):
         if assistant_model.neuron_config.on_device_sampling:
             raise ValueError("Assistant model must not use on-device sampling")
 
-        # Initialize the num_assistant_tokens used for speculation.
-        if hasattr(assistant_model, "num_assistant_tokens"):
-            num_assistant_tokens = assistant_model.num_assistant_tokens
-        else:
-            num_assistant_tokens = assistant_model.generation_config.num_assistant_tokens
-
         # Init values
         if eos_token_id is not None and pad_token_id is None:
             raise ValueError("If `eos_token_id` is defined, make sure that `pad_token_id` is defined.")
@@ -322,7 +316,7 @@ class NxDGenerationMixin(GenerationMixin):
         while True:
             # 1 Token generation using draft model
             is_for_token_generation = assistant_model.kv_cache_populated
-            for _ in range(int(num_assistant_tokens)):
+            for _ in range(spec_len):
                 # 1.1 Prepare assistant model inputs
                 assistant_inputs = assistant_model.prepare_inputs_for_generation(
                     candidate_input_ids,
