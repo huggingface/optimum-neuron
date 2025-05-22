@@ -100,10 +100,12 @@ def assert_close(
     assert a.dtype is b.dtype, f"Expected tensors to have the same dtype, but got {a.dtype} and {b.dtype}"
 
     dtype = a.dtype
-    atol = torch.finfo(dtype).resolution
+    if atol is None:
+        atol = torch.finfo(dtype).resolution
     # Please refer to that discussion for default rtol values based on the float type:
     # https://scicomp.stackexchange.com/questions/43111/float-equality-tolerance-for-single-and-half-precision
-    rtol = {torch.float32: 1e-5, torch.float16: 1e-3, torch.bfloat16: 1e-1}[dtype]
+    if rtol is None:
+        rtol = {torch.float32: 1e-5, torch.float16: 1e-3, torch.bfloat16: 1e-1}[dtype]
     torch.testing.assert_close(
         a,
         b,
