@@ -20,6 +20,7 @@ from transformers import PreTrainedModel
 from ..utils.import_utils import is_peft_available
 from ..utils.patching import Patcher
 from .tuners import NeuronLoraModel
+from .peft_model import NeuronPeftModel, NeuronPeftModelForCausalLM
 
 
 if is_peft_available():
@@ -64,6 +65,10 @@ PEFT_TYPE_TO_TUNER_MAPPING: dict[str, type[BaseTuner]] = {
 PEFT_TYPE_TO_MODEL_MAPPING: dict[str, type[BaseTuner]] = {
     PeftType.LORA: NeuronLoraModel,
 }
+MODEL_TYPE_TO_PEFT_MODEL_MAPPING: dict[str, type[NeuronPeftModel]] = {
+    "CAUSAL_LM": NeuronPeftModelForCausalLM,
+
+}
 
 
 def get_peft_model(
@@ -83,7 +88,12 @@ def get_peft_model(
 
     # The PEFT_TYPE_TO_MODEL_MAPPING is used to map the PEFT type to the model type.
     # Instead of rewriting the whole function, we just patch this dictionary to use our own peft tuners.
-    patcher = Patcher([("peft.peft_model.PEFT_TYPE_TO_MODEL_MAPPING", PEFT_TYPE_TO_MODEL_MAPPING)])
+    patcher = Patcher(
+        [
+            ("peft.peft_model.PEFT_TYPE_TO_MODEL_MAPPING", PEFT_TYPE_TO_MODEL_MAPPING),
+            ("peft.mapping.MODEL_TYPE_TO_PEFT_MODEL_MAPPING", MODEL_TYPE_TO_PEFT_MODEL_MAPPING),
+        ]
+    )
     with patcher:
         return orig_get_peft_model(
             model,
