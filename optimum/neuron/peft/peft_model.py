@@ -13,58 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import collections
-import functools
-import inspect
 import os
 import warnings
-from dataclasses import asdict
-from pathlib import Path
-from typing import Any, List, Optional, Tuple, Union
+from typing import Optional, Any, Union
 
 import torch
-from transformers import PreTrainedModel
 
-from ...import_utils import is_peft_available
-from ...patching import Patcher, replace_class_in_inheritance_hierarchy
-from ...require_utils import requires_neuronx_distributed, requires_safetensors
-from .training_utils import _get_model_param_count
+from ..models.training.modeling_utils import NotSupportedError
+from ..utils.import_utils import is_peft_available
 
 
 if is_peft_available():
-    from peft import PeftConfig, PeftModel
-    from peft import get_peft_model as orig_get_peft_model
-    from peft.utils import (
-        SAFETENSORS_WEIGHTS_NAME,
-        WEIGHTS_NAME,
-        id_tensor_storage,
-        set_peft_model_state_dict,
-    )
-    from peft.utils import (
-        get_peft_model_state_dict as orig_get_peft_model_state_dict,
-    )
-
+    from peft import PeftModel, PeftConfig
 else:
-    SAFETENSORS_WEIGHTS_NAME = WEIGHTS_NAME = ""
-
     class PeftModel:
         pass
 
     class PeftConfig:
         pass
-
-    def orig_get_peft_model(*args, **kwargs):
-        pass
-
-    def orig_get_peft_model_state_dict(*args, **kwargs):
-        pass
-
-    def set_peft_model_state_dict(*args, **kwargs):
-        pass
-
-    def id_tensor_storage(*args, **kwargs):
-        pass
-
 
 ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME = "adapter_shards"
 
@@ -85,55 +51,18 @@ def get_peft_model_state_dict(*args, **kwargs):
         return orig_get_peft_model_state_dict(*args, **kwargs)
 
 
-class NeuronPeftModel(PeftModel):
-    def __init__(
-        self,
-        model: PreTrainedModel,
-        peft_config: PeftConfig,
-        adapter_name: str = "default",
-        autocast_adapter_dtype: bool = True,
-        low_cpu_mem_usage: bool = False,
-    ) -> None:
-        self.is_custom_modeling = inspect.getmodule(model.__class__).__name__.startswith(
-            "optimum.neuron.models.training"
-        )
-        if self.is_custom_modeling:
-            print("zazou", peft_config)
-        return super().__init__(model, peft_config, adapter_name, autocast_adapter_dtype, low_cpu_mem_usage)
 
-    @requires_neuronx_distributed
-    @requires_safetensors
+class NeuronPeftModel(PeftModel):
     def save_pretrained(
         self,
         save_directory: str,
-        safe_serialization: bool = True,
-        selected_adapters: Optional[List[str]] = None,
+        safe_serialization: bool = False,
+        selected_adapters: Optional[list[str]] = None,
         save_embedding_layers: Union[str, bool] = "auto",
         is_main_process: bool = True,
-        convert_pissa_to_lora: Optional[str] = None,
-        async_save: bool = False,
+        path_initial_model_for_weight_conversion: Optional[str] = None,
         **kwargs: Any,
-    ):
-        import neuronx_distributed
-        import torch_xla.core.xla_model as xm
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_data_parallel_rank,
-            get_pipeline_model_parallel_rank,
-            get_pipeline_model_parallel_size,
-            get_tensor_model_parallel_rank,
-            get_tensor_model_parallel_size,
-            model_parallel_is_initialized,
-        )
-        from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
-        from safetensors.torch import save_file as safe_save_file
-
-        if model_parallel_is_initialized():
-            should_write_data = get_data_parallel_rank() == 0
-            is_model_paralllel = get_tensor_model_parallel_size() > 1 or get_pipeline_model_parallel_size() > 1
-        else:
-            should_write_data = xm.is_master_ordinal(local=True)
-            is_model_paralllel = False
-
+    ) -> None:
         if os.path.isfile(save_directory):
             raise ValueError(f"Provided path ({save_directory}) should be a directory, not a file")
 
@@ -149,20 +78,41 @@ class NeuronPeftModel(PeftModel):
                     f" {list(self.peft_config.keys())} - got {selected_adapters}."
                 )
 
-        def save_pissa_as_lora(peft_config, convert_pissa_to_lora, output_state_dict, kwargs):
-            if not str(peft_config.init_lora_weights).startswith("pissa"):
-                warnings.warn("`convert_pissa_to_lora` only works for converting a PiSSA adapter to a LoRA adapter")
-            initial_adapter = os.path.basename(convert_pissa_to_lora)
-            self.load_adapter(
-                os.path.dirname(convert_pissa_to_lora), subfolder=initial_adapter, adapter_name=initial_adapter
-            )
-            if str(self.peft_config[initial_adapter].init_lora_weights).startswith("pissa"):
-                raise ValueError(
-                    "The `init_lora_weights` parameter of the initial PiSSA adapter should be set to `True`. "
-                    "Otherwise, `self.load_adapter` will subtract the principal singular value and vector again based on the residual model."
+        def save_mutated_as_lora(peft_config, path_initial_model_for_weight_conversion, output_state_dict, kwargs):
+            if peft_config.use_rslora and (peft_config.rank_pattern or peft_config.alpha_pattern):
+                msg = (
+                    "Passing `path_initial_model_for_weight_conversion` to `save_pretrained` is not supported when "
+                    "using `rank_pattern` or `alpha_pattern` at the same time as `use_rslora=True`."
                 )
-            output_state_dict = self.base_model.subtract_pissa_init(output_state_dict, initial_adapter, kwargs)
-            self.delete_adapter(adapter_name)
+                raise ValueError(msg)
+
+            if not any(
+                str(peft_config.init_lora_weights).lower().startswith(prefix) for prefix in ["pissa", "olora", "true"]
+            ):
+                warnings.warn(
+                    "`path_initial_model_for_weight_conversion` only works for converting a PiSSA or OLoRA adapter to "
+                    "a LoRA adapter"
+                )
+            initial_adapter_name = os.path.basename(path_initial_model_for_weight_conversion)
+            try:
+                self.load_adapter(
+                    os.path.dirname(path_initial_model_for_weight_conversion),
+                    subfolder=initial_adapter_name,
+                    adapter_name=initial_adapter_name,
+                )
+                is_pissa = str(self.peft_config[initial_adapter_name].init_lora_weights).lower().startswith("pissa")
+                is_olora = str(self.peft_config[initial_adapter_name].init_lora_weights).lower() == "olora"
+                if is_pissa or is_olora:
+                    raise ValueError(
+                        "The `init_lora_weights` parameter of the initial adapter should be set to `True`. "
+                        "Otherwise, `self.load_adapter` will subtract the decomposed values again based on the "
+                        "residual model."
+                    )
+                output_state_dict = self.base_model.subtract_mutated_init(
+                    output_state_dict, initial_adapter_name, kwargs
+                )
+            finally:
+                self.delete_adapter(initial_adapter_name)
             return output_state_dict
 
         if is_main_process:
@@ -181,55 +131,7 @@ class NeuronPeftModel(PeftModel):
             output_dir = os.path.join(save_directory, adapter_name) if adapter_name != "default" else save_directory
             os.makedirs(output_dir, exist_ok=True)
 
-            if is_model_paralllel:
-                if convert_pissa_to_lora is not None:
-                    output_state_dict = save_pissa_as_lora(
-                        peft_config, convert_pissa_to_lora, output_state_dict, kwargs
-                    )
-
-                # Because `neuronx_distributed.trainer.save_checkpoint` only accepts `torch.nn.Module` we create a fake
-                # module containing the state dict.
-                class DummyModule(torch.nn.Module):
-                    def state_dict(self):
-                        return output_state_dict
-
-                adapter_shards_dir_model = os.path.join(output_dir, "adapter_shards", "model")
-                if not os.path.isdir(adapter_shards_dir_model):
-                    os.makedirs(adapter_shards_dir_model, exist_ok=True)
-
-                dummy_mod = DummyModule()
-                neuronx_distributed.trainer.save_checkpoint(
-                    output_dir,
-                    tag="adapter_shards",
-                    model=dummy_mod,
-                    async_save=async_save,
-                )
-
-                # Importing here to avoid circular imports.
-                from ..distributed.utils import get_parameters_tp_metadata
-
-                metadata = {}
-                named_parameters_without_adapter_name = {
-                    n.replace(f".{adapter_name}", ""): p for n, p in self.named_parameters()
-                }
-                metadata["sharded_metadata"] = {
-                    k: asdict(v) for k, v in get_parameters_tp_metadata(named_parameters_without_adapter_name).items()
-                }
-                metadata["gqa_qkv_metadata"] = self._gqa_qkv_metadata
-
-                if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
-                    pp_rank = get_pipeline_model_parallel_rank()
-                    metadata_path = (
-                        Path(output_dir) / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.pt"
-                    )
-                    # Checking that the parent directory exists, it should exist, but let's make sure since g_iostate.end() is
-                    # called at the end of `neuronx_distributed.trainer.save_checkpoint` and it can remove checkpoint
-                    # directories if the max limit has been reached.
-                    if metadata_path.parent.is_dir():
-                        torch.save(metadata, metadata_path)
-
-            elif is_main_process and safe_serialization:
-                output_state_dict = move_all_tensor_to_cpu(output_state_dict, convert=should_write_data)
+            if is_main_process and safe_serialization:
                 # Section copied from: https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_utils.py#L2111-L2134
                 # Safetensors does not allow tensor aliasing.
                 # We're going to remove aliases before saving
@@ -251,9 +153,12 @@ class NeuronPeftModel(PeftModel):
                     # not supported in safetensors.
                     for shared_tensor_name in names[1:]:
                         output_state_dict[shared_tensor_name] = output_state_dict[shared_tensor_name].clone()
-                if convert_pissa_to_lora is not None:
-                    output_state_dict = save_pissa_as_lora(
-                        peft_config, convert_pissa_to_lora, output_state_dict, kwargs
+                if path_initial_model_for_weight_conversion is not None:
+                    peft_config = copy.deepcopy(peft_config)
+                    peft_config.init_lora_weights = True
+                    peft_config.save_pretrained(path_initial_model_for_weight_conversion)
+                    output_state_dict = save_mutated_as_lora(
+                        peft_config, path_initial_model_for_weight_conversion, output_state_dict, kwargs
                     )
                 safe_save_file(
                     output_state_dict,
@@ -261,10 +166,12 @@ class NeuronPeftModel(PeftModel):
                     metadata={"format": "pt"},
                 )
             elif is_main_process:
-                output_state_dict = move_all_tensor_to_cpu(output_state_dict, convert=should_write_data)
-                if convert_pissa_to_lora is not None:
-                    output_state_dict = save_pissa_as_lora(
-                        peft_config, convert_pissa_to_lora, output_state_dict, kwargs
+                if path_initial_model_for_weight_conversion is not None:
+                    peft_config = copy.deepcopy(peft_config)
+                    peft_config.init_lora_weights = True
+                    peft_config.save_pretrained(path_initial_model_for_weight_conversion)
+                    output_state_dict = save_mutated_as_lora(
+                        peft_config, path_initial_model_for_weight_conversion, output_state_dict, kwargs
                     )
                 torch.save(output_state_dict, os.path.join(output_dir, WEIGHTS_NAME))
 
@@ -293,19 +200,39 @@ class NeuronPeftModel(PeftModel):
                 auto_mapping_dict = None
 
             if is_main_process:
-                if convert_pissa_to_lora is not None:
+                if path_initial_model_for_weight_conversion is not None:
                     peft_config.init_lora_weights = True
                     peft_config.r *= 2
-                    peft_config.lora_alpha *= 2
+                    if not peft_config.use_rslora:
+                        peft_config.lora_alpha *= 2
+                    else:
+                        # with rslora, we have scaling = alpha / sqrt(r), we thus adjust alpha to keep the same scaling
+                        peft_config.lora_alpha *= 2**0.5
+
+                    if peft_config.rank_pattern:
+                        peft_config.rank_pattern = {key: 2 * val for key, val in peft_config.rank_pattern.items()}
+                    if peft_config.alpha_pattern:
+                        peft_config.alpha_pattern = {key: 2 * val for key, val in peft_config.alpha_pattern.items()}
+
                 peft_config.save_pretrained(output_dir, auto_mapping_dict=auto_mapping_dict)
             peft_config.inference_mode = inference_mode
 
-    def get_nb_trainable_parameters(self) -> Tuple[int, int]:
-        return _get_model_param_count(self)
+    @classmethod
+    def from_pretrained(
+        cls,
+        model: torch.nn.Module,
+        model_id: Union[str, os.PathLike],
+        adapter_name: str = "default",
+        is_trainable: bool = False,
+        config: Optional[PeftConfig] = None,
+        autocast_adapter_dtype: bool = True,
+        ephemeral_gpu_offload: bool = False,
+        low_cpu_mem_usage: bool = False,
+        **kwargs: Any,
+    ) -> PeftModel:
+        raise NotSupportedError("Loading PEFT models for training is not supported in optimum-neuron.")
 
 
-@functools.wraps(orig_get_peft_model)
-def get_peft_model(*args, **kwargs):
-    peft_model = orig_get_peft_model(*args, **kwargs)
-    replace_class_in_inheritance_hierarchy(peft_model, PeftModel, NeuronPeftModel)
-    return peft_model
+
+class NeuronPeftModelForCausalLM(NeuronPeftModel):
+    pass

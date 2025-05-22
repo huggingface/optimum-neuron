@@ -345,6 +345,8 @@ class _TrainerForNeuron:
         xm.rendezvous("Hub cache synchronization done")
 
     def _wrap_model(self, model, training=True, dataloader=None):
+        if is_custom_modeling_model(model):
+            return model
         return super()._wrap_model(
             self.accelerator.patch_model_for_neuron(model), training=training, dataloader=dataloader
         )
@@ -551,7 +553,7 @@ class _TrainerForNeuron:
                 logger.info(
                     "Model parallelism is enabled, saving the model sharded state dict instead of the full state dict."
                 )
-            if isinstance(self.model, NeuronModelMixin):
+            if is_custom_modeling_model(self.model):
                 # This mark_step is needed to avoid hang issues.
                 xm.mark_step()
                 self.model.save_pretrained(
