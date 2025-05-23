@@ -235,8 +235,8 @@ def consolidate_tensor_parallel_checkpoints(
     #           key: [state_dict_tp_rank_0[key], state_dict_tp_rank_1[key], ...],
     #           for key in state_dict_tp_rank_0.keys()
     #       }
-    paramater_names = state_dicts[0].keys()
-    sharded_state_dicts = {name: [state_dict[name] for state_dict in state_dicts] for name in paramater_names}
+    parameter_names = state_dicts[0].keys()
+    sharded_state_dicts = {name: [state_dict[name] for state_dict in state_dicts] for name in parameter_names}
 
     consolidated_state_dict = to_original_weights(transformations_specs, sharded_state_dicts, parameters_metadata)
 
