@@ -17,6 +17,7 @@ from typing import Optional, Tuple, Union
 
 import torch
 from torch import nn
+from transformers.loss.loss_utils import ForCausalLMLoss
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.models.granite.configuration_granite import GraniteConfig
@@ -34,7 +35,6 @@ from ..llama.modeling_llama import (
     LlamaRMSNorm,
     LlamaRotaryEmbedding,
 )
-from ..loss_utils import ForCausalLMLoss
 
 
 if is_torch_xla_available():
@@ -229,9 +229,11 @@ class GraniteModel(LlamaModel):
 
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
+
         if self.mp_config.sequence_parallel_enabled:
             inputs_embeds = inputs_embeds.transpose(0, 1).contiguous()
             inputs_embeds = scatter_to_sequence_parallel_region(inputs_embeds)
+
         inputs_embeds = inputs_embeds * self.embedding_multiplier  # main diff with Llama
 
         current_length = (
