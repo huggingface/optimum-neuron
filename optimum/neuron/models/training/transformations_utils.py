@@ -17,6 +17,7 @@ Defines the API to represent model weights transformations that happen between t
 implementation and the custom implementation for Neuron.
 """
 
+import re
 import sys
 from abc import abstractmethod
 from dataclasses import asdict, dataclass, field
@@ -75,11 +76,29 @@ def create_local_fused_weight(tp_rank, tp_size, individual_weights, partition_di
         )
 
 
+@dataclass
 class ModelWeightTransformationSpec:
     """
     This class defines the interface for transforming model weights between the original Transformers implementation
     and the custom implementation for Neuron.
     """
+
+    @property
+    def peft_type(self) -> Optional[str]:
+        if not hasattr(self, "_peft_type"):
+            self._peft_type = None
+        return self._peft_type
+
+    @peft_type.setter
+    def peft_type(self, value: str):
+        self._peft_type = value
+
+    @abstractmethod
+    def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
+        """
+        Guesses the PEFT type of the module associated to the spec.
+        """
+        pass
 
     @abstractmethod
     def adapt_state_dict(
@@ -95,8 +114,20 @@ class ModelWeightTransformationSpec:
         pass
 
     @abstractmethod
+    def _to_original_weights(
+        self, module_fully_qualified_name: str,  sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]
+    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
+        pass
+
+    @abstractmethod
+    def _lora_to_original_weights(
+        self, module_fully_qualified_name: str,  sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]
+    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
+        pass
+
+    @abstractmethod
     def to_original_weights(
-        self, sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]
+        self, module_fully_qualified_name: str,  sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]
     ) -> tuple[Dict[str, torch.Tensor], list[str]]:
         """
         Produces the weights associated to this transformation spec from the custom model to match the original
@@ -111,7 +142,10 @@ class ModelWeightTransformationSpec:
             tuple[Dict[str, torch.Tensor], list[str]]: A tuple containing the transformed weights and a list of the
             names of the parameters to remove from the final state dict.
         """
-        pass
+        if self.peft_type is None:
+            return self._to_original_weights(module_fully_qualified_name, sharded_state_dicts, parameters_metadata)
+        elif self.peft_type == "lora":
+            return self._lora_to_original_weights(module_fully_qualified_name, sharded_state_dicts, parameters_metadata)
 
 
 @dataclass
@@ -128,7 +162,9 @@ class ModelWeightTransformationSpecs:
             raise ValueError("`module_fully_qualified_name` must be set to serialize the specs")
         serialized_specs = []
         for spec in self.specs:
-            serialized_specs.append((spec.__class__.__name__, asdict(spec)))
+            spec_data = asdict(spec)
+            spec_data["peft_type"] = spec.peft_type
+            serialized_specs.append((spec.__class__.__name__, spec_data))
         return {
             "module_fully_qualified_name": self.module_fully_qualified_name,
             "specs": serialized_specs,
@@ -142,7 +178,9 @@ class ModelWeightTransformationSpecs:
             # We dynamically import the class from the module.
             # We could use a dictionary as it is cleaner.
             cls_ = getattr(sys.modules[__name__], cls_name)
+            peft_type = metadata.pop("peft_type")
             spec = cls_(**metadata)
+            spec.peft_type = peft_type
             specs.add_spec(spec)
         return specs
 
@@ -234,6 +272,14 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
         elif self.fuse_axis == "row":
             self.fuse_axis = 1
 
+    def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
+        from ...peft.tuners.lora.layer import LoraParallelLinear
+        fused_linear_qualified_name = f"{module_fully_qualified_name}.{self.fused_linear_name}"
+        fused_linear = model.get_submodule(fused_linear_qualified_name)
+        if isinstance(fused_linear, LoraParallelLinear):
+            return "lora"
+        return None
+
     def adapt_state_dict(
         self,
         module_fully_qualified_name: str,
@@ -268,7 +314,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
 
         return state_dict
 
-    def to_original_weights(
+    def _to_original_weights(
         self,
         module_fully_qualified_name: str,
         sharded_state_dicts: Dict[str, list[torch.Tensor]],
@@ -302,6 +348,66 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 original_weights[original_weight_name] = original_weight
 
             keys_to_remove.append(fused_linear_weight_name)
+
+        return original_weights, keys_to_remove
+
+    def _lora_to_original_weights(
+        self,
+        module_fully_qualified_name: str,
+        sharded_state_dicts: Dict[str, list[torch.Tensor]],
+        parameters_metadata: Dict[str, Dict[str, Any]],
+    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
+        # To recreate original weights from the fused weights we need to:
+        # 1. Unfuse the sharded weights for :
+        #       - LoRA A if the base linear layer is a RowParallelLinear
+        #       - LoRA B if the base linear layer is a ColumnParallelLinear
+        # 2. Concat each unsharded local weight accross the partion_dim if TP is enabled
+        original_weights = {}
+        keys_to_remove = []
+        for param_name in ["weight", "bias"] if self.bias else ["weight"]:
+            unfused_local_weights = []
+            # The base layer is a ColumnParallelLinear
+            if self.fuse_axis == 0:
+                prefix =  f"{module_fully_qualified_name}.{self.fused_linear_name}.lora_B"
+            # Otherwise the base layer is a RowParallelLinear
+            else:
+                prefix = f"{module_fully_qualified_name}.{self.fused_linear_name}.lora_A"
+
+            # We get the names of the LoRA weights that are fused and sharded.
+            # There will be as many as the number of adapters in the model.
+            weight_names = []
+            for name in parameters_metadata:
+                if name.startswith(prefix) and name.endswith(param_name):
+                    weight_names.append(name)
+
+
+            # We unfuse then concat for each adapter.
+            adapter_pattern = re.compile(rf"{prefix}\.(\w+\.){param_name}")
+            for weight_name in weight_names:
+                # When saved, the name of the adapter is removed in the weight qualified name since weights for each
+                # adapter are saved separately.
+                adapter_name = re.search(adapter_pattern, weight_name).group(1)
+                weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
+                fused_linear_sharded_weights = sharded_state_dicts[weight_name_without_adapter_name]
+                for fused_local_weight in fused_linear_sharded_weights:
+                    print("zaza", fused_local_weight.shape, weight_name_without_adapter_name)
+                    unfused_local_weights.append(
+                        torch.split(
+                            fused_local_weight,
+                            [dim // self.tp_size for dim in self.original_dims],
+                            dim=self.fuse_axis,
+                        )
+                    )
+                for idx, linear_name in enumerate(self.linear_names):
+                    original_weight_name = weight_name_without_adapter_name.replace(self.fused_linear_name, linear_name)
+                    partition_dim = parameters_metadata[weight_name]["partition_dim"]
+                    original_weight = torch.cat(
+                        [unfused_local_weights[tp_rank][idx] for tp_rank in range(len(unfused_local_weights))],
+                        dim=partition_dim,
+                    )
+                    original_weights[original_weight_name] = original_weight
+
+                keys_to_remove.append(weight_name)
 
         return original_weights, keys_to_remove
 
@@ -537,7 +643,15 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
 
         return state_dict
 
-    def to_original_weights(
+    def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
+        from ...peft.tuners.lora.layer import LoraParallelLinear
+        gqa_qkv_projection_qualified_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}"
+        qkv_linear = model.get_submodule(gqa_qkv_projection_qualified_name)
+        if isinstance(qkv_linear, LoraParallelLinear):
+            return "lora"
+        return None
+
+    def _to_original_weights(
         self,
         module_fully_qualified_name: str,
         sharded_state_dicts: Dict[str, list[torch.Tensor]],
@@ -626,11 +740,13 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
         return state_dict, keys_to_remove
 
 
-def set_module_names_in_transformation_specs(model: torch.nn.Module):
+def specialize_transformation_specs_for_model(model: torch.nn.Module):
     for name, mod in model.named_modules():
         if not isinstance(mod, CustomModule):
             continue
         mod.specs.module_fully_qualified_name = name
+        for spec in mod.specs:
+            spec.peft_type = spec.guess_peft_type(model, name)
 
 
 def adapt_state_dict(
@@ -696,6 +812,11 @@ def to_original_weights(
         if name in consolidated_state_dict or name in parameters_to_remove:
             continue
 
+        # It means that it was a parameter of the model but not saved. It can be the case when this parameter did not
+        # required gradient computation.
+        if name not in sharded_state_dicts:
+            continue
+
         is_tensor_model_parallel = metadata["tensor_model_parallel"]
         if is_tensor_model_parallel:
             consolidated_weight = torch.cat(sharded_state_dicts[name], dim=metadata["partition_dim"])
@@ -731,11 +852,12 @@ def create_parameter_metadata(model) -> Dict[str, Dict[str, Any]]:
             metadata["parameters"][name] = get_tensor_model_parallel_attributes(param)
         else:
             metadata["parameters"][name] = {
-                "tensor_model_parallel": tensor_model_parallel,
+                "tensor_model_parallel": False,
             }
     for name, module in model.named_modules():
         if not isinstance(module, CustomModule):
             continue
         serialized_specs = module.specs.to_metadata()
         metadata["model_weight_transformation_specs"].append(serialized_specs)
+
     return metadata

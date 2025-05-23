@@ -14,3 +14,4 @@
 # limitations under the License.
 
 from .mapping import get_peft_model
+from .peft_model import NeuronPeftModel, NeuronPeftModelForCausalLM

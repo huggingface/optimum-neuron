@@ -74,7 +74,7 @@ from .transformations_utils import (
     adapt_state_dict,
     create_parameter_metadata,
     get_tensor_model_parallel_attributes,
-    set_module_names_in_transformation_specs,
+    specialize_transformation_specs_for_model,
 )
 
 
@@ -561,8 +561,8 @@ class NeuronModelMixin:
         # We do not handle the `device_map` here, since our cases are much simpler.
 
         # ** Difference from original _load_pretrained_model **
-        # We set the module names in the transformation specs, this is required to have the specs properly defined.
-        set_module_names_in_transformation_specs(model_to_load)
+        # We specialize the transformation specs for the model, this is required to have the specs properly defined.
+        specialize_transformation_specs_for_model(model_to_load)
 
         # ** Difference from original _load_pretrained_model **
         # We do not add GGUF or low_cpu_mem_usage related code here.
@@ -624,9 +624,9 @@ class NeuronModelMixin:
             # We do not add the offload_index code here, since we do not support it.
 
         # ** Difference from original _load_pretrained_model **
-        # We set the modules names using the full model regardless of prefixes.
+        # We specialize the specs on the full model regardless of prefixes.
         # This is this name that will be saved and used when re-loading the model.
-        set_module_names_in_transformation_specs(model)
+        specialize_transformation_specs_for_model(model)
 
         if len(error_msgs) > 0:
             error_msg = "\n\t".join(error_msgs)

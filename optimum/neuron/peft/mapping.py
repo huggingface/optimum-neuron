@@ -22,7 +22,6 @@ from ..utils.patching import Patcher
 from .tuners import NeuronLoraModel
 from .peft_model import NeuronPeftModel, NeuronPeftModelForCausalLM
 
-
 if is_peft_available():
     from peft.config import PeftConfig
     from peft.mapping import MODEL_TYPE_TO_PEFT_MODEL_MAPPING, PEFT_TYPE_TO_CONFIG_MAPPING
@@ -95,7 +94,7 @@ def get_peft_model(
         ]
     )
     with patcher:
-        return orig_get_peft_model(
+        peft_model = orig_get_peft_model(
             model,
             peft_config,
             adapter_name=adapter_name,
@@ -104,3 +103,4 @@ def get_peft_model(
             revision=revision,
             low_cpu_mem_usage=low_cpu_mem_usage,
         )
+    return peft_model
