@@ -15,4 +15,5 @@
 # This file is used by the NeuronConfig create method to register the model configurations
 
 from .inference.hlo.backend.config import HloNeuronConfig  # noqa F401
+from .inference.nxd.backend.config import NxDNeuronConfig  # noqa F401
 from .training.config import TrainingNeuronConfig  # noqa F401

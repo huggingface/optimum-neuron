@@ -31,7 +31,7 @@ from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.processing_utils import Unpack
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
-from transformers.utils import LossKwargs, logging
+from transformers.utils import LossKwargs, can_return_tuple, logging
 
 from ....utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..config import TrainingNeuronConfig
@@ -315,7 +315,7 @@ class LlamaAttention(nn.Module, CustomModule):
         self.attention_dropout = config.attention_dropout
         self.is_causal = True
 
-        if (self.head_dim * self.num_heads) != self.hidden_size:
+        if (self.hidden_size % self.num_heads) != 0:
             raise ValueError(
                 f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
                 f" and `num_heads`: {self.num_heads})."
@@ -495,10 +495,10 @@ class LlamaAttention(nn.Module, CustomModule):
 
         if self.mp_config.sequence_parallel_enabled:
             attn_output = attn_output.permute(2, 0, 1, 3)
-            attn_output = attn_output.reshape(q_len, bsz, self.hidden_size // get_tensor_model_parallel_size())
+            attn_output = attn_output.reshape(q_len, bsz, self.num_heads * self.head_dim)
         else:
             attn_output = attn_output.transpose(1, 2).contiguous()
-            attn_output = attn_output.reshape(bsz, q_len, self.hidden_size // get_tensor_model_parallel_size())
+            attn_output = attn_output.reshape(bsz, q_len, self.num_heads * self.head_dim)
 
         attn_output = self.o_proj(attn_output)
 
@@ -619,6 +619,7 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
     def set_input_embeddings(self, value):
         self.embed_tokens = value
 
+    @can_return_tuple
     def forward(
         self,
         input_ids: torch.LongTensor = None,
@@ -628,15 +629,13 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
         **flash_attn_kwargs: Unpack[FlashAttentionKwargs],
-    ) -> Union[Tuple, BaseModelOutputWithPast]:
+    ) -> BaseModelOutputWithPast:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
@@ -714,7 +713,7 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
             hidden_states=all_hidden_states,
             attentions=all_self_attns,
         )
-        return output if return_dict else output.to_tuple()
+        return output
 
     def _update_causal_mask(
         self,
@@ -832,6 +831,7 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
     def get_decoder(self):
         return self.model
 
+    @can_return_tuple
     def forward(
         self,
         input_ids: torch.LongTensor = None,
@@ -841,14 +841,12 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
         labels: Optional[torch.LongTensor] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
         **kwargs: Unpack[KwargsForCausalLM],
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model(
@@ -858,7 +856,6 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
             inputs_embeds=inputs_embeds,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
             **kwargs,
         )
 
@@ -872,10 +869,6 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
         loss = None
         if labels is not None:
             loss = ForCausalLMLoss(logits=logits, labels=labels, vocab_size=self.vocab_size, **kwargs)
-
-        if not return_dict:
-            output = (logits,) + outputs[1:]
-            return (loss,) + output if loss is not None else output
 
         return CausalLMOutputWithPast(
             loss=loss,
