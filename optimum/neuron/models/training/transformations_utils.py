@@ -322,7 +322,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
     ) -> tuple[Dict[str, torch.Tensor], list[str]]:
         # To recreate original weights from the fused weights we need to:
         # 1. Unfuse the sharded weights
-        # 2. Concat each unsharded local weight accross the partion_dim if TP is enabled
+        # 2. Concat each sharded local weight accross the partion_dim if TP is enabled
         original_weights = {}
         keys_to_remove = []
         for param_name in ["weight", "bias"] if self.bias else ["weight"]:
@@ -357,57 +357,109 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
         sharded_state_dicts: Dict[str, list[torch.Tensor]],
         parameters_metadata: Dict[str, Dict[str, Any]],
     ) -> tuple[Dict[str, torch.Tensor], list[str]]:
-        # To recreate original weights from the fused weights we need to:
-        # 1. Unfuse the sharded weights for :
-        #       - LoRA A if the base linear layer is a RowParallelLinear
-        #       - LoRA B if the base linear layer is a ColumnParallelLinear
-        # 2. Concat each unsharded local weight accross the partion_dim if TP is enabled
+        # To recreate original weights from the fused weights there are two cases:
+        #   - Case 1: the base layer is a ColumnParallelLinear
+        #   Steps:
+        #       1. Unfuse the fused weight for LoRA B
+        #       2. Concat the local unfused weights for LoRA B accross the partition_dim if TP is enabled
+        #       3. Duplicate the weight for LoRA A for each unfused linear
+        #   - Case 2: the bae layer is a RowParallelLinear 
+        #   Steps:
+        #       1. Concat the local weights for LoRA A accross the partition_dim if TP is enabled
+        #       2. Unfuse the fused weight for LoRA B
+        #       3. Duplicate the weight for LoRA A for each unfused linear
         original_weights = {}
         keys_to_remove = []
         for param_name in ["weight", "bias"] if self.bias else ["weight"]:
             unfused_local_weights = []
+            lora_A_prefix = f"{module_fully_qualified_name}.{self.fused_linear_name}.lora_A"
+            lora_B_prefix =  f"{module_fully_qualified_name}.{self.fused_linear_name}.lora_B"
+            lora_A_adapter_pattern = re.compile(rf"{lora_A_prefix}\.(\w+\.){param_name}")
+            lora_B_adapter_pattern = re.compile(rf"{lora_B_prefix}\.(\w+\.){param_name}")
+
             # The base layer is a ColumnParallelLinear
             if self.fuse_axis == 0:
-                prefix =  f"{module_fully_qualified_name}.{self.fused_linear_name}.lora_B"
+                # We get the names of the LoRA weights that are fused and sharded.
+                # There will be as many as the number of adapters in the model.
+                weight_names = []
+                to_duplicate_names = []
+                for name in parameters_metadata:
+                    if name.startswith(lora_B_prefix) and name.endswith(param_name):
+                        weight_names.append(name)
+                    if name.startswith(lora_A_prefix) and name.endswith(param_name):
+                        to_duplicate_names.append(name)
+
+
+                # We unfuse then concat for each adapter.
+                for weight_name in weight_names:
+                    # When saved, the name of the adapter is removed in the weight qualified name since weights for each
+                    # adapter are saved separately.
+                    adapter_name = re.search(lora_B_adapter_pattern, weight_name).group(1)
+                    weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
+                    fused_linear_sharded_weights = sharded_state_dicts[weight_name_without_adapter_name]
+                    for fused_local_weight in fused_linear_sharded_weights:
+                        unfused_local_weights.append(
+                            torch.split(
+                                fused_local_weight,
+                                [dim // self.tp_size for dim in self.original_dims],
+                                dim=self.fuse_axis,
+                            )
+                        )
+                    for idx, linear_name in enumerate(self.linear_names):
+                        original_weight_name = weight_name_without_adapter_name.replace(self.fused_linear_name, linear_name)
+                        partition_dim = parameters_metadata[weight_name]["partition_dim"]
+                        original_weight = torch.cat(
+                            [unfused_local_weights[tp_rank][idx] for tp_rank in range(len(unfused_local_weights))],
+                            dim=partition_dim,
+                        )
+                        original_weights[original_weight_name] = original_weight
+
+                    keys_to_remove.append(weight_name)
+
+                # We duplicate LoRA A weight for each unfused linear
+                for name in to_duplicate_names:
+                    adapter_name = re.search(lora_A_adapter_pattern, name).group(1)
+                    name_without_adapter_name = name.replace(adapter_name, "")
+                    weight = sharded_state_dicts[name_without_adapter_name][0]
+                    
+                    for linear_name in self.linear_names:
+                        original_name = name_without_adapter_name.replace(self.fused_linear_name, linear_name)
+                        original_weights[original_name] = weight.clone()
+
+                    keys_to_remove.append(name)
+
             # Otherwise the base layer is a RowParallelLinear
             else:
-                prefix = f"{module_fully_qualified_name}.{self.fused_linear_name}.lora_A"
+                to_concat_and_duplicate_names = [] 
+                to_unfuse_names = []
+                for name in parameters_metadata:
+                    if name.startswith(lora_A_prefix) and name.endswith(param_name):
+                        to_concat_and_duplicate_names.append(name)
+                    if name.startswith(lora_B_prefix) and name.endswith(param_name):
+                        to_unfuse_names.append(name)
 
-            # We get the names of the LoRA weights that are fused and sharded.
-            # There will be as many as the number of adapters in the model.
-            weight_names = []
-            for name in parameters_metadata:
-                if name.startswith(prefix) and name.endswith(param_name):
-                    weight_names.append(name)
-
-
-            # We unfuse then concat for each adapter.
-            adapter_pattern = re.compile(rf"{prefix}\.(\w+\.){param_name}")
-            for weight_name in weight_names:
-                # When saved, the name of the adapter is removed in the weight qualified name since weights for each
-                # adapter are saved separately.
-                adapter_name = re.search(adapter_pattern, weight_name).group(1)
-                weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
-                fused_linear_sharded_weights = sharded_state_dicts[weight_name_without_adapter_name]
-                for fused_local_weight in fused_linear_sharded_weights:
-                    print("zaza", fused_local_weight.shape, weight_name_without_adapter_name)
-                    unfused_local_weights.append(
-                        torch.split(
-                            fused_local_weight,
-                            [dim // self.tp_size for dim in self.original_dims],
-                            dim=self.fuse_axis,
-                        )
-                    )
-                for idx, linear_name in enumerate(self.linear_names):
-                    original_weight_name = weight_name_without_adapter_name.replace(self.fused_linear_name, linear_name)
+                for weight_name in to_concat_and_duplicate_names:
+                    adapter_name = re.search(lora_A_adapter_pattern, weight_name).group(1)
+                    weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
+                    linear_sharded_weights = sharded_state_dicts[weight_name_without_adapter_name]
                     partition_dim = parameters_metadata[weight_name]["partition_dim"]
-                    original_weight = torch.cat(
-                        [unfused_local_weights[tp_rank][idx] for tp_rank in range(len(unfused_local_weights))],
-                        dim=partition_dim,
-                    )
-                    original_weights[original_weight_name] = original_weight
+                    linear_weight = torch.cat(linear_sharded_weights, dim=partition_dim)
+                    for linear_name in self.linear_names:
+                        original_weight_name = weight_name_without_adapter_name.replace(self.fused_linear_name, linear_name)
+                        original_weights[original_weight_name] = linear_weight.clone()
 
-                keys_to_remove.append(weight_name)
+                    keys_to_remove.append(weight_name)
+
+                for weight_name in to_unfuse_names:
+                    adapter_name = re.search(lora_B_adapter_pattern, weight_name).group(1)
+                    weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
+                    fused_linear_weight = sharded_state_dicts[weight_name_without_adapter_name][0]
+                    unfused_linear_weights = torch.split(fused_linear_weight, self.original_dims[0] // self.tp_size, dim=self.fuse_axis)
+                    for idx, linear_name in enumerate(self.linear_names):
+                        original_weight_name = weight_name_without_adapter_name.replace(self.fused_linear_name, linear_name)
+                        original_weights[original_weight_name] = unfused_linear_weights[idx]
+
+                    keys_to_remove.append(weight_name)
 
         return original_weights, keys_to_remove
 
