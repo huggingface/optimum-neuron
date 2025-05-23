@@ -1,12 +1,15 @@
 import importlib
+import pytest
 from functools import partial
 
-import datasets
-import pytest
 import torch
+
+import datasets
 from transformers import AutoTokenizer, TrainerCallback
+from peft import LoraConfig
 
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
+from optimum.neuron.peft import get_peft_model
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
@@ -34,6 +37,7 @@ def _overfit_causal_lm(
     pp_size,
     use_flash_attention_2,
     output_dir,
+    peft_config=None,
 ):
     # Dataset creation.
     sample_to_overfit = "Paris is the most beautiful city in the world."
@@ -83,6 +87,9 @@ def _overfit_causal_lm(
         torch_dtype=torch.bfloat16,
         use_flash_attention_2=use_flash_attention_2,
     )
+
+    if peft_config is not None:
+        model = get_peft_model(model, peft_config)
 
     stored_logs = []
 
@@ -178,3 +185,38 @@ def test_overfit_causal_lm(
         tmpdir,
     )
     launch_procs(run_fn, world_size, tp_size, pp_size)
+
+
+
+@pytest.mark.parametrize(
+    "world_size,tp_size,pp_size",
+    [[8, 8, 1]],
+    ids=["dp=1,tp=8,pp=1"],
+)
+def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir):
+    peft_config = LoraConfig(
+        r=16,
+        lora_alpha=32,
+        lora_dropout=0.05,
+        target_modules=["embed_tokens", "q_proj", "v_proj", "o_proj", "k_proj", "gate_up_proj", "down_proj"],
+        bias="none",
+        task_type="CAUSAL_LM",
+    )
+    run_fn = partial(
+        _overfit_causal_lm,
+        "LlamaForCausalLM",
+        "meta-llama/Llama-3.2-1B-Instruct",
+        1e-4,
+        0.03,
+        {},
+        2048,
+        0.0,
+        tp_size,
+        pp_size,
+        True,
+        tmpdir,
+        peft_config=peft_config,
+
+    )
+    launch_procs(run_fn, world_size, tp_size, pp_size)
+
