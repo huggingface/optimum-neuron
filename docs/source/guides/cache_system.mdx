@@ -55,7 +55,7 @@ It is important to understand that the cache operates on NEFF binaries, and not 
 As explained previously, each model exported to Neuron using the `NeuronTrainer` or `NeuronModelForCausalLM` is composed of [XLA](https://github.com/pytorch/xla/) subgraphs.
 
 Each subgraph is unique, and results from the combination of:
-- the `transformers` or `transformers_neuronx` python modeling code,
+- the `transformers` python modeling code,
 - the `transformers` model config,
 - the `input_shapes` selected during the export,
 - The precision of the model, full-precision, fp16 or bf16.
