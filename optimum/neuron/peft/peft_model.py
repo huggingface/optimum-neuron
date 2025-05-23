@@ -13,18 +13,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
+from pathlib import Path
+import json
+import copy
 import os
 import warnings
 from typing import Optional, Any, Union
 
 import torch
 
-from ..models.training.modeling_utils import NotSupportedError
+from transformers import PreTrainedModel
+
+from ..models.training import NotSupportedError, create_parameter_metadata
+from ..models.training.transformations_utils import specialize_transformation_specs_for_model
 from ..utils.import_utils import is_peft_available
+from ..utils.patching import Patcher
 
 
 if is_peft_available():
     from peft import PeftModel, PeftConfig
+    # from peft.utils import get_peft_model_state_dict as orig_get_peft_model_state_dict
+    from peft.utils import (
+        get_peft_model_state_dict,
+        SAFETENSORS_WEIGHTS_NAME,
+        TRANSFORMERS_MODELS_TO_PREFIX_TUNING_POSTPROCESS_MAPPING,
+        WEIGHTS_NAME,
+    )
+
 else:
     class PeftModel:
         pass
@@ -32,10 +48,16 @@ else:
     class PeftConfig:
         pass
 
+    def get_peft_model_state_dict(*args, **kwargs):
+        pass
+
+    SAFETENSORS_WEIGHTS_NAME = ""
+    TRANSFORMERS_MODELS_TO_PREFIX_TUNING_POSTPROCESS_MAPPING = {}
+    WEIGHTS_NAME = ""
+
 ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME = "adapter_shards"
 
 
-@requires_neuronx_distributed
 def has_valid_embedding_base_layer(layer):
     """Check if the layer has an embedding base layer"""
     from neuronx_distributed.parallel_layers.layers import BaseParallelLinear, ParallelEmbedding
@@ -45,14 +67,30 @@ def has_valid_embedding_base_layer(layer):
     )
 
 
-@functools.wraps(orig_get_peft_model_state_dict)
-def get_peft_model_state_dict(*args, **kwargs):
-    with Patcher([("peft.utils.save_and_load.has_valid_embedding_base_layer", has_valid_embedding_base_layer)]):
-        return orig_get_peft_model_state_dict(*args, **kwargs)
+# @functools.wraps(orig_get_peft_model_state_dict)
+# def get_peft_model_state_dict(*args, **kwargs):
+#     # with Patcher([("peft.utils.save_and_load.has_valid_embedding_base_layer", has_valid_embedding_base_layer)]):
+#     return orig_get_peft_model_state_dict(*args, **kwargs)
 
 
 
 class NeuronPeftModel(PeftModel):
+    def __init__(
+        self,
+        model: PreTrainedModel,
+        peft_config: PeftConfig,
+        adapter_name: str = "default",
+        autocast_adapter_dtype: bool = True,
+        low_cpu_mem_usage: bool = False,
+    ) -> None:
+        super().__init__(model, peft_config, adapter_name=adapter_name, autocast_adapter_dtype=autocast_adapter_dtype, low_cpu_mem_usage=low_cpu_mem_usage)
+
+        self.add_adapter("test", peft_config=peft_config)
+
+        # We specialize the transformation specs for the PeFT model.
+        specialize_transformation_specs_for_model(self)
+
+
     def save_pretrained(
         self,
         save_directory: str,
@@ -63,6 +101,19 @@ class NeuronPeftModel(PeftModel):
         path_initial_model_for_weight_conversion: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
+        import neuronx_distributed
+        import torch_xla.core.xla_model as xm
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_data_parallel_rank,
+            get_pipeline_model_parallel_rank,
+            get_pipeline_model_parallel_size,
+            get_tensor_model_parallel_rank,
+            get_tensor_model_parallel_size,
+            model_parallel_is_initialized,
+        )
+        from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
+        from safetensors.torch import save_file as safe_save_file
+
         if os.path.isfile(save_directory):
             raise ValueError(f"Provided path ({save_directory}) should be a directory, not a file")
 
@@ -119,6 +170,15 @@ class NeuronPeftModel(PeftModel):
             os.makedirs(save_directory, exist_ok=True)
             self.create_or_update_model_card(save_directory)
 
+        # Save the metadata required to consolidate the checkpoints properly.
+        if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
+            metadata = create_parameter_metadata(self)
+            pp_rank = get_pipeline_model_parallel_rank()
+            metadata_path = Path(save_directory) / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.json"
+            metadata_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(metadata_path, "w") as f:
+                f.write(json.dumps(metadata, indent=4))
+
         for adapter_name in selected_adapters:
             peft_config = self.peft_config[adapter_name]
             # save only the trainable weights
@@ -128,31 +188,10 @@ class NeuronPeftModel(PeftModel):
                 adapter_name=adapter_name,
                 save_embedding_layers=save_embedding_layers,
             )
-            output_dir = os.path.join(save_directory, adapter_name) if adapter_name != "default" else save_directory
+            output_dir = os.path.join(save_directory, ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME, adapter_name) if adapter_name != "default" else save_directory
             os.makedirs(output_dir, exist_ok=True)
 
-            if is_main_process and safe_serialization:
-                # Section copied from: https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_utils.py#L2111-L2134
-                # Safetensors does not allow tensor aliasing.
-                # We're going to remove aliases before saving
-                ptrs = collections.defaultdict(list)
-                for name, tensor in output_state_dict.items():
-                    # Sometimes in the state_dict we have non-tensor objects.
-                    # e.g. in bitsandbytes we have some `str` objects in the state_dict
-                    if isinstance(tensor, torch.Tensor):
-                        ptrs[id_tensor_storage(tensor)].append(name)
-                    else:
-                        # In the non-tensor case, fall back to the pointer of the object itself
-                        ptrs[id(tensor)].append(name)
-
-                # These are all the pointers of shared tensors.
-                shared_ptrs = {ptr: names for ptr, names in ptrs.items() if len(names) > 1}
-
-                for _, names in shared_ptrs.items():
-                    # Here we just clone the shared tensors to avoid tensor aliasing which is
-                    # not supported in safetensors.
-                    for shared_tensor_name in names[1:]:
-                        output_state_dict[shared_tensor_name] = output_state_dict[shared_tensor_name].clone()
+            if is_main_process:
                 if path_initial_model_for_weight_conversion is not None:
                     peft_config = copy.deepcopy(peft_config)
                     peft_config.init_lora_weights = True
@@ -160,20 +199,20 @@ class NeuronPeftModel(PeftModel):
                     output_state_dict = save_mutated_as_lora(
                         peft_config, path_initial_model_for_weight_conversion, output_state_dict, kwargs
                     )
-                safe_save_file(
-                    output_state_dict,
-                    os.path.join(output_dir, SAFETENSORS_WEIGHTS_NAME),
-                    metadata={"format": "pt"},
-                )
-            elif is_main_process:
-                if path_initial_model_for_weight_conversion is not None:
-                    peft_config = copy.deepcopy(peft_config)
-                    peft_config.init_lora_weights = True
-                    peft_config.save_pretrained(path_initial_model_for_weight_conversion)
-                    output_state_dict = save_mutated_as_lora(
-                        peft_config, path_initial_model_for_weight_conversion, output_state_dict, kwargs
-                    )
-                torch.save(output_state_dict, os.path.join(output_dir, WEIGHTS_NAME))
+
+            class DummyModule(torch.nn.Module):
+                def state_dict(self):
+                    return output_state_dict
+
+            # Save the adapter weights.
+            neuronx_distributed.trainer.save_checkpoint(
+                output_dir,
+                tag=ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME,
+                model=DummyModule(),
+                use_xser=self.mp_config.use_xser,
+                async_save=self.mp_config.async_save,
+                num_workers=self.mp_config.num_local_ranks_per_step,
+            )
 
             # save the config and change the inference mode to `True`
             if peft_config.base_model_name_or_path is None:

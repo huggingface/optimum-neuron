@@ -143,6 +143,7 @@ class NeuronLoraLayer(LoraLayer):
                 bias=False,
                 input_is_parallel=self.base_layer.input_is_parallel,
                 sequence_parallel_enabled=self.base_layer.sequence_parallel_enabled,
+                sequence_dimension=self.base_layer.sequence_dimension,
             )
             self.lora_B[adapter_name] = nn.Linear(r, self.out_features, bias=lora_bias)
         else:
@@ -153,6 +154,7 @@ class NeuronLoraLayer(LoraLayer):
                 bias=lora_bias,
                 gather_output=self.base_layer.gather_output,
                 sequence_parallel_enabled=self.base_layer.sequence_parallel_enabled,
+                sequence_dimension=self.base_layer.sequence_dimension,
             )
 
         self.lora_bias[adapter_name] = lora_bias
@@ -188,7 +190,7 @@ class NeuronLoraLayer(LoraLayer):
         self.set_adapter(self.active_adapters)
 
 
-class ParallelLinear(nn.Module, NeuronLoraLayer):
+class LoraParallelLinear(nn.Module, NeuronLoraLayer):
     def __init__(
         self,
         base_layer,
@@ -330,6 +332,6 @@ class LoraParallelEmbedding(nn.Module, NeuronLoraLayer):
 
 NEURON_LORA_MODULES = {
     ParallelEmbedding: LoraParallelEmbedding,
-    ColumnParallelLinear: ParallelLinear,
-    RowParallelLinear: ParallelLinear,
+    ColumnParallelLinear: LoraParallelLinear,
+    RowParallelLinear: LoraParallelLinear,
 }
