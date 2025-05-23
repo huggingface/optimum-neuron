@@ -43,7 +43,7 @@ Note: you can edit the .env file to use a different model configuration
 ### Install `guidellm`
 
 ```shell
-$ pip install guidellm
+$ pip install guidellm==0.1.0
 ```
 
 ### Launch benchmark run
