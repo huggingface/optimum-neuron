@@ -572,11 +572,13 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
                 "position_ids": next_position_ids,
             }
 
-        sampling_params = self.default_sampling_params if sampling_params is None else sampling_params
-        if self.neuron_config.on_device_sampling:
+        if sampling_params is None:
+            if self.neuron_config.on_device_sampling:
+                raise ValueError("The sampling params tensor is required for on-device sampling.")
+            # Just pass a dummy tensor to the model, it will be ignored
+            sampling_params = prepare_sampling_params(seq_ids.shape[0])
+        elif self.neuron_config.on_device_sampling:
             validate_sampling_params(sampling_params, self.neuron_config.max_topk)
-
-        self.sampling_params = sampling_params
 
         output_attentions, output_hidden_states, return_dict = self._setup_func_config(
             output_attentions, output_hidden_states, return_dict
