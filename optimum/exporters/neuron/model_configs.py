@@ -15,17 +15,22 @@
 """Model specific Neuron configurations."""
 
 import copy
+import inspect
+import os
 from functools import partial
-from typing import TYPE_CHECKING, Dict, List
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
 
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import (
+    DummyFluxTransformerTextInputGenerator,
+    DummyFluxTransformerVisionInputGenerator,
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
     DummyTextInputGenerator,
     DummyTimestepInputGenerator,
+    DummyTransformerTimestepInputGenerator,
     DummyVisionInputGenerator,
     NormalizedConfig,
     NormalizedConfigManager,
@@ -41,6 +46,7 @@ from ...neuron.utils import (
     ASTDummyAudioInputGenerator,
     DummyBeamValuesGenerator,
     DummyControNetInputGenerator,
+    DummyFluxTransformerRotaryEmbGenerator,
     DummyIPAdapterInputGenerator,
     DummyMaskedPosGenerator,
     WhisperDummyTextInputGenerator,
@@ -56,6 +62,7 @@ from .config import (
 from .model_wrappers import (
     CLIPVisionWithProjectionNeuronWrapper,
     ControlNetNeuronWrapper,
+    FluxTransformerNeuronWrapper,
     NoCacheModelWrapper,
     PixartTransformerNeuronWrapper,
     SentenceTransformersCLIPNeuronWrapper,
@@ -71,10 +78,13 @@ from .model_wrappers import (
 
 if is_neuronx_distributed_available():
     import neuronx_distributed
+    from neuronx_distributed.trace.model_builder import BaseModelInstance
 
 if TYPE_CHECKING:
     if is_diffusers_available():
+        from diffusers.models.model_loading_utils import _fetch_index_file, load_state_dict
         from diffusers.models.vae import Decoder as VaeDecoder
+        from diffusers.utils import _get_checkpoint_shard_files
 
 
 COMMON_TEXT_TASKS = [
@@ -777,6 +787,139 @@ class PixartTransformerNeuronConfig(VisionNeuronConfig):
         return ["out_hidden_states"]
 
 
+@register_in_tasks_manager("flux-transformer-2d", *["semantic-segmentation"], library_name="diffusers")
+class FluxTransformerNeuronConfig(VisionNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    INPUT_ARGS = (
+        "batch_size",
+        "sequence_length",
+        "num_channels",
+        "width",
+        "height",
+        "vae_scale_factor",
+        "encoder_hidden_size",
+        "rotary_axes_dim",
+    )
+    MODEL_TYPE = "flux-transformer-2d"
+    CUSTOM_MODEL_WRAPPER = FluxTransformerNeuronWrapper
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        height="height",
+        width="width",
+        num_channels="in_channels",
+        vocab_size="attention_head_dim",
+        hidden_size="joint_attention_dim",
+        projection_size="pooled_projection_dim",
+        allow_new=True,
+    )
+
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        DummyTransformerTimestepInputGenerator,
+        DummyFluxTransformerVisionInputGenerator,
+        DummyFluxTransformerTextInputGenerator,
+        DummyFluxTransformerRotaryEmbGenerator,
+    )
+
+    @property
+    def inputs(self) -> List[str]:
+        common_inputs = [
+            "hidden_states",
+            "encoder_hidden_states",
+            "pooled_projections",
+            "timestep",
+            "guidance",
+            # Q: Why `image_rotary_emb` but not `txt_ids` and `img_ids`? We compute the rotary positional embeddings in CPU to save Neuron memory.
+            # shape: [txt_ids.shape(0)+img_ids.shape(0), sum(axes_dim), 2]
+            "image_rotary_emb",
+        ]
+        return common_inputs
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["out_hidden_states"]
+
+    def patch_model_and_prepare_aliases(self, model_or_path, *args):
+        base_model_instance = BaseModelInstance(
+            partial(self.get_parallel_callable, self._config),
+            input_output_aliases={},
+        )
+        return base_model_instance, None
+
+    def get_parallel_callable(self, config):
+        from ...neuron.models.inference.nxd.flux.modeling_flux import NeuronFluxTransformer2DModel
+
+        # Parallelize Flux transformer with NxD backend modeling
+        valid_params = inspect.signature(NeuronFluxTransformer2DModel.__init__).parameters
+        model_config = {k: v for k, v in config.items() if k in valid_params and k != "self"}
+        model = NeuronFluxTransformer2DModel(**model_config)
+        model.eval()
+        if self.float_dtype == torch.bfloat16:
+            model.bfloat16()
+
+        return model
+
+    # Adapted from diffusers.models.modeling_utils.ModelMixin.from_pretrained, this is a helper function for loading checkpoints required by `ModelBuilder`.
+    def get_checkpoint_loader_fn(self, pretrained_model_name_or_path: Optional[Union[str, os.PathLike]], **kwargs):
+        subfolder = kwargs.pop("subfolder", None)
+        cache_dir = kwargs.pop("cache_dir", None)
+        variant = kwargs.pop("variant", None)
+        force_download = kwargs.pop("force_download", False)
+        proxies = kwargs.pop("proxies", None)
+        local_files_only = kwargs.pop("local_files_only", None)
+        token = kwargs.pop("token", None)
+        revision = kwargs.pop("revision", None)
+        # Determine if we're loading from a directory of sharded checkpoints.
+        index_file = None
+        is_local = os.path.isdir(pretrained_model_name_or_path)
+        index_file_kwargs = {
+            "is_local": is_local,
+            "pretrained_model_name_or_path": pretrained_model_name_or_path,
+            "subfolder": subfolder or "",
+            "use_safetensors": True,
+            "cache_dir": cache_dir,
+            "variant": variant,
+            "force_download": force_download,
+            "proxies": proxies,
+            "local_files_only": local_files_only,
+            "token": token,
+            "revision": revision,
+        }
+        index_file = _fetch_index_file(**index_file_kwargs)
+
+        resolved_model_file = None
+        resolved_model_file, _ = _get_checkpoint_shard_files(
+            pretrained_model_name_or_path,
+            index_file,
+            cache_dir=cache_dir,
+            proxies=proxies,
+            local_files_only=local_files_only,
+            token=token,
+            revision=revision,
+            subfolder=subfolder or "",
+        )
+
+        if not isinstance(resolved_model_file, list):
+            resolved_model_file = [resolved_model_file]
+
+        merged_state_dict = {}
+        for shard_file in resolved_model_file:
+            state_dict = load_state_dict(shard_file)
+            merged_state_dict.update(state_dict)
+
+        inner_dim = self.config.num_attention_heads * self.config.attention_head_dim
+        for i in range(self.config.num_single_layers):
+            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_attn.weight"] = merged_state_dict[
+                f"single_transformer_blocks.{i}.proj_out.weight"
+            ][:, :inner_dim].contiguous()
+            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_attn.bias"] = (
+                merged_state_dict[f"single_transformer_blocks.{i}.proj_out.bias"].clone().detach().contiguous()
+            )
+            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_mlp.weight"] = merged_state_dict[
+                f"single_transformer_blocks.{i}.proj_out.weight"
+            ][:, inner_dim:].contiguous()
+
+        return merged_state_dict
+
+
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")
 class ControlNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
@@ -867,13 +1010,15 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
     def outputs(self) -> List[str]:
         return ["sample"]
 
-    def patch_model_for_export(
+    def patch_model_and_prepare_aliases(
         self,
         model: "VaeDecoder",
         dummy_inputs: Dict[str, torch.Tensor],
         **kwargs,
     ):
-        return super().patch_model_for_export(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
+        return super().patch_model_and_prepare_aliases(
+            model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True
+        ), {}
 
 
 class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
@@ -896,6 +1041,7 @@ class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
 class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
     CUSTOM_MODEL_WRAPPER = T5EncoderWrapper
     INPUT_ARGS = ("batch_size", "sequence_length")
+    MODEL_TYPE = "t5-encoder"
 
     @property
     def outputs(self) -> List[str]:
@@ -905,8 +1051,51 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
     def is_encoder_decoder(self) -> bool:
         return True
 
-    def patch_model_for_export(self, model_or_path, **input_shapes):
-        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes)
+    def patch_model_and_prepare_aliases(self, model_or_path, device="xla", **input_shapes):
+        batch_size = input_shapes.pop("batch_size", None)
+        sequence_length = input_shapes.pop("sequence_length", None)
+        if self.tensor_parallel_size > 1:
+            # `torch.nn.modules` objects not eligible for pickling, the model needs to be loaded within the func.
+            return partial(
+                self.get_parallel_callable,
+                model_or_path,
+                sequence_length,
+                batch_size,
+                device,
+                self.tensor_parallel_size,
+            ), None
+        else:
+            return self.CUSTOM_MODEL_WRAPPER(
+                model_or_path,
+                sequence_length=sequence_length,
+                batch_size=batch_size,
+                device=device,
+                tensor_parallel_size=self.tensor_parallel_size,
+            ), {}
+
+    def get_parallel_callable(self, model_name_or_path, sequence_length, batch_size, device, tensor_parallel_size):
+        """Unlike `torch_neuronx.trace`, `parallel_model_trace` requires a function returning a model object and a dictionary of states."""
+
+        pipe = TasksManager.get_model_from_task(
+            model_name_or_path=model_name_or_path,
+            task=self.task,
+            torch_dtype=torch.bfloat16,
+            framework="pt",
+            library_name="diffusers",
+        )  # TODO: add extra args, eg. revision, trust_remote_code, etc.
+        text_encoder = pipe.text_encoder_2
+        text_encoder.eval()
+
+        # Parallelize the encoder with its custom wrapper
+        sharded_text_encoder = self.CUSTOM_MODEL_WRAPPER(
+            text_encoder,
+            sequence_length=sequence_length,
+            batch_size=batch_size,
+            device=device,
+            tensor_parallel_size=tensor_parallel_size,
+        )
+
+        return sharded_text_encoder, {}
 
 
 @register_in_tasks_manager("t5-encoder", *["text2text-generation"])
@@ -929,7 +1118,7 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
     def is_encoder_decoder(self) -> bool:
         return True
 
-    def patch_model_for_export(self, model_or_path, device="xla", **kwargs):
+    def patch_model_and_prepare_aliases(self, model_or_path, device="xla", **kwargs):
         num_beams = kwargs.pop("num_beams", 1)
         sequence_length = kwargs.pop("sequence_length", None)
         batch_size = kwargs.pop("batch_size", None)
@@ -944,9 +1133,10 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
                 num_beams,
                 device,
                 self.tensor_parallel_size,
-            )
+            ), None
         else:
-            return self.CUSTOM_MODEL_WRAPPER(
+            # Override T5 encoder and build aliases
+            checked_model = self.CUSTOM_MODEL_WRAPPER(
                 model_or_path,
                 sequence_length=sequence_length,
                 batch_size=batch_size,
@@ -954,6 +1144,9 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
                 device=device,
                 tensor_parallel_size=self.tensor_parallel_size,
             )
+            aliases = self.generate_io_aliases(checked_model)
+
+            return checked_model, aliases
 
     def get_parallel_callable(
         self, model_name_or_path, sequence_length, batch_size, num_beams, device, tensor_parallel_size
@@ -1063,7 +1256,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
         dummy_inputs_generators.append(dummy_beam_values_generator)
         return dummy_inputs_generators
 
-    def patch_model_for_export(self, model, device="xla", **kwargs):
+    def patch_model_and_prepare_aliases(self, model, device="xla", **kwargs):
         batch_size = kwargs.pop("batch_size", 1)
         sequence_length = kwargs.pop("sequence_length", 1)
         num_beams = kwargs.pop("num_beams", 1)
@@ -1089,9 +1282,13 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
                 self.output_attentions,
                 device,
                 self.tensor_parallel_size,
-            )
+            ), None
         else:
-            return self.CUSTOM_MODEL_WRAPPER(**trace_args)
+            # Override T5 encoder and build aliases
+            checked_model = self.CUSTOM_MODEL_WRAPPER(**trace_args)
+            aliases = self.generate_io_aliases(checked_model)
+
+            return checked_model, aliases
 
     def get_parallel_callable(
         self,
@@ -1174,8 +1371,8 @@ class WhisperEncoderNeuronConfig(AudioNeuronConfig):
         kwargs["sequence_length"] = 1  # only `decoder_start_token_id`
         return super().generate_dummy_inputs(return_tuple=return_tuple, **kwargs)
 
-    def patch_model_for_export(self, model_or_path, **input_shapes):
-        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes)
+    def patch_model_and_prepare_aliases(self, model_or_path, **input_shapes):
+        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes), {}
 
 
 @register_in_tasks_manager("whisper-decoder", *["automatic-speech-recognition"])
@@ -1205,5 +1402,5 @@ class WhisperDecoderNeuronConfig(AudioNeuronConfig):
     def is_encoder_decoder(self) -> bool:
         return True
 
-    def patch_model_for_export(self, model_or_path, **input_shapes):
-        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes)
+    def patch_model_and_prepare_aliases(self, model_or_path, **input_shapes):
+        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes), {}
