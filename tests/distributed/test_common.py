@@ -22,7 +22,6 @@ import safetensors
 import torch
 from transformers import LlamaForCausalLM
 
-from optimum.neuron.accelerate import ModelParallelismConfig
 from optimum.neuron.accelerate.optimizer import NeuronAcceleratedOptimizer
 from optimum.neuron.accelerate.utils.dataclasses import NeuronDistributedType
 from optimum.neuron.distributed.checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
@@ -31,6 +30,7 @@ from optimum.neuron.distributed.utils import (
     make_optimizer_constructor_lazy,
 )
 from optimum.neuron.models.training import LlamaForCausalLM as NeuronLlamaForCausalLM
+from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
@@ -521,7 +521,7 @@ class TestCommonDistributed(DistributedTest):
         if xr.global_ordinal() == 0:
             orig_model.save_pretrained(tmpdir / "orig_model", safe_serialization=False)
 
-        mp_config = ModelParallelismConfig(
+        mp_config = TrainingNeuronConfig(
             tensor_parallel_size=tp_size,
             pipeline_parallel_size=pp_size,
             use_xser=use_xser,

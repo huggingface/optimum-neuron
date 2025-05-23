@@ -33,8 +33,8 @@ from transformers.processing_utils import Unpack
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from transformers.utils import LossKwargs, logging
 
-from ....accelerate import ModelParallelismConfig
 from ....utils import is_neuronx_distributed_available, is_torch_xla_available
+from ..config import TrainingNeuronConfig
 from ..loss_utils import ForCausalLMLoss
 from ..modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
 from ..transformations_utils import (
@@ -186,7 +186,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
 
 
 class LlamaMLP(nn.Module, CustomModule):
-    def __init__(self, config, mp_config: ModelParallelismConfig):
+    def __init__(self, config, mp_config: TrainingNeuronConfig):
         nn.Module.__init__(self)
         self.config = config
         self.mp_config = mp_config
@@ -302,7 +302,7 @@ def eager_attention_forward(
 class LlamaAttention(nn.Module, CustomModule):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    def __init__(self, config: LlamaConfig, mp_config: ModelParallelismConfig, layer_idx: int):
+    def __init__(self, config: LlamaConfig, mp_config: TrainingNeuronConfig, layer_idx: int):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
@@ -469,7 +469,7 @@ class LlamaAttention(nn.Module, CustomModule):
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
         if self.config._attn_implementation == "flash_attention_2":
-            attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
+            attention_interface = ALL_ATTENTION_FUNCTIONS["flash_attention_2"]
             attn_output = attention_interface(
                 query_states,
                 repeat_kv(key_states, self.num_key_value_groups),
@@ -506,7 +506,7 @@ class LlamaAttention(nn.Module, CustomModule):
 
 
 class LlamaDecoderLayer(nn.Module):
-    def __init__(self, config: LlamaConfig, mp_config: ModelParallelismConfig, layer_idx: int):
+    def __init__(self, config: LlamaConfig, mp_config: TrainingNeuronConfig, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
 
@@ -584,7 +584,7 @@ class LlamaPreTrainedModel(PreTrainedModel):
 
 
 class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
-    def __init__(self, config: LlamaConfig, mp_config: ModelParallelismConfig):
+    def __init__(self, config: LlamaConfig, mp_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
@@ -792,7 +792,7 @@ class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
 class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
 
-    def __init__(self, config, mp_config: ModelParallelismConfig):
+    def __init__(self, config, mp_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)
         self.model = LlamaModel(config, mp_config)
         self.mp_config = mp_config

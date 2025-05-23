@@ -30,7 +30,8 @@ from transformers.utils import (
 
 from ..utils import logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
-from .accelerate.utils import ModelParallelismConfig, patch_accelerate_is_torch_xla_available
+from .accelerate.utils import patch_accelerate_is_torch_xla_available
+from .models.training.config import TrainingNeuronConfig
 from .utils import is_main_worker
 from .utils.patching import Patcher, patch_within_function
 from .utils.torch_xla_and_neuronx_initialization import set_neuron_cc_optlevel
@@ -133,12 +134,6 @@ class NeuronTrainingArgumentsMixin:
             ),
         },
     )
-    use_flash_attention: bool = field(
-        default=True,
-        metadata={
-            "help": "Whether to use the flash attention kernel for self-attention layers.",
-        },
-    )
     recompute_causal_mask: bool = field(
         default=True,
         metadata={
@@ -191,7 +186,7 @@ class NeuronTrainingArgumentsMixin:
                     f"per-device eval batch size ({self.per_device_eval_batch_size})."
                 )
 
-        self.mp_config = ModelParallelismConfig(
+        self.mp_config = TrainingNeuronConfig(
             self.tensor_parallel_size,
             parallelize_embeddings=not self.disable_embedding_parallelization,
             sequence_parallel_enabled=not self.disable_sequence_parallel,
@@ -204,7 +199,6 @@ class NeuronTrainingArgumentsMixin:
             use_xser=self.use_xser,
             async_save=self.async_save,
             fuse_qkv=self.fuse_qkv,
-            use_flash_attention=self.use_flash_attention,
             recompute_causal_mask=self.recompute_causal_mask,
         )
 
