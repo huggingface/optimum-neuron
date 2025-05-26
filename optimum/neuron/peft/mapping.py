@@ -19,8 +19,9 @@ from transformers import PreTrainedModel
 
 from ..utils.import_utils import is_peft_available
 from ..utils.patching import Patcher
-from .tuners import NeuronLoraModel
 from .peft_model import NeuronPeftModel, NeuronPeftModelForCausalLM
+from .tuners import NeuronLoraModel
+
 
 if is_peft_available():
     from peft.config import PeftConfig
@@ -66,7 +67,6 @@ PEFT_TYPE_TO_MODEL_MAPPING: dict[str, type[BaseTuner]] = {
 }
 MODEL_TYPE_TO_PEFT_MODEL_MAPPING: dict[str, type[NeuronPeftModel]] = {
     "CAUSAL_LM": NeuronPeftModelForCausalLM,
-
 }
 
 

@@ -44,13 +44,13 @@ else:
 
 
 if is_neuronx_distributed_available():
+    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
     from neuronx_distributed.parallel_layers.layers import (
         BaseParallelLinear,
         ColumnParallelLinear,
         ParallelEmbedding,
         RowParallelLinear,
     )
-    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
     from neuronx_distributed.parallel_layers.mappings import scatter_to_sequence_parallel_region
 else:
 
@@ -97,7 +97,9 @@ class NeuronLoraLayer(LoraLayer):
         self.kwargs = kwargs
 
         base_layer = self.get_base_layer()
-        if isinstance(base_layer, BaseParallelLinear):
+        if isinstance(base_layer, GQAQKVColumnParallelLinear):
+            in_features, out_features = base_layer.input_size, base_layer.output_sizes
+        elif isinstance(base_layer, BaseParallelLinear):
             in_features, out_features = base_layer.input_size, base_layer.output_size
         elif isinstance(base_layer, nn.Conv2d):
             raise NotSupportedError("Conv2d is not supported for LoRA with optimum-neuron.")
@@ -240,6 +242,7 @@ class LoraParallelLinear(nn.Module, NeuronLoraLayer):
         rep = super().__repr__()
         return "lora." + rep
 
+
 class LoraGQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
     def __init__(
         self,
@@ -307,7 +310,6 @@ class LoraGQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
             init_method=self.base_layer.arg_init_method,
             kv_size_multiplier=self.base_layer.kv_size_multiplier,
             sequence_parallel_enabled=self.base_layer.sequence_parallel_enabled,
-            sequence_dimension=self.base_layer.sequence_dimension,
             fuse_qkv=self.base_layer.fuse_qkv,
         )
 
@@ -368,6 +370,29 @@ class LoraGQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
                     nn.init.zeros_(self.lora_B[adapter_name].bias_q)
                     nn.init.zeros_(self.lora_B[adapter_name].bias_k)
                     nn.init.zeros_(self.lora_B[adapter_name].bias_v)
+
+    def forward(self, x: torch.Tensor, *args: Any, **kwargs: Any) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        previous_dtype = x.dtype
+        output_q, output_k, output_v = self.base_layer(x, *args, **kwargs)
+        if not self.merged:
+            for active_adapter in self.active_adapters:
+                if active_adapter not in self.lora_A.keys():
+                    continue
+                lora_A = self.lora_A[active_adapter]
+                lora_B = self.lora_B[active_adapter]
+                lora_dropout = self.lora_dropout[active_adapter]
+                scaling = self.scaling[active_adapter]
+
+                x = x.to(lora_A.weight.dtype)
+
+                dropout_input = lora_A(lora_dropout(x))
+                lora_q_output, lora_k_output, lora_v_output = lora_B(dropout_input)
+
+                output_q += lora_q_output * scaling
+                output_k += lora_k_output * scaling
+                output_v += lora_v_output * scaling
+
+        return output_q.to(previous_dtype), output_k.to(previous_dtype), output_v.to(previous_dtype)
 
 
 class LoraParallelEmbedding(nn.Module, NeuronLoraLayer):

@@ -116,19 +116,28 @@ class ModelWeightTransformationSpec:
 
     @abstractmethod
     def _to_original_weights(
-        self, module_fully_qualified_name: str,  sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]
+        self,
+        module_fully_qualified_name: str,
+        sharded_state_dicts: Dict[str, list[torch.Tensor]],
+        parameters_metadata: Dict[str, Dict[str, Any]],
     ) -> tuple[Dict[str, torch.Tensor], list[str]]:
         pass
 
     @abstractmethod
     def _lora_to_original_weights(
-        self, module_fully_qualified_name: str,  sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]
+        self,
+        module_fully_qualified_name: str,
+        sharded_state_dicts: Dict[str, list[torch.Tensor]],
+        parameters_metadata: Dict[str, Dict[str, Any]],
     ) -> tuple[Dict[str, torch.Tensor], list[str]]:
         pass
 
     @abstractmethod
     def to_original_weights(
-        self, module_fully_qualified_name: str,  sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]
+        self,
+        module_fully_qualified_name: str,
+        sharded_state_dicts: Dict[str, list[torch.Tensor]],
+        parameters_metadata: Dict[str, Dict[str, Any]],
     ) -> tuple[Dict[str, torch.Tensor], list[str]]:
         """
         Produces the weights associated to this transformation spec from the custom model to match the original
@@ -146,7 +155,9 @@ class ModelWeightTransformationSpec:
         if self.peft_type is None:
             return self._to_original_weights(module_fully_qualified_name, sharded_state_dicts, parameters_metadata)
         elif self.peft_type == "lora":
-            return self._lora_to_original_weights(module_fully_qualified_name, sharded_state_dicts, parameters_metadata)
+            return self._lora_to_original_weights(
+                module_fully_qualified_name, sharded_state_dicts, parameters_metadata
+            )
 
 
 @dataclass
@@ -280,6 +291,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
 
     def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
         from ...peft.tuners.lora.layer import LoraParallelLinear
+
         fused_linear_qualified_name = f"{module_fully_qualified_name}.{self.fused_linear_name}"
         fused_linear = model.get_submodule(fused_linear_qualified_name)
         if isinstance(fused_linear, LoraParallelLinear):
@@ -382,7 +394,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
         #       1. Unfuse the fused weight for LoRA B
         #       2. Concat the local unfused weights for LoRA B accross the partition_dim if TP is enabled
         #       3. Duplicate the weight for LoRA A for each unfused linear
-        #   - Case 2: the bae layer is a RowParallelLinear 
+        #   - Case 2: the bae layer is a RowParallelLinear
         #   Steps:
         #       1. Concat the local weights for LoRA A accross the partition_dim if TP is enabled
         #       2. Unfuse the fused weight for LoRA B
@@ -392,7 +404,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
         for param_name in ["weight", "bias"] if self.bias else ["weight"]:
             unfused_local_weights = []
             lora_A_prefix = f"{module_fully_qualified_name}.{self.fused_linear_name}.lora_A"
-            lora_B_prefix =  f"{module_fully_qualified_name}.{self.fused_linear_name}.lora_B"
+            lora_B_prefix = f"{module_fully_qualified_name}.{self.fused_linear_name}.lora_B"
             lora_A_adapter_pattern = re.compile(rf"{lora_A_prefix}\.(\w+\.){param_name}")
             lora_B_adapter_pattern = re.compile(rf"{lora_B_prefix}\.(\w+\.){param_name}")
 
@@ -407,7 +419,6 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                         weight_names.append(name)
                     if name.startswith(lora_A_prefix) and name.endswith(param_name):
                         to_duplicate_names.append(name)
-
 
                 # We unfuse then concat for each adapter.
                 for weight_name in weight_names:
@@ -425,7 +436,9 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                             )
                         )
                     for idx, linear_name in enumerate(self.linear_names):
-                        original_weight_name = weight_name_without_adapter_name.replace(self.fused_linear_name, linear_name)
+                        original_weight_name = weight_name_without_adapter_name.replace(
+                            self.fused_linear_name, linear_name
+                        )
                         partition_dim = parameters_metadata[weight_name]["partition_dim"]
                         original_weight = torch.cat(
                             [unfused_local_weights[tp_rank][idx] for tp_rank in range(len(unfused_local_weights))],
@@ -440,7 +453,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                     adapter_name = re.search(lora_A_adapter_pattern, name).group(1)
                     name_without_adapter_name = name.replace(adapter_name, "")
                     weight = sharded_state_dicts[name_without_adapter_name][0]
-                    
+
                     for linear_name in self.linear_names:
                         original_name = name_without_adapter_name.replace(self.fused_linear_name, linear_name)
                         original_weights[original_name] = weight.clone()
@@ -449,7 +462,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
 
             # Otherwise the base layer is a RowParallelLinear
             else:
-                to_concat_and_duplicate_names = [] 
+                to_concat_and_duplicate_names = []
                 to_unfuse_names = []
                 for name in parameters_metadata:
                     if name.startswith(lora_A_prefix) and name.endswith(param_name):
@@ -464,7 +477,9 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                     partition_dim = parameters_metadata[weight_name]["partition_dim"]
                     linear_weight = torch.cat(linear_sharded_weights, dim=partition_dim)
                     for linear_name in self.linear_names:
-                        original_weight_name = weight_name_without_adapter_name.replace(self.fused_linear_name, linear_name)
+                        original_weight_name = weight_name_without_adapter_name.replace(
+                            self.fused_linear_name, linear_name
+                        )
                         original_weights[original_weight_name] = linear_weight.clone()
 
                     keys_to_remove.append(weight_name)
@@ -473,9 +488,13 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                     adapter_name = re.search(lora_B_adapter_pattern, weight_name).group(1)
                     weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
                     fused_linear_weight = sharded_state_dicts[weight_name_without_adapter_name][0]
-                    unfused_linear_weights = torch.split(fused_linear_weight, self.original_dims[0] // self.tp_size, dim=self.fuse_axis)
+                    unfused_linear_weights = torch.split(
+                        fused_linear_weight, self.original_dims[0] // self.tp_size, dim=self.fuse_axis
+                    )
                     for idx, linear_name in enumerate(self.linear_names):
-                        original_weight_name = weight_name_without_adapter_name.replace(self.fused_linear_name, linear_name)
+                        original_weight_name = weight_name_without_adapter_name.replace(
+                            self.fused_linear_name, linear_name
+                        )
                         original_weights[original_weight_name] = unfused_linear_weights[idx]
 
                     keys_to_remove.append(weight_name)
@@ -717,6 +736,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
 
     def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
         from ...peft.tuners.lora.layer import LoraParallelLinear
+
         gqa_qkv_projection_qualified_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}"
         qkv_linear = model.get_submodule(gqa_qkv_projection_qualified_name)
         if isinstance(qkv_linear, LoraParallelLinear):
@@ -844,27 +864,33 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                     fused_qkv_local_weights = sharded_state_dicts[weight_name_without_adapter_name]
 
                     slice_q = slice(0, self.q_output_size_per_partition)
-                    weights_q = [fused_qkv_local_weights[tp_rank][slice_q].contiguous() for tp_rank in range(self.tp_size)]
+                    weights_q = [
+                        fused_qkv_local_weights[tp_rank][slice_q].contiguous() for tp_rank in range(self.tp_size)
+                    ]
 
                     slice_k = slice(
                         self.q_output_size_per_partition,
                         self.q_output_size_per_partition + self.kv_output_size_per_partition,
                     )
-                    weights_k = [fused_qkv_local_weights[tp_rank][slice_k].contiguous() for tp_rank in range(self.tp_size)]
+                    weights_k = [
+                        fused_qkv_local_weights[tp_rank][slice_k].contiguous() for tp_rank in range(self.tp_size)
+                    ]
 
                     slice_v = slice(
                         self.q_output_size_per_partition + self.kv_output_size_per_partition,
                         None,
                     )
-                    weights_v = [fused_qkv_local_weights[tp_rank][slice_v].contiguous() for tp_rank in range(self.tp_size)]
+                    weights_v = [
+                        fused_qkv_local_weights[tp_rank][slice_v].contiguous() for tp_rank in range(self.tp_size)
+                    ]
 
                     qkv_partition_dim = parameters_metadata[weight_name]["partition_dim"]
                     keys_to_remove += [weight_name]
 
                     lora_B_qkv_seperate_weights += [
-                            ["query", weights_q, qkv_partition_dim, weight_name_without_adapter_name],
-                            ["key", weights_k, qkv_partition_dim, weight_name_without_adapter_name],
-                            ["value", weights_v, qkv_partition_dim, weight_name_without_adapter_name],
+                        ["query", weights_q, qkv_partition_dim, weight_name_without_adapter_name],
+                        ["key", weights_k, qkv_partition_dim, weight_name_without_adapter_name],
+                        ["value", weights_v, qkv_partition_dim, weight_name_without_adapter_name],
                     ]
             else:
                 weight_suffixes = [f"{param_name}_q", f"{param_name}_k", f"{param_name}_v"]
@@ -896,22 +922,28 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                     keys_to_remove += [weight_name]
 
                     lora_B_qkv_seperate_weights += [
-                            [query_key_or_value, weights, qkv_partition_dim, weight_name_without_adapter_name],
+                        [query_key_or_value, weights, qkv_partition_dim, weight_name_without_adapter_name],
                     ]
 
             # First we handle LoRA A weights.
             # For each adapter we need to duplicate the LoRA A weight for the query, key and value projections.
             for weight_name in lora_A_weight_names:
                 adapter_name = re.search(lora_A_adapter_pattern, weight_name).group(1)
-                query_weight_name = weight_name.replace(adapter_name, "").replace(self.gqa_qkv_projection_name, self.query_projection_name)
-                key_weight_name = weight_name.replace(adapter_name, "").replace(self.gqa_qkv_projection_name, self.key_projection_name)
-                value_weight_name = weight_name.replace(adapter_name, "").replace(self.gqa_qkv_projection_name, self.value_projection_name)
+                query_weight_name = weight_name.replace(adapter_name, "").replace(
+                    self.gqa_qkv_projection_name, self.query_projection_name
+                )
+                key_weight_name = weight_name.replace(adapter_name, "").replace(
+                    self.gqa_qkv_projection_name, self.key_projection_name
+                )
+                value_weight_name = weight_name.replace(adapter_name, "").replace(
+                    self.gqa_qkv_projection_name, self.value_projection_name
+                )
                 state_dict[query_weight_name] = sharded_state_dicts[weight_name][0].clone()
                 state_dict[key_weight_name] = sharded_state_dicts[weight_name][0].clone()
                 state_dict[value_weight_name] = sharded_state_dicts[weight_name][0].clone()
 
             # Then we handle LoRA B weights.
-            # There is a little bit more work, it mostly consists in doing the same as for the 
+            # There is a little bit more work, it mostly consists in doing the same as for the
             # GQAQKVColumnParallelLinear weights.
             for query_key_or_value, weights, qkv_partition_dim, weight_name in lora_B_qkv_seperate_weights:
                 if query_key_or_value == "query":
