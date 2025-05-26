@@ -146,7 +146,7 @@ def _overfit_causal_lm(
             },
             False,
             0.07,
-            512, # Do 2048 once we have flash_attention enabled.
+            512,  # Do 2048 once we have flash_attention enabled.
         ],
     ],
     ids=["meta-llama/Llama-3.2-1B-Instruct", "ibm-granite/granite-3.2-2b-instruct"],
