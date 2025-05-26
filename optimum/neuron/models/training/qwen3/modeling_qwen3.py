@@ -24,7 +24,7 @@ from transformers.models.qwen3.configuration_qwen3 import Qwen3Config
 from transformers.processing_utils import Unpack
 from transformers.utils import logging
 
-from ....utils import is_neuronx_distributed_available, is_torch_xla_available
+from ....utils import is_neuronx_distributed_available
 from ..config import TrainingNeuronConfig
 from ..llama.modeling_llama import (
     LlamaAttention,
@@ -40,9 +40,6 @@ from ..llama.modeling_llama import (
 )
 from ..modeling_utils import ALL_ATTENTION_FUNCTIONS
 
-
-if is_torch_xla_available():
-    pass
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.layers import (
