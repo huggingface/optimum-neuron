@@ -23,13 +23,14 @@ from typing import Any, Optional, Union
 import torch
 from transformers import PreTrainedModel
 
-from ..models.training import NotSupportedError, create_parameter_metadata
+from ..models.training import NotSupportedError, create_parameter_metadata, adapt_state_dict, adapt_peft_config_for_model
 from ..models.training.transformations_utils import specialize_transformation_specs_for_model
 from ..utils.import_utils import is_peft_available
 
 
 if is_peft_available():
     from peft import PeftConfig, PeftModel
+    from peft.tuners import XLoraModel
 
     # from peft.utils import get_peft_model_state_dict as orig_get_peft_model_state_dict
     from peft.utils import (
@@ -37,7 +38,10 @@ if is_peft_available():
         TRANSFORMERS_MODELS_TO_PREFIX_TUNING_POSTPROCESS_MAPPING,
         WEIGHTS_NAME,
         get_peft_model_state_dict,
+        load_peft_weights,
+        set_peft_model_state_dict,
     )
+    from peft.utils.constants import PEFT_TYPE_TO_PREFIX_MAPPING
 
 else:
 
@@ -47,12 +51,22 @@ else:
     class PeftConfig:
         pass
 
+    class XLoraModel:
+        pass
+
     def get_peft_model_state_dict(*args, **kwargs):
+        pass
+
+    def load_peft_weights(*args, **kwargs):
+        pass
+
+    def set_peft_model_state_dict(*args, **kwargs):
         pass
 
     SAFETENSORS_WEIGHTS_NAME = ""
     TRANSFORMERS_MODELS_TO_PREFIX_TUNING_POSTPROCESS_MAPPING = {}
     WEIGHTS_NAME = ""
+    PEFT_TYPE_TO_PREFIX_MAPPING = {}
 
 ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME = "adapter_shards"
 
@@ -79,20 +93,21 @@ class NeuronPeftModel(PeftModel):
         peft_config: PeftConfig,
         adapter_name: str = "default",
         autocast_adapter_dtype: bool = True,
-        low_cpu_mem_usage: bool = False,
+        **kwargs: Any,
     ) -> None:
+        peft_config = adapt_peft_config_for_model(model, peft_config, inplace=False)
+        print("zazou", peft_config)
         super().__init__(
             model,
             peft_config,
             adapter_name=adapter_name,
             autocast_adapter_dtype=autocast_adapter_dtype,
-            low_cpu_mem_usage=low_cpu_mem_usage,
+            low_cpu_mem_usage=False,
         )
-
-        self.add_adapter("test", peft_config=peft_config)
-
         # We specialize the transformation specs for the PeFT model.
         specialize_transformation_specs_for_model(self)
+
+        print("zazou", self.peft_config)
 
     def save_pretrained(
         self,
@@ -268,11 +283,155 @@ class NeuronPeftModel(PeftModel):
         is_trainable: bool = False,
         config: Optional[PeftConfig] = None,
         autocast_adapter_dtype: bool = True,
-        ephemeral_gpu_offload: bool = False,
-        low_cpu_mem_usage: bool = False,
         **kwargs: Any,
     ) -> PeftModel:
-        raise NotSupportedError("Loading PEFT models for training is not supported in optimum-neuron.")
+        from .mapping import MODEL_TYPE_TO_PEFT_MODEL_MAPPING, PEFT_TYPE_TO_CONFIG_MAPPING
+
+        # load the config
+        if config is None:
+            config = PEFT_TYPE_TO_CONFIG_MAPPING[
+                PeftConfig._get_peft_type(
+                    model_id,
+                    subfolder=kwargs.get("subfolder", None),
+                    revision=kwargs.get("revision", None),
+                    cache_dir=kwargs.get("cache_dir", None),
+                    use_auth_token=kwargs.get("use_auth_token", None),
+                    token=kwargs.get("token", None),
+                )
+            ].from_pretrained(model_id, **kwargs)
+        elif isinstance(config, PeftConfig):
+            config.inference_mode = not is_trainable
+        else:
+            raise ValueError(f"The input config must be a PeftConfig, got {config.__class__}")
+
+        # ** Difference from original from_pretrained **
+        # No runtime configuration here.
+
+        # ** Difference from original from_pretrained **
+        # No hf_device_map here.
+
+
+        if config.is_prompt_learning and is_trainable:
+            raise ValueError("Cannot set a prompt learning adapter to trainable when loading pretrained adapter.")
+        else:
+            config.inference_mode = not is_trainable
+        if isinstance(getattr(model, "base_model", None), XLoraModel):
+            raise NotSupportedError(
+                "XLoraModel is not supported in Optimum Neuron. Please use open an issue or a PR if needed."
+            )
+
+        if config.task_type not in MODEL_TYPE_TO_PEFT_MODEL_MAPPING.keys():
+            model = cls(
+                model,
+                config,
+                adapter_name,
+                autocast_adapter_dtype=autocast_adapter_dtype,
+            )
+        else:
+            model = MODEL_TYPE_TO_PEFT_MODEL_MAPPING[config.task_type](
+                model,
+                config,
+                adapter_name,
+                autocast_adapter_dtype=autocast_adapter_dtype,
+            )
+
+        load_result = model.load_adapter(
+            model_id,
+            adapter_name,
+            is_trainable=is_trainable,
+            autocast_adapter_dtype=autocast_adapter_dtype,
+            **kwargs,
+        )
+
+        # 1. Remove VB-LoRA vector bank, since it's a shared parameter set via the VBLoRAModel
+        # 2. Remove the prompt encoder, as it does not need to be part of the checkpoint
+        missing_keys = [
+            k for k in load_result.missing_keys if "vblora_vector_bank" not in k and "prompt_encoder" not in k
+        ]
+        if missing_keys:
+            # Let's warn here since (in contrast to load_adapter) we don't return the load result, so it could be quite
+            # difficult for users to even notice that something might have gone wrong here. As we filter out non PEFT
+            # keys from the missing keys, this gives no false positives.
+            warnings.warn(f"Found missing adapter keys while loading the checkpoint: {missing_keys}")
+
+        return model
+
+    def add_adapter(self, adapter_name: str, peft_config: PeftConfig, low_cpu_mem_usage: bool = False) -> None:
+        peft_config = adapt_peft_config_for_model(self, peft_config, inplace=False)
+        return super().add_adapter(adapter_name, peft_config, low_cpu_mem_usage=low_cpu_mem_usage)
+
+    def load_adapter(
+        self,
+        model_id: Union[str, os.PathLike],
+        adapter_name: str,
+        is_trainable: bool = False,
+        torch_device: Optional[str] = None,
+        autocast_adapter_dtype: bool = True,
+        **kwargs: Any,
+    ):
+        from .mapping import PEFT_TYPE_TO_CONFIG_MAPPING
+
+        low_cpu_mem_usage = False
+
+        hf_hub_download_kwargs, kwargs = self._split_kwargs(kwargs)
+        if torch_device is None:
+            torch_device = self.base_model.device if hasattr(self.base_model, "device") else "cpu"
+
+        if adapter_name not in self.peft_config:
+            # load the config
+            peft_config = PEFT_TYPE_TO_CONFIG_MAPPING[
+                PeftConfig._get_peft_type(
+                    model_id,
+                    **hf_hub_download_kwargs,
+                )
+            ].from_pretrained(
+                model_id,
+                **hf_hub_download_kwargs,
+            )
+            self._check_new_adapter_config(peft_config, is_trainable=is_trainable)
+            peft_config.inference_mode = not is_trainable
+            self.add_adapter(adapter_name, peft_config, low_cpu_mem_usage=low_cpu_mem_usage)
+
+        adapters_weights = load_peft_weights(model_id, device=torch_device, **hf_hub_download_kwargs)
+
+        # ** Difference from original load_adapter **
+        # We need to adapt the adapters_weights to the model.
+        adapters_weights = adapt_state_dict(self, adapters_weights, inplace=True)
+
+        # load the weights into the model
+        ignore_mismatched_sizes = kwargs.get("ignore_mismatched_sizes", False)
+        load_result = set_peft_model_state_dict(
+            self,
+            adapters_weights,
+            adapter_name=adapter_name,
+            ignore_mismatched_sizes=ignore_mismatched_sizes,
+            low_cpu_mem_usage=low_cpu_mem_usage,
+        )
+
+        tuner = self.peft_config[adapter_name].peft_type
+        tuner_prefix = PEFT_TYPE_TO_PREFIX_MAPPING.get(tuner, "")
+        adapter_missing_keys = []
+
+        # Filter missing keys specific to the current adapter and tuner prefix.
+        for key in load_result.missing_keys:
+            if tuner_prefix in key and adapter_name in key:
+                adapter_missing_keys.append(key)
+
+        load_result.missing_keys.clear()
+        load_result.missing_keys.extend(adapter_missing_keys)
+
+        # ** Difference from original load_adapter **
+        # No hf_device_map here.
+
+        if hasattr(self.base_model, "_cast_adapter_dtype"):
+            self.base_model._cast_adapter_dtype(
+                adapter_name=adapter_name, autocast_adapter_dtype=autocast_adapter_dtype
+            )
+
+        # Set model in evaluation mode to deactivate Dropout modules by default
+        if not is_trainable:
+            self.eval()
+        return load_result
 
 
 class NeuronPeftModelForCausalLM(NeuronPeftModel):

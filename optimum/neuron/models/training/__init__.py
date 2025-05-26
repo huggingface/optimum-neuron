@@ -23,6 +23,7 @@ from .transformations_utils import (
     ModelWeightTransformationSpec,
     ModelWeightTransformationSpecs,
     adapt_state_dict,
+    adapt_peft_config_for_model,
     create_parameter_metadata,
     to_original_weights,
 )
