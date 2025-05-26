@@ -506,12 +506,14 @@ class TestCommonDistributed(DistributedTest):
         "world_size,tp_size,pp_size,kv_size_multiplier,lora_enabled",
         [
             [8, 2, 1, None, False],
+            [8, 2, 1, None, True],
             [8, 8, 1, None, False],
             [8, 8, 1, 4, False],
             [8, 8, 1, 4, True],
         ],
         ids=[
             "dp=4,tp=2,pp=1",
+            "dp=4,tp=2,pp=1,lora",
             "dp=1,tp=8,pp=1,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
             "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
             "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear,lora",
@@ -534,6 +536,7 @@ class TestCommonDistributed(DistributedTest):
 
         if lora_enabled:
             orig_model = orig_get_peft_model(orig_model, peft_config)
+            orig_model.add_adapter("test")
 
         if xr.global_ordinal() == 0:
             orig_model.save_pretrained(tmpdir / "orig_model", safe_serialization=False)
@@ -548,6 +551,7 @@ class TestCommonDistributed(DistributedTest):
 
         if lora_enabled:
             custom_model = get_peft_model(custom_model, peft_config)
+            custom_model.add_adapter("test")
 
         custom_model.save_pretrained(tmpdir / "custom_model")
 

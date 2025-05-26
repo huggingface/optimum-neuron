@@ -735,11 +735,11 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
         return state_dict
 
     def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
-        from ...peft.tuners.lora.layer import LoraParallelLinear
+        from ...peft.tuners.lora.layer import LoraGQAQKVColumnParallelLinear
 
         gqa_qkv_projection_qualified_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}"
         qkv_linear = model.get_submodule(gqa_qkv_projection_qualified_name)
-        if isinstance(qkv_linear, LoraParallelLinear):
+        if isinstance(qkv_linear, LoraGQAQKVColumnParallelLinear):
             return "lora"
         return None
 
@@ -962,17 +962,11 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                     state_dict[query_weight_name] = full_weight_q
                 elif query_key_or_value == "key":
                     full_weight_k = torch.cat(weights, dim=qkv_partition_dim).contiguous()
-                    full_weight_k = GQAQKVColumnParallelLinearSpec.create_kv_proj_local_weight_from_regular_weight(
-                        full_weight_k, self.kv_size_multiplier, self.kv_output_size_per_partition
-                    )
                     full_weight_k = torch.chunk(full_weight_k, self.kv_size_multiplier, dim=0)[0].detach().clone()
                     key_weight_name = weight_name.replace(self.gqa_qkv_projection_name, self.key_projection_name)
                     state_dict[key_weight_name] = full_weight_k
                 else:
                     full_weight_v = torch.cat(weights, dim=qkv_partition_dim).contiguous()
-                    full_weight_v = GQAQKVColumnParallelLinearSpec.create_kv_proj_local_weight_from_regular_weight(
-                        full_weight_v, self.kv_size_multiplier, self.kv_output_size_per_partition
-                    )
                     full_weight_v = torch.chunk(full_weight_v, self.kv_size_multiplier, dim=0)[0].detach().clone()
                     value_weight_name = weight_name.replace(self.gqa_qkv_projection_name, self.value_projection_name)
                     state_dict[value_weight_name] = full_weight_v
@@ -1004,6 +998,8 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                 )
                 keys_to_remove.append(weight_name)
                 state_dict[weight_name_without_adapter_name] = full_weight_o
+
+        return state_dict, keys_to_remove
 
 
 def specialize_transformation_specs_for_model(model: torch.nn.Module):
