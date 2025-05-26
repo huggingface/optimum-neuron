@@ -899,6 +899,20 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                             [query_key_or_value, weights, qkv_partition_dim, weight_name_without_adapter_name],
                     ]
 
+            # First we handle LoRA A weights.
+            # For each adapter we need to duplicate the LoRA A weight for the query, key and value projections.
+            for weight_name in lora_A_weight_names:
+                adapter_name = re.search(lora_A_adapter_pattern, weight_name).group(1)
+                query_weight_name = weight_name.replace(adapter_name, "").replace(self.gqa_qkv_projection_name, self.query_projection_name)
+                key_weight_name = weight_name.replace(adapter_name, "").replace(self.gqa_qkv_projection_name, self.key_projection_name)
+                value_weight_name = weight_name.replace(adapter_name, "").replace(self.gqa_qkv_projection_name, self.value_projection_name)
+                state_dict[query_weight_name] = sharded_state_dicts[weight_name][0].clone()
+                state_dict[key_weight_name] = sharded_state_dicts[weight_name][0].clone()
+                state_dict[value_weight_name] = sharded_state_dicts[weight_name][0].clone()
+
+            # Then we handle LoRA B weights.
+            # There is a little bit more work, it mostly consists in doing the same as for the 
+            # GQAQKVColumnParallelLinear weights.
             for query_key_or_value, weights, qkv_partition_dim, weight_name in lora_B_qkv_seperate_weights:
                 if query_key_or_value == "query":
                     full_weight_q = torch.cat(weights, dim=qkv_partition_dim).contiguous()
@@ -931,38 +945,33 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                     value_weight_name = weight_name.replace(self.gqa_qkv_projection_name, self.value_projection_name)
                     state_dict[value_weight_name] = full_weight_v
 
-                # Now we handle the output projection.
-                lora_A_prefix = f"{module_fully_qualified_name}.{self.output_projection_name}.lora_A"
-                lora_B_prefix = f"{module_fully_qualified_name}.{self.output_projection_name}.lora_B"
-                lora_A_adapter_pattern = re.compile(rf"{lora_A_prefix}\.(\w+\.){param_name}")
-                lora_B_adapter_pattern = re.compile(rf"{lora_B_prefix}\.(\w+\.){param_name}")
-                # There is as many names as adapters
-                lora_A_weight_names = []
-                lora_B_weight_names = []
-                for name in parameters_metadata:
-                    if name.startswith(lora_A_prefix) and name.endswith(param_name):
-                        lora_A_weight_names.append(name)
-                    if name.startswith(lora_B_prefix) and name.endswith(param_name):
-                        lora_B_weight_names.append(name)
+            # Now we handle the output projection.
+            # There is only work for the LoRA A weights, the LoRA B weights are already regular linear weights.
+            lora_A_prefix = f"{module_fully_qualified_name}.{self.output_projection_name}.lora_A"
+            lora_A_adapter_pattern = re.compile(rf"{lora_A_prefix}\.(\w+\.){param_name}")
+            lora_A_weight_names = []
+            for name in parameters_metadata:
+                if name.startswith(lora_A_prefix) and name.endswith(param_name):
+                    lora_A_weight_names.append(name)
 
-                for weight_name in lora_A_weight_names:
-                    adapter_name = re.search(lora_A_adapter_pattern, weight_name).group(1)
-                    weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
-                    weights_o = sharded_state_dicts[weight_name_without_adapter_name]
-                    o_partition_dim = parameters_metadata[weight_name]["partition_dim"]
-                    full_weight_o = torch.cat(weights_o, dim=o_partition_dim).contiguous()
-                    full_weight_o = (
-                        GQAQKVColumnParallelLinearSpec.create_gqa_query_or_output_projection_weight_from_full_weight(
-                            full_weight_o,
-                            self.tp_size,
-                            self.num_attention_heads,
-                            self.num_key_value_heads,
-                            self.kv_size_multiplier,
-                            "output",
-                        )
+            for weight_name in lora_A_weight_names:
+                adapter_name = re.search(lora_A_adapter_pattern, weight_name).group(1)
+                weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
+                weights_o = sharded_state_dicts[weight_name_without_adapter_name]
+                o_partition_dim = parameters_metadata[weight_name]["partition_dim"]
+                full_weight_o = torch.cat(weights_o, dim=o_partition_dim).contiguous()
+                full_weight_o = (
+                    GQAQKVColumnParallelLinearSpec.create_gqa_query_or_output_projection_weight_from_full_weight(
+                        full_weight_o,
+                        self.tp_size,
+                        self.num_attention_heads,
+                        self.num_key_value_heads,
+                        self.kv_size_multiplier,
+                        "output",
                     )
-                    keys_to_remove.append(weight_name)
-                    state_dict[weight_name_without_adapter_name] = full_weight_o
+                )
+                keys_to_remove.append(weight_name)
+                state_dict[weight_name_without_adapter_name] = full_weight_o
 
 
 def specialize_transformation_specs_for_model(model: torch.nn.Module):
