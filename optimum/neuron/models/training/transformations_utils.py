@@ -19,13 +19,16 @@ implementation and the custom implementation for Neuron.
 
 import re
 import sys
+import copy
 from abc import abstractmethod
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Literal, Optional, Union
 
 import torch
 
-from ...utils.import_utils import is_neuronx_distributed_available
+from optimum.utils import logging
+
+from ...utils.import_utils import is_neuronx_distributed_available, is_peft_available
 
 
 if is_neuronx_distributed_available():
@@ -39,6 +42,13 @@ else:
     def get_tensor_model_parallel_size():
         return 0
 
+if is_peft_available():
+    from peft import PeftConfig
+else:
+    class PeftConfig:
+        pass
+
+logger = logging.get_logger()
 
 def create_local_weight_with_padding(
     full_weight: torch.Tensor,
@@ -97,6 +107,20 @@ class ModelWeightTransformationSpec:
     def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
         """
         Guesses the PEFT type of the module associated to the spec.
+        """
+        pass
+
+    @abstractmethod
+    def adapt_peft_config(self, peft_config: PeftConfig, inplace: bool = False) -> PeftConfig:
+        """
+        Adapts the PEFT config to match the custom modeling implementation.
+        """
+        pass
+
+    @abstractmethod
+    def to_original_peft_config(self, peft_config: PeftConfig) -> PeftConfig:
+        """
+        Restores the PEFT config to the original one that matches the original Transformers implementation.
         """
         pass
 
@@ -297,6 +321,29 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
         if isinstance(fused_linear, LoraParallelLinear):
             return "lora"
         return None
+
+    def adapt_peft_config(self, peft_config: PeftConfig, inplace: bool = False) -> PeftConfig:
+        if not inplace:
+            peft_config = copy.deepcopy(peft_config)
+        if peft_config.peft_type == "LORA":
+            target_modules = peft_config.target_modules
+            at_least_one_linear_in_target_modules = any(name in target_modules for name in self.linear_names)
+            all_linears_in_target_modules = all(name in target_modules for name in self.linear_names)
+            if at_least_one_linear_in_target_modules and not all_linears_in_target_modules:
+                raise ValueError(
+                    "If you use FusedLinearsSpec, either all linear layers must be in the target modules of the PEFT "
+                    "config or none at all."
+                )
+            if all_linears_in_target_modules:
+                for name in self.linear_names:
+                    target_modules.remove(name)
+                target_modules.add(self.fused_linear_name)
+        return peft_config
+    
+        # def to_original_peft_config(self, peft_config: PeftConfig) -> PeftConfig:
+        #     if self.peft_type == "lora":
+        #         if self.fused_linear_name in peft_config.target_modules:
+
 
     def adapt_state_dict(
         self,
@@ -652,6 +699,25 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
             full_weight = full_weight.transpose(0, 1)
 
         return full_weight
+
+    def adapt_peft_config(self, peft_config: PeftConfig, inplace: bool = False) -> PeftConfig:
+        if not inplace:
+            peft_config = copy.deepcopy(peft_config)
+        if peft_config.peft_type == "LORA":
+            linear_names = [self.query_projection_name, self.key_projection_name, self.value_projection_name]
+            target_modules = peft_config.target_modules
+            at_least_one_linear_in_target_modules = any(name in target_modules for name in linear_names)
+            all_linears_in_target_modules = all(name in target_modules for name in linear_names)
+            if at_least_one_linear_in_target_modules and not all_linears_in_target_modules:
+                raise ValueError(
+                    "If you use GQAQKVColumnParallelLinearSpec, either all linear layers must be in the target modules "
+                    "of the PEFT config or none at all."
+                )
+            if all_linears_in_target_modules:
+                for name in linear_names:
+                    target_modules.remove(name)
+                target_modules.add(self.gqa_qkv_projection_name)
+        return peft_config
 
     def adapt_state_dict(
         self,
@@ -1009,6 +1075,23 @@ def specialize_transformation_specs_for_model(model: torch.nn.Module):
         mod.specs.module_fully_qualified_name = name
         for spec in mod.specs:
             spec.peft_type = spec.guess_peft_type(model, name)
+
+
+def adapt_peft_config_for_model(model: torch.nn.Module, peft_config: Union[PeftConfig, dict[str, PeftConfig]], inplace: bool = False) -> Union[PeftConfig, dict[str, PeftConfig]]:
+    adapted_peft_config = copy.deepcopy(peft_config) if not inplace else peft_config
+    for name, mod in model.named_modules():
+        if not isinstance(mod, CustomModule):
+            continue
+        mod.specs.module_fully_qualified_name = name
+        for spec in mod.specs:
+            # inplace=True because we already do a deepcopy if needed once at the beginning of this function.
+            if isinstance(adapted_peft_config, dict):
+                for _, config in adapted_peft_config.items():
+                    spec.adapt_peft_config(config, inplace=True)
+            else:
+                spec.adapt_peft_config(adapted_peft_config, inplace=True)
+                print("zaza", adapted_peft_config)
+    return adapted_peft_config
 
 
 def adapt_state_dict(
