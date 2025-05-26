@@ -418,7 +418,7 @@ def create_accelerator(
     checkpoint_dir: Optional[Union[Path, str]] = None,
     use_xser: bool = True,
 ) -> NeuronAccelerator:
-    mp_config = TrainingNeuronConfig(
+    trn_config = TrainingNeuronConfig(
         tensor_parallel_size=tp_size,
         kv_size_multiplier=kv_size_multiplier,
         parallelize_embeddings=parallelize_embeddings,
@@ -428,7 +428,7 @@ def create_accelerator(
         use_xser=use_xser,
     )
     return NeuronAccelerator(
-        mp_config=mp_config, zero_1=zero_1, gradient_accumulation_steps=gradient_accumulation_steps
+        trn_config=trn_config, zero_1=zero_1, gradient_accumulation_steps=gradient_accumulation_steps
     )
 
 

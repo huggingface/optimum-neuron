@@ -129,7 +129,7 @@ class NeuronAcceleratorState(AcceleratorState):
         deepspeed_plugin=None,
         fsdp_plugin=None,
         megatron_lm_plugin=None,
-        mp_config: Optional[TrainingNeuronConfig] = None,
+        trn_config: Optional[TrainingNeuronConfig] = None,
         autocast_backend: Optional[Union[str, AutocastBackend]] = None,
         _from_accelerator: bool = False,
         **kwargs,
@@ -185,18 +185,18 @@ class NeuronAcceleratorState(AcceleratorState):
                 if mixed_precision == "bf16":
                     os.environ["NEURON_RT_STOCHASTIC_ROUNDING_EN"] = "1"
 
-                if mp_config is None:
-                    mp_config = TrainingNeuronConfig()
+                if trn_config is None:
+                    trn_config = TrainingNeuronConfig()
 
-                if mp_config.should_parallelize:
+                if trn_config.should_parallelize:
                     self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
 
-                self.mp_config = mp_config
+                self.trn_config = trn_config
 
                 if torch.distributed.is_initialized() and not parallel_state.model_parallel_is_initialized():
                     parallel_state.initialize_model_parallel(
-                        tensor_model_parallel_size=self.mp_config.tensor_parallel_size,
-                        pipeline_model_parallel_size=self.mp_config.pipeline_parallel_size,
+                        tensor_model_parallel_size=self.trn_config.tensor_parallel_size,
+                        pipeline_model_parallel_size=self.trn_config.pipeline_parallel_size,
                     )
 
             if self.distributed_type is DistributedType.NO:

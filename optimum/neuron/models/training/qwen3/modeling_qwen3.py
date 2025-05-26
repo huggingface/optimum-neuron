@@ -55,8 +55,8 @@ def _init_normal(std, w):
 
 
 class Qwen3Attention(LlamaAttention):
-    def __init__(self, config: Qwen3Config, mp_config: TrainingNeuronConfig, layer_idx: int):
-        super().__init__(config, mp_config, layer_idx)
+    def __init__(self, config: Qwen3Config, trn_config: TrainingNeuronConfig, layer_idx: int):
+        super().__init__(config, trn_config, layer_idx)
         self.q_norm = LlamaRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
         self.k_norm = LlamaRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # thus post q_norm does not need reshape
 
@@ -67,7 +67,7 @@ class Qwen3Attention(LlamaAttention):
         attention_mask: Optional[torch.Tensor],
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        if self.mp_config.sequence_parallel_enabled:
+        if self.trn_config.sequence_parallel_enabled:
             q_len, bsz, _ = hidden_states.size()
             q_len = q_len * get_tensor_model_parallel_size()
         else:
@@ -80,7 +80,7 @@ class Qwen3Attention(LlamaAttention):
             key_states = self.k_proj(hidden_states)
             value_states = self.v_proj(hidden_states)
 
-        if self.mp_config.sequence_parallel_enabled:
+        if self.trn_config.sequence_parallel_enabled:
             query_states = query_states.view(q_len, bsz, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
             key_states = key_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
             value_states = value_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
@@ -121,7 +121,7 @@ class Qwen3Attention(LlamaAttention):
                 **kwargs,
             )
 
-        if self.mp_config.sequence_parallel_enabled:
+        if self.trn_config.sequence_parallel_enabled:
             attn_output = attn_output.permute(2, 0, 1, 3)
             attn_output = attn_output.reshape(q_len, bsz, self.num_heads * self.head_dim)
         else:
@@ -134,13 +134,13 @@ class Qwen3Attention(LlamaAttention):
 
 
 class Qwen3DecoderLayer(LlamaDecoderLayer):
-    def __init__(self, config: Qwen3Config, mp_config: TrainingNeuronConfig, layer_idx: int):
-        super().__init__(config, mp_config, layer_idx)
-        self.self_attn = Qwen3Attention(config=config, mp_config=mp_config, layer_idx=layer_idx)
+    def __init__(self, config: Qwen3Config, trn_config: TrainingNeuronConfig, layer_idx: int):
+        super().__init__(config, trn_config, layer_idx)
+        self.self_attn = Qwen3Attention(config=config, trn_config=trn_config, layer_idx=layer_idx)
 
 
 class Qwen3Model(LlamaModel):
-    def __init__(self, config: Qwen3Config, mp_config: TrainingNeuronConfig):
+    def __init__(self, config: Qwen3Config, trn_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)
         # In this Neuron implementation of Qwen3, we do not support sliding window.
         if config.get_text_config().sliding_window is not None:
@@ -151,7 +151,7 @@ class Qwen3Model(LlamaModel):
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
-        self.mp_config = mp_config
+        self.trn_config = trn_config
 
         init_method = partial(_init_normal, config.initializer_range)
         self.embed_tokens = ParallelEmbedding(
@@ -159,11 +159,11 @@ class Qwen3Model(LlamaModel):
             config.hidden_size,
             self.padding_idx,
             init_method=init_method,
-            sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+            sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
             dtype=config.torch_dtype,
         )
         self.layers = nn.ModuleList(
-            [Qwen3DecoderLayer(config, mp_config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
+            [Qwen3DecoderLayer(config, trn_config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
         self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
@@ -215,6 +215,6 @@ class Qwen3Model(LlamaModel):
 class Qwen3ForCausalLM(LlamaForCausalLM):
     config_class = Qwen3Config
 
-    def __init__(self, config, mp_config: TrainingNeuronConfig):
-        super().__init__(config, mp_config)
-        self.model = Qwen3Model(config, mp_config)
+    def __init__(self, config, trn_config: TrainingNeuronConfig):
+        super().__init__(config, trn_config)
+        self.model = Qwen3Model(config, trn_config)

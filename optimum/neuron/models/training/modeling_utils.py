@@ -917,8 +917,8 @@ class NeuronModelMixin:
 
         # ** Difference from original from_pretrained **
         # We set a few variables that will be needed later in the code.
-        mp_config = model_args[0]
-        num_local_ranks_per_step = mp_config.num_local_ranks_per_step
+        trn_config = model_args[0]
+        num_local_ranks_per_step = trn_config.num_local_ranks_per_step
         local_world_size = get_local_world_size()
         local_rank = xm.get_local_ordinal()
         if num_local_ranks_per_step <= 0:
@@ -1479,9 +1479,9 @@ class NeuronModelMixin:
             tag=MODEL_PARALLEL_SHARDS_DIR_NAME,
             model=model_to_save,
             optimizer=optimizer,
-            use_xser=self.mp_config.use_xser,
-            async_save=self.mp_config.async_save,
-            num_workers=self.mp_config.num_local_ranks_per_step,
+            use_xser=self.trn_config.use_xser,
+            async_save=self.trn_config.async_save,
+            num_workers=self.trn_config.num_local_ranks_per_step,
         )
 
         # Save the metadata required to consolidate the checkpoints properly.
@@ -1540,8 +1540,8 @@ class NeuronModelMixin:
                 current_peft_config = self.peft_config[active_adapter]
                 current_peft_config.save_pretrained(save_directory)
 
-            with open(save_directory / "mp_config.json", "w") as f:
-                mp_config_data = asdict(self.mp_config)
+            with open(save_directory / "trn_config.json", "w") as f:
+                mp_config_data = asdict(self.trn_config)
                 if isinstance(mp_config_data["checkpoint_dir"], Path):
                     mp_config_data["checkpoint_dir"] = mp_config_data["checkpoint_dir"].as_posix()
                 f.write(json.dumps(mp_config_data, indent=4))

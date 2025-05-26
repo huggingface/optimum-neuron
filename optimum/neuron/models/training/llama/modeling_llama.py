@@ -186,10 +186,10 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
 
 
 class LlamaMLP(nn.Module, CustomModule):
-    def __init__(self, config, mp_config: TrainingNeuronConfig):
+    def __init__(self, config, trn_config: TrainingNeuronConfig):
         nn.Module.__init__(self)
         self.config = config
-        self.mp_config = mp_config
+        self.trn_config = trn_config
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
         self.act_fn = ACT2FN[config.hidden_act]
@@ -221,7 +221,7 @@ class LlamaMLP(nn.Module, CustomModule):
             bias=False,
             gather_output=False,
             init_method=init_method,
-            sequence_parallel_enabled=self.mp_config.sequence_parallel_enabled,
+            sequence_parallel_enabled=self.trn_config.sequence_parallel_enabled,
             sequence_dimension=0,
             dtype=self.config.torch_dtype,
         )
@@ -231,7 +231,7 @@ class LlamaMLP(nn.Module, CustomModule):
             bias=False,
             input_is_parallel=True,
             init_method=init_method,
-            sequence_parallel_enabled=self.mp_config.sequence_parallel_enabled,
+            sequence_parallel_enabled=self.trn_config.sequence_parallel_enabled,
             sequence_dimension=0,
             dtype=self.config.torch_dtype,
         )
@@ -245,7 +245,7 @@ class LlamaMLP(nn.Module, CustomModule):
 
         # We checkpoint the MLP compute too, since we see extra data movement which is more
         # expensive than the recompute in this case.
-        if self.mp_config.gradient_checkpointing:
+        if self.trn_config.gradient_checkpointing:
             intermediate_states = checkpoint(activation_mlp, gate_proj, up_proj)
         else:
             intermediate_states = self.act_fn(gate_proj) * up_proj
@@ -302,7 +302,7 @@ def eager_attention_forward(
 class LlamaAttention(nn.Module, CustomModule):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    def __init__(self, config: LlamaConfig, mp_config: TrainingNeuronConfig, layer_idx: int):
+    def __init__(self, config: LlamaConfig, trn_config: TrainingNeuronConfig, layer_idx: int):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
@@ -320,17 +320,17 @@ class LlamaAttention(nn.Module, CustomModule):
                 f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
                 f" and `num_heads`: {self.num_heads})."
             )
-        self.mp_config = mp_config
+        self.trn_config = trn_config
 
         init_method = partial(_init_normal, config.initializer_range)
 
         tp_size = get_tensor_model_parallel_size()
         self.qkv_linear = (self.num_key_value_heads < tp_size) or (self.num_key_value_heads % tp_size != 0)
         if self.qkv_linear:
-            if mp_config.kv_size_multiplier is None:
-                self.kv_size_multiplier = mp_config.auto_kv_size_multiplier(self.num_key_value_heads)
+            if trn_config.kv_size_multiplier is None:
+                self.kv_size_multiplier = trn_config.auto_kv_size_multiplier(self.num_key_value_heads)
             else:
-                self.kv_size_multiplier = mp_config.kv_size_multiplier
+                self.kv_size_multiplier = trn_config.kv_size_multiplier
         else:
             self.kv_size_multiplier = 1
 
@@ -343,9 +343,9 @@ class LlamaAttention(nn.Module, CustomModule):
                 bias=False,
                 gather_output=False,
                 init_method=init_method,
-                sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+                sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
                 kv_size_multiplier=self.kv_size_multiplier,
-                fuse_qkv=mp_config.fuse_qkv,
+                fuse_qkv=trn_config.fuse_qkv,
                 dtype=self.config.torch_dtype,
             )
 
@@ -360,11 +360,11 @@ class LlamaAttention(nn.Module, CustomModule):
                 kv_size_multiplier=self.kv_size_multiplier,
                 q_output_size_per_partition=self.qkv_proj.q_output_size_per_partition,
                 kv_output_size_per_partition=self.qkv_proj.kv_output_size_per_partition,
-                fuse_qkv=mp_config.fuse_qkv,
+                fuse_qkv=trn_config.fuse_qkv,
                 bias=False,
             )
             self.specs.add_spec(gqa_qkv_specs)
-        elif mp_config.fuse_qkv and self.num_heads == self.num_key_value_heads:
+        elif trn_config.fuse_qkv and self.num_heads == self.num_key_value_heads:
             self.qkv_proj = ColumnParallelLinear(
                 self.hidden_size,
                 3 * self.num_heads * self.head_dim,
@@ -372,7 +372,7 @@ class LlamaAttention(nn.Module, CustomModule):
                 bias=False,
                 gather_output=False,
                 init_method=init_method,
-                sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+                sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
                 sequence_dimension=0,
                 dtype=self.config.torch_dtype,
             )
@@ -393,7 +393,7 @@ class LlamaAttention(nn.Module, CustomModule):
                 bias=False,
                 gather_output=False,
                 init_method=init_method,
-                sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+                sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
                 sequence_dimension=0,
                 dtype=self.config.torch_dtype,
             )
@@ -403,7 +403,7 @@ class LlamaAttention(nn.Module, CustomModule):
                 bias=False,
                 gather_output=False,
                 init_method=init_method,
-                sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+                sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
                 sequence_dimension=0,
                 dtype=self.config.torch_dtype,
             )
@@ -413,7 +413,7 @@ class LlamaAttention(nn.Module, CustomModule):
                 bias=False,
                 gather_output=False,
                 init_method=init_method,
-                sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+                sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
                 sequence_dimension=0,
                 dtype=self.config.torch_dtype,
             )
@@ -423,7 +423,7 @@ class LlamaAttention(nn.Module, CustomModule):
             bias=False,
             input_is_parallel=True,
             init_method=init_method,
-            sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+            sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
             sequence_dimension=0,
             dtype=self.config.torch_dtype,
         )
@@ -440,13 +440,13 @@ class LlamaAttention(nn.Module, CustomModule):
         attention_mask: Optional[torch.Tensor],
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        if self.mp_config.sequence_parallel_enabled:
+        if self.trn_config.sequence_parallel_enabled:
             q_len, bsz, _ = hidden_states.size()
             q_len = q_len * get_tensor_model_parallel_size()
         else:
             bsz, q_len, _ = hidden_states.size()
 
-        if self.mp_config.fuse_qkv and self.num_heads == self.num_key_value_heads and self.kv_size_multiplier == 1:
+        if self.trn_config.fuse_qkv and self.num_heads == self.num_key_value_heads and self.kv_size_multiplier == 1:
             qkv_states = self.qkv_proj(hidden_states)
             query_states, key_states, value_states = qkv_states.split(self.split_size, dim=2)
         elif self.qkv_linear:
@@ -456,7 +456,7 @@ class LlamaAttention(nn.Module, CustomModule):
             key_states = self.k_proj(hidden_states)
             value_states = self.v_proj(hidden_states)
 
-        if self.mp_config.sequence_parallel_enabled:
+        if self.trn_config.sequence_parallel_enabled:
             query_states = query_states.view(q_len, bsz, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
             key_states = key_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
             value_states = value_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
@@ -498,7 +498,7 @@ class LlamaAttention(nn.Module, CustomModule):
                 **kwargs,
             )
 
-        if self.mp_config.sequence_parallel_enabled:
+        if self.trn_config.sequence_parallel_enabled:
             attn_output = attn_output.permute(2, 0, 1, 3)
             attn_output = attn_output.reshape(q_len, bsz, self.num_heads * self.head_dim)
         else:
@@ -511,18 +511,18 @@ class LlamaAttention(nn.Module, CustomModule):
 
 
 class LlamaDecoderLayer(nn.Module):
-    def __init__(self, config: LlamaConfig, mp_config: TrainingNeuronConfig, layer_idx: int):
+    def __init__(self, config: LlamaConfig, trn_config: TrainingNeuronConfig, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
 
-        self.self_attn = LlamaAttention(config=config, mp_config=mp_config, layer_idx=layer_idx)
+        self.self_attn = LlamaAttention(config=config, trn_config=trn_config, layer_idx=layer_idx)
 
-        self.mlp = LlamaMLP(config, mp_config)
+        self.mlp = LlamaMLP(config, trn_config)
         self.input_layernorm = LlamaRMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=mp_config.sequence_parallel_enabled
+            config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=trn_config.sequence_parallel_enabled
         )
         self.post_attention_layernorm = LlamaRMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=mp_config.sequence_parallel_enabled
+            config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=trn_config.sequence_parallel_enabled
         )
 
     def forward(
@@ -589,12 +589,12 @@ class LlamaPreTrainedModel(PreTrainedModel):
 
 
 class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
-    def __init__(self, config: LlamaConfig, mp_config: TrainingNeuronConfig):
+    def __init__(self, config: LlamaConfig, trn_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
-        self.mp_config = mp_config
+        self.trn_config = trn_config
 
         init_method = partial(_init_normal, config.initializer_range)
         self.embed_tokens = ParallelEmbedding(
@@ -602,18 +602,18 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
             config.hidden_size,
             self.padding_idx,
             init_method=init_method,
-            sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+            sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
             dtype=config.torch_dtype,
         )
         self.layers = nn.ModuleList(
-            [LlamaDecoderLayer(config, mp_config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
+            [LlamaDecoderLayer(config, trn_config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
         self.norm = LlamaRMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=mp_config.sequence_parallel_enabled
+            config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=trn_config.sequence_parallel_enabled
         )
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
 
-        self.gradient_checkpointing = self.mp_config.gradient_checkpointing
+        self.gradient_checkpointing = self.trn_config.gradient_checkpointing
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -655,8 +655,8 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
             inputs_embeds = self.embed_tokens(input_ids)
 
         current_length = (
-            inputs_embeds.size(0) * self.mp_config.tensor_parallel_size
-            if self.mp_config.sequence_parallel_enabled
+            inputs_embeds.size(0) * self.trn_config.tensor_parallel_size
+            if self.trn_config.sequence_parallel_enabled
             else inputs_embeds.size(1)
         )
         cache_position = torch.arange(0, current_length, device=inputs_embeds.device)
@@ -664,7 +664,7 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        if self.mp_config.recompute_causal_mask:
+        if self.trn_config.recompute_causal_mask:
             causal_mask = None
         else:
             causal_mask = self._update_causal_mask(attention_mask, inputs_embeds, cache_position)
@@ -732,15 +732,15 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
             return None
 
         dtype, device = input_tensor.dtype, input_tensor.device
-        if self.mp_config.sequence_parallel_enabled:
-            sequence_length = input_tensor.shape[0] * self.mp_config.tensor_parallel_size
+        if self.trn_config.sequence_parallel_enabled:
+            sequence_length = input_tensor.shape[0] * self.trn_config.tensor_parallel_size
         else:
             sequence_length = input_tensor.shape[1]
 
         target_length = attention_mask.shape[-1] if isinstance(attention_mask, torch.Tensor) else sequence_length + 1
 
         # In case the provided `attention` mask is 2D, we generate a causal mask here (4D).
-        batch_size = input_tensor.shape[1] if self.mp_config.sequence_parallel_enabled else input_tensor.shape[0]
+        batch_size = input_tensor.shape[1] if self.trn_config.sequence_parallel_enabled else input_tensor.shape[0]
         causal_mask = self._prepare_4d_causal_attention_mask_with_cache_position(
             attention_mask,
             sequence_length=sequence_length,
@@ -796,10 +796,10 @@ class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
 class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
 
-    def __init__(self, config, mp_config: TrainingNeuronConfig):
+    def __init__(self, config, trn_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)
-        self.model = LlamaModel(config, mp_config)
-        self.mp_config = mp_config
+        self.model = LlamaModel(config, trn_config)
+        self.trn_config = trn_config
 
         init_method = partial(_init_normal, config.initializer_range)
         self.lm_head = ColumnParallelLinear(
@@ -808,7 +808,7 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
             bias=False,
             gather_output=False,
             init_method=init_method,
-            sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
+            sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
             sequence_dimension=0,
             dtype=self.config.torch_dtype,
         )
@@ -868,7 +868,7 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
 
         logits = self.lm_head(hidden_states)
 
-        if self.mp_config.sequence_parallel_enabled:
+        if self.trn_config.sequence_parallel_enabled:
             logits = logits.transpose(0, 1).contiguous()
 
         loss = None
