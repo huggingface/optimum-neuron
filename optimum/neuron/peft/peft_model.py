@@ -96,7 +96,6 @@ class NeuronPeftModel(PeftModel):
         **kwargs: Any,
     ) -> None:
         peft_config = adapt_peft_config_for_model(model, peft_config, inplace=False)
-        print("zazou", peft_config)
         super().__init__(
             model,
             peft_config,
@@ -106,8 +105,6 @@ class NeuronPeftModel(PeftModel):
         )
         # We specialize the transformation specs for the PeFT model.
         specialize_transformation_specs_for_model(self)
-
-        print("zazou", self.peft_config)
 
     def save_pretrained(
         self,
@@ -357,7 +354,7 @@ class NeuronPeftModel(PeftModel):
         return model
 
     def add_adapter(self, adapter_name: str, peft_config: PeftConfig, low_cpu_mem_usage: bool = False) -> None:
-        peft_config = adapt_peft_config_for_model(self, peft_config, inplace=False)
+        peft_config = adapt_peft_config_for_model(self.base_model, peft_config, inplace=False)
         return super().add_adapter(adapter_name, peft_config, low_cpu_mem_usage=low_cpu_mem_usage)
 
     def load_adapter(
