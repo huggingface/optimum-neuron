@@ -14,10 +14,10 @@
 # limitations under the License.
 """General tests related to distributed training."""
 
-import pytest
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict
 
+import pytest
 import safetensors
 import torch
 from peft import LoraConfig

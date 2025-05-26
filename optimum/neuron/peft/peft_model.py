@@ -13,35 +13,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import functools
-from pathlib import Path
-import json
 import copy
+import json
 import os
 import warnings
-from typing import Optional, Any, Union
+from pathlib import Path
+from typing import Any, Optional, Union
 
 import torch
-
 from transformers import PreTrainedModel
 
 from ..models.training import NotSupportedError, create_parameter_metadata
 from ..models.training.transformations_utils import specialize_transformation_specs_for_model
 from ..utils.import_utils import is_peft_available
-from ..utils.patching import Patcher
 
 
 if is_peft_available():
-    from peft import PeftModel, PeftConfig
+    from peft import PeftConfig, PeftModel
+
     # from peft.utils import get_peft_model_state_dict as orig_get_peft_model_state_dict
     from peft.utils import (
-        get_peft_model_state_dict,
         SAFETENSORS_WEIGHTS_NAME,
         TRANSFORMERS_MODELS_TO_PREFIX_TUNING_POSTPROCESS_MAPPING,
         WEIGHTS_NAME,
+        get_peft_model_state_dict,
     )
 
 else:
+
     class PeftModel:
         pass
 
@@ -73,7 +72,6 @@ def has_valid_embedding_base_layer(layer):
 #     return orig_get_peft_model_state_dict(*args, **kwargs)
 
 
-
 class NeuronPeftModel(PeftModel):
     def __init__(
         self,
@@ -83,13 +81,18 @@ class NeuronPeftModel(PeftModel):
         autocast_adapter_dtype: bool = True,
         low_cpu_mem_usage: bool = False,
     ) -> None:
-        super().__init__(model, peft_config, adapter_name=adapter_name, autocast_adapter_dtype=autocast_adapter_dtype, low_cpu_mem_usage=low_cpu_mem_usage)
+        super().__init__(
+            model,
+            peft_config,
+            adapter_name=adapter_name,
+            autocast_adapter_dtype=autocast_adapter_dtype,
+            low_cpu_mem_usage=low_cpu_mem_usage,
+        )
 
         self.add_adapter("test", peft_config=peft_config)
 
         # We specialize the transformation specs for the PeFT model.
         specialize_transformation_specs_for_model(self)
-
 
     def save_pretrained(
         self,
@@ -102,17 +105,11 @@ class NeuronPeftModel(PeftModel):
         **kwargs: Any,
     ) -> None:
         import neuronx_distributed
-        import torch_xla.core.xla_model as xm
         from neuronx_distributed.parallel_layers.parallel_state import (
             get_data_parallel_rank,
             get_pipeline_model_parallel_rank,
-            get_pipeline_model_parallel_size,
             get_tensor_model_parallel_rank,
-            get_tensor_model_parallel_size,
-            model_parallel_is_initialized,
         )
-        from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
-        from safetensors.torch import save_file as safe_save_file
 
         if os.path.isfile(save_directory):
             raise ValueError(f"Provided path ({save_directory}) should be a directory, not a file")
@@ -174,7 +171,9 @@ class NeuronPeftModel(PeftModel):
         if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
             metadata = create_parameter_metadata(self)
             pp_rank = get_pipeline_model_parallel_rank()
-            metadata_path = Path(save_directory) / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.json"
+            metadata_path = (
+                Path(save_directory) / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.json"
+            )
             metadata_path.parent.mkdir(parents=True, exist_ok=True)
             with open(metadata_path, "w") as f:
                 f.write(json.dumps(metadata, indent=4))
@@ -188,7 +187,11 @@ class NeuronPeftModel(PeftModel):
                 adapter_name=adapter_name,
                 save_embedding_layers=save_embedding_layers,
             )
-            output_dir = os.path.join(save_directory, ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME, adapter_name) if adapter_name != "default" else save_directory
+            output_dir = (
+                os.path.join(save_directory, ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME, adapter_name)
+                if adapter_name != "default"
+                else save_directory
+            )
             os.makedirs(output_dir, exist_ok=True)
 
             if is_main_process:
@@ -270,7 +273,6 @@ class NeuronPeftModel(PeftModel):
         **kwargs: Any,
     ) -> PeftModel:
         raise NotSupportedError("Loading PEFT models for training is not supported in optimum-neuron.")
-
 
 
 class NeuronPeftModelForCausalLM(NeuronPeftModel):
