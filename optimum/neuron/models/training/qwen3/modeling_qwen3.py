@@ -97,6 +97,11 @@ class Qwen3Attention(LlamaAttention):
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
         if self.config._attn_implementation == "flash_attention_2":
+            if self.training and self.attention_dropout > 0.0:
+                raise RuntimeError(
+                    "Attention dropout produces NaN with flash_attention_2. Please set it to 0.0 until this bug is "
+                    "resolved by the Neuron SDK."
+                )
             attention_interface = ALL_ATTENTION_FUNCTIONS["flash_attention_2"]
             attn_output = attention_interface(
                 query_states,
