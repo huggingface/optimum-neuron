@@ -187,7 +187,7 @@ from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.distributed import lazy_load_for_parallelism
 
 tensor_parallel_size = 8
-mp_config = TrainingNeuronConfig(
+trn_config = TrainingNeuronConfig(
     tensor_parallel_size,
     parallelize_embeddings=True,
     sequence_parallel_enabled=True,
@@ -196,7 +196,7 @@ mp_config = TrainingNeuronConfig(
 
 accelerator = NeuronAccelerator(
     ...
-    mp_config=mp_config,
+    trn_config=trn_config,
 )
 
 with lazy_load_for_parallelism(tensor_parallel_size=tensor_parallel_size):

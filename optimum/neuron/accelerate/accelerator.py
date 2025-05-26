@@ -100,7 +100,7 @@ class NeuronAccelerator(Accelerator):
     def __init__(
         self,
         *args,
-        mp_config: Optional[TrainingNeuronConfig] = None,
+        trn_config: Optional[TrainingNeuronConfig] = None,
         zero_1: bool = False,
         autocast_backend: Union[str, AutocastBackend] = "xla",
         **kwargs,
@@ -148,7 +148,7 @@ class NeuronAccelerator(Accelerator):
         accelerate.state.is_torch_xla_available = patched_is_torch_xla_available
 
         patched_accelerator_state = partial(
-            NeuronAcceleratorState, mp_config=mp_config, autocast_backend=autocast_backend
+            NeuronAcceleratorState, trn_config=trn_config, autocast_backend=autocast_backend
         )
         with Patcher([("accelerate.accelerator.AcceleratorState", patched_accelerator_state)]):
             super().__init__(**full_kwargs)
@@ -227,7 +227,7 @@ class NeuronAccelerator(Accelerator):
                 data_loader, num_replicas=num_replicas, rank=rank, force_drop_last=force_drop_last
             )
             # No need to wrap the dataloader if we are using pipeline parallelism.
-            if use_mp_device_loader and self.state.mp_config.pipeline_parallel_size == 1:
+            if use_mp_device_loader and self.state.trn_config.pipeline_parallel_size == 1:
                 data_loader = MpDeviceLoader(data_loader, self.device)
         return data_loader
 
@@ -394,7 +394,7 @@ class NeuronAccelerator(Accelerator):
 
         tied_parameters_dict = get_tied_parameters_dict(model)
         model_main_input_name = getattr(model, "main_input_name", None)
-        model = self.state.mp_config.parallelize_model(model, device=self.device)
+        model = self.state.trn_config.parallelize_model(model, device=self.device)
 
         if model_main_input_name is not None:
             setattr(model, "main_input_name", model_main_input_name)
@@ -648,9 +648,9 @@ class NeuronAccelerator(Accelerator):
                 model,
                 output_dir,
                 optimizer=optimizer,
-                use_xser=self.state.mp_config.use_xser,
-                async_save=self.state.mp_config.async_save,
-                num_local_ranks_per_step=self.state.mp_config.num_local_ranks_per_step,
+                use_xser=self.state.trn_config.use_xser,
+                async_save=self.state.trn_config.async_save,
+                num_local_ranks_per_step=self.state.trn_config.num_local_ranks_per_step,
             )
             logger.info(f"Parallel model and optimizer saved to the directory {output_dir}")
 

@@ -80,7 +80,7 @@ def _overfit_causal_lm(
     model_class = getattr(training_mod, model_class_name)
     model = model_class.from_pretrained(
         model_name_or_path,
-        training_args.mp_config,
+        training_args.trn_config,
         torch_dtype=torch.bfloat16,
         use_flash_attention_2=use_flash_attention_2,
     )

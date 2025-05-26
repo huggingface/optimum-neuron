@@ -49,11 +49,11 @@ def _test_parallel_granite():
 
     # Note that model is init on CPU, then moved  to XLA
     tp_size = get_tensor_model_parallel_size()
-    mp_config = TrainingNeuronConfig(
+    trn_config = TrainingNeuronConfig(
         tensor_parallel_size=tp_size,
         sequence_parallel_enabled=False,
     )
-    model = GraniteForCausalLM.from_pretrained(model_id, mp_config, torch_dtype=torch_dtype)
+    model = GraniteForCausalLM.from_pretrained(model_id, trn_config, torch_dtype=torch_dtype)
     move_model_to_device(model, xm.xla_device())
     model.eval()
     outputs = model(**inputs)

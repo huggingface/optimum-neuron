@@ -186,7 +186,7 @@ class NeuronTrainingArgumentsMixin:
                     f"per-device eval batch size ({self.per_device_eval_batch_size})."
                 )
 
-        self.mp_config = TrainingNeuronConfig(
+        self.trn_config = TrainingNeuronConfig(
             self.tensor_parallel_size,
             parallelize_embeddings=not self.disable_embedding_parallelization,
             sequence_parallel_enabled=not self.disable_sequence_parallel,
@@ -233,7 +233,7 @@ class NeuronTrainingArgumentsMixin:
 
     @property
     def place_model_on_device(self):
-        return not self.mp_config.should_parallelize and super().place_model_on_device
+        return not self.trn_config.should_parallelize and super().place_model_on_device
 
     @property
     def world_size_should_behave_as_dp_size(self):
@@ -250,8 +250,8 @@ class NeuronTrainingArgumentsMixin:
     @property
     def dp_size(self):
         divisor = 1
-        if self.mp_config.should_parallelize:
-            divisor = self.mp_config.tensor_parallel_size * self.mp_config.pipeline_parallel_size
+        if self.trn_config.should_parallelize:
+            divisor = self.trn_config.tensor_parallel_size * self.trn_config.pipeline_parallel_size
         return super().world_size // divisor
 
     @property

@@ -457,7 +457,7 @@ def _custom_model_matches_original_model(
 
     xm.mark_step()
 
-    mp_config = TrainingNeuronConfig(
+    trn_config = TrainingNeuronConfig(
         tensor_parallel_size=tp_size,
         pipeline_parallel_size=pp_size,
         fuse_qkv=qkv_implementation == "fuse_qkv",
@@ -468,7 +468,7 @@ def _custom_model_matches_original_model(
     custom_model_class = getattr(training_mod, model_class_name)
     with static_seed_patcher:
         model = custom_model_class.from_pretrained(
-            model_name_or_path, mp_config, attn_implementation=attn_implementation, torch_dtype=torch_dtype
+            model_name_or_path, trn_config, attn_implementation=attn_implementation, torch_dtype=torch_dtype
         )
         move_model_to_device(model, xm.xla_device())
 

@@ -125,16 +125,16 @@ def eager_attention_forward(
 
 
 class GraniteAttention(LlamaAttention):
-    def __init__(self, config: GraniteConfig, mp_config: TrainingNeuronConfig, layer_idx: int):
-        super().__init__(config, mp_config, layer_idx)
+    def __init__(self, config: GraniteConfig, trn_config: TrainingNeuronConfig, layer_idx: int):
+        super().__init__(config, trn_config, layer_idx)
         self.scaling = config.attention_multiplier
 
 
 class GraniteDecoderLayer(LlamaDecoderLayer):
-    def __init__(self, config: GraniteConfig, mp_config: TrainingNeuronConfig, layer_idx: int):
-        super().__init__(config, mp_config, layer_idx)
+    def __init__(self, config: GraniteConfig, trn_config: TrainingNeuronConfig, layer_idx: int):
+        super().__init__(config, trn_config, layer_idx)
         self.residual_multiplier = config.residual_multiplier
-        self.self_attn = GraniteAttention(config=config, mp_config=mp_config, layer_idx=layer_idx)
+        self.self_attn = GraniteAttention(config=config, trn_config=trn_config, layer_idx=layer_idx)
 
     def forward(
         self,
@@ -176,25 +176,25 @@ class GraniteDecoderLayer(LlamaDecoderLayer):
 class GraniteModel(LlamaModel):
     config_class = GraniteConfig
 
-    def __init__(self, config: GraniteConfig, mp_config: TrainingNeuronConfig):
+    def __init__(self, config: GraniteConfig, trn_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)
         self.embedding_multiplier = config.embedding_multiplier
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
-        self.mp_config = mp_config
+        self.trn_config = trn_config
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
 
         self.layers = nn.ModuleList(
-            [GraniteDecoderLayer(config, mp_config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
+            [GraniteDecoderLayer(config, trn_config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
         self.norm = LlamaRMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=mp_config.sequence_parallel_enabled
+            config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=trn_config.sequence_parallel_enabled
         )
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
 
-        self.gradient_checkpointing = self.mp_config.gradient_checkpointing
+        self.gradient_checkpointing = self.trn_config.gradient_checkpointing
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -228,16 +228,15 @@ class GraniteModel(LlamaModel):
 
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
-
-        if self.mp_config.sequence_parallel_enabled:
+        if self.trn_config.sequence_parallel_enabled:
             inputs_embeds = inputs_embeds.transpose(0, 1).contiguous()
             inputs_embeds = scatter_to_sequence_parallel_region(inputs_embeds)
 
         inputs_embeds = inputs_embeds * self.embedding_multiplier  # main diff with Llama
 
         current_length = (
-            inputs_embeds.size(0) * self.mp_config.tensor_parallel_size
-            if self.mp_config.sequence_parallel_enabled
+            inputs_embeds.size(0) * self.trn_config.tensor_parallel_size
+            if self.trn_config.sequence_parallel_enabled
             else inputs_embeds.size(1)
         )
         cache_position = torch.arange(0, current_length, device=inputs_embeds.device)
@@ -245,7 +244,7 @@ class GraniteModel(LlamaModel):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        if self.mp_config.recompute_causal_mask:
+        if self.trn_config.recompute_causal_mask:
             causal_mask = None
         else:
             causal_mask = self._update_causal_mask(attention_mask, inputs_embeds, cache_position)
@@ -308,10 +307,10 @@ class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
 class GraniteForCausalLM(LlamaForCausalLM):
     config_class = GraniteConfig
 
-    def __init__(self, config, mp_config: TrainingNeuronConfig):
+    def __init__(self, config, trn_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)
-        self.mp_config = mp_config
-        self.model = GraniteModel(config, mp_config)
+        self.trn_config = trn_config
+        self.model = GraniteModel(config, trn_config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
@@ -351,7 +350,7 @@ class GraniteForCausalLM(LlamaForCausalLM):
         logits = self.lm_head(hidden_states)
         logits = logits / self.config.logits_scaling  # main diff with Llama
 
-        if self.mp_config.sequence_parallel_enabled:
+        if self.trn_config.sequence_parallel_enabled:
             logits = gather_from_sequence_parallel_region(logits)
             logits = logits.transpose(0, 1).contiguous()
 
