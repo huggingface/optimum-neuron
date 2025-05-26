@@ -50,17 +50,25 @@ if is_neuronx_distributed_available():
         ParallelEmbedding,
         RowParallelLinear,
     )
+    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
     from neuronx_distributed.parallel_layers.mappings import scatter_to_sequence_parallel_region
 else:
 
     class ParallelEmbedding:
-        pass
+        def __init__(self, *args, **kwargs):
+            pass
 
     class ColumnParallelLinear:
-        pass
+        def __init__(self, *args, **kwargs):
+            pass
 
     class RowParallelLinear:
-        pass
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class GQAQKVColumnParallelLinear:
+        def __init__(self, *args, **kwargs):
+            pass
 
     def scatter_to_sequence_parallel_region(*args, **kwargs):
         pass
@@ -232,6 +240,135 @@ class LoraParallelLinear(nn.Module, NeuronLoraLayer):
         rep = super().__repr__()
         return "lora." + rep
 
+class LoraGQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
+    def __init__(
+        self,
+        base_layer,
+        adapter_name: str,
+        r: int = 0,
+        lora_alpha: int = 1,
+        lora_dropout: float = 0.0,
+        fan_in_fan_out: bool = False,  # Set this to True if the layer to replace stores weight like (fan_in, fan_out)
+        is_target_conv_1d_layer: bool = False,
+        init_lora_weights: Union[bool, str] = True,
+        use_rslora: bool = False,
+        use_dora: bool = False,
+        lora_bias: bool = False,
+        **kwargs,
+    ) -> None:
+        super().__init__()
+        NeuronLoraLayer.__init__(self, base_layer, **kwargs)
+        self.fan_in_fan_out = fan_in_fan_out
+
+        self._active_adapter = adapter_name
+        self.update_layer(
+            adapter_name,
+            r,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            init_lora_weights=init_lora_weights,
+            use_rslora=use_rslora,
+            use_dora=use_dora,
+            lora_bias=lora_bias,
+        )
+        self.is_target_conv_1d_layer = is_target_conv_1d_layer
+
+    def update_layer(
+        self,
+        adapter_name,
+        r,
+        lora_alpha,
+        lora_dropout,
+        init_lora_weights,
+        use_rslora,
+        use_dora: bool = False,
+        lora_bias: bool = False,
+    ):
+        # This code works for linear layers, override for other layer types
+        if r <= 0:
+            raise ValueError(f"`r` should be a positive integer value but the value passed is {r}")
+
+        self.r[adapter_name] = r
+        self.lora_alpha[adapter_name] = lora_alpha
+        if lora_dropout > 0.0:
+            lora_dropout_layer = nn.Dropout(p=lora_dropout)
+        else:
+            lora_dropout_layer = nn.Identity()
+
+        self.lora_dropout.update(nn.ModuleDict({adapter_name: lora_dropout_layer}))
+
+        self.lora_A[adapter_name] = nn.Linear(self.in_features, r, bias=False)
+        self.lora_B[adapter_name] = GQAQKVColumnParallelLinear(
+            input_size=r,
+            output_sizes=self.out_features,
+            bias=False,
+            gather_output=self.base_layer.gather_output,
+            dtype=self.base_layer.dtype,
+            init_method=self.base_layer.arg_init_method,
+            kv_size_multiplier=self.base_layer.kv_size_multiplier,
+            sequence_parallel_enabled=self.base_layer.sequence_parallel_enabled,
+            sequence_dimension=self.base_layer.sequence_dimension,
+            fuse_qkv=self.base_layer.fuse_qkv,
+        )
+
+        self.lora_bias[adapter_name] = lora_bias
+
+        if use_rslora:
+            self.scaling[adapter_name] = lora_alpha / math.sqrt(r)
+        else:
+            self.scaling[adapter_name] = lora_alpha / r
+
+        # for inits that require access to the base weight, use gather_param_ctx so that the weight is gathered when using DeepSpeed
+        if isinstance(init_lora_weights, str) and init_lora_weights.startswith("pissa"):
+            with gather_params_ctx(self.get_base_layer().weight):
+                self.pissa_init(adapter_name, init_lora_weights)
+        elif isinstance(init_lora_weights, str) and init_lora_weights.lower() == "olora":
+            with gather_params_ctx(self.get_base_layer().weight):
+                self.olora_init(adapter_name)
+        elif init_lora_weights == "loftq":
+            with gather_params_ctx(self.get_base_layer().weight):
+                self.loftq_init(adapter_name)
+        elif init_lora_weights == "eva":
+            nn.init.zeros_(self.lora_B[adapter_name].weight)
+        elif init_lora_weights:
+            self.reset_lora_parameters(adapter_name, init_lora_weights)
+        # call this before dora_init
+        self._move_adapter_to_device_of_base_layer(adapter_name)
+
+        if use_dora:
+            self.dora_init(adapter_name)
+            self.use_dora[adapter_name] = True
+        else:
+            self.use_dora[adapter_name] = False
+
+        self.set_adapter(self.active_adapters)
+
+    def reset_lora_parameters(self, adapter_name, init_lora_weights):
+        if init_lora_weights is False:
+            return
+
+        if adapter_name in self.lora_A.keys():
+            if init_lora_weights is True:
+                # initialize A the same way as the default for nn.Linear and B to zero
+                # https://github.com/microsoft/LoRA/blob/a0a92e0f26c067cf94747bdbf1ce73793fa44d19/loralib/layers.py#L124
+                nn.init.kaiming_uniform_(self.lora_A[adapter_name].weight, a=math.sqrt(5))
+            elif init_lora_weights.lower() == "gaussian":
+                nn.init.normal_(self.lora_A[adapter_name].weight, std=1 / self.r[adapter_name])
+            else:
+                raise ValueError(f"Unknown initialization {init_lora_weights=}")
+            if self.base_layer.fuse_qkv:
+                nn.init.zeros_(self.lora_B[adapter_name].weight_qkv)
+                if self.lora_bias[adapter_name]:
+                    nn.init.zeros_(self.lora_B[adapter_name].bias_qkv)
+            else:
+                nn.init.zeros_(self.lora_B[adapter_name].weight_q)
+                nn.init.zeros_(self.lora_B[adapter_name].weight_k)
+                nn.init.zeros_(self.lora_B[adapter_name].weight_v)
+                if self.lora_bias[adapter_name]:
+                    nn.init.zeros_(self.lora_B[adapter_name].bias_q)
+                    nn.init.zeros_(self.lora_B[adapter_name].bias_k)
+                    nn.init.zeros_(self.lora_B[adapter_name].bias_v)
+
 
 class LoraParallelEmbedding(nn.Module, NeuronLoraLayer):
     def __init__(
@@ -334,4 +471,5 @@ NEURON_LORA_MODULES = {
     ParallelEmbedding: LoraParallelEmbedding,
     ColumnParallelLinear: LoraParallelLinear,
     RowParallelLinear: LoraParallelLinear,
+    GQAQKVColumnParallelLinear: LoraGQAQKVColumnParallelLinear,
 }
