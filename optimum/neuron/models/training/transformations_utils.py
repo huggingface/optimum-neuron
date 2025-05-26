@@ -811,6 +811,159 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
             )
         return state_dict, keys_to_remove
 
+    def _lora_to_original_weights(
+        self,
+        module_fully_qualified_name: str,
+        sharded_state_dicts: Dict[str, list[torch.Tensor]],
+        parameters_metadata: Dict[str, Dict[str, Any]],
+    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
+        state_dict = {}
+        keys_to_remove = []
+        param_names = ["weight", "bias"] if self.bias else ["weight"]
+        for param_name in param_names:
+            lora_A_prefix = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_A"
+            lora_B_prefix = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B"
+            lora_A_adapter_pattern = re.compile(rf"{lora_A_prefix}\.(\w+\.){param_name}")
+            lora_B_adapter_pattern = re.compile(rf"{lora_B_prefix}\.(\w+\.){param_name}")
+            lora_B_qkv_seperate_weights = []
+            if self.fuse_qkv:
+                weight_suffix = f"{param_name}_qkv"
+                # There is as many names as adapters
+                lora_A_weight_names = []
+                lora_B_weight_names = []
+                for name in parameters_metadata:
+                    if name.startswith(lora_A_prefix) and name.endswith(weight_suffix):
+                        lora_A_weight_names.append(name)
+                    if name.startswith(lora_B_prefix) and name.endswith(weight_suffix):
+                        lora_B_weight_names.append(name)
+
+                for weight_name in lora_B_weight_names:
+                    adapter_name = re.search(lora_B_adapter_pattern, weight_name).group(1)
+                    weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
+
+                    fused_qkv_local_weights = sharded_state_dicts[weight_name_without_adapter_name]
+
+                    slice_q = slice(0, self.q_output_size_per_partition)
+                    weights_q = [fused_qkv_local_weights[tp_rank][slice_q].contiguous() for tp_rank in range(self.tp_size)]
+
+                    slice_k = slice(
+                        self.q_output_size_per_partition,
+                        self.q_output_size_per_partition + self.kv_output_size_per_partition,
+                    )
+                    weights_k = [fused_qkv_local_weights[tp_rank][slice_k].contiguous() for tp_rank in range(self.tp_size)]
+
+                    slice_v = slice(
+                        self.q_output_size_per_partition + self.kv_output_size_per_partition,
+                        None,
+                    )
+                    weights_v = [fused_qkv_local_weights[tp_rank][slice_v].contiguous() for tp_rank in range(self.tp_size)]
+
+                    qkv_partition_dim = parameters_metadata[weight_name]["partition_dim"]
+                    keys_to_remove += [weight_name]
+
+                    lora_B_qkv_seperate_weights += [
+                            ["query", weights_q, qkv_partition_dim, weight_name_without_adapter_name],
+                            ["key", weights_k, qkv_partition_dim, weight_name_without_adapter_name],
+                            ["value", weights_v, qkv_partition_dim, weight_name_without_adapter_name],
+                    ]
+            else:
+                weight_suffixes = [f"{param_name}_q", f"{param_name}_k", f"{param_name}_v"]
+
+                # There is as many names as adapters
+                lora_A_weight_names = []
+                lora_B_weight_names = []
+                for name in parameters_metadata:
+                    if name.startswith(lora_A_prefix) and any(name.endswith(suffix) for suffix in weight_suffixes):
+                        lora_A_weight_names.append(name)
+                    if name.startswith(lora_B_prefix) and any(name.endswith(suffix) for suffix in weight_suffixes):
+                        lora_B_weight_names.append(name)
+
+                for weight_name in lora_B_weight_names:
+                    adapter_name = re.search(lora_B_adapter_pattern, weight_name).group(1)
+                    weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
+
+                    if f"{param_name}_q" in weight_name_without_adapter_name:
+                        query_key_or_value = "query"
+                    elif f"{param_name}_k" in weight_name_without_adapter_name:
+                        query_key_or_value = "key"
+                    else:
+                        query_key_or_value = "value"
+
+                    weights = sharded_state_dicts[weight_name_without_adapter_name]
+
+                    # The query, key and value share the same partition dim.
+                    qkv_partition_dim = parameters_metadata[weight_name]["partition_dim"]
+                    keys_to_remove += [weight_name]
+
+                    lora_B_qkv_seperate_weights += [
+                            [query_key_or_value, weights, qkv_partition_dim, weight_name_without_adapter_name],
+                    ]
+
+            for query_key_or_value, weights, qkv_partition_dim, weight_name in lora_B_qkv_seperate_weights:
+                if query_key_or_value == "query":
+                    full_weight_q = torch.cat(weights, dim=qkv_partition_dim).contiguous()
+                    full_weight_q = (
+                        GQAQKVColumnParallelLinearSpec.create_gqa_query_or_output_projection_weight_from_full_weight(
+                            full_weight_q,
+                            self.tp_size,
+                            self.num_attention_heads,
+                            self.num_key_value_heads,
+                            self.kv_size_multiplier,
+                            "query",
+                        )
+                    )
+                    query_weight_name = weight_name.replace(self.gqa_qkv_projection_name, self.query_projection_name)
+                    state_dict[query_weight_name] = full_weight_q
+                elif query_key_or_value == "key":
+                    full_weight_k = torch.cat(weights, dim=qkv_partition_dim).contiguous()
+                    full_weight_k = GQAQKVColumnParallelLinearSpec.create_kv_proj_local_weight_from_regular_weight(
+                        full_weight_k, self.kv_size_multiplier, self.kv_output_size_per_partition
+                    )
+                    full_weight_k = torch.chunk(full_weight_k, self.kv_size_multiplier, dim=0)[0].detach().clone()
+                    key_weight_name = weight_name.replace(self.gqa_qkv_projection_name, self.key_projection_name)
+                    state_dict[key_weight_name] = full_weight_k
+                else:
+                    full_weight_v = torch.cat(weights, dim=qkv_partition_dim).contiguous()
+                    full_weight_v = GQAQKVColumnParallelLinearSpec.create_kv_proj_local_weight_from_regular_weight(
+                        full_weight_v, self.kv_size_multiplier, self.kv_output_size_per_partition
+                    )
+                    full_weight_v = torch.chunk(full_weight_v, self.kv_size_multiplier, dim=0)[0].detach().clone()
+                    value_weight_name = weight_name.replace(self.gqa_qkv_projection_name, self.value_projection_name)
+                    state_dict[value_weight_name] = full_weight_v
+
+                # Now we handle the output projection.
+                lora_A_prefix = f"{module_fully_qualified_name}.{self.output_projection_name}.lora_A"
+                lora_B_prefix = f"{module_fully_qualified_name}.{self.output_projection_name}.lora_B"
+                lora_A_adapter_pattern = re.compile(rf"{lora_A_prefix}\.(\w+\.){param_name}")
+                lora_B_adapter_pattern = re.compile(rf"{lora_B_prefix}\.(\w+\.){param_name}")
+                # There is as many names as adapters
+                lora_A_weight_names = []
+                lora_B_weight_names = []
+                for name in parameters_metadata:
+                    if name.startswith(lora_A_prefix) and name.endswith(param_name):
+                        lora_A_weight_names.append(name)
+                    if name.startswith(lora_B_prefix) and name.endswith(param_name):
+                        lora_B_weight_names.append(name)
+
+                for weight_name in lora_A_weight_names:
+                    adapter_name = re.search(lora_A_adapter_pattern, weight_name).group(1)
+                    weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
+                    weights_o = sharded_state_dicts[weight_name_without_adapter_name]
+                    o_partition_dim = parameters_metadata[weight_name]["partition_dim"]
+                    full_weight_o = torch.cat(weights_o, dim=o_partition_dim).contiguous()
+                    full_weight_o = (
+                        GQAQKVColumnParallelLinearSpec.create_gqa_query_or_output_projection_weight_from_full_weight(
+                            full_weight_o,
+                            self.tp_size,
+                            self.num_attention_heads,
+                            self.num_key_value_heads,
+                            self.kv_size_multiplier,
+                            "output",
+                        )
+                    )
+                    keys_to_remove.append(weight_name)
+                    state_dict[weight_name_without_adapter_name] = full_weight_o
+
 
 def specialize_transformation_specs_for_model(model: torch.nn.Module):
     for name, mod in model.named_modules():
