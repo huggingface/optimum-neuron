@@ -1090,7 +1090,6 @@ def adapt_peft_config_for_model(model: torch.nn.Module, peft_config: Union[PeftC
                     spec.adapt_peft_config(config, inplace=True)
             else:
                 spec.adapt_peft_config(adapted_peft_config, inplace=True)
-                print("zaza", adapted_peft_config)
     return adapted_peft_config
 
 
