@@ -856,6 +856,12 @@ class NeuronModelMixin:
         else:
             _adapter_model_path = None
 
+        if _adapter_model_path is not None:
+            raise NotSupportedError(
+                f"Loading adapters directly from {cls.__name__}.from_pretrained is not supported. "
+                "Please use the NeuronPeftModelForXXX classes to load adapters."
+            )
+
         user_agent = {"file_type": "model", "framework": "pytorch", "from_auto_class": from_auto_class}
         if from_pipeline is not None:
             user_agent["using_pipeline"] = from_pipeline
