@@ -31,7 +31,7 @@ from neuronx_distributed.parallel_layers.mappings import (
     reduce_from_tensor_model_parallel_region,
     reduce_scatter_to_sequence_parallel_region,
 )
-from neuronx_distributed_inference.modules.attention.utils import (
+from neuronx_distributed.modules.attention.utils import (
     apply_rotary_pos_emb,
     move_heads_front,
 )
