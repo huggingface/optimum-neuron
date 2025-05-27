@@ -122,7 +122,7 @@ class ModelWeightTransformationSpec:
         pass
 
     @abstractmethod
-    def to_original_peft_config(self, peft_config: PeftConfig) -> PeftConfig:
+    def to_original_peft_config(self, peft_config: PeftConfig, inplace: bool = False) -> PeftConfig:
         """
         Restores the PEFT config to the original one that matches the original Transformers implementation.
         """
@@ -380,7 +380,8 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 target_modules.add(self.fused_linear_name)
         return peft_config
 
-    def to_original_peft_config(self, peft_config: PeftConfig) -> PeftConfig:
+    def to_original_peft_config(self, peft_config: PeftConfig, inplace: bool = False) -> PeftConfig:
+        peft_config = copy.deepcopy(peft_config) if not inplace else peft_config
         if peft_config.peft_type == "LORA":
             target_modules = peft_config.target_modules
             if self.fused_linear_name in target_modules:
@@ -846,7 +847,8 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                 target_modules.add(self.gqa_qkv_projection_name)
         return peft_config
 
-    def to_original_peft_config(self, peft_config: PeftConfig) -> PeftConfig:
+    def to_original_peft_config(self, peft_config: PeftConfig, inplace: bool = False) -> PeftConfig:
+        peft_config = copy.deepcopy(peft_config) if not inplace else peft_config
         if peft_config.peft_type == "LORA":
             target_modules = peft_config.target_modules
             if self.gqa_qkv_projection_name in target_modules:
@@ -1334,6 +1336,22 @@ def adapt_peft_config_for_model(
                     spec.adapt_peft_config(config, inplace=True)
             else:
                 spec.adapt_peft_config(adapted_peft_config, inplace=True)
+    return adapted_peft_config
+
+
+def to_original_peft_config_for_model(model: torch.nn.Module, peft_config: PeftConfig, inplace: bool = False) -> PeftConfig:
+    adapted_peft_config = copy.deepcopy(peft_config) if not inplace else peft_config
+    for name, mod in model.named_modules():
+        if not isinstance(mod, CustomModule):
+            continue
+        mod.specs.module_fully_qualified_name = name
+        for spec in mod.specs:
+            # inplace=True because we already do a deepcopy if needed once at the beginning of this function.
+            if isinstance(adapted_peft_config, dict):
+                for _, config in adapted_peft_config.items():
+                    spec.to_original_peft_config(config, inplace=True)
+            else:
+                spec.to_original_peft_config(adapted_peft_config, inplace=True)
     return adapted_peft_config
 
 

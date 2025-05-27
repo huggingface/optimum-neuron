@@ -26,5 +26,7 @@ from .transformations_utils import (
     adapt_peft_config_for_model,
     adapt_state_dict,
     create_parameter_metadata,
+    specialize_transformation_specs_for_model,
+    to_original_peft_config_for_model,
     to_original_weights,
 )
