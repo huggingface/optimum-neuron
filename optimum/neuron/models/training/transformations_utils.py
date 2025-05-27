@@ -799,11 +799,11 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
         return full_weight
 
     def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
-        from ...peft.tuners.lora.layer import LoraGQAQKVColumnParallelLinear
+        from ...peft.tuners.lora.layer import GQAQKVColumnParallelLinear
 
         gqa_qkv_projection_qualified_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}"
         qkv_linear = model.get_submodule(gqa_qkv_projection_qualified_name)
-        if isinstance(qkv_linear, LoraGQAQKVColumnParallelLinear):
+        if isinstance(qkv_linear, GQAQKVColumnParallelLinear):
             return "lora"
         return None
 
