@@ -338,11 +338,11 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
             self.fuse_axis = 1
 
     def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
-        from ...peft.tuners.lora.layer import LoraParallelLinear
+        from ...peft.tuners.lora.layer import ParallelLinear
 
         fused_linear_qualified_name = f"{module_fully_qualified_name}.{self.fused_linear_name}"
         fused_linear = model.get_submodule(fused_linear_qualified_name)
-        if isinstance(fused_linear, LoraParallelLinear):
+        if isinstance(fused_linear, ParallelLinear):
             return "lora"
         return None
 
@@ -813,7 +813,6 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
         if peft_config.peft_type == "LORA":
             linear_names = [self.query_projection_name, self.key_projection_name, self.value_projection_name]
             target_modules = peft_config.target_modules
-            print(linear_names, target_modules)
             at_least_one_linear_in_target_modules = any(name in target_modules for name in linear_names)
             all_linears_in_target_modules = all(name in target_modules for name in linear_names)
             if at_least_one_linear_in_target_modules and not all_linears_in_target_modules:

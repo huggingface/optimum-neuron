@@ -389,8 +389,6 @@ class NeuronPeftModel(PeftModel):
 
         adapters_weights = load_peft_weights(model_id, **hf_hub_download_kwargs)
 
-        print("zazou", adapters_weights.keys())
-
         # ** Difference from original load_adapter **
         # We need to adapt the adapters_weights to the model.
         upstanding_sharded_params = {}
