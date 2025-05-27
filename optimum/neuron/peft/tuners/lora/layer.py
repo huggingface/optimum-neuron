@@ -105,9 +105,9 @@ class NeuronLoraLayer(LoraLayer):
             raise NotSupportedError("Conv2d is not supported for LoRA with optimum-neuron.")
         elif isinstance(base_layer, nn.Conv3d):
             raise NotSupportedError("Conv3d is not supported for LoRA with optimum-neuron.")
-        elif isinstance(base_layer, ParallelEmbedding):
+        elif isinstance(base_layer, NxDParallelEmbedding):
             in_features, out_features = base_layer.num_embeddings, base_layer.embedding_dim
-        elif isinstance(base_layer, nn.Conv1D):
+        elif isinstance(base_layer, nn.Conv1d):
             raise NotSupportedError("Conv1d is not supported for LoRA with optimum-neuron.")
         else:
             raise NotSupportedError(f"LoRA is not supported for {base_layer.__class__.__name__} with optimum-neuron.")
