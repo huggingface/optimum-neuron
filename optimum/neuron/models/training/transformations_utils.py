@@ -42,13 +42,17 @@ else:
     def get_tensor_model_parallel_size():
         return 0
 
+
 if is_peft_available():
     from peft import PeftConfig
 else:
+
     class PeftConfig:
         pass
 
+
 logger = logging.get_logger()
+
 
 def create_local_weight_with_padding(
     full_weight: torch.Tensor,
@@ -158,9 +162,21 @@ class ModelWeightTransformationSpec:
         Transforms the state dict from the original Transformers model to match the custom modeling implementation.
         """
         if self.peft_type is None:
-            return self._adapt_state_dict(module_fully_qualified_name, named_parameters, orig_state_dict, upstanding_sharded_params, inplace=inplace)
+            return self._adapt_state_dict(
+                module_fully_qualified_name,
+                named_parameters,
+                orig_state_dict,
+                upstanding_sharded_params,
+                inplace=inplace,
+            )
         elif self.peft_type == "lora":
-            return self._lora_adapt_state_dict(module_fully_qualified_name, named_parameters, orig_state_dict, upstanding_sharded_params, inplace=inplace)
+            return self._lora_adapt_state_dict(
+                module_fully_qualified_name,
+                named_parameters,
+                orig_state_dict,
+                upstanding_sharded_params,
+                inplace=inplace,
+            )
 
     @abstractmethod
     def _to_original_weights(
@@ -363,7 +379,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                     target_modules.remove(name)
                 target_modules.add(self.fused_linear_name)
         return peft_config
-    
+
     def to_original_peft_config(self, peft_config: PeftConfig) -> PeftConfig:
         if peft_config.peft_type == "LORA":
             target_modules = peft_config.target_modules
@@ -450,14 +466,13 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
         fused_linear_fully_qualified_name = f"{module_fully_qualified_name}.{self.fused_linear_name}"
         param_names = ["weight", "bias"] if self.bias else ["weight"]
         for param_name in param_names:
-            lora_A_weight_names = [f"{module_fully_qualified_name}.{name}.lora_A.{param_name}" for name in self.linear_names]
+            lora_A_weight_names = [
+                f"{module_fully_qualified_name}.{name}.lora_A.{param_name}" for name in self.linear_names
+            ]
 
             # Question: how do we "mix" the multiple LoRA A weights?
             lora_A_weight = torch.mean(
-                torch.stack(
-                    [state_dict.pop(name) for name in lora_A_weight_names], 
-                    dim=0
-                ),
+                torch.stack([state_dict.pop(name) for name in lora_A_weight_names], dim=0),
                 dim=0,
             )
             lora_A_weight_name = f"{fused_linear_fully_qualified_name}.lora_A.{param_name}"
@@ -465,10 +480,14 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
             # Case 1: the base layer is a ColumnParallelLinear
             if self.fuse_axis == 0:
                 state_dict[lora_A_weight_name] = lora_A_weight
-                lora_B_weight_names = [f"{module_fully_qualified_name}.{name}.lora_B.{param_name}" for name in self.linear_names]
+                lora_B_weight_names = [
+                    f"{module_fully_qualified_name}.{name}.lora_B.{param_name}" for name in self.linear_names
+                ]
                 lora_B_weights = [state_dict.pop(name) for name in lora_B_weight_names]
 
-                lora_B_fused_local_weight = create_local_fused_weight(tp_rank, tp_size, lora_B_weights, 0, self.fuse_axis)
+                lora_B_fused_local_weight = create_local_fused_weight(
+                    tp_rank, tp_size, lora_B_weights, 0, self.fuse_axis
+                )
                 lora_B_weight_name = f"{fused_linear_fully_qualified_name}.lora_B.{param_name}"
                 state_dict[lora_B_weight_name] = lora_B_fused_local_weight
 
@@ -477,7 +496,9 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 lora_A_local_weight = create_local_weight_with_padding(lora_A_weight, 1, 1)
                 state_dict[lora_A_weight_name] = lora_A_local_weight
 
-                lora_B_weight_names = [f"{module_fully_qualified_name}.{name}.lora_B.{param_name}" for name in self.linear_names]
+                lora_B_weight_names = [
+                    f"{module_fully_qualified_name}.{name}.lora_B.{param_name}" for name in self.linear_names
+                ]
                 lora_B_weights = [state_dict.pop(name) for name in lora_B_weight_names]
 
                 lora_B_fused_weight = torch.cat(
@@ -486,7 +507,6 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 )
                 local_B_weight_name = f"{fused_linear_fully_qualified_name}.lora_B.{param_name}"
                 state_dict[local_B_weight_name] = lora_B_fused_weight
-
 
         return state_dict
 
@@ -950,17 +970,16 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
             lora_A_weight_names = [lora_A_q_name, lora_A_k_name, lora_A_v_name]
 
             lora_A_weight = torch.mean(
-                torch.stack(
-                    [state_dict.pop(name) for name in lora_A_weight_names], 
-                    dim=0
-                ),
+                torch.stack([state_dict.pop(name) for name in lora_A_weight_names], dim=0),
                 dim=0,
             )
             lora_A_weight_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_A.{param_name}"
             state_dict[lora_A_weight_name] = lora_A_weight
 
             if self.fuse_qkv:
-                lora_B_weight_name =  f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}"
+                lora_B_weight_name = (
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}"
+                )
 
                 full_weights = [
                     GQAQKVColumnParallelLinearSpec.create_query_or_output_projection_local_weight_from_regular_weight(
@@ -983,9 +1002,15 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                 ]
                 state_dict[lora_B_weight_name] = torch.cat(full_weights, dim=0)
             else:
-                new_lora_B_weight_q_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}_q"
-                new_lora_B_weight_k_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}_k"
-                new_lora_B_weight_v_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}_v"
+                new_lora_B_weight_q_name = (
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}_q"
+                )
+                new_lora_B_weight_k_name = (
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}_k"
+                )
+                new_lora_B_weight_v_name = (
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}_v"
+                )
 
                 state_dict[new_lora_B_weight_q_name] = (
                     GQAQKVColumnParallelLinearSpec.create_query_or_output_projection_local_weight_from_regular_weight(
@@ -1010,7 +1035,9 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                 )
 
             # If there are LoRA weights for the output projection, we need to adapt them as well
-            lora_A_output_projection_name = f"{module_fully_qualified_name}.{self.output_projection_name}.lora_A.{param_name}"
+            lora_A_output_projection_name = (
+                f"{module_fully_qualified_name}.{self.output_projection_name}.lora_A.{param_name}"
+            )
             if lora_A_output_projection_name in state_dict:
                 state_dict[lora_A_output_projection_name] = (
                     GQAQKVColumnParallelLinearSpec.create_query_or_output_projection_local_weight_from_regular_weight(
@@ -1023,7 +1050,6 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                 )
 
         return state_dict
-
 
     def _to_original_weights(
         self,
@@ -1293,7 +1319,9 @@ def specialize_transformation_specs_for_model(model: torch.nn.Module):
             spec.peft_type = spec.guess_peft_type(model, name)
 
 
-def adapt_peft_config_for_model(model: torch.nn.Module, peft_config: Union[PeftConfig, dict[str, PeftConfig]], inplace: bool = False) -> Union[PeftConfig, dict[str, PeftConfig]]:
+def adapt_peft_config_for_model(
+    model: torch.nn.Module, peft_config: Union[PeftConfig, dict[str, PeftConfig]], inplace: bool = False
+) -> Union[PeftConfig, dict[str, PeftConfig]]:
     adapted_peft_config = copy.deepcopy(peft_config) if not inplace else peft_config
     for name, mod in model.named_modules():
         if not isinstance(mod, CustomModule):
@@ -1339,10 +1367,13 @@ def adapt_state_dict(
     new_keys = set(state_dict.keys()) - original_state_dict_keys
     mutated_keys = {n for n, p in state_dict.items() if p.data_ptr() != original_data_ptrs.get(n, p.data_ptr())}
 
-    lora_pattern = re.compile(r"(?P<qualified_name>(\w+\.)+(lora_(A|B))\.)(?P<adapter_name>\w+\.)(?P<remaining>(\w+\.{0,1})+)")
+    lora_pattern = re.compile(
+        r"(?P<qualified_name>(\w+\.)+(lora_(A|B))\.)(?P<adapter_name>\w+\.)(?P<remaining>(\w+\.{0,1})+)"
+    )
+
     def remove_adapter_name(name: str) -> str:
         return re.sub(lora_pattern, "\g<qualified_name>\g<remaining>", name)
-    
+
     def is_base_layer(name: str) -> bool:
         return "base_layer" in name
 
@@ -1352,9 +1383,11 @@ def adapt_state_dict(
             # In this case, we don't need to do anything, it was handled by the transformation specs.
             continue
         if is_base_layer(name_without_adapter_name):
-            # In this case, it was already handled when loading the base layer weights in 
+            # In this case, it was already handled when loading the base layer weights in
             # `NeuronModelMixin.from_pretrained`.
-            state_dict.pop(name_without_adapter_name, None) # We remove it to avoid confusion, maybe it is actually needed?
+            state_dict.pop(
+                name_without_adapter_name, None
+            )  # We remove it to avoid confusion, maybe it is actually needed?
             continue
         if hasattr(param, "tensor_model_parallel") and param.tensor_model_parallel:
             if param.partition_dim not in [0, 1]:

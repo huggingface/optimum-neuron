@@ -24,7 +24,12 @@ import torch
 from transformers import PreTrainedModel
 
 from ..utils.patching import Patcher
-from ..models.training import NotSupportedError, create_parameter_metadata, adapt_state_dict, adapt_peft_config_for_model
+from ..models.training import (
+    NotSupportedError,
+    create_parameter_metadata,
+    adapt_state_dict,
+    adapt_peft_config_for_model,
+)
 from ..models.training.transformations_utils import specialize_transformation_specs_for_model
 from ..utils.import_utils import is_peft_available
 
@@ -73,8 +78,6 @@ else:
 ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME = "adapter_shards"
 
 
-
-
 class NeuronPeftModel(PeftModel):
     def __init__(
         self,
@@ -88,6 +91,7 @@ class NeuronPeftModel(PeftModel):
         peft_config = adapt_peft_config_for_model(model, peft_config, inplace=False)
 
         from .mapping import PEFT_TYPE_TO_MODEL_MAPPING, MODEL_TYPE_TO_PEFT_MODEL_MAPPING
+
         patcher = Patcher(
             [
                 ("peft.peft_model.PEFT_TYPE_TO_MODEL_MAPPING", PEFT_TYPE_TO_MODEL_MAPPING),
