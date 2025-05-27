@@ -8,7 +8,7 @@ Copy the configurations down using
 
 ```shell
 $ git clone https://github.com/huggingface/optimum-neuron.git
-$ cd optimum-neuron/benchmark/text-generation-inference/
+$ cd optimum-neuron/benchmark/text-generation-inference/performance/
 ```
 
 
@@ -52,7 +52,7 @@ The benchmark script takes the `model_id` and number of concurrent users as para
 The `model_id` must match the one corresponding to the selected `.env` file.
 
 ```shell
-$ ./benchmark.sh "meta-llama/Meta-Llama-3.1-8B-Instruct"
+$ ./benchmark.sh "meta-llama/Llama-3.1-8B-Instruct"
 ```
 
 Note that the evaluated model **must** be an `Instruct` model.
