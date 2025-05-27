@@ -95,6 +95,7 @@ class NeuronPeftModel(PeftModel):
         autocast_adapter_dtype: bool = True,
         **kwargs: Any,
     ) -> None:
+        # We adapt the PEFT config for the model using the transformation specs.
         peft_config = adapt_peft_config_for_model(model, peft_config, inplace=False)
         super().__init__(
             model,
@@ -306,7 +307,6 @@ class NeuronPeftModel(PeftModel):
 
         # ** Difference from original from_pretrained **
         # No hf_device_map here.
-
 
         if config.is_prompt_learning and is_trainable:
             raise ValueError("Cannot set a prompt learning adapter to trainable when loading pretrained adapter.")

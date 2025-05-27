@@ -340,10 +340,14 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 target_modules.add(self.fused_linear_name)
         return peft_config
     
-        # def to_original_peft_config(self, peft_config: PeftConfig) -> PeftConfig:
-        #     if self.peft_type == "lora":
-        #         if self.fused_linear_name in peft_config.target_modules:
-
+    def to_original_peft_config(self, peft_config: PeftConfig) -> PeftConfig:
+        if peft_config.peft_type == "LORA":
+            target_modules = peft_config.target_modules
+            if self.fused_linear_name in target_modules:
+                target_modules.remove(self.fused_linear_name)
+                for name in self.linear_names:
+                    target_modules.add(name)
+        return peft_config
 
     def adapt_state_dict(
         self,
@@ -717,6 +721,16 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                 for name in linear_names:
                     target_modules.remove(name)
                 target_modules.add(self.gqa_qkv_projection_name)
+        return peft_config
+
+    def to_original_peft_config(self, peft_config: PeftConfig) -> PeftConfig:
+        if peft_config.peft_type == "LORA":
+            target_modules = peft_config.target_modules
+            if self.gqa_qkv_projection_name in target_modules:
+                target_modules.remove(self.gqa_qkv_projection_name)
+                target_modules.add(self.query_projection_name)
+                target_modules.add(self.key_projection_name)
+                target_modules.add(self.value_projection_name)
         return peft_config
 
     def adapt_state_dict(
