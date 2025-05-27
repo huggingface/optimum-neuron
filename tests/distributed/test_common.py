@@ -541,13 +541,13 @@ class TestCommonDistributed(DistributedTest):
         if xr.global_ordinal() == 0:
             orig_model.save_pretrained(tmpdir / "orig_model", safe_serialization=False)
 
-        mp_config = TrainingNeuronConfig(
+        trn_config = TrainingNeuronConfig(
             tensor_parallel_size=tp_size,
             pipeline_parallel_size=pp_size,
             use_xser=use_xser,
             async_save=False,
         )
-        custom_model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, mp_config)
+        custom_model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
 
         if lora_enabled:
             custom_model = get_peft_model(custom_model, peft_config)

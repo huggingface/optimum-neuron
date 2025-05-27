@@ -13,6 +13,7 @@ from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
 )
+from optimum.neuron.utils.misc import is_precompilation
 
 from .. import launch_procs
 
@@ -72,7 +73,7 @@ def _overfit_causal_lm(
         bf16=True,
         logging_steps=1,
         save_strategy="no",
-        max_steps=30,
+        max_steps=10 if is_precompilation() else 30,
         output_dir=output_dir,
         **training_kwargs,
     )
@@ -82,7 +83,7 @@ def _overfit_causal_lm(
     model_class = getattr(training_mod, model_class_name)
     model = model_class.from_pretrained(
         model_name_or_path,
-        training_args.mp_config,
+        training_args.trn_config,
         torch_dtype=torch.bfloat16,
         use_flash_attention_2=use_flash_attention_2,
     )
@@ -106,6 +107,11 @@ def _overfit_causal_lm(
     )
 
     trainer.train()
+
+    # If the test was run with neuron_parallel_compile, we stop after training since the goal of this run was only
+    # to compile the model, no test can actually be done here.
+    if is_precompilation():
+        return
 
     # The master worker checks the logs, since it is the only worker to have access to them, to retrieve the last logged
     # loss. It then checks if it is lower or equal to max_expected_loss.
@@ -140,14 +146,26 @@ def _overfit_causal_lm(
             2e-3,
             0,
             {
-                "disable_sequence_parallel": True,
+                # For now we disable flash attention because the default configuration has a dropout for the attention
+                # which is broken with the flash attention kernel in the current Neuron SDK.
+                "use_flash_attention": False,
             },
             False,
             0.07,
-            512,
+            512,  # Do 2048 once we have flash_attention enabled.
+        ],
+        [
+            "Qwen3ForCausalLM",
+            "Qwen/Qwen3-0.6B",
+            1e-4,
+            0.03,
+            {},
+            True,
+            0.0,
+            2048,
         ],
     ],
-    ids=["meta-llama/Llama-3.2-1B-Instruct", "ibm-granite/granite-3.2-2b-instruct"],
+    ids=["meta-llama/Llama-3.2-1B-Instruct", "ibm-granite/granite-3.2-2b-instruct", "Qwen/Qwen3-0.6B"],
 )
 @pytest.mark.parametrize(
     "world_size,tp_size,pp_size",
