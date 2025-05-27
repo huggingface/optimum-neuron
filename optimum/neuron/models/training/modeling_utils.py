@@ -1547,7 +1547,7 @@ class NeuronModelMixin:
                 current_peft_config.save_pretrained(save_directory)
 
             with open(save_directory / "trn_config.json", "w") as f:
-                mp_config_data = asdict(self.trn_config)
-                if isinstance(mp_config_data["checkpoint_dir"], Path):
-                    mp_config_data["checkpoint_dir"] = mp_config_data["checkpoint_dir"].as_posix()
-                f.write(json.dumps(mp_config_data, indent=4))
+                trn_config_data = asdict(self.trn_config)
+                if isinstance(trn_config_data["checkpoint_dir"], Path):
+                    trn_config_data["checkpoint_dir"] = trn_config_data["checkpoint_dir"].as_posix()
+                f.write(json.dumps(trn_config_data, indent=4))

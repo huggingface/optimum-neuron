@@ -227,9 +227,9 @@ class NeuronPeftModel(PeftModel):
                 output_dir,
                 tag=ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME,
                 model=DummyModule(),
-                use_xser=self.mp_config.use_xser,
-                async_save=self.mp_config.async_save,
-                num_workers=self.mp_config.num_local_ranks_per_step,
+                use_xser=self.trn_config.use_xser,
+                async_save=self.trn_config.async_save,
+                num_workers=self.trn_config.num_local_ranks_per_step,
             )
 
             # Save the config and change the inference mode to `True`
