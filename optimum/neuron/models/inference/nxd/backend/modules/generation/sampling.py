@@ -258,7 +258,8 @@ class Sampler(torch.nn.Module):
         return probs_cumsum
 
     def _rand_selector(self, probs_cumsum, num_samples=1):
-        return torch.full((probs_cumsum.shape[0], num_samples), 0.5, device=probs_cumsum.device)
+        zeros = torch.zeros((probs_cumsum.shape[0], num_samples), device=probs_cumsum.device, dtype=probs_cumsum.dtype)
+        return torch.rand_like(zeros) if self.on_cpu else rand_like(zeros)
 
     def _multinomial(self, probs, dim, num_samples=1):
         probs_cumsum = cumsum(tensor_in=probs, dim=dim, on_cpu=self.on_cpu)
