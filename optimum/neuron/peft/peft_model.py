@@ -23,16 +23,15 @@ from typing import Any, Optional, Union
 import torch
 from transformers import PreTrainedModel
 
-from ..utils.patching import Patcher
 from ..models.training import (
     NotSupportedError,
-    create_parameter_metadata,
-    adapt_state_dict,
     adapt_peft_config_for_model,
+    adapt_state_dict,
+    create_parameter_metadata,
 )
 from ..models.training.transformations_utils import specialize_transformation_specs_for_model
 from ..utils.import_utils import is_peft_available
-
+from ..utils.patching import Patcher
 from .utils.save_and_load import get_peft_model_state_dict
 
 
@@ -90,7 +89,7 @@ class NeuronPeftModel(PeftModel):
         # We adapt the PEFT config for the model using the transformation specs.
         peft_config = adapt_peft_config_for_model(model, peft_config, inplace=False)
 
-        from .mapping import PEFT_TYPE_TO_MODEL_MAPPING, MODEL_TYPE_TO_PEFT_MODEL_MAPPING
+        from .mapping import MODEL_TYPE_TO_PEFT_MODEL_MAPPING, PEFT_TYPE_TO_MODEL_MAPPING
 
         patcher = Patcher(
             [

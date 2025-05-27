@@ -14,8 +14,8 @@
 # limitations under the License.
 
 import functools
-from typing import Optional
 
+import torch
 
 from ...utils.import_utils import is_peft_available
 from ...utils.patching import Patcher

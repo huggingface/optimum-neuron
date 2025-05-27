@@ -17,9 +17,9 @@ Defines the API to represent model weights transformations that happen between t
 implementation and the custom implementation for Neuron.
 """
 
+import copy
 import re
 import sys
-import copy
 from abc import abstractmethod
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Literal, Optional, Union
