@@ -23,9 +23,12 @@ from typing import Any, Optional, Union
 import torch
 from transformers import PreTrainedModel
 
+from ..utils.patching import Patcher
 from ..models.training import NotSupportedError, create_parameter_metadata, adapt_state_dict, adapt_peft_config_for_model
 from ..models.training.transformations_utils import specialize_transformation_specs_for_model
 from ..utils.import_utils import is_peft_available
+
+from .utils.save_and_load import get_peft_model_state_dict
 
 
 if is_peft_available():
@@ -37,7 +40,6 @@ if is_peft_available():
         SAFETENSORS_WEIGHTS_NAME,
         TRANSFORMERS_MODELS_TO_PREFIX_TUNING_POSTPROCESS_MAPPING,
         WEIGHTS_NAME,
-        get_peft_model_state_dict,
         load_peft_weights,
         set_peft_model_state_dict,
     )
@@ -71,19 +73,6 @@ else:
 ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME = "adapter_shards"
 
 
-def has_valid_embedding_base_layer(layer):
-    """Check if the layer has an embedding base layer"""
-    from neuronx_distributed.parallel_layers.layers import BaseParallelLinear, ParallelEmbedding
-
-    return hasattr(layer, "base_layer") and isinstance(
-        layer.base_layer, (torch.nn.Linear, torch.nn.Embedding, ParallelEmbedding, BaseParallelLinear)
-    )
-
-
-# @functools.wraps(orig_get_peft_model_state_dict)
-# def get_peft_model_state_dict(*args, **kwargs):
-#     # with Patcher([("peft.utils.save_and_load.has_valid_embedding_base_layer", has_valid_embedding_base_layer)]):
-#     return orig_get_peft_model_state_dict(*args, **kwargs)
 
 
 class NeuronPeftModel(PeftModel):
@@ -97,13 +86,22 @@ class NeuronPeftModel(PeftModel):
     ) -> None:
         # We adapt the PEFT config for the model using the transformation specs.
         peft_config = adapt_peft_config_for_model(model, peft_config, inplace=False)
-        super().__init__(
-            model,
-            peft_config,
-            adapter_name=adapter_name,
-            autocast_adapter_dtype=autocast_adapter_dtype,
-            low_cpu_mem_usage=False,
+
+        from .mapping import PEFT_TYPE_TO_MODEL_MAPPING, MODEL_TYPE_TO_PEFT_MODEL_MAPPING
+        patcher = Patcher(
+            [
+                ("peft.peft_model.PEFT_TYPE_TO_MODEL_MAPPING", PEFT_TYPE_TO_MODEL_MAPPING),
+                ("peft.mapping.MODEL_TYPE_TO_PEFT_MODEL_MAPPING", MODEL_TYPE_TO_PEFT_MODEL_MAPPING),
+            ]
         )
+        with patcher:
+            super().__init__(
+                model,
+                peft_config,
+                adapter_name=adapter_name,
+                autocast_adapter_dtype=autocast_adapter_dtype,
+                low_cpu_mem_usage=False,
+            )
         # We specialize the transformation specs for the PeFT model.
         specialize_transformation_specs_for_model(self)
 
@@ -389,11 +387,14 @@ class NeuronPeftModel(PeftModel):
             peft_config.inference_mode = not is_trainable
             self.add_adapter(adapter_name, peft_config, low_cpu_mem_usage=low_cpu_mem_usage)
 
-        adapters_weights = load_peft_weights(model_id, device=torch_device, **hf_hub_download_kwargs)
+        adapters_weights = load_peft_weights(model_id, **hf_hub_download_kwargs)
+
+        print("zazou", adapters_weights.keys())
 
         # ** Difference from original load_adapter **
         # We need to adapt the adapters_weights to the model.
-        adapters_weights = adapt_state_dict(self, adapters_weights, inplace=True)
+        upstanding_sharded_params = {}
+        adapters_weights = adapt_state_dict(self, adapters_weights, upstanding_sharded_params, inplace=True)
 
         # load the weights into the model
         ignore_mismatched_sizes = kwargs.get("ignore_mismatched_sizes", False)
