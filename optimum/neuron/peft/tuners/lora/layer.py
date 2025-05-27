@@ -44,17 +44,17 @@ else:
 
 
 if is_neuronx_distributed_available():
-    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
+    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear as NxDGQAQKVColumnParallelLinear
     from neuronx_distributed.parallel_layers.layers import (
         BaseParallelLinear,
         ColumnParallelLinear,
-        ParallelEmbedding,
         RowParallelLinear,
     )
+    from neuronx_distributed.parallel_layers.layers import ParallelEmbedding as NxDParallelEmbedding
     from neuronx_distributed.parallel_layers.mappings import scatter_to_sequence_parallel_region
 else:
 
-    class ParallelEmbedding:
+    class NxDParallelEmbedding:
         def __init__(self, *args, **kwargs):
             pass
 
@@ -66,7 +66,7 @@ else:
         def __init__(self, *args, **kwargs):
             pass
 
-    class GQAQKVColumnParallelLinear:
+    class NxDGQAQKVColumnParallelLinear:
         def __init__(self, *args, **kwargs):
             pass
 
@@ -97,7 +97,7 @@ class NeuronLoraLayer(LoraLayer):
         self.kwargs = kwargs
 
         base_layer = self.get_base_layer()
-        if isinstance(base_layer, GQAQKVColumnParallelLinear):
+        if isinstance(base_layer, NxDGQAQKVColumnParallelLinear):
             in_features, out_features = base_layer.input_size, base_layer.output_sizes
         elif isinstance(base_layer, BaseParallelLinear):
             in_features, out_features = base_layer.input_size, base_layer.output_size
@@ -200,7 +200,7 @@ class NeuronLoraLayer(LoraLayer):
         self.set_adapter(self.active_adapters)
 
 
-class LoraParallelLinear(nn.Module, NeuronLoraLayer):
+class ParallelLinear(nn.Module, NeuronLoraLayer):
     def __init__(
         self,
         base_layer,
@@ -243,7 +243,7 @@ class LoraParallelLinear(nn.Module, NeuronLoraLayer):
         return "lora." + rep
 
 
-class LoraGQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
+class GQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
     def __init__(
         self,
         base_layer,
@@ -301,7 +301,7 @@ class LoraGQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
         self.lora_dropout.update(nn.ModuleDict({adapter_name: lora_dropout_layer}))
 
         self.lora_A[adapter_name] = nn.Linear(self.in_features, r, bias=False)
-        self.lora_B[adapter_name] = GQAQKVColumnParallelLinear(
+        self.lora_B[adapter_name] = NxDGQAQKVColumnParallelLinear(
             input_size=r,
             output_sizes=self.out_features,
             bias=False,
@@ -395,7 +395,7 @@ class LoraGQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
         return output_q.to(previous_dtype), output_k.to(previous_dtype), output_v.to(previous_dtype)
 
 
-class LoraParallelEmbedding(nn.Module, NeuronLoraLayer):
+class ParallelEmbedding(nn.Module, NeuronLoraLayer):
     def __init__(
         self,
         base_layer: nn.Module,
@@ -493,8 +493,8 @@ class LoraParallelEmbedding(nn.Module, NeuronLoraLayer):
 
 
 NEURON_LORA_MODULES = {
-    ParallelEmbedding: LoraParallelEmbedding,
-    ColumnParallelLinear: LoraParallelLinear,
-    RowParallelLinear: LoraParallelLinear,
-    GQAQKVColumnParallelLinear: LoraGQAQKVColumnParallelLinear,
+    NxDParallelEmbedding: ParallelEmbedding,
+    ColumnParallelLinear: ParallelLinear,
+    RowParallelLinear: ParallelLinear,
+    NxDGQAQKVColumnParallelLinear: GQAQKVColumnParallelLinear,
 }

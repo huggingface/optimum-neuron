@@ -125,6 +125,27 @@ class ModelWeightTransformationSpec:
         pass
 
     @abstractmethod
+    def _adapt_state_dict(
+        self,
+        module_fully_qualified_name: str,
+        named_parameters: Dict[str, torch.nn.Parameter],
+        orig_state_dict: Dict[str, torch.Tensor],
+        upstanding_sharded_params: Dict[str, torch.Tensor],
+        inplace: bool = False,
+    ) -> Dict[str, torch.Tensor]:
+        pass
+
+    @abstractmethod
+    def _lora_adapt_state_dict(
+        self,
+        module_fully_qualified_name: str,
+        named_parameters: Dict[str, torch.nn.Parameter],
+        orig_state_dict: Dict[str, torch.Tensor],
+        upstanding_sharded_params: Dict[str, torch.Tensor],
+        inplace: bool = False,
+    ) -> Dict[str, torch.Tensor]:
+        pass
+
     def adapt_state_dict(
         self,
         module_fully_qualified_name: str,
@@ -136,7 +157,10 @@ class ModelWeightTransformationSpec:
         """
         Transforms the state dict from the original Transformers model to match the custom modeling implementation.
         """
-        pass
+        if self.peft_type is None:
+            return self._adapt_state_dict(module_fully_qualified_name, named_parameters, orig_state_dict, upstanding_sharded_params, inplace=inplace)
+        elif self.peft_type == "lora":
+            return self._lora_adapt_state_dict(module_fully_qualified_name, named_parameters, orig_state_dict, upstanding_sharded_params, inplace=inplace)
 
     @abstractmethod
     def _to_original_weights(
@@ -349,7 +373,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                     target_modules.add(name)
         return peft_config
 
-    def adapt_state_dict(
+    def _adapt_state_dict(
         self,
         module_fully_qualified_name: str,
         named_parameters: Dict[str, torch.nn.Parameter],
@@ -394,6 +418,76 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 raise ValueError(
                     f"It appears that several parameters have sharded weights, this is not supported: {upstanding_sharded_params.keys()}"
                 )
+        return state_dict
+
+    def _lora_adapt_state_dict(
+        self,
+        module_fully_qualified_name: str,
+        named_parameters: Dict[str, torch.nn.Parameter],
+        orig_state_dict: Dict[str, torch.Tensor],
+        upstanding_sharded_params: Dict[str, torch.Tensor],
+        inplace: bool = False,
+    ) -> Dict[str, torch.Tensor]:
+        tp_size = get_tensor_model_parallel_size()
+        tp_rank = get_tensor_model_parallel_rank()
+
+        if inplace:
+            state_dict = orig_state_dict
+        else:
+            state_dict = dict(orig_state_dict)
+
+        # There are two cases for LoRA:
+        # Case 1: the base layer is a ColumnParallelLinear
+        #   1. "Mix" the LoRA A weights of the several linear layers into a single weight, maybe by doing the mean.
+        #   2. Gather all the LoRA B weights of the linear layers
+        #   3. Shard them across the tensor model parallel size if TP is enabled
+        #   4. Fuse them along the fuse axis
+        # Case 2: the base layer is a RowParallelLinear
+        #   1. "Mix" the LoRA A weights of the several linear layers into a single weight, maybe by doing the mean.
+        #   2. Shard them across the tensor model parallel size if TP is enabled
+        #   3. Gather all the LoRA B weights of the linear layers
+        #   4. Fuse them along the fuse axis
+        fused_linear_fully_qualified_name = f"{module_fully_qualified_name}.{self.fused_linear_name}"
+        param_names = ["weight", "bias"] if self.bias else ["weight"]
+        for param_name in param_names:
+            lora_A_weight_names = [f"{module_fully_qualified_name}.{name}.lora_A.{param_name}" for name in self.linear_names]
+
+            # Question: how do we "mix" the multiple LoRA A weights?
+            lora_A_weight = torch.mean(
+                torch.stack(
+                    [state_dict.pop(name) for name in lora_A_weight_names], 
+                    dim=0
+                ),
+                dim=0,
+            )
+            lora_A_weight_name = f"{fused_linear_fully_qualified_name}.lora_A.{param_name}"
+
+            # Case 1: the base layer is a ColumnParallelLinear
+            if self.fuse_axis == 0:
+                state_dict[lora_A_weight_name] = lora_A_weight
+                lora_B_weight_names = [f"{module_fully_qualified_name}.{name}.lora_B.{param_name}" for name in self.linear_names]
+                lora_B_weights = [state_dict.pop(name) for name in lora_B_weight_names]
+
+                lora_B_fused_local_weight = create_local_fused_weight(tp_rank, tp_size, lora_B_weights, 0, self.fuse_axis)
+                lora_B_weight_name = f"{fused_linear_fully_qualified_name}.lora_B.{param_name}"
+                state_dict[lora_B_weight_name] = lora_B_fused_local_weight
+
+            # Case 2: the base layer is a RowParallelLinear
+            else:
+                lora_A_local_weight = create_local_weight_with_padding(lora_A_weight, 1, 1)
+                state_dict[lora_A_weight_name] = lora_A_local_weight
+
+                lora_B_weight_names = [f"{module_fully_qualified_name}.{name}.lora_B.{param_name}" for name in self.linear_names]
+                lora_B_weights = [state_dict.pop(name) for name in lora_B_weight_names]
+
+                lora_B_fused_weight = torch.cat(
+                    lora_B_weights,
+                    dim=self.fuse_axis,
+                )
+                local_B_weight_name = f"{fused_linear_fully_qualified_name}.lora_B.{param_name}"
+                state_dict[local_B_weight_name] = lora_B_fused_weight
+
+
         return state_dict
 
     def _to_original_weights(
@@ -704,12 +798,22 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
 
         return full_weight
 
+    def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
+        from ...peft.tuners.lora.layer import LoraGQAQKVColumnParallelLinear
+
+        gqa_qkv_projection_qualified_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}"
+        qkv_linear = model.get_submodule(gqa_qkv_projection_qualified_name)
+        if isinstance(qkv_linear, LoraGQAQKVColumnParallelLinear):
+            return "lora"
+        return None
+
     def adapt_peft_config(self, peft_config: PeftConfig, inplace: bool = False) -> PeftConfig:
         if not inplace:
             peft_config = copy.deepcopy(peft_config)
         if peft_config.peft_type == "LORA":
             linear_names = [self.query_projection_name, self.key_projection_name, self.value_projection_name]
             target_modules = peft_config.target_modules
+            print(linear_names, target_modules)
             at_least_one_linear_in_target_modules = any(name in target_modules for name in linear_names)
             all_linears_in_target_modules = all(name in target_modules for name in linear_names)
             if at_least_one_linear_in_target_modules and not all_linears_in_target_modules:
@@ -733,7 +837,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                 target_modules.add(self.value_projection_name)
         return peft_config
 
-    def adapt_state_dict(
+    def _adapt_state_dict(
         self,
         module_fully_qualified_name: str,
         named_parameters: Dict[str, torch.nn.Parameter],
@@ -814,14 +918,113 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
 
         return state_dict
 
-    def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
-        from ...peft.tuners.lora.layer import LoraGQAQKVColumnParallelLinear
+    def _lora_adapt_state_dict(
+        self,
+        module_fully_qualified_name: str,
+        named_parameters: Dict[str, torch.nn.Parameter],
+        orig_state_dict: Dict[str, torch.Tensor],
+        upstanding_sharded_params: Dict[str, torch.Tensor],
+        inplace: bool = False,
+    ) -> Dict[str, torch.Tensor]:
+        if inplace:
+            state_dict = orig_state_dict
+        else:
+            state_dict = dict(orig_state_dict)
 
-        gqa_qkv_projection_qualified_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}"
-        qkv_linear = model.get_submodule(gqa_qkv_projection_qualified_name)
-        if isinstance(qkv_linear, LoraGQAQKVColumnParallelLinear):
-            return "lora"
-        return None
+        # To adapt the state dict for LoRA, we need to:
+        #   1. "Mix" the LoRA A weights of the query, key and value projections
+        #   2. Gather all the LoRA B weights of the query, key and value projections
+        #   3. Create the local version of the weights for the given TP rank
+        #   4. Fuse them if `fuse_qkv` is True
+        #   5. If there is LoRA weights for the output projection, we need to adapt it as well.
+        #       - The LoRA A weight needs to be processed
+        #       - The LoRA B weight stays as it is
+        param_names = ["weight", "bias"] if self.bias else ["weight"]
+        for param_name in param_names:
+            lora_A_q_name = f"{module_fully_qualified_name}.{self.query_projection_name}.lora_A.{param_name}"
+            lora_A_k_name = f"{module_fully_qualified_name}.{self.key_projection_name}.lora_A.{param_name}"
+            lora_A_v_name = f"{module_fully_qualified_name}.{self.value_projection_name}.lora_A.{param_name}"
+            lora_B_q_name = f"{module_fully_qualified_name}.{self.query_projection_name}.lora_B.{param_name}"
+            lora_B_k_name = f"{module_fully_qualified_name}.{self.key_projection_name}.lora_B.{param_name}"
+            lora_B_v_name = f"{module_fully_qualified_name}.{self.value_projection_name}.lora_B.{param_name}"
+
+            lora_A_weight_names = [lora_A_q_name, lora_A_k_name, lora_A_v_name]
+
+            lora_A_weight = torch.mean(
+                torch.stack(
+                    [state_dict.pop(name) for name in lora_A_weight_names], 
+                    dim=0
+                ),
+                dim=0,
+            )
+            lora_A_weight_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_A.{param_name}"
+            state_dict[lora_A_weight_name] = lora_A_weight
+
+            if self.fuse_qkv:
+                lora_B_weight_name =  f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}"
+
+                full_weights = [
+                    GQAQKVColumnParallelLinearSpec.create_query_or_output_projection_local_weight_from_regular_weight(
+                        state_dict.pop(lora_B_q_name),
+                        self.num_attention_heads,
+                        self.num_key_value_heads,
+                        self.kv_size_multiplier,
+                        "query",
+                    ),
+                    GQAQKVColumnParallelLinearSpec.create_kv_proj_local_weight_from_regular_weight(
+                        state_dict.pop(lora_B_k_name),
+                        self.kv_size_multiplier,
+                        self.kv_output_size_per_partition,
+                    ),
+                    GQAQKVColumnParallelLinearSpec.create_kv_proj_local_weight_from_regular_weight(
+                        state_dict.pop(lora_B_v_name),
+                        self.kv_size_multiplier,
+                        self.kv_output_size_per_partition,
+                    ),
+                ]
+                state_dict[lora_B_weight_name] = torch.cat(full_weights, dim=0)
+            else:
+                new_lora_B_weight_q_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}_q"
+                new_lora_B_weight_k_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}_k"
+                new_lora_B_weight_v_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}_v"
+
+                state_dict[new_lora_B_weight_q_name] = (
+                    GQAQKVColumnParallelLinearSpec.create_query_or_output_projection_local_weight_from_regular_weight(
+                        state_dict.pop(lora_B_q_name),
+                        self.num_attention_heads,
+                        self.num_key_value_heads,
+                        self.kv_size_multiplier,
+                        "query",
+                    )
+                )
+
+                state_dict[new_lora_B_weight_k_name] = (
+                    GQAQKVColumnParallelLinearSpec.create_kv_proj_local_weight_from_regular_weight(
+                        state_dict.pop(lora_B_k_name), self.kv_size_multiplier, self.kv_output_size_per_partition
+                    )
+                )
+
+                state_dict[new_lora_B_weight_v_name] = (
+                    GQAQKVColumnParallelLinearSpec.create_kv_proj_local_weight_from_regular_weight(
+                        state_dict.pop(lora_B_v_name), self.kv_size_multiplier, self.kv_output_size_per_partition
+                    )
+                )
+
+            # If there are LoRA weights for the output projection, we need to adapt them as well
+            lora_A_output_projection_name = f"{module_fully_qualified_name}.{self.output_projection_name}.lora_A.{param_name}"
+            if lora_A_output_projection_name in state_dict:
+                state_dict[lora_A_output_projection_name] = (
+                    GQAQKVColumnParallelLinearSpec.create_query_or_output_projection_local_weight_from_regular_weight(
+                        state_dict[lora_A_output_projection_name],
+                        self.num_attention_heads,
+                        self.num_key_value_heads,
+                        self.kv_size_multiplier,
+                        "output",
+                    )
+                )
+
+        return state_dict
+
 
     def _to_original_weights(
         self,
@@ -1137,21 +1340,34 @@ def adapt_state_dict(
     new_keys = set(state_dict.keys()) - original_state_dict_keys
     mutated_keys = {n for n, p in state_dict.items() if p.data_ptr() != original_data_ptrs.get(n, p.data_ptr())}
 
+    lora_pattern = re.compile(r"(?P<qualified_name>(\w+\.)+(lora_(A|B))\.)(?P<adapter_name>\w+\.)(?P<remaining>(\w+\.{0,1})+)")
+    def remove_adapter_name(name: str) -> str:
+        return re.sub(lora_pattern, "\g<qualified_name>\g<remaining>", name)
+    
+    def is_base_layer(name: str) -> bool:
+        return "base_layer" in name
+
     for name, param in model.named_parameters():
-        if name in new_keys | mutated_keys:
+        name_without_adapter_name = remove_adapter_name(name)
+        if name_without_adapter_name in new_keys | mutated_keys:
             # In this case, we don't need to do anything, it was handled by the transformation specs.
+            continue
+        if is_base_layer(name_without_adapter_name):
+            # In this case, it was already handled when loading the base layer weights in 
+            # `NeuronModelMixin.from_pretrained`.
+            state_dict.pop(name_without_adapter_name, None) # We remove it to avoid confusion, maybe it is actually needed?
             continue
         if hasattr(param, "tensor_model_parallel") and param.tensor_model_parallel:
             if param.partition_dim not in [0, 1]:
                 raise Exception(f"Partiton value of 0,1 are supported, found {param.partition_dim}.")
 
             # It means there are no weights in the state dict for the current parameter.
-            if name not in state_dict:
+            if name_without_adapter_name not in state_dict:
                 continue
 
             # If the parameter associated to the weight is parallel, we shard the weight.
-            full_weight = state_dict[name]
-            state_dict[name] = create_local_weight_with_padding(
+            full_weight = state_dict[name_without_adapter_name]
+            state_dict[name_without_adapter_name] = create_local_weight_with_padding(
                 full_weight, param.partition_dim, param.partition_stride
             )
     return state_dict
