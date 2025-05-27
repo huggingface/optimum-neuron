@@ -28,8 +28,9 @@ from ..models.training import (
     adapt_peft_config_for_model,
     adapt_state_dict,
     create_parameter_metadata,
+    specialize_transformation_specs_for_model,
+    to_original_peft_config_for_model,
 )
-from ..models.training.transformations_utils import specialize_transformation_specs_for_model
 from ..utils.import_utils import is_peft_available
 from ..utils.patching import Patcher
 from .utils.save_and_load import get_peft_model_state_dict
@@ -231,7 +232,13 @@ class NeuronPeftModel(PeftModel):
                 num_workers=self.mp_config.num_local_ranks_per_step,
             )
 
-            # save the config and change the inference mode to `True`
+            # Save the config and change the inference mode to `True`
+
+            # We first transform the PEFT config to the original one for the original model implementation.
+            peft_config = to_original_peft_config_for_model(
+                self.base_model, peft_config, inplace=False
+            )
+
             if peft_config.base_model_name_or_path is None:
                 peft_config.base_model_name_or_path = (
                     self.base_model.__dict__.get("name_or_path", None)
