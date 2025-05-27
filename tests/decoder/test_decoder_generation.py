@@ -124,6 +124,7 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
         expectations = {
             "llama": " And how does it differ from other Machine Learning approaches?\n\n**What is Deep Learning?",
             "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
+            "qwen3": "<think>\nOkay, the user is asking about Deep Learning. Let me start by explaining",
             "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
             "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
         }
@@ -131,6 +132,7 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
         expectations = {
             "llama": " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial",
             "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
+            "qwen3": "<think>\nOkay, the user is asking about Deep Learning. Let me start by explaining",
             "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
             "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
         }
