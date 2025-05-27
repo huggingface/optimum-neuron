@@ -8,7 +8,7 @@ Copy the configurations down using
 
 ```shell
 $ git clone https://github.com/huggingface/optimum-neuron.git
-$ cd optimum-neuron/benchmark/text-generation-inference/
+$ cd optimum-neuron/benchmark/text-generation-inference/performance/
 ```
 
 
