@@ -1339,7 +1339,9 @@ def adapt_peft_config_for_model(
     return adapted_peft_config
 
 
-def to_original_peft_config_for_model(model: torch.nn.Module, peft_config: PeftConfig, inplace: bool = False) -> PeftConfig:
+def to_original_peft_config_for_model(
+    model: torch.nn.Module, peft_config: PeftConfig, inplace: bool = False
+) -> PeftConfig:
     adapted_peft_config = copy.deepcopy(peft_config) if not inplace else peft_config
     for name, mod in model.named_modules():
         if not isinstance(mod, CustomModule):

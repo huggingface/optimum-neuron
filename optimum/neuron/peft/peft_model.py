@@ -235,9 +235,7 @@ class NeuronPeftModel(PeftModel):
             # Save the config and change the inference mode to `True`
 
             # We first transform the PEFT config to the original one for the original model implementation.
-            peft_config = to_original_peft_config_for_model(
-                self.base_model, peft_config, inplace=False
-            )
+            peft_config = to_original_peft_config_for_model(self.base_model, peft_config, inplace=False)
 
             if peft_config.base_model_name_or_path is None:
                 peft_config.base_model_name_or_path = (
