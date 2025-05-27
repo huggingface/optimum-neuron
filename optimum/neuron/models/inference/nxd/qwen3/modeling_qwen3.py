@@ -17,14 +17,9 @@
 
 import gc
 import logging
-import math
 from typing import Optional, Tuple, Type
 
 import torch
-from neuronx_distributed_inference.modules.attention.utils import (
-    apply_rotary_pos_emb,
-    move_heads_front,
-)
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
@@ -36,6 +31,10 @@ from neuronx_distributed.parallel_layers.mappings import (
     reduce_from_tensor_model_parallel_region,
     reduce_scatter_to_sequence_parallel_region,
 )
+from neuronx_distributed_inference.modules.attention.utils import (
+    apply_rotary_pos_emb,
+    move_heads_front,
+)
 from neuronxcc.nki._private_kernels.mlp import (
     mlp_fused_add_isa_kernel,
     mlp_isa_kernel,
@@ -44,13 +43,12 @@ from neuronxcc.nki.language import nc
 from torch import nn
 from torch_neuronx.xla_impl.ops import nki_jit
 from transformers.activations import ACT2FN
-from transformers.models.qwen3.modeling_qwen3 import Qwen3RMSNorm, Qwen3RotaryEmbedding, Qwen3ForCausalLM
 from transformers.models.qwen3.configuration_qwen3 import Qwen3Config
+from transformers.models.qwen3.modeling_qwen3 import Qwen3RMSNorm, Qwen3RotaryEmbedding
 
 from ..backend.config import NxDNeuronConfig  # noqa: E402
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
 from ..backend.modules.attention.utils import (
-    RotaryEmbedding,
     transpose_parallel_linear_layer,
 )
 from ..backend.modules.custom_calls import CustomRMSNorm
@@ -278,57 +276,48 @@ class NeuronQwen3Attention(NeuronAttentionBase):
 
     def __init__(self, config: Qwen3Config, neuron_config: NxDNeuronConfig):
         super().__init__(config, neuron_config)
-        head_dim = config.hidden_size // config.num_attention_heads
-        self.q_norm = Qwen3RMSNorm(
-            self.head_dim, eps=config.rms_norm_eps
-        )  # unlike olmo, only on the head dim!
+        self.q_norm = Qwen3RMSNorm(self.head_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
         self.k_norm = Qwen3RMSNorm(self.head_dim, eps=config.rms_norm_eps)
         self.rotary_emb = Qwen3RotaryEmbedding(config)
 
     def prep_qkv_tensors(
-            self,
-            position_ids,
-            hidden_states,
-            past_key_value,
-            adapter_ids=None,
-            cos_cache=None,
-            sin_cache=None,
-            rmsnorm=None,
-        ):
-            """take care of the shape, layout, group query, custom position encoding, etc."""
-            Q, K, V = self.qkv_proj(
-                hidden_states=hidden_states, rmsnorm=rmsnorm, adapter_ids=adapter_ids
-            )
+        self,
+        position_ids,
+        hidden_states,
+        past_key_value,
+        adapter_ids=None,
+        cos_cache=None,
+        sin_cache=None,
+        rmsnorm=None,
+    ):
+        """take care of the shape, layout, group query, custom position encoding, etc."""
+        Q, K, V = self.qkv_proj(hidden_states=hidden_states, rmsnorm=rmsnorm, adapter_ids=adapter_ids)
 
-            # Divide hidden_dim across heads for MHA
-            # Change layout: BSHD -> BHSD
-            bsz, q_len, _ = hidden_states.size()
-            if self.sequence_parallel_enabled:
-                q_len *= self.tensor_model_parallel_group.size()
+        # Divide hidden_dim across heads for MHA
+        # Change layout: BSHD -> BHSD
+        bsz, q_len, _ = hidden_states.size()
+        if self.sequence_parallel_enabled:
+            q_len *= self.tensor_model_parallel_group.size()
 
-            Q = move_heads_front(
-                Q, bsz, q_len, self.num_heads, self.head_dim, layernorm=self.q_norm
-            )
-            K = move_heads_front(
-                K,
-                bsz,
-                q_len,
-                self.num_key_value_heads,
-                self.head_dim,
-                layernorm=self.k_norm,
-            )
-            V = move_heads_front(
-                V, bsz, q_len, self.num_key_value_heads, self.head_dim, layernorm=None
-            )
+        Q = move_heads_front(Q, bsz, q_len, self.num_heads, self.head_dim, layernorm=self.q_norm)
+        K = move_heads_front(
+            K,
+            bsz,
+            q_len,
+            self.num_key_value_heads,
+            self.head_dim,
+            layernorm=self.k_norm,
+        )
+        V = move_heads_front(V, bsz, q_len, self.num_key_value_heads, self.head_dim, layernorm=None)
 
-            # Rotate Q and K
-            if self.rotary_emb is not None:
-                if cos_cache is None or sin_cache is None:
-                    cos_cache, sin_cache = self.rotary_emb(V, position_ids)
+        # Rotate Q and K
+        if self.rotary_emb is not None:
+            if cos_cache is None or sin_cache is None:
+                cos_cache, sin_cache = self.rotary_emb(V, position_ids)
 
-                Q, K = apply_rotary_pos_emb(Q, K, cos_cache, sin_cache)
+            Q, K = apply_rotary_pos_emb(Q, K, cos_cache, sin_cache)
 
-            return Q, K, V, cos_cache, sin_cache
+        return Q, K, V, cos_cache, sin_cache
 
 
 class NeuronQwen3DecoderLayer(nn.Module):
