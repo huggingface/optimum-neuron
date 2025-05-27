@@ -394,6 +394,10 @@ class GQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
 
         return output_q.to(previous_dtype), output_k.to(previous_dtype), output_v.to(previous_dtype)
 
+    def __repr__(self):
+        rep = super().__repr__()
+        return "lora." + rep
+
 
 class ParallelEmbedding(nn.Module, NeuronLoraLayer):
     def __init__(
