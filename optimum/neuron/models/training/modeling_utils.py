@@ -73,7 +73,7 @@ from .transformations_utils import (
     adapt_state_dict,
     create_parameter_metadata,
     get_tensor_model_parallel_attributes,
-    set_module_names_in_transformation_specs,
+    specialize_transformation_specs_for_model,
 )
 
 
@@ -591,8 +591,8 @@ class NeuronModelMixin:
         # We do not handle the `device_map` here, since our cases are much simpler.
 
         # ** Difference from original _load_pretrained_model **
-        # We set the module names in the transformation specs, this is required to have the specs properly defined.
-        set_module_names_in_transformation_specs(model_to_load)
+        # We specialize the transformation specs for the model, this is required to have the specs properly defined.
+        specialize_transformation_specs_for_model(model_to_load)
 
         # ** Difference from original _load_pretrained_model **
         # We do not add GGUF or low_cpu_mem_usage related code here.
@@ -656,9 +656,9 @@ class NeuronModelMixin:
             # We do not add the offload_index code here, since we do not support it.
 
         # ** Difference from original _load_pretrained_model **
-        # We set the modules names using the full model regardless of prefixes.
+        # We specialize the specs on the full model regardless of prefixes.
         # This is this name that will be saved and used when re-loading the model.
-        set_module_names_in_transformation_specs(model)
+        specialize_transformation_specs_for_model(model)
 
         if len(error_msgs) > 0:
             error_msg = "\n\t".join(error_msgs)
@@ -855,6 +855,12 @@ class NeuronModelMixin:
                     pretrained_model_name_or_path = json.load(f)["base_model_name_or_path"]
         else:
             _adapter_model_path = None
+
+        if _adapter_model_path is not None:
+            raise NotSupportedError(
+                f"Loading adapters directly from {cls.__name__}.from_pretrained is not supported. "
+                "Please use the NeuronPeftModelForXXX classes to load adapters."
+            )
 
         user_agent = {"file_type": "model", "framework": "pytorch", "from_auto_class": from_auto_class}
         if from_pipeline is not None:
@@ -1541,7 +1547,7 @@ class NeuronModelMixin:
                 current_peft_config.save_pretrained(save_directory)
 
             with open(save_directory / "trn_config.json", "w") as f:
-                mp_config_data = asdict(self.trn_config)
-                if isinstance(mp_config_data["checkpoint_dir"], Path):
-                    mp_config_data["checkpoint_dir"] = mp_config_data["checkpoint_dir"].as_posix()
-                f.write(json.dumps(mp_config_data, indent=4))
+                trn_config_data = asdict(self.trn_config)
+                if isinstance(trn_config_data["checkpoint_dir"], Path):
+                    trn_config_data["checkpoint_dir"] = trn_config_data["checkpoint_dir"].as_posix()
+                f.write(json.dumps(trn_config_data, indent=4))

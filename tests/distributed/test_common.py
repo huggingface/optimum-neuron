@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING, Dict
 import pytest
 import safetensors
 import torch
+from peft import LoraConfig
+from peft import get_peft_model as orig_get_peft_model
 from transformers import LlamaForCausalLM
 
 from optimum.neuron.accelerate.optimizer import NeuronAcceleratedOptimizer
@@ -31,6 +33,7 @@ from optimum.neuron.distributed.utils import (
 )
 from optimum.neuron.models.training import LlamaForCausalLM as NeuronLlamaForCausalLM
 from optimum.neuron.models.training.config import TrainingNeuronConfig
+from optimum.neuron.peft import get_peft_model
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
@@ -500,23 +503,40 @@ class TestCommonDistributed(DistributedTest):
                 torch.testing.assert_close(orig_tensor, consolidated_tensor)
 
     @pytest.mark.parametrize(
-        "world_size,tp_size,pp_size,kv_size_multiplier",
+        "world_size,tp_size,pp_size,kv_size_multiplier,lora_enabled",
         [
-            [8, 2, 1, None],
-            [8, 8, 1, None],
-            [8, 8, 1, 4],
+            [8, 2, 1, None, False],
+            [8, 2, 1, None, True],
+            [8, 8, 1, None, False],
+            [8, 8, 1, 4, False],
+            [8, 8, 1, 4, True],
         ],
         ids=[
             "dp=4,tp=2,pp=1",
+            "dp=4,tp=2,pp=1,lora",
             "dp=1,tp=8,pp=1,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
             "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
+            "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear,lora",
         ],
     )
     def test_consolidate_custom_model_parallel_checkpoints(
-        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, use_xser
+        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, lora_enabled, use_xser
     ):
+        # We create a LoraConfig but only use it if `lora_enabled=True`.
+        peft_config = LoraConfig(
+            r=16,
+            lora_alpha=32,
+            lora_dropout=0.05,
+            target_modules=["embed_tokens", "q_proj", "v_proj", "o_proj", "k_proj", "gate_up_proj", "down_proj"],
+            bias="none",
+            task_type="CAUSAL_LM",
+        )
         tmpdir = Path(tmpdir)
         orig_model = LlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS)
+
+        if lora_enabled:
+            orig_model = orig_get_peft_model(orig_model, peft_config)
+            orig_model.add_adapter("test", peft_config)
 
         if xr.global_ordinal() == 0:
             orig_model.save_pretrained(tmpdir / "orig_model", safe_serialization=False)
@@ -528,6 +548,11 @@ class TestCommonDistributed(DistributedTest):
             async_save=False,
         )
         custom_model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
+
+        if lora_enabled:
+            custom_model = get_peft_model(custom_model, peft_config)
+            custom_model.add_adapter("test", peft_config)
+
         custom_model.save_pretrained(tmpdir / "custom_model")
 
         xm.rendezvous("Saving done.")
@@ -538,14 +563,23 @@ class TestCommonDistributed(DistributedTest):
                 tmpdir / "consolidated_model",
                 save_format="pytorch",
             )
-            orig_state_dict = torch.load(tmpdir / "orig_model" / "pytorch_model.bin", weights_only=True)
-            consolidated_state_dict = torch.load(
-                tmpdir / "consolidated_model" / "pytorch_model.bin", weights_only=True
-            )
+            for adapter_name in ["default", "test"]:
+                if adapter_name == "default":
+                    orig_state_dict = torch.load(tmpdir / "orig_model" / "adapter_model.bin", weights_only=True)
+                    consolidated_state_dict = torch.load(
+                        tmpdir / "consolidated_model" / "adapter_model.bin", weights_only=True
+                    )
+                else:
+                    orig_state_dict = torch.load(tmpdir / "orig_model" / adapter_name / "adapter_model.bin", weights_only=True)
+                    consolidated_state_dict = torch.load(
+                        tmpdir / "consolidated_model" / adapter_name / "adapter_model.bin", weights_only=True
+                    )
 
-            assert orig_state_dict.keys() == consolidated_state_dict.keys()
-            for key in orig_state_dict:
-                orig_tensor = orig_state_dict[key]
-                consolidated_tensor = consolidated_state_dict[key]
-                print(f"Testing that {key} match")
-                torch.testing.assert_close(orig_tensor, consolidated_tensor)
+                print(set(orig_state_dict.keys()) - set(consolidated_state_dict.keys()))
+                print(set(consolidated_state_dict.keys()) - set(orig_state_dict.keys()))
+                assert orig_state_dict.keys() == consolidated_state_dict.keys()
+                for key in orig_state_dict:
+                    orig_tensor = orig_state_dict[key]
+                    consolidated_tensor = consolidated_state_dict[key]
+                    print(f"Testing that {key} match")
+                    torch.testing.assert_close(orig_tensor, consolidated_tensor)
