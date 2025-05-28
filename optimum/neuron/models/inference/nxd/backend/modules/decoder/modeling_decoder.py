@@ -839,6 +839,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         subfolder: Optional[str] = "",
         local_files_only: Optional[bool] = False,
         trust_remote_code: Optional[bool] = False,
+        load_weights: bool = True,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         if len(kwargs) > 0:
@@ -884,6 +885,14 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             token_generation_model=token_generation_model,
             speculation_model=speculation_model,
         )
+        if load_weights:
+            model.load_weights(
+                model_id,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                local_files_only=local_files_only,
+                token=token,
+            )
         return model
 
     def _save_pretrained(self, save_directory: Union[str, Path]):
