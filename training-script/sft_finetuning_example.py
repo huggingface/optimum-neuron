@@ -2,13 +2,21 @@ import numpy as np
 import torch
 import evaluate
 import argparse
+from dataclasses import dataclass, field
 
 from datasets import load_dataset
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer
 from transformers import TrainingArguments, Trainer, DataCollatorForLanguageModeling
 from peft import LoraConfig, get_peft_model
 from trl import SFTTrainer, SFTConfig, setup_chat_format
+from optimum.neuron.models.training import LlamaForCausalLM
+from optimum.neuron.models.training.config import TrainingNeuronConfig
+from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
+from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer, NeuronTrainingArguments
+from optimum.neuron.utils import is_neuronx_distributed_available
 
+if is_neuronx_distributed_available():
+    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
 """
 To do a quick test, you can launch this with:
@@ -22,6 +30,18 @@ python training_tes_language_generation.py \
 Inspired from: https://github.com/huggingface/smol-course/blob/main/1_instruction_tuning/notebooks/sft_finetuning_example.ipynb
 """
 
+
+@dataclass
+class ScriptArguments:
+    model_id: str = field(
+        default="HuggingFaceTB/SmolLM2-135M",
+        # default="Qwen/Qwen3-0.6B",
+        metadata={"help": "The model that you want to train from the Hugging Face hub."},
+    )
+    flash_attention_2: bool = field(
+        default=False,
+        metadata={"help": "Whether to use Flash Attention 2."},
+    )
 
 def parse_args():
     """Parse the arguments."""
@@ -90,6 +110,18 @@ def parse_args():
         default=True,
         help="Packing to use for training.",
     )
+    parser.add_argument(
+        "--flash_attention_2",
+        type=bool,
+        default=True,
+        help="Use flash attention 2 for training.",
+    )
+    parser.add_argument(
+        "--sequence_parallel_enabled",
+        type=bool,
+        default=False,
+        help="Use sequence parallelism for training.",
+    )
     args = parser.parse_args()
     return args
 
@@ -105,22 +137,30 @@ def training_test_language(args):
     save_steps = args.save_steps
     eval_steps = args.eval_steps
     packing = args.packing
+    flash_attention_2 = args.flash_attention_2
     model_name = model_id.split("/")[-1]
     output_dir = f"{model_name}-finetuned"
-
-    # device = torch.device("cuda")
-    device = (
-        "cuda"
-        if torch.cuda.is_available()
-        else "mps" if torch.backends.mps.is_available() else "cpu"
-    )
+    # TODO: remove this
+    torch.distributed.init_process_group(backend="xla")
+    tensor_parallel_size = get_tensor_model_parallel_size()
+    sequence_parallel_enabled = args.sequence_parallel_enabled
+    device = torch.device("xla")
     torch_dtype = torch.float32
 
+
+    trn_config = TrainingNeuronConfig(
+        tensor_parallel_size=tensor_parallel_size,
+        sequence_parallel_enabled=sequence_parallel_enabled,
+    )
+
     # Load the model and tokenizer
-    model = AutoModelForCausalLM.from_pretrained(
-        pretrained_model_name_or_path=model_id, torch_dtype=torch_dtype
+    model = LlamaForCausalLM.from_pretrained(
+        pretrained_model_name_or_path=model_id, trn_config=trn_config, torch_dtype=torch_dtype, flash_attention_2=flash_attention_2
     ).to(device)
-    model.train()
+
+
+    print(model)
+    return
     # model.eval()
     tokenizer = AutoTokenizer.from_pretrained(
         pretrained_model_name_or_path=model_id, use_fast=True
@@ -254,6 +294,12 @@ def training_test_language(args):
 
 
 def main():
+    # torch.distributed.init_process_group(backend="xla")
+    # parser = HfArgumentParser([ScriptArguments, NeuronTrainingArguments])
+    # script_args, training_args = parser.parse_args_into_dataclasses()
+
+    # breakpoint()
+    # return
     args = parse_args()
     training_test_language(args)
 
