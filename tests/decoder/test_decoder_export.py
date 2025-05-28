@@ -12,13 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 from tempfile import TemporaryDirectory
 
 import pytest
+import torch
 from transformers import AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM
+from optimum.neuron.models.inference.nxd.backend.modules.decoder import NxDModelForCausalLM
 from optimum.neuron.models.inference.nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
 from optimum.neuron.utils import map_torch_dtype
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
@@ -54,6 +55,17 @@ def check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num_
             assert neuron_config.auto_cast_type == auto_cast_type
         elif hasattr(neuron_config, "torch_dtype"):
             assert neuron_config.torch_dtype == map_torch_dtype(auto_cast_type)
+    input_shape = (batch_size, min(10, neuron_config.sequence_length))
+    input_ids = torch.ones(input_shape, dtype=torch.int64)
+    attention_mask = torch.ones(input_shape, dtype=torch.int64)
+    on_device_sampling = getattr(neuron_model.neuron_config, "on_device_sampling", False)
+    nxd_backend = isinstance(neuron_model, NxDModelForCausalLM)
+    sampling_params = torch.ones((batch_size, 3)) if nxd_backend and on_device_sampling else None
+    model_inputs = neuron_model.prepare_inputs_for_prefill(
+        input_ids=input_ids, attention_mask=attention_mask, sampling_params=sampling_params
+    )
+    outputs = neuron_model(**model_inputs)
+    assert outputs is not None, "Model outputs should not be None"
 
 
 def _test_decoder_export_save_reload(
