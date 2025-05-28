@@ -159,7 +159,7 @@ class NeuronTrainingArgumentsMixin:
             raise ValueError("The fp16 data type is not supported in Neuron, please use bf16 instead.")
 
         resume_from_checkpoint = self.resume_from_checkpoint
-        if resume_from_checkpoint is None and os.path.isdir(self.output_dir):
+        if resume_from_checkpoint is None and self.output_dir is not None and os.path.isdir(self.output_dir):
             # If checkpoint is None, then there was no checkpoint in output dir, otherwise we use it.
             checkpoint = get_last_checkpoint(self.output_dir)
             resume_from_checkpoint = checkpoint
