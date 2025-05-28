@@ -817,27 +817,13 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             token_generation_model=token_generation_model,
             speculation_model=speculation_model,
         )
-        checkpoint_path = os.path.join(model_id, cls.CHECKPOINT_DIR)
-        if os.path.exists(checkpoint_path):
-            model._load_weights(checkpoint_path)
-        elif neuron_config.checkpoint_id is not None:
-            # Fetch weights from the checkpoint
-            checkpoint_dir = TemporaryDirectory()
-            os.chmod(checkpoint_dir.name, 0o775)
-            snapshot_download(
-                repo_id=neuron_config.checkpoint_id,
-                revision=neuron_config.checkpoint_revision,
-                cache_dir=cache_dir,
-                force_download=force_download,
-                local_files_only=local_files_only,
-                token=token,
-                local_dir=checkpoint_dir.name,
-                allow_patterns=["*.safetensors*"],
-            )
-            model._load_weights(checkpoint_dir.name)
-            checkpoint_dir.cleanup()
-        else:
-            logger.warning(f"Checkpoint file {checkpoint_path} not found. Weights will not be loaded.")
+        model.load_weights(
+            model_id,
+            cache_dir=cache_dir,
+            force_download=force_download,
+            local_files_only=local_files_only,
+            token=token,
+        )
         return model
 
     @classmethod
