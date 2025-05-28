@@ -182,16 +182,6 @@ class NeuronPeftModel(PeftModel):
             os.makedirs(save_directory, exist_ok=True)
             self.create_or_update_model_card(save_directory)
 
-        # Save the metadata required to consolidate the checkpoints properly.
-        if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
-            metadata = create_parameter_metadata(self)
-            pp_rank = get_pipeline_model_parallel_rank()
-            metadata_path = (
-                Path(save_directory) / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.json"
-            )
-            metadata_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(metadata_path, "w") as f:
-                f.write(json.dumps(metadata, indent=4))
 
         for adapter_name in selected_adapters:
             peft_config = self.peft_config[adapter_name]
@@ -202,12 +192,20 @@ class NeuronPeftModel(PeftModel):
                 adapter_name=adapter_name,
                 save_embedding_layers=save_embedding_layers,
             )
-            output_dir = (
-                os.path.join(save_directory, ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME, adapter_name)
-                if adapter_name != "default"
-                else save_directory
-            )
+            output_dir = os.path.join(save_directory, f"adapter_{adapter_name}")
+            
             os.makedirs(output_dir, exist_ok=True)
+
+            # Save the metadata required to consolidate the checkpoints properly.
+            # Note: we do not need to do it for each adapter, as the metadata is the same for all adapters but we do it 
+            # for simplicity.
+            if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
+                metadata = create_parameter_metadata(self)
+                pp_rank = get_pipeline_model_parallel_rank()
+                metadata_path = os.path.join(output_dir, ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME, f"mp_metadata_pp_rank_{pp_rank}.json")
+                Path(metadata_path).parent.mkdir(parents=True, exist_ok=True)
+                with open(metadata_path, "w") as f:
+                    f.write(json.dumps(metadata, indent=4))
 
             if is_main_process:
                 if path_initial_model_for_weight_conversion is not None:
@@ -218,15 +216,11 @@ class NeuronPeftModel(PeftModel):
                         peft_config, path_initial_model_for_weight_conversion, output_state_dict, kwargs
                     )
 
-            class DummyModule(torch.nn.Module):
-                def state_dict(self):
-                    return output_state_dict
-
             # Save the adapter weights.
             neuronx_distributed.trainer.save_checkpoint(
                 output_dir,
                 tag=ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME,
-                model=DummyModule(),
+                model=output_state_dict,
                 use_xser=self.trn_config.use_xser,
                 async_save=self.trn_config.async_save,
                 num_workers=self.trn_config.num_local_ranks_per_step,

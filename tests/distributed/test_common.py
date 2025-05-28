@@ -536,7 +536,7 @@ class TestCommonDistributed(DistributedTest):
 
         if lora_enabled:
             orig_model = orig_get_peft_model(orig_model, peft_config)
-            orig_model.add_adapter("test")
+            orig_model.add_adapter("test", peft_config)
 
         if xr.global_ordinal() == 0:
             orig_model.save_pretrained(tmpdir / "orig_model", safe_serialization=False)
@@ -551,7 +551,7 @@ class TestCommonDistributed(DistributedTest):
 
         if lora_enabled:
             custom_model = get_peft_model(custom_model, peft_config)
-            custom_model.add_adapter("test")
+            custom_model.add_adapter("test", peft_config)
 
         custom_model.save_pretrained(tmpdir / "custom_model")
 
@@ -563,14 +563,23 @@ class TestCommonDistributed(DistributedTest):
                 tmpdir / "consolidated_model",
                 save_format="pytorch",
             )
-            orig_state_dict = torch.load(tmpdir / "orig_model" / "pytorch_model.bin", weights_only=True)
-            consolidated_state_dict = torch.load(
-                tmpdir / "consolidated_model" / "pytorch_model.bin", weights_only=True
-            )
+            for adapter_name in ["default", "test"]:
+                if adapter_name == "default":
+                    orig_state_dict = torch.load(tmpdir / "orig_model" / "adapter_model.bin", weights_only=True)
+                    consolidated_state_dict = torch.load(
+                        tmpdir / "consolidated_model" / "adapter_model.bin", weights_only=True
+                    )
+                else:
+                    orig_state_dict = torch.load(tmpdir / "orig_model" / adapter_name / "adapter_model.bin", weights_only=True)
+                    consolidated_state_dict = torch.load(
+                        tmpdir / "consolidated_model" / adapter_name / "adapter_model.bin", weights_only=True
+                    )
 
-            assert orig_state_dict.keys() == consolidated_state_dict.keys()
-            for key in orig_state_dict:
-                orig_tensor = orig_state_dict[key]
-                consolidated_tensor = consolidated_state_dict[key]
-                print(f"Testing that {key} match")
-                torch.testing.assert_close(orig_tensor, consolidated_tensor)
+                print(set(orig_state_dict.keys()) - set(consolidated_state_dict.keys()))
+                print(set(consolidated_state_dict.keys()) - set(orig_state_dict.keys()))
+                assert orig_state_dict.keys() == consolidated_state_dict.keys()
+                for key in orig_state_dict:
+                    orig_tensor = orig_state_dict[key]
+                    consolidated_tensor = consolidated_state_dict[key]
+                    print(f"Testing that {key} match")
+                    torch.testing.assert_close(orig_tensor, consolidated_tensor)

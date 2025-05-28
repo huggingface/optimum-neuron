@@ -54,6 +54,10 @@ else:
 logger = logging.get_logger()
 
 
+LORA_PATTERN = re.compile(
+    r"(?P<qualified_name>(\w+\.)+?lora_(embedding_)?(A|B))\.(?P<adapter_name>\w+)(?P<remaining>(\.{0,1}\w+\.?)+)?"
+)
+
 def create_local_weight_with_padding(
     full_weight: torch.Tensor,
     partition_dim: int,
@@ -581,9 +585,9 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 weight_names = []
                 to_duplicate_names = []
                 for name in parameters_metadata:
-                    if name.startswith(lora_B_prefix) and name.endswith(param_name):
+                    if lora_B_prefix in name and name.endswith(param_name):
                         weight_names.append(name)
-                    if name.startswith(lora_A_prefix) and name.endswith(param_name):
+                    if lora_A_prefix in name and name.endswith(param_name):
                         to_duplicate_names.append(name)
 
                 # We unfuse then concat for each adapter.
@@ -631,9 +635,9 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 to_concat_and_duplicate_names = []
                 to_unfuse_names = []
                 for name in parameters_metadata:
-                    if name.startswith(lora_A_prefix) and name.endswith(param_name):
+                    if lora_A_prefix in name and name.endswith(param_name):
                         to_concat_and_duplicate_names.append(name)
-                    if name.startswith(lora_B_prefix) and name.endswith(param_name):
+                    if lora_B_prefix in name and name.endswith(param_name):
                         to_unfuse_names.append(name)
 
                 for weight_name in to_concat_and_duplicate_names:
@@ -1162,9 +1166,9 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                 lora_A_weight_names = []
                 lora_B_weight_names = []
                 for name in parameters_metadata:
-                    if name.startswith(lora_A_prefix) and name.endswith(weight_suffix):
+                    if lora_A_prefix in name and name.endswith(weight_suffix):
                         lora_A_weight_names.append(name)
-                    if name.startswith(lora_B_prefix) and name.endswith(weight_suffix):
+                    if lora_B_prefix in name and name.endswith(weight_suffix):
                         lora_B_weight_names.append(name)
 
                 for weight_name in lora_B_weight_names:
@@ -1356,6 +1360,11 @@ def to_original_peft_config_for_model(
                 spec.to_original_peft_config(adapted_peft_config, inplace=True)
     return adapted_peft_config
 
+def remove_adapter_name(name: str) -> str:
+    return re.sub(LORA_PATTERN, r"\g<qualified_name>\g<remaining>", name)
+
+def is_base_layer(name: str) -> bool:
+    return "base_layer" in name
 
 def adapt_state_dict(
     model: torch.nn.Module,
@@ -1386,16 +1395,6 @@ def adapt_state_dict(
     # 2. A key was mutated by the adapt_state_dict function
     new_keys = set(state_dict.keys()) - original_state_dict_keys
     mutated_keys = {n for n, p in state_dict.items() if p.data_ptr() != original_data_ptrs.get(n, p.data_ptr())}
-
-    lora_pattern = re.compile(
-        r"(?P<qualified_name>(\w+\.)+(lora_(A|B))\.)(?P<adapter_name>\w+\.)(?P<remaining>(\w+\.{0,1})+)"
-    )
-
-    def remove_adapter_name(name: str) -> str:
-        return re.sub(lora_pattern, "\g<qualified_name>\g<remaining>", name)
-
-    def is_base_layer(name: str) -> bool:
-        return "base_layer" in name
 
     for name, param in model.named_parameters():
         name_without_adapter_name = remove_adapter_name(name)
@@ -1442,21 +1441,23 @@ def to_original_weights(
         parameters_to_remove.update(keys_to_remove)
 
     for name, metadata in parameters_metadata.items():
+        name_without_adapter_name = remove_adapter_name(name)
+
         # It means it was already processed by the transformation specs.
-        if name in consolidated_state_dict or name in parameters_to_remove:
+        if name_without_adapter_name in consolidated_state_dict or name_without_adapter_name in parameters_to_remove:
             continue
 
         # It means that it was a parameter of the model but not saved. It can be the case when this parameter did not
         # required gradient computation.
-        if name not in sharded_state_dicts:
+        if name_without_adapter_name not in sharded_state_dicts:
             continue
 
         is_tensor_model_parallel = metadata["tensor_model_parallel"]
         if is_tensor_model_parallel:
-            consolidated_weight = torch.cat(sharded_state_dicts[name], dim=metadata["partition_dim"])
-            consolidated_state_dict[name] = consolidated_weight
+            consolidated_weight = torch.cat(sharded_state_dicts[name_without_adapter_name], dim=metadata["partition_dim"])
+            consolidated_state_dict[name_without_adapter_name] = consolidated_weight
         else:
-            consolidated_state_dict[name] = sharded_state_dicts[name][0]
+            consolidated_state_dict[name_without_adapter_name] = sharded_state_dicts[name_without_adapter_name][0]
     return consolidated_state_dict
 
 
