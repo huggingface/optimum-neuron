@@ -186,6 +186,10 @@ class NeuronTrainingArgumentsMixin:
                     f"per-device eval batch size ({self.per_device_eval_batch_size})."
                 )
 
+        if not torch.distributed.is_initialized():
+            raise ValueError("Neuron training requires torch distributed to be initialized. "
+                             "You can initialize it by running `torchrun`.")
+
         self.trn_config = TrainingNeuronConfig(
             self.tensor_parallel_size,
             parallelize_embeddings=not self.disable_embedding_parallelization,
