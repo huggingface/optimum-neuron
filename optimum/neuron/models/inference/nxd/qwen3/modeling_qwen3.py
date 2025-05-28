@@ -31,10 +31,6 @@ from neuronx_distributed.parallel_layers.mappings import (
     reduce_from_tensor_model_parallel_region,
     reduce_scatter_to_sequence_parallel_region,
 )
-from neuronx_distributed.modules.attention.utils import (
-    apply_rotary_pos_emb,
-    move_heads_front,
-)
 from neuronxcc.nki._private_kernels.mlp import (
     mlp_fused_add_isa_kernel,
     mlp_isa_kernel,
@@ -49,6 +45,8 @@ from transformers.models.qwen3.modeling_qwen3 import Qwen3RMSNorm, Qwen3RotaryEm
 from ..backend.config import NxDNeuronConfig  # noqa: E402
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
 from ..backend.modules.attention.utils import (
+    apply_rotary_pos_emb,
+    move_heads_front,
     transpose_parallel_linear_layer,
 )
 from ..backend.modules.custom_calls import CustomRMSNorm
