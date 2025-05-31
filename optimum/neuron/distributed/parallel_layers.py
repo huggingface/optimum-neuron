@@ -571,7 +571,7 @@ class ParallelSelfAttention(ParallelLayer):
 
         if cls.NUM_KEY_VALUE_HEADS_NAME is not None:
             # This happens when Grouped Query Attention is used and the number of kv heads is bigger than the TP size.
-            # Since those heads end-up sharded accross TP ranks just as the query heads, only the number of kv heads
+            # Since those heads end-up sharded across TP ranks just as the query heads, only the number of kv heads
             # needs to be updated. The number of query groups remains the same here because it is the ratio between the
             # number of query heads and the number of kv heads.
             if not needs_gqa_qkv_column_parallel_linear:
