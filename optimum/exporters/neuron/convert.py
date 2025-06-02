@@ -17,6 +17,7 @@
 import copy
 import time
 from collections import OrderedDict
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -629,7 +630,8 @@ def prepare_compiler_flags(
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
 
-    return compiler_args
+    compiler_args_str = " ".join(compiler_args)
+    return compiler_args_str
 
 
 def trace_neuronx(

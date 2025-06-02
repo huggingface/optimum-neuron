@@ -26,5 +26,7 @@ DIFFUSION_MODEL_VAE_ENCODER_NAME = "vae_encoder"
 DIFFUSION_MODEL_VAE_DECODER_NAME = "vae_decoder"
 DIFFUSION_MODEL_CONTROLNET_NAME = "controlnet"
 DIFFUSION_MODEL_IMAGE_ENCODER_NAME = "image_encoder"
+WEIGHTS_INDEX_NAME = "diffusion_pytorch_model.bin.index.json"
+SAFE_WEIGHTS_INDEX_NAME = "diffusion_pytorch_model.safetensors.index.json"
 
 NEURON_BINARIES_PATH = "/opt/aws/neuron/bin"

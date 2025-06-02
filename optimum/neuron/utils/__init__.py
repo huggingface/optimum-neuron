@@ -38,6 +38,8 @@ _import_structure = {
         "DIFFUSION_MODEL_VAE_DECODER_NAME",
         "DIFFUSION_MODEL_VAE_ENCODER_NAME",
         "DIFFUSION_MODEL_CONTROLNET_NAME",
+        "WEIGHTS_INDEX_NAME",
+        "SAFE_WEIGHTS_INDEX_NAME",
         "ENCODER_NAME",
         "NEURON_FILE_NAME",
     ],
@@ -67,6 +69,7 @@ _import_structure = {
         "is_precompilation",
         "replace_weights",
         "map_torch_dtype",
+        "get_checkpoint_shard_files",
     ],
     "model_utils": ["get_tied_parameters_dict", "tie_parameters"],
     "optimization_utils": [
@@ -110,6 +113,8 @@ if TYPE_CHECKING:
         DIFFUSION_MODEL_UNET_NAME,
         DIFFUSION_MODEL_VAE_DECODER_NAME,
         DIFFUSION_MODEL_VAE_ENCODER_NAME,
+        WEIGHTS_INDEX_NAME,
+        SAFE_WEIGHTS_INDEX_NAME,
         ENCODER_NAME,
         NEURON_FILE_NAME,
     )
@@ -139,6 +144,7 @@ if TYPE_CHECKING:
         is_precompilation,
         map_torch_dtype,
         replace_weights,
+        get_checkpoint_shard_files,
     )
     from .model_utils import get_tied_parameters_dict, tie_parameters
     from .optimization_utils import (

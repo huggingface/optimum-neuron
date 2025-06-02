@@ -18,9 +18,11 @@ import copy
 import inspect
 import os
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
+from safetensors.torch import load_file
 
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import (
@@ -39,10 +41,11 @@ from optimum.utils import (
     NormalizedTextConfig,
     NormalizedVisionConfig,
     is_diffusers_available,
+    logging,
 )
 
-from ...neuron.distributed import ParallelizersManager
-from ...neuron.utils import (
+from optimum.neuron.distributed import ParallelizersManager
+from optimum.neuron.utils import (
     ASTDummyAudioInputGenerator,
     DummyBeamValuesGenerator,
     DummyControNetInputGenerator,
@@ -50,7 +53,9 @@ from ...neuron.utils import (
     DummyIPAdapterInputGenerator,
     DummyMaskedPosGenerator,
     WhisperDummyTextInputGenerator,
+    SAFE_WEIGHTS_INDEX_NAME,
     is_neuronx_distributed_available,
+    get_checkpoint_shard_files,
 )
 from .config import (
     AudioNeuronConfig,
@@ -80,12 +85,13 @@ if is_neuronx_distributed_available():
     import neuronx_distributed
     from neuronx_distributed.trace.model_builder import BaseModelInstance
 
-if TYPE_CHECKING:
-    if is_diffusers_available():
-        from diffusers.models.model_loading_utils import _fetch_index_file, load_state_dict
-        from diffusers.models.vae import Decoder as VaeDecoder
-        from diffusers.utils import _get_checkpoint_shard_files
+if is_diffusers_available():
+    from diffusers.models.model_loading_utils import _get_model_file
+    from diffusers.models.autoencoders.vae import Decoder as VaeDecoder
+    from diffusers.utils import _get_checkpoint_shard_files, _add_variant
+    from diffusers.models.model_loading_utils import _fetch_index_file
 
+logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 COMMON_TEXT_TASKS = [
     "feature-extraction",
@@ -858,55 +864,39 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
         return model
 
     # Adapted from diffusers.models.modeling_utils.ModelMixin.from_pretrained, this is a helper function for loading checkpoints required by `ModelBuilder`.
-    def get_checkpoint_loader_fn(self, pretrained_model_name_or_path: Optional[Union[str, os.PathLike]], **kwargs):
-        subfolder = kwargs.pop("subfolder", None)
-        cache_dir = kwargs.pop("cache_dir", None)
-        variant = kwargs.pop("variant", None)
-        force_download = kwargs.pop("force_download", False)
-        proxies = kwargs.pop("proxies", None)
-        local_files_only = kwargs.pop("local_files_only", None)
-        token = kwargs.pop("token", None)
-        revision = kwargs.pop("revision", None)
-        # Determine if we're loading from a directory of sharded checkpoints.
-        index_file = None
-        is_local = os.path.isdir(pretrained_model_name_or_path)
-        index_file_kwargs = {
-            "is_local": is_local,
-            "pretrained_model_name_or_path": pretrained_model_name_or_path,
-            "subfolder": subfolder or "",
-            "use_safetensors": True,
-            "cache_dir": cache_dir,
-            "variant": variant,
-            "force_download": force_download,
-            "proxies": proxies,
-            "local_files_only": local_files_only,
-            "token": token,
-            "revision": revision,
-        }
-        index_file = _fetch_index_file(**index_file_kwargs)
+    def get_checkpoint_loader_fn(self):
+        is_local = os.path.isdir(self.pretrained_model_name_or_path)
+        subfolder = getattr(self, "subfolder", "transformer")
+        if is_local:
+            index_file = Path(
+                self.pretrained_model_name_or_path,
+                subfolder or "",
+                SAFE_WEIGHTS_INDEX_NAME,
+            )
+        else:
+            index_file_in_repo = Path(
+                subfolder or "",
+                SAFE_WEIGHTS_INDEX_NAME,
+            ).as_posix()
+            index_file = _get_model_file(
+                self.pretrained_model_name_or_path,
+                weights_name=index_file_in_repo,
+                # TODO: add extra args, eg. revision, trust_remote_code, etc. 
+            )
 
-        resolved_model_file = None
-        resolved_model_file, _ = _get_checkpoint_shard_files(
-            pretrained_model_name_or_path,
-            index_file,
-            cache_dir=cache_dir,
-            proxies=proxies,
-            local_files_only=local_files_only,
-            token=token,
-            revision=revision,
-            subfolder=subfolder or "",
+        model_shards_file_paths, _ = get_checkpoint_shard_files(
+            pretrained_model_name_or_path=self.pretrained_model_name_or_path,
+            index_filename=index_file,
+            subfolder=subfolder,
         )
 
-        if not isinstance(resolved_model_file, list):
-            resolved_model_file = [resolved_model_file]
-
         merged_state_dict = {}
-        for shard_file in resolved_model_file:
-            state_dict = load_state_dict(shard_file)
+        for shard_file in model_shards_file_paths:
+            state_dict = load_file(shard_file)
             merged_state_dict.update(state_dict)
 
-        inner_dim = self.config.num_attention_heads * self.config.attention_head_dim
-        for i in range(self.config.num_single_layers):
+        inner_dim = self._config.num_attention_heads * self._config.attention_head_dim
+        for i in range(self._config.num_single_layers):
             merged_state_dict[f"single_transformer_blocks.{i}.proj_out_attn.weight"] = merged_state_dict[
                 f"single_transformer_blocks.{i}.proj_out.weight"
             ][:, :inner_dim].contiguous()

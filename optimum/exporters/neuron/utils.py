@@ -281,7 +281,9 @@ def get_diffusion_models_for_export(
             models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (transformer, transformer_neuron_config)
         else:
             if model_name_or_path:
+                transformer_neuron_config.pretrained_model_name_or_path = model_name_or_path
                 models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (model_name_or_path, transformer_neuron_config)
+                
             else:
                 raise ValueError(
                     f"you need to precise `model_name_or_path` when the parallelism is on, but now it's {model_name_or_path}."
