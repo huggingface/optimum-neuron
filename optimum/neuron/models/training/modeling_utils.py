@@ -920,7 +920,9 @@ class NeuronModelMixin:
 
         # ** Difference from original from_pretrained **
         # We set a few variables that will be needed later in the code.
-        trn_config = model_args[0]
+        trn_config = kwargs.get("trn_config", model_args[0] if len(model_args) > 0 else None)
+        if trn_config is None:
+            raise ValueError("`trn_config` is required to load a model in optimum-neuron.")
         num_local_ranks_per_step = trn_config.num_local_ranks_per_step
         local_world_size = get_local_world_size()
         local_rank = xm.get_local_ordinal()
