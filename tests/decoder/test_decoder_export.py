@@ -19,8 +19,8 @@ import torch
 from transformers import AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM
+from optimum.neuron.models.inference.hlo.llama.model import LlamaHloModelForCausalLM
 from optimum.neuron.models.inference.nxd.backend.modules.decoder import NxDModelForCausalLM
-from optimum.neuron.models.inference.nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
 from optimum.neuron.utils import map_torch_dtype
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
@@ -135,9 +135,9 @@ def test_decoder_export_save_reload(
 @is_inferentia_test
 @requires_neuronx
 @pytest.mark.parametrize("is_local", [True, False], ids=["local", "from_hub"])
-def test_nxd_llama_export_save_reload(is_local, batch_size, sequence_length, num_cores, auto_cast_type):
+def test_hlo_llama_export_save_reload(is_local, batch_size, sequence_length, num_cores, auto_cast_type):
     _test_decoder_export_save_reload(
-        LlamaNxDModelForCausalLM,
+        LlamaHloModelForCausalLM,
         is_local=is_local,
         model_id=DECODER_MODEL_NAMES["llama"],
         batch_size=batch_size,
