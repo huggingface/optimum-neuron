@@ -58,6 +58,7 @@ LORA_PATTERN = re.compile(
     r"(?P<qualified_name>(\w+\.)+?lora_(embedding_)?(A|B))\.(?P<adapter_name>\w+)(?P<remaining>(\.{0,1}\w+\.?)+)?"
 )
 
+
 def create_local_weight_with_padding(
     full_weight: torch.Tensor,
     partition_dim: int,
@@ -575,99 +576,101 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
             unfused_local_weights = []
             lora_A_prefix = f"{module_fully_qualified_name}.{self.fused_linear_name}.lora_A"
             lora_B_prefix = f"{module_fully_qualified_name}.{self.fused_linear_name}.lora_B"
-            lora_A_adapter_pattern = re.compile(rf"{lora_A_prefix}\.(\w+\.){param_name}")
-            lora_B_adapter_pattern = re.compile(rf"{lora_B_prefix}\.(\w+\.){param_name}")
 
             # The base layer is a ColumnParallelLinear
             if self.fuse_axis == 0:
                 # We get the names of the LoRA weights that are fused and sharded.
-                # There will be as many as the number of adapters in the model.
-                weight_names = []
-                to_duplicate_names = []
+                # There should be only one adapter left in parameters_metadata because we filter for it in the main
+                # `to_original_weights` function.
+                weight_name = None
+                to_duplicate_name = None
                 for name in parameters_metadata:
                     if lora_B_prefix in name and name.endswith(param_name):
-                        weight_names.append(name)
+                        weight_name = name
                     if lora_A_prefix in name and name.endswith(param_name):
-                        to_duplicate_names.append(name)
+                        to_duplicate_name = name
+                    if weight_name is not None and to_duplicate_name is not None:
+                        break
 
-                # We unfuse then concat for each adapter.
-                for weight_name in weight_names:
-                    # When saved, the name of the adapter is removed in the weight qualified name since weights for each
-                    # adapter are saved separately.
-                    adapter_name = re.search(lora_B_adapter_pattern, weight_name).group(1)
-                    weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
-                    fused_linear_sharded_weights = sharded_state_dicts[weight_name_without_adapter_name]
-                    for fused_local_weight in fused_linear_sharded_weights:
-                        unfused_local_weights.append(
-                            torch.split(
-                                fused_local_weight,
-                                [dim // self.tp_size for dim in self.original_dims],
-                                dim=self.fuse_axis,
-                            )
-                        )
-                    for idx, linear_name in enumerate(self.linear_names):
-                        original_weight_name = weight_name_without_adapter_name.replace(
-                            self.fused_linear_name, linear_name
-                        )
-                        partition_dim = parameters_metadata[weight_name]["partition_dim"]
-                        original_weight = torch.cat(
-                            [unfused_local_weights[tp_rank][idx] for tp_rank in range(len(unfused_local_weights))],
-                            dim=partition_dim,
-                        )
-                        original_weights[original_weight_name] = original_weight
+                if weight_name is None or to_duplicate_name is None:
+                    raise ValueError(
+                        f"Could not find LoRA weights for {module_fully_qualified_name} with param name {param_name}."
+                    )
 
-                    keys_to_remove.append(weight_name)
+                # When saved, the name of the adapter is removed in the weight qualified name since weights for each
+                # adapter are saved separately.
+                weight_name_without_adapter_name = remove_adapter_name(weight_name)
+                fused_linear_sharded_weights = sharded_state_dicts[weight_name_without_adapter_name]
+                for fused_local_weight in fused_linear_sharded_weights:
+                    unfused_local_weights.append(
+                        torch.split(
+                            fused_local_weight,
+                            [dim // self.tp_size for dim in self.original_dims],
+                            dim=self.fuse_axis,
+                        )
+                    )
+                for idx, linear_name in enumerate(self.linear_names):
+                    original_weight_name = weight_name_without_adapter_name.replace(
+                        self.fused_linear_name, linear_name
+                    )
+                    partition_dim = parameters_metadata[weight_name]["partition_dim"]
+                    original_weight = torch.cat(
+                        [unfused_local_weights[tp_rank][idx] for tp_rank in range(len(unfused_local_weights))],
+                        dim=partition_dim,
+                    )
+                    original_weights[original_weight_name] = original_weight
+
+                keys_to_remove.append(weight_name)
 
                 # We duplicate LoRA A weight for each unfused linear
-                for name in to_duplicate_names:
-                    adapter_name = re.search(lora_A_adapter_pattern, name).group(1)
-                    name_without_adapter_name = name.replace(adapter_name, "")
-                    weight = sharded_state_dicts[name_without_adapter_name][0]
+                name_without_adapter_name = remove_adapter_name(to_duplicate_name)
+                weight = sharded_state_dicts[name_without_adapter_name][0]
+                for linear_name in self.linear_names:
+                    original_name = name_without_adapter_name.replace(self.fused_linear_name, linear_name)
+                    original_weights[original_name] = weight.clone()
 
-                    for linear_name in self.linear_names:
-                        original_name = name_without_adapter_name.replace(self.fused_linear_name, linear_name)
-                        original_weights[original_name] = weight.clone()
-
-                    keys_to_remove.append(name)
+                keys_to_remove.append(to_duplicate_name)
 
             # Otherwise the base layer is a RowParallelLinear
             else:
-                to_concat_and_duplicate_names = []
-                to_unfuse_names = []
+                to_concat_and_duplicate_name = None
+                to_unfuse_name = None
                 for name in parameters_metadata:
                     if lora_A_prefix in name and name.endswith(param_name):
-                        to_concat_and_duplicate_names.append(name)
+                        to_concat_and_duplicate_name = name
                     if lora_B_prefix in name and name.endswith(param_name):
-                        to_unfuse_names.append(name)
-
-                for weight_name in to_concat_and_duplicate_names:
-                    adapter_name = re.search(lora_A_adapter_pattern, weight_name).group(1)
-                    weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
-                    linear_sharded_weights = sharded_state_dicts[weight_name_without_adapter_name]
-                    partition_dim = parameters_metadata[weight_name]["partition_dim"]
-                    linear_weight = torch.cat(linear_sharded_weights, dim=partition_dim)
-                    for linear_name in self.linear_names:
-                        original_weight_name = weight_name_without_adapter_name.replace(
-                            self.fused_linear_name, linear_name
-                        )
-                        original_weights[original_weight_name] = linear_weight.clone()
-
-                    keys_to_remove.append(weight_name)
-
-                for weight_name in to_unfuse_names:
-                    adapter_name = re.search(lora_B_adapter_pattern, weight_name).group(1)
-                    weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
-                    fused_linear_weight = sharded_state_dicts[weight_name_without_adapter_name][0]
-                    unfused_linear_weights = torch.split(
-                        fused_linear_weight, self.original_dims[0] // self.tp_size, dim=self.fuse_axis
+                        to_duplicate_name = name
+                    if to_concat_and_duplicate_name is not None and to_unfuse_name is not None:
+                        break
+                if to_concat_and_duplicate_name is None or to_unfuse_name is None:
+                    raise ValueError(
+                        f"Could not find LoRA weights for {module_fully_qualified_name} with param name {param_name}."
                     )
-                    for idx, linear_name in enumerate(self.linear_names):
-                        original_weight_name = weight_name_without_adapter_name.replace(
-                            self.fused_linear_name, linear_name
-                        )
-                        original_weights[original_weight_name] = unfused_linear_weights[idx]
 
-                    keys_to_remove.append(weight_name)
+                weight_name_without_adapter_name = remove_adapter_name(to_concat_and_duplicate_name)
+                linear_sharded_weights = sharded_state_dicts[weight_name_without_adapter_name]
+                partition_dim = parameters_metadata[to_concat_and_duplicate_name]["partition_dim"]
+                linear_weight = torch.cat(linear_sharded_weights, dim=partition_dim)
+                for linear_name in self.linear_names:
+                    original_weight_name = weight_name_without_adapter_name.replace(
+                        self.fused_linear_name, linear_name
+                    )
+                    original_weights[original_weight_name] = linear_weight.clone()
+
+                keys_to_remove.append(to_concat_and_duplicate_name)
+
+                weight_name_without_adapter_name = remove_adapter_name(to_unfuse_name)
+                fused_linear_weight = sharded_state_dicts[weight_name_without_adapter_name][0]
+                unfused_linear_weights = torch.split(
+                    fused_linear_weight, self.original_dims[0] // self.tp_size, dim=self.fuse_axis
+                )
+                for idx, linear_name in enumerate(self.linear_names):
+                    original_weight_name = weight_name_without_adapter_name.replace(
+                        self.fused_linear_name, linear_name
+                    )
+                    original_weights[original_weight_name] = unfused_linear_weights[idx]
+
+                keys_to_remove.append(to_unfuse_name)
 
         return original_weights, keys_to_remove
 
@@ -1157,24 +1160,17 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
         for param_name in param_names:
             lora_A_prefix = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_A"
             lora_B_prefix = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B"
-            lora_A_adapter_pattern = re.compile(rf"{lora_A_prefix}\.(\w+\.){param_name}")
-            lora_B_adapter_pattern = re.compile(rf"{lora_B_prefix}\.(\w+\.){param_name}")
             lora_B_qkv_seperate_weights = []
             if self.fuse_qkv:
                 weight_suffix = f"{param_name}_qkv"
-                # There is as many names as adapters
-                lora_A_weight_names = []
-                lora_B_weight_names = []
+                lora_B_weight_name = None
                 for name in parameters_metadata:
-                    if lora_A_prefix in name and name.endswith(weight_suffix):
-                        lora_A_weight_names.append(name)
                     if lora_B_prefix in name and name.endswith(weight_suffix):
-                        lora_B_weight_names.append(name)
+                        lora_B_weight_name = name
+                        break
 
-                for weight_name in lora_B_weight_names:
-                    adapter_name = re.search(lora_B_adapter_pattern, weight_name).group(1)
-                    weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
-
+                if lora_B_weight_name is not None:
+                    weight_name_without_adapter_name = remove_adapter_name(lora_B_weight_name)
                     fused_qkv_local_weights = sharded_state_dicts[weight_name_without_adapter_name]
 
                     slice_q = slice(0, self.q_output_size_per_partition)
@@ -1198,8 +1194,12 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                         fused_qkv_local_weights[tp_rank][slice_v].contiguous() for tp_rank in range(self.tp_size)
                     ]
 
-                    qkv_partition_dim = parameters_metadata[weight_name]["partition_dim"]
-                    keys_to_remove += [weight_name]
+                    # TODO: fix once it is fixed in neuronx_distributed
+                    # We should to as follows:
+                    # qkv_partition_dim = parameters_metadata[lora_B_weight_name]["partition_dim"]
+                    # But it seems not tensor model attributes are set to `weight_qkv`.
+                    qkv_partition_dim = 0  # Since it is a ColumnParallelLinear, the partition dim is always 0.
+                    keys_to_remove += [lora_B_weight_name]
 
                     lora_B_qkv_seperate_weights += [
                         ["query", weights_q, qkv_partition_dim, weight_name_without_adapter_name],
@@ -1209,18 +1209,15 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
             else:
                 weight_suffixes = [f"{param_name}_q", f"{param_name}_k", f"{param_name}_v"]
 
-                # There is as many names as adapters
-                lora_A_weight_names = []
                 lora_B_weight_names = []
                 for name in parameters_metadata:
-                    if name.startswith(lora_A_prefix) and any(name.endswith(suffix) for suffix in weight_suffixes):
-                        lora_A_weight_names.append(name)
                     if name.startswith(lora_B_prefix) and any(name.endswith(suffix) for suffix in weight_suffixes):
                         lora_B_weight_names.append(name)
 
                 for weight_name in lora_B_weight_names:
-                    adapter_name = re.search(lora_B_adapter_pattern, weight_name).group(1)
-                    weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
+                    weight_name_without_adapter_name = remove_adapter_name(weight_name)
+
+                    weights = sharded_state_dicts[weight_name_without_adapter_name]
 
                     if f"{param_name}_q" in weight_name_without_adapter_name:
                         query_key_or_value = "query"
@@ -1228,8 +1225,6 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                         query_key_or_value = "key"
                     else:
                         query_key_or_value = "value"
-
-                    weights = sharded_state_dicts[weight_name_without_adapter_name]
 
                     # The query, key and value share the same partition dim.
                     qkv_partition_dim = parameters_metadata[weight_name]["partition_dim"]
@@ -1240,21 +1235,28 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                     ]
 
             # First we handle LoRA A weights.
-            # For each adapter we need to duplicate the LoRA A weight for the query, key and value projections.
-            for weight_name in lora_A_weight_names:
-                adapter_name = re.search(lora_A_adapter_pattern, weight_name).group(1)
-                query_weight_name = weight_name.replace(adapter_name, "").replace(
+            # We need to duplicate the LoRA A weight for the query, key and value projections.
+            lora_A_weight_name = None
+            for name in parameters_metadata:
+                if lora_A_prefix in name and name.endswith(param_name):
+                    lora_A_weight_name = name
+                    break
+
+            if lora_A_weight_name is not None:
+                lora_A_weight_name_without_adapter = remove_adapter_name(lora_A_weight_name)
+                query_weight_name = lora_A_weight_name_without_adapter.replace(
                     self.gqa_qkv_projection_name, self.query_projection_name
                 )
-                key_weight_name = weight_name.replace(adapter_name, "").replace(
+                key_weight_name = lora_A_weight_name_without_adapter.replace(
                     self.gqa_qkv_projection_name, self.key_projection_name
                 )
-                value_weight_name = weight_name.replace(adapter_name, "").replace(
+                value_weight_name = lora_A_weight_name_without_adapter.replace(
                     self.gqa_qkv_projection_name, self.value_projection_name
                 )
-                state_dict[query_weight_name] = sharded_state_dicts[weight_name][0].clone()
-                state_dict[key_weight_name] = sharded_state_dicts[weight_name][0].clone()
-                state_dict[value_weight_name] = sharded_state_dicts[weight_name][0].clone()
+                state_dict[query_weight_name] = sharded_state_dicts[lora_A_weight_name_without_adapter][0].clone()
+                state_dict[key_weight_name] = sharded_state_dicts[lora_A_weight_name_without_adapter][0].clone()
+                state_dict[value_weight_name] = sharded_state_dicts[lora_A_weight_name_without_adapter][0].clone()
+                keys_to_remove.append(lora_A_weight_name)
 
             # Then we handle LoRA B weights.
             # There is a little bit more work, it mostly consists in doing the same as for the
@@ -1272,33 +1274,43 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                             "query",
                         )
                     )
-                    query_weight_name = weight_name.replace(self.gqa_qkv_projection_name, self.query_projection_name)
+                    query_weight_name = (
+                        weight_name.replace(f"{param_name}_qkv", param_name)
+                        .replace(f"{param_name}_q", param_name)
+                        .replace(self.gqa_qkv_projection_name, self.query_projection_name)
+                    )
                     state_dict[query_weight_name] = full_weight_q
                 elif query_key_or_value == "key":
                     full_weight_k = torch.cat(weights, dim=qkv_partition_dim).contiguous()
                     full_weight_k = torch.chunk(full_weight_k, self.kv_size_multiplier, dim=0)[0].detach().clone()
-                    key_weight_name = weight_name.replace(self.gqa_qkv_projection_name, self.key_projection_name)
+                    key_weight_name = (
+                        weight_name.replace(f"{param_name}_qkv", param_name)
+                        .replace(f"{param_name}_k", param_name)
+                        .replace(self.gqa_qkv_projection_name, self.key_projection_name)
+                    )
                     state_dict[key_weight_name] = full_weight_k
                 else:
                     full_weight_v = torch.cat(weights, dim=qkv_partition_dim).contiguous()
                     full_weight_v = torch.chunk(full_weight_v, self.kv_size_multiplier, dim=0)[0].detach().clone()
-                    value_weight_name = weight_name.replace(self.gqa_qkv_projection_name, self.value_projection_name)
+                    value_weight_name = (
+                        weight_name.replace(f"{param_name}_qkv", param_name)
+                        .replace(f"{param_name}_v", param_name)
+                        .replace(self.gqa_qkv_projection_name, self.value_projection_name)
+                    )
                     state_dict[value_weight_name] = full_weight_v
 
             # Now we handle the output projection.
             # There is only work for the LoRA A weights, the LoRA B weights are already regular linear weights.
             lora_A_prefix = f"{module_fully_qualified_name}.{self.output_projection_name}.lora_A"
-            lora_A_adapter_pattern = re.compile(rf"{lora_A_prefix}\.(\w+\.){param_name}")
-            lora_A_weight_names = []
+            lora_A_weight_name = None
             for name in parameters_metadata:
                 if name.startswith(lora_A_prefix) and name.endswith(param_name):
-                    lora_A_weight_names.append(name)
-
-            for weight_name in lora_A_weight_names:
-                adapter_name = re.search(lora_A_adapter_pattern, weight_name).group(1)
-                weight_name_without_adapter_name = weight_name.replace(adapter_name, "")
+                    lora_A_weight_name = name
+                    break
+            if lora_A_weight_name is not None:
+                weight_name_without_adapter_name = remove_adapter_name(lora_A_weight_name)
                 weights_o = sharded_state_dicts[weight_name_without_adapter_name]
-                o_partition_dim = parameters_metadata[weight_name]["partition_dim"]
+                o_partition_dim = parameters_metadata[lora_A_weight_name]["partition_dim"]
                 full_weight_o = torch.cat(weights_o, dim=o_partition_dim).contiguous()
                 full_weight_o = (
                     GQAQKVColumnParallelLinearSpec.create_gqa_query_or_output_projection_weight_from_full_weight(
@@ -1310,7 +1322,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                         "output",
                     )
                 )
-                keys_to_remove.append(weight_name)
+                keys_to_remove.append(lora_A_weight_name)
                 state_dict[weight_name_without_adapter_name] = full_weight_o
 
         return state_dict, keys_to_remove
@@ -1323,7 +1335,6 @@ def specialize_transformation_specs_for_model(model: torch.nn.Module):
         mod.specs.module_fully_qualified_name = name
         for spec in mod.specs:
             spec.peft_type = spec.guess_peft_type(model, name)
-
 
 
 def adapt_peft_config_for_model(
@@ -1347,10 +1358,9 @@ def to_original_peft_config_for_model(
     model: torch.nn.Module, peft_config: PeftConfig, inplace: bool = False
 ) -> PeftConfig:
     adapted_peft_config = copy.deepcopy(peft_config) if not inplace else peft_config
-    for name, mod in model.named_modules():
+    for _, mod in model.named_modules():
         if not isinstance(mod, CustomModule):
             continue
-        mod.specs.module_fully_qualified_name = name
         for spec in mod.specs:
             # inplace=True because we already do a deepcopy if needed once at the beginning of this function.
             if isinstance(adapted_peft_config, dict):
@@ -1360,17 +1370,21 @@ def to_original_peft_config_for_model(
                 spec.to_original_peft_config(adapted_peft_config, inplace=True)
     return adapted_peft_config
 
+
 def remove_adapter_name(name: str) -> str:
     return re.sub(LORA_PATTERN, r"\g<qualified_name>\g<remaining>", name)
+
 
 def is_base_layer(name: str) -> bool:
     return "base_layer" in name
 
-def get_adapter_name_in_state_dict(parameter_fully_qualified_name: str) -> Optional[str]:
+
+def get_adapter_name(parameter_fully_qualified_name: str) -> Optional[str]:
     match = re.match(LORA_PATTERN, parameter_fully_qualified_name)
     if match:
         return match.group("adapter_name")
     return None
+
 
 def adapt_state_dict(
     model: torch.nn.Module,
@@ -1430,12 +1444,6 @@ def adapt_state_dict(
 
             # If the parameter associated to the weight is parallel, we shard the weight.
             full_weight = state_dict.pop(name_without_adapter_name)
-            # local_weight = create_local_weight_with_padding(
-            #     full_weight, param.partition_dim, param.partition_stride
-            # )
-            # import torch_xla.core.xla_model as xm
-            # xm.master_print(f"{name}: {full_weight.shape} => {local_weight.shape}")
-            # state_dict[name_without_adapter_name] = local_weight
             state_dict[name_without_adapter_name] = create_local_weight_with_padding(
                 full_weight, param.partition_dim, param.partition_stride
             )
@@ -1457,9 +1465,13 @@ def to_original_weights(
 
     adapter_name = peft_kwargs.pop("adapter_name", None)
     if adapter_name is not None:
+
         def should_keep_parameter(name: str) -> bool:
-            return is_base_layer(name) or get_adapter_name_in_state_dict(name) == adapter_name
-        parameters_metadata = {name: metadata for name, metadata in parameters_metadata.items() if should_keep_parameter(name)}
+            return is_base_layer(name) or get_adapter_name(name) == adapter_name
+
+        parameters_metadata = {
+            name: metadata for name, metadata in parameters_metadata.items() if should_keep_parameter(name)
+        }
 
     for specs in transformations_specs:
         original_weights, keys_to_remove = specs.to_original_weights(sharded_state_dicts, parameters_metadata)
@@ -1484,7 +1496,9 @@ def to_original_weights(
 
         is_tensor_model_parallel = metadata["tensor_model_parallel"]
         if is_tensor_model_parallel:
-            consolidated_weight = torch.cat(sharded_state_dicts[name_without_adapter_name], dim=metadata["partition_dim"])
+            consolidated_weight = torch.cat(
+                sharded_state_dicts[name_without_adapter_name], dim=metadata["partition_dim"]
+            )
             consolidated_state_dict[name_without_adapter_name] = consolidated_weight
         else:
             consolidated_state_dict[name_without_adapter_name] = sharded_state_dicts[name_without_adapter_name][0]

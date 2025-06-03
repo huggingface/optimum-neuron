@@ -458,7 +458,6 @@ class NeuronAccelerator(Accelerator):
             model.config.output_hidden_states = False
             move_model_to_device(model, self.device)
             model = super().prepare_model(model, device_placement=False, evaluation_mode=evaluation_mode)
-            print(model)
             return model
 
         model = self.patch_model_for_neuron(model)

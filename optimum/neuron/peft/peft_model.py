@@ -182,7 +182,6 @@ class NeuronPeftModel(PeftModel):
             os.makedirs(save_directory, exist_ok=True)
             self.create_or_update_model_card(save_directory)
 
-
         for adapter_name in selected_adapters:
             peft_config = self.peft_config[adapter_name]
             # save only the trainable weights
@@ -193,16 +192,18 @@ class NeuronPeftModel(PeftModel):
                 save_embedding_layers=save_embedding_layers,
             )
             output_dir = os.path.join(save_directory, f"adapter_{adapter_name}")
-            
+
             os.makedirs(output_dir, exist_ok=True)
 
             # Save the metadata required to consolidate the checkpoints properly.
-            # Note: we do not need to do it for each adapter, as the metadata is the same for all adapters but we do it 
+            # Note: we do not need to do it for each adapter, as the metadata is the same for all adapters but we do it
             # for simplicity.
             if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
                 metadata = create_parameter_metadata(self)
                 pp_rank = get_pipeline_model_parallel_rank()
-                metadata_path = os.path.join(output_dir, ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME, f"mp_metadata_pp_rank_{pp_rank}.json")
+                metadata_path = os.path.join(
+                    output_dir, ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME, f"mp_metadata_pp_rank_{pp_rank}.json"
+                )
                 Path(metadata_path).parent.mkdir(parents=True, exist_ok=True)
                 with open(metadata_path, "w") as f:
                     f.write(json.dumps(metadata, indent=4))
@@ -354,7 +355,6 @@ class NeuronPeftModel(PeftModel):
         return model
 
     def add_adapter(self, adapter_name: str, peft_config: PeftConfig, low_cpu_mem_usage: bool = False) -> None:
-        # peft_config = adapt_peft_config_for_model(self.base_model, peft_config, inplace=False)
         peft_config = adapt_peft_config_for_model(self, peft_config, inplace=False)
         return super().add_adapter(adapter_name, peft_config, low_cpu_mem_usage=low_cpu_mem_usage)
 
@@ -390,16 +390,14 @@ class NeuronPeftModel(PeftModel):
             peft_config.inference_mode = not is_trainable
             self.add_adapter(adapter_name, peft_config, low_cpu_mem_usage=low_cpu_mem_usage)
 
-
-        for name, parameter in self.base_model.named_parameters():
-            print(f"{name}: {parameter.size()}")
-
         adapters_weights = load_peft_weights(model_id, **hf_hub_download_kwargs)
 
         # ** Difference from original load_adapter **
         # We need to adapt the adapters_weights to the model.
         upstanding_sharded_params = {}
-        adapters_weights = adapt_state_dict(self, adapters_weights, upstanding_sharded_params, inplace=True, adapter_name=adapter_name)
+        adapters_weights = adapt_state_dict(
+            self, adapters_weights, upstanding_sharded_params, inplace=True, adapter_name=adapter_name
+        )
 
         # load the weights into the model
         ignore_mismatched_sizes = kwargs.get("ignore_mismatched_sizes", False)

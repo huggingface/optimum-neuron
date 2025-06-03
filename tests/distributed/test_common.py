@@ -14,15 +14,14 @@
 # limitations under the License.
 """General tests related to distributed training."""
 
+from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict
 
 import pytest
 import safetensors
 import torch
-from peft import LoraConfig
-from peft import get_peft_model as orig_get_peft_model
-from peft import PeftModelForCausalLM
+from peft import LoraConfig, PeftModelForCausalLM
 from transformers import LlamaForCausalLM
 
 from optimum.neuron.accelerate.optimizer import NeuronAcceleratedOptimizer
@@ -34,7 +33,7 @@ from optimum.neuron.distributed.utils import (
 )
 from optimum.neuron.models.training import LlamaForCausalLM as NeuronLlamaForCausalLM
 from optimum.neuron.models.training.config import TrainingNeuronConfig
-from optimum.neuron.peft import get_peft_model, NeuronPeftModelForCausalLM
+from optimum.neuron.peft import NeuronPeftModelForCausalLM
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
@@ -504,45 +503,69 @@ class TestCommonDistributed(DistributedTest):
                 torch.testing.assert_close(orig_tensor, consolidated_tensor)
 
     @pytest.mark.parametrize(
-        "world_size,tp_size,pp_size,kv_size_multiplier,lora_enabled",
+        "world_size,tp_size,pp_size,kv_size_multiplier,lora_enabled,fuse_qkv",
         [
-            [8, 2, 1, None, False],
-            [8, 2, 1, None, True],
-            [8, 8, 1, None, False],
-            [8, 8, 1, 4, False],
-            [8, 8, 1, 4, True],
+            [8, 2, 1, None, False, False],
+            [8, 2, 1, None, True, False],
+            [8, 8, 1, None, False, False],
+            [8, 8, 1, 4, False, False],
+            [8, 8, 1, 4, False, True],
+            [8, 8, 1, 4, True, False],
+            [8, 8, 1, 4, True, True],
         ],
         ids=[
             "dp=4,tp=2,pp=1",
             "dp=4,tp=2,pp=1,lora",
             "dp=1,tp=8,pp=1,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
             "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
+            "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear,fuse_qkv",
             "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear,lora",
+            "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear,lora,fuse_qkv",
         ],
     )
     def test_consolidate_custom_model_parallel_checkpoints(
-        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, lora_enabled, use_xser
+        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, lora_enabled, fuse_qkv, use_xser
     ):
         # We create a LoraConfig but only use it if `lora_enabled=True`.
         peft_config = LoraConfig(
             r=16,
             lora_alpha=32,
             lora_dropout=0.05,
-            target_modules=["embed_tokens", "q_proj", "v_proj", "o_proj", "k_proj", "gate_proj", "up_proj", "down_proj"],
+            target_modules=[
+                "embed_tokens",
+                "q_proj",
+                "v_proj",
+                "o_proj",
+                "k_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
+            ],
             bias="none",
             task_type="CAUSAL_LM",
         )
         tmpdir = Path(tmpdir)
         orig_model = LlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS)
 
-        first_lora_adapter_model_name_or_path = "michaelbenayoun/lora-qkv-included-llama-2-tiny-4kv-heads-4layers-random"
-        second_lora_adapter_model_name_or_path = "michaelbenayoun/lora-2-qkv-included-llama-2-tiny-4kv-heads-4layers-random"
+        first_lora_adapter_model_name_or_path = (
+            "michaelbenayoun/lora-qkv-included-llama-2-tiny-4kv-heads-4layers-random"
+        )
+        second_lora_adapter_model_name_or_path = (
+            "michaelbenayoun/lora-2-qkv-included-llama-2-tiny-4kv-heads-4layers-random"
+        )
 
-        key_suffixes_of_weights_that_cannot_be_compared = {
-            "gate_proj.lora_A.weight",
-            "up_proj.lora_A.weight",
+        # Some weights need to be averaged before comparing them.
+        # For now it is only the case for the LoRA A weights when there is linear fusion involved.
+        # We specify this in a dictionary where:
+        #  - the key is the suffix of the weight that we want to average
+        # - the value is a list of suffixes that we want to average with the key suffix.
+        key_suffixes_of_weights_to_average = {
+            "gate_proj.lora_A.weight": ["gate_proj.lora_A.weight", "up_proj.lora_A.weight"],
+            "up_proj.lora_A.weight": ["gate_proj.lora_A.weight", "up_proj.lora_A.weight"],
+            "q_proj.lora_A.weight": ["q_proj.lora_A.weight", "k_proj.lora_A.weight", "v_proj.lora_A.weight"],
+            "k_proj.lora_A.weight": ["q_proj.lora_A.weight", "k_proj.lora_A.weight", "v_proj.lora_A.weight"],
+            "v_proj.lora_A.weight": ["q_proj.lora_A.weight", "k_proj.lora_A.weight", "v_proj.lora_A.weight"],
         }
-
 
         if lora_enabled:
             orig_model = PeftModelForCausalLM.from_pretrained(
@@ -554,7 +577,7 @@ class TestCommonDistributed(DistributedTest):
                 second_lora_adapter_model_name_or_path,
                 adapter_name="test",
             )
-                
+
         if xr.global_ordinal() == 0:
             orig_model.save_pretrained(tmpdir / "orig_model", safe_serialization=False)
 
@@ -563,6 +586,7 @@ class TestCommonDistributed(DistributedTest):
             pipeline_parallel_size=pp_size,
             use_xser=use_xser,
             async_save=False,
+            fuse_qkv=fuse_qkv,
         )
         custom_model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
 
@@ -594,18 +618,46 @@ class TestCommonDistributed(DistributedTest):
                         tmpdir / "consolidated_model" / "adapter_model.bin", weights_only=True
                     )
                 else:
-                    orig_state_dict = torch.load(tmpdir / "orig_model" / adapter_name / "adapter_model.bin", weights_only=True)
+                    orig_state_dict = torch.load(
+                        tmpdir / "orig_model" / adapter_name / "adapter_model.bin", weights_only=True
+                    )
                     consolidated_state_dict = torch.load(
                         tmpdir / "consolidated_model" / adapter_name / "adapter_model.bin", weights_only=True
                     )
 
-                print(set(orig_state_dict.keys()) - set(consolidated_state_dict.keys()))
-                print(set(consolidated_state_dict.keys()) - set(orig_state_dict.keys()))
+                assert orig_state_dict.keys() == consolidated_state_dict.keys(), (
+                    f"Keys of the original state dict and consolidated state dict do not match for adapter {adapter_name}."
+                )
                 for key in orig_state_dict:
                     orig_tensor = orig_state_dict[key]
                     consolidated_tensor = consolidated_state_dict[key]
                     print(f"Testing that {key} match for adapter {adapter_name}")
-                    if any(key.endswith(suffix) for suffix in key_suffixes_of_weights_that_cannot_be_compared):
-                        print(f"Skipping {key} as it cannot be compared.")
+                    if any(key.endswith(suffix) for suffix in key_suffixes_of_weights_to_average):
+                        continue
                     else:
                         torch.testing.assert_close(orig_tensor, consolidated_tensor)
+
+                # For the weights that need to be averaged before compared, we do it here.
+                orig_tensors = defaultdict(list)
+                for key_suffix, suffixes in key_suffixes_of_weights_to_average.items():
+                    for key in orig_state_dict.keys():
+                        # If the key ends with the key_suffix, it means that the associated weight needs to be averaged
+                        # with weights that end with the suffixes.
+                        if key.endswith(key_suffix):
+                            # key_prefix is basically the fully qualified name of the module that contains the weight.
+                            key_prefix = key[: -len(key_suffix)]
+                            # We collect all the tensors that need to be averaged.
+                            for name, tensor in orig_state_dict.items():
+                                for suffix in suffixes:
+                                    if name.endswith(suffix):
+                                        # name_prefix is the fully qualified name of the module that contains the weight.
+                                        name_prefix = name[: -len(suffix)]
+                                        # We only keep the tensors that are from the same module as the key.
+                                        if name_prefix == key_prefix:
+                                            orig_tensors[key].append(tensor)
+
+                for key, tensors in orig_tensors.items():
+                    orig_tensor = torch.mean(torch.stack(tensors, dim=0), dim=0)
+                    consolidated_tensor = consolidated_state_dict[key]
+                    print(f"Testing that {key} match for adapter {adapter_name}")
+                    torch.testing.assert_close(orig_tensor, consolidated_tensor)
