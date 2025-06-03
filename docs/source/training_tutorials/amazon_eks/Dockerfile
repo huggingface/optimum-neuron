@@ -24,7 +24,7 @@ RUN python -m pip install awscli
 
 # Update Neuron Compiler and Framework
 RUN python -m pip install --upgrade neuronx-cc==2.* torch-neuronx==2.1.* torchvision
-RUN python -m pip install --upgrade neuronx-distributed neuronx-distributed-training
+RUN python -m pip install --upgrade neuronx-distributed
 
 
 RUN mkdir workspace
