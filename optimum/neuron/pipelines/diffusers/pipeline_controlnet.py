@@ -95,7 +95,7 @@ class NeuronStableDiffusionControlNetPipelineMixin:
                 pass `negative_prompt_embeds` instead. Ignored when not using guidance (`guidance_scale < 1`).
             num_images_per_prompt (`int`, defaults to 1):
                 The number of images to generate per prompt. If it is different from the batch size used for the compiltaion,
-                it will be overriden by the static batch size of neuron (except for dynamic batching).
+                it will be overridden by the static batch size of neuron (except for dynamic batching).
             eta (`float`, defaults to 0.0):
                 Corresponds to parameter eta (η) from the [DDIM](https://arxiv.org/abs/2010.02502) paper. Only applies
                 to the [`diffusers.schedulers.DDIMScheduler`], and is ignored in other schedulers.

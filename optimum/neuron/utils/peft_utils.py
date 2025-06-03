@@ -113,10 +113,10 @@ class NeuronPeftModel(PeftModel):
 
         if model_parallel_is_initialized():
             should_write_data = get_data_parallel_rank() == 0
-            is_model_paralllel = get_tensor_model_parallel_size() > 1 or get_pipeline_model_parallel_size() > 1
+            is_model_parallel = get_tensor_model_parallel_size() > 1 or get_pipeline_model_parallel_size() > 1
         else:
             should_write_data = xm.is_master_ordinal(local=True)
-            is_model_paralllel = False
+            is_model_parallel = False
 
         if os.path.isfile(save_directory):
             raise ValueError(f"Provided path ({save_directory}) should be a directory, not a file")
@@ -165,7 +165,7 @@ class NeuronPeftModel(PeftModel):
             output_dir = os.path.join(save_directory, adapter_name) if adapter_name != "default" else save_directory
             os.makedirs(output_dir, exist_ok=True)
 
-            if is_model_paralllel:
+            if is_model_parallel:
                 if convert_pissa_to_lora is not None:
                     output_state_dict = save_pissa_as_lora(
                         peft_config, convert_pissa_to_lora, output_state_dict, kwargs

@@ -1364,14 +1364,14 @@ def initialize_parallel_linear(mod: "layers.BaseParallelLinear", parameter_names
         if "weight" in parameter_names:
             delete_tensor_model_parallel_attributes(mod.weight)
             # It is needed to use `init_weight_cpu` instead of `_init_weights` because the initialization
-            # needs to happen on the full parameter and then scatter it accross TP ranks otherwise it will
+            # needs to happen on the full parameter and then scatter it across TP ranks otherwise it will
             # not be equivalent to the non-parallel case.
             mod.init_weight_cpu()
         if mod.bias is not None and "bias" in parameter_names:
             mod._init_bias()
     elif isinstance(mod, GQAQKVColumnParallelLinear):
         # It ignores parameter_names, so it might initialize some parameters that should be left unchanged.
-        # To improve if it becomes neeeded.
+        # To improve if it becomes needed.
         mod.initialize_weight_biases()
     else:
         raise RuntimeError(f"This kind of parallel linear is not supported yet: {mod.__class__.__name__}")

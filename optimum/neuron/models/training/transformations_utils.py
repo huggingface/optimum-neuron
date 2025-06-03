@@ -525,7 +525,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
     ) -> tuple[Dict[str, torch.Tensor], list[str]]:
         # To recreate original weights from the fused weights we need to:
         # 1. Unfuse the sharded weights
-        # 2. Concat each sharded local weight accross the partion_dim if TP is enabled
+        # 2. Concat each unsharded local weight across the partion_dim if TP is enabled
         original_weights = {}
         keys_to_remove = []
         for param_name in ["weight", "bias"] if self.bias else ["weight"]:

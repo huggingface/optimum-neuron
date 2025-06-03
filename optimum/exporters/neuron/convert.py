@@ -318,7 +318,7 @@ def export_models(
         compiler_workdir (`Optional[Path]`, defaults to `None`):
             The directory to store intermediary outputs of the neuron compiler.
         inline_weights_to_neff (`bool`, defaults to `True`):
-            Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
+            Whether to inline the weights to the neff graph. If set to False, weights will be separated from the neff.
         optlevel (`str`, defaults to `"2"`):
             The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
@@ -492,7 +492,7 @@ def export_neuronx(
         compiler_workdir (`Optional[Path]`, defaults to `None`):
             The directory used by neuronx-cc, where you can find intermediary outputs (neff, weight, hlo...).
         inline_weights_to_neff (`bool`, defaults to `True`):
-            Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
+            Whether to inline the weights to the neff graph. If set to False, weights will be separated from the neff.
         optlevel (`str`, defaults to `"2"`):
             The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
@@ -672,7 +672,7 @@ def export_neuron(
         compiler_workdir (`Optional[Path]`, defaults to `None`):
             The directory used by neuron-cc, where you can find intermediary outputs (neff, weight, hlo...).
         inline_weights_to_neff (`bool`, defaults to `True`):
-            Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
+            Whether to inline the weights to the neff graph. If set to False, weights will be separated from the neff.
         auto_cast (`Optional[str]`, defaults to `None`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`str`, defaults to `"bf16"`):
