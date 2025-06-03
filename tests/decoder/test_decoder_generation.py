@@ -152,12 +152,12 @@ def test_decoder_generation_multiple_eos_token_ids(model_and_tokenizer):
     if not isinstance(generation_config.eos_token_id, list):
         generation_config.eos_token_id = [generation_config.eos_token_id]
     generation_config.max_new_tokens = 256
-    outputs = model.generate(**tokens, do_sample=True, generation_config=generation_config)
+    outputs = model.generate(**tokens, do_sample=False, generation_config=generation_config)
     # Extract the last non-eos generated token and use it as a fake eos_token_id
     fake_eos_token_id = outputs[0, -2]
     generation_config.eos_token_id.append(fake_eos_token_id)
     # Generate again an verify we stopped on that id
-    outputs = model.generate(**tokens, do_sample=True, generation_config=generation_config)
+    outputs = model.generate(**tokens, do_sample=False, generation_config=generation_config)
     assert outputs[0, -1] == fake_eos_token_id
 
 
