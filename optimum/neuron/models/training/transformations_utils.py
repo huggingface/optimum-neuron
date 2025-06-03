@@ -1325,14 +1325,14 @@ def specialize_transformation_specs_for_model(model: torch.nn.Module):
             spec.peft_type = spec.guess_peft_type(model, name)
 
 
+
 def adapt_peft_config_for_model(
     model: torch.nn.Module, peft_config: Union[PeftConfig, dict[str, PeftConfig]], inplace: bool = False
 ) -> Union[PeftConfig, dict[str, PeftConfig]]:
     adapted_peft_config = copy.deepcopy(peft_config) if not inplace else peft_config
-    for name, mod in model.named_modules():
+    for _, mod in model.named_modules():
         if not isinstance(mod, CustomModule):
             continue
-        mod.specs.module_fully_qualified_name = name
         for spec in mod.specs:
             # inplace=True because we already do a deepcopy if needed once at the beginning of this function.
             if isinstance(adapted_peft_config, dict):
@@ -1366,11 +1366,22 @@ def remove_adapter_name(name: str) -> str:
 def is_base_layer(name: str) -> bool:
     return "base_layer" in name
 
+def get_adapter_name_in_state_dict(state_dict: Dict[str, torch.Tensor]) -> Optional[str]:
+    """
+    Returns the adapter name if it exists in the state dict, otherwise returns None.
+    """
+    for key in state_dict.keys():
+        match = re.match(LORA_PATTERN, key)
+        if match:
+            return match.group("adapter_name")
+    return None
+
 def adapt_state_dict(
     model: torch.nn.Module,
     state_dict: Dict[str, torch.Tensor],
     upstanding_sharded_params: Dict[str, torch.Tensor],
     inplace: bool = False,
+    **peft_kwargs: Any,
 ) -> Dict[str, torch.Tensor]:
     """
     Transforms the state dict from the original Transformers model to match the custom modeling implementation.
@@ -1396,17 +1407,22 @@ def adapt_state_dict(
     new_keys = set(state_dict.keys()) - original_state_dict_keys
     mutated_keys = {n for n, p in state_dict.items() if p.data_ptr() != original_data_ptrs.get(n, p.data_ptr())}
 
+    adapter_name = peft_kwargs.pop("adapter_name", None)
+
     for name, param in model.named_parameters():
         name_without_adapter_name = remove_adapter_name(name)
-        if name_without_adapter_name in new_keys | mutated_keys:
-            # In this case, we don't need to do anything, it was handled by the transformation specs.
-            continue
         if is_base_layer(name_without_adapter_name):
             # In this case, it was already handled when loading the base layer weights in
             # `NeuronModelMixin.from_pretrained`.
             state_dict.pop(
                 name_without_adapter_name, None
             )  # We remove it to avoid confusion, maybe it is actually needed?
+            continue
+        if adapter_name is not None and adapter_name not in name:
+            # If the parameter is not associated to the current adapter, we skip it.
+            continue
+        if name_without_adapter_name in new_keys | mutated_keys:
+            # In this case, we don't need to do anything, it was handled by the transformation specs.
             continue
         if hasattr(param, "tensor_model_parallel") and param.tensor_model_parallel:
             if param.partition_dim not in [0, 1]:
@@ -1417,7 +1433,13 @@ def adapt_state_dict(
                 continue
 
             # If the parameter associated to the weight is parallel, we shard the weight.
-            full_weight = state_dict[name_without_adapter_name]
+            full_weight = state_dict.pop(name_without_adapter_name)
+            # local_weight = create_local_weight_with_padding(
+            #     full_weight, param.partition_dim, param.partition_stride
+            # )
+            # import torch_xla.core.xla_model as xm
+            # xm.master_print(f"{name}: {full_weight.shape} => {local_weight.shape}")
+            # state_dict[name_without_adapter_name] = local_weight
             state_dict[name_without_adapter_name] = create_local_weight_with_padding(
                 full_weight, param.partition_dim, param.partition_stride
             )
@@ -1444,7 +1466,11 @@ def to_original_weights(
         name_without_adapter_name = remove_adapter_name(name)
 
         # It means it was already processed by the transformation specs.
-        if name_without_adapter_name in consolidated_state_dict or name_without_adapter_name in parameters_to_remove:
+        if name_without_adapter_name in consolidated_state_dict:
+            continue
+
+        # `parameters_to_remove` contains the names with the adapter name so we need to use the full name to check.
+        if name in parameters_to_remove:
             continue
 
         # It means that it was a parameter of the model but not saved. It can be the case when this parameter did not

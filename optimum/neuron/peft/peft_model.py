@@ -354,7 +354,8 @@ class NeuronPeftModel(PeftModel):
         return model
 
     def add_adapter(self, adapter_name: str, peft_config: PeftConfig, low_cpu_mem_usage: bool = False) -> None:
-        peft_config = adapt_peft_config_for_model(self.base_model, peft_config, inplace=False)
+        # peft_config = adapt_peft_config_for_model(self.base_model, peft_config, inplace=False)
+        peft_config = adapt_peft_config_for_model(self, peft_config, inplace=False)
         return super().add_adapter(adapter_name, peft_config, low_cpu_mem_usage=low_cpu_mem_usage)
 
     def load_adapter(
@@ -389,12 +390,16 @@ class NeuronPeftModel(PeftModel):
             peft_config.inference_mode = not is_trainable
             self.add_adapter(adapter_name, peft_config, low_cpu_mem_usage=low_cpu_mem_usage)
 
+
+        for name, parameter in self.base_model.named_parameters():
+            print(f"{name}: {parameter.size()}")
+
         adapters_weights = load_peft_weights(model_id, **hf_hub_download_kwargs)
 
         # ** Difference from original load_adapter **
         # We need to adapt the adapters_weights to the model.
         upstanding_sharded_params = {}
-        adapters_weights = adapt_state_dict(self, adapters_weights, upstanding_sharded_params, inplace=True)
+        adapters_weights = adapt_state_dict(self, adapters_weights, upstanding_sharded_params, inplace=True, adapter_name=adapter_name)
 
         # load the weights into the model
         ignore_mismatched_sizes = kwargs.get("ignore_mismatched_sizes", False)

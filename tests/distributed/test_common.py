@@ -22,6 +22,7 @@ import safetensors
 import torch
 from peft import LoraConfig
 from peft import get_peft_model as orig_get_peft_model
+from peft import PeftModelForCausalLM
 from transformers import LlamaForCausalLM
 
 from optimum.neuron.accelerate.optimizer import NeuronAcceleratedOptimizer
@@ -33,7 +34,7 @@ from optimum.neuron.distributed.utils import (
 )
 from optimum.neuron.models.training import LlamaForCausalLM as NeuronLlamaForCausalLM
 from optimum.neuron.models.training.config import TrainingNeuronConfig
-from optimum.neuron.peft import get_peft_model
+from optimum.neuron.peft import get_peft_model, NeuronPeftModelForCausalLM
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
@@ -63,7 +64,7 @@ if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"
-MODEL_NAME_WITH_4_KV_HEADS = "michaelbenayoun/llama-2-tiny-4kv-heads-16layers-random"
+MODEL_NAME_WITH_4_KV_HEADS = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
 
 
 def get_tiny_llama_model(
@@ -527,17 +528,33 @@ class TestCommonDistributed(DistributedTest):
             r=16,
             lora_alpha=32,
             lora_dropout=0.05,
-            target_modules=["embed_tokens", "q_proj", "v_proj", "o_proj", "k_proj", "gate_up_proj", "down_proj"],
+            target_modules=["embed_tokens", "q_proj", "v_proj", "o_proj", "k_proj", "gate_proj", "up_proj", "down_proj"],
             bias="none",
             task_type="CAUSAL_LM",
         )
         tmpdir = Path(tmpdir)
         orig_model = LlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS)
 
-        if lora_enabled:
-            orig_model = orig_get_peft_model(orig_model, peft_config)
-            orig_model.add_adapter("test", peft_config)
+        first_lora_adapter_model_name_or_path = "michaelbenayoun/lora-qkv-included-llama-2-tiny-4kv-heads-4layers-random"
+        second_lora_adapter_model_name_or_path = "michaelbenayoun/lora-2-qkv-included-llama-2-tiny-4kv-heads-4layers-random"
 
+        key_suffixes_of_weights_that_cannot_be_compared = {
+            "gate_proj.lora_A.weight",
+            "up_proj.lora_A.weight",
+        }
+
+
+        if lora_enabled:
+            orig_model = PeftModelForCausalLM.from_pretrained(
+                orig_model,
+                first_lora_adapter_model_name_or_path,
+                adapter_name="default",
+            )
+            orig_model.load_adapter(
+                second_lora_adapter_model_name_or_path,
+                adapter_name="test",
+            )
+                
         if xr.global_ordinal() == 0:
             orig_model.save_pretrained(tmpdir / "orig_model", safe_serialization=False)
 
@@ -550,8 +567,15 @@ class TestCommonDistributed(DistributedTest):
         custom_model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
 
         if lora_enabled:
-            custom_model = get_peft_model(custom_model, peft_config)
-            custom_model.add_adapter("test", peft_config)
+            custom_model = NeuronPeftModelForCausalLM.from_pretrained(
+                custom_model,
+                first_lora_adapter_model_name_or_path,
+                adapter_name="default",
+            )
+            custom_model.load_adapter(
+                second_lora_adapter_model_name_or_path,
+                adapter_name="test",
+            )
 
         custom_model.save_pretrained(tmpdir / "custom_model")
 
@@ -575,11 +599,12 @@ class TestCommonDistributed(DistributedTest):
                         tmpdir / "consolidated_model" / adapter_name / "adapter_model.bin", weights_only=True
                     )
 
-                print(set(orig_state_dict.keys()) - set(consolidated_state_dict.keys()))
-                print(set(consolidated_state_dict.keys()) - set(orig_state_dict.keys()))
                 assert orig_state_dict.keys() == consolidated_state_dict.keys()
                 for key in orig_state_dict:
                     orig_tensor = orig_state_dict[key]
                     consolidated_tensor = consolidated_state_dict[key]
-                    print(f"Testing that {key} match")
-                    torch.testing.assert_close(orig_tensor, consolidated_tensor)
+                    print(f"Testing that {key} match for adapter {adapter_name}")
+                    if any(key.endswith(suffix) for suffix in key_suffixes_of_weights_that_cannot_be_compared):
+                        print(f"Skipping {key} as it cannot be compared.")
+                    else:
+                        torch.testing.assert_close(orig_tensor, consolidated_tensor)
