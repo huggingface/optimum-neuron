@@ -188,24 +188,8 @@ def get_diffusion_models_for_export(
     library_name = "diffusers"
 
     # Text encoders
-    if DIFFUSION_MODEL_TEXT_ENCODER_NAME in models_for_export:
-        text_encoder = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME]
-        text_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
-            model=text_encoder,
-            exporter="neuron",
-            task="feature-extraction",
-            library_name=library_name,
-        )
-        text_encoder_neuron_config = text_encoder_config_constructor(
-            text_encoder.config,
-            task="feature-extraction",
-            dynamic_batch_size=dynamic_batch_size,
-            output_hidden_states=output_hidden_states,
-            input_shapes=text_encoder_input_shapes,
-        )
-        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (text_encoder, text_encoder_neuron_config)
-
     if DIFFUSION_MODEL_TEXT_ENCODER_2_NAME in models_for_export:
+        # We need to trace text encoder 2(TP) first to avoid neuron runtime error.
         text_encoder_2 = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME]
         text_encoder_config_constructor_2 = TasksManager.get_exporter_config_constructor(
             model=text_encoder_2,
@@ -233,6 +217,23 @@ def get_diffusion_models_for_export(
                 raise ValueError(
                     f"you need to precise `model_name_or_path` when the parallelism is on, but now it's {model_name_or_path}."
                 )
+    
+    if DIFFUSION_MODEL_TEXT_ENCODER_NAME in models_for_export:
+        text_encoder = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME]
+        text_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
+            model=text_encoder,
+            exporter="neuron",
+            task="feature-extraction",
+            library_name=library_name,
+        )
+        text_encoder_neuron_config = text_encoder_config_constructor(
+            text_encoder.config,
+            task="feature-extraction",
+            dynamic_batch_size=dynamic_batch_size,
+            output_hidden_states=output_hidden_states,
+            input_shapes=text_encoder_input_shapes,
+        )
+        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (text_encoder, text_encoder_neuron_config)
 
     # U-NET
     if DIFFUSION_MODEL_UNET_NAME in models_for_export:

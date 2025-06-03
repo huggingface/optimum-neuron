@@ -350,8 +350,10 @@ def export_models(
     failed_models = []
     total_compilation_time = 0
     compile_configs = {}
-    models_and_neuron_configs.pop("text_encoder")
-    models_and_neuron_configs.pop("text_encoder_2")
+    # models_and_neuron_configs.pop("text_encoder")
+    # models_and_neuron_configs.pop("text_encoder_2")
+    # models_and_neuron_configs.pop("transformer")
+    models_and_neuron_configs.pop("vae_encoder")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -572,9 +574,6 @@ def export_neuronx(
     )
 
     del model_or_path
-    del checked_model
-    del dummy_inputs
-
     return config.inputs, config.outputs
 
 
@@ -645,25 +644,10 @@ def trace_neuronx(
     inline_weights_to_neff: bool = True,
     compiler_workdir: Optional[Path] = None,
 ):
-    if tensor_parallel_size == 1:
-        # Case 1: Using `torch_neuronx.trace`
-        neuron_model = neuronx.trace(
-            model,
-            dummy_inputs,
-            compiler_args=compiler_args,
-            input_output_aliases=aliases,
-            inline_weights_to_neff=inline_weights_to_neff,
-            compiler_workdir=compiler_workdir,
-        )
-        if config.dynamic_batch_size is True:
-            neuron_model = neuronx.dynamic_batch(neuron_model)
-        # diffusers specific
-        improve_stable_diffusion_loading(config, neuron_model)
-        torch.jit.save(neuron_model, output)
-    else:
+    if tensor_parallel_size > 1:
         # Tensor Parallelism
         if isinstance(model, BaseModelInstance):
-            # Case 2: Using `neuronx_distributed.trace.model_builder`
+            # Case 1: Using `neuronx_distributed.trace.model_builder`
             model_builder = ModelBuilder(
                 router=None,
                 debug=False,
@@ -681,7 +665,7 @@ def trace_neuronx(
             neuron_model = model_builder.trace(initialize_model_weights=True)
             neuron_model.nxd_model.initialize_with_saved_weights(start_rank_tensor=torch.tensor([0]))
         else:
-            # Case 3: Using `neuronx_distributed.trace.parallel_model_trace`
+            # Case 2: Using `neuronx_distributed.trace.parallel_model_trace`
             neuron_model = neuronx_distributed.trace.parallel_model_trace(
                 model,
                 dummy_inputs,
@@ -690,9 +674,26 @@ def trace_neuronx(
                 compiler_workdir=compiler_workdir,
                 tp_degree=tensor_parallel_size,
             )
-            neuronx_distributed.trace.parallel_model_save(neuron_model, output)
-
+            neuronx_distributed.trace.parallel_model_save(neuron_model, output)  
+    else:
+        # Case 3: Using `torch_neuronx.trace`
+        neuron_model = neuronx.trace(
+            model,
+            dummy_inputs,
+            compiler_args=compiler_args,
+            input_output_aliases=aliases,
+            inline_weights_to_neff=inline_weights_to_neff,
+            compiler_workdir=compiler_workdir,
+        )
+        if config.dynamic_batch_size is True:
+            neuron_model = neuronx.dynamic_batch(neuron_model)
+        # diffusers specific
+        improve_stable_diffusion_loading(config, neuron_model)
+        torch.jit.save(neuron_model, output)
+    
+    del model
     del neuron_model
+    del dummy_inputs
 
 
 def add_stable_diffusion_compiler_args(config, compiler_args):

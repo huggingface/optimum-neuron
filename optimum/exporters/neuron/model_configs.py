@@ -1003,12 +1003,12 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
     def patch_model_and_prepare_aliases(
         self,
         model: "VaeDecoder",
-        dummy_inputs: Dict[str, torch.Tensor],
+        input_names: List[str] = None,
         **kwargs,
     ):
         return super().patch_model_and_prepare_aliases(
-            model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True
-        ), {}
+            model=model, input_names=input_names, forward_with_tuple=True
+        )
 
 
 class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
@@ -1041,7 +1041,7 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
     def is_encoder_decoder(self) -> bool:
         return True
 
-    def patch_model_and_prepare_aliases(self, model_or_path, device="xla", **input_shapes):
+    def patch_model_and_prepare_aliases(self, model_or_path, device="cpu", **input_shapes):
         batch_size = input_shapes.pop("batch_size", None)
         sequence_length = input_shapes.pop("sequence_length", None)
         if self.tensor_parallel_size > 1:
