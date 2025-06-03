@@ -375,9 +375,10 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
             at_least_one_linear_in_target_modules = any(name in target_modules for name in self.linear_names)
             all_linears_in_target_modules = all(name in target_modules for name in self.linear_names)
             if at_least_one_linear_in_target_modules and not all_linears_in_target_modules:
+                missing_modules = [name for name in self.linear_names if name not in target_modules]
                 raise ValueError(
                     "If you use FusedLinearsSpec, either all linear layers must be in the target modules of the PEFT "
-                    "config or none at all."
+                    f"config or none at all. The following linear layers are missing: {', '.join(missing_modules)}."
                 )
             if all_linears_in_target_modules:
                 for name in self.linear_names:
@@ -844,9 +845,11 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
             at_least_one_linear_in_target_modules = any(name in target_modules for name in linear_names)
             all_linears_in_target_modules = all(name in target_modules for name in linear_names)
             if at_least_one_linear_in_target_modules and not all_linears_in_target_modules:
+                missing_modules = [name for name in linear_names if name not in target_modules]
                 raise ValueError(
                     "If you use GQAQKVColumnParallelLinearSpec, either all linear layers must be in the target modules "
-                    "of the PEFT config or none at all."
+                    "of the PEFT config or none at all. The following linear layers are missing: "
+                    f"{', '.join(missing_modules)}."
                 )
             if all_linears_in_target_modules:
                 for name in linear_names:
