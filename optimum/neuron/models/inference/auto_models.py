@@ -30,7 +30,7 @@ from .nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
 from .nxd.mixtral.modeling_mixtral import MixtralNxDModelForCausalLM
 
 
-prioritize_nxd_backend = os.environ.get("OPTIMUM_NEURON_PRIORITIZE_NXD_BACKEND", "0") == "1"
+prioritize_hlo_backend = os.environ.get("OPTIMUM_NEURON_PRIORITIZE_HLO_BACKEND", "0") == "1"
 
 
 def register_neuron_model_for_inference(model_type: str, task: str):
@@ -49,21 +49,21 @@ class GraniteModelForCausalLM(GraniteHloModelForCausalLM):
     pass
 
 
-if prioritize_nxd_backend:
+if prioritize_hlo_backend:
 
     @register_neuron_model_for_inference("llama", "text-generation")
-    class LLamaModelForCausalLM(LlamaNxDModelForCausalLM):
+    class LLamaModelForCausalLM(LlamaHloModelForCausalLM):
         """
-        Llama model with NxD backend for inference on AWS Neuron.
+        Llama model with HLO backend for inference on AWS Neuron.
         """
 
         pass
 else:
 
     @register_neuron_model_for_inference("llama", "text-generation")
-    class LLamaModelForCausalLM(LlamaHloModelForCausalLM):
+    class LLamaModelForCausalLM(LlamaNxDModelForCausalLM):
         """
-        Llama model with HLO backend for inference on AWS Neuron.
+        Llama model with NxD backend for inference on AWS Neuron.
         """
 
         pass
