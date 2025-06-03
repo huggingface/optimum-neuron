@@ -67,8 +67,8 @@ def cache_repos():
 def export_decoder_model(model_id):
     batch_size = 2
     sequence_length = 512
-    num_cores = 1
-    auto_cast_type = "fp32"
+    num_cores = 2
+    auto_cast_type = "bf16"
     return NeuronModelForCausalLM.from_pretrained(
         model_id,
         export=True,
