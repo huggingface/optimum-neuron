@@ -6,14 +6,14 @@ RUN apt-get update && apt-get install -y wget gnupg2 \
     && wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | apt-key add - \
     && apt-get update
 
-RUN apt-get install aws-neuronx-dkms=2.* -y
+RUN apt-get install aws-neuronx-dkms=2.20.28.0 -y
 
 # Upgrade neuron runtime
-RUN apt-get install aws-neuronx-collectives=2.* -y
-RUN apt-get install aws-neuronx-runtime-lib=2.* -y
+RUN apt-get install aws-neuronx-collectives=2.24.59.0 -y
+RUN apt-get install aws-neuronx-runtime-lib=2.24.53.0 -y
 
 # Install Neuron Tools
-RUN apt-get install aws-neuronx-tools=2.* -y
+RUN apt-get install aws-neuronx-tools=2.22.61.0 -y
 
 # Set pip repository pointing to the Neuron repository
 RUN python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
@@ -23,8 +23,8 @@ RUN python -m pip install wget
 RUN python -m pip install awscli
 
 # Update Neuron Compiler and Framework
-RUN python -m pip install --upgrade neuronx-cc==2.* torch-neuronx==2.5.1 torchvision
-RUN python -m pip install --upgrade neuronx-distributed
+RUN python -m pip install --upgrade neuronx-cc==2.17.194.0 torch-neuronx==2.5.1 torchvision
+RUN python -m pip install --upgrade neuronx-distributed==0.11.0
 
 
 RUN mkdir workspace
