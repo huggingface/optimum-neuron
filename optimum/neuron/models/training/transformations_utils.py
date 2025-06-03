@@ -1092,7 +1092,11 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                 )
                 weights_v = [fused_qkv_local_weights[tp_rank][slice_v].contiguous() for tp_rank in range(self.tp_size)]
 
-                qkv_partition_dim = parameters_metadata[fuse_qkv_weight_name]["partition_dim"]
+                # TODO: fix once it is fixed in neuronx_distributed
+                # We should to as follows:
+                # qkv_partition_dim = parameters_metadata[fuse_qkv_weight_name]["partition_dim"]
+                # But it seems not tensor model attributes are set to `weight_qkv`.
+                qkv_partition_dim = 0  # Since it is a ColumnParallelLinear, the partition dim is always 0.
                 keys_to_remove += [f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_qkv"]
             else:
                 query_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_q"

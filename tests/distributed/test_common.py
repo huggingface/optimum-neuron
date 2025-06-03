@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Dict
 import pytest
 import safetensors
 import torch
-from peft import LoraConfig, PeftModelForCausalLM
+from peft import PeftModelForCausalLM
 from transformers import LlamaForCausalLM
 
 from optimum.neuron.accelerate.optimizer import NeuronAcceleratedOptimizer
@@ -503,47 +503,78 @@ class TestCommonDistributed(DistributedTest):
                 torch.testing.assert_close(orig_tensor, consolidated_tensor)
 
     @pytest.mark.parametrize(
-        "world_size,tp_size,pp_size,kv_size_multiplier,lora_enabled,fuse_qkv",
+        "world_size,tp_size,pp_size,kv_size_multiplier,fuse_qkv",
         [
-            [8, 2, 1, None, False, False],
-            [8, 2, 1, None, True, False],
-            [8, 8, 1, None, False, False],
-            [8, 8, 1, 4, False, False],
-            [8, 8, 1, 4, False, True],
-            [8, 8, 1, 4, True, False],
-            [8, 8, 1, 4, True, True],
+            [8, 2, 1, None, False],
+            [8, 8, 1, None, False],
+            [8, 8, 1, 4, False],
+            [8, 8, 1, 4, True],
         ],
         ids=[
             "dp=4,tp=2,pp=1",
-            "dp=4,tp=2,pp=1,lora",
             "dp=1,tp=8,pp=1,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
             "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
             "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear,fuse_qkv",
-            "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear,lora",
-            "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear,lora,fuse_qkv",
         ],
     )
     def test_consolidate_custom_model_parallel_checkpoints(
-        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, lora_enabled, fuse_qkv, use_xser
+        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, fuse_qkv, use_xser
     ):
-        # We create a LoraConfig but only use it if `lora_enabled=True`.
-        peft_config = LoraConfig(
-            r=16,
-            lora_alpha=32,
-            lora_dropout=0.05,
-            target_modules=[
-                "embed_tokens",
-                "q_proj",
-                "v_proj",
-                "o_proj",
-                "k_proj",
-                "gate_proj",
-                "up_proj",
-                "down_proj",
-            ],
-            bias="none",
-            task_type="CAUSAL_LM",
+        tmpdir = Path(tmpdir)
+        orig_model = LlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS)
+
+        if xr.global_ordinal() == 0:
+            orig_model.save_pretrained(tmpdir / "orig_model", safe_serialization=False)
+
+        trn_config = TrainingNeuronConfig(
+            tensor_parallel_size=tp_size,
+            pipeline_parallel_size=pp_size,
+            use_xser=use_xser,
+            async_save=False,
+            fuse_qkv=fuse_qkv,
         )
+        custom_model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
+
+        custom_model.save_pretrained(tmpdir / "custom_model")
+
+        xm.rendezvous("Saving done.")
+
+        if xr.global_ordinal() == 0:
+            consolidate_model_parallel_checkpoints_to_unified_checkpoint(
+                tmpdir / "custom_model",
+                tmpdir / "consolidated_model",
+                save_format="pytorch",
+            )
+            orig_state_dict = torch.load(tmpdir / "orig_model" / "pytorch_model.bin", weights_only=True)
+            consolidated_state_dict = torch.load(
+                tmpdir / "consolidated_model" / "pytorch_model.bin", weights_only=True
+            )
+
+            assert orig_state_dict.keys() == consolidated_state_dict.keys(), (
+                "Keys of the original state dict and consolidated state dict do not match."
+            )
+            for key in orig_state_dict:
+                orig_tensor = orig_state_dict[key]
+                consolidated_tensor = consolidated_state_dict[key]
+                print(f"Testing that {key} match")
+                torch.testing.assert_close(orig_tensor, consolidated_tensor)
+
+    @pytest.mark.parametrize(
+        "world_size,tp_size,pp_size,kv_size_multiplier,fuse_qkv",
+        [
+            [8, 2, 1, None, False],
+            [8, 8, 1, 4, False],
+            [8, 8, 1, 4, True],
+        ],
+        ids=[
+            "dp=4,tp=2,pp=1",
+            "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
+            "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear,fuse_qkv",
+        ],
+    )
+    def test_consolidate_custom_lora_model_parallel_checkpoints(
+        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, fuse_qkv, use_xser
+    ):
         tmpdir = Path(tmpdir)
         orig_model = LlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS)
 
@@ -562,21 +593,25 @@ class TestCommonDistributed(DistributedTest):
         key_suffixes_of_weights_to_average = {
             "gate_proj.lora_A.weight": ["gate_proj.lora_A.weight", "up_proj.lora_A.weight"],
             "up_proj.lora_A.weight": ["gate_proj.lora_A.weight", "up_proj.lora_A.weight"],
-            "q_proj.lora_A.weight": ["q_proj.lora_A.weight", "k_proj.lora_A.weight", "v_proj.lora_A.weight"],
-            "k_proj.lora_A.weight": ["q_proj.lora_A.weight", "k_proj.lora_A.weight", "v_proj.lora_A.weight"],
-            "v_proj.lora_A.weight": ["q_proj.lora_A.weight", "k_proj.lora_A.weight", "v_proj.lora_A.weight"],
         }
+        if fuse_qkv:
+            key_suffixes_of_weights_to_average.update(
+                {
+                    "q_proj.lora_A.weight": ["q_proj.lora_A.weight", "k_proj.lora_A.weight", "v_proj.lora_A.weight"],
+                    "k_proj.lora_A.weight": ["q_proj.lora_A.weight", "k_proj.lora_A.weight", "v_proj.lora_A.weight"],
+                    "v_proj.lora_A.weight": ["q_proj.lora_A.weight", "k_proj.lora_A.weight", "v_proj.lora_A.weight"],
+                }
+            )
 
-        if lora_enabled:
-            orig_model = PeftModelForCausalLM.from_pretrained(
-                orig_model,
-                first_lora_adapter_model_name_or_path,
-                adapter_name="default",
-            )
-            orig_model.load_adapter(
-                second_lora_adapter_model_name_or_path,
-                adapter_name="test",
-            )
+        orig_model = PeftModelForCausalLM.from_pretrained(
+            orig_model,
+            first_lora_adapter_model_name_or_path,
+            adapter_name="default",
+        )
+        orig_model.load_adapter(
+            second_lora_adapter_model_name_or_path,
+            adapter_name="test",
+        )
 
         if xr.global_ordinal() == 0:
             orig_model.save_pretrained(tmpdir / "orig_model", safe_serialization=False)
@@ -590,16 +625,15 @@ class TestCommonDistributed(DistributedTest):
         )
         custom_model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
 
-        if lora_enabled:
-            custom_model = NeuronPeftModelForCausalLM.from_pretrained(
-                custom_model,
-                first_lora_adapter_model_name_or_path,
-                adapter_name="default",
-            )
-            custom_model.load_adapter(
-                second_lora_adapter_model_name_or_path,
-                adapter_name="test",
-            )
+        custom_model = NeuronPeftModelForCausalLM.from_pretrained(
+            custom_model,
+            first_lora_adapter_model_name_or_path,
+            adapter_name="default",
+        )
+        custom_model.load_adapter(
+            second_lora_adapter_model_name_or_path,
+            adapter_name="test",
+        )
 
         custom_model.save_pretrained(tmpdir / "custom_model")
 
