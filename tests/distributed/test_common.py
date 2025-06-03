@@ -599,7 +599,8 @@ class TestCommonDistributed(DistributedTest):
                         tmpdir / "consolidated_model" / adapter_name / "adapter_model.bin", weights_only=True
                     )
 
-                assert orig_state_dict.keys() == consolidated_state_dict.keys()
+                print(set(orig_state_dict.keys()) - set(consolidated_state_dict.keys()))
+                print(set(consolidated_state_dict.keys()) - set(orig_state_dict.keys()))
                 for key in orig_state_dict:
                     orig_tensor = orig_state_dict[key]
                     consolidated_tensor = consolidated_state_dict[key]

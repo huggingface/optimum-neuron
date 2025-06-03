@@ -18,7 +18,7 @@ import json
 import os
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Union
+from typing import Any, Callable, Dict, List, Literal, Union, Optional
 
 import torch
 from huggingface_hub import split_torch_state_dict_into_shards
@@ -210,6 +210,7 @@ def consolidate_tensor_parallel_checkpoints(
     sharded_checkpoints: List[Path],
     load_function: Callable[[Union[str, Path]], Dict[str, Any]],
     metadata: Dict[str, Any],
+    adapter_name: Optional[str] = None,
 ) -> Dict[str, "torch.Tensor"]:
     from ..models.training import ModelWeightTransformationSpecs, to_original_weights
 
@@ -238,13 +239,13 @@ def consolidate_tensor_parallel_checkpoints(
     parameter_names = state_dicts[0].keys()
     sharded_state_dicts = {name: [state_dict[name] for state_dict in state_dicts] for name in parameter_names}
 
-    consolidated_state_dict = to_original_weights(transformations_specs, sharded_state_dicts, parameters_metadata)
+    consolidated_state_dict = to_original_weights(transformations_specs, sharded_state_dicts, parameters_metadata, adapter_name=adapter_name)
 
     return consolidated_state_dict
 
 
 @requires_neuronx_distributed
-def consolidate_model_parallel_checkpoints(checkpoint_dir: Path) -> Dict[str, "torch.Tensor"]:
+def consolidate_model_parallel_checkpoints(checkpoint_dir: Path, adapter_name: Optional[str] = None) -> Dict[str, "torch.Tensor"]:
     model_checkpoint_dir = checkpoint_dir / "model"
 
     # Case 1: the checkpoint was saved with xser.
@@ -288,7 +289,7 @@ def consolidate_model_parallel_checkpoints(checkpoint_dir: Path) -> Dict[str, "t
             )
         else:
             consolidated_for_pp_rank = consolidate_tensor_parallel_checkpoints(
-                checkpoint_group_for_pp_rank, load_function, metadatas[pp_rank]
+                checkpoint_group_for_pp_rank, load_function, metadatas[pp_rank], adapter_name=adapter_name,
             )
         consolidated_state_dict.update(**consolidated_for_pp_rank)
 
@@ -332,18 +333,22 @@ def consolidate_model_parallel_checkpoints_to_unified_checkpoint(
         parent_dir = checkpoint_dir.parent
         current_output_dir = output_dir
         is_adapter_model = parent_dir.name.startswith("adapter_")
+        adapter_name = None
         if is_adapter_model:
             safe_weights_name = PEFT_SAFETENSORS_WEIGHTS_NAME
             weights_name = PEFT_WEIGHTS_NAME
             if parent_dir.name != f"adapter_default":
-                current_output_dir = output_dir / parent_dir.name.split("_", maxsplit=1)[-1]
+                adapter_name = parent_dir.name.split("_", maxsplit=1)[-1]
+                current_output_dir = output_dir / adapter_name
+            else:
+                adapter_name = "default"
         else:
             safe_weights_name = SAFE_WEIGHTS_NAME
             weights_name = WEIGHTS_NAME
 
         current_output_dir.mkdir(parents=True, exist_ok=True)
 
-        state_dict = consolidate_model_parallel_checkpoints(checkpoint_dir)
+        state_dict = consolidate_model_parallel_checkpoints(checkpoint_dir, adapter_name=adapter_name)
         state_dict_split = split_torch_state_dict_into_shards(
             state_dict, filename_pattern=safe_weights_name if save_format == "safetensors" else weights_name
         )

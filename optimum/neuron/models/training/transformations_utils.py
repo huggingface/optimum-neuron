@@ -1366,14 +1366,10 @@ def remove_adapter_name(name: str) -> str:
 def is_base_layer(name: str) -> bool:
     return "base_layer" in name
 
-def get_adapter_name_in_state_dict(state_dict: Dict[str, torch.Tensor]) -> Optional[str]:
-    """
-    Returns the adapter name if it exists in the state dict, otherwise returns None.
-    """
-    for key in state_dict.keys():
-        match = re.match(LORA_PATTERN, key)
-        if match:
-            return match.group("adapter_name")
+def get_adapter_name_in_state_dict(parameter_fully_qualified_name: str) -> Optional[str]:
+    match = re.match(LORA_PATTERN, parameter_fully_qualified_name)
+    if match:
+        return match.group("adapter_name")
     return None
 
 def adapt_state_dict(
@@ -1450,6 +1446,7 @@ def to_original_weights(
     transformations_specs: list[ModelWeightTransformationSpecs],
     sharded_state_dicts: Dict[str, list[torch.Tensor]],
     parameters_metadata: Dict[str, Dict[str, Any]],
+    **peft_kwargs: Any,
 ) -> Dict[str, torch.Tensor]:
     """
     Consolidates the sharded state dicts produced by saving the custom model into a single state dict that matches the
@@ -1457,6 +1454,13 @@ def to_original_weights(
     """
     consolidated_state_dict = {}
     parameters_to_remove = set()
+
+    adapter_name = peft_kwargs.pop("adapter_name", None)
+    if adapter_name is not None:
+        def should_keep_parameter(name: str) -> bool:
+            return is_base_layer(name) or get_adapter_name_in_state_dict(name) == adapter_name
+        parameters_metadata = {name: metadata for name, metadata in parameters_metadata.items() if should_keep_parameter(name)}
+
     for specs in transformations_specs:
         original_weights, keys_to_remove = specs.to_original_weights(sharded_state_dicts, parameters_metadata)
         consolidated_state_dict.update(original_weights)
