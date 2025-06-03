@@ -217,17 +217,11 @@ def test_overfit_causal_lm(
     ],
 )
 def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir):
-    # In this case, we will use GQAGQAColumnParallelLinear so we need to use the target modules that are compatible
-    # with it.
-    if tp_size > 8:
-        target_modules = ["embed_tokens", "qkv_proj", "o_proj", "gate_up_proj", "down_proj"]
-    else:
-        target_modules = ["embed_tokens", "q_proj", "v_proj", "o_proj", "k_proj", "gate_up_proj", "down_proj"]
     peft_config = LoraConfig(
         r=16,
         lora_alpha=32,
         lora_dropout=0.05,
-        target_modules=target_modules,
+        target_modules=["embed_tokens", "q_proj", "v_proj", "o_proj", "k_proj", "gate_proj", "up_proj", "down_proj"],
         bias="none",
         task_type="CAUSAL_LM",
     )
