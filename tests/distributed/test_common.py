@@ -49,6 +49,7 @@ if is_torch_xla_available():
     import torch_xla.runtime as xr
 
 if is_neuronx_distributed_available():
+    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_data_parallel_rank,
         get_pipeline_model_parallel_rank,
@@ -585,24 +586,7 @@ class TestCommonDistributed(DistributedTest):
             "michaelbenayoun/lora-2-qkv-included-llama-2-tiny-4kv-heads-4layers-random"
         )
 
-        # Some weights need to be averaged before comparing them.
-        # For now it is only the case for the LoRA A weights when there is linear fusion involved.
-        # We specify this in a dictionary where:
-        #  - the key is the suffix of the weight that we want to average
-        # - the value is a list of suffixes that we want to average with the key suffix.
-        key_suffixes_of_weights_to_average = {
-            "gate_proj.lora_A.weight": ["gate_proj.lora_A.weight", "up_proj.lora_A.weight"],
-            "up_proj.lora_A.weight": ["gate_proj.lora_A.weight", "up_proj.lora_A.weight"],
-        }
-        if fuse_qkv:
-            key_suffixes_of_weights_to_average.update(
-                {
-                    "q_proj.lora_A.weight": ["q_proj.lora_A.weight", "k_proj.lora_A.weight", "v_proj.lora_A.weight"],
-                    "k_proj.lora_A.weight": ["q_proj.lora_A.weight", "k_proj.lora_A.weight", "v_proj.lora_A.weight"],
-                    "v_proj.lora_A.weight": ["q_proj.lora_A.weight", "k_proj.lora_A.weight", "v_proj.lora_A.weight"],
-                }
-            )
-
+        # Loading the LoRA adapters into the original model.
         orig_model = PeftModelForCausalLM.from_pretrained(
             orig_model,
             first_lora_adapter_model_name_or_path,
@@ -625,6 +609,7 @@ class TestCommonDistributed(DistributedTest):
         )
         custom_model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
 
+        # Loading the LoRA adapters into the custom model.
         custom_model = NeuronPeftModelForCausalLM.from_pretrained(
             custom_model,
             first_lora_adapter_model_name_or_path,
@@ -635,8 +620,29 @@ class TestCommonDistributed(DistributedTest):
             adapter_name="test",
         )
 
-        custom_model.save_pretrained(tmpdir / "custom_model")
+        has_gqa_qkv_column_parallel_linear = any(
+            isinstance(m, GQAQKVColumnParallelLinear) for m in custom_model.modules()
+        )
 
+        # Some weights need to be averaged before comparing them.
+        # For now it is only the case for the LoRA A weights when there is linear fusion involved.
+        # We specify this in a dictionary where:
+        #  - the key is the suffix of the weight that we want to average
+        # - the value is a list of suffixes that we want to average with the key suffix.
+        key_suffixes_of_weights_to_average = {
+            "gate_proj.lora_A.weight": ["gate_proj.lora_A.weight", "up_proj.lora_A.weight"],
+            "up_proj.lora_A.weight": ["gate_proj.lora_A.weight", "up_proj.lora_A.weight"],
+        }
+        if has_gqa_qkv_column_parallel_linear:
+            key_suffixes_of_weights_to_average.update(
+                {
+                    "q_proj.lora_A.weight": ["q_proj.lora_A.weight", "k_proj.lora_A.weight", "v_proj.lora_A.weight"],
+                    "k_proj.lora_A.weight": ["q_proj.lora_A.weight", "k_proj.lora_A.weight", "v_proj.lora_A.weight"],
+                    "v_proj.lora_A.weight": ["q_proj.lora_A.weight", "k_proj.lora_A.weight", "v_proj.lora_A.weight"],
+                }
+            )
+
+        custom_model.save_pretrained(tmpdir / "custom_model")
         xm.rendezvous("Saving done.")
 
         if xr.global_ordinal() == 0:
