@@ -201,7 +201,6 @@ class ModelWeightTransformationSpec:
     ) -> tuple[Dict[str, torch.Tensor], list[str]]:
         pass
 
-    @abstractmethod
     def to_original_weights(
         self,
         module_fully_qualified_name: str,
