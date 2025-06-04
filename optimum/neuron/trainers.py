@@ -111,11 +111,11 @@ from .utils.peft_utils import get_peft_model as old_get_peft_model
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils.training_utils import (
     get_model_param_count,
+    is_custom_modeling_model,
     is_main_worker_for_metrics,
     is_main_worker_for_metrics_method,
     patch_generation_mixin_to_neuron_generation_mixin,
     skip_first_batches,
-    is_custom_modeling_model,
 )
 from .utils.trl_utils import NeuronSFTConfig
 

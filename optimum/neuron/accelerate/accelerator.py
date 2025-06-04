@@ -49,10 +49,10 @@ from ..utils import (
 )
 from ..utils.import_utils import is_peft_available
 from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
-from ..utils.training_utils import is_custom_modeling_model
 from ..utils.model_utils import get_tied_parameters_dict, tie_parameters
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from ..utils.torch_xla_and_neuronx_initialization import check_neuron_cc_flags_for_model
+from ..utils.training_utils import is_custom_modeling_model
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState

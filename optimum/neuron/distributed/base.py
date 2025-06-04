@@ -30,7 +30,6 @@ from transformers import PreTrainedModel
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.misc import is_main_worker, is_precompilation
-from ..utils.training_utils import is_custom_modeling_model
 from ..utils.model_utils import (
     get_parent_module_and_param_name_from_fully_qualified_name,
     get_tied_parameters_dict,
@@ -38,6 +37,7 @@ from ..utils.model_utils import (
 from ..utils.patching import Patcher
 from ..utils.peft_utils import NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
+from ..utils.training_utils import is_custom_modeling_model
 from .parallel_layers import (
     IOSequenceParallelizer,
     LayerNormSequenceParallelizer,

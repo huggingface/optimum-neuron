@@ -640,5 +640,3 @@ def map_torch_dtype(dtype: Union[str, torch.dtype]):
         dtype = dtype_mapping.get(dtype)
 
     return dtype
-
-
