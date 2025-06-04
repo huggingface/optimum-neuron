@@ -16,7 +16,6 @@
 
 import copy
 import os
-from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -188,8 +187,24 @@ def get_diffusion_models_for_export(
     library_name = "diffusers"
 
     # Text encoders
+    if DIFFUSION_MODEL_TEXT_ENCODER_NAME in models_for_export:
+        text_encoder = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME]
+        text_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
+            model=text_encoder,
+            exporter="neuron",
+            task="feature-extraction",
+            library_name=library_name,
+        )
+        text_encoder_neuron_config = text_encoder_config_constructor(
+            text_encoder.config,
+            task="feature-extraction",
+            dynamic_batch_size=dynamic_batch_size,
+            output_hidden_states=output_hidden_states,
+            input_shapes=text_encoder_input_shapes,
+        )
+        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (text_encoder, text_encoder_neuron_config)
+    
     if DIFFUSION_MODEL_TEXT_ENCODER_2_NAME in models_for_export:
-        # We need to trace text encoder 2(TP) first to avoid neuron runtime error.
         text_encoder_2 = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME]
         text_encoder_config_constructor_2 = TasksManager.get_exporter_config_constructor(
             model=text_encoder_2,
@@ -217,23 +232,6 @@ def get_diffusion_models_for_export(
                 raise ValueError(
                     f"you need to precise `model_name_or_path` when the parallelism is on, but now it's {model_name_or_path}."
                 )
-    
-    if DIFFUSION_MODEL_TEXT_ENCODER_NAME in models_for_export:
-        text_encoder = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME]
-        text_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
-            model=text_encoder,
-            exporter="neuron",
-            task="feature-extraction",
-            library_name=library_name,
-        )
-        text_encoder_neuron_config = text_encoder_config_constructor(
-            text_encoder.config,
-            task="feature-extraction",
-            dynamic_batch_size=dynamic_batch_size,
-            output_hidden_states=output_hidden_states,
-            input_shapes=text_encoder_input_shapes,
-        )
-        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (text_encoder, text_encoder_neuron_config)
 
     # U-NET
     if DIFFUSION_MODEL_UNET_NAME in models_for_export:
@@ -429,7 +427,7 @@ def get_submodels_for_export_diffusion(
     # Lora
     pipeline = _load_lora_weights_to_pipeline(pipeline=pipeline, lora_args=lora_args)
 
-    models_for_export = []
+    models_for_export = {}
 
     # Text encoders
     text_encoder = getattr(pipeline, "text_encoder", None)
@@ -437,7 +435,7 @@ def get_submodels_for_export_diffusion(
         if is_stable_diffusion_xl or output_hidden_states:
             pipeline.text_encoder.config.output_hidden_states = True
         text_encoder.config.export_model_type = _get_diffusers_submodel_type(text_encoder)
-        models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_NAME, copy.deepcopy(text_encoder)))
+        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = text_encoder
 
     text_encoder_2 = getattr(pipeline, "text_encoder_2", None)
     if text_encoder_2 is not None:
@@ -445,7 +443,7 @@ def get_submodels_for_export_diffusion(
             text_encoder_2.config.output_hidden_states = True
             text_encoder_2.text_model.config.output_hidden_states = True
         text_encoder_2.config.export_model_type = _get_diffusers_submodel_type(text_encoder_2)
-        models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, copy.deepcopy(text_encoder_2)))
+        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = text_encoder_2
         projection_dim = getattr(pipeline.text_encoder_2.config, "projection_dim", None)
     else:
         projection_dim = getattr(pipeline.text_encoder.config, "projection_dim", None)
@@ -473,7 +471,7 @@ def get_submodels_for_export_diffusion(
                 " set the environment variable with `export NEURON_FUSE_SOFTMAX=1` and recompile the unet model."
             )
         unet.config.export_model_type = _get_diffusers_submodel_type(unet)
-        models_for_export.append((DIFFUSION_MODEL_UNET_NAME, copy.deepcopy(unet)))
+        models_for_export[DIFFUSION_MODEL_UNET_NAME] = unet
 
     # Diffusion transformer
     transformer = getattr(pipeline, "transformer", None)
@@ -496,7 +494,7 @@ def get_submodels_for_export_diffusion(
 
             torch.nn.functional.scaled_dot_product_attention = attention_wrapper
         transformer.config.export_model_type = _get_diffusers_submodel_type(transformer)
-        models_for_export.append((DIFFUSION_MODEL_TRANSFORMER_NAME, copy.deepcopy(transformer)))
+        models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = transformer
 
     if pipeline.vae.config.get("force_upcast", None) is True:
         pipeline.vae.to(dtype=torch.float32)
@@ -504,7 +502,7 @@ def get_submodels_for_export_diffusion(
     # VAE Encoder
     vae_encoder = copy.deepcopy(pipeline.vae)
     vae_encoder.forward = lambda sample: {"latent_parameters": vae_encoder.encode(x=sample)["latent_dist"].parameters}
-    models_for_export.append((DIFFUSION_MODEL_VAE_ENCODER_NAME, vae_encoder))
+    models_for_export[DIFFUSION_MODEL_VAE_ENCODER_NAME] = vae_encoder
 
     # VAE Decoder
     vae_decoder = copy.deepcopy(pipeline.vae)
@@ -512,7 +510,7 @@ def get_submodels_for_export_diffusion(
     vae_decoder.forward = lambda latent_sample: vae_decoder.decode(z=latent_sample)
     if vae_decoder.dtype is torch.float32 and unet_or_transformer.dtype is not torch.float32:
         vae_decoder = f32Wrapper(vae_decoder)
-    models_for_export.append((DIFFUSION_MODEL_VAE_DECODER_NAME, vae_decoder))
+    models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME] = vae_decoder
 
     # ControlNets
     controlnets = load_controlnets(controlnet_ids)
@@ -521,14 +519,14 @@ def get_submodels_for_export_diffusion(
             controlnet.config.text_encoder_projection_dim = pipeline.unet.config.text_encoder_projection_dim
             controlnet.config.requires_aesthetics_score = pipeline.unet.config.requires_aesthetics_score
             controlnet.config.time_cond_proj_dim = pipeline.unet.config.time_cond_proj_dim
-            models_for_export.append((DIFFUSION_MODEL_CONTROLNET_NAME + "_" + str(idx), controlnet))
+            models_for_export[DIFFUSION_MODEL_CONTROLNET_NAME + "_" + str(idx)] = controlnet
 
     # Image Encoder
     image_encoder = getattr(pipeline, "image_encoder", None)
     if image_encoder is not None:
-        models_for_export.append(("image_encoder", copy.deepcopy(image_encoder)))
+        models_for_export["image_encoder"] = image_encoder
 
-    return OrderedDict(models_for_export)
+    return models_for_export
 
 
 def check_mandatory_input_shapes(neuron_config_constructor, task, input_shapes):
