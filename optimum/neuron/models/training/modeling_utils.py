@@ -751,8 +751,8 @@ class NeuronModelMixin:
         subfolder = kwargs.pop("subfolder", "")
         commit_hash = kwargs.pop("_commit_hash", None)
         variant = kwargs.pop("variant", None)
-        adapter_kwargs = kwargs.pop("adapter_kwargs", {})
-        adapter_name = kwargs.pop("adapter_name", "default")
+        adapter_kwargs = kwargs.pop("adapter_kwargs", None)
+        adapter_name = kwargs.pop("adapter_name", None)
         use_flash_attention_2 = kwargs.pop("use_flash_attention_2", False)
         kwargs.pop("generation_config", None)
         gguf_file = kwargs.pop("gguf_file", None)
@@ -784,6 +784,12 @@ class NeuronModelMixin:
         if gguf_file is not None:
             raise NotSupportedError("GGUF files are not supported in optimum-neuron.")
 
+        if adapter_name is not None or adapter_kwargs is not None:
+            raise NotSupportedError(
+                "Loading adapters directly from {cls.__name__}.from_pretrained is not supported. "
+                "Please use the NeuronPeftModelForXXX classes to load adapters."
+            )
+
         # ** Difference from original from_pretrained **
         # Here we ignore the `tp_plan` argument and handle tensor parallelism ourselves.
         tp_plan = kwargs.pop("tp_plan", None)
@@ -801,9 +807,6 @@ class NeuronModelMixin:
                     "`token` and `use_auth_token` are both specified. Please set only the argument `token`."
                 )
             token = use_auth_token
-
-        if token is not None and adapter_kwargs is not None and "token" not in adapter_kwargs:
-            adapter_kwargs["token"] = token
 
         if use_safetensors is None and not is_safetensors_available():
             use_safetensors = False
@@ -836,6 +839,8 @@ class NeuronModelMixin:
                 commit_hash = getattr(config, "_commit_hash", None)
 
         if is_peft_available():
+            # We do not support loading adapters directly from the `from_pretrained` method.
+            # We check if the provided model name or path is an adapter, and fail if needed.
             _adapter_model_path = adapter_kwargs.pop("_adapter_model_path", None)
 
             if _adapter_model_path is None:
@@ -1373,14 +1378,6 @@ class NeuronModelMixin:
         # ** Difference from original from_pretrained **
         # We skip the code about the hf_quantizer, not supported.
 
-        if _adapter_model_path is not None:
-            model.load_adapter(
-                _adapter_model_path,
-                adapter_name=adapter_name,
-                token=token,
-                adapter_kwargs=adapter_kwargs,
-            )
-
         if device_map == "xla":
             move_model_to_device(model, xm.xla_device())
 
@@ -1441,8 +1438,6 @@ class NeuronModelMixin:
         if token is not None:
             kwargs["token"] = token
 
-        _hf_peft_config_loaded = getattr(self, "_hf_peft_config_loaded", False)
-
         if "save_config" in kwargs:
             warnings.warn(
                 "`save_config` is deprecated and will be removed in v5 of Transformers. Use `is_main_process` instead."
@@ -1501,50 +1496,22 @@ class NeuronModelMixin:
 
         # Save the config
         if is_main_process:
-            if not _hf_peft_config_loaded:
-                # If the model config has set attributes that should be in the generation config, move them there.
-                misplaced_generation_parameters = model_to_save.config._get_non_default_generation_parameters()
-                if self.can_generate() and len(misplaced_generation_parameters) > 0:
-                    warnings.warn(
-                        "Moving the following attributes in the config to the generation config: "
-                        f"{misplaced_generation_parameters}. You are seeing this warning because you've set "
-                        "generation parameters in the model config, as opposed to in the generation config.",
-                        UserWarning,
-                    )
-                    for param_name, param_value in misplaced_generation_parameters.items():
-                        setattr(model_to_save.generation_config, param_name, param_value)
-                        setattr(model_to_save.config, param_name, None)
+            # If the model config has set attributes that should be in the generation config, move them there.
+            misplaced_generation_parameters = model_to_save.config._get_non_default_generation_parameters()
+            if self.can_generate() and len(misplaced_generation_parameters) > 0:
+                warnings.warn(
+                    "Moving the following attributes in the config to the generation config: "
+                    f"{misplaced_generation_parameters}. You are seeing this warning because you've set "
+                    "generation parameters in the model config, as opposed to in the generation config.",
+                    UserWarning,
+                )
+                for param_name, param_value in misplaced_generation_parameters.items():
+                    setattr(model_to_save.generation_config, param_name, param_value)
+                    setattr(model_to_save.config, param_name, None)
 
-                model_to_save.config.save_pretrained(save_directory)
+            model_to_save.config.save_pretrained(save_directory)
             if self.can_generate():
                 model_to_save.generation_config.save_pretrained(save_directory)
-
-            if _hf_peft_config_loaded:
-                logger.info(
-                    "Detected adapters on the model, saving the model in the PEFT format, only adapter weights will be saved."
-                )
-                state_dict = model_to_save.get_adapter_state_dict()
-
-                if save_peft_format:
-                    logger.info(
-                        "To match the expected format of the PEFT library, all keys of the state dict of adapters will be pre-pended with `base_model.model`."
-                    )
-                    peft_state_dict = {}
-                    for key, value in state_dict.items():
-                        peft_state_dict[f"base_model.model.{key}"] = value
-                    state_dict = peft_state_dict
-
-                active_adapter = self.active_adapters()
-
-                if len(active_adapter) > 1:
-                    raise ValueError(
-                        "Multiple active adapters detected, saving multiple active adapters is not supported yet. You can save adapters separately one by one "
-                        "by iteratively calling `model.set_adapter(adapter_name)` then `model.save_pretrained(...)`"
-                    )
-                active_adapter = active_adapter[0]
-
-                current_peft_config = self.peft_config[active_adapter]
-                current_peft_config.save_pretrained(save_directory)
 
             with open(save_directory / "trn_config.json", "w") as f:
                 trn_config_data = asdict(self.trn_config)
