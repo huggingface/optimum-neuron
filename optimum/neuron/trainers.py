@@ -105,7 +105,7 @@ from .utils.cache_utils import (
     has_write_access_to_repo,
 )
 from .utils.import_utils import is_peft_available
-from .utils.misc import is_custom_modeling_model, is_main_worker, is_precompilation
+from .utils.misc import is_main_worker, is_precompilation
 from .utils.peft_utils import NeuronPeftModel
 from .utils.peft_utils import get_peft_model as old_get_peft_model
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
@@ -115,6 +115,7 @@ from .utils.training_utils import (
     is_main_worker_for_metrics_method,
     patch_generation_mixin_to_neuron_generation_mixin,
     skip_first_batches,
+    is_custom_modeling_model,
 )
 from .utils.trl_utils import NeuronSFTConfig
 

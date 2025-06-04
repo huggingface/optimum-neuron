@@ -29,7 +29,8 @@ from transformers import PreTrainedModel
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
-from ..utils.misc import is_custom_modeling_model, is_main_worker, is_precompilation
+from ..utils.misc import is_main_worker, is_precompilation
+from ..utils.training_utils import is_custom_modeling_model
 from ..utils.model_utils import (
     get_parent_module_and_param_name_from_fully_qualified_name,
     get_tied_parameters_dict,
