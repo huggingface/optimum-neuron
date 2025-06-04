@@ -372,7 +372,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
         if peft_config.peft_type == "LORA":
             target_modules = peft_config.target_modules
             at_least_one_linear_in_target_modules = any(name in target_modules for name in self.linear_names)
-            all_linears_in_target_modules = all(name in target_modules for name in self.linear_names)
+            all_linears_in_target_modules = all(name in target_modules for name in self.linear_names) or target_modules == "all-linear"
             if at_least_one_linear_in_target_modules and not all_linears_in_target_modules:
                 missing_modules = [name for name in self.linear_names if name not in target_modules]
                 raise ValueError(
@@ -842,7 +842,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
             linear_names = [self.query_projection_name, self.key_projection_name, self.value_projection_name]
             target_modules = peft_config.target_modules
             at_least_one_linear_in_target_modules = any(name in target_modules for name in linear_names)
-            all_linears_in_target_modules = all(name in target_modules for name in linear_names)
+            all_linears_in_target_modules = all(name in target_modules for name in linear_names) or target_modules == "all-linear"
             if at_least_one_linear_in_target_modules and not all_linears_in_target_modules:
                 missing_modules = [name for name in linear_names if name not in target_modules]
                 raise ValueError(
