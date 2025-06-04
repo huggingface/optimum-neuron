@@ -59,23 +59,23 @@
   - sections:
     - isExpanded: false
       sections:
-      - isExpanded: false 
-        sections: 
+      - isExpanded: false
+        sections:
         - local: model_doc/transformers/bert
           title: BERT
         title: TEXT MODELS
       - isExpanded: false
-        sections: 
+        sections:
         - local: model_doc/transformers/yolos
           title: YOLOS
         title: VISION MODELS
-      - isExpanded: false 
-        sections: 
+      - isExpanded: false
+        sections:
         - local: model_doc/transformers/whisper
           title: Whisper
         title: AUDIO MODELS
       - isExpanded: false
-        sections: 
+        sections:
         - local: model_doc/transformers/clip
           title: CLIP
         title: MULTIMODAL MODELS
@@ -98,7 +98,7 @@
       - local: model_doc/diffusers/pixart_sigma
         title: PixArt-Σ
       - isExpanded: false
-        sections: 
+        sections:
         - local: model_doc/diffusers/stable_diffusion
           title: Stable Diffusion
         - local: model_doc/diffusers/stable_diffusion_xl
@@ -107,7 +107,7 @@
           title: SDXL Turbo
         title: STABLE DIFFUSION
       - isExpanded: false
-        sections: 
+        sections:
         - local: model_doc/diffusers/lora
           title: LoRA
         - local: model_doc/diffusers/ip_adapter
@@ -116,8 +116,6 @@
       title: DIFFUSERS PIPELINES
     title: Models and Pipelines
   - sections:
-    - local: benchmarks/inferentia-mistral-small
-      title: Mistral Small on AWS Inferentia2
     - local: benchmarks/inferentia-llama3.1-8b
       title: Llama-3.1 8B on AWS Inferentia2
     title: Benchmarks
