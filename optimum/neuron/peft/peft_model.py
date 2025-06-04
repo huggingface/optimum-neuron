@@ -33,14 +33,13 @@ from ..models.training import (
 )
 from ..utils.import_utils import is_peft_available
 from ..utils.patching import Patcher
+from ..utils.training_utils import _get_model_param_count
 from .utils.save_and_load import get_peft_model_state_dict
 
 
 if is_peft_available():
     from peft import PeftConfig, PeftModel
     from peft.tuners import XLoraModel
-
-    # from peft.utils import get_peft_model_state_dict as orig_get_peft_model_state_dict
     from peft.utils import (
         SAFETENSORS_WEIGHTS_NAME,
         TRANSFORMERS_MODELS_TO_PREFIX_TUNING_POSTPROCESS_MAPPING,
@@ -433,6 +432,9 @@ class NeuronPeftModel(PeftModel):
         if not is_trainable:
             self.eval()
         return load_result
+
+    def get_nb_trainable_parameters(self) -> tuple[int, int]:
+        return _get_model_param_count(self)
 
 
 class NeuronPeftModelForCausalLM(NeuronPeftModel):
