@@ -797,47 +797,25 @@ class _TrainerForNeuron:
             self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
 
         model = self._wrap_model(self.model_wrapped)
+        model = self.accelerator.prepare(model)
+        self.model = model
 
-        # as the model is wrapped, don't use `accelerator.prepare`
-        # this is for unhandled cases such as
-        # FSDP-XLA, SageMaker MP/DP, DataParallel, IPEX
-        use_accelerator_prepare = True if model is self.model else False
-
-        if use_accelerator_prepare:
-            self.model = self.accelerator.prepare(self.model)
         self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
-        # prepare using `accelerator` prepare
-        if use_accelerator_prepare:
+        print("zazou", type(self.model))
+        if not isinstance(model, NxDPPModel):
             self.model.train()
-            if hasattr(self.lr_scheduler, "step"):
-                if self.use_apex:
-                    model = self.accelerator.prepare(self.model)
-                else:
-                    model, self.optimizer = self.accelerator.prepare(self.model, self.optimizer)
-            else:
-                # to handle cases wherein we pass "DummyScheduler" such as when it is specified in DeepSpeed config.
-                model, self.optimizer, self.lr_scheduler = self.accelerator.prepare(
-                    self.model, self.optimizer, self.lr_scheduler
-                )
 
-        if isinstance(model, NxDPPModel):
-            self.model = model
-
-        if self.is_fsdp_enabled:
-            self.model = self.model_wrapped = model
-
-        # for the rest of this function `model` is the outside model, whether it was wrapped or not
-        if model is not self.model:
-            self.model_wrapped = model
+        if hasattr(self.lr_scheduler, "step"):
+                self.optimizer = self.accelerator.prepare(self.optimizer)
+        else:
+            # to handle cases wherein we pass "DummyScheduler" such as when it is specified in DeepSpeed config.
+            self.optimizer, self.lr_scheduler = self.accelerator.prepare(
+                self.optimizer, self.lr_scheduler
+            )
 
         # Check if saved optimizer or scheduler states exist
         self._load_optimizer_and_scheduler(resume_from_checkpoint)
-
-        # important: at this point:
-        # self.model         is the Transformers Model
-        # self.model_wrapped is DDP(Transformers Model), Deepspeed(Transformers Model),
-        # FSDP(Transformers Model), Dynamo Optimized Module(Transformers Model) etc.
 
         # Train!
         parameter_count = get_model_param_count(model, trainable_only=True)

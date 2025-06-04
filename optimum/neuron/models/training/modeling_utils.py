@@ -69,6 +69,7 @@ from transformers.utils.hub import get_checkpoint_shard_files
 
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from ...utils.misc import is_main_worker, is_precompilation
+from ...utils.errors import NotSupportedError
 from .transformations_utils import (
     adapt_state_dict,
     create_parameter_metadata,
@@ -113,10 +114,6 @@ MODEL_PARALLEL_SHARDS_DIR_NAME = "shards"
 ALL_ATTENTION_FUNCTIONS: Dict[str, Dict[str, Callable]] = {
     "flash_attention_2": nki_flash_attn_func,
 }
-
-
-class NotSupportedError(Exception):
-    pass
 
 
 def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):
@@ -168,6 +165,16 @@ def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):
 
 
 class NeuronModelMixin:
+    PIPELINE_TRANSFORMER_LAYER_CLS: Optional[Type] = None
+    PIPELINE_INPUT_NAMES: Optional[list[str]] = None
+    PIPELINE_LEAF_MODULE_CLASSE_NAMES: Optional[list[str]] = None
+
+    def supports_pipeline_parallelism(self) -> bool:
+        """
+        Returns whether the model supports pipeline parallelism.
+        """
+        return self.PIPELINE_TRANSFORMER_LAYER_CLS is not None and self.PIPELINE_INPUT_NAMES is not None
+
     @classmethod
     def _check_and_enable_flash_attn_2(
         cls,

@@ -47,6 +47,7 @@ from ..utils import (
     is_torch_xla_available,
     patch_within_function,
     replace_class_in_inheritance_hierarchy,
+    NotSupportedError,
 )
 from ..utils.import_utils import is_peft_available
 from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
@@ -83,6 +84,7 @@ else:
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.utils.model_utils import move_model_to_device
+    from neuronx_distributed.pipeline import NxDPPModel
 
 
 logger = logging.get_logger(__name__)
@@ -459,6 +461,32 @@ class NeuronAccelerator(Accelerator):
             model.config.use_cache = False
             model.config.output_attentions = False
             model.config.output_hidden_states = False
+            
+            if model.trn_config.pipeline_parallel_size > 1:
+                from ..distributed.utils import OptimumNeuronFXTracer
+                if not model.supports_pipeline_parallelism():
+                    raise NotSupportedError(
+                        f"The model {model.__class__.__name__} does not support pipeline parallelism."
+                    )
+
+                while hasattr(model.forward, "__wrapped__"):
+                    # If the forward method is wrapped, it was wrapped by the `can_return_tuple` decorator, we need to 
+                    # unwrap it first.
+                    model.forward = model.forward.__wrapped__.__get__(model)
+
+                model = NxDPPModel(
+                    model,
+                    transformer_layer_cls=model.PIPELINE_TRANSFORMER_LAYER_CLS,
+                    num_microbatches=model.trn_config.pipeline_parallel_num_microbatches,
+                    virtual_pipeline_size=model.trn_config.virtual_pipeline_parallel_size,
+                    output_loss_value_spec={"loss": True}, # Question: de we need to set this?
+                    input_names=model.PIPELINE_INPUT_NAMES,
+                    leaf_module_cls=model.PIPELINE_LEAF_MODULE_CLASSE_NAMES,
+                    use_zero1_optimizer=model.trn_config.pipeline_parallel_use_zero1_optimizer,
+                    tracer_cls=OptimumNeuronFXTracer,
+                    auto_partition=True,
+
+                )
             move_model_to_device(model, self.device)
             model = super().prepare_model(model, device_placement=False, evaluation_mode=evaluation_mode)
             return model
