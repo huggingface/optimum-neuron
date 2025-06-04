@@ -164,8 +164,10 @@ def check_traced_cache_entry(cache_path):
     registry_path = [path for path in local_files if "REGISTRY" in path][0]
     registry_key = registry_path.split("/")[-1].replace(".json", "")
     local_files.remove(registry_path)
-    hash_key = local_files[0].split("/")[-2].replace("MODULE_", "")
-    assert registry_key == hash_key
+    local_hash_keys = []
+    for local_file in local_files:
+        local_hash_keys.append(local_file.split("/")[-2].replace("MODULE_", ""))
+    assert registry_key in local_hash_keys
 
 
 def assert_local_and_hub_cache_sync(cache_path, cache_repo_id):
