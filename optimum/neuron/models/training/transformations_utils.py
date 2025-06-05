@@ -29,6 +29,7 @@ import torch
 from optimum.utils import logging
 
 from ...utils.import_utils import is_neuronx_distributed_available, is_peft_available
+from .modeling_utils import NotSupportedError
 
 
 if is_neuronx_distributed_available():
@@ -182,6 +183,10 @@ class ModelWeightTransformationSpec:
                 upstanding_sharded_params,
                 inplace=inplace,
             )
+        else:
+            raise NotSupportedError(
+                f"PEFT type {self.peft_type} is not supported for the transformation spec {self.__class__.__name__}."
+            )
 
     @abstractmethod
     def _to_original_weights(
@@ -225,6 +230,10 @@ class ModelWeightTransformationSpec:
         elif self.peft_type == "lora":
             return self._lora_to_original_weights(
                 module_fully_qualified_name, sharded_state_dicts, parameters_metadata
+            )
+        else:
+            raise NotSupportedError(
+                f"PEFT type {self.peft_type} is not supported for the transformation spec {self.__class__.__name__}."
             )
 
 
@@ -385,6 +394,10 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 for name in self.linear_names:
                     target_modules.remove(name)
                 target_modules.add(self.fused_linear_name)
+        else:
+            raise NotSupportedError(
+                f"PEFT type {peft_config.peft_type} is not supported for the transformation spec {self.__class__.__name__}."
+            )
         return peft_config
 
     def to_original_peft_config(self, peft_config: PeftConfig, inplace: bool = False) -> PeftConfig:
@@ -395,6 +408,10 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 target_modules.remove(self.fused_linear_name)
                 for name in self.linear_names:
                     target_modules.add(name)
+        else:
+            raise NotSupportedError(
+                f"PEFT type {peft_config.peft_type} is not supported for the transformation spec {self.__class__.__name__}."
+            )
         return peft_config
 
     def _adapt_state_dict(
@@ -478,9 +495,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 f"{module_fully_qualified_name}.{name}.lora_A.{param_name}" for name in self.linear_names
             ]
 
-            logger.warning(
-                "Taking the mean of the LoRA A weights since there is only one LoRA A weight after fusing."
-            )
+            logger.warning("Taking the mean of the LoRA A weights since there is only one LoRA A weight after fusing.")
             lora_A_weight = torch.mean(
                 torch.stack([state_dict.pop(name) for name in lora_A_weight_names], dim=0),
                 dim=0,
@@ -860,6 +875,10 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                 for name in linear_names:
                     target_modules.remove(name)
                 target_modules.add(self.gqa_qkv_projection_name)
+        else:
+            raise NotSupportedError(
+                f"PEFT type {peft_config.peft_type} is not supported for the transformation spec {self.__class__.__name__}."
+            )
         return peft_config
 
     def to_original_peft_config(self, peft_config: PeftConfig, inplace: bool = False) -> PeftConfig:
@@ -871,6 +890,10 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                 target_modules.add(self.query_projection_name)
                 target_modules.add(self.key_projection_name)
                 target_modules.add(self.value_projection_name)
+        else:
+            raise NotSupportedError(
+                f"PEFT type {peft_config.peft_type} is not supported for the transformation spec {self.__class__.__name__}."
+            )
         return peft_config
 
     def _adapt_state_dict(
@@ -986,9 +1009,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
 
             lora_A_weight_names = [lora_A_q_name, lora_A_k_name, lora_A_v_name]
 
-            logger.warning(
-                "Taking the mean of the LoRA A weights since there is only one LoRA A weight after fusing."
-            )
+            logger.warning("Taking the mean of the LoRA A weights since there is only one LoRA A weight after fusing.")
             lora_A_weight = torch.mean(
                 torch.stack([state_dict.pop(name) for name in lora_A_weight_names], dim=0),
                 dim=0,
