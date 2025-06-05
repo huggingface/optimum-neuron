@@ -1,5 +1,3 @@
-from tempfile import TemporaryDirectory
-
 from transformers import AutoTokenizer
 
 from benchmark import run
@@ -34,12 +32,9 @@ def main():
             auto_cast_type="bf16",
             num_cores=NUM_CORES,
         )
-        with TemporaryDirectory() as tmpdir:
-            model.save_pretrained(tmpdir)
-            tokenizer = AutoTokenizer.from_pretrained(model_id)
-            tokenizer.save_pretrained(tmpdir)
-            json_path = f"{model_name}.json"
-            run(tmpdir, 256, 2048, json_path=json_path)
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+        json_path = f"{model_name}.json"
+        run(model, tokenizer, 256, 2048, json_path=json_path)
 
 
 if __name__ == "__main__":
