@@ -367,6 +367,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
             self.fuse_axis = 1
 
     def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
+        # Importing here to avoid circular imports
         from ...peft.tuners.lora.layer import ParallelLinear
 
         fused_linear_qualified_name = f"{module_fully_qualified_name}.{self.fused_linear_name}"
@@ -846,6 +847,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
         return full_weight
 
     def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
+        # Importing here to avoid circular imports
         from ...peft.tuners.lora.layer import GQAQKVColumnParallelLinear
 
         gqa_qkv_projection_qualified_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}"
