@@ -118,6 +118,8 @@
   - sections:
     - local: benchmarks/inferentia-llama3.1-8b
       title: Llama-3.1 8B on AWS Inferentia2
+    - local: benchmarks/inferentia-llama3.3-70b
+      title: Llama-3.3 70B on AWS Inferentia2
     title: Benchmarks
   - sections:
     - local: community/contributing
