@@ -276,13 +276,12 @@ class NeuronQwen3Attention(NeuronAttentionBase):
         position_ids,
         hidden_states,
         past_key_value,
-        adapter_ids=None,
         cos_cache=None,
         sin_cache=None,
         rmsnorm=None,
     ):
         """take care of the shape, layout, group query, custom position encoding, etc."""
-        Q, K, V = self.qkv_proj(hidden_states=hidden_states, rmsnorm=rmsnorm, adapter_ids=adapter_ids)
+        Q, K, V = self.qkv_proj(hidden_states=hidden_states, rmsnorm=rmsnorm)
 
         # Divide hidden_dim across heads for MHA
         # Change layout: BSHD -> BHSD
