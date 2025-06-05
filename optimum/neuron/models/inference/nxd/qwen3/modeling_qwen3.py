@@ -56,13 +56,6 @@ from ..backend.modules.decoder import NxDDecoderModel, NxDModelForCausalLM
 logger = logging.getLogger("Neuron")
 
 
-def get_rmsnorm_cls():
-    # Initialize to the appropriate implementation of RMSNorm
-    # If infer on NXD -> CustomRMSNorm
-    # If infer on CPU -> HF_RMSNorm (CustomRMSNorm does not work on CPU)
-    return CustomRMSNorm if parallel_state.model_parallel_is_initialized() else Qwen3RMSNorm
-
-
 def convert_state_dict_to_fused_qkv(Qwen3_state_dict, cfg: Qwen3Config):
     """
     This function concats the qkv weights to a Wqkv weight for fusedqkv, and deletes the qkv weights.
@@ -331,11 +324,11 @@ class NeuronQwen3DecoderLayer(nn.Module):
         logger.debug(
             f"Instantiating RMSNorm modules with hidden size {config.hidden_size} and EPS {config.rms_norm_eps}"
         )
-        self.input_layernorm = get_rmsnorm_cls()(
+        self.input_layernorm = CustomRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.post_attention_layernorm = get_rmsnorm_cls()(
+        self.post_attention_layernorm = CustomRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
@@ -438,7 +431,7 @@ class NxDQwen3Model(NxDDecoderModel):
         self.layers = nn.ModuleList(
             [NeuronQwen3DecoderLayer(config, neuron_config) for _ in range(config.num_hidden_layers)]
         )
-        self.norm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
 
 class Qwen3NxDModelForCausalLM(NxDModelForCausalLM):
