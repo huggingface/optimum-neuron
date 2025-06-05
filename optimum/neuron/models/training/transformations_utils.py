@@ -478,7 +478,9 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 f"{module_fully_qualified_name}.{name}.lora_A.{param_name}" for name in self.linear_names
             ]
 
-            # Question: how do we "mix" the multiple LoRA A weights?
+            logger.warning(
+                "Taking the mean of the LoRA A weights since there is only one LoRA A weight after fusing."
+            )
             lora_A_weight = torch.mean(
                 torch.stack([state_dict.pop(name) for name in lora_A_weight_names], dim=0),
                 dim=0,
@@ -984,6 +986,9 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
 
             lora_A_weight_names = [lora_A_q_name, lora_A_k_name, lora_A_v_name]
 
+            logger.warning(
+                "Taking the mean of the LoRA A weights since there is only one LoRA A weight after fusing."
+            )
             lora_A_weight = torch.mean(
                 torch.stack([state_dict.pop(name) for name in lora_A_weight_names], dim=0),
                 dim=0,
