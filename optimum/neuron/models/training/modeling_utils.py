@@ -67,6 +67,7 @@ from transformers.utils import (
 )
 from transformers.utils.hub import get_checkpoint_shard_files
 
+from ...utils.errors import NotSupportedError
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from ...utils.misc import is_main_worker, is_precompilation
 from .transformations_utils import (
@@ -113,10 +114,6 @@ MODEL_PARALLEL_SHARDS_DIR_NAME = "shards"
 ALL_ATTENTION_FUNCTIONS: Dict[str, Dict[str, Callable]] = {
     "flash_attention_2": nki_flash_attn_func,
 }
-
-
-class NotSupportedError(Exception):
-    pass
 
 
 def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):

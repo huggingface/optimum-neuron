@@ -19,7 +19,7 @@ from typing import Any, Union
 import torch
 from torch import nn
 
-from ....models.training.modeling_utils import NotSupportedError
+from ....utils.errors import NotSupportedError
 from ....utils.import_utils import is_neuronx_distributed_available, is_peft_available
 
 

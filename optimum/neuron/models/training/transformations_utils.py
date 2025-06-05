@@ -28,8 +28,8 @@ import torch
 
 from optimum.utils import logging
 
+from ...utils.errors import NotSupportedError
 from ...utils.import_utils import is_neuronx_distributed_available, is_peft_available
-from .modeling_utils import NotSupportedError
 
 
 if is_neuronx_distributed_available():

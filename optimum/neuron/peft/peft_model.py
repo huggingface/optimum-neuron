@@ -24,13 +24,13 @@ import torch
 from transformers import PreTrainedModel
 
 from ..models.training import (
-    NotSupportedError,
     adapt_peft_config_for_model,
     adapt_state_dict,
     create_parameter_metadata,
     specialize_transformation_specs_for_model,
     to_original_peft_config_for_model,
 )
+from ..utils.errors import NotSupportedError
 from ..utils.import_utils import is_peft_available
 from ..utils.patching import Patcher
 from ..utils.training_utils import _get_model_param_count
