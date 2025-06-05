@@ -58,6 +58,10 @@ else:
         def __init__(self, *args, **kwargs):
             pass
 
+    class BaseParallelLinear:
+        def __init__(self, *args, **kwargs):
+            pass
+
     class ColumnParallelLinear:
         def __init__(self, *args, **kwargs):
             pass
