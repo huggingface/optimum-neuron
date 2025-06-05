@@ -190,10 +190,16 @@ class HloModelForCausalLM(NeuronModelForCausalLM, GenerationMixin):
         neuron_config: HloNeuronConfig,
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
+        load_weights: Optional[bool] = True,
         **kwargs,
     ) -> "HloModelForCausalLM":
         if not os.path.isdir("/sys/class/neuron_device/"):
             raise SystemError("Decoder models can only be exported on a neuron platform.")
+
+        if not load_weights:
+            warnings.warn(
+                "Ignoring the `load_weights` argument set to False since weights are always loaded for these models."
+            )
 
         if os.path.isdir(model_id):
             checkpoint_dir = model_id
