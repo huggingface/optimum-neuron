@@ -67,9 +67,9 @@ from transformers.utils import (
 )
 from transformers.utils.hub import get_checkpoint_shard_files
 
+from ...utils.errors import NotSupportedError
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from ...utils.misc import is_main_worker, is_precompilation
-from ...utils.errors import NotSupportedError
 from .transformations_utils import (
     adapt_state_dict,
     create_parameter_metadata,

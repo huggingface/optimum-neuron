@@ -799,7 +799,6 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
     PIPELINE_TRANSFORMER_LAYER_CLS = LlamaDecoderLayer
     PIPELINE_INPUT_NAMES = ["input_ids", "attention_mask", "labels"]
     PIPELINE_LEAF_MODULE_CLASSE_NAMES = ["LlamaRMSNorm", "LlamaRotaryEmbedding"]
-    
 
     def __init__(self, config, trn_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)

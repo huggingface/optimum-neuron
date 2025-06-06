@@ -398,9 +398,6 @@ class _TrainerForNeuron:
         if isinstance(model, NxDPPModel):
             inputs = self._prepare_inputs(inputs)
             loss = model.run_train(**inputs)
-            for n, p in model.named_parameters():
-                print(f"{n} {p.shape} {p.dtype} {p.device}")
-            print("ZAZA", loss)
         else:
             loss = super().compute_loss(
                 model, inputs, return_outputs=return_outputs, num_items_in_batch=num_items_in_batch
@@ -481,7 +478,9 @@ class _TrainerForNeuron:
                 dp_size = xr.world_size()
 
             tr_loss_div = tr_loss / dp_size
+
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_replica_groups())
+
             reduced_tr_loss = reduced_tr_loss.detach()
 
             if self.control.should_log:
@@ -810,12 +809,10 @@ class _TrainerForNeuron:
             self.model.train()
 
         if hasattr(self.lr_scheduler, "step"):
-                self.optimizer = self.accelerator.prepare(self.optimizer)
+            self.optimizer = self.accelerator.prepare(self.optimizer)
         else:
             # to handle cases wherein we pass "DummyScheduler" such as when it is specified in DeepSpeed config.
-            self.optimizer, self.lr_scheduler = self.accelerator.prepare(
-                self.optimizer, self.lr_scheduler
-            )
+            self.optimizer, self.lr_scheduler = self.accelerator.prepare(self.optimizer, self.lr_scheduler)
 
         # Check if saved optimizer or scheduler states exist
         self._load_optimizer_and_scheduler(resume_from_checkpoint)
@@ -890,7 +887,6 @@ class _TrainerForNeuron:
         # (eg.g loss) are logged and sent to the callbacks (for instance WandbCallback).
         self.state.is_world_process_zero = is_main_worker_for_metrics()
 
-        # tr_loss is a tensor to avoid synchronization of TPUs through .item()
         tr_loss = torch.tensor(0.0).to(args.device)
         # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
         self._total_loss_scalar = 0.0
