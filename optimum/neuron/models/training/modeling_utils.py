@@ -748,7 +748,7 @@ class NeuronModelMixin:
         subfolder = kwargs.pop("subfolder", "")
         commit_hash = kwargs.pop("_commit_hash", None)
         variant = kwargs.pop("variant", None)
-        adapter_kwargs = kwargs.pop("adapter_kwargs", None) 
+        adapter_kwargs = kwargs.pop("adapter_kwargs", None)
         adapter_name = kwargs.pop("adapter_name", None)
         use_flash_attention_2 = kwargs.pop("use_flash_attention_2", False)
         kwargs.pop("generation_config", None)

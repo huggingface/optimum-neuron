@@ -15,18 +15,15 @@
 """Tests related to PEFT integration."""
 
 import copy
-import json
 from pathlib import Path
 
 import pytest
 import torch
 from peft import AutoPeftModelForCausalLM, LoraConfig, PeftModel
 from peft import get_peft_model as orig_get_peft_model
-from safetensors.torch import load_file
 
 import optimum
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments, get_peft_model
-from optimum.neuron.distributed.checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
 from optimum.neuron.distributed.utils import lazy_load_for_parallelism
 from optimum.neuron.utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from optimum.neuron.utils.peft_utils import NeuronPeftModel
