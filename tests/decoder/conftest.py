@@ -162,6 +162,7 @@ def speculation():
                 model_id,
                 config=AutoConfig.from_pretrained(model_id),
                 neuron_config=neuron_config,
+                load_weights=False,
             )
             model.save_pretrained(neuron_model_path)
             tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -187,6 +188,7 @@ def speculation():
                 model_id,
                 config=AutoConfig.from_pretrained(model_id),
                 neuron_config=neuron_config,
+                load_weights=False,
             )
             model.save_pretrained(draft_neuron_model_path)
             # Create the draft model on the hub
