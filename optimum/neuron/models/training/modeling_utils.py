@@ -846,7 +846,6 @@ class NeuronModelMixin:
                 proxies=proxies,
                 local_files_only=local_files_only,
                 _commit_hash=commit_hash,
-                **adapter_kwargs,
             )
             if _adapter_model_path is not None and os.path.isfile(_adapter_model_path):
                 with open(_adapter_model_path, "r", encoding="utf-8") as f:
