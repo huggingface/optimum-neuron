@@ -160,6 +160,30 @@ def create_nxdpp_model(model) -> NxDPPModel:
     model.__class__.forward = orig_class_forward
     return model
 
+def get_pipeline_parameters_for_current_stage(model) -> set[str]:
+    """
+    Determines which parameters are needed for the current pipeline stage.
+
+    Uses a meta device model wrapped with NxDPPModel to determine parameter
+    assignment across pipeline stages, then returns the parameter names
+    needed for the current stage.
+
+    Returns:
+        Set of parameter names needed for the current pipeline stage
+    """
+    with suppress_logging():
+        with torch.device("meta"):
+            meta_model = model.__class__(model.config, model.trn_config)
+
+        if model.trn_config.pipeline_parallel_size <= 1 or not model.supports_pipeline_parallelism():
+            # Return all parameters if no pipeline parallelism
+            parameter_names = set(meta_model.state_dict().keys())
+        else:
+            meta_nxdpp_model = create_nxdpp_model(meta_model)
+            parameter_names = set(meta_nxdpp_model.local_state_dict().keys())
+
+    return parameter_names
+
 
 def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):
     # copy state_dict so _load_from_state_dict can modify it
@@ -252,29 +276,6 @@ class NeuronModelMixin:
         return self.PIPELINE_TRANSFORMER_LAYER_CLS is not None and self.PIPELINE_INPUT_NAMES is not None
 
     @classmethod
-    def _get_pipeline_parameters_for_current_stage(cls, model) -> set[str]:
-        """
-        Determines which parameters are needed for the current pipeline stage.
-
-        Uses a meta device model wrapped with NxDPPModel to determine parameter
-        assignment across pipeline stages, then returns the parameter names
-        needed for the current stage.
-
-        Returns:
-            Set of parameter names needed for the current pipeline stage
-        """
-        with suppress_logging():
-            with torch.device("meta"):
-                meta_model = model.__class__(model.config, model.trn_config)
-
-            if model.trn_config.pipeline_parallel_size <= 1 or not model.supports_pipeline_parallelism():
-                # Return all parameters if no pipeline parallelism
-                parameter_names = set(meta_model.state_dict().keys())
-            else:
-                meta_nxdpp_model = create_nxdpp_model(meta_model)
-                parameter_names = set(meta_nxdpp_model.local_state_dict().keys())
-
-        return parameter_names
 
     @classmethod
     def _check_and_enable_flash_attn_2(
@@ -495,7 +496,7 @@ class NeuronModelMixin:
 
         # To avoid keeping the whole state dict in memory, we only load the parameters that are needed for the current
         # pipeline stage.
-        parameters_to_load = cls._get_pipeline_parameters_for_current_stage(model)
+        parameters_to_load = get_pipeline_parameters_for_current_stage(model)
 
         # ** Difference from original _load_pretrained_model **
         # We infer the loaded_keys as follows.
@@ -1570,8 +1571,9 @@ class NeuronModelMixin:
             )
             is_main_process = kwargs.pop("save_config")
         if safe_serialization:
-            raise logger.error(
-                "`safe_serialization` is not supported when saving the sharded checkpoints. It is possible to consolidate the model weights into `safetensors` format."
+            raise NotSupportedError(
+                "`safe_serialization` is not supported when saving the sharded checkpoints. It is possible to "
+                "consolidate the model weights into `safetensors` format."
             )
 
         if os.path.isfile(save_directory):

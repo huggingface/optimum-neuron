@@ -600,15 +600,17 @@ class _TrainerForNeuron:
                 logger.info(
                     "Model parallelism is enabled, saving the model sharded state dict instead of the full state dict."
                 )
-            if isinstance(self.model, NeuronModelMixin):
+
+            model_to_save = self.model.original_torch_module if isinstance(self.model, NxDPPModel) else self.model
+            if isinstance(model_to_save, NeuronModelMixin):
                 # This mark_step is needed to avoid hang issues.
                 xm.mark_step()
-                self.model.save_pretrained(
+                model_to_save.save_pretrained(
                     output_dir,
                     optimizer=self.optimizer if not self.args.save_only_model else None,
                 )
             else:
-                if isinstance(self.model, PreTrainedModel):
+                if isinstance(model_to_save, PreTrainedModel):
                     from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
                     config = copy.deepcopy(self.model.config)
@@ -619,7 +621,7 @@ class _TrainerForNeuron:
                 # This mark_step is needed to avoid hang issues.
                 xm.mark_step()
                 Parallelizer.save_model_sharded_checkpoint(
-                    self.model,
+                    model_to_save,
                     output_dir,
                     optimizer=self.optimizer if not self.args.save_only_model else None,
                     use_xser=self.accelerator.state.trn_config.use_xser,
