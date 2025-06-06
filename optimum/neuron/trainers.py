@@ -95,6 +95,7 @@ from .distributed.utils import make_optimizer_constructor_lazy
 from .models.training.modeling_utils import NeuronModelMixin
 from .training_args import NeuronTrainingArguments
 from .utils import (
+    is_neuronx_distributed_available,
     is_torch_xla_available,
     is_trl_available,
     patch_within_function,
@@ -122,6 +123,10 @@ if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
     import torch_xla.debug.metrics as met
     import torch_xla.runtime as xr
+
+
+if is_neuronx_distributed_available():
+    from neuronx_distributed.pipeline import NxDPPModel
 
 if is_sagemaker_mp_enabled():
     from smdistributed.modelparallel import __version__ as SMP_VERSION
@@ -377,9 +382,53 @@ class _TrainerForNeuron:
             optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)
         return optimizer_cls, optimizer_kwargs
 
-    @patch_within_function(("transformers.Trainer.get_optimizer_cls_and_kwargs", get_optimizer_cls_and_kwargs))
     def create_optimizer(self):
-        return super().create_optimizer()
+        if isinstance(self.model, NxDPPModel):
+            opt_model = self.model.original_torch_module
+            named_parameters = list(self.model.local_named_parameters())
+        else:
+            opt_model = self.model
+            named_parameters = list(self.model.named_parameters())
+
+        if self.optimizer is None:
+            decay_parameters = self.get_decay_parameter_names(opt_model)
+            optimizer_grouped_parameters = [
+                {
+                    "params": [p for n, p in named_parameters if (n in decay_parameters and p.requires_grad)],
+                    "weight_decay": self.args.weight_decay,
+                },
+                {
+                    "params": [p for n, p in named_parameters if (n not in decay_parameters and p.requires_grad)],
+                    "weight_decay": 0.0,
+                },
+            ]
+
+            if self.optimizer_cls_and_kwargs is not None:
+                optimizer_cls, optimizer_kwargs = self.optimizer_cls_and_kwargs
+            else:
+                optimizer_cls, optimizer_kwargs = self.get_optimizer_cls_and_kwargs(self.args, opt_model)
+
+            # Overwrite `params` in case it's created by `get_optimizer_cls_and_kwargs`
+            # e.g. for GaLore optimizer.
+            if "params" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("params")
+
+            # Overwrite `model` in case it's created by `get_optimizer_cls_and_kwargs`
+            # e.g. for LOMO optimizer.
+            if "model" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("model")
+
+            # For layer-wise dummy optimizers we overwrite optimizer_grouped_parameters with `optimizer_dict`
+            # to avoid arguments conflicts.
+            if "optimizer_dict" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("optimizer_dict")
+
+            self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
+
+            # ** Difference with the original `create_optimizer` method **
+            # We removed the part handling bitsandbyte optimizers, as it is not supported in Neuron.
+
+        return self.optimizer
 
     def _prepare_input(self, data: Union[torch.Tensor, Any]) -> Union[torch.Tensor, Any]:
         # When pipeline parallelism is enabled, we should not put any tensor on device.
