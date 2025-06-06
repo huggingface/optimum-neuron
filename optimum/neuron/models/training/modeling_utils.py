@@ -26,7 +26,7 @@ import warnings
 from dataclasses import asdict
 from pathlib import Path
 from threading import Thread
-from typing import Callable, Dict, Literal, Optional, Type, Union
+from typing import Callable, Dict, Iterable, Literal, Optional, Type, Union
 
 import torch
 import transformers
@@ -97,6 +97,7 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_data_parallel_rank,
         get_pipeline_model_parallel_rank,
+        get_pipeline_model_parallel_size,
         get_tensor_model_parallel_rank,
     )
     from neuronx_distributed.parallel_layers.utils import (
@@ -160,6 +161,7 @@ def create_nxdpp_model(model) -> NxDPPModel:
     model.__class__.forward = orig_class_forward
     return model
 
+
 def get_pipeline_parameters_for_current_stage(model) -> set[str]:
     """
     Determines which parameters are needed for the current pipeline stage.
@@ -183,6 +185,19 @@ def get_pipeline_parameters_for_current_stage(model) -> set[str]:
             parameter_names = set(meta_nxdpp_model.local_state_dict().keys())
 
     return parameter_names
+
+
+def move_params_to_cpu(model: nn.Module, param_names: Iterable[str]):
+    param_names_set = set(param_names)
+    for name, param in model.named_parameters():
+        if name in param_names_set:
+            cpu_param = torch.empty_like(param, device="cpu")
+            module = model
+            parts = name.split(".")
+            for part in parts[:-1]:
+                module = getattr(module, part)
+            print(f"Moving parameter {name} from {param.device} to CPU")
+            setattr(module, parts[-1], nn.Parameter(cpu_param))
 
 
 def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):
@@ -276,7 +291,6 @@ class NeuronModelMixin:
         return self.PIPELINE_TRANSFORMER_LAYER_CLS is not None and self.PIPELINE_INPUT_NAMES is not None
 
     @classmethod
-
     @classmethod
     def _check_and_enable_flash_attn_2(
         cls,
@@ -487,6 +501,7 @@ class NeuronModelMixin:
         device_map=None,
         dtype=None,
         weights_only=True,
+        parameters_to_load: Optional[set[str]] = None,
     ):
         # This should always be a list but, just to be sure.
         if not isinstance(resolved_archive_file, list):
@@ -494,9 +509,8 @@ class NeuronModelMixin:
 
         is_sharded = sharded_metadata is not None
 
-        # To avoid keeping the whole state dict in memory, we only load the parameters that are needed for the current
-        # pipeline stage.
-        parameters_to_load = get_pipeline_parameters_for_current_stage(model)
+        if parameters_to_load is None:
+            parameters_to_load = get_pipeline_parameters_for_current_stage(model)
 
         # ** Difference from original _load_pretrained_model **
         # We infer the loaded_keys as follows.
@@ -1409,6 +1423,10 @@ class NeuronModelMixin:
         # Instantiate model.
         init_contexts = [no_init_weights()]
 
+        # If we are using pipeline parallelism, we need to use the meta device for the model because it might be huge.
+        if get_pipeline_model_parallel_size() > 1:
+            init_contexts.append(torch.device("meta"))
+
         # ** Difference from original from_pretrained **
         # In the original from_pretrained implementation there is deepspeed and low_cpu_mem_usage code for
         # `init_contexts`.
@@ -1440,6 +1458,11 @@ class NeuronModelMixin:
         with ContextManagers(init_contexts):
             # Let's make sure we don't run the init function of buffer modules
             model = cls(config, *model_args, **model_kwargs)
+
+        parameters_to_load = get_pipeline_parameters_for_current_stage(model)
+
+        if get_pipeline_model_parallel_size() > 1:
+            move_params_to_cpu(model, parameters_to_load)
 
         # make sure we use the model's config since the __init__ call might have copied it
         config = model.config
@@ -1479,6 +1502,7 @@ class NeuronModelMixin:
                     device_map=device_map,
                     dtype=torch_dtype,
                     weights_only=weights_only,
+                    parameters_to_load=parameters_to_load,
                 )
 
             xm.rendezvous(f"load_state_dict_{worker}")
