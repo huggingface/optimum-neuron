@@ -1,5 +1,6 @@
-from dataclasses import dataclass, field
 import os
+from dataclasses import dataclass, field
+
 import torch
 from datasets import load_dataset
 from peft import LoraConfig
@@ -10,9 +11,7 @@ from transformers import (
 
 from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
 from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer, NeuronTrainingArguments
-
 from optimum.neuron.models.training import Qwen3ForCausalLM
-# from optimum.neuron.models.training import LlamaForCausalLM
 
 
 def print0(*args, **kwargs):
@@ -21,25 +20,18 @@ def print0(*args, **kwargs):
 
 
 def get_dataset(tokenizer):
-    dataset_id = "formido/recipes-20k"
+    dataset_id = "tengomucho/simple_recipes"
 
     recipes = load_dataset(dataset_id, split="train")
     recipes = recipes.train_test_split(test_size=0.2)
     recipes = recipes.flatten()
 
     def preprocess_function(examples):
-        recipes = examples["output"]
-        names = examples["input"]
+        recipes = examples["recipes"]
+        names = examples["names"]
 
         chats = []
         for recipe, name in zip(recipes, names):
-            # Sanitize the recipe string
-            orig_recipe = recipe
-            recipe = recipe.replace("\\'", "'")
-            recipe = recipe.strip("\\']")
-            recipe = recipe.strip("['")
-            recipe = recipe.replace("\', \'", "\n- ")
-            recipe = recipe.replace(" , ", ", ")
             # Append the EOS token to the response
             recipe += tokenizer.eos_token
 
@@ -74,7 +66,6 @@ def training_function(script_args, training_args):
         r=16,
         lora_alpha=32,
         lora_dropout=0.05,
-        # target_modules=["q_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj"],
         target_modules=["embed_tokens", "q_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj", "gate_proj"],
         bias="none",
         task_type="CAUSAL_LM",

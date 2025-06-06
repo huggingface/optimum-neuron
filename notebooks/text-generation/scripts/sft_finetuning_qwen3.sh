@@ -12,7 +12,7 @@ BS=1
 GRADIENT_ACCUMULATION_STEPS=8
 LOGGING_STEPS=10
 
-MODEL_NAME="Qwen/Qwen3-0.6B"
+MODEL_NAME="Qwen/Qwen3-8B"
 OUTPUT_DIR="$(echo $MODEL_NAME | cut -d'/' -f2)-finetuned"
 
 if [ "$NEURON_EXTRACT_GRAPHS_ONLY" = "1" ]; then
@@ -23,7 +23,7 @@ fi
 
 DISTRIBUTED_ARGS="--nproc_per_node $PROCESSES_PER_NODE"
 
-torchrun $DISTRIBUTED_ARGS training-script/sft_finetuning_example.py \
+torchrun $DISTRIBUTED_ARGS notebooks/text-generationscripts/sft_finetuning_qwen3.py \
   --model_id $MODEL_NAME \
   --num_train_epochs $NUM_EPOCHS \
   --do_train \
