@@ -31,6 +31,7 @@ from optimum.neuron.distributed.utils import (
 )
 from optimum.neuron.models.training import LlamaForCausalLM as NeuronLlamaForCausalLM
 from optimum.neuron.models.training.config import TrainingNeuronConfig
+from optimum.neuron.models.training.modeling_utils import create_nxdpp_model
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
@@ -505,11 +506,14 @@ class TestCommonDistributed(DistributedTest):
             [8, 2, 1, None],
             [8, 8, 1, None],
             [8, 8, 1, 4],
+            # TODO: set back to 32 to get dp=4
+            [8, 4, 2, None],
         ],
         ids=[
             "dp=4,tp=2,pp=1",
             "dp=1,tp=8,pp=1,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
             "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
+            "dp=4,tp=4,pp=2",
         ],
     )
     def test_consolidate_custom_model_parallel_checkpoints(
@@ -528,6 +532,10 @@ class TestCommonDistributed(DistributedTest):
             async_save=False,
         )
         custom_model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
+
+        if pp_size > 1:
+            custom_model = create_nxdpp_model(custom_model)
+
         custom_model.save_pretrained(tmpdir / "custom_model")
 
         xm.rendezvous("Saving done.")

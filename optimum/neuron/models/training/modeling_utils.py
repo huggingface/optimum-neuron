@@ -14,9 +14,11 @@
 # limitations under the License.
 
 import collections
+import contextlib
 import copy
 import gc
 import json
+import logging as python_logging
 import math
 import os
 import re
@@ -24,7 +26,7 @@ import warnings
 from dataclasses import asdict
 from pathlib import Path
 from threading import Thread
-from typing import Callable, Dict, Literal, Optional, Type, Union
+from typing import Callable, Dict, Iterable, Literal, Optional, Type, Union
 
 import torch
 import transformers
@@ -67,6 +69,7 @@ from transformers.utils import (
 )
 from transformers.utils.hub import get_checkpoint_shard_files
 
+from ...utils.errors import NotSupportedError
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from ...utils.misc import is_main_worker, is_precompilation
 from .transformations_utils import (
@@ -94,16 +97,23 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_data_parallel_rank,
         get_pipeline_model_parallel_rank,
+        get_pipeline_model_parallel_size,
         get_tensor_model_parallel_rank,
     )
     from neuronx_distributed.parallel_layers.utils import (
         get_local_world_size,
         move_model_to_device,
     )
+    from neuronx_distributed.pipeline import NxDPPModel
+
 else:
     # This is a placeholder for the nki_flash_attn_func function for doc building.
     def nki_flash_attn_func(*args, **kwargs):
         pass
+
+    class NxDPPModel:
+        def __init__(self, *args, **kwargs):
+            pass
 
 
 logger = logging.get_logger(__name__)
@@ -115,8 +125,79 @@ ALL_ATTENTION_FUNCTIONS: Dict[str, Dict[str, Callable]] = {
 }
 
 
-class NotSupportedError(Exception):
-    pass
+def create_nxdpp_model(model) -> NxDPPModel:
+    from ...distributed.utils import OptimumNeuronFXTracer
+
+    if not model.supports_pipeline_parallelism():
+        raise NotSupportedError(f"The model {model.__class__.__name__} does not support pipeline parallelism.")
+
+    model.config.use_cache = False
+    model.config.output_attentions = False
+    model.config.output_hidden_states = False
+
+    orig_class_forward = model.__class__.forward
+    if hasattr(orig_class_forward, "__wrapped__"):
+        # If the forward method is wrapped, it was wrapped by the `can_return_tuple` decorator, we need to
+        # unwrap it first.
+        model.__class__.forward = orig_class_forward.__wrapped__
+
+    model = NxDPPModel(
+        model,
+        transformer_layer_cls=model.PIPELINE_TRANSFORMER_LAYER_CLS,
+        num_microbatches=model.trn_config.pipeline_parallel_num_microbatches,
+        virtual_pipeline_size=model.trn_config.virtual_pipeline_parallel_size,
+        output_loss_value_spec=(True, False),
+        input_names=model.PIPELINE_INPUT_NAMES,
+        leaf_module_cls=model.PIPELINE_LEAF_MODULE_CLASSE_NAMES,
+        use_zero1_optimizer=model.trn_config.pipeline_parallel_use_zero1_optimizer,
+        tracer_cls=OptimumNeuronFXTracer,
+        auto_partition=True,
+        # By default it is set to True to create less graphs, but it complicates things when reducing the
+        # loss for logging.
+        return_loss_on_cpu=False,
+    )
+
+    # Setting it back to the original forward.
+    model.__class__.forward = orig_class_forward
+    return model
+
+
+def get_pipeline_parameters_for_current_stage(model) -> set[str]:
+    """
+    Determines which parameters are needed for the current pipeline stage.
+
+    Uses a meta device model wrapped with NxDPPModel to determine parameter
+    assignment across pipeline stages, then returns the parameter names
+    needed for the current stage.
+
+    Returns:
+        Set of parameter names needed for the current pipeline stage
+    """
+    with suppress_logging():
+        with torch.device("meta"):
+            meta_model = model.__class__(model.config, model.trn_config)
+
+        if model.trn_config.pipeline_parallel_size <= 1 or not model.supports_pipeline_parallelism():
+            # Return all parameters if no pipeline parallelism
+            parameter_names = set(meta_model.state_dict().keys())
+        else:
+            meta_nxdpp_model = create_nxdpp_model(meta_model)
+            parameter_names = set(meta_nxdpp_model.local_state_dict().keys())
+
+    return parameter_names
+
+
+def move_params_to_cpu(model: nn.Module, param_names: Iterable[str]):
+    param_names_set = set(param_names)
+    for name, param in model.named_parameters():
+        if name in param_names_set:
+            cpu_param = torch.empty_like(param, device="cpu")
+            module = model
+            parts = name.split(".")
+            for part in parts[:-1]:
+                module = getattr(module, part)
+            print(f"Moving parameter {name} from {param.device} to CPU")
+            setattr(module, parts[-1], nn.Parameter(cpu_param))
 
 
 def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):
@@ -167,7 +248,49 @@ def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):
     return error_msgs
 
 
+@contextlib.contextmanager
+def suppress_logging(logger_names: Optional[str] = None):
+    """
+    Context manager to suppress logging from specified loggers or all loggers.
+    """
+    if logger_names is None:
+        # Suppress all logging
+        original_level = python_logging.root.level
+        python_logging.root.setLevel(python_logging.CRITICAL + 1)
+        try:
+            yield
+        finally:
+            python_logging.root.setLevel(original_level)
+    else:
+        # Suppress specific loggers
+        original_levels = {}
+        loggers = []
+
+        for logger_name in logger_names:
+            logger_obj = python_logging.getLogger(logger_name)
+            loggers.append(logger_obj)
+            original_levels[logger_name] = logger_obj.level
+            logger_obj.setLevel(python_logging.CRITICAL + 1)
+
+        try:
+            yield
+        finally:
+            for logger_name, logger_obj in zip(logger_names, loggers):
+                logger_obj.setLevel(original_levels[logger_name])
+
+
 class NeuronModelMixin:
+    PIPELINE_TRANSFORMER_LAYER_CLS: Optional[Type] = None
+    PIPELINE_INPUT_NAMES: Optional[list[str]] = None
+    PIPELINE_LEAF_MODULE_CLASSE_NAMES: Optional[list[str]] = None
+
+    def supports_pipeline_parallelism(self) -> bool:
+        """
+        Returns whether the model supports pipeline parallelism.
+        """
+        return self.PIPELINE_TRANSFORMER_LAYER_CLS is not None and self.PIPELINE_INPUT_NAMES is not None
+
+    @classmethod
     @classmethod
     def _check_and_enable_flash_attn_2(
         cls,
@@ -378,12 +501,16 @@ class NeuronModelMixin:
         device_map=None,
         dtype=None,
         weights_only=True,
+        parameters_to_load: Optional[set[str]] = None,
     ):
         # This should always be a list but, just to be sure.
         if not isinstance(resolved_archive_file, list):
             resolved_archive_file = [resolved_archive_file]
 
         is_sharded = sharded_metadata is not None
+
+        if parameters_to_load is None:
+            parameters_to_load = get_pipeline_parameters_for_current_stage(model)
 
         # ** Difference from original _load_pretrained_model **
         # We infer the loaded_keys as follows.
@@ -394,6 +521,12 @@ class NeuronModelMixin:
             state_dict = load_state_dict(
                 resolved_archive_file[0], is_quantized=False, map_location=None, weights_only=weights_only
             )
+            for key in list(state_dict.keys()):
+                # If the key is a parameter that is not needed for the current pipeline stage, we remove it.
+                if key not in parameters_to_load:
+                    del state_dict[key]
+            gc.collect()
+
             loaded_keys = list(state_dict.keys())
 
         # ** Difference from original _load_pretrained_model **
@@ -481,6 +614,8 @@ class NeuronModelMixin:
         if cls._keys_to_ignore_on_load_missing is not None:
             for pat in cls._keys_to_ignore_on_load_missing:
                 missing_keys = [k for k in missing_keys if re.search(pat, k) is None]
+        # If the key is not in parameters_to_load, it is not missing, we just do not need it here.
+        missing_keys = [k for k in missing_keys if k in parameters_to_load]
 
         if cls._keys_to_ignore_on_load_unexpected is not None:
             for pat in cls._keys_to_ignore_on_load_unexpected:
@@ -619,6 +754,11 @@ class NeuronModelMixin:
                 state_dict = load_state_dict(
                     shard_file, is_quantized=False, map_location=None, weights_only=weights_only
                 )
+                for key in list(state_dict.keys()):
+                    # If the key is a parameter that is not needed for the current pipeline stage, we remove it.
+                    if key not in parameters_to_load:
+                        del state_dict[key]
+                gc.collect()
 
             # ** Difference from original _load_state_dict_into_model **
             # We adapt the state dict to the custom model.
@@ -1283,6 +1423,10 @@ class NeuronModelMixin:
         # Instantiate model.
         init_contexts = [no_init_weights()]
 
+        # If we are using pipeline parallelism, we need to use the meta device for the model because it might be huge.
+        if get_pipeline_model_parallel_size() > 1:
+            init_contexts.append(torch.device("meta"))
+
         # ** Difference from original from_pretrained **
         # In the original from_pretrained implementation there is deepspeed and low_cpu_mem_usage code for
         # `init_contexts`.
@@ -1315,6 +1459,11 @@ class NeuronModelMixin:
             # Let's make sure we don't run the init function of buffer modules
             model = cls(config, *model_args, **model_kwargs)
 
+        parameters_to_load = get_pipeline_parameters_for_current_stage(model)
+
+        if get_pipeline_model_parallel_size() > 1:
+            move_params_to_cpu(model, parameters_to_load)
+
         # make sure we use the model's config since the __init__ call might have copied it
         config = model.config
 
@@ -1331,8 +1480,10 @@ class NeuronModelMixin:
 
         # ** Difference from original from_pretrained **
         # Here we load the pretrained model by group of ranks.
+        # For pipeline parallelism, we only load the parameters needed for the current stage.
         # The `cls._load_pretrained_model` method takes a subset of the original parameters because we support a subset
         # of the original features.
+
         for worker in range(math.ceil(local_world_size / num_local_ranks_per_step)):
             if local_rank // num_local_ranks_per_step == worker:
                 (
@@ -1351,6 +1502,7 @@ class NeuronModelMixin:
                     device_map=device_map,
                     dtype=torch_dtype,
                     weights_only=weights_only,
+                    parameters_to_load=parameters_to_load,
                 )
 
             xm.rendezvous(f"load_state_dict_{worker}")
@@ -1443,8 +1595,9 @@ class NeuronModelMixin:
             )
             is_main_process = kwargs.pop("save_config")
         if safe_serialization:
-            raise logger.error(
-                "`safe_serialization` is not supported when saving the sharded checkpoints. It is possible to consolidate the model weights into `safetensors` format."
+            raise NotSupportedError(
+                "`safe_serialization` is not supported when saving the sharded checkpoints. It is possible to "
+                "consolidate the model weights into `safetensors` format."
             )
 
         if os.path.isfile(save_directory):

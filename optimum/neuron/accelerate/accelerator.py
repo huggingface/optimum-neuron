@@ -38,6 +38,7 @@ from transformers import PreTrainedModel
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
 from ..models.neuron_config import TrainingNeuronConfig
+from ..models.training.modeling_utils import create_nxdpp_model
 from ..utils import (
     DynamicPatch,
     ModelPatcher,
@@ -459,7 +460,13 @@ class NeuronAccelerator(Accelerator):
             model.config.use_cache = False
             model.config.output_attentions = False
             model.config.output_hidden_states = False
-            move_model_to_device(model, self.device)
+
+            if model.trn_config.pipeline_parallel_size > 1:
+                model = create_nxdpp_model(model)
+                model.move_model_to_device()
+
+            else:
+                move_model_to_device(model, self.device)
             model = super().prepare_model(model, device_placement=False, evaluation_mode=evaluation_mode)
             return model
 
