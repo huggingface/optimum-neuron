@@ -398,6 +398,9 @@ class _TrainerForNeuron:
         if isinstance(model, NxDPPModel):
             inputs = self._prepare_inputs(inputs)
             loss = model.run_train(**inputs)
+            for n, p in model.named_parameters():
+                print(f"{n} {p.shape} {p.dtype} {p.device}")
+            print("ZAZA", loss)
         else:
             loss = super().compute_loss(
                 model, inputs, return_outputs=return_outputs, num_items_in_batch=num_items_in_batch
@@ -435,10 +438,10 @@ class _TrainerForNeuron:
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
 
             if num_items_in_batch is None:
-                output = loss / self.args.gradient_accumulation_steps
+                loss = loss / self.args.gradient_accumulation_steps
         else:
-            output = super().training_step(model, inputs, num_items_in_batch=num_items_in_batch)
-        return output
+            loss = super().training_step(model, inputs, num_items_in_batch=num_items_in_batch)
+        return loss
 
     @requires_neuronx_distributed
     def prediction_step(

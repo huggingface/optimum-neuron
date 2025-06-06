@@ -469,17 +469,19 @@ class NeuronAccelerator(Accelerator):
                         f"The model {model.__class__.__name__} does not support pipeline parallelism."
                     )
 
-                while hasattr(model.forward, "__wrapped__"):
+                orig_class_forward = model.__class__.forward
+                if hasattr(orig_class_forward, "__wrapped__"):
                     # If the forward method is wrapped, it was wrapped by the `can_return_tuple` decorator, we need to 
                     # unwrap it first.
-                    model.forward = model.forward.__wrapped__.__get__(model)
+                    model.__class__.forward = orig_class_forward.__wrapped__
+
 
                 model = NxDPPModel(
                     model,
                     transformer_layer_cls=model.PIPELINE_TRANSFORMER_LAYER_CLS,
                     num_microbatches=model.trn_config.pipeline_parallel_num_microbatches,
                     virtual_pipeline_size=model.trn_config.virtual_pipeline_parallel_size,
-                    output_loss_value_spec={"loss": True}, # Question: de we need to set this?
+                    output_loss_value_spec=(True, False),
                     input_names=model.PIPELINE_INPUT_NAMES,
                     leaf_module_cls=model.PIPELINE_LEAF_MODULE_CLASSE_NAMES,
                     use_zero1_optimizer=model.trn_config.pipeline_parallel_use_zero1_optimizer,
@@ -487,7 +489,13 @@ class NeuronAccelerator(Accelerator):
                     auto_partition=True,
 
                 )
-            move_model_to_device(model, self.device)
+
+                # Setting it back to the original forward.
+                model.__class__.forward = orig_class_forward
+                model.move_model_to_device()
+
+            else:
+                move_model_to_device(model, self.device)
             model = super().prepare_model(model, device_placement=False, evaluation_mode=evaluation_mode)
             return model
 
