@@ -38,11 +38,11 @@ from transformers import PreTrainedModel
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
 from ..models.neuron_config import TrainingNeuronConfig
+from ..models.training.modeling_utils import create_nxdpp_model
 from ..utils import (
     DynamicPatch,
     ModelPatcher,
     NeuronPeftModel,
-    NotSupportedError,
     Patcher,
     is_neuronx_distributed_available,
     is_torch_xla_available,
@@ -83,7 +83,6 @@ else:
     xm = None
 
 if is_neuronx_distributed_available():
-    from neuronx_distributed.pipeline import NxDPPModel
     from neuronx_distributed.utils.model_utils import move_model_to_device
 
 
@@ -463,37 +462,7 @@ class NeuronAccelerator(Accelerator):
             model.config.output_hidden_states = False
 
             if model.trn_config.pipeline_parallel_size > 1:
-                from ..distributed.utils import OptimumNeuronFXTracer
-
-                if not model.supports_pipeline_parallelism():
-                    raise NotSupportedError(
-                        f"The model {model.__class__.__name__} does not support pipeline parallelism."
-                    )
-
-                orig_class_forward = model.__class__.forward
-                if hasattr(orig_class_forward, "__wrapped__"):
-                    # If the forward method is wrapped, it was wrapped by the `can_return_tuple` decorator, we need to
-                    # unwrap it first.
-                    model.__class__.forward = orig_class_forward.__wrapped__
-
-                model = NxDPPModel(
-                    model,
-                    transformer_layer_cls=model.PIPELINE_TRANSFORMER_LAYER_CLS,
-                    num_microbatches=model.trn_config.pipeline_parallel_num_microbatches,
-                    virtual_pipeline_size=model.trn_config.virtual_pipeline_parallel_size,
-                    output_loss_value_spec=(True, False),
-                    input_names=model.PIPELINE_INPUT_NAMES,
-                    leaf_module_cls=model.PIPELINE_LEAF_MODULE_CLASSE_NAMES,
-                    use_zero1_optimizer=model.trn_config.pipeline_parallel_use_zero1_optimizer,
-                    tracer_cls=OptimumNeuronFXTracer,
-                    auto_partition=True,
-                    # By default it is set to True to create less graphs, but it complicates things when reducing the
-                    # loss for logging.
-                    return_loss_on_cpu=False,
-                )
-
-                # Setting it back to the original forward.
-                model.__class__.forward = orig_class_forward
+                model = create_nxdpp_model(model)
                 model.move_model_to_device()
 
             else:
