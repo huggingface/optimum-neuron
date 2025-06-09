@@ -15,6 +15,7 @@
 """Neuron compiled model check and export functions."""
 
 import copy
+import tempfile
 import time
 from collections import OrderedDict
 from functools import partial
@@ -26,10 +27,10 @@ import torch
 from transformers import PreTrainedModel
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
-from ...neuron.cache.entries.multi_model import MultiModelCacheEntry
-from ...neuron.cache.entries.single_model import SingleModelCacheEntry
-from ...neuron.cache.traced import cache_traced_neuron_artifacts
-from ...neuron.utils import (
+from optimum.neuron.cache.entries.multi_model import MultiModelCacheEntry
+from optimum.neuron.cache.entries.single_model import SingleModelCacheEntry
+from optimum.neuron.cache.traced import cache_traced_neuron_artifacts
+from optimum.neuron.utils import (
     DiffusersPretrainedConfig,
     convert_neuronx_compiler_args_to_neuron,
     is_neuron_available,
@@ -350,10 +351,6 @@ def export_models(
     failed_models = []
     total_compilation_time = 0
     compile_configs = {}
-    # models_and_neuron_configs.pop("text_encoder")
-    # models_and_neuron_configs.pop("text_encoder_2")
-    # models_and_neuron_configs.pop("transformer")
-    models_and_neuron_configs.pop("vae_encoder")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -647,7 +644,8 @@ def trace_neuronx(
     if tensor_parallel_size > 1:
         # Tensor Parallelism
         if isinstance(model, BaseModelInstance):
-            # Case 1: Using `neuronx_distributed.trace.model_builder`
+            # Case 1: Using `neuronx_distributed.trace.model_builder`            
+            #TODO: from optimum.neuron.models.inference.nxd.backend.cache import neff_cache
             model_builder = ModelBuilder(
                 router=None,
                 debug=False,
@@ -655,15 +653,18 @@ def trace_neuronx(
                 checkpoint_loader=config.get_checkpoint_loader_fn,
                 compiler_workdir=compiler_workdir,
             )
+            subfolder = output.parts[1]
             model_builder.add(
-                key=config.MODEL_TYPE,
+                key=subfolder,
                 model_instance=model,
                 example_inputs=[dummy_inputs],
                 priority_model_idx=0,
                 compiler_args=compiler_args,
             )
             neuron_model = model_builder.trace(initialize_model_weights=True)
-            neuron_model.nxd_model.initialize_with_saved_weights(start_rank_tensor=torch.tensor([0]))
+            
+            model_builder.shard_checkpoint(serialize_path=output / "weights/")
+            torch.jit.save(neuron_model, output / "nxd_model.pt")
         else:
             # Case 2: Using `neuronx_distributed.trace.parallel_model_trace`
             neuron_model = neuronx_distributed.trace.parallel_model_trace(

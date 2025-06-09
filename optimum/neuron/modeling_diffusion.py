@@ -498,6 +498,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                         submodels[model_name] = None
             return submodels
 
+        # TODO: Initialize model
+        # neuron_model.nxd_model.initialize_with_saved_weights(start_rank_tensor=torch.tensor([0]))
         if data_parallel_mode == "all":
             logger.info("Loading the whole pipeline into both Neuron Cores...")
             submodels = _load_models_to_neuron(submodels=submodels, models_on_both_cores=list(submodels))
