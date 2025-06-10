@@ -15,48 +15,33 @@
 # Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/models/llama/modeling_llama.py
 """PyTorch LLaMA model for NXD inference."""
 
-import gc
 import logging
-import math
-import warnings
-from typing import Optional, Tuple, Type
 
-import torch
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
     ParallelEmbedding,
-    RowParallelLinear,
 )
-from neuronx_distributed.parallel_layers.mappings import (
-    gather_from_sequence_parallel_region,
-    reduce_from_tensor_model_parallel_region,
-    reduce_scatter_to_sequence_parallel_region,
-)
-from neuronxcc.nki._private_kernels.mlp import (
-    mlp_fused_add_isa_kernel,
-    mlp_isa_kernel,
-)
-from neuronxcc.nki.language import nc
 from torch import nn
-from torch_neuronx.xla_impl.ops import nki_jit
-from transformers.activations import ACT2FN
 from transformers.models.llama.modeling_llama import LlamaConfig, LlamaRMSNorm, LlamaRotaryEmbedding
 
 from ..backend.config import NxDNeuronConfig  # noqa: E402
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
 from ..backend.modules.attention.utils import (
     RotaryEmbedding,
-    transpose_parallel_linear_layer,
 )
-from ..backend.modules.custom_calls import CustomRMSNorm
-from ..backend.modules.decoder import NxDDecoderModel, NxDModelForCausalLM
-from ..llama.modeling_llama import LlamaNxDModelForCausalLM, NeuronLlamaAttention, NeuronLlamaDecoderLayer, NeuronLlamaMLP
+from ..backend.modules.decoder import NxDDecoderModel
+from ..llama.modeling_llama import (
+    LlamaNxDModelForCausalLM,
+    NeuronLlamaDecoderLayer,
+    NeuronLlamaMLP,
+)
+
 
 logger = logging.getLogger("Neuron")
 
 
-class NeuronQwen2Attention(NeuronLlamaAttention):
+class NeuronQwen2Attention(NeuronAttentionBase):
     """
     Compared with LlamaAttention, this class just
     1. replaces the q_proj, k_proj, v_proj with column parallel layer
@@ -67,7 +52,7 @@ class NeuronQwen2Attention(NeuronLlamaAttention):
     """
 
     def __init__(self, config: LlamaConfig, neuron_config: NxDNeuronConfig):
-        super().__init__(config, neuron_config)
+        super().__init__(config, neuron_config, qkv_bias=True)
         head_dim = config.hidden_size // config.num_attention_heads
         if not hasattr(config, "rope_scaling") or config.rope_scaling is None:
             self.rotary_emb = RotaryEmbedding(
@@ -100,7 +85,7 @@ class NeuronQwen2DecoderLayer(NeuronLlamaDecoderLayer):
     """
 
     def __init__(self, config: LlamaConfig, neuron_config: NxDNeuronConfig):
-        super().__init__()
+        super().__init__(config, neuron_config)
         self.hidden_size = config.hidden_size
         self.self_attn = NeuronQwen2Attention(config, neuron_config)
         self.mlp = NeuronLlamaMLP(config, neuron_config)
