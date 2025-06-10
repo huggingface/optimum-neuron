@@ -22,6 +22,7 @@ from typing import Dict, List, Optional
 
 from parameterized import parameterized
 from transformers import AutoConfig, AutoModelForSeq2SeqLM, set_seed
+from transformers import __version__ as transformers_version
 from transformers.testing_utils import require_vision
 
 from optimum.exporters.neuron import (
@@ -125,6 +126,11 @@ class NeuronExportTestCase(unittest.TestCase):
         dynamic_batch_size: bool = False,
         inline_weights_to_neff: bool = True,
     ):
+        # REMOVEME: convnextv2 contains a bug in the GRN layer, which is used in the convnextv2 model, but the bug has
+        # been fixed in the transformers library on newer versions. For more info see:
+        # https://github.com/huggingface/transformers/issues/38015
+        if model_type == "convnextv2" and transformers_version.startswith("4.51"):
+            self.skipTest("convnextv2 contains a bug in this version of transformers.")
         library_name = TasksManager.infer_library_from_model(model_name)
         if library_name == "sentence_transformers":
             model_class = TasksManager.get_model_class_for_task(task, framework="pt", library=library_name)

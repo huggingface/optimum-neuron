@@ -190,10 +190,16 @@ class HloModelForCausalLM(NeuronModelForCausalLM, GenerationMixin):
         neuron_config: HloNeuronConfig,
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
+        load_weights: Optional[bool] = True,
         **kwargs,
     ) -> "HloModelForCausalLM":
         if not os.path.isdir("/sys/class/neuron_device/"):
             raise SystemError("Decoder models can only be exported on a neuron platform.")
+
+        if not load_weights:
+            warnings.warn(
+                "Ignoring the `load_weights` argument set to False since weights are always loaded for these models."
+            )
 
         if os.path.isdir(model_id):
             checkpoint_dir = model_id
@@ -376,7 +382,11 @@ class HloModelForCausalLM(NeuronModelForCausalLM, GenerationMixin):
         return None if prefill else torch.tensor([cache_len - 1], dtype=torch.int32)
 
     def prepare_inputs_for_prefill(
-        self, input_ids: torch.Tensor, attention_mask: torch.Tensor, seq_ids: Optional[List[int]] = None
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        seq_ids: Optional[List[int]] = None,
+        sampling_params: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         start_ids = self.get_start_ids(input_ids, attention_mask, seq_ids=seq_ids)
         cache_ids = self.get_cache_ids(attention_mask, prefill=True)
@@ -400,6 +410,7 @@ class HloModelForCausalLM(NeuronModelForCausalLM, GenerationMixin):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         seq_ids: Optional[List[int]] = None,
+        sampling_params: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         start_ids = self.get_start_ids(input_ids, attention_mask, seq_ids=seq_ids)
         cache_ids = self.get_cache_ids(attention_mask, prefill=False)

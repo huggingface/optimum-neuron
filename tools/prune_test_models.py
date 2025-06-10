@@ -9,8 +9,12 @@ def main():
     parser.add_argument("--version", type=str, default="")
     args = parser.parse_args()
     api = HfApi()
-    models = api.list_models(search=f"optimum-internal-testing/neuron-testing-{args.version}")
+    model_prefix = f"optimum-internal-testing/neuron-testing-{args.version}"
+    models = api.list_models(search=model_prefix)
     for model in models:
+        if not model.id.startswith(model_prefix):
+            # Sanity check to ensure we only delete models that match the prefix
+            continue
         if args.yes:
             delete = True
         else:

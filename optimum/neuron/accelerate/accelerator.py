@@ -16,7 +16,6 @@
 
 import collections
 import contextlib
-import inspect
 import os
 import re
 import shutil
@@ -54,6 +53,7 @@ from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
 from ..utils.model_utils import get_tied_parameters_dict, tie_parameters
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from ..utils.torch_xla_and_neuronx_initialization import check_neuron_cc_flags_for_model
+from ..utils.training_utils import is_custom_modeling_model
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
@@ -307,9 +307,7 @@ class NeuronAccelerator(Accelerator):
         # If we use custom modeling, we do not have to do anything for now.
         # We will have to do some work when supporting ZeRO-1.
         model = self._models[0] if len(self._models) == 1 else None
-        if model is not None and inspect.getmodule(model.__class__).__name__.startswith(
-            "optimum.neuron.models.training"
-        ):
+        if model is not None and is_custom_modeling_model(model):
             return super().prepare_optimizer(optimizer, device_placement=device_placement)
 
         if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
@@ -454,7 +452,7 @@ class NeuronAccelerator(Accelerator):
         # we get access to the model, we simply check if the flags are the best and notify the user otherwise.
         check_neuron_cc_flags_for_model(model)
 
-        if inspect.getmodule(model.__class__).__name__.startswith("optimum.neuron.models.training"):
+        if is_custom_modeling_model(model):
             # We do not want to use the cache, or output unused tensors as it would imply more communication that we do not
             # need.
             model.config.use_cache = False

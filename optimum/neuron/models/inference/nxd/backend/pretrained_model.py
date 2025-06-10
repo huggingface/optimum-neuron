@@ -16,10 +16,13 @@ import copy
 import logging
 import os
 from functools import partial
-from typing import List, Optional
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import List, Optional, Union
 
 import neuronx_distributed.trace.hlo_utils as hlo_utils
 import torch
+from huggingface_hub import snapshot_download
 from neuronx_distributed.trace.model_builder import ModelBuilder
 from safetensors.torch import load_file
 from transformers import AutoModelForCausalLM, PretrainedConfig
@@ -179,7 +182,7 @@ class NxDPreTrainedModel:
         if hlo_utils.NXD_LAYOUT_TRANSFORMATION_OPTIONS in os.environ:
             sharder.transform_weight_layout_with_overriden_option(sharded_checkpoint_dir=shards_path)
 
-    def _load_weights(self, weights_path):
+    def _load_weights_from_path(self, weights_path):
         weights_path = normalize_path(weights_path)
 
         """Loads the model weights to the Neuron device."""
@@ -219,6 +222,46 @@ class NxDPreTrainedModel:
                 weights.append(ckpt)
         start_rank_tensor = torch.tensor([start_rank_id], dtype=torch.int32, device="cpu")
         self._traced_model.nxd_model.initialize(weights, start_rank_tensor)
+
+    def load_weights(
+        self,
+        model_name_or_path: Union[str, Path],
+        token: Optional[Union[bool, str]] = None,
+        cache_dir: Optional[str] = None,
+        force_download: Optional[bool] = False,
+        local_files_only: Optional[bool] = False,
+    ) -> None:
+        """Loads the model weights from the given path."""
+        if os.path.exists(model_name_or_path):
+            # Look first for pre-sharded weights
+            checkpoint_path = os.path.join(model_name_or_path, self.CHECKPOINT_DIR)
+            if os.path.exists(checkpoint_path):
+                self._load_weights_from_path(checkpoint_path)
+                return
+            # Fall-back to standard model weights, if any
+            try:
+                self._load_weights_from_path(model_name_or_path)
+                return
+            except FileNotFoundError:
+                logger.info(f"Checkpoint file not found in {model_name_or_path}, trying to load from HuggingFace Hub.")
+        if self.neuron_config.checkpoint_id is not None:
+            # Fetch weights from the checkpoint
+            checkpoint_dir = TemporaryDirectory()
+            os.chmod(checkpoint_dir.name, 0o775)
+            snapshot_download(
+                repo_id=self.neuron_config.checkpoint_id,
+                revision=self.neuron_config.checkpoint_revision,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                local_files_only=local_files_only,
+                token=token,
+                local_dir=checkpoint_dir.name,
+                allow_patterns=["*.safetensors*"],
+            )
+            self._load_weights_from_path(checkpoint_dir.name)
+            checkpoint_dir.cleanup()
+        else:
+            raise ValueError(f"Checkpoint file not found under {model_name_or_path}.")
 
     def checkpoint_loader_fn(self, checkpoint_path, config, neuron_config):
         """This function loads the model's state dictionary and weights from the hf model"""

@@ -94,11 +94,14 @@ class NxDGenerationMixin(GenerationMixin):
         do_sample = generation_config.do_sample
 
         batch_size = model_kwargs["attention_mask"].shape[0]
+        top_k = generation_config.top_k if do_sample else 1
+        top_p = generation_config.top_p if do_sample else 1.0
+        temperature = generation_config.temperature if do_sample else 1.0
         sampling_params = prepare_sampling_params(
             batch_size=batch_size,
-            top_k=generation_config.top_k,
-            top_p=generation_config.top_p,
-            temperature=generation_config.temperature,
+            top_k=top_k,
+            top_p=top_p,
+            temperature=temperature,
         )
         model_kwargs["sampling_params"] = sampling_params
 
