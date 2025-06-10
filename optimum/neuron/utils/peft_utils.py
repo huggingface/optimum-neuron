@@ -31,7 +31,7 @@ from .training_utils import _get_model_param_count
 
 
 if is_peft_available():
-    from peft import PeftModel
+    from peft import PeftConfig, PeftModel
     from peft import get_peft_model as orig_get_peft_model
     from peft.utils import (
         SAFETENSORS_WEIGHTS_NAME,
@@ -47,6 +47,9 @@ else:
     SAFETENSORS_WEIGHTS_NAME = WEIGHTS_NAME = ""
 
     class PeftModel:
+        pass
+
+    class PeftConfig:
         pass
 
     def orig_get_peft_model(*args, **kwargs):
