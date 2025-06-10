@@ -661,10 +661,10 @@ def trace_neuronx(
                 priority_model_idx=0,
                 compiler_args=compiler_args,
             )
-            neuron_model = model_builder.trace(initialize_model_weights=True)
+            neuron_model = model_builder.trace(initialize_model_weights=False)
             
-            model_builder.shard_checkpoint(serialize_path=output / "weights/")
-            torch.jit.save(neuron_model, output / "nxd_model.pt")
+            model_builder.shard_checkpoint(serialize_path=output.parent / "weights/")
+            torch.jit.save(neuron_model, output)
         else:
             # Case 2: Using `neuronx_distributed.trace.parallel_model_trace`
             neuron_model = neuronx_distributed.trace.parallel_model_trace(
