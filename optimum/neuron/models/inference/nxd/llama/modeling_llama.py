@@ -41,7 +41,7 @@ from neuronxcc.nki.language import nc
 from torch import nn
 from torch_neuronx.xla_impl.ops import nki_jit
 from transformers.activations import ACT2FN
-from transformers.models.llama.modeling_llama import LlamaConfig, LlamaRMSNorm, LlamaRotaryEmbedding
+from transformers.models.llama.modeling_llama import LlamaConfig, LlamaRotaryEmbedding
 
 from ..backend.config import NxDNeuronConfig  # noqa: E402
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
@@ -61,16 +61,19 @@ def convert_state_dict_to_fused_qkv(llama_state_dict, cfg: LlamaConfig):
     This function concats the qkv weights to a Wqkv weight for fusedqkv, and deletes the qkv weights.
     """
     for l in range(cfg.num_hidden_layers):  # noqa: E741
-        llama_state_dict[f"layers.{l}.self_attn.Wqkv.weight"] = torch.cat(
-            [
-                llama_state_dict[f"layers.{l}.self_attn.q_proj.weight"],
-                llama_state_dict[f"layers.{l}.self_attn.k_proj.weight"],
-                llama_state_dict[f"layers.{l}.self_attn.v_proj.weight"],
-            ],
-        )
-        del llama_state_dict[f"layers.{l}.self_attn.q_proj.weight"]
-        del llama_state_dict[f"layers.{l}.self_attn.k_proj.weight"]
-        del llama_state_dict[f"layers.{l}.self_attn.v_proj.weight"]
+        attn_prefix = f"layers.{l}.self_attn"
+        for t in "weight", "bias":
+            if f"{attn_prefix}.q_proj.{t}" in llama_state_dict:
+                llama_state_dict[f"{attn_prefix}.Wqkv.{t}"] = torch.cat(
+                    [
+                        llama_state_dict[f"{attn_prefix}.q_proj.{t}"],
+                        llama_state_dict[f"{attn_prefix}.k_proj.{t}"],
+                        llama_state_dict[f"{attn_prefix}.v_proj.{t}"],
+                    ],
+                )
+                del llama_state_dict[f"{attn_prefix}.q_proj.{t}"]
+                del llama_state_dict[f"{attn_prefix}.k_proj.{t}"]
+                del llama_state_dict[f"{attn_prefix}.v_proj.{t}"]
 
     gc.collect()
 
