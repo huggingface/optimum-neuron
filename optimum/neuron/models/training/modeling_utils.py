@@ -67,7 +67,6 @@ from transformers.utils import (
 )
 from transformers.utils.hub import get_checkpoint_shard_files
 
-from ...utils.errors import NotSupportedError
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from ...utils.misc import is_main_worker, is_precompilation
 from .transformations_utils import (
@@ -755,17 +754,17 @@ class NeuronModelMixin:
         gguf_file = kwargs.pop("gguf_file", None)
 
         if state_dict is not None:
-            raise NotSupportedError(
+            raise NotImplementedError(
                 "Providing a `state_dict` to `from_pretrained` is not supported in optimum-neuron."
             )
 
         if from_tf or from_flax:
-            raise NotSupportedError(
+            raise NotImplementedError(
                 "Loading from TensorFlow or Flax is not supported in optimum-neuron. Please use PyTorch weights."
             )
 
         if low_cpu_mem_usage is not None:
-            raise NotSupportedError("`low_cpu_mem_usage` is not supported in optimum-neuron.")
+            raise NotImplementedError("`low_cpu_mem_usage` is not supported in optimum-neuron.")
 
         # We support less features from the device_map since moving to device is handled by the compiler.
         # Only `None`, "xla" and "cpu" as device_map values are supported.
@@ -773,16 +772,16 @@ class NeuronModelMixin:
             raise RuntimeError('The only device map values supported are: `None`, "cpu" or "xla".')
 
         if offload_folder is not None or offload_state_dict:
-            raise NotSupportedError("`offload_folder` and `offload_state_dict` are not supported in optimum-neuron.")
+            raise NotImplementedError("`offload_folder` and `offload_state_dict` are not supported in optimum-neuron.")
 
         if load_in_8bit or load_in_4bit or quantization_config is not None:
-            raise NotSupportedError("Quantization is not supported yet.")
+            raise NotImplementedError("Quantization is not supported yet.")
 
         if gguf_file is not None:
-            raise NotSupportedError("GGUF files are not supported in optimum-neuron.")
+            raise NotImplementedError("GGUF files are not supported in optimum-neuron.")
 
         if adapter_name is not None or adapter_kwargs is not None:
-            raise NotSupportedError(
+            raise NotImplementedError(
                 "Loading adapters directly from {cls.__name__}.from_pretrained is not supported. "
                 "Please use the NeuronPeftModelForXXX classes to load adapters."
             )
@@ -855,7 +854,7 @@ class NeuronModelMixin:
             _adapter_model_path = None
 
         if _adapter_model_path is not None:
-            raise NotSupportedError(
+            raise NotImplementedError(
                 f"Loading adapters directly from {cls.__name__}.from_pretrained is not supported. "
                 "Please use the NeuronPeftModelForXXX classes to load adapters."
             )
@@ -910,7 +909,7 @@ class NeuronModelMixin:
             pre_quantized = False
 
         if pre_quantized or quantization_config is not None:
-            raise NotSupportedError("Quantization is not supported in optimum-neuron.")
+            raise NotImplementedError("Quantization is not supported in optimum-neuron.")
 
         # This variable will flag if we're loading a sharded checkpoint. In this case the archive file is just the
         # index of the files.

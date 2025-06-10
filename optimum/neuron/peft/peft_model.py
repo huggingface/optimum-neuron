@@ -30,7 +30,6 @@ from ..models.training import (
     specialize_transformation_specs_for_model,
     to_original_peft_config_for_model,
 )
-from ..utils.errors import NotSupportedError
 from ..utils.import_utils import is_peft_available
 from ..utils.patching import Patcher
 from ..utils.training_utils import _get_model_param_count
@@ -313,7 +312,7 @@ class NeuronPeftModel(PeftModel):
         else:
             config.inference_mode = not is_trainable
         if isinstance(getattr(model, "base_model", None), XLoraModel):
-            raise NotSupportedError(
+            raise NotImplementedError(
                 "XLoraModel is not supported in Optimum Neuron. Please use open an issue or a PR if needed."
             )
 

@@ -28,7 +28,6 @@ import torch
 
 from optimum.utils import logging
 
-from ...utils.errors import NotSupportedError
 from ...utils.import_utils import is_neuronx_distributed_available, is_peft_available
 
 
@@ -184,7 +183,7 @@ class ModelWeightTransformationSpec:
                 inplace=inplace,
             )
         else:
-            raise NotSupportedError(
+            raise NotImplementedError(
                 f"PEFT type {self.peft_type} is not supported for the transformation spec {self.__class__.__name__}."
             )
 
@@ -232,7 +231,7 @@ class ModelWeightTransformationSpec:
                 module_fully_qualified_name, sharded_state_dicts, parameters_metadata
             )
         else:
-            raise NotSupportedError(
+            raise NotImplementedError(
                 f"PEFT type {self.peft_type} is not supported for the transformation spec {self.__class__.__name__}."
             )
 
@@ -396,7 +395,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                     target_modules.remove(name)
                 target_modules.add(self.fused_linear_name)
         else:
-            raise NotSupportedError(
+            raise NotImplementedError(
                 f"PEFT type {peft_config.peft_type} is not supported for the transformation spec {self.__class__.__name__}."
             )
         return peft_config
@@ -410,7 +409,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 for name in self.linear_names:
                     target_modules.add(name)
         else:
-            raise NotSupportedError(
+            raise NotImplementedError(
                 f"PEFT type {peft_config.peft_type} is not supported for the transformation spec {self.__class__.__name__}."
             )
         return peft_config
@@ -878,7 +877,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                     target_modules.remove(name)
                 target_modules.add(self.gqa_qkv_projection_name)
         else:
-            raise NotSupportedError(
+            raise NotImplementedError(
                 f"PEFT type {peft_config.peft_type} is not supported for the transformation spec {self.__class__.__name__}."
             )
         return peft_config
@@ -893,7 +892,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                 target_modules.add(self.key_projection_name)
                 target_modules.add(self.value_projection_name)
         else:
-            raise NotSupportedError(
+            raise NotImplementedError(
                 f"PEFT type {peft_config.peft_type} is not supported for the transformation spec {self.__class__.__name__}."
             )
         return peft_config

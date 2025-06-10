@@ -19,7 +19,6 @@ from typing import Any, Union
 import torch
 from torch import nn
 
-from ....utils.errors import NotSupportedError
 from ....utils.import_utils import is_neuronx_distributed_available, is_peft_available
 
 
@@ -106,15 +105,17 @@ class NeuronLoraLayer(LoraLayer):
         elif isinstance(base_layer, BaseParallelLinear):
             in_features, out_features = base_layer.input_size, base_layer.output_size
         elif isinstance(base_layer, nn.Conv2d):
-            raise NotSupportedError("Conv2d is not supported for LoRA with optimum-neuron.")
+            raise NotImplementedError("Conv2d is not supported for LoRA with optimum-neuron.")
         elif isinstance(base_layer, nn.Conv3d):
-            raise NotSupportedError("Conv3d is not supported for LoRA with optimum-neuron.")
+            raise NotImplementedError("Conv3d is not supported for LoRA with optimum-neuron.")
         elif isinstance(base_layer, NxDParallelEmbedding):
             in_features, out_features = base_layer.num_embeddings, base_layer.embedding_dim
         elif isinstance(base_layer, nn.Conv1d):
-            raise NotSupportedError("Conv1d is not supported for LoRA with optimum-neuron.")
+            raise NotImplementedError("Conv1d is not supported for LoRA with optimum-neuron.")
         else:
-            raise NotSupportedError(f"LoRA is not supported for {base_layer.__class__.__name__} with optimum-neuron.")
+            raise NotImplementedError(
+                f"LoRA is not supported for {base_layer.__class__.__name__} with optimum-neuron."
+            )
 
         self.in_features = in_features
         self.out_features = out_features

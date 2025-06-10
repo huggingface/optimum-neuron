@@ -41,9 +41,6 @@ _import_structure = {
         "ENCODER_NAME",
         "NEURON_FILE_NAME",
     ],
-    "errors": [
-        "NotSupportedError",
-    ],
     "import_utils": [
         "is_accelerate_available",
         "is_neuron_available",
@@ -115,7 +112,6 @@ if TYPE_CHECKING:
         ENCODER_NAME,
         NEURON_FILE_NAME,
     )
-    from .errors import NotSupportedError
     from .import_utils import (
         is_accelerate_available,
         is_neuron_available,
