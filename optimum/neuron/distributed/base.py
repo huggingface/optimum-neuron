@@ -16,7 +16,6 @@
 
 import contextlib
 import gc
-import inspect
 import math
 from abc import ABC, abstractclassmethod
 from collections import defaultdict
@@ -38,6 +37,7 @@ from ..utils.model_utils import (
 from ..utils.patching import Patcher
 from ..utils.peft_utils import NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
+from ..utils.training_utils import is_custom_modeling_model
 from .parallel_layers import (
     IOSequenceParallelizer,
     LayerNormSequenceParallelizer,
@@ -83,7 +83,7 @@ class SequenceParallelismSpecs:
     @abstractclassmethod
     def patch_for_sequence_parallelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         """
-        This method needs to be overriden. It must patch anything model-specfic to make the model compatible with
+        This method needs to be overridden. It must patch anything model-specfic to make the model compatible with
         sequence parallelism.
         """
         if sequence_parallel_enabled:
@@ -561,7 +561,7 @@ class Parallelizer(ABC):
         model_class = orig_model.__class__
 
         # We skip parallelization if the model is coming from a custom modeling since it is already parallelized.
-        if inspect.getmodule(orig_model.__class__).__name__.startswith("optimum.neuron.models.training"):
+        if is_custom_modeling_model(model):
             return orig_model
 
         if peft_prefix:
@@ -595,7 +595,7 @@ class Parallelizer(ABC):
         sequence_parallel_enabled = sequence_parallel_enabled and tp_size > 1
 
         # Parallelizing the model.
-        # This needs to be done prior to preparing the model for sequence parallelism because modules can be overriden.
+        # This needs to be done prior to preparing the model for sequence parallelism because modules can be overridden.
         name_to_parameter = dict(model.named_parameters(remove_duplicate=False))
         parameter_to_name = {p: n for n, p in name_to_parameter.items()}
 

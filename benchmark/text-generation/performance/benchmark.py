@@ -21,15 +21,13 @@ def generate(model, input_ids, max_new_tokens):
     return output_tokens, (end - start)
 
 
-def run(model_id, inc_length, max_length, json_path=None):
+def run(model, tokenizer, inc_length, max_length, json_path=None):
     # Encode the reference prompt
     local_path = os.path.dirname(os.path.realpath(__file__))
     with open(os.path.join(local_path, "wiki.txt")) as f:
         prompt = f.read()
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokens = tokenizer([prompt], return_tensors="pt")
     # Evaluate the batch size
-    model = NeuronModelForCausalLM.from_pretrained(model_id, export=False, low_cpu_mem_usage=True)
     batch_size = model.neuron_config.batch_size
 
     def get_input_ids(tokens, batch_size, input_length):
@@ -65,11 +63,14 @@ if __name__ == "__main__":
     parser.add_argument("--inc-length", type=int, default=512, help="The number of tokens in each increment.")
     parser.add_argument("--max-length", type=int, default=4096, help="The maximum number of generated tokens.")
     parser.add_argument("--seed", type=int, default=None, help="Pass a seed for reproducibility.")
+    parser.add_argument("--name", type=str, default=None, help="Name to use to save the results.")
     args = parser.parse_args()
     if args.seed is not None:
         set_seed(args.seed)
-    model_name = os.path.basename(os.path.normpath(args.model))
-    benchmark = run(args.model, args.inc_length, args.max_length, json_path=f"{model_name}.json")
+    model = NeuronModelForCausalLM.from_pretrained(args.model, export=False, low_cpu_mem_usage=True)
+    model_name = os.path.basename(model.neuron_config.checkpoint_id) if args.name is None else args.name
+    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    benchmark = run(model, tokenizer, args.inc_length, args.max_length, json_path=f"{model_name}.json")
     # Dump encoding times
     print(f"{benchmark['neuron_config']}")
     results = benchmark["results"]

@@ -38,6 +38,8 @@ def get_hash_module(hlo_module, flags):
     hash_gen = hashlib.sha256()
     text = str(hlo_module)
     if flags is not None:
+        if isinstance(flags, list):
+            flags = "".join(flags)
         text += flags.replace(" ", "")
     hash_gen.update(text.encode("utf-8"))
     hash = str(hash_gen.hexdigest())[:20]

@@ -73,7 +73,7 @@ from .transformations_utils import (
     adapt_state_dict,
     create_parameter_metadata,
     get_tensor_model_parallel_attributes,
-    set_module_names_in_transformation_specs,
+    specialize_transformation_specs_for_model,
 )
 
 
@@ -113,10 +113,6 @@ MODEL_PARALLEL_SHARDS_DIR_NAME = "shards"
 ALL_ATTENTION_FUNCTIONS: Dict[str, Dict[str, Callable]] = {
     "flash_attention_2": nki_flash_attn_func,
 }
-
-
-class NotSupportedError(Exception):
-    pass
 
 
 def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):
@@ -578,7 +574,7 @@ class NeuronModelMixin:
                             and state_dict[checkpoint_key].numel() * 2 == model_state_dict[model_key].numel()
                         ):
                             # This skips size mismatches for 4-bit weights. Two 4-bit values share an 8-bit container, causing size differences.
-                            # Without matching with module type or paramter type it seems like a practical way to detect valid 4bit weights.
+                            # Without matching with module type or parameter type it seems like a practical way to detect valid 4bit weights.
                             pass
                         else:
                             mismatched_keys.append(
@@ -591,8 +587,8 @@ class NeuronModelMixin:
         # We do not handle the `device_map` here, since our cases are much simpler.
 
         # ** Difference from original _load_pretrained_model **
-        # We set the module names in the transformation specs, this is required to have the specs properly defined.
-        set_module_names_in_transformation_specs(model_to_load)
+        # We specialize the transformation specs for the model, this is required to have the specs properly defined.
+        specialize_transformation_specs_for_model(model_to_load)
 
         # ** Difference from original _load_pretrained_model **
         # We do not add GGUF or low_cpu_mem_usage related code here.
@@ -656,9 +652,9 @@ class NeuronModelMixin:
             # We do not add the offload_index code here, since we do not support it.
 
         # ** Difference from original _load_pretrained_model **
-        # We set the modules names using the full model regardless of prefixes.
+        # We specialize the specs on the full model regardless of prefixes.
         # This is this name that will be saved and used when re-loading the model.
-        set_module_names_in_transformation_specs(model)
+        specialize_transformation_specs_for_model(model)
 
         if len(error_msgs) > 0:
             error_msg = "\n\t".join(error_msgs)
@@ -751,24 +747,24 @@ class NeuronModelMixin:
         subfolder = kwargs.pop("subfolder", "")
         commit_hash = kwargs.pop("_commit_hash", None)
         variant = kwargs.pop("variant", None)
-        adapter_kwargs = kwargs.pop("adapter_kwargs", {})
-        adapter_name = kwargs.pop("adapter_name", "default")
+        adapter_kwargs = kwargs.pop("adapter_kwargs", None)
+        adapter_name = kwargs.pop("adapter_name", None)
         use_flash_attention_2 = kwargs.pop("use_flash_attention_2", False)
         kwargs.pop("generation_config", None)
         gguf_file = kwargs.pop("gguf_file", None)
 
         if state_dict is not None:
-            raise NotSupportedError(
+            raise NotImplementedError(
                 "Providing a `state_dict` to `from_pretrained` is not supported in optimum-neuron."
             )
 
         if from_tf or from_flax:
-            raise NotSupportedError(
+            raise NotImplementedError(
                 "Loading from TensorFlow or Flax is not supported in optimum-neuron. Please use PyTorch weights."
             )
 
         if low_cpu_mem_usage is not None:
-            raise NotSupportedError("`low_cpu_mem_usage` is not supported in optimum-neuron.")
+            raise NotImplementedError("`low_cpu_mem_usage` is not supported in optimum-neuron.")
 
         # We support less features from the device_map since moving to device is handled by the compiler.
         # Only `None`, "xla" and "cpu" as device_map values are supported.
@@ -776,13 +772,19 @@ class NeuronModelMixin:
             raise RuntimeError('The only device map values supported are: `None`, "cpu" or "xla".')
 
         if offload_folder is not None or offload_state_dict:
-            raise NotSupportedError("`offload_folder` and `offload_state_dict` are not supported in optimum-neuron.")
+            raise NotImplementedError("`offload_folder` and `offload_state_dict` are not supported in optimum-neuron.")
 
         if load_in_8bit or load_in_4bit or quantization_config is not None:
-            raise NotSupportedError("Quantization is not supported yet.")
+            raise NotImplementedError("Quantization is not supported yet.")
 
         if gguf_file is not None:
-            raise NotSupportedError("GGUF files are not supported in optimum-neuron.")
+            raise NotImplementedError("GGUF files are not supported in optimum-neuron.")
+
+        if adapter_name is not None or adapter_kwargs is not None:
+            raise NotImplementedError(
+                "Loading adapters directly from {cls.__name__}.from_pretrained is not supported. "
+                "Please use the NeuronPeftModelForXXX classes to load adapters."
+            )
 
         # ** Difference from original from_pretrained **
         # Here we ignore the `tp_plan` argument and handle tensor parallelism ourselves.
@@ -801,9 +803,6 @@ class NeuronModelMixin:
                     "`token` and `use_auth_token` are both specified. Please set only the argument `token`."
                 )
             token = use_auth_token
-
-        if token is not None and adapter_kwargs is not None and "token" not in adapter_kwargs:
-            adapter_kwargs["token"] = token
 
         if use_safetensors is None and not is_safetensors_available():
             use_safetensors = False
@@ -836,25 +835,29 @@ class NeuronModelMixin:
                 commit_hash = getattr(config, "_commit_hash", None)
 
         if is_peft_available():
-            _adapter_model_path = adapter_kwargs.pop("_adapter_model_path", None)
-
-            if _adapter_model_path is None:
-                _adapter_model_path = find_adapter_config_file(
-                    pretrained_model_name_or_path,
-                    cache_dir=cache_dir,
-                    force_download=force_download,
-                    resume_download=resume_download,
-                    proxies=proxies,
-                    local_files_only=local_files_only,
-                    _commit_hash=commit_hash,
-                    **adapter_kwargs,
-                )
+            # We do not support loading adapters directly from the `from_pretrained` method.
+            # We check if the provided model name or path is an adapter, and fail if needed.
+            _adapter_model_path = find_adapter_config_file(
+                pretrained_model_name_or_path,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                resume_download=resume_download,
+                proxies=proxies,
+                local_files_only=local_files_only,
+                _commit_hash=commit_hash,
+            )
             if _adapter_model_path is not None and os.path.isfile(_adapter_model_path):
                 with open(_adapter_model_path, "r", encoding="utf-8") as f:
                     _adapter_model_path = pretrained_model_name_or_path
                     pretrained_model_name_or_path = json.load(f)["base_model_name_or_path"]
         else:
             _adapter_model_path = None
+
+        if _adapter_model_path is not None:
+            raise NotImplementedError(
+                f"Loading adapters directly from {cls.__name__}.from_pretrained is not supported. "
+                "Please use the NeuronPeftModelForXXX classes to load adapters."
+            )
 
         user_agent = {"file_type": "model", "framework": "pytorch", "from_auto_class": from_auto_class}
         if from_pipeline is not None:
@@ -906,7 +909,7 @@ class NeuronModelMixin:
             pre_quantized = False
 
         if pre_quantized or quantization_config is not None:
-            raise NotSupportedError("Quantization is not supported in optimum-neuron.")
+            raise NotImplementedError("Quantization is not supported in optimum-neuron.")
 
         # This variable will flag if we're loading a sharded checkpoint. In this case the archive file is just the
         # index of the files.
@@ -1367,14 +1370,6 @@ class NeuronModelMixin:
         # ** Difference from original from_pretrained **
         # We skip the code about the hf_quantizer, not supported.
 
-        if _adapter_model_path is not None:
-            model.load_adapter(
-                _adapter_model_path,
-                adapter_name=adapter_name,
-                token=token,
-                adapter_kwargs=adapter_kwargs,
-            )
-
         if device_map == "xla":
             move_model_to_device(model, xm.xla_device())
 
@@ -1435,8 +1430,6 @@ class NeuronModelMixin:
         if token is not None:
             kwargs["token"] = token
 
-        _hf_peft_config_loaded = getattr(self, "_hf_peft_config_loaded", False)
-
         if "save_config" in kwargs:
             warnings.warn(
                 "`save_config` is deprecated and will be removed in v5 of Transformers. Use `is_main_process` instead."
@@ -1495,53 +1488,25 @@ class NeuronModelMixin:
 
         # Save the config
         if is_main_process:
-            if not _hf_peft_config_loaded:
-                # If the model config has set attributes that should be in the generation config, move them there.
-                misplaced_generation_parameters = model_to_save.config._get_non_default_generation_parameters()
-                if self.can_generate() and len(misplaced_generation_parameters) > 0:
-                    warnings.warn(
-                        "Moving the following attributes in the config to the generation config: "
-                        f"{misplaced_generation_parameters}. You are seeing this warning because you've set "
-                        "generation parameters in the model config, as opposed to in the generation config.",
-                        UserWarning,
-                    )
-                    for param_name, param_value in misplaced_generation_parameters.items():
-                        setattr(model_to_save.generation_config, param_name, param_value)
-                        setattr(model_to_save.config, param_name, None)
+            # If the model config has set attributes that should be in the generation config, move them there.
+            misplaced_generation_parameters = model_to_save.config._get_non_default_generation_parameters()
+            if self.can_generate() and len(misplaced_generation_parameters) > 0:
+                warnings.warn(
+                    "Moving the following attributes in the config to the generation config: "
+                    f"{misplaced_generation_parameters}. You are seeing this warning because you've set "
+                    "generation parameters in the model config, as opposed to in the generation config.",
+                    UserWarning,
+                )
+                for param_name, param_value in misplaced_generation_parameters.items():
+                    setattr(model_to_save.generation_config, param_name, param_value)
+                    setattr(model_to_save.config, param_name, None)
 
-                model_to_save.config.save_pretrained(save_directory)
+            model_to_save.config.save_pretrained(save_directory)
             if self.can_generate():
                 model_to_save.generation_config.save_pretrained(save_directory)
 
-            if _hf_peft_config_loaded:
-                logger.info(
-                    "Detected adapters on the model, saving the model in the PEFT format, only adapter weights will be saved."
-                )
-                state_dict = model_to_save.get_adapter_state_dict()
-
-                if save_peft_format:
-                    logger.info(
-                        "To match the expected format of the PEFT library, all keys of the state dict of adapters will be pre-pended with `base_model.model`."
-                    )
-                    peft_state_dict = {}
-                    for key, value in state_dict.items():
-                        peft_state_dict[f"base_model.model.{key}"] = value
-                    state_dict = peft_state_dict
-
-                active_adapter = self.active_adapters()
-
-                if len(active_adapter) > 1:
-                    raise ValueError(
-                        "Multiple active adapters detected, saving multiple active adapters is not supported yet. You can save adapters separately one by one "
-                        "by iteratively calling `model.set_adapter(adapter_name)` then `model.save_pretrained(...)`"
-                    )
-                active_adapter = active_adapter[0]
-
-                current_peft_config = self.peft_config[active_adapter]
-                current_peft_config.save_pretrained(save_directory)
-
             with open(save_directory / "trn_config.json", "w") as f:
-                mp_config_data = asdict(self.trn_config)
-                if isinstance(mp_config_data["checkpoint_dir"], Path):
-                    mp_config_data["checkpoint_dir"] = mp_config_data["checkpoint_dir"].as_posix()
-                f.write(json.dumps(mp_config_data, indent=4))
+                trn_config_data = asdict(self.trn_config)
+                if isinstance(trn_config_data["checkpoint_dir"], Path):
+                    trn_config_data["checkpoint_dir"] = trn_config_data["checkpoint_dir"].as_posix()
+                f.write(json.dumps(trn_config_data, indent=4))

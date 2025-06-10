@@ -35,6 +35,7 @@ from optimum.utils import is_diffusers_available, logging
 from optimum.utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
 
 from ...neuron.models.auto_model import get_neuron_model_class, has_neuron_model_class
+from ...neuron.models.inference.hlo.backend.modeling_decoder import HloModelForCausalLM
 from ...neuron.utils import (
     DECODER_NAME,
     DIFFUSION_MODEL_CONTROLNET_NAME,
@@ -711,7 +712,7 @@ def main_export(
             )
         except Exception as e:
             logger.error(
-                f"An error occured with the error message: {e}.\n The exported model was saved at: {output.as_posix()}"
+                f"An error occurred with the error message: {e}.\n The exported model was saved at: {output.as_posix()}"
             )
 
 
@@ -747,6 +748,7 @@ def maybe_export_from_neuron_model_class(
     if not has_neuron_model_class(model_type=config.model_type, task=task, mode="inference"):
         return False
     neuron_model_class = get_neuron_model_class(model_type=config.model_type, task=task, mode="inference")
+    is_hlo = issubclass(neuron_model_class, HloModelForCausalLM)
     neuron_model = neuron_model_class.from_pretrained(
         model_id=model,
         export=True,
@@ -754,6 +756,7 @@ def maybe_export_from_neuron_model_class(
         subfolder=subfolder,
         config=config,
         trust_remote_code=trust_remote_code,
+        load_weights=True if is_hlo else False,  # Reduce model size for nxd models
         **kwargs,
     )
     if not output.parent.exists():
