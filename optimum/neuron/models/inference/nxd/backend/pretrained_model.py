@@ -201,12 +201,12 @@ class NxDPreTrainedModel:
 
         if os.path.exists(get_shard_name(start_rank_id)):
             # If sharded checkpoints exist, load them
-            print(f"Loading sharded checkpoint from {shards_path}")
+            logger.info(f"Loading sharded checkpoint from {shards_path}")
             for rank in range(start_rank_id, start_rank_id + local_ranks_size):
                 ckpt = load_file(get_shard_name(rank))
                 weights.append(ckpt)
         else:
-            print("There are no saved sharded checkpoints.")
+            logger.info("There are no saved sharded checkpoints.")
             checkpoint_loader = partial(self.checkpoint_loader_fn, weights_path, self.config, self.neuron_config)
             sharder = get_builder(
                 self.neuron_config,
@@ -217,7 +217,7 @@ class NxDPreTrainedModel:
             )
             source_model_key = list(sharder.model_collection.keys())[0]
             for rank in range(start_rank_id, start_rank_id + local_ranks_size):
-                print(f"Sharding and loading rank {rank}")
+                logger.info(f"Sharding and loading rank {rank}")
                 ckpt = sharder.shard_weights(rank, sharder.model_collection[source_model_key])
                 weights.append(ckpt)
         start_rank_tensor = torch.tensor([start_rank_id], dtype=torch.int32, device="cpu")
@@ -270,7 +270,7 @@ class NxDPreTrainedModel:
         if neuron_config.torch_dtype != torch.float32:
             for name, param in model_sd.items():
                 if torch.is_floating_point(param) and param.dtype is not neuron_config.torch_dtype:
-                    logger.info(f"Converting {name} to {neuron_config.torch_dtype}")
+                    logger.debug(f"Converting {name} to {neuron_config.torch_dtype}")
                     model_sd[name] = param.to(neuron_config.torch_dtype)
         return model_sd
 
