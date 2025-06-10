@@ -124,7 +124,7 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17)
     if isinstance(model, NxDModelForCausalLM):
         expectations = {
-            "llama": " And how does it differ from other Machine Learning approaches?\nDeep learning is a type of",
+            "llama": " and how does it work?\nDeep learning is a subset of machine learning that uses artificial",
             "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
             "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
             "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
@@ -152,12 +152,12 @@ def test_decoder_generation_multiple_eos_token_ids(model_and_tokenizer):
     if not isinstance(generation_config.eos_token_id, list):
         generation_config.eos_token_id = [generation_config.eos_token_id]
     generation_config.max_new_tokens = 256
-    outputs = model.generate(**tokens, do_sample=True, generation_config=generation_config)
+    outputs = model.generate(**tokens, do_sample=False, generation_config=generation_config)
     # Extract the last non-eos generated token and use it as a fake eos_token_id
     fake_eos_token_id = outputs[0, -2]
     generation_config.eos_token_id.append(fake_eos_token_id)
     # Generate again an verify we stopped on that id
-    outputs = model.generate(**tokens, do_sample=True, generation_config=generation_config)
+    outputs = model.generate(**tokens, do_sample=False, generation_config=generation_config)
     assert outputs[0, -1] == fake_eos_token_id
 
 
@@ -232,7 +232,7 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
         "attention_mask": inputs.attention_mask,
         "seq_ids": torch.tensor([0]),
     }
-    if nxd_backend:
+    if nxd_backend and on_device_sampling:
         first_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
     first_generated_tokens = get_next_tokens(**model.prepare_inputs_for_prefill(**first_inputs))
     # Decode a few tokens
@@ -249,7 +249,7 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
         "attention_mask": inputs.attention_mask,
         "seq_ids": torch.tensor([2]),
     }
-    if nxd_backend:
+    if nxd_backend and on_device_sampling:
         second_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
     second_generated_tokens = get_next_tokens(**model.prepare_inputs_for_prefill(**second_inputs))
     # Resize the second request attention mask to the size of the first request
@@ -261,7 +261,7 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
         "attention_mask": torch.cat([first_inputs["attention_mask"], second_attention_mask], dim=0),
         "seq_ids": torch.tensor([0, 2]),
     }
-    if nxd_backend:
+    if nxd_backend and on_device_sampling:
         two_requests_inputs["sampling_params"] = prepare_sampling_params(batch_size=2)
     # Decode more tokens
     for _ in range(10):
