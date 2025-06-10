@@ -16,6 +16,7 @@
 import collections
 import contextlib
 import copy
+import functools
 import gc
 import json
 import logging as python_logging
@@ -187,16 +188,45 @@ def get_pipeline_parameters_for_current_stage(model) -> set[str]:
     return parameter_names
 
 
+class MetaParametersOnly:
+    """
+    Context manager that forces all nn.Parameter creations to use the meta device while leaving buffers on the CPU
+    device.
+    """
+
+    def __init__(self):
+        self.original_parameter_new = nn.Parameter.__new__
+
+        @functools.wraps(self.original_parameter_new)
+        def patched_parameter_new(cls, data=None, requires_grad=True):
+            with torch.device("meta"):
+                return self.original_parameter_new(cls, data, requires_grad)
+
+        self.patched_parameter_new = patched_parameter_new
+
+    def __enter__(self):
+        nn.Parameter.__new__ = self.patched_parameter_new
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        nn.Parameter.__new__ = self.original_parameter_new
+
+
 def move_params_to_cpu(model: nn.Module, param_names: Iterable[str]):
     param_names_set = set(param_names)
+
     for name, param in model.named_parameters():
         if name in param_names_set:
-            cpu_param = torch.empty_like(param, device="cpu")
+            cpu_tensor = torch.empty_like(param, device="cpu")
+            cpu_param = nn.Parameter(cpu_tensor)
+            tensor_model_parallel_attributes = get_tensor_model_parallel_attributes(param)
+            for attr_name, attr in tensor_model_parallel_attributes.items():
+                setattr(cpu_param, attr_name, attr)
             module = model
             parts = name.split(".")
             for part in parts[:-1]:
                 module = getattr(module, part)
-            setattr(module, parts[-1], nn.Parameter(cpu_param))
+            setattr(module, parts[-1], cpu_param)
 
 
 def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):
@@ -520,12 +550,6 @@ class NeuronModelMixin:
             state_dict = load_state_dict(
                 resolved_archive_file[0], is_quantized=False, map_location=None, weights_only=weights_only
             )
-            for key in list(state_dict.keys()):
-                # If the key is a parameter that is not needed for the current pipeline stage, we remove it.
-                if key not in parameters_to_load:
-                    del state_dict[key]
-            gc.collect()
-
             loaded_keys = list(state_dict.keys())
 
         # ** Difference from original _load_pretrained_model **
@@ -753,11 +777,6 @@ class NeuronModelMixin:
                 state_dict = load_state_dict(
                     shard_file, is_quantized=False, map_location=None, weights_only=weights_only
                 )
-                for key in list(state_dict.keys()):
-                    # If the key is a parameter that is not needed for the current pipeline stage, we remove it.
-                    if key not in parameters_to_load:
-                        del state_dict[key]
-                gc.collect()
 
             # ** Difference from original _load_state_dict_into_model **
             # We adapt the state dict to the custom model.
@@ -769,7 +788,16 @@ class NeuronModelMixin:
                 parameters_to_consider=parameters_to_load,
             )
 
-            print(f"PP rank {get_pipeline_model_parallel_rank()} loading checkpoint shard {state_dict.keys()}")
+            # We need to remove the keys only after adapting the state dict otherwise the parameter names might not
+            # match between the custom model and the checkpoint.
+            for key in list(state_dict.keys()):
+                # If the key is a parameter that is not needed for the current pipeline stage, we remove it.
+                if key not in parameters_to_load:
+                    del state_dict[key]
+            gc.collect()
+
+            if get_pipeline_model_parallel_size() > 1:
+                move_params_to_cpu(model_to_load, parameters_to_load)
 
             # Mistmatched keys contains tuples key/shape1/shape2 of weights in the checkpoint that have a shape not
             # matching the weights in the model.
@@ -1432,9 +1460,9 @@ class NeuronModelMixin:
         # Instantiate model.
         init_contexts = [no_init_weights()]
 
-        # If we are using pipeline parallelism, we need to use the meta device for the model because it might be huge.
+        # If we are using pipeline parallelism, we need to use the meta device for parameters only while keeping buffers on CPU.
         if get_pipeline_model_parallel_size() > 1:
-            init_contexts.append(torch.device("meta"))
+            init_contexts.append(MetaParametersOnly())
 
         # ** Difference from original from_pretrained **
         # In the original from_pretrained implementation there is deepspeed and low_cpu_mem_usage code for
@@ -1536,7 +1564,13 @@ class NeuronModelMixin:
         # If weights are initially tied, we still copy the value but we do not tie them.
         if should_fake_tie:
             with torch.no_grad():
-                model.get_output_embeddings().weight.data.copy_(model.get_input_embeddings().weight)
+                if (
+                    model.get_input_embeddings().weight.device.type == "meta"
+                    or model.get_output_embeddings().weight.device.type == "meta"
+                ):
+                    logger.warning("Either the input or output embeddings are on the meta device, cannot tie them.")
+                else:
+                    model.get_output_embeddings().weight.data.copy_(model.get_input_embeddings().weight)
 
         if output_loading_info:
             if loading_info is None:

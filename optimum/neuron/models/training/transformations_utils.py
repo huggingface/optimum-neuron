@@ -1499,7 +1499,7 @@ def adapt_state_dict(
     named_parameters = dict(model.named_parameters())
     if parameters_to_consider is not None:
         named_parameters = {n: p for n, p in named_parameters.items() if n in parameters_to_consider}
-    
+
     original_data_ptrs = {n: p.data_ptr() for n, p in state_dict.items()}
     original_state_dict_keys = set(state_dict.keys())
     for name, module in model.named_modules():
@@ -1523,12 +1523,8 @@ def adapt_state_dict(
 
     adapter_name = peft_kwargs.pop("adapter_name", None)
 
-    print("New keys added to the state dict:", new_keys)
-    print("Keys mutated in the state dict:", mutated_keys)
-
     for name, param in model.named_parameters():
         name_without_adapter_name = remove_adapter_name(name)
-        print("Processing parameter:", name, name in parameters_to_consider if parameters_to_consider else "N/A")
         if parameters_to_consider is not None and name not in parameters_to_consider:
             continue
         if is_base_layer(name_without_adapter_name):

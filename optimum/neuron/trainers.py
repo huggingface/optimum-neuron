@@ -859,7 +859,6 @@ class _TrainerForNeuron:
 
         self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
-        print("zazou", type(self.model))
         if not isinstance(model, NxDPPModel):
             self.model.train()
 
