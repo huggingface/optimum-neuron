@@ -658,11 +658,14 @@ def adapt_state_dict(
     state_dict: Dict[str, torch.Tensor],
     upstanding_sharded_params: Dict[str, torch.Tensor],
     inplace: bool = False,
+    parameters_to_consider: Optional[set[str]] = None,
 ) -> Dict[str, torch.Tensor]:
     """
     Transforms the state dict from the original Transformers model to match the custom modeling implementation.
     """
     named_parameters = dict(model.named_parameters())
+    if parameters_to_consider is not None: 
+        named_parameters = {n: p for n, p in named_parameters.items() if n in parameters_to_consider}
     original_data_ptrs = {n: p.data_ptr() for n, p in state_dict.items()}
     original_state_dict_keys = set(state_dict.keys())
     for name, module in model.named_modules():

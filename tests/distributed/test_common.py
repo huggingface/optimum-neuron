@@ -507,12 +507,12 @@ class TestCommonDistributed(DistributedTest):
             [8, 8, 1, None],
             [8, 8, 1, 4],
             # TODO: set back to 32 to get dp=4
-            [8, 4, 2, None],
+            [8, 2, 2, None],
         ],
         ids=[
-            "dp=4,tp=2,pp=1",
-            "dp=1,tp=8,pp=1,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
-            "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
+            "dp=4,tp=2",
+            "dp=1,tp=8,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
+            "dp=1,tp=8,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
             "dp=4,tp=4,pp=2",
         ],
     )

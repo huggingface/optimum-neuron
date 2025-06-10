@@ -177,7 +177,7 @@ def get_pipeline_parameters_for_current_stage(model) -> set[str]:
         with torch.device("meta"):
             meta_model = model.__class__(model.config, model.trn_config)
 
-        if model.trn_config.pipeline_parallel_size <= 1 or not model.supports_pipeline_parallelism():
+        if get_pipeline_model_parallel_size() <= 1 or not model.supports_pipeline_parallelism():
             # Return all parameters if no pipeline parallelism
             parameter_names = set(meta_model.state_dict().keys())
         else:
@@ -768,6 +768,8 @@ class NeuronModelMixin:
                 upstanding_sharded_params=upstanding_sharded_params,
                 inplace=True,
             )
+
+            print(f"PP rank {get_pipeline_model_parallel_rank()} loading checkpoint shard {state_dict.keys()}")
 
             # Mistmatched keys contains tuples key/shape1/shape2 of weights in the checkpoint that have a shape not
             # matching the weights in the model.
