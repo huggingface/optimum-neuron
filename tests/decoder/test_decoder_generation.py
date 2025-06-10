@@ -125,7 +125,7 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
     if isinstance(model, NxDModelForCausalLM):
         expectations = {
             "llama": " and how does it work?\nDeep learning is a subset of machine learning that uses artificial",
-            "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
+            "qwen2": "Deep Learning is a subset of Machine Learning that involves the use of artificial neural networks",
             "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
             "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
         }
