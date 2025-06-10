@@ -196,7 +196,6 @@ def move_params_to_cpu(model: nn.Module, param_names: Iterable[str]):
             parts = name.split(".")
             for part in parts[:-1]:
                 module = getattr(module, part)
-            print(f"Moving parameter {name} from {param.device} to CPU")
             setattr(module, parts[-1], nn.Parameter(cpu_param))
 
 
@@ -767,6 +766,7 @@ class NeuronModelMixin:
                 state_dict,
                 upstanding_sharded_params=upstanding_sharded_params,
                 inplace=True,
+                parameters_to_consider=parameters_to_load,
             )
 
             print(f"PP rank {get_pipeline_model_parallel_rank()} loading checkpoint shard {state_dict.keys()}")

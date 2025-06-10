@@ -82,6 +82,13 @@ class ModelWeightTransformationSpec:
     """
 
     @abstractmethod
+    def get_relevant_parameter_names(self, module_fully_qualified_name: str) -> set[str]:
+        """
+        Returns the set of parameter names that this spec would affect.
+        """
+        pass
+
+    @abstractmethod
     def adapt_state_dict(
         self,
         module_fully_qualified_name: str,
@@ -159,18 +166,34 @@ class ModelWeightTransformationSpecs:
             raise TypeError(f"spec must be of type ModelWeightTransformationSpec, but got {type(spec)}")
         self.specs.append(spec)
 
+    def is_transformation_spec_relevant(
+        self, spec: ModelWeightTransformationSpec, parameters_to_consider: set[str]
+    ) -> bool:
+        if self.module_fully_qualified_name is None:
+            raise ValueError("`module_fully_qualified_name` must be set to check relevance of the spec")
+        relevant_param_names = spec.get_relevant_parameter_names(self.module_fully_qualified_name)
+        return any(name in parameters_to_consider for name in relevant_param_names)
+
     def adapt_state_dict(
         self,
         named_parameters: Dict[str, torch.nn.Parameter],
         orig_state_dict: Dict[str, torch.Tensor],
         upstanding_sharded_params: Dict[str, torch.Tensor],
         inplace: bool = False,
+        parameters_to_consider: Optional[set[str]] = None,
     ):
         if self.module_fully_qualified_name is None:
             raise ValueError("`module_fully_qualified_name` must be set to adapt the state dict")
         for spec in self.specs:
             if not isinstance(spec, ModelWeightTransformationSpec):
                 raise TypeError(f"spec must be of type ModelWeightTransformationSpec, but got {type(spec)}")
+
+            # Skip spec if none of its parameters are in parameters_to_consider
+            if parameters_to_consider is not None and not self.is_transformation_spec_relevant(
+                spec, parameters_to_consider
+            ):
+                continue
+
             orig_state_dict = spec.adapt_state_dict(
                 self.module_fully_qualified_name,
                 named_parameters,
@@ -239,6 +262,18 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
             self.fuse_axis = 0
         elif self.fuse_axis == "row":
             self.fuse_axis = 1
+
+    def get_relevant_parameter_names(self, module_fully_qualified_name: str) -> set[str]:
+        param_names = ["weight", "bias"] if self.bias else ["weight"]
+        fused_names = {
+            f"{module_fully_qualified_name}.{self.fused_linear_name}.{param_name}" for param_name in param_names
+        }
+        original_names = {
+            f"{module_fully_qualified_name}.{linear_name}.{param_name}"
+            for linear_name in self.linear_names
+            for param_name in param_names
+        }
+        return fused_names | original_names
 
     def adapt_state_dict(
         self,
@@ -345,6 +380,33 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
     fuse_qkv: bool
     bias: bool
     tp_size: int = field(default_factory=get_tensor_model_parallel_size)
+
+    def get_relevant_parameter_names(self, module_fully_qualified_name: str) -> set[str]:
+        param_names = ["weight", "bias"] if self.bias else ["weight"]
+        original_names = {
+            f"{module_fully_qualified_name}.{proj_name}.{param_name}"
+            for proj_name in [
+                self.query_projection_name,
+                self.key_projection_name,
+                self.value_projection_name,
+                self.output_projection_name,
+            ]
+            for param_name in param_names
+        }
+
+        if self.fuse_qkv:
+            gqa_names = {
+                f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_qkv"
+                for param_name in param_names
+            }
+        else:
+            gqa_names = {
+                f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_{suffix}"
+                for param_name in param_names
+                for suffix in ["q", "k", "v"]
+            }
+
+        return original_names | gqa_names
 
     @staticmethod
     def compute_query_indices_for_rank(
@@ -664,8 +726,9 @@ def adapt_state_dict(
     Transforms the state dict from the original Transformers model to match the custom modeling implementation.
     """
     named_parameters = dict(model.named_parameters())
-    if parameters_to_consider is not None: 
+    if parameters_to_consider is not None:
         named_parameters = {n: p for n, p in named_parameters.items() if n in parameters_to_consider}
+    
     original_data_ptrs = {n: p.data_ptr() for n, p in state_dict.items()}
     original_state_dict_keys = set(state_dict.keys())
     for name, module in model.named_modules():
@@ -678,6 +741,7 @@ def adapt_state_dict(
             state_dict,
             upstanding_sharded_params=upstanding_sharded_params,
             inplace=inplace,
+            parameters_to_consider=parameters_to_consider,
         )
 
     # There are 2 cases:
@@ -686,7 +750,14 @@ def adapt_state_dict(
     new_keys = set(state_dict.keys()) - original_state_dict_keys
     mutated_keys = {n for n, p in state_dict.items() if p.data_ptr() != original_data_ptrs.get(n, p.data_ptr())}
 
+    print("New keys added to the state dict:", new_keys)
+    print("Keys mutated in the state dict:", mutated_keys)
+
     for name, param in model.named_parameters():
+        print("Processing parameter:", name, name in parameters_to_consider if parameters_to_consider else "N/A")
+        if parameters_to_consider is not None and name not in parameters_to_consider:
+          # Skip for parameters not in parameters_to_consider
+            continue
         if name in new_keys | mutated_keys:
             # In this case, we don't need to do anything, it was handled by the transformation specs.
             continue
