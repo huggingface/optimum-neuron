@@ -33,7 +33,7 @@ from optimum.neuron.distributed.utils import (
 )
 from optimum.neuron.models.training import LlamaForCausalLM as NeuronLlamaForCausalLM
 from optimum.neuron.models.training.config import TrainingNeuronConfig
-from optimum.neuron.models.training.modeling_utils import create_nxdpp_model
+from optimum.neuron.models.training.pipeline_utils import create_nxdpp_model
 from optimum.neuron.peft import NeuronPeftModelForCausalLM
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
@@ -507,18 +507,16 @@ class TestCommonDistributed(DistributedTest):
     @pytest.mark.parametrize(
         "world_size,tp_size,pp_size,kv_size_multiplier,fuse_qkv",
         [
-            [8, 2, 1, None, False],
+            [32, 2, 4, None, False],
             [8, 8, 1, None, False],
             [8, 8, 1, 4, False],
             [8, 8, 1, 4, True],
-            [8, 2, 2, None, False],
         ],
         ids=[
-            "dp=4,tp=2",
+            "dp=4,tp=2,pp=4",
             "dp=1,tp=8,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
             "dp=1,tp=8,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
             "dp=1,tp=8,kv_size_multiplier=4,GQAQKVColumnParallelLinear,fuse_qkv",
-            "dp=4,tp=2,pp=2",
         ],
     )
     def test_consolidate_custom_model_parallel_checkpoints(
@@ -563,7 +561,6 @@ class TestCommonDistributed(DistributedTest):
             for key in orig_state_dict:
                 orig_tensor = orig_state_dict[key]
                 consolidated_tensor = consolidated_state_dict[key]
-                print(f"Testing that {key} match")
                 torch.testing.assert_close(orig_tensor, consolidated_tensor)
 
     @pytest.mark.parametrize(
@@ -574,9 +571,9 @@ class TestCommonDistributed(DistributedTest):
             [8, 8, 1, 4, True],
         ],
         ids=[
-            "dp=4,tp=2,pp=1",
-            "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
-            "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear,fuse_qkv",
+            "dp=4,tp=2",
+            "dp=1,tp=8,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
+            "dp=1,tp=8,kv_size_multiplier=4,GQAQKVColumnParallelLinear,fuse_qkv",
         ],
     )
     def test_consolidate_custom_lora_model_parallel_checkpoints(

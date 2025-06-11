@@ -37,7 +37,7 @@ from transformers import PreTrainedModel
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
 from ..models.neuron_config import TrainingNeuronConfig
-from ..models.training.modeling_utils import create_nxdpp_model
+from ..models.training.pipeline_utils import create_nxdpp_model
 from ..utils import (
     DynamicPatch,
     ModelPatcher,

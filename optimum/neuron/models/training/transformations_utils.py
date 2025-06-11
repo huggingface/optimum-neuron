@@ -252,11 +252,15 @@ class ModelWeightTransformationSpecs:
     module_fully_qualified_name: Optional[str] = None
     specs: Union[ModelWeightTransformationSpec, list[ModelWeightTransformationSpec]] = field(default_factory=list)
 
-    def to_metadata(self) -> Dict[str, Any]:
+    def to_metadata(self, parameters_for_current_stage: Optional[set[str]] = None) -> Dict[str, Any]:
         if self.module_fully_qualified_name is None:
             raise ValueError("`module_fully_qualified_name` must be set to serialize the specs")
         serialized_specs = []
         for spec in self.specs:
+            if parameters_for_current_stage is not None and not self.is_transformation_spec_relevant(
+                spec, parameters_for_current_stage
+            ):
+                continue
             spec_data = asdict(spec)
             spec_data["peft_type"] = spec.peft_type
             serialized_specs.append((spec.__class__.__name__, spec_data))
@@ -292,20 +296,20 @@ class ModelWeightTransformationSpecs:
         self.specs.append(spec)
 
     def is_transformation_spec_relevant(
-        self, spec: ModelWeightTransformationSpec, parameters_to_consider: set[str]
+        self, spec: ModelWeightTransformationSpec, parameters_for_current_stage: set[str]
     ) -> bool:
         if self.module_fully_qualified_name is None:
             raise ValueError("`module_fully_qualified_name` must be set to check relevance of the spec")
         relevant_param_names = spec.get_relevant_parameter_names(self.module_fully_qualified_name)
-        return any(name in parameters_to_consider for name in relevant_param_names)
+        return any(name in parameters_for_current_stage for name in relevant_param_names)
 
     def adapt_state_dict(
         self,
         named_parameters: Dict[str, torch.nn.Parameter],
         orig_state_dict: Dict[str, torch.Tensor],
         upstanding_sharded_params: Dict[str, torch.Tensor],
+        parameters_for_current_stage: set[str],
         inplace: bool = False,
-        parameters_to_consider: Optional[set[str]] = None,
     ):
         if self.module_fully_qualified_name is None:
             raise ValueError("`module_fully_qualified_name` must be set to adapt the state dict")
@@ -313,10 +317,7 @@ class ModelWeightTransformationSpecs:
             if not isinstance(spec, ModelWeightTransformationSpec):
                 raise TypeError(f"spec must be of type ModelWeightTransformationSpec, but got {type(spec)}")
 
-            # Skip spec if none of its parameters are in parameters_to_consider
-            if parameters_to_consider is not None and not self.is_transformation_spec_relevant(
-                spec, parameters_to_consider
-            ):
+            if not self.is_transformation_spec_relevant(spec, parameters_for_current_stage):
                 continue
 
             orig_state_dict = spec.adapt_state_dict(
@@ -1490,15 +1491,13 @@ def adapt_state_dict(
     state_dict: Dict[str, torch.Tensor],
     upstanding_sharded_params: Dict[str, torch.Tensor],
     inplace: bool = False,
-    parameters_to_consider: Optional[set[str]] = None,
     **peft_kwargs: Any,
 ) -> Dict[str, torch.Tensor]:
     """
     Transforms the state dict from the original Transformers model to match the custom modeling implementation.
     """
     named_parameters = dict(model.named_parameters())
-    if parameters_to_consider is not None:
-        named_parameters = {n: p for n, p in named_parameters.items() if n in parameters_to_consider}
+    named_parameters = {n: p for n, p in named_parameters.items() if n in model.parameters_for_current_stage}
 
     original_data_ptrs = {n: p.data_ptr() for n, p in state_dict.items()}
     original_state_dict_keys = set(state_dict.keys())
@@ -1511,8 +1510,8 @@ def adapt_state_dict(
             named_parameters,
             state_dict,
             upstanding_sharded_params=upstanding_sharded_params,
+            parameters_for_current_stage=model.parameters_for_current_stage,
             inplace=inplace,
-            parameters_to_consider=parameters_to_consider,
         )
 
     # There are 2 cases:
@@ -1525,7 +1524,7 @@ def adapt_state_dict(
 
     for name, param in model.named_parameters():
         name_without_adapter_name = remove_adapter_name(name)
-        if parameters_to_consider is not None and name not in parameters_to_consider:
+        if name not in model.parameters_for_current_stage:
             continue
         if is_base_layer(name_without_adapter_name):
             # In this case, it was already handled when loading the base layer weights in
@@ -1633,6 +1632,8 @@ def create_parameter_metadata(model) -> Dict[str, Dict[str, Any]]:
     """
     metadata = {"parameters": {}, "model_weight_transformation_specs": []}
     for name, param in model.named_parameters():
+        if name not in model.parameters_for_current_stage:
+            continue
         tensor_model_parallel = getattr(param, "tensor_model_parallel", False)
         if tensor_model_parallel:
             metadata["parameters"][name] = get_tensor_model_parallel_attributes(param)
@@ -1643,7 +1644,7 @@ def create_parameter_metadata(model) -> Dict[str, Dict[str, Any]]:
     for name, module in model.named_modules():
         if not isinstance(module, CustomModule):
             continue
-        serialized_specs = module.specs.to_metadata()
+        serialized_specs = module.specs.to_metadata(parameters_for_current_stage=model.parameters_for_current_stage)
         metadata["model_weight_transformation_specs"].append(serialized_specs)
 
     return metadata
