@@ -200,6 +200,7 @@ class NeuronTrainingArgumentsMixin:
             async_save=self.async_save,
             fuse_qkv=self.fuse_qkv,
             recompute_causal_mask=self.recompute_causal_mask,
+            gradient_checkpointing=self.gradient_checkpointing,
         )
 
         if self.bf16 and self.half_precision_backend == "amp":
