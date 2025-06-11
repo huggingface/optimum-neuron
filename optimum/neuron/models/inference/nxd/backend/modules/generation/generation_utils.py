@@ -94,11 +94,14 @@ class NxDGenerationMixin(GenerationMixin):
         do_sample = generation_config.do_sample
 
         batch_size = model_kwargs["attention_mask"].shape[0]
+        top_k = generation_config.top_k if do_sample else 1
+        top_p = generation_config.top_p if do_sample else 1.0
+        temperature = generation_config.temperature if do_sample else 1.0
         sampling_params = prepare_sampling_params(
             batch_size=batch_size,
-            top_k=generation_config.top_k,
-            top_p=generation_config.top_p,
-            temperature=generation_config.temperature,
+            top_k=top_k,
+            top_p=top_p,
+            temperature=temperature,
         )
         model_kwargs["sampling_params"] = sampling_params
 
@@ -139,7 +142,7 @@ class NxDGenerationMixin(GenerationMixin):
                         raw_logits += (next_token_logits,)
 
                 if self.sampler is None:
-                    self.sampler = Sampler(do_sample=True, max_topk=self.neuron_config.max_topk, on_cpu=True)
+                    self.sampler = Sampler(self.neuron_config, do_sample=True, on_cpu=True)
 
                 next_tokens = self.sampler(next_token_scores, sampling_params)
 
@@ -150,10 +153,10 @@ class NxDGenerationMixin(GenerationMixin):
             # update generated ids, model inputs, and length for next step
             input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
 
+            is_for_token_generation = True
             model_kwargs = self._update_model_kwargs_for_generation(
                 outputs, model_kwargs, is_for_token_generation=is_for_token_generation
             )
-            is_for_token_generation = True
 
             unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, None)
             this_peer_finished = unfinished_sequences.max() == 0
@@ -173,6 +176,7 @@ class NxDGenerationMixin(GenerationMixin):
         is_decode,
         attention_mask=None,
         sampling_params=None,
+        seq_ids=None,
         **kwargs,
     ):
         if is_decode:
@@ -185,13 +189,16 @@ class NxDGenerationMixin(GenerationMixin):
             position_ids.masked_fill_(attention_mask == 0, 1)
             if is_decode:
                 position_ids = torch.amax(position_ids, 1, keepdim=True)
-                position_ids = position_ids + 1
+
+        if seq_ids is None:
+            seq_ids = torch.arange(input_ids.shape[0])
 
         model_inputs = {
             "input_ids": input_ids,
             "position_ids": position_ids,
             "attention_mask": attention_mask,
             "sampling_params": sampling_params,
+            "seq_ids": seq_ids,
         }
 
         # WARNING: This is needed for propagating additional kwargs to the neuron model
@@ -277,11 +284,8 @@ class NxDGenerationMixin(GenerationMixin):
         eos_token_id = generation_config.eos_token_id
         assistant_model = candidate_generator.assistant_model
 
-        # Initialize the num_assistant_tokens used for speculation.
-        if hasattr(assistant_model, "num_assistant_tokens"):
-            num_assistant_tokens = assistant_model.num_assistant_tokens
-        else:
-            num_assistant_tokens = assistant_model.generation_config.num_assistant_tokens
+        if assistant_model.neuron_config.on_device_sampling:
+            raise ValueError("Assistant model must not use on-device sampling")
 
         # Init values
         if eos_token_id is not None and pad_token_id is None:
@@ -299,7 +303,7 @@ class NxDGenerationMixin(GenerationMixin):
         spec_len = self.neuron_config.speculation_length
 
         # Run the target model once and get the first generated token
-        model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
+        model_inputs = self.prepare_inputs_for_prefill(input_ids, **model_kwargs)
         outputs = self.forward(**model_inputs)
 
         curr_pos = model_inputs["position_ids"][0].argmax(dim=-1)
@@ -314,13 +318,14 @@ class NxDGenerationMixin(GenerationMixin):
         # Speculation loop
         while True:
             # 1 Token generation using draft model
-            for _ in range(int(num_assistant_tokens)):
+            is_for_token_generation = assistant_model.kv_cache_populated
+            for _ in range(spec_len):
                 # 1.1 Prepare assistant model inputs
                 assistant_inputs = assistant_model.prepare_inputs_for_generation(
                     candidate_input_ids,
+                    is_decode=is_for_token_generation,
                     **assistant_kwargs,
                 )
-                is_for_token_generation = assistant_model.kv_cache_populated
 
                 # 1.2 Use the assistant model to obtain the next candidate logits
                 assistant_model_outputs = assistant_model.forward(**assistant_inputs)

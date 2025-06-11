@@ -94,7 +94,7 @@ class NxDDecoderModel(nn.Module):
         self.num_cores_per_group = neuron_config.num_cores_per_group
         if neuron_config.on_device_sampling:
             # Instantiate a multinomial Sampler (it can still be used for greedy by passing topk=1)
-            self.sampler = Sampler(do_sample=True, max_topk=neuron_config.max_topk)
+            self.sampler = Sampler(neuron_config, do_sample=True)
         self.kv_mgr = KVCacheManager(config, neuron_config, num_kv_head=config.num_key_value_heads)
 
     def initialize_process_group(self, seed: int = 0):
@@ -114,6 +114,12 @@ class NxDDecoderModel(nn.Module):
 
         # set seed
         set_random_seed(seed)
+
+    def _is_context_encoding(self, input_ids: torch.Tensor):
+        return input_ids.shape[-1] > 1 and input_ids.shape[-1] != self.speculation_length
+
+    def _is_for_speculation(self, input_ids: torch.Tensor):
+        return input_ids.shape[-1] == self.speculation_length
 
     def _create_context_attn_mask(self, attention_mask, **kwargs):
         # Block diagonal causal mask for chunked prefill
@@ -191,13 +197,11 @@ class NxDDecoderModel(nn.Module):
         inputs_embeds: Optional[torch.FloatTensor] = None,
         kv_cache: Optional[torch.Tensor] = None,
     ):
-        # TODO: This will not work for a context encoding model with bucket size
-        # equal to the speculation length
-        is_for_context_encoding = input_ids.shape[-1] > 1 and input_ids.shape[-1] != self.speculation_length
-        is_for_speculation = input_ids.shape[-1] == self.speculation_length
+        is_for_context_encoding = self._is_context_encoding(input_ids)
+        is_for_speculation = self._is_for_speculation(input_ids)
 
         cache_size = (
-            get_cache_size(self.n_positions, self.num_cores_per_group)
+            get_cache_size(self.n_positions, self.num_cores_per_group, is_for_context_encoding)
             if self.neuron_config.flash_decoding_enabled
             else self.n_positions
         )
@@ -259,27 +263,16 @@ class NxDDecoderModel(nn.Module):
             inputs_embeds=inputs_embeds,
         )
 
-        if kv_cache is None:
-            updated_kv_cache = self.kv_mgr.update_cache(
-                is_for_context_encoding=is_for_context_encoding,
-                seq_ids=seq_ids,
-                position_ids=position_ids,
-                new_key_values=past_key_values,
-                seq_len=cache_size,
-                scatter_index=scatter_index,
-                active_mask=active_mask_2d,
-            )
-        else:
-            updated_kv_cache = self.kv_mgr.update_cache(
-                is_for_context_encoding=is_for_context_encoding,
-                seq_ids=seq_ids,
-                position_ids=position_ids,
-                new_key_values=past_key_values,
-                seq_len=cache_size,
-                scatter_index=scatter_index,
-                active_mask=active_mask_2d,
-                kvcache_buffer=kv_cache,
-            )
+        updated_kv_cache = self.kv_mgr.update_cache(
+            is_for_context_encoding=is_for_context_encoding,
+            seq_ids=seq_ids,
+            position_ids=position_ids,
+            new_key_values=past_key_values,
+            seq_len=cache_size,
+            scatter_index=scatter_index,
+            active_mask=active_mask_2d,
+            kvcache_buffer=kv_cache,
+        )
 
         batch_size, num_tokens, hidden_size = hidden_states.shape
         if self.padding_side == "left":
@@ -287,16 +280,8 @@ class NxDDecoderModel(nn.Module):
             index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
             hidden_states = torch.gather(hidden_states, dim=1, index=index)
         else:
-            # speculative decoding case; only batch_size=1
-            # will need to extend the logic to support multi-batch later
-            # maybe just use position_ids for index?
-            if position_ids.shape[-1] == self.speculation_length:
-                index = torch.min(position_ids)
-                index = torch.arange(index, index + self.speculation_length, device=hidden_states.device)
-                index = index.unsqueeze(0).unsqueeze(2).expand(batch_size, self.speculation_length, hidden_size)
-                hidden_states = torch.gather(hidden_states, dim=1, index=index)
-            else:
-                # simple token generation
+            if not (position_ids.shape[-1] == self.speculation_length or position_ids.shape[-1] == 1):
+                # context encoding
                 index = torch.max(position_ids, dim=1, keepdim=True).indices
                 index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
                 hidden_states = torch.gather(hidden_states, dim=1, index=index)
@@ -308,7 +293,7 @@ class NxDDecoderModel(nn.Module):
         if self.neuron_config.on_device_sampling:
             # perform sampling on Neuron to get tokens
             # FIXME, logits[:, -1, :] is not correct for speculation model, this is a tempory fix.
-            if is_for_speculation and not self.neuron_config.on_device_sampling_config.do_sample:
+            if is_for_speculation:
                 res = nxd_argmax(tensor=logits, dim=2, gather_dim=2, keepdim=False)
             else:
                 res = self.sampler(logits[:, -1, :], sampling_params)
@@ -456,9 +441,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             os.environ["NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS"] = "2"
 
         self.sampler = None
-        self.default_sampling_params = prepare_sampling_params(
-            batch_size=self.neuron_config.batch_size, top_k=[1], top_p=[1.0], temperature=[1.0]
-        )
 
     @staticmethod
     def create_context_encoding_wrapper(model_cls, config, neuron_config, **model_init_kwargs):
@@ -587,22 +569,24 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
                 "position_ids": next_position_ids,
             }
 
-        sampling_params = self.default_sampling_params if sampling_params is None else sampling_params
-        if self.neuron_config.on_device_sampling:
-            validate_sampling_params(sampling_params, self.neuron_config.max_topk)
-
-        self.sampling_params = sampling_params
-
-        output_attentions, output_hidden_states, return_dict = self._setup_func_config(
-            output_attentions, output_hidden_states, return_dict
-        )
-
         # infer attention_mask from position_ids if not provided
         if attention_mask is None:
             attention_mask = self._infer_attention_mask(position_ids)
 
         if seq_ids is None:
             seq_ids = torch.arange(input_ids.shape[0])
+
+        if sampling_params is None:
+            if self.neuron_config.on_device_sampling:
+                raise ValueError("The sampling params tensor is required for on-device sampling.")
+            # Just pass a dummy tensor to the model, it will be ignored
+            sampling_params = prepare_sampling_params(seq_ids.shape[0])
+        elif self.neuron_config.on_device_sampling:
+            validate_sampling_params(sampling_params, self.neuron_config.max_topk)
+
+        output_attentions, output_hidden_states, return_dict = self._setup_func_config(
+            output_attentions, output_hidden_states, return_dict
+        )
 
         logits_or_next_tokens = self._get_model_outputs(
             input_ids,
@@ -776,7 +760,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         compiler_args = (
             "--auto-cast=none --model-type=transformer "
             f"--tensorizer-options='{tensorizer_options}'"
-            " -O1 "
+            " -O2 "
             f" --internal-num-neuroncores-per-sengine={neuron_config.logical_nc_config}"
         )
 
@@ -833,27 +817,13 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             token_generation_model=token_generation_model,
             speculation_model=speculation_model,
         )
-        checkpoint_path = os.path.join(model_id, cls.CHECKPOINT_DIR)
-        if os.path.exists(checkpoint_path):
-            model._load_weights(checkpoint_path)
-        elif neuron_config.checkpoint_id is not None:
-            # Fetch weights from the checkpoint
-            checkpoint_dir = TemporaryDirectory()
-            os.chmod(checkpoint_dir.name, 0o775)
-            snapshot_download(
-                repo_id=neuron_config.checkpoint_id,
-                revision=neuron_config.checkpoint_revision,
-                cache_dir=cache_dir,
-                force_download=force_download,
-                local_files_only=local_files_only,
-                token=token,
-                local_dir=checkpoint_dir.name,
-                allow_patterns=["*.safetensors*"],
-            )
-            model._load_weights(checkpoint_dir.name)
-            checkpoint_dir.cleanup()
-        else:
-            logger.warning(f"Checkpoint file {checkpoint_path} not found. Weights will not be loaded.")
+        model.load_weights(
+            model_id,
+            cache_dir=cache_dir,
+            force_download=force_download,
+            local_files_only=local_files_only,
+            token=token,
+        )
         return model
 
     @classmethod
@@ -869,6 +839,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         subfolder: Optional[str] = "",
         local_files_only: Optional[bool] = False,
         trust_remote_code: Optional[bool] = False,
+        load_weights: bool = True,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         if len(kwargs) > 0:
@@ -914,6 +885,14 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             token_generation_model=token_generation_model,
             speculation_model=speculation_model,
         )
+        if load_weights:
+            model.load_weights(
+                model_id,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                local_files_only=local_files_only,
+                token=token,
+            )
         return model
 
     def _save_pretrained(self, save_directory: Union[str, Path]):

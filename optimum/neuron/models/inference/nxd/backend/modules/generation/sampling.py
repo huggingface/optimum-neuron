@@ -20,10 +20,75 @@ import torch
 from neuronx_distributed.operators.argmax import argmax as nxd_argmax
 from neuronx_distributed.operators.topk import topk as nxd_topk
 from neuronx_distributed.parallel_layers import parallel_state
-from torch_neuronx.xla_impl.ops import xla_hlo_call
+from neuronx_distributed.utils.utils import hardware
+from neuronxcc.nki._private_kernels.cumsum import cumsum as nki_cumsum
+from torch_neuronx.utils import get_platform_target
+from torch_neuronx.xla_impl.ops import nki_jit, xla_hlo_call
+
+from ...config import NxDNeuronConfig
 
 
 logger = logging.getLogger("Neuron")
+
+
+def mask_padded_logits(logits, rank_id, world_size, pad_size=None):
+    if pad_size is None or pad_size == 0:
+        return logits
+
+    # invalid if rank_id == tp_degree - 1
+    last_rank_mask = torch.eq(
+        torch.full(logits.shape, world_size - 1, device=logits.device, dtype=torch.int32),
+        rank_id.broadcast_to(logits.shape),
+    )
+    #   and index >= logits.shape[-1] - pad
+    on_pad_mask = torch.ge(
+        torch.arange(logits.shape[-1], device=logits.device, dtype=torch.int32).broadcast_to(logits.shape),
+        torch.full(logits.shape, logits.shape[-1] - pad_size, device=logits.device, dtype=torch.int32),
+    )
+    invalid_mask = last_rank_mask * on_pad_mask
+    logits = torch.where(invalid_mask, torch.full_like(logits, torch.finfo(logits.dtype).min), logits)
+
+    return logits
+
+
+def cumsum(tensor_in, dim, on_cpu: bool = False):
+    if on_cpu:
+        logger.debug("On CPU, using torch cumsum")
+        return torch.cumsum(tensor_in, dim=dim)
+    init_shape_len = len(tensor_in.shape)
+    cumsum_dim = dim % init_shape_len
+    last_dim = init_shape_len - 1
+    is_transposed = False
+    if cumsum_dim != last_dim:
+        tensor_in = torch.transpose(tensor_in, cumsum_dim, last_dim)
+        is_transposed = True
+    init_shape = tensor_in.shape
+    cumsum_len = init_shape[last_dim]
+    # Prioritize nki kernel for float dtype, then matmul cumsum if not input is not float
+    if torch.is_floating_point(tensor_in):
+        logger.debug("Using NKI cumsum")
+        tensor_in = tensor_in.view(-1, cumsum_len)
+        nki_cumsum_func = nki_jit()(nki_cumsum)
+        output = torch.zeros_like(tensor_in, device=tensor_in.device, dtype=tensor_in.dtype)
+        nki_cumsum_func(tensor_in, output, axis=1)
+        output = output.view(init_shape)
+        if is_transposed:
+            output = torch.transpose(output, cumsum_dim, last_dim)
+        return output
+    else:
+        logger.debug("Using matmul cumsum")
+        triu = torch.triu(
+            torch.ones(
+                cumsum_len,
+                cumsum_len,
+                dtype=tensor_in.dtype,
+                device=tensor_in.device,
+            )
+        )
+        output = tensor_in @ triu
+        if is_transposed:
+            output = torch.transpose(output, cumsum_dim, last_dim)
+        return output
 
 
 @xla_hlo_call
@@ -126,14 +191,16 @@ class Sampler(torch.nn.Module):
         on_cpu(`Optional[bool]`): whether to run on CPU or not
     """
 
-    def __init__(self, do_sample: Optional[bool] = True, max_topk: Optional[int] = 0, on_cpu=False):
+    def __init__(
+        self, neuron_config: NxDNeuronConfig, do_sample: Optional[bool] = True, on_cpu: Optional[bool] = False
+    ):
         super().__init__()
         if not do_sample:
             logger.warning("Greedy sampling is used. Sampling parameters will be ignored at runtime.")
+        self.neuron_config = neuron_config
         self.do_sample = do_sample
-        if max_topk < 0:
+        if self.neuron_config.max_topk < 0:
             logger.warning("max_topk optimization is disabled: this can lead to extremely long compilation times.")
-        self.max_topk = max_topk
         self.IGNORED_LOGITS_VALUE = -3000  # large negative values will be transformed to ~0 in softmax, this is to ignore tokens that are beyond topk range
 
         self.on_cpu = on_cpu
@@ -145,17 +212,32 @@ class Sampler(torch.nn.Module):
     def _soft_max(self, logits, dim):
         return torch.nn.functional.softmax(input=logits, dim=dim)
 
-    def _top_k_masked(self, logits, top_k, dim):
-        if self.max_topk > 0:
+    def _get_top_k_num_stages(self):
+        hardware_type = hardware(get_platform_target())
+        if (
+            hardware_type == hardware.TRN2
+            and self.neuron_config.tp_degree == self.neuron_config.world_size == 64
+            and self.neuron_config.logical_nc_config == 2
+        ):
+            return 3
+        elif hardware_type == hardware.TRN1 and self.neuron_config.tp_degree == self.neuron_config.world_size == 32:
+            return 2
+        else:
+            return 1
+
+    def _top_k_masked(self, logits, top_k, dim, rank_id):
+        if self.neuron_config.max_topk > 0:
             if self.on_cpu:
-                sorted_logits, indeces = torch.topk(input=logits, k=self.max_topk, dim=dim)
+                sorted_logits, indeces = torch.topk(input=logits, k=self.neuron_config.max_topk, dim=dim)
             else:
                 sorted_logits, indeces = nxd_topk(
                     tensor=logits,
-                    k=self.max_topk,
+                    k=self.neuron_config.max_topk,
                     dim=dim,
                     gather_dim=dim,
                     process_group=self.process_group,
+                    stages=self._get_top_k_num_stages(),
+                    rank_id=rank_id,
                 )
         else:
             sorted_logits, indeces = torch.sort(input=logits, dim=dim, descending=True)
@@ -172,14 +254,15 @@ class Sampler(torch.nn.Module):
         top_p_mask = torch.greater(probs_cumsum, top_p)
         top_k_logits_values = top_k_logits_values.masked_fill_(top_p_mask, self.IGNORED_LOGITS_VALUE)
         probs_soft_max = self._soft_max(top_k_logits_values, dim)  # custom call
-        probs_cumsum = torch.cumsum(input=probs_soft_max, dim=dim)
+        probs_cumsum = cumsum(tensor_in=probs_soft_max, dim=dim, on_cpu=self.on_cpu)
         return probs_cumsum
 
     def _rand_selector(self, probs_cumsum, num_samples=1):
-        return torch.full((probs_cumsum.shape[0], num_samples), 0.5, device=probs_cumsum.device)
+        zeros = torch.zeros((probs_cumsum.shape[0], num_samples), device=probs_cumsum.device, dtype=probs_cumsum.dtype)
+        return torch.rand_like(zeros) if self.on_cpu else rand_like(zeros)
 
     def _multinomial(self, probs, dim, num_samples=1):
-        probs_cumsum = torch.cumsum(input=probs, dim=dim)
+        probs_cumsum = cumsum(tensor_in=probs, dim=dim, on_cpu=self.on_cpu)
         rand_selector = self._rand_selector(probs_cumsum, num_samples)
         greater_than_rand = torch.greater(rand_selector, probs_cumsum)
         counts = torch.sum(greater_than_rand, dim=dim).unsqueeze(dim)
@@ -202,21 +285,21 @@ class Sampler(torch.nn.Module):
                 return tokens, values
             return tokens
 
-    def _multinomial_sample(self, token_logits, sampling_params, return_values, dim):
+    def _multinomial_sample(self, token_logits, sampling_params, return_values, dim, rank_id):
         batch_size = token_logits.shape[0]
         top_k = sampling_params[:, 0].reshape(batch_size, 1)
         top_p = sampling_params[:, 1].reshape(batch_size, 1)
         temperature = sampling_params[:, 2].reshape(batch_size, 1)
 
         # Apply top_k first
-        top_k_logits_values, top_k_logits_indices = self._top_k_masked(token_logits, top_k, dim)
+        top_k_logits_values, top_k_logits_indices = self._top_k_masked(token_logits, top_k, dim, rank_id)
 
         # Apply temperature
         top_k_logits_values = torch.divide(top_k_logits_values, temperature)
 
         # Apply top_p
         probs_soft_max = self._soft_max(top_k_logits_values, dim)
-        probs_cumsum = torch.cumsum(input=probs_soft_max, dim=dim)
+        probs_cumsum = cumsum(tensor_in=probs_soft_max, dim=dim, on_cpu=self.on_cpu)
         top_p = torch.max(torch.min(probs_cumsum), top_p)
         top_p_mask = torch.greater(probs_cumsum, top_p).index_fill_(
             dim, torch.tensor([0], device=top_p.device), False
@@ -230,7 +313,7 @@ class Sampler(torch.nn.Module):
         counts = self._multinomial(probs_soft_max, dim)
         return torch.gather(input=top_k_logits_indices, dim=dim, index=counts).flatten()
 
-    def forward(self, token_logits, sampling_params, return_values=False):
+    def forward(self, token_logits, sampling_params, return_values=False, rank_id=None):
         """
         forward to perform topk, topp, temperature and multinomial sampling.
 
@@ -262,6 +345,6 @@ class Sampler(torch.nn.Module):
         """
         dim = len(token_logits.shape) - 1  # vocab_size dimension
         if self.do_sample:
-            return self._multinomial_sample(token_logits, sampling_params, return_values, dim)
+            return self._multinomial_sample(token_logits, sampling_params, return_values, dim, rank_id)
         else:
             return self._argmax_sample(token_logits, return_values, dim)

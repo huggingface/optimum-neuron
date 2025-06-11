@@ -36,6 +36,7 @@ from transformers import PreTrainedModel
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
+from ..models.neuron_config import TrainingNeuronConfig
 from ..utils import (
     DynamicPatch,
     ModelPatcher,
@@ -51,12 +52,12 @@ from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
 from ..utils.model_utils import get_tied_parameters_dict, tie_parameters
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from ..utils.torch_xla_and_neuronx_initialization import check_neuron_cc_flags_for_model
+from ..utils.training_utils import is_custom_modeling_model
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
 from .utils import (
     AutocastBackend,
-    ModelParallelismPlugin,
     NeuronDistributedType,
     patch_accelerate_is_torch_xla_available,
 )
@@ -99,7 +100,7 @@ class NeuronAccelerator(Accelerator):
     def __init__(
         self,
         *args,
-        mp_plugin: Optional[ModelParallelismPlugin] = None,
+        trn_config: Optional[TrainingNeuronConfig] = None,
         zero_1: bool = False,
         autocast_backend: Union[str, AutocastBackend] = "xla",
         **kwargs,
@@ -147,7 +148,7 @@ class NeuronAccelerator(Accelerator):
         accelerate.state.is_torch_xla_available = patched_is_torch_xla_available
 
         patched_accelerator_state = partial(
-            NeuronAcceleratorState, mp_plugin=mp_plugin, autocast_backend=autocast_backend
+            NeuronAcceleratorState, trn_config=trn_config, autocast_backend=autocast_backend
         )
         with Patcher([("accelerate.accelerator.AcceleratorState", patched_accelerator_state)]):
             super().__init__(**full_kwargs)
@@ -226,7 +227,7 @@ class NeuronAccelerator(Accelerator):
                 data_loader, num_replicas=num_replicas, rank=rank, force_drop_last=force_drop_last
             )
             # No need to wrap the dataloader if we are using pipeline parallelism.
-            if use_mp_device_loader and self.state.mp_plugin.pipeline_parallel_size == 1:
+            if use_mp_device_loader and self.state.trn_config.pipeline_parallel_size == 1:
                 data_loader = MpDeviceLoader(data_loader, self.device)
         return data_loader
 
@@ -302,6 +303,12 @@ class NeuronAccelerator(Accelerator):
 
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement: Optional[bool] = None):
+        # If we use custom modeling, we do not have to do anything for now.
+        # We will have to do some work when supporting ZeRO-1.
+        model = self._models[0] if len(self._models) == 1 else None
+        if model is not None and is_custom_modeling_model(model):
+            return super().prepare_optimizer(optimizer, device_placement=device_placement)
+
         if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             optimizer = self._prepare_optimizer_for_mp(optimizer, device_placement=device_placement)
         if self.zero_1:
@@ -385,7 +392,7 @@ class NeuronAccelerator(Accelerator):
 
         tied_parameters_dict = get_tied_parameters_dict(model)
         model_main_input_name = getattr(model, "main_input_name", None)
-        model = self.state.mp_plugin.parallelize_model(model, device=self.device)
+        model = self.state.trn_config.parallelize_model(model, device=self.device)
 
         if model_main_input_name is not None:
             setattr(model, "main_input_name", model_main_input_name)
@@ -443,6 +450,16 @@ class NeuronAccelerator(Accelerator):
         # Since it is not possible to set the best compiler flags for a given model because XLA is initialized before
         # we get access to the model, we simply check if the flags are the best and notify the user otherwise.
         check_neuron_cc_flags_for_model(model)
+
+        if is_custom_modeling_model(model):
+            # We do not want to use the cache, or output unused tensors as it would imply more communication that we do not
+            # need.
+            model.config.use_cache = False
+            model.config.output_attentions = False
+            model.config.output_hidden_states = False
+            move_model_to_device(model, self.device)
+            model = super().prepare_model(model, device_placement=False, evaluation_mode=evaluation_mode)
+            return model
 
         model = self.patch_model_for_neuron(model)
 
@@ -629,9 +646,9 @@ class NeuronAccelerator(Accelerator):
                 model,
                 output_dir,
                 optimizer=optimizer,
-                use_xser=self.state.mp_plugin.use_xser,
-                async_save=self.state.mp_plugin.async_save,
-                num_local_ranks_per_step=self.state.mp_plugin.num_local_ranks_per_step,
+                use_xser=self.state.trn_config.use_xser,
+                async_save=self.state.trn_config.async_save,
+                num_local_ranks_per_step=self.state.trn_config.num_local_ranks_per_step,
             )
             logger.info(f"Parallel model and optimizer saved to the directory {output_dir}")
 

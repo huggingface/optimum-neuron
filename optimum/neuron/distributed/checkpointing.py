@@ -16,8 +16,9 @@
 
 import json
 import os
+from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
 import torch
 from huggingface_hub import split_torch_state_dict_into_shards
@@ -103,7 +104,7 @@ def create_gqa_query_or_output_projection_weight_from_full_weight(
     return full_weight
 
 
-def consolidate_tensor_parallel_checkpoints(
+def old_consolidate_tensor_parallel_checkpoints(
     sharded_checkpoints: List[Path],
     load_function: Callable[[Union[str, Path]], Dict[str, Any]],
     metadata: Dict[str, Any],
@@ -205,8 +206,50 @@ def consolidate_tensor_parallel_checkpoints(
     return consolidated_state_dict
 
 
+def consolidate_tensor_parallel_checkpoints(
+    sharded_checkpoints: List[Path],
+    load_function: Callable[[Union[str, Path]], Dict[str, Any]],
+    metadata: Dict[str, Any],
+    adapter_name: Optional[str] = None,
+) -> Dict[str, "torch.Tensor"]:
+    from ..models.training import ModelWeightTransformationSpecs, to_original_weights
+
+    state_dicts = []
+    sharded_checkpoints = sorted(sharded_checkpoints)
+    for sharded_checkpoint in sharded_checkpoints:
+        if not sharded_checkpoint.is_file():
+            continue
+        state_dicts.append(load_function(sharded_checkpoint.as_posix()))
+
+    parameters_metadata = metadata["parameters"]
+    transformation_specs_metadata = metadata["model_weight_transformation_specs"]
+
+    # We recreate the transformation specs from the metadata.
+    transformations_specs = []
+    for specs_metadata in transformation_specs_metadata:
+        specs = ModelWeightTransformationSpecs.from_metadata(specs_metadata)
+        transformations_specs.append(specs)
+
+    # We transform the sharded state dicts as follows:
+    # [state_dict_tp_rank_0, state_dict_tp_rank_1, ...]
+    #   ->  {
+    #           key: [state_dict_tp_rank_0[key], state_dict_tp_rank_1[key], ...],
+    #           for key in state_dict_tp_rank_0.keys()
+    #       }
+    parameter_names = state_dicts[0].keys()
+    sharded_state_dicts = {name: [state_dict[name] for state_dict in state_dicts] for name in parameter_names}
+
+    consolidated_state_dict = to_original_weights(
+        transformations_specs, sharded_state_dicts, parameters_metadata, adapter_name=adapter_name
+    )
+
+    return consolidated_state_dict
+
+
 @requires_neuronx_distributed
-def consolidate_model_parallel_checkpoints(checkpoint_dir: Path) -> Dict[str, "torch.Tensor"]:
+def consolidate_model_parallel_checkpoints(
+    checkpoint_dir: Path, adapter_name: Optional[str] = None
+) -> Dict[str, "torch.Tensor"]:
     model_checkpoint_dir = checkpoint_dir / "model"
 
     # Case 1: the checkpoint was saved with xser.
@@ -221,7 +264,7 @@ def consolidate_model_parallel_checkpoints(checkpoint_dir: Path) -> Dict[str, "t
     # Case 2: If no file was found, maybe the checkpoint was saved without xser.
     if not sharded_checkpoints:
         sharded_checkpoints = list(model_checkpoint_dir.glob("dp_rank_*.pt"))
-        load_function = torch.load
+        load_function = partial(torch.load, weights_only=True)
 
     if not sharded_checkpoints:
         raise ValueError(f"Could not find any sharded checkpoint in {model_checkpoint_dir.as_posix()}")
@@ -229,18 +272,32 @@ def consolidate_model_parallel_checkpoints(checkpoint_dir: Path) -> Dict[str, "t
     pp_size = max((int(checkpoint_path.stem[-2:]) for checkpoint_path in sharded_checkpoints)) + 1
     checkpoints_grouped_by_pp_ranks = [[] for _ in range(pp_size)]
     metadatas = []
+    is_old_metadata = False
     for pp_rank in range(pp_size):
         for checkpoint_path in sharded_checkpoints:
             checkpoint_name = checkpoint_path.stem
             if int(checkpoint_name[-2:]) == pp_rank:
                 checkpoints_grouped_by_pp_ranks[pp_rank].append(checkpoint_path)
-        metadatas.append(torch.load(checkpoint_dir / f"mp_metadata_pp_rank_{pp_rank}.pt"))
+        if (checkpoint_dir / f"mp_metadata_pp_rank_{pp_rank}.pt").is_file():
+            is_old_metadata = True
+            metadatas.append(torch.load(checkpoint_dir / f"mp_metadata_pp_rank_{pp_rank}.pt"))
+        else:
+            with open(checkpoint_dir / f"mp_metadata_pp_rank_{pp_rank}.json") as fp:
+                metadatas.append(json.load(fp))
 
     consolidated_state_dict = {}
     for pp_rank, checkpoint_group_for_pp_rank in enumerate(checkpoints_grouped_by_pp_ranks):
-        consolidated_for_pp_rank = consolidate_tensor_parallel_checkpoints(
-            checkpoint_group_for_pp_rank, load_function, metadatas[pp_rank]
-        )
+        if is_old_metadata:
+            consolidated_for_pp_rank = old_consolidate_tensor_parallel_checkpoints(
+                checkpoint_group_for_pp_rank, load_function, metadatas[pp_rank]
+            )
+        else:
+            consolidated_for_pp_rank = consolidate_tensor_parallel_checkpoints(
+                checkpoint_group_for_pp_rank,
+                load_function,
+                metadatas[pp_rank],
+                adapter_name=adapter_name,
+            )
         consolidated_state_dict.update(**consolidated_for_pp_rank)
 
     for key, tensor in consolidated_state_dict.items():
@@ -260,49 +317,66 @@ def consolidate_model_parallel_checkpoints_to_unified_checkpoint(
     if not isinstance(checkpoint_dir, Path):
         checkpoint_dir = Path(checkpoint_dir)
 
-    if checkpoint_dir.name not in [MODEL_PARALLEL_SHARDS_DIR_NAME, ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME]:
+    directories = list(checkpoint_dir.iterdir())
+    directories_to_consolidate = []
+    if checkpoint_dir.name != MODEL_PARALLEL_SHARDS_DIR_NAME:
         if (checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME).is_dir():
-            checkpoint_dir = checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME
-        elif (checkpoint_dir / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME).is_dir():
-            checkpoint_dir = checkpoint_dir / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME
+            directories_to_consolidate = [checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME]
         else:
+            for dir in directories:
+                if dir.is_dir() and dir.name.startswith("adapter_"):
+                    directories_to_consolidate.append(dir / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME)
+        if not directories_to_consolidate:
             raise ValueError(f"Could not find the tensor parallel shards from {checkpoint_dir}")
+    else:
+        directories_to_consolidate = [checkpoint_dir]
 
     if not isinstance(output_dir, Path):
         output_dir = Path(output_dir)
-
-    is_adapter_model = checkpoint_dir.name == ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME
-    if is_adapter_model:
-        safe_weights_name = PEFT_SAFETENSORS_WEIGHTS_NAME
-        weights_name = PEFT_WEIGHTS_NAME
-    else:
-        safe_weights_name = SAFE_WEIGHTS_NAME
-        weights_name = WEIGHTS_NAME
-
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    state_dict = consolidate_model_parallel_checkpoints(checkpoint_dir)
-    state_dict_split = split_torch_state_dict_into_shards(
-        state_dict, filename_pattern=safe_weights_name if save_format == "safetensors" else weights_name
-    )
-    # Save index if sharded
-    if state_dict_split.is_sharded:
-        index = {
-            "metadata": state_dict_split.metadata,
-            "weight_map": state_dict_split.tensor_to_filename,
-        }
-        save_index_file = SAFE_WEIGHTS_INDEX_NAME if save_format == "safetensors" else WEIGHTS_INDEX_NAME
-        with open(output_dir / save_index_file, "w") as fp:
-            content = json.dumps(index, indent=2, sort_keys=True) + "\n"
-            fp.write(content)
-    # Save the model
-    filename_to_tensors = state_dict_split.filename_to_tensors.items()
-    for shard_file, tensors in filename_to_tensors:
-        shard = {}
-        for tensor in tensors:
-            shard[tensor] = state_dict[tensor].contiguous()
-            del state_dict[tensor]
-        if save_format == "safetensors":
-            save_file(shard, output_dir / shard_file, metadata={"format": "pt"})
+    for checkpoint_dir in directories_to_consolidate:
+        # We need to go one level up because the checkpoint directory is at the shards level here.
+        parent_dir = checkpoint_dir.parent
+        current_output_dir = output_dir
+        is_adapter_model = parent_dir.name.startswith("adapter_")
+        adapter_name = None
+        if is_adapter_model:
+            safe_weights_name = PEFT_SAFETENSORS_WEIGHTS_NAME
+            weights_name = PEFT_WEIGHTS_NAME
+            if parent_dir.name != "adapter_default":
+                adapter_name = parent_dir.name.split("_", maxsplit=1)[-1]
+                current_output_dir = output_dir / adapter_name
+            else:
+                adapter_name = "default"
         else:
-            torch.save(shard, output_dir / shard_file)
+            safe_weights_name = SAFE_WEIGHTS_NAME
+            weights_name = WEIGHTS_NAME
+
+        current_output_dir.mkdir(parents=True, exist_ok=True)
+
+        state_dict = consolidate_model_parallel_checkpoints(checkpoint_dir, adapter_name=adapter_name)
+        state_dict_split = split_torch_state_dict_into_shards(
+            state_dict, filename_pattern=safe_weights_name if save_format == "safetensors" else weights_name
+        )
+        # Save index if sharded
+        if state_dict_split.is_sharded:
+            index = {
+                "metadata": state_dict_split.metadata,
+                "weight_map": state_dict_split.tensor_to_filename,
+            }
+            save_index_file = SAFE_WEIGHTS_INDEX_NAME if save_format == "safetensors" else WEIGHTS_INDEX_NAME
+            with open(current_output_dir / save_index_file, "w") as fp:
+                content = json.dumps(index, indent=2, sort_keys=True) + "\n"
+                fp.write(content)
+        # Save the model
+        filename_to_tensors = state_dict_split.filename_to_tensors.items()
+        for shard_file, tensors in filename_to_tensors:
+            shard = {}
+            for tensor in tensors:
+                shard[tensor] = state_dict[tensor].contiguous()
+                del state_dict[tensor]
+            if save_format == "safetensors":
+                save_file(shard, current_output_dir / shard_file, metadata={"format": "pt"})
+            else:
+                torch.save(shard, current_output_dir / shard_file)

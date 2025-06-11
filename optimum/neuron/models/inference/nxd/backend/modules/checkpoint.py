@@ -93,7 +93,7 @@ def _load_from_files(filenames: List[str], state_dict_dir: str, load_func: Calla
         for key in part_state_dict.keys():
             if key in state_dict:
                 raise Exception(
-                    f"Found value overriden for key {key} from file "
+                    f"Found value overridden for key {key} from file "
                     + f"{part_state_dict_path}, please ensure the provided files are correct."
                 )
 

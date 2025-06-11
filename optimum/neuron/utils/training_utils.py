@@ -14,6 +14,7 @@
 # limitations under the License.
 """Training utilities"""
 
+import inspect
 from typing import TYPE_CHECKING, List, Optional, Type, Union
 
 import torch
@@ -287,3 +288,12 @@ def is_main_worker_for_metrics_method(self) -> bool:
     Method version of `is_main_worker_for_metrics`, useful when this is used to patch a method from the Trainer class.
     """
     return is_main_worker_for_metrics()
+
+
+def is_custom_modeling_model(model) -> bool:
+    from peft import PeftModel
+
+    model_to_consider = model
+    if isinstance(model, PeftModel):
+        model_to_consider = model.get_base_model()
+    return inspect.getmodule(model_to_consider.__class__).__name__.startswith("optimum.neuron.models.training")

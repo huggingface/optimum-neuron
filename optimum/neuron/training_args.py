@@ -30,7 +30,8 @@ from transformers.utils import (
 
 from ..utils import logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
-from .accelerate.utils import ModelParallelismPlugin, patch_accelerate_is_torch_xla_available
+from .accelerate.utils import patch_accelerate_is_torch_xla_available
+from .models.training.config import TrainingNeuronConfig
 from .utils import is_main_worker
 from .utils.patching import Patcher, patch_within_function
 from .utils.torch_xla_and_neuronx_initialization import set_neuron_cc_optlevel
@@ -124,6 +125,25 @@ class NeuronTrainingArgumentsMixin:
             )
         },
     )
+    fuse_qkv: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to fuse the query, key, and value linear layers in the self-attention layers. Only works if "
+                "there is the same number of query and key/value heads."
+            ),
+        },
+    )
+    recompute_causal_mask: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to recompute the causal mask in the forward pass. This is more efficient than passing the  "
+                "causal mask computed from the attention mask to the attention layers but it does not support custom "
+                "attention masks."
+            ),
+        },
+    )
 
     def __post_init__(self):
         if self.neuron_cc_flags_model_type is not None:
@@ -166,7 +186,7 @@ class NeuronTrainingArgumentsMixin:
                     f"per-device eval batch size ({self.per_device_eval_batch_size})."
                 )
 
-        self.mp_plugin = ModelParallelismPlugin(
+        self.trn_config = TrainingNeuronConfig(
             self.tensor_parallel_size,
             parallelize_embeddings=not self.disable_embedding_parallelization,
             sequence_parallel_enabled=not self.disable_sequence_parallel,
@@ -178,6 +198,8 @@ class NeuronTrainingArgumentsMixin:
             num_local_ranks_per_step=self.num_local_ranks_per_step,
             use_xser=self.use_xser,
             async_save=self.async_save,
+            fuse_qkv=self.fuse_qkv,
+            recompute_causal_mask=self.recompute_causal_mask,
         )
 
         if self.bf16 and self.half_precision_backend == "amp":
@@ -211,7 +233,7 @@ class NeuronTrainingArgumentsMixin:
 
     @property
     def place_model_on_device(self):
-        return not self.mp_plugin.should_parallelize and super().place_model_on_device
+        return not self.trn_config.should_parallelize and super().place_model_on_device
 
     @property
     def world_size_should_behave_as_dp_size(self):
@@ -228,8 +250,8 @@ class NeuronTrainingArgumentsMixin:
     @property
     def dp_size(self):
         divisor = 1
-        if self.mp_plugin.should_parallelize:
-            divisor = self.mp_plugin.tensor_parallel_size * self.mp_plugin.pipeline_parallel_size
+        if self.trn_config.should_parallelize:
+            divisor = self.trn_config.tensor_parallel_size * self.trn_config.pipeline_parallel_size
         return super().world_size // divisor
 
     @property

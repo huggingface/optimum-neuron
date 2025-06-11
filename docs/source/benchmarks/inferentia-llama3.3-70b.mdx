@@ -1,0 +1,59 @@
+<!---
+Copyright 2024 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# Llama-3.3-70b performance on AWS Inferentia2 (Latency & Throughput)
+
+How fast is Llama-3.3-70b on Inferentia2?  Let's figure out!
+
+For this benchmark we will use the following configurations:
+
+| Model type        | batch_size | sequence_length |
+|-------------------|------------|-----------------|
+| Llama3.3 70b BS1  | 1          | 4096            |
+| Llama3.3 70b BS4  | 4          | 4096            |
+| Llama3.3 70b BS8  | 8          | 4096            |
+
+*Note: all models are compiled to use 12 devices corresponding to 24 cores on the `inf2.48xlarge` instance.*
+
+*Note: please refer to the [inferentia2 product page](https://aws.amazon.com/ec2/instance-types/inf2/) for details on the available instances.*
+
+## Time to first token
+
+The time to first token is the time required to process the input tokens and generate the first output token.
+It is a very important metric, as it corresponds to the latency directly perceived by the user when streaming generated tokens.
+
+We test the time to first token for increasing context sizes, from a typical Q/A usage, to heavy Retrieval Augmented Generation (RAG) use-cases.
+
+Time to first token is expressed in **seconds**.
+
+![Llama3.3 70b inferentia2 TTFT](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama3.3-70b/ttft.png "Time to first token")
+
+## Inter-token Latency
+
+The inter-token latency corresponds to the average time elapsed between two generated tokens.
+
+It is expressed in **milliseconds**.
+
+![Llama3.3 70b inferentia2 inter-token latency](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama3.3-70b/latency.png "Inter-token latency")
+
+### Throughput
+
+Unlike some other benchmarks, we evaluate the throughput using generated tokens only, by dividing their number
+by the end-to-end latency.
+
+Throughput is expressed in **tokens/second**.
+
+![Llama3.3 70b inferentia2 throughput](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama3.3-70b/throughput.png "Throughput")

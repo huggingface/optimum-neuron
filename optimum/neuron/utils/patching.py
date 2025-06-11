@@ -90,7 +90,7 @@ class Patcher(BasePatcher):
     def process_patching_specs(
         self, patching_specs: Optional[List[Tuple[str, Any]]] = None, ignore_missing_attributes: bool = False
     ):
-        proccessed_patching_specs = []
+        processed_patching_specs = []
         for orig, patch in patching_specs or []:
             module_qualified_name, attribute_name = orig.rsplit(".", maxsplit=1)
             try:
@@ -119,8 +119,8 @@ class Patcher(BasePatcher):
                 )
             if isinstance(patch, DynamicPatch):
                 patch = patch(attribute)
-            proccessed_patching_specs.append((module, attribute_name, attribute, patch, not module_has_attr))
-        return proccessed_patching_specs
+            processed_patching_specs.append((module, attribute_name, attribute, patch, not module_has_attr))
+        return processed_patching_specs
 
 
 class ModelPatcher(BasePatcher):
@@ -133,7 +133,7 @@ class ModelPatcher(BasePatcher):
         patching_specs: Optional[List[Tuple["PreTrainedModel", str, Any]]] = None,
         ignore_missing_attributes: bool = False,
     ):
-        proccessed_patching_specs = []
+        processed_patching_specs = []
         for model, attribute_qualified_name, patch in patching_specs or []:
             module_names = attribute_qualified_name.split(".")
             attribute_name = module_names.pop(-1)
@@ -160,9 +160,9 @@ class ModelPatcher(BasePatcher):
             if inspect.ismethod(attribute):
                 patch = patch.__get__(model)
 
-            proccessed_patching_specs.append((module, attribute_name, attribute, patch, not module_has_attr))
+            processed_patching_specs.append((module, attribute_name, attribute, patch, not module_has_attr))
 
-        return proccessed_patching_specs
+        return processed_patching_specs
 
 
 def patch_within_function(

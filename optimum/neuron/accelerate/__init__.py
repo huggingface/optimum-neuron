@@ -15,4 +15,4 @@
 
 from .accelerator import NeuronAccelerator
 from .state import NeuronAcceleratorState, NeuronPartialState
-from .utils.dataclasses import ModelParallelismPlugin, NeuronDistributedType
+from .utils.dataclasses import NeuronDistributedType

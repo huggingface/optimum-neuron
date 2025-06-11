@@ -13,33 +13,38 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from functools import partial
-from typing import Any, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 
-import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
 import torch
-import torch_xla.runtime as xr
-from neuronx_distributed.parallel_layers.layers import (
-    ColumnParallelLinear,
-    RowParallelLinear,
-)
-from neuronx_distributed.parallel_layers.parallel_state import (
-    get_tensor_model_parallel_size,
-)
 from torch import nn
-from torch_xla.utils.checkpoint import checkpoint
-from transformers import PretrainedConfig
-from transformers.activations import ACT2FN
+from transformers.loss.loss_utils import ForCausalLMLoss
+from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
-from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
-from transformers.modeling_utils import PreTrainedModel
-from transformers.utils import (
-    logging,
+from transformers.models.granite.configuration_granite import GraniteConfig
+from transformers.processing_utils import Unpack
+from transformers.utils import LossKwargs, can_return_tuple, logging
+
+from ....utils import is_neuronx_distributed_available, is_torch_xla_available
+from ..config import TrainingNeuronConfig
+from ..llama.modeling_llama import (
+    LlamaAttention,
+    LlamaDecoderLayer,
+    LlamaForCausalLM,
+    LlamaModel,
+    LlamaPreTrainedModel,
+    LlamaRMSNorm,
+    LlamaRotaryEmbedding,
 )
 
-from ..config import TrainingNeuronConfig
-from ..sharding import fuse_weights, slice_tensor
 
+if is_torch_xla_available():
+    from torch_xla.utils.checkpoint import checkpoint
+
+if is_neuronx_distributed_available():
+    from neuronx_distributed.parallel_layers.mappings import (
+        gather_from_sequence_parallel_region,
+        scatter_to_sequence_parallel_region,
+    )
 
 logger = logging.get_logger(__name__)
 
@@ -119,246 +124,17 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-class GraniteAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
-
-    def __init__(self, config: PretrainedConfig, mp_config: TrainingNeuronConfig, layer_idx: Optional[int] = None):
-        super().__init__()
-        self.config = config
-        self.mp_config = mp_config
-        self.hidden_size = config.hidden_size
-        self.num_heads = config.num_attention_heads
-        self.layer_idx = layer_idx
-        self.head_dim = config.hidden_size // config.num_attention_heads
-        self.num_key_value_heads = config.num_key_value_heads
-        self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
+class GraniteAttention(LlamaAttention):
+    def __init__(self, config: GraniteConfig, trn_config: TrainingNeuronConfig, layer_idx: int):
+        super().__init__(config, trn_config, layer_idx)
         self.scaling = config.attention_multiplier
-        self.attention_dropout = config.attention_dropout
-        self.is_causal = True
-
-        tp_size = get_tensor_model_parallel_size()
-        # num_attention_heads must be divisible by TP size, otherwise it cannot be correctly sharded
-        if config.num_key_value_heads % tp_size != 0:
-            raise ValueError(
-                f"num_key_value_heads {config.num_key_value_heads} must be divisible by TP size {tp_size}"
-            )
-
-        init_method = partial(_init_normal, config.initializer_range)
-        self.q_proj = ColumnParallelLinear(
-            self.hidden_size,
-            self.num_heads * self.head_dim,
-            bias=False,
-            gather_output=False,
-            init_method=init_method,
-            sequence_parallel_enabled=self.mp_config.sequence_parallel_enabled,
-            dtype=self.config.torch_dtype,
-        )
-        self.k_proj = ColumnParallelLinear(
-            self.hidden_size,
-            self.num_key_value_heads * self.head_dim,
-            bias=False,
-            gather_output=False,
-            init_method=init_method,
-            sequence_parallel_enabled=self.mp_config.sequence_parallel_enabled,
-            dtype=self.config.torch_dtype,
-        )
-        self.v_proj = ColumnParallelLinear(
-            self.hidden_size,
-            self.num_key_value_heads * self.head_dim,
-            bias=False,
-            gather_output=False,
-            init_method=init_method,
-            sequence_parallel_enabled=self.mp_config.sequence_parallel_enabled,
-            dtype=self.config.torch_dtype,
-        )
-        self.o_proj = RowParallelLinear(
-            self.num_heads * self.head_dim,
-            self.hidden_size,
-            bias=False,
-            input_is_parallel=True,
-            init_method=init_method,
-            sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
-            dtype=self.config.torch_dtype,
-        )
-        # Split parallelized weights
-        self._register_load_state_dict_pre_hook(self.load_hook)
-
-        # Some variables are initialized regardless of the TP size, to consider sharded weights
-        tp_size = get_tensor_model_parallel_size()
-        self.num_heads = neuronx_dist_utils.divide(config.num_attention_heads, tp_size)
-        self.num_key_value_heads = neuronx_dist_utils.divide(config.num_key_value_heads, tp_size)
-        self.num_key_value_groups = self.num_heads // self.num_key_value_heads
-
-    def load_hook(self, state_dict, prefix, *_args):
-        """
-        Update the state dict to split the weights of the model across the TP size.
-        """
-        # Filtering items to slice only the weights of this layer
-        filtered_items = filter(lambda x: x[0].startswith(prefix), state_dict.items())
-        for k, v in filtered_items:
-            if k.endswith("q_proj.weight"):
-                state_dict[k] = slice_tensor(v, 0)
-            if k.endswith("k_proj.weight"):
-                state_dict[k] = slice_tensor(v, 0)
-            if k.endswith("v_proj.weight"):
-                state_dict[k] = slice_tensor(v, 0)
-            if k.endswith("o_proj.weight"):
-                state_dict[k] = slice_tensor(v, 1)
-
-    def forward(
-        self,
-        hidden_states: torch.Tensor,
-        position_embeddings: Tuple[torch.Tensor, torch.Tensor],
-        attention_mask: Optional[torch.Tensor],
-        **kwargs: Any,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-        tp_size = get_tensor_model_parallel_size()
-
-        if self.mp_config.sequence_parallel_enabled:
-            q_len, bsz, _ = hidden_states.size()
-            q_len = q_len * tp_size
-        else:
-            bsz, q_len, _ = hidden_states.size()
-
-        query_states = self.q_proj(hidden_states)
-        key_states = self.k_proj(hidden_states)
-        value_states = self.v_proj(hidden_states)
-
-        if self.mp_config.sequence_parallel_enabled:
-            query_states = query_states.view(q_len, bsz, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
-            key_states = key_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
-            value_states = value_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
-        else:
-            query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-            key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-            value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-
-        cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-
-        assert self.config._attn_implementation == "eager"
-        attn_output, attn_weights = eager_attention_forward(
-            self,
-            query_states,
-            key_states,
-            value_states,
-            attention_mask,
-            dropout=0.0 if not self.training else self.attention_dropout,
-            scaling=self.scaling,
-        )
-
-        if self.mp_config.sequence_parallel_enabled:
-            attn_output = attn_output.permute(2, 0, 1, 3)
-            attn_output = attn_output.reshape(q_len, bsz, self.hidden_size // tp_size)
-        else:
-            attn_output = attn_output.transpose(1, 2).contiguous()
-            attn_output = attn_output.reshape(bsz, q_len, self.hidden_size // tp_size)
-        attn_output = self.o_proj(attn_output)
-
-        return attn_output, attn_weights
 
 
-class GraniteRMSNorm(nn.Module):
-    def __init__(self, hidden_size, eps=1e-6):
-        """
-        GraniteRMSNorm is equivalent to T5LayerNorm
-        """
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(hidden_size))
-        self.variance_epsilon = eps
-
-    def forward(self, hidden_states):
-        input_dtype = hidden_states.dtype
-        hidden_states = hidden_states.to(torch.float32)
-        variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        return self.weight * hidden_states.to(input_dtype)
-
-    def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
-
-
-class GraniteMLP(nn.Module):
-    def __init__(self, config, mp_config):
-        super().__init__()
-        self.config = config
-        self.mp_config = mp_config
-        self.hidden_size = config.hidden_size
-        self.intermediate_size = config.intermediate_size
-        init_method = partial(_init_normal, config.initializer_range)
-        assert not config.mlp_bias, "GraniteMLP sharding does not support bias for now"
-        self.gate_up_proj = ColumnParallelLinear(
-            self.hidden_size,
-            2 * self.intermediate_size,
-            stride=2,
-            bias=False,
-            gather_output=False,
-            init_method=init_method,
-            sequence_parallel_enabled=self.mp_config.sequence_parallel_enabled,
-            sequence_dimension=0,
-            dtype=self.config.torch_dtype,
-        )
-        self.split_size = self.intermediate_size // get_tensor_model_parallel_size()
-        self.down_proj = RowParallelLinear(
-            self.intermediate_size,
-            self.hidden_size,
-            bias=config.mlp_bias,
-            init_method=init_method,
-            dtype=config.torch_dtype,
-            input_is_parallel=True,
-            sequence_parallel_enabled=mp_config.sequence_parallel_enabled,
-        )
-        self.act_fn = ACT2FN[config.hidden_act]
-        # Split parallelized weights
-        self.full_fused_weights = []
-        self._register_load_state_dict_pre_hook(self.load_hook)
-
-    def load_hook(self, state_dict, prefix, *_args):
-        """
-        Update the state dict to split the weights of the model across the TP size.
-        """
-        fused_gate_up_proj = ["gate_proj.weight", "up_proj.weight"]
-        fuse_weights(
-            keys=fused_gate_up_proj,
-            prefix=prefix,
-            state_dict=state_dict,
-            partition_dim=0,
-            full_fused_weights=self.full_fused_weights,
-            fused_name="gate_up_proj.weight",
-        )
-        # Filtering items to slice only the weights of this layer
-        filtered_items = filter(lambda x: x[0].startswith(prefix), state_dict.items())
-        for k, v in filtered_items:
-            if k.endswith("down_proj.weight"):
-                state_dict[k] = slice_tensor(v, 1)
-
-    def forward(self, x):
-        gate_proj, up_proj = self.gate_up_proj(x).split(self.split_size, dim=2)
-
-        def activation_mlp(gate_proj, up_proj):
-            activation_output = self.act_fn(gate_proj)
-            return activation_output * up_proj
-
-        # We checkpoint the MLP compute too, since we see extra data movement which is more
-        # expensive than the recompute in this case.
-        if self.mp_config.gradient_checkpointing:
-            intermediate_states = checkpoint(activation_mlp, gate_proj, up_proj)
-        else:
-            intermediate_states = self.act_fn(gate_proj) * up_proj
-        down_proj = self.down_proj(intermediate_states)
-        return down_proj
-
-
-class GraniteDecoderLayer(nn.Module):
-    def __init__(self, config: PretrainedConfig, mp_config: TrainingNeuronConfig, layer_idx: int):
-        super().__init__()
-        self.hidden_size = config.hidden_size
-        self.self_attn = GraniteAttention(config=config, mp_config=mp_config, layer_idx=layer_idx)
-
-        self.mlp = GraniteMLP(config, mp_config)
-        self.input_layernorm = GraniteRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.post_attention_layernorm = GraniteRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+class GraniteDecoderLayer(LlamaDecoderLayer):
+    def __init__(self, config: GraniteConfig, trn_config: TrainingNeuronConfig, layer_idx: int):
+        super().__init__(config, trn_config, layer_idx)
         self.residual_multiplier = config.residual_multiplier
+        self.self_attn = GraniteAttention(config=config, trn_config=trn_config, layer_idx=layer_idx)
 
     def forward(
         self,
@@ -369,24 +145,7 @@ class GraniteDecoderLayer(nn.Module):
         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
         **kwargs,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
-        """
-        Args:
-            hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, embed_dim)`
-            attention_mask (`torch.FloatTensor`, *optional*):
-                attention mask of size `(batch_size, sequence_length)` if flash attention is used or `(batch_size, 1,
-                query_sequence_length, key_sequence_length)` if default attention is used.
-            output_attentions (`bool`, *optional*):
-                Whether or not to return the attentions tensors of all attention layers. See `attentions` under
-                returned tensors for more detail.
-            position_embeddings (`Tuple[torch.FloatTensor, torch.FloatTensor]`, *optional*):
-                Tuple containing the cosine and sine positional embeddings of shape `(batch_size, seq_len, head_dim)`,
-                with `head_dim` being the embedding dimension of each attention head.
-            kwargs (`dict`, *optional*):
-                Arbitrary kwargs to be ignored, used for FSDP and other methods that injects code
-                into the model
-        """
         residual = hidden_states
-
         hidden_states = self.input_layernorm(hidden_states)
 
         # Self Attention
@@ -395,7 +154,6 @@ class GraniteDecoderLayer(nn.Module):
             attention_mask=attention_mask,
             position_ids=position_ids,
             output_attentions=output_attentions,
-            use_cache=False,
             position_embeddings=position_embeddings,
             **kwargs,
         )
@@ -415,162 +173,81 @@ class GraniteDecoderLayer(nn.Module):
         return outputs
 
 
-class GraniteRotaryEmbedding(nn.Module):
-    def __init__(self, config: PretrainedConfig, device=None):
-        super().__init__()
-        # BC: "rope_type" was originally "type"
-        if hasattr(config, "rope_scaling") and config.rope_scaling is not None:
-            self.rope_type = config.rope_scaling.get("rope_type", config.rope_scaling.get("type"))
-        else:
-            self.rope_type = "default"
-        self.max_seq_len_cached = config.max_position_embeddings
-        self.original_max_seq_len = config.max_position_embeddings
+class GraniteModel(LlamaModel):
+    config_class = GraniteConfig
 
-        self.config = config
-        self.rope_init_fn = ROPE_INIT_FUNCTIONS[self.rope_type]
-
-        inv_freq, self.attention_scaling = self.rope_init_fn(self.config, device)
-        self.register_buffer("inv_freq", inv_freq, persistent=False)
-        self.original_inv_freq = self.inv_freq
-
-    def _dynamic_frequency_update(self, position_ids, device):
-        """
-        dynamic RoPE layers should recompute `inv_freq` in the following situations:
-        1 - growing beyond the cached sequence length (allow scaling)
-        2 - the current sequence length is in the original scale (avoid losing precision with small sequences)
-        """
-        seq_len = torch.max(position_ids) + 1
-        if seq_len > self.max_seq_len_cached:  # growth
-            inv_freq, self.attention_scaling = self.rope_init_fn(self.config, device, seq_len=seq_len)
-            self.register_buffer("inv_freq", inv_freq, persistent=False)  # TODO joao: may break with compilation
-            self.max_seq_len_cached = seq_len
-
-        if seq_len < self.original_max_seq_len and self.max_seq_len_cached > self.original_max_seq_len:  # reset
-            # This .to() is needed if the model has been moved to a device after being initialized (because
-            # the buffer is automatically moved, but not the original copy)
-            self.original_inv_freq = self.original_inv_freq.to(device)
-            self.register_buffer("inv_freq", self.original_inv_freq, persistent=False)
-            self.max_seq_len_cached = self.original_max_seq_len
-
-    @torch.no_grad()
-    def forward(self, x, position_ids):
-        if "dynamic" in self.rope_type:
-            self._dynamic_frequency_update(position_ids, device=x.device)
-
-        # Core RoPE block
-        inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
-        position_ids_expanded = position_ids[:, None, :].float()
-        # Force float32 (see https://github.com/huggingface/transformers/pull/29285)
-        device_type = x.device.type
-        device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
-        with torch.autocast(device_type=device_type, enabled=False):
-            freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
-            emb = torch.cat((freqs, freqs), dim=-1)
-            cos = emb.cos()
-            sin = emb.sin()
-
-        # Advanced RoPE types (e.g. yarn) apply a post-processing scaling factor, equivalent to scaling attention
-        cos = cos * self.attention_scaling
-        sin = sin * self.attention_scaling
-
-        return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
-
-
-class GranitePreTrainedModel(PreTrainedModel):
-    config_class = PretrainedConfig
-    base_model_prefix = "model"
-    supports_gradient_checkpointing = True
-    _no_split_modules = ["GraniteDecoderLayer"]
-    _skip_keys_device_placement = ["past_key_values"]
-    _supports_flash_attn_2 = False
-    _supports_sdpa = False
-    _supports_flex_attn = False
-    _supports_cache_class = False
-    _supports_quantized_cache = False
-    _supports_static_cache = False
-    # This is to suppress the warning about some weights not expected and other not being initialized. This is due to
-    # the way weights are fused, so it is safe to ignore the warnings.
-    _keys_to_ignore_on_load_unexpected = [r".*up_proj.weight", r".*gate_proj.weight"]
-    _keys_to_ignore_on_load_missing = [r".*gate_up_proj.weight"]
-
-    def _init_weights(self, module):
-        std = self.config.initializer_range
-        if isinstance(module, nn.Linear):
-            module.weight.data.normal_(mean=0.0, std=std)
-            if module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.Embedding):
-            module.weight.data.normal_(mean=0.0, std=std)
-            if module.padding_idx is not None:
-                module.weight.data[module.padding_idx].zero_()
-
-
-class GraniteModel(GranitePreTrainedModel):
-    """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`GraniteDecoderLayer`]
-
-    Args:
-        config: PretrainedConfig
-    """
-
-    def __init__(self, config: PretrainedConfig, mp_config: TrainingNeuronConfig):
-        super().__init__(config)
-        self.mp_config = mp_config
+    def __init__(self, config: GraniteConfig, trn_config: TrainingNeuronConfig):
+        LlamaPreTrainedModel.__init__(self, config)
+        self.embedding_multiplier = config.embedding_multiplier
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
-        self.rank = xr.global_ordinal()
-        self.world_size = xr.world_size()
+
+        self.trn_config = trn_config
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
+
         self.layers = nn.ModuleList(
-            [GraniteDecoderLayer(config, mp_config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
+            [GraniteDecoderLayer(config, trn_config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
-        self.norm = GraniteRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.rotary_emb = GraniteRotaryEmbedding(config=config)
-        self.gradient_checkpointing = False
-        self.embedding_multiplier = config.embedding_multiplier
+        self.norm = LlamaRMSNorm(
+            config.hidden_size, eps=config.rms_norm_eps, sequence_parallel_enabled=trn_config.sequence_parallel_enabled
+        )
+        self.rotary_emb = LlamaRotaryEmbedding(config=config)
+
+        self.gradient_checkpointing = self.trn_config.gradient_checkpointing
 
         # Initialize weights and apply final processing
         self.post_init()
 
-    def get_input_embeddings(self):
-        return self.embed_tokens
-
-    def set_input_embeddings(self, value):
-        self.embed_tokens = value
-
+    @can_return_tuple
     def forward(
         self,
         input_ids: torch.LongTensor = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
+        use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        **flash_attn_kwargs,
     ) -> Union[Tuple, BaseModelOutputWithPast]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        use_cache = use_cache if use_cache is not None else self.config.use_cache
 
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
+        if self.gradient_checkpointing and self.training and use_cache:
+            logger.warning_once(
+                "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`."
+            )
+            use_cache = False
+
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
+        if self.trn_config.sequence_parallel_enabled:
+            inputs_embeds = inputs_embeds.transpose(0, 1).contiguous()
+            inputs_embeds = scatter_to_sequence_parallel_region(inputs_embeds)
 
         inputs_embeds = inputs_embeds * self.embedding_multiplier  # main diff with Llama
 
-        past_seen_tokens = 0
-        cache_position = torch.arange(
-            past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
+        current_length = (
+            inputs_embeds.size(0) * self.trn_config.tensor_parallel_size
+            if self.trn_config.sequence_parallel_enabled
+            else inputs_embeds.size(1)
         )
+        cache_position = torch.arange(0, current_length, device=inputs_embeds.device)
+
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        causal_mask = self._update_causal_mask(attention_mask, inputs_embeds, cache_position)
+        if self.trn_config.recompute_causal_mask:
+            causal_mask = None
+        else:
+            causal_mask = self._update_causal_mask(attention_mask, inputs_embeds, cache_position)
 
         hidden_states = inputs_embeds
 
@@ -586,7 +263,7 @@ class GraniteModel(GranitePreTrainedModel):
                 all_hidden_states += (hidden_states,)
 
             if self.gradient_checkpointing and self.training:
-                layer_outputs = self._gradient_checkpointing_func(
+                layer_outputs = checkpoint(
                     decoder_layer.__call__,
                     hidden_states,
                     causal_mask,
@@ -601,6 +278,7 @@ class GraniteModel(GranitePreTrainedModel):
                     position_ids=position_ids,
                     output_attentions=output_attentions,
                     position_embeddings=position_embeddings,
+                    **flash_attn_kwargs,
                 )
 
             hidden_states = layer_outputs[0]
@@ -620,113 +298,26 @@ class GraniteModel(GranitePreTrainedModel):
             hidden_states=all_hidden_states,
             attentions=all_self_attns,
         )
-        return output if return_dict else output.to_tuple()
-
-    def _update_causal_mask(
-        self,
-        attention_mask: torch.Tensor,
-        input_tensor: torch.Tensor,
-        cache_position: torch.Tensor,
-    ):
-        if self.config._attn_implementation == "flash_attention_2":
-            if attention_mask is not None and (attention_mask == 0.0).any():
-                return attention_mask
-            return None
-        past_seen_tokens = 0
-
-        dtype, device = input_tensor.dtype, input_tensor.device
-        sequence_length = input_tensor.shape[1]
-        target_length = (
-            attention_mask.shape[-1]
-            if isinstance(attention_mask, torch.Tensor)
-            else past_seen_tokens + sequence_length + 1
-        )
-
-        # In case the provided `attention` mask is 2D, we generate a causal mask here (4D).
-        causal_mask = self._prepare_4d_causal_attention_mask_with_cache_position(
-            attention_mask,
-            sequence_length=sequence_length,
-            target_length=target_length,
-            dtype=dtype,
-            device=device,
-            cache_position=cache_position,
-            batch_size=input_tensor.shape[0],
-        )
-
-        return causal_mask
-
-    @staticmethod
-    def _prepare_4d_causal_attention_mask_with_cache_position(
-        attention_mask: torch.Tensor,
-        sequence_length: int,
-        target_length: int,
-        dtype: torch.dtype,
-        device: torch.device,
-        cache_position: torch.Tensor,
-        batch_size: int,
-        **kwargs,
-    ):
-        """
-        Creates a causal 4D mask of shape `(batch_size, 1, query_length, key_value_length)` from a 2D mask of shape
-        `(batch_size, key_value_length)`, or if the input `attention_mask` is already 4D, do nothing.
-
-        Args:
-            attention_mask (`torch.Tensor`):
-                A 2D attention mask of shape `(batch_size, key_value_length)` or a 4D attention mask of shape
-                `(batch_size, 1, query_length, key_value_length)`.
-            sequence_length (`int`):
-                The sequence length being processed.
-            target_length (`int`):
-                The target length: when generating with static cache, the mask should be as long as the static cache,
-                to account for the 0 padding, the part of the cache that is not filled yet.
-            dtype (`torch.dtype`):
-                The dtype to use for the 4D attention mask.
-            device (`torch.device`):
-                The device to plcae the 4D attention mask on.
-            cache_position (`torch.Tensor`):
-                Indices depicting the position of the input sequence tokens in the sequence.
-            batch_size (`torch.Tensor`):
-                Batch size.
-        """
-        if attention_mask is not None and attention_mask.dim() == 4:
-            # In this case we assume that the mask comes already in inverted form and requires no inversion or slicing.
-            causal_mask = attention_mask
-        else:
-            min_dtype = torch.finfo(dtype).min
-            causal_mask = torch.full(
-                (sequence_length, target_length), fill_value=min_dtype, dtype=dtype, device=device
-            )
-            if sequence_length != 1:
-                causal_mask = torch.triu(causal_mask, diagonal=1)
-            causal_mask *= torch.arange(target_length, device=device) > cache_position.reshape(-1, 1)
-            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            if attention_mask is not None:
-                causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-                mask_length = attention_mask.shape[-1]
-                padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :]
-                padding_mask = padding_mask == 0
-                causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
-                    padding_mask, min_dtype
-                )
-
-        return causal_mask
+        return output
 
 
-class GraniteForCausalLM(GranitePreTrainedModel):
-    _tied_weights_keys = ["lm_head.weight"]
+class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
 
-    def __init__(self, config, mp_config: TrainingNeuronConfig):
-        super().__init__(config)
-        self.model = GraniteModel(config, mp_config)
+
+class GraniteForCausalLM(LlamaForCausalLM):
+    config_class = GraniteConfig
+
+    def __init__(self, config, trn_config: TrainingNeuronConfig):
+        LlamaPreTrainedModel.__init__(self, config)
+        self.trn_config = trn_config
+        self.model = GraniteModel(config, trn_config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
         # Initialize weights and apply final processing
         self.post_init()
 
-    def get_output_embeddings(self):
-        return self.lm_head
-
+    @can_return_tuple
     def forward(
         self,
         input_ids: torch.LongTensor = None,
@@ -736,44 +327,12 @@ class GraniteForCausalLM(GranitePreTrainedModel):
         labels: Optional[torch.LongTensor] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        num_logits_to_keep: int = 0,
+        **kwargs: Unpack[KwargsForCausalLM],
     ) -> Union[Tuple, CausalLMOutputWithPast]:
-        r"""
-        Args:
-            labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
-                Labels for computing the masked language modeling loss. Indices should either be in `[0, ...,
-                config.vocab_size]` or -100 (see `input_ids` docstring). Tokens with indices set to `-100` are ignored
-                (masked), the loss is only computed for the tokens with labels in `[0, ..., config.vocab_size]`.
-
-            num_logits_to_keep (`int`, *optional*):
-                Calculate logits for the last `num_logits_to_keep` tokens. If `0`, calculate logits for all
-                `input_ids` (special case). Only last token logits are needed for generation, and calculating them only for that
-                token can save memory, which becomes pretty significant for long sequences or large vocabulary size.
-
-        Returns:
-
-        Example:
-
-        ```python
-        >>> from transformers import AutoTokenizer, GraniteForCausalLM
-
-        >>> model = GraniteForCausalLM.from_pretrained("meta-granite/Granite-2-7b-hf")
-        >>> tokenizer = AutoTokenizer.from_pretrained("meta-granite/Granite-2-7b-hf")
-
-        >>> prompt = "Hey, are you conscious? Can you talk to me?"
-        >>> inputs = tokenizer(prompt, return_tensors="pt")
-
-        >>> # Generate
-        >>> generate_ids = model.generate(inputs.input_ids, max_length=30)
-        >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
-        "Hey, are you conscious? Can you talk to me?\nI'm not conscious, but I can talk to you."
-        ```"""
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model(
@@ -783,21 +342,21 @@ class GraniteForCausalLM(GranitePreTrainedModel):
             inputs_embeds=inputs_embeds,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
+            **kwargs,
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
-        logits = self.lm_head(hidden_states[:, -num_logits_to_keep:, :])
+
+        logits = self.lm_head(hidden_states)
         logits = logits / self.config.logits_scaling  # main diff with Llama
+
+        if self.trn_config.sequence_parallel_enabled:
+            logits = gather_from_sequence_parallel_region(logits)
+            logits = logits.transpose(0, 1).contiguous()
 
         loss = None
         if labels is not None:
-            loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size)
-
-        if not return_dict:
-            output = (logits,) + outputs[1:]
-            return (loss,) + output if loss is not None else output
+            loss = ForCausalLMLoss(logits=logits, labels=labels, vocab_size=self.vocab_size, **kwargs)
 
         return CausalLMOutputWithPast(
             loss=loss,

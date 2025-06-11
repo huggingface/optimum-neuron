@@ -22,6 +22,8 @@ from transformers.generation import StoppingCriteria
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.models.inference.nxd.backend.modules.decoder import NxDModelForCausalLM
+from optimum.neuron.models.inference.nxd.backend.modules.generation.generation_utils import prepare_sampling_params
+from optimum.neuron.models.inference.nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -122,7 +124,7 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17)
     if isinstance(model, NxDModelForCausalLM):
         expectations = {
-            "llama": " And how does it differ from other Machine Learning approaches?\n\n**What is Deep Learning?",
+            "llama": " and how does it work?\nDeep learning is a subset of machine learning that uses artificial",
             "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
             "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
             "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
@@ -135,7 +137,9 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
             "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
         }
     config_name = neuron_decoder_config["name"]
-    assert tokenizer.decode(outputs[0]).endswith(expectations[config_name])
+    generated_text = tokenizer.decode(outputs[0])
+    expected_text = expectations[config_name]
+    assert generated_text.endswith(expected_text)
 
 
 @is_inferentia_test
@@ -148,12 +152,12 @@ def test_decoder_generation_multiple_eos_token_ids(model_and_tokenizer):
     if not isinstance(generation_config.eos_token_id, list):
         generation_config.eos_token_id = [generation_config.eos_token_id]
     generation_config.max_new_tokens = 256
-    outputs = model.generate(**tokens, do_sample=True, generation_config=generation_config)
+    outputs = model.generate(**tokens, do_sample=False, generation_config=generation_config)
     # Extract the last non-eos generated token and use it as a fake eos_token_id
     fake_eos_token_id = outputs[0, -2]
     generation_config.eos_token_id.append(fake_eos_token_id)
     # Generate again an verify we stopped on that id
-    outputs = model.generate(**tokens, do_sample=True, generation_config=generation_config)
+    outputs = model.generate(**tokens, do_sample=False, generation_config=generation_config)
     assert outputs[0, -1] == fake_eos_token_id
 
 
@@ -195,14 +199,21 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
     if not model.neuron_config.continuous_batching:
         pytest.skip("Model does not support continuous batching")
 
+    # Assume by default that we are not doing on-device sampling
+    on_device_sampling = getattr(model.neuron_config, "on_device_sampling", False)
+    nxd_backend = isinstance(model, NxDModelForCausalLM)
+
     # We need at least three inputs
     assert model.neuron_config.batch_size >= 3
 
     inputs = tokenizer("Once upon a time", return_tensors="pt")
 
     # A few helper functions we need while prefilling and decoding
-    def get_next_tokens(input_ids, cache_ids, start_ids):
-        outputs = model.forward(input_ids, cache_ids, start_ids)
+    def get_next_tokens(**kwargs):
+        outputs = model.forward(**kwargs)
+        if on_device_sampling:
+            # on-device sampling directly returns the next token
+            return outputs.hidden_states.unsqueeze(1)
         return outputs.logits[:, -1, :].argmax(dim=-1, keepdim=True)
 
     def increase_attention_mask(attention_mask):
@@ -216,30 +227,62 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
         return new_attention_mask
 
     # Prefill a single input at index 0, remembering the generated token
-    first_inputs = model.prepare_inputs_for_prefill(**inputs, seq_ids=torch.tensor([0]))
-    first_generated_tokens = get_next_tokens(**first_inputs)
+    first_inputs = {
+        "input_ids": inputs.input_ids,
+        "attention_mask": inputs.attention_mask,
+        "seq_ids": torch.tensor([0]),
+    }
+    if nxd_backend and on_device_sampling:
+        first_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
+    first_generated_tokens = get_next_tokens(**model.prepare_inputs_for_prefill(**first_inputs))
     # Decode a few tokens
-    next_tokens = first_generated_tokens
-    attention_mask = inputs.attention_mask
+    first_inputs["input_ids"] = first_generated_tokens
     for _ in range(5):
         # For decode we can only pass the next token, but we need to pass the full attention mask
-        attention_mask = increase_attention_mask(attention_mask)
-        decode_inputs = model.prepare_inputs_for_decode(next_tokens, attention_mask)
-        next_tokens = get_next_tokens(**decode_inputs)
+        first_inputs["attention_mask"] = increase_attention_mask(first_inputs["attention_mask"])
+        next_tokens = get_next_tokens(**model.prepare_inputs_for_decode(**first_inputs))
         first_generated_tokens = torch.cat([first_generated_tokens, next_tokens], dim=-1)
+        first_inputs["input_ids"] = next_tokens
     # Prefill a second input at index 2
-    second_inputs = model.prepare_inputs_for_prefill(**inputs, seq_ids=torch.tensor([2]))
-    second_generated_tokens = get_next_tokens(**second_inputs)
+    second_inputs = {
+        "input_ids": inputs.input_ids,
+        "attention_mask": inputs.attention_mask,
+        "seq_ids": torch.tensor([2]),
+    }
+    if nxd_backend and on_device_sampling:
+        second_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
+    second_generated_tokens = get_next_tokens(**model.prepare_inputs_for_prefill(**second_inputs))
+    # Resize the second request attention mask to the size of the first request
+    second_attention_mask = torch.zeros_like(first_inputs["attention_mask"])
+    second_attention_mask[:, : second_inputs["attention_mask"].shape[1]] = 1
     # Concatenate the last decode token from the first input and the prefill token from the second
-    next_tokens = torch.cat([next_tokens, second_generated_tokens], dim=0)
-    second_attention_mask = torch.zeros_like(attention_mask)
-    second_attention_mask[:, : inputs.attention_mask.shape[1]] = 1
-    attention_mask = torch.cat([attention_mask, second_attention_mask], dim=0)
+    two_requests_inputs = {
+        "input_ids": torch.cat([first_generated_tokens[:, -1:], second_generated_tokens], dim=0),
+        "attention_mask": torch.cat([first_inputs["attention_mask"], second_attention_mask], dim=0),
+        "seq_ids": torch.tensor([0, 2]),
+    }
+    if nxd_backend and on_device_sampling:
+        two_requests_inputs["sampling_params"] = prepare_sampling_params(batch_size=2)
     # Decode more tokens
     for _ in range(10):
-        attention_mask = increase_attention_mask(attention_mask)
-        decode_inputs = model.prepare_inputs_for_decode(next_tokens, attention_mask, seq_ids=torch.tensor([0, 2]))
-        next_tokens = get_next_tokens(**decode_inputs)
+        two_requests_inputs["attention_mask"] = increase_attention_mask(two_requests_inputs["attention_mask"])
+        next_tokens = get_next_tokens(**model.prepare_inputs_for_decode(**two_requests_inputs))
         first_generated_tokens = torch.cat([first_generated_tokens, next_tokens[0:1, :]], dim=-1)
         second_generated_tokens = torch.cat([second_generated_tokens, next_tokens[1:, :]], dim=-1)
+        two_requests_inputs["input_ids"] = next_tokens
     assert torch.equal(second_generated_tokens, first_generated_tokens[:, : second_generated_tokens.shape[1]])
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_generation_assisted_decoding(speculation):
+    model_path, draft_model_path = speculation
+    model = LlamaNxDModelForCausalLM.from_pretrained(model_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    assistant_model = LlamaNxDModelForCausalLM.from_pretrained(draft_model_path)
+    prompt = "What is Deep Learning?"
+    inputs = tokenizer(prompt, return_tensors="pt")
+    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17, assistant_model=assistant_model)
+    generated_text = tokenizer.decode(outputs[0])
+    expected_text = " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial neural"
+    assert generated_text.endswith(expected_text)

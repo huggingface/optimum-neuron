@@ -31,6 +31,7 @@ from accelerate.utils import (
 from accelerate.utils.dataclasses import SageMakerDistributedType
 
 from ...utils import logging
+from ..models.neuron_config import TrainingNeuronConfig
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.torch_xla_and_neuronx_initialization import (
     init_process_group,
@@ -38,7 +39,7 @@ from ..utils.torch_xla_and_neuronx_initialization import (
     set_neuron_cc_flags_for_torch_amp,
 )
 from .utils import NeuronDistributedType
-from .utils.dataclasses import AutocastBackend, ModelParallelismPlugin
+from .utils.dataclasses import AutocastBackend
 
 
 if is_torch_xla_available():
@@ -128,7 +129,7 @@ class NeuronAcceleratorState(AcceleratorState):
         deepspeed_plugin=None,
         fsdp_plugin=None,
         megatron_lm_plugin=None,
-        mp_plugin: Optional[ModelParallelismPlugin] = None,
+        trn_config: Optional[TrainingNeuronConfig] = None,
         autocast_backend: Optional[Union[str, AutocastBackend]] = None,
         _from_accelerator: bool = False,
         **kwargs,
@@ -184,18 +185,18 @@ class NeuronAcceleratorState(AcceleratorState):
                 if mixed_precision == "bf16":
                     os.environ["NEURON_RT_STOCHASTIC_ROUNDING_EN"] = "1"
 
-                if mp_plugin is None:
-                    mp_plugin = ModelParallelismPlugin()
+                if trn_config is None:
+                    trn_config = TrainingNeuronConfig()
 
-                if mp_plugin.should_parallelize:
+                if trn_config.should_parallelize:
                     self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
 
-                self.mp_plugin = mp_plugin
+                self.trn_config = trn_config
 
                 if torch.distributed.is_initialized() and not parallel_state.model_parallel_is_initialized():
                     parallel_state.initialize_model_parallel(
-                        tensor_model_parallel_size=self.mp_plugin.tensor_parallel_size,
-                        pipeline_model_parallel_size=self.mp_plugin.pipeline_parallel_size,
+                        tensor_model_parallel_size=self.trn_config.tensor_parallel_size,
+                        pipeline_model_parallel_size=self.trn_config.pipeline_parallel_size,
                     )
 
             if self.distributed_type is DistributedType.NO:

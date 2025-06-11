@@ -328,7 +328,7 @@ def get_activation(activation_function: Union[str, Callable]) -> Callable:
         return activation_function
     assert hasattr(activations, activation_function), f"{activation_function} is not defined in activations.py"
     activation = getattr(activations, activation_function)
-    assert callable(activation), f"Expected a callable activation function but recieved a {type(activation)}"
+    assert callable(activation), f"Expected a callable activation function but received a {type(activation)}"
     return activation
 
 
