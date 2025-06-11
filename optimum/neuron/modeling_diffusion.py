@@ -36,7 +36,7 @@ from transformers.modeling_outputs import ModelOutput
 from ..exporters.neuron import (
     load_models_and_neuron_configs,
     main_export,
-    normalize_stable_diffusion_input_shapes,
+    normalize_diffusers_input_shapes,
     replace_stable_diffusion_submodels,
 )
 from ..exporters.neuron.model_configs import *  # noqa: F403
@@ -981,7 +981,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 task = TasksManager.infer_task_from_model(cls.auto_model_class)
 
         # mandatory shapes
-        input_shapes = normalize_stable_diffusion_input_shapes(kwargs_shapes)
+        input_shapes = normalize_diffusers_input_shapes(kwargs_shapes)
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
