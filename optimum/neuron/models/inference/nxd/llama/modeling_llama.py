@@ -264,16 +264,17 @@ class NeuronLlamaMLP(nn.Module):
 
 class NeuronLlamaAttention(NeuronAttentionBase):
     """
-    Compared with LlamaAttention, this class just
-    1. replaces the q_proj, k_proj, v_proj with column parallel layer
-    2. replaces the o_proj with row parallel layer
-    3. update self.num_head to be self.num_head / tp_degree
-    4. update self.num_key_value_heads to be self.num_key_value_heads / tp_degree
-    5. update forward() method to adjust to changes from self.num_head
+    The only difference with the NeuronAttentionBase is the definition of the Llama rotary embedding
     """
 
-    def __init__(self, config: LlamaConfig, neuron_config: NxDNeuronConfig):
-        super().__init__(config, neuron_config)
+    def __init__(
+        self,
+        config: LlamaConfig,
+        neuron_config: NxDNeuronConfig,
+        qkv_proj_bias: bool = False,
+        o_proj_bias: bool = False,
+    ):
+        super().__init__(config, neuron_config, qkv_proj_bias=qkv_proj_bias, o_proj_bias=o_proj_bias)
         head_dim = config.hidden_size // config.num_attention_heads
         if not hasattr(config, "rope_scaling") or config.rope_scaling is None:
             self.rotary_emb = RotaryEmbedding(
