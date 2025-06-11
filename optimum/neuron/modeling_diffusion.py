@@ -76,6 +76,7 @@ if is_neuronx_available():
 if is_diffusers_available():
     from diffusers import (
         ControlNetModel,
+        FluxPipeline,
         LatentConsistencyModelPipeline,
         LCMScheduler,
         PixArtAlphaPipeline,
@@ -1650,3 +1651,8 @@ class NeuronStableDiffusionXLControlNetPipeline(
 ):
     main_input_name = "prompt"
     auto_model_class = StableDiffusionXLControlNetPipeline
+
+
+class NeuronFluxPipeline(NeuronDiffusionPipelineBase, FluxPipeline):
+    main_input_name = "prompt"
+    auto_model_class = FluxPipeline
