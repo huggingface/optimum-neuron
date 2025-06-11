@@ -23,9 +23,9 @@ import os
 
 from ..auto_model import register_neuron_model
 from .hlo.granite.model import GraniteHloModelForCausalLM
-from .hlo.phi3.model import Phi3HloModelForCausalLM
 from .nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
 from .nxd.mixtral.modeling_mixtral import MixtralNxDModelForCausalLM
+from .nxd.phi3.modeling_phi3 import Phi3NxDModelForCausalLM
 from .nxd.qwen2.modeling_qwen2 import Qwen2NxDModelForCausalLM
 from .nxd.qwen3.modeling_qwen3 import Qwen3NxDModelForCausalLM
 
@@ -59,9 +59,9 @@ class LLamaModelForCausalLM(LlamaNxDModelForCausalLM):
 
 
 @register_neuron_model_for_inference("phi3", "text-generation")
-class Phi3ModelForCausalLM(Phi3HloModelForCausalLM):
+class Phi3ModelForCausalLM(Phi3NxDModelForCausalLM):
     """
-    Phi3 model with HLO backend for inference on AWS Neuron.
+    Phi3 model with NxD backend for inference on AWS Neuron.
     """
 
     pass

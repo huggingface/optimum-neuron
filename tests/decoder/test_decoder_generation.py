@@ -130,7 +130,7 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
             "qwen2": "Deep Learning is a subset of Machine Learning that involves the use of artificial neural networks",
             "qwen3": "What is Deep Learning? A Deep Learning is a subset of machine learning that uses neural networks with multiple layers to",
             "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
-            "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
+            "phi": "\nDeep Learning is a subset of machine learning that uses neural networks with many layers",
         }
     else:
         expectations = {
