@@ -23,7 +23,6 @@ import os
 
 from ..auto_model import register_neuron_model
 from .hlo.granite.model import GraniteHloModelForCausalLM
-from .hlo.llama.model import LlamaHloModelForCausalLM
 from .hlo.phi3.model import Phi3HloModelForCausalLM
 from .nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
 from .nxd.mixtral.modeling_mixtral import MixtralNxDModelForCausalLM
@@ -49,25 +48,13 @@ class GraniteModelForCausalLM(GraniteHloModelForCausalLM):
     pass
 
 
-if prioritize_hlo_backend:
+@register_neuron_model_for_inference("llama", "text-generation")
+class LLamaModelForCausalLM(LlamaNxDModelForCausalLM):
+    """
+    Llama model with NxD backend for inference on AWS Neuron.
+    """
 
-    @register_neuron_model_for_inference("llama", "text-generation")
-    class LLamaModelForCausalLM(LlamaHloModelForCausalLM):
-        """
-        Llama model with HLO backend for inference on AWS Neuron.
-        """
-
-        pass
-
-else:
-
-    @register_neuron_model_for_inference("llama", "text-generation")
-    class LLamaModelForCausalLM(LlamaNxDModelForCausalLM):
-        """
-        Llama model with NxD backend for inference on AWS Neuron.
-        """
-
-        pass
+    pass
 
 
 @register_neuron_model_for_inference("phi3", "text-generation")
