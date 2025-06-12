@@ -145,11 +145,9 @@ def _overfit_causal_lm(
             "ibm-granite/granite-3.2-2b-instruct",
             2e-3,
             0,
-            {
-                # For now we disable flash attention because the default configuration has a dropout for the attention
-                # which is broken with the flash attention kernel in the current Neuron SDK.
-                "use_flash_attention": False,
-            },
+            {},
+            # For now we disable flash attention because the default configuration has a dropout for the attention
+            # which is broken with the flash attention kernel in the current Neuron SDK.
             False,
             0.07,
             512,  # Do 2048 once we have flash_attention enabled.

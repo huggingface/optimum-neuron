@@ -704,3 +704,34 @@ class TestCommonDistributed(DistributedTest):
                     consolidated_tensor = consolidated_state_dict[key]
                     print(f"Testing that {key} match for adapter {adapter_name}")
                     torch.testing.assert_close(orig_tensor, consolidated_tensor)
+
+    @pytest.mark.parametrize(
+        "world_size,tp_size,pp_size",
+        [
+            [32, 2, 4],
+        ],
+        ids=["dp=4,tp=2,pp=4"],
+    )
+    def test_each_pp_rank_only_loads_relevant_parameters(self, world_size, tp_size, pp_size):
+        trn_config = TrainingNeuronConfig(
+            tensor_parallel_size=tp_size,
+            pipeline_parallel_size=pp_size,
+        )
+        model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
+        parameters_on_cpu = {n for n, p in model.named_parameters() if p.device == torch.device("cpu")}
+        parameters_on_meta = {n for n, p in model.named_parameters() if p.device == torch.device("meta")}
+
+        accelerator = create_accelerator(tp_size, pp_size)
+
+        nxd_pp_model = accelerator.prepare(model)
+
+        local_parameters = {n for n, _ in nxd_pp_model.local_named_parameters()}
+        other_parameters = {n for n, _ in nxd_pp_model.named_parameters() if n not in local_parameters}
+
+        diff = local_parameters ^ parameters_on_cpu
+        assert diff != {}, f"Expected that only the parameters of the current PP rank are on CPU. Got {diff} instead."
+
+        diff = other_parameters ^ parameters_on_meta
+        assert diff != {}, (
+            f"Expected that the parameters of the other PP ranks are on the meta device. Got {diff} instead."
+        )
