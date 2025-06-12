@@ -1,7 +1,7 @@
-import os
 from dataclasses import dataclass, field
 
 import torch
+import torch_xla.core.xla_model as xm
 from datasets import load_dataset
 from peft import LoraConfig
 from transformers import (
@@ -94,9 +94,8 @@ def training_function(script_args, training_args):
 
     trainer.save_model()  # Saves the tokenizer too for easy upload
     metrics = train_result.metrics
-    if int(os.environ.get("RANK", 0)) == 0:
-        print(f"Model trained in {training_args.output_dir}")
-        print(metrics)
+    xm.master_print(f"Model trained in {training_args.output_dir}")
+    xm.master_print(metrics)
 
 
 @dataclass
