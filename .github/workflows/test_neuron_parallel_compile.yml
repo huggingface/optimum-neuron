@@ -1,0 +1,42 @@
+name: Neuron Parallel Compile Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_path:
+        description: "Test path (default: tests/)"
+        required: false
+        default: 'tests/'
+        type: string
+
+jobs:
+  neuron-parallel-compile-tests:
+    name: Run Neuron Parallel Compile Tests
+    runs-on:
+      group: aws-trn1-32xlarge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Neuronx runtime
+        uses: ./.github/actions/install_neuronx_runtime
+      - name: Install cv2 dependencies
+        run: |
+          sudo apt-get install ffmpeg libsm6 libxext6  -y
+      - name: Prepare virtual environment
+        uses: ./.github/actions/prepare_venv
+      - name: Install optimum-neuron
+        uses: ./.github/actions/install_optimum_neuron
+      - name: Setup PATH
+        run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
+      - name: Collect neuron_parallel_compile tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "neuron_parallel_compile" ${{ inputs.test_path }} --collect-only
+      - name: Run neuron_parallel_compile tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} neuron_parallel_compile pytest -m "neuron_parallel_compile" ${{ inputs.test_path }} -v --durations=0 -x
+
+      - name: Synchronize with HF cache repo
+        run: |
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} python tests/synchronize_with_cache_repo_for_ci.py 

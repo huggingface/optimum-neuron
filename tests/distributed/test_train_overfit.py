@@ -176,6 +176,7 @@ def _overfit_causal_lm(
         "dp=4,tp=2,pp=4",
     ],
 )
+@pytest.mark.neuron_parallel_compile
 def test_overfit_causal_lm(
     model_class_name,
     model_name_or_path,
@@ -220,7 +221,8 @@ def test_overfit_causal_lm(
         "dp=1,tp=32",
     ],
 )
-def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir):
+@pytest.mark.neuron_parallel_compile
+def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir, set_cache_for_ci):
     peft_config = LoraConfig(
         r=16,
         lora_alpha=32,
