@@ -13,16 +13,12 @@ from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.peft import get_peft_model
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
-    is_torch_xla_available,
 )
 from optimum.neuron.utils.misc import is_precompilation
 from optimum.neuron.utils.training_utils import is_main_worker_for_metrics
 
 from .. import launch_procs
 
-
-if is_torch_xla_available():
-    import torch_xla.runtime as xr
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.parallel_state import get_data_parallel_size

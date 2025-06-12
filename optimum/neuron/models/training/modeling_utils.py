@@ -69,12 +69,12 @@ from transformers.utils.hub import get_checkpoint_shard_files
 
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from ...utils.misc import is_main_worker, is_precompilation
+from .config import TrainingNeuronConfig
 from .pipeline_utils import (
     MetaParametersOnly,
     get_pipeline_parameters_for_current_stage,
     move_params_to_cpu,
 )
-from .config import TrainingNeuronConfig
 from .transformations_utils import (
     adapt_state_dict,
     create_parameter_metadata,
