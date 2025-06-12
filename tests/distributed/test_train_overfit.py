@@ -55,7 +55,7 @@ def _overfit_causal_lm(
         yield inputs
 
     dataset = datasets.Dataset.from_generator(gen)
-    dataset = dataset.select([0] * 1000)
+    dataset = dataset.select([0] * 10000)
 
     # Wandb setup.
     os.environ["WANDB_MODE"] = "online" if not is_precompilation() else "disabled"
@@ -216,8 +216,8 @@ def test_overfit_causal_lm(
         warmup_ratio,
         training_kwargs,
         max_length,
-        num_steps,
         max_expected_loss,
+        num_steps,
         tp_size,
         pp_size,
         use_flash_attention_2,

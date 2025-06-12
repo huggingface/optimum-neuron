@@ -49,6 +49,11 @@ if is_neuronx_distributed_available():
 logger = logging.get_logger(__name__)
 
 
+# Wrap the gather and scatter functions to ensure they are properly traced by `torch.fx`.
+gather_from_sequence_parallel_region = torch.fx.wrap(gather_from_sequence_parallel_region)
+scatter_to_sequence_parallel_region = torch.fx.wrap(scatter_to_sequence_parallel_region)
+
+
 def _init_normal(std, w):
     return nn.init.normal_(w, mean=0.0, std=std)
 
