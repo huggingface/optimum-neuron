@@ -65,7 +65,7 @@ class HloModelForCausalLM(NeuronModelForCausalLM, GenerationMixin):
 
     # The class used to instantiate the neuron model
     # This attribute must be set by the model subclass
-    # (e.g. LlamaHloModelForCausalLM, Qwen2HloModelForCausalLM, etc.)
+    # (e.g. LlamaHloModelForCausalLM, etc.)
     neuron_model_class = None
 
     CHECKPOINT_DIR = "checkpoint"

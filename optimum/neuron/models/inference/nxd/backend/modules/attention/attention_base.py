@@ -77,6 +77,8 @@ class NeuronAttentionBase(nn.Module):
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
         tensor_model_parallel_group: Optional[ProcessGroup] = None,
+        qkv_proj_bias: bool = False,
+        o_proj_bias: bool = False,
     ):
         super().__init__()
 
@@ -103,7 +105,6 @@ class NeuronAttentionBase(nn.Module):
         self.qk_layernorm = neuron_config.qk_layernorm
         self.flash_decoding_enabled = neuron_config.flash_decoding_enabled
         self.num_cores_per_group = neuron_config.num_cores_per_group
-        self.bias = getattr(config, "attention_bias", False)
         self.rpl_reduce_dtype = neuron_config.rpl_reduce_dtype
         self.mlp_kernel_enabled = neuron_config.mlp_kernel_enabled
         self.rms_norm_eps = config.rms_norm_eps
@@ -132,7 +133,7 @@ class NeuronAttentionBase(nn.Module):
             num_key_value_heads=self.num_key_value_heads,
             tp_degree=self.tp_degree,
             dtype=self.torch_dtype,
-            bias=self.bias,
+            bias=qkv_proj_bias,
             gather_output=False,
             fused_qkv=self.fused_qkv,
             clip_qkv=self.clip_qkv,
@@ -150,7 +151,7 @@ class NeuronAttentionBase(nn.Module):
             num_key_value_heads=self.num_key_value_heads,
             tp_degree=self.tp_degree,
             dtype=self.torch_dtype,
-            bias=self.bias,
+            bias=o_proj_bias,
             input_is_parallel=True,
             layer_name=self.o_proj_layer_name,
             sequence_parallel_enabled=self.sequence_parallel_enabled,

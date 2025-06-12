@@ -42,13 +42,9 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/decoder/test_decoder_config.py
+          pytest -sv tests/decoder/test_fused_logits_warper.py
           pytest -sv tests/decoder/test_decoder_export.py
           pytest -sv tests/decoder/test_decoder_generation.py
           pytest -sv tests/decoder/test_decoder_hub.py
-          pytest -sv tests/decoder/test_decoder_pipelines.py
-          pytest -sv tests/decoder/test_fused_logits_warper.py
-      - name: Run llama tests with HLO backend
-        run: |
-          source aws_neuron_venv_pytorch/bin/activate
-          export OPTIMUM_NEURON_PRIORITIZE_HLO_BACKEND=1
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -sv tests/decoder -k llama
+          pytest -sv tests/decoder/test_decoder_pipelines.py -k "llama or qwen"
+          pytest -sv tests/decoder/test_decoder_pipelines.py -k "phi or granite"

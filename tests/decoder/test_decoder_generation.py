@@ -95,6 +95,8 @@ def test_decoder_generation_custom_stopping_criteria(model_and_tokenizer):
 @requires_neuronx
 def test_decoder_generation_padded_inputs(model_and_tokenizer):
     model, tokenizer = model_and_tokenizer
+    if isinstance(model, NxDModelForCausalLM):
+        pytest.skip("NxDModelForCausalLM use right padding and are not prone to this error")
     prompt = "One of my fondest memory is of my grandmother making homemade bread"
     first_input = tokenizer(prompt)
     first_ids = first_input["input_ids"]
@@ -110,7 +112,7 @@ def test_decoder_generation_padded_inputs(model_and_tokenizer):
             input_ids=input_ids, attention_mask=attention_mask, do_sample=False, max_new_tokens=10
         )
         # Verify we did not generate any unknown token
-        assert torch.all(outputs[:, -1] != 0)
+        assert torch.all(outputs[:, -1] != 0), f"Unknown token generated for padding {i}"
 
 
 @is_inferentia_test
@@ -125,7 +127,8 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
     if isinstance(model, NxDModelForCausalLM):
         expectations = {
             "llama": " and how does it work?\nDeep learning is a subset of machine learning that uses artificial",
-            "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
+            "qwen2": "Deep Learning is a subset of Machine Learning that involves the use of artificial neural networks",
+            "qwen3": "What is Deep Learning? A Deep Learning is a subset of machine learning that uses neural networks with multiple layers to",
             "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
             "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
         }

@@ -49,6 +49,11 @@ class TrainingNeuronConfig(NeuronConfig):
 
         if not torch.distributed.is_initialized():
             init_process_group()
+            if not torch.distributed.is_initialized():
+                raise ValueError(
+                    "Neuron training requires torch distributed to be initialized. "
+                    "You can initialize it by running `torchrun`."
+                )
 
         if not parallel_state.model_parallel_is_initialized():
             parallel_state.initialize_model_parallel(

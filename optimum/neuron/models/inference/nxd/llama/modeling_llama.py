@@ -41,7 +41,7 @@ from neuronxcc.nki.language import nc
 from torch import nn
 from torch_neuronx.xla_impl.ops import nki_jit
 from transformers.activations import ACT2FN
-from transformers.models.llama.modeling_llama import LlamaConfig, LlamaRMSNorm, LlamaRotaryEmbedding
+from transformers.models.llama.modeling_llama import LlamaConfig, LlamaRotaryEmbedding
 
 from ..backend.config import NxDNeuronConfig  # noqa: E402
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
@@ -54,13 +54,6 @@ from ..backend.modules.decoder import NxDDecoderModel, NxDModelForCausalLM
 
 
 logger = logging.getLogger("Neuron")
-
-
-def get_rmsnorm_cls():
-    # Initialize to the appropriate implementation of RMSNorm
-    # If infer on NXD -> CustomRMSNorm
-    # If infer on CPU -> HF_RMSNorm (CustomRMSNorm does not work on CPU)
-    return CustomRMSNorm if parallel_state.model_parallel_is_initialized() else LlamaRMSNorm
 
 
 def convert_state_dict_to_fused_qkv(llama_state_dict, cfg: LlamaConfig):
@@ -264,16 +257,17 @@ class NeuronLlamaMLP(nn.Module):
 
 class NeuronLlamaAttention(NeuronAttentionBase):
     """
-    Compared with LlamaAttention, this class just
-    1. replaces the q_proj, k_proj, v_proj with column parallel layer
-    2. replaces the o_proj with row parallel layer
-    3. update self.num_head to be self.num_head / tp_degree
-    4. update self.num_key_value_heads to be self.num_key_value_heads / tp_degree
-    5. update forward() method to adjust to changes from self.num_head
+    The only difference with the NeuronAttentionBase is the definition of the Llama rotary embedding
     """
 
-    def __init__(self, config: LlamaConfig, neuron_config: NxDNeuronConfig):
-        super().__init__(config, neuron_config)
+    def __init__(
+        self,
+        config: LlamaConfig,
+        neuron_config: NxDNeuronConfig,
+        qkv_proj_bias: bool = False,
+        o_proj_bias: bool = False,
+    ):
+        super().__init__(config, neuron_config, qkv_proj_bias=qkv_proj_bias, o_proj_bias=o_proj_bias)
         head_dim = config.hidden_size // config.num_attention_heads
         if not hasattr(config, "rope_scaling") or config.rope_scaling is None:
             self.rotary_emb = RotaryEmbedding(
@@ -378,11 +372,11 @@ class NeuronLlamaDecoderLayer(nn.Module):
         logger.debug(
             f"Instantiating RMSNorm modules with hidden size {config.hidden_size} and EPS {config.rms_norm_eps}"
         )
-        self.input_layernorm = get_rmsnorm_cls()(
+        self.input_layernorm = CustomRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.post_attention_layernorm = get_rmsnorm_cls()(
+        self.post_attention_layernorm = CustomRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
@@ -485,7 +479,7 @@ class NxDLlamaModel(NxDDecoderModel):
         self.layers = nn.ModuleList(
             [NeuronLlamaDecoderLayer(config, neuron_config) for _ in range(config.num_hidden_layers)]
         )
-        self.norm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
 
 class LlamaNxDModelForCausalLM(NxDModelForCausalLM):

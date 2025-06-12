@@ -74,6 +74,7 @@ from .pipeline_utils import (
     get_pipeline_parameters_for_current_stage,
     move_params_to_cpu,
 )
+from .config import TrainingNeuronConfig
 from .transformations_utils import (
     adapt_state_dict,
     create_parameter_metadata,
@@ -757,6 +758,7 @@ class NeuronModelMixin:
     def from_pretrained(
         cls: Type[SpecificPreTrainedModelType],
         pretrained_model_name_or_path: Optional[Union[str, os.PathLike]],
+        trn_config: TrainingNeuronConfig,
         *model_args,
         config: Optional[Union[PretrainedConfig, str, os.PathLike]] = None,
         cache_dir: Optional[Union[str, os.PathLike]] = None,
@@ -966,7 +968,8 @@ class NeuronModelMixin:
 
         # ** Difference from original from_pretrained **
         # We set a few variables that will be needed later in the code.
-        trn_config = model_args[0]
+        if trn_config is None:
+            raise ValueError("`trn_config` is required to load a model in optimum-neuron.")
         num_local_ranks_per_step = trn_config.num_local_ranks_per_step
         local_world_size = get_local_world_size()
         local_rank = xm.get_local_ordinal()
@@ -1366,7 +1369,7 @@ class NeuronModelMixin:
 
         with ContextManagers(init_contexts):
             # Let's make sure we don't run the init function of buffer modules
-            model = cls(config, *model_args, **model_kwargs)
+            model = cls(config, trn_config, *model_args, **model_kwargs)
 
         if get_pipeline_model_parallel_size() > 1:
             move_params_to_cpu(model, model.parameters_for_current_stage)
