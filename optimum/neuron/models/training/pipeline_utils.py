@@ -86,9 +86,6 @@ def create_nxdpp_model(model) -> NxDPPModel:
 
     Returns:
         NxDPPModel: The wrapped model ready for pipeline parallelism
-
-    Raises:
-        NotSupportedError: If the model doesn't support pipeline parallelism
     """
 
     if not model.supports_pipeline_parallelism():

@@ -462,7 +462,6 @@ class NeuronAccelerator(Accelerator):
             if model.trn_config.pipeline_parallel_size > 1:
                 model = create_nxdpp_model(model)
                 model.move_model_to_device()
-
             else:
                 move_model_to_device(model, self.device)
             model = super().prepare_model(model, device_placement=False, evaluation_mode=evaluation_mode)

@@ -67,7 +67,6 @@ from transformers.utils import (
 )
 from transformers.utils.hub import get_checkpoint_shard_files
 
-from ...utils.errors import NotSupportedError
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from ...utils.misc import is_main_worker, is_precompilation
 from .pipeline_utils import (
@@ -189,6 +188,10 @@ class NeuronModelMixin:
 
     @property
     def parameters_for_current_stage(self) -> set[str]:
+        """
+        Returns the names of the parameters that are in the current pipeline stage.
+        If pipeline parallelism is not used, this returns the names of all the parameters of the model.
+        """
         if getattr(self, "_parameter_names_for_current_pp_rank", None) is None:
             self._parameter_names_for_current_pp_rank = get_pipeline_parameters_for_current_stage(self)
         return self._parameter_names_for_current_pp_rank
@@ -1494,7 +1497,7 @@ class NeuronModelMixin:
             )
             is_main_process = kwargs.pop("save_config")
         if safe_serialization:
-            raise NotSupportedError(
+            raise NotImplementedError(
                 "`safe_serialization` is not supported when saving the sharded checkpoints. It is possible to "
                 "consolidate the model weights into `safetensors` format."
             )
