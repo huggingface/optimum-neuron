@@ -287,8 +287,6 @@ def consolidate_model_parallel_checkpoints(
 
     consolidated_state_dict = {}
     for pp_rank, checkpoint_group_for_pp_rank in enumerate(checkpoints_grouped_by_pp_ranks):
-        print(f"Consolidating tensor parallel checkpoints for pp_rank {pp_rank}...")
-        print(f"Found {checkpoint_group_for_pp_rank} checkpoints for pp_rank {pp_rank}.")
         if is_old_metadata:
             consolidated_for_pp_rank = old_consolidate_tensor_parallel_checkpoints(
                 checkpoint_group_for_pp_rank, load_function, metadatas[pp_rank]
