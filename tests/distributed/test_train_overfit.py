@@ -169,8 +169,14 @@ def _overfit_causal_lm(
 )
 @pytest.mark.parametrize(
     "world_size,tp_size,pp_size",
-    [[8, 8, 1]],
-    ids=["dp=1,tp=8,pp=1"],
+    [
+        [8, 8, 1],
+        [32, 2, 4],
+    ],
+    ids=[
+        "dp=1,tp=8",
+        "dp=4,tp=2,pp=4",
+    ],
 )
 def test_overfit_causal_lm(
     model_class_name,
@@ -211,9 +217,9 @@ def test_overfit_causal_lm(
         [32, 32, 1],
     ],
     ids=[
-        "dp=1,tp=8,pp=1",
+        "dp=1,tp=8",
         # This is to test the case where we have more than 8 TP workers, which will use GQAGQAColumnParallelLinear.
-        "dp=1,tp=32,pp=1",
+        "dp=1,tp=32",
     ],
 )
 def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir):
