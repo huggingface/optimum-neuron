@@ -69,6 +69,7 @@ from transformers.utils.hub import get_checkpoint_shard_files
 
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from ...utils.misc import is_main_worker, is_precompilation
+from .config import TrainingNeuronConfig
 from .transformations_utils import (
     adapt_state_dict,
     create_parameter_metadata,
@@ -711,6 +712,7 @@ class NeuronModelMixin:
     def from_pretrained(
         cls: Type[SpecificPreTrainedModelType],
         pretrained_model_name_or_path: Optional[Union[str, os.PathLike]],
+        trn_config: TrainingNeuronConfig,
         *model_args,
         config: Optional[Union[PretrainedConfig, str, os.PathLike]] = None,
         cache_dir: Optional[Union[str, os.PathLike]] = None,
@@ -920,7 +922,6 @@ class NeuronModelMixin:
 
         # ** Difference from original from_pretrained **
         # We set a few variables that will be needed later in the code.
-        trn_config = kwargs.get("trn_config", model_args[0] if len(model_args) > 0 else None)
         if trn_config is None:
             raise ValueError("`trn_config` is required to load a model in optimum-neuron.")
         num_local_ranks_per_step = trn_config.num_local_ranks_per_step
@@ -1318,7 +1319,7 @@ class NeuronModelMixin:
 
         with ContextManagers(init_contexts):
             # Let's make sure we don't run the init function of buffer modules
-            model = cls(config, *model_args, **model_kwargs)
+            model = cls(config, trn_config, *model_args, **model_kwargs)
 
         # make sure we use the model's config since the __init__ call might have copied it
         config = model.config
