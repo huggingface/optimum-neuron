@@ -43,7 +43,9 @@ if is_torch_xla_available():
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.parallel_state import (
+        get_kv_shared_group,
         get_pipeline_model_parallel_rank,
+        get_tensor_model_parallel_group,
         get_tensor_model_parallel_size,
     )
     from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
@@ -122,6 +124,49 @@ def test_parallel_granite():
         tp_size=2,
         pp_size=1,
     )
+
+
+OUTPUTS_TO_IGNORE = {
+    # It might not match in the sequence parallel setting because of mistmatched shapes.
+    # Since these outputs are not needed during training, we do not want to perform an expensive gather for them.
+    "encoder_last_hidden_state",
+}
+
+
+def _check_output(name: str, original_output, output):
+    assert type(original_output) is type(output)
+    if isinstance(original_output, (tuple, list, set)):
+        for idx, orig_output in enumerate(original_output):
+            new_name = f"{name}.{idx}"
+            _check_output(new_name, orig_output, output[idx])
+    elif isinstance(original_output, dict):
+        for output_name in original_output:
+            new_name = f"{name}.{output_name}"
+            _check_output(new_name, original_output[name], output[name])
+    elif isinstance(original_output, torch.Tensor):
+        # For now the past key values do not match, we ignore that as it does not impact training.
+        xm.master_print(f"Comparing output named {name}")
+        tp_size = get_tensor_model_parallel_size()
+        tp_group = get_tensor_model_parallel_group()
+        if original_output.shape != output.shape:
+            gather_dim = min(
+                idx for idx in range(original_output.dim()) if original_output.shape[idx] != output.shape[idx]
+            )
+            output = output.to(xm.xla_device())
+            gathered = [torch.empty_like(output) for _ in range(tp_size)]
+            torch.distributed.all_gather(gathered, output, group=tp_group)
+            gathered_output = torch.cat(gathered, dim=gather_dim)
+            xm.mark_step()
+            output = gathered_output.to("cpu")
+
+        # In this case, we assume GQAQKVColumnParallelLinear was used, we retrieve only the non-repeated KV heads.
+        if "past" in name and original_output.size(1) != output.size(1):
+            kv_size_multiplier = len(get_kv_shared_group(as_list=True)[0])
+            output = torch.chunk(output, kv_size_multiplier, dim=1)[0]
+
+        torch.testing.assert_close(original_output, output)
+    else:
+        assert original_output == output, f"Output named {name} do not match."
 
 
 def _custom_model_matches_original_model(

@@ -127,14 +127,6 @@ LLAMA_MODELS_TO_TEST = _build_models_to_test([LLAMA_TYPES_TO_TEST])
 NOT_LLAMA_TO_TEST = _build_models_to_test(MODEL_TYPES_TO_TEST)
 MODELS_TO_TEST = NOT_LLAMA_TO_TEST + LLAMA_MODELS_TO_TEST
 
-
-OUTPUTS_TO_IGNORE = {
-    # It might not match in the sequence parallel setting because of mistmatched shapes.
-    # Since these outputs are not needed during training, we do not want to perform an expensive gather for them.
-    "encoder_last_hidden_state",
-}
-
-
 LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
 
 
