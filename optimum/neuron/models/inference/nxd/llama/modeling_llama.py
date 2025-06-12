@@ -22,7 +22,6 @@ import warnings
 from typing import Optional, Tuple, Type
 
 import torch
-from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
     ParallelEmbedding,
@@ -95,49 +94,43 @@ class NeuronLlamaMLP(nn.Module):
         self.mlp_kernel_enabled = neuron_config.mlp_kernel_enabled
         self.logical_nc_config = neuron_config.logical_nc_config
         mlp_bias = getattr(config, "mlp_bias", False)
-        if parallel_state.model_parallel_is_initialized():
-            self.gate_proj = ColumnParallelLinear(
-                self.hidden_size,
-                self.intermediate_size,
-                bias=mlp_bias,
-                gather_output=False,
-                dtype=neuron_config.torch_dtype,
-                pad=True,
-                sequence_parallel_enabled=False,
-                sequence_dimension=None,
-            )
-            self.up_proj = ColumnParallelLinear(
-                self.hidden_size,
-                self.intermediate_size,
-                bias=mlp_bias,
-                gather_output=False,
-                dtype=neuron_config.torch_dtype,
-                pad=True,
-                sequence_parallel_enabled=False,
-                sequence_dimension=None,
-            )
-            self.down_proj = RowParallelLinear(
-                self.intermediate_size,
-                self.hidden_size,
-                bias=mlp_bias,
-                input_is_parallel=True,
-                dtype=neuron_config.torch_dtype,
-                pad=True,
-                sequence_parallel_enabled=self.sequence_parallel_enabled,
-                sequence_dimension=self.sequence_dimension,
-                reduce_dtype=neuron_config.rpl_reduce_dtype,
-            )
+        self.gate_proj = ColumnParallelLinear(
+            self.hidden_size,
+            self.intermediate_size,
+            bias=mlp_bias,
+            gather_output=False,
+            dtype=neuron_config.torch_dtype,
+            pad=True,
+            sequence_parallel_enabled=False,
+            sequence_dimension=None,
+        )
+        self.up_proj = ColumnParallelLinear(
+            self.hidden_size,
+            self.intermediate_size,
+            bias=mlp_bias,
+            gather_output=False,
+            dtype=neuron_config.torch_dtype,
+            pad=True,
+            sequence_parallel_enabled=False,
+            sequence_dimension=None,
+        )
+        self.down_proj = RowParallelLinear(
+            self.intermediate_size,
+            self.hidden_size,
+            bias=mlp_bias,
+            input_is_parallel=True,
+            dtype=neuron_config.torch_dtype,
+            pad=True,
+            sequence_parallel_enabled=self.sequence_parallel_enabled,
+            sequence_dimension=self.sequence_dimension,
+            reduce_dtype=neuron_config.rpl_reduce_dtype,
+        )
 
-            if self.mlp_kernel_enabled:
-                # Transpose the weights to the layout expected by kernels
-                self.gate_proj.weight = transpose_parallel_linear_layer(self.gate_proj.weight)
-                self.up_proj.weight = transpose_parallel_linear_layer(self.up_proj.weight)
-                self.down_proj.weight = transpose_parallel_linear_layer(self.down_proj.weight)
-
-        else:
-            self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=mlp_bias)
-            self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=mlp_bias)
-            self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=mlp_bias)
+        if self.mlp_kernel_enabled:
+            # Transpose the weights to the layout expected by kernels
+            self.gate_proj.weight = transpose_parallel_linear_layer(self.gate_proj.weight)
+            self.up_proj.weight = transpose_parallel_linear_layer(self.up_proj.weight)
+            self.down_proj.weight = transpose_parallel_linear_layer(self.down_proj.weight)
 
     def _kernel_enabled_mlp(self, x, fused_rmsnorm, rmsnorm, residual):
         fused_residual = residual is not None
@@ -445,36 +438,24 @@ class NxDLlamaModel(NxDDecoderModel):
     def __init__(self, config: LlamaConfig, neuron_config: NxDNeuronConfig):
         super().__init__(config, neuron_config)
 
-        if parallel_state.model_parallel_is_initialized():
-            self.embed_tokens = ParallelEmbedding(
-                config.vocab_size,
-                config.hidden_size,
-                config.pad_token_id,
-                dtype=neuron_config.torch_dtype,
-                shard_across_embedding=not neuron_config.vocab_parallel,
-                sequence_parallel_enabled=False,
-                pad=True,
-                use_spmd_rank=neuron_config.vocab_parallel,
-            )
+        self.embed_tokens = ParallelEmbedding(
+            config.vocab_size,
+            config.hidden_size,
+            config.pad_token_id,
+            dtype=neuron_config.torch_dtype,
+            shard_across_embedding=not neuron_config.vocab_parallel,
+            sequence_parallel_enabled=False,
+            pad=True,
+            use_spmd_rank=neuron_config.vocab_parallel,
+        )
 
-            self.lm_head = ColumnParallelLinear(
-                config.hidden_size,
-                config.vocab_size,
-                gather_output=not neuron_config.on_device_sampling,
-                bias=False,
-                pad=True,
-            )
-        else:
-            self.embed_tokens = nn.Embedding(
-                config.vocab_size,
-                config.hidden_size,
-                config.pad_token_id,
-            )
-            self.lm_head = nn.Linear(
-                config.hidden_size,
-                config.vocab_size,
-                bias=False,
-            )
+        self.lm_head = ColumnParallelLinear(
+            config.hidden_size,
+            config.vocab_size,
+            gather_output=not neuron_config.on_device_sampling,
+            bias=False,
+            pad=True,
+        )
 
         self.layers = nn.ModuleList(
             [NeuronLlamaDecoderLayer(config, neuron_config) for _ in range(config.num_hidden_layers)]

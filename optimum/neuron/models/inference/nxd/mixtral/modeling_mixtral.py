@@ -114,11 +114,6 @@ def get_rmsnorm_cls(neuron_config):
 
 class NeuronMixtralAttention(NeuronAttentionBase):
     def __init__(self, config: MixtralConfig, neuron_config: NxDNeuronConfig):
-        if not parallel_state.model_parallel_is_initialized():
-            raise ValueError(
-                "NeuronMixtralAttention has to be initialized in a distributed env. Please use neuronx_distributed"
-                " module to initialize a distributed env."
-            )
         super().__init__(config, neuron_config)
         self.tp_degree = parallel_state.get_tensor_model_parallel_size()
 
