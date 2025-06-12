@@ -212,9 +212,6 @@ def _custom_model_matches_original_model(
     move_model_to_device(orig_model, xm.xla_device())
     orig_model = orig_model.eval()
 
-    if pp_size > 1:
-        pytest.skip(f"Pipeline parallelism is not supported for {model_class_name}.")
-
     if sequence_parallel_enabled and attn_implementation == "flash_attention_2":
         pad_to_multiple_of = (2048 * tp_size) // math.gcd(2048, tp_size)
     elif sequence_parallel_enabled:
@@ -252,7 +249,6 @@ def _custom_model_matches_original_model(
         model = custom_model_class.from_pretrained(
             model_name_or_path, trn_config, attn_implementation=attn_implementation, torch_dtype=torch_dtype
         )
-        move_model_to_device(model, xm.xla_device())
 
     with static_seed_patcher:
         model = accelerator.prepare(model)
