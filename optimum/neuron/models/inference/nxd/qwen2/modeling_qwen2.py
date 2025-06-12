@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/models/llama/modeling_llama.py
-"""PyTorch LLaMA model for NXD inference."""
+"""PyTorch Qwen2 model for NXD inference."""
 
 import logging
 
@@ -22,9 +22,10 @@ from neuronx_distributed.parallel_layers.layers import (
     ParallelEmbedding,
 )
 from torch import nn
-from transformers.models.llama.modeling_llama import LlamaConfig, LlamaRMSNorm
+from transformers.models.qwen2.modeling_qwen2 import Qwen2Config
 
-from ..backend.config import NxDNeuronConfig  # noqa: E402
+from ..backend.config import NxDNeuronConfig
+from ..backend.modules.custom_calls import CustomRMSNorm
 from ..backend.modules.decoder import NxDDecoderModel
 from ..llama.modeling_llama import (
     LlamaNxDModelForCausalLM,
@@ -42,7 +43,7 @@ class NeuronQwen2DecoderLayer(NeuronLlamaDecoderLayer):
     The only difference with the NeuronLlamaDecoderLayer is the addition of the QKV projection biases in the attention
     """
 
-    def __init__(self, config: LlamaConfig, neuron_config: NxDNeuronConfig):
+    def __init__(self, config: Qwen2Config, neuron_config: NxDNeuronConfig):
         super().__init__(config, neuron_config)
         self.hidden_size = config.hidden_size
         self.self_attn = NeuronLlamaAttention(config, neuron_config, qkv_proj_bias=True)
@@ -50,11 +51,11 @@ class NeuronQwen2DecoderLayer(NeuronLlamaDecoderLayer):
         logger.debug(
             f"Instantiating RMSNorm modules with hidden size {config.hidden_size} and EPS {config.rms_norm_eps}"
         )
-        self.input_layernorm = LlamaRMSNorm(
+        self.input_layernorm = CustomRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.post_attention_layernorm = LlamaRMSNorm(
+        self.post_attention_layernorm = CustomRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
@@ -70,7 +71,7 @@ class NxDQwen2Model(NxDDecoderModel):
     Just use the NeuronQwen2DecoderLayer instead of the NeuronLlamaDecoderLayer
     """
 
-    def __init__(self, config: LlamaConfig, neuron_config: NxDNeuronConfig):
+    def __init__(self, config: Qwen2Config, neuron_config: NxDNeuronConfig):
         super().__init__(config, neuron_config)
 
         self.embed_tokens = ParallelEmbedding(
@@ -95,7 +96,7 @@ class NxDQwen2Model(NxDDecoderModel):
         self.layers = nn.ModuleList(
             [NeuronQwen2DecoderLayer(config, neuron_config) for _ in range(config.num_hidden_layers)]
         )
-        self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
 
 class Qwen2NxDModelForCausalLM(LlamaNxDModelForCausalLM):
