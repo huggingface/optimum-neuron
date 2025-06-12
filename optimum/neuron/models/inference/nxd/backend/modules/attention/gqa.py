@@ -175,10 +175,8 @@ class BaseGroupQueryAttention(nn.Module):
 
         if tensor_model_parallel_group is not None:
             self.tensor_model_parallel_group = tensor_model_parallel_group
-        elif parallel_state.model_parallel_is_initialized():
-            self.tensor_model_parallel_group = parallel_state.get_tensor_model_parallel_group()
         else:
-            self.tensor_model_parallel_group = None
+            self.tensor_model_parallel_group = parallel_state.get_tensor_model_parallel_group()
 
         if tensor_model_parallel_group:
             if tp_degree == 1:

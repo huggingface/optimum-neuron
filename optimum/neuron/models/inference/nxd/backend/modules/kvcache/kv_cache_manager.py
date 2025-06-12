@@ -17,7 +17,7 @@ import logging
 from typing import List
 
 import torch
-from neuronx_distributed.parallel_layers import parallel_state, utils
+from neuronx_distributed.parallel_layers import utils
 from torch import Tensor, nn
 from transformers import PretrainedConfig
 
@@ -85,11 +85,7 @@ class KVCacheManager(nn.Module):
             tp_degree, num_atten_head, num_kv_head, gqa_sharding_strategy
         )
 
-        if parallel_state.model_parallel_is_initialized():
-            num_kv_heads_per_rank = utils.divide(num_key_value_heads, tp_degree)
-        else:
-            num_kv_heads_per_rank = num_key_value_heads
-        return num_kv_heads_per_rank
+        return utils.divide(num_key_value_heads, tp_degree)
 
     def _get_hidden_dim_per_head(self, config: PretrainedConfig):
         hidden_size = config.hidden_size

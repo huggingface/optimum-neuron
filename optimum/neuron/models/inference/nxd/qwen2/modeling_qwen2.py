@@ -17,7 +17,6 @@
 
 import logging
 
-from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
     ParallelEmbedding,
@@ -74,36 +73,24 @@ class NxDQwen2Model(NxDDecoderModel):
     def __init__(self, config: LlamaConfig, neuron_config: NxDNeuronConfig):
         super().__init__(config, neuron_config)
 
-        if parallel_state.model_parallel_is_initialized():
-            self.embed_tokens = ParallelEmbedding(
-                config.vocab_size,
-                config.hidden_size,
-                config.pad_token_id,
-                dtype=neuron_config.torch_dtype,
-                shard_across_embedding=not neuron_config.vocab_parallel,
-                sequence_parallel_enabled=False,
-                pad=True,
-                use_spmd_rank=neuron_config.vocab_parallel,
-            )
+        self.embed_tokens = ParallelEmbedding(
+            config.vocab_size,
+            config.hidden_size,
+            config.pad_token_id,
+            dtype=neuron_config.torch_dtype,
+            shard_across_embedding=not neuron_config.vocab_parallel,
+            sequence_parallel_enabled=False,
+            pad=True,
+            use_spmd_rank=neuron_config.vocab_parallel,
+        )
 
-            self.lm_head = ColumnParallelLinear(
-                config.hidden_size,
-                config.vocab_size,
-                gather_output=not neuron_config.on_device_sampling,
-                bias=False,
-                pad=True,
-            )
-        else:
-            self.embed_tokens = nn.Embedding(
-                config.vocab_size,
-                config.hidden_size,
-                config.pad_token_id,
-            )
-            self.lm_head = nn.Linear(
-                config.hidden_size,
-                config.vocab_size,
-                bias=False,
-            )
+        self.lm_head = ColumnParallelLinear(
+            config.hidden_size,
+            config.vocab_size,
+            gather_output=not neuron_config.on_device_sampling,
+            bias=False,
+            pad=True,
+        )
 
         self.layers = nn.ModuleList(
             [NeuronQwen2DecoderLayer(config, neuron_config) for _ in range(config.num_hidden_layers)]

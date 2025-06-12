@@ -80,18 +80,19 @@ class NeuronAttentionBase(nn.Module):
         qkv_proj_bias: bool = False,
         o_proj_bias: bool = False,
     ):
+        if not parallel_state.model_parallel_is_initialized():
+            raise ValueError(
+                "Neuron Attention has to be initialized in a distributed env. Please use neuronx_distributed"
+                " module to initialize a distributed env."
+            )
         super().__init__()
 
         if tensor_model_parallel_group is not None:
             self.tensor_model_parallel_group = tensor_model_parallel_group
             self.rank_util = SPMDRank(world_size=self.tensor_model_parallel_group.size())
-        elif nxd.parallel_layers.parallel_state.model_parallel_is_initialized():
+        else:
             self.tensor_model_parallel_group = nxd.parallel_layers.parallel_state.get_tensor_model_parallel_group()
             self.rank_util = SPMDRank(world_size=self.tensor_model_parallel_group.size())
-        else:
-            # CPU flow doesn't need rank_util and TP group now
-            self.tensor_model_parallel_group = None
-            self.rank_util = None
 
         self.is_causal = True
         self.hidden_size = config.hidden_size
@@ -108,11 +109,7 @@ class NeuronAttentionBase(nn.Module):
         self.rpl_reduce_dtype = neuron_config.rpl_reduce_dtype
         self.mlp_kernel_enabled = neuron_config.mlp_kernel_enabled
         self.rms_norm_eps = config.rms_norm_eps
-
-        if parallel_state.model_parallel_is_initialized():
-            self.tp_degree = neuron_config.tp_degree
-        else:
-            self.tp_degree = 1
+        self.tp_degree = neuron_config.tp_degree
         self.fused_qkv = neuron_config.fused_qkv
         self.clip_qkv = None
 
