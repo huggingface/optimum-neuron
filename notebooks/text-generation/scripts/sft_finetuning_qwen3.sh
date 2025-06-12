@@ -28,7 +28,7 @@ torchrun $DISTRIBUTED_ARGS notebooks/text-generation/scripts/sft_finetuning_qwen
   --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
   --gradient_checkpointing true \
   --bf16 true \
-  --save_steps 3 \
+  --save_steps 20 \
   --tensor_parallel_size $TP_DEGREE \
   --logging_steps $LOGGING_STEPS \
   --save_total_limit -1 \
