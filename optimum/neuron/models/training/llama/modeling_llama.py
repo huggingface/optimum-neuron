@@ -624,7 +624,7 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
     def set_input_embeddings(self, value):
         self.embed_tokens = value
 
-    # @can_return_tuple
+    @can_return_tuple
     def forward(
         self,
         input_ids: torch.LongTensor = None,
