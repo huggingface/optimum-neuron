@@ -27,6 +27,7 @@ from ..models.training import (
     adapt_peft_config_for_model,
     adapt_state_dict,
     create_parameter_metadata,
+    get_pipeline_parameters_for_current_stage,
     specialize_transformation_specs_for_model,
     to_original_peft_config_for_model,
 )
@@ -106,6 +107,19 @@ class NeuronPeftModel(PeftModel):
             )
         # We specialize the transformation specs for the PeFT model.
         specialize_transformation_specs_for_model(self)
+
+        # We need to update the names of the parameters for the current stage after initialization because we have
+        # added the `default` adapter.
+        self.recompute_parameters_for_current_stage()
+
+    def recompute_parameters_for_current_stage(self):
+        self._parameter_names_for_current_pp_rank = get_pipeline_parameters_for_current_stage(self)
+
+    @property
+    def parameters_for_current_stage(self) -> set[str]:
+        if not hasattr(self, "_parameter_names_for_current_pp_rank"):
+            self.recompute_pipeline_parameters_for_current_pp_rank()
+        return self._parameter_names_for_current_pp_rank
 
     def save_pretrained(
         self,
@@ -354,7 +368,9 @@ class NeuronPeftModel(PeftModel):
 
     def add_adapter(self, adapter_name: str, peft_config: PeftConfig, low_cpu_mem_usage: bool = False) -> None:
         peft_config = adapt_peft_config_for_model(self, peft_config, inplace=False)
-        return super().add_adapter(adapter_name, peft_config, low_cpu_mem_usage=low_cpu_mem_usage)
+        super().add_adapter(adapter_name, peft_config, low_cpu_mem_usage=low_cpu_mem_usage)
+        # We need to update the names of the parameters for the current stage after adding a new adapter.
+        self.recompute_parameters_for_current_stage()
 
     def load_adapter(
         self,

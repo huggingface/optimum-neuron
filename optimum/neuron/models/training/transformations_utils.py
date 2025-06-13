@@ -399,7 +399,17 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
             for linear_name in self.linear_names
             for param_name in param_names
         }
-        return fused_names | original_names
+
+        lora_param_names = set()
+        for name in fused_names:
+            lora_param_names.add(name.replace(self.fused_linear_name, f"{self.fused_linear_name}.lora_A"))
+            lora_param_names.add(name.replace(self.fused_linear_name, f"{self.fused_linear_name}.lora_B"))
+        for name in original_names:
+            for linear_name in self.linear_names:
+                lora_param_names.add(name.replace(linear_name, f"{linear_name}.lora_A"))
+                lora_param_names.add(name.replace(linear_name, f"{linear_name}.lora_B"))
+
+        return fused_names | original_names | lora_param_names
 
     def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
         # Importing here to avoid circular imports
@@ -753,14 +763,15 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
 
     def get_relevant_parameter_names(self, module_fully_qualified_name: str) -> set[str]:
         param_names = ["weight", "bias"] if self.bias else ["weight"]
+        original_proj_names = [
+            self.query_projection_name,
+            self.key_projection_name,
+            self.value_projection_name,
+            self.output_projection_name,
+        ]
         original_names = {
             f"{module_fully_qualified_name}.{proj_name}.{param_name}"
-            for proj_name in [
-                self.query_projection_name,
-                self.key_projection_name,
-                self.value_projection_name,
-                self.output_projection_name,
-            ]
+            for proj_name in original_proj_names
             for param_name in param_names
         }
 
@@ -776,7 +787,31 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                 for suffix in ["q", "k", "v"]
             }
 
-        return original_names | gqa_names
+        lora_param_names = set()
+        # LoRA for original layers
+        for param_name in param_names:
+            for proj_name in original_proj_names:
+                lora_param_names.add(f"{module_fully_qualified_name}.{proj_name}.lora_A.{param_name}")
+                lora_param_names.add(f"{module_fully_qualified_name}.{proj_name}.lora_B.{param_name}")
+
+        # LoRA for GQA layer
+        for param_name in param_names:
+            lora_param_names.add(f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_A.{param_name}")
+            if self.fuse_qkv:
+                lora_param_names.add(
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}"
+                )
+            else:
+                lora_param_names.add(
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}_q"
+                )
+                lora_param_names.add(
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}_k"
+                )
+                lora_param_names.add(
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}_v"
+                )
+        return original_names | gqa_names | lora_param_names
 
     @staticmethod
     def compute_query_indices_for_rank(
@@ -1501,6 +1536,9 @@ def adapt_state_dict(
 
     original_data_ptrs = {n: p.data_ptr() for n, p in state_dict.items()}
     original_state_dict_keys = set(state_dict.keys())
+    parameters_for_current_stage_without_adapter_name = {
+        remove_adapter_name(name) for name in model.parameters_for_current_stage
+    }
     for name, module in model.named_modules():
         if not isinstance(module, CustomModule):
             continue
@@ -1510,7 +1548,7 @@ def adapt_state_dict(
             named_parameters,
             state_dict,
             upstanding_sharded_params=upstanding_sharded_params,
-            parameters_for_current_stage=model.parameters_for_current_stage,
+            parameters_for_current_stage=parameters_for_current_stage_without_adapter_name,
             inplace=inplace,
         )
 
@@ -1644,7 +1682,12 @@ def create_parameter_metadata(model) -> Dict[str, Dict[str, Any]]:
     for name, module in model.named_modules():
         if not isinstance(module, CustomModule):
             continue
-        serialized_specs = module.specs.to_metadata(parameters_for_current_stage=model.parameters_for_current_stage)
+        parameters_for_current_stage_without_adapter_name = {
+            remove_adapter_name(n) for n in model.parameters_for_current_stage
+        }
+        serialized_specs = module.specs.to_metadata(
+            parameters_for_current_stage=parameters_for_current_stage_without_adapter_name
+        )
         metadata["model_weight_transformation_specs"].append(serialized_specs)
 
     return metadata

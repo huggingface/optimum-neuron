@@ -167,13 +167,12 @@ def get_pipeline_parameters_for_current_stage(model) -> set[str]:
         Set of parameter names needed for the current pipeline stage
     """
     with suppress_logging():
-        with torch.device("meta"):
-            meta_model = model.__class__(model.config, model.trn_config)
-
         if get_pipeline_model_parallel_size() <= 1 or not model.supports_pipeline_parallelism():
             # Return all parameters if no pipeline parallelism
-            parameter_names = set(meta_model.state_dict().keys())
+            parameter_names = set(model.state_dict().keys())
         else:
+            with torch.device("meta"):
+                meta_model = model.__class__(model.config, model.trn_config)
             meta_nxdpp_model = create_nxdpp_model(meta_model)
             parameter_names = set(meta_nxdpp_model.local_state_dict().keys())
 
