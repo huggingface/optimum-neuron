@@ -33,8 +33,7 @@ if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 else:
     # This is a placeholder for doc building.
-    def xm():
-        pass
+    xm = None
 
 
 if is_neuronx_distributed_available():
