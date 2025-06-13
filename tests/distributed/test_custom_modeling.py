@@ -28,7 +28,6 @@ import optimum
 import optimum.neuron.models.training
 from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.models.training.granite.modeling_granite import GraniteForCausalLM
-from optimum.neuron.utils.import_utils import is_torch_xla_available
 from optimum.neuron.utils.import_utils import (
     is_neuronx_available,
     is_neuronx_distributed_available,
@@ -62,6 +61,7 @@ if is_neuronx_available():
 
 
 CUSTOM_MODELINGS_TO_TEST = [("LlamaForCausalLM", "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random")]
+
 
 @torch.no_grad()
 def _get_expected_output(model_id, inputs, torch_dtype):
@@ -284,8 +284,6 @@ def _custom_model_matches_original_model(
             continue
         if pp_size == 1 or pp_rank == pp_size - 1:
             _check_output(output_name, outputs[0], outputs[1])
-
-
 
 
 @pytest.mark.parametrize("qkv_implementation", ["regular_qkv", "fuse_qkv", "qkv_linear"])
