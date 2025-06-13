@@ -64,6 +64,8 @@ if is_neuronx_available():
     from neuronx_distributed.utils.model_utils import move_model_to_device
 
 
+CUSTOM_MODELINGS_TO_TEST = [("LlamaForCausalLM", "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random")]
+
 @torch.no_grad()
 def _get_expected_output(model_id, inputs, torch_dtype):
     # Get the expected output. Inference will run on CPU
@@ -287,7 +289,6 @@ def _custom_model_matches_original_model(
             _check_output(output_name, outputs[0], outputs[1])
 
 
-CUSTOM_MODELINGS_TO_TEST = [("LlamaForCausalLM", "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random")]
 
 
 @pytest.mark.parametrize("qkv_implementation", ["regular_qkv", "fuse_qkv", "qkv_linear"])
