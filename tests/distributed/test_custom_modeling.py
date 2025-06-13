@@ -27,6 +27,8 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 import optimum
 import optimum.neuron.models.training
 from optimum.neuron.models.training.config import TrainingNeuronConfig
+from optimum.neuron.models.training.granite.modeling_granite import GraniteForCausalLM
+from optimum.neuron.utils.import_utils import is_torch_xla_available
 from optimum.neuron.utils.import_utils import (
     is_neuronx_available,
     is_neuronx_distributed_available,
@@ -50,11 +52,6 @@ if is_neuronx_distributed_available():
     )
     from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
     from neuronx_distributed.utils.model_utils import move_model_to_device
-
-
-from optimum.neuron.models.training.granite.modeling_granite import GraniteForCausalLM
-from optimum.neuron.utils.import_utils import is_torch_xla_available
-
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
