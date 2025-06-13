@@ -1,4 +1,6 @@
 import importlib
+import os
+from datetime import datetime
 from functools import partial
 
 import datasets
@@ -11,18 +13,15 @@ from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.peft import get_peft_model
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
-    is_torch_xla_available,
 )
 from optimum.neuron.utils.misc import is_precompilation
+from optimum.neuron.utils.training_utils import is_main_worker_for_metrics
 
 from .. import launch_procs
 
 
-if is_torch_xla_available():
-    import torch_xla.runtime as xr
-
 if is_neuronx_distributed_available():
-    pass
+    from neuronx_distributed.parallel_layers.parallel_state import get_data_parallel_size
 
 
 def _overfit_causal_lm(
@@ -33,6 +32,7 @@ def _overfit_causal_lm(
     training_kwargs,
     max_length,
     max_expected_loss,
+    num_steps,
     tp_size,
     pp_size,
     use_flash_attention_2,
@@ -55,7 +55,17 @@ def _overfit_causal_lm(
         yield inputs
 
     dataset = datasets.Dataset.from_generator(gen)
-    dataset = dataset.select([0] * 1000)
+    dataset = dataset.select([0] * 10000)
+
+    # Wandb setup.
+    os.environ["WANDB_MODE"] = "online" if not is_precompilation() else "disabled"
+    os.environ["WANDB_PROJECT"] = "test-train-overfit"
+    dp_size = get_data_parallel_size()
+    wandb_run_name = f"{model_name_or_path}-dp={dp_size},tp={tp_size},pp={pp_size}"
+    if peft_config is not None:
+        wandb_run_name += "-lora"
+    date_str = datetime.now().strftime("%d%m%y-%H-%M")
+    wandb_run_name += f"-{date_str}"
 
     # Training args creation.
     training_args = NeuronTrainingArguments(
@@ -73,8 +83,9 @@ def _overfit_causal_lm(
         bf16=True,
         logging_steps=1,
         save_strategy="no",
-        max_steps=10 if is_precompilation() else 30,
+        max_steps=10 if is_precompilation() else num_steps,
         output_dir=output_dir,
+        run_name=wandb_run_name,
         **training_kwargs,
     )
 
@@ -115,7 +126,7 @@ def _overfit_causal_lm(
 
     # The master worker checks the logs, since it is the only worker to have access to them, to retrieve the last logged
     # loss. It then checks if it is lower or equal to max_expected_loss.
-    if xr.global_ordinal() == 0:
+    if is_main_worker_for_metrics():
         last_loss = None
         for logs in reversed(stored_logs):
             if "loss" in logs:
@@ -128,7 +139,7 @@ def _overfit_causal_lm(
 
 
 @pytest.mark.parametrize(
-    "model_class_name,model_name_or_path,learning_rate,warmup_ratio,training_kwargs,use_flash_attention_2,max_expected_loss,max_length",
+    "model_class_name,model_name_or_path,learning_rate,warmup_ratio,training_kwargs,use_flash_attention_2,max_expected_loss,max_length,num_steps",
     [
         [
             "LlamaForCausalLM",
@@ -139,39 +150,48 @@ def _overfit_causal_lm(
             True,
             0.0,
             2048,
+            30,
         ],
         [
             "GraniteForCausalLM",
             "ibm-granite/granite-3.2-2b-instruct",
             2e-3,
             0,
-            {
-                # For now we disable flash attention because the default configuration has a dropout for the attention
-                # which is broken with the flash attention kernel in the current Neuron SDK.
-                "use_flash_attention": False,
-            },
+            {},
+            # For now we disable flash attention because the default configuration has a dropout for the attention
+            # which is broken with the flash attention kernel in the current Neuron SDK.
             False,
             0.07,
             512,  # Do 2048 once we have flash_attention enabled.
+            30,
         ],
         [
             "Qwen3ForCausalLM",
             "Qwen/Qwen3-0.6B",
             1e-4,
-            0.03,
+            0.04,
             {},
             True,
             0.0,
             2048,
+            50,
         ],
     ],
     ids=["meta-llama/Llama-3.2-1B-Instruct", "ibm-granite/granite-3.2-2b-instruct", "Qwen/Qwen3-0.6B"],
 )
 @pytest.mark.parametrize(
     "world_size,tp_size,pp_size",
-    [[8, 8, 1]],
-    ids=["dp=1,tp=8,pp=1"],
+    [
+        # It is important to make it so that the DP size is the same otherwise the tests are not equivalent with the provided hyperparameters.
+        [32, 8, 1],
+        [32, 2, 4],
+    ],
+    ids=[
+        "dp=1,tp=8",
+        "dp=4,tp=2,pp=4",
+    ],
 )
+@pytest.mark.neuron_parallel_compile
 def test_overfit_causal_lm(
     model_class_name,
     model_name_or_path,
@@ -180,6 +200,7 @@ def test_overfit_causal_lm(
     training_kwargs,
     max_expected_loss,
     max_length,
+    num_steps,
     world_size,
     tp_size,
     pp_size,
@@ -196,6 +217,7 @@ def test_overfit_causal_lm(
         training_kwargs,
         max_length,
         max_expected_loss,
+        num_steps,
         tp_size,
         pp_size,
         use_flash_attention_2,
@@ -211,12 +233,13 @@ def test_overfit_causal_lm(
         [32, 32, 1],
     ],
     ids=[
-        "dp=1,tp=8,pp=1",
+        "dp=1,tp=8",
         # This is to test the case where we have more than 8 TP workers, which will use GQAGQAColumnParallelLinear.
-        "dp=1,tp=32,pp=1",
+        "dp=1,tp=32",
     ],
 )
-def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir):
+@pytest.mark.neuron_parallel_compile
+def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir, set_cache_for_ci):
     peft_config = LoraConfig(
         r=16,
         lora_alpha=32,
@@ -234,6 +257,7 @@ def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir):
         {},
         2048,
         0.0,
+        30,
         tp_size,
         pp_size,
         True,

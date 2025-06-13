@@ -113,6 +113,13 @@ class ModelWeightTransformationSpec:
         self._peft_type = value
 
     @abstractmethod
+    def get_relevant_parameter_names(self, module_fully_qualified_name: str) -> set[str]:
+        """
+        Returns the set of parameter names that this spec would affect.
+        """
+        pass
+
+    @abstractmethod
     def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
         """
         Guesses the PEFT type of the module associated to the spec.
@@ -245,11 +252,15 @@ class ModelWeightTransformationSpecs:
     module_fully_qualified_name: Optional[str] = None
     specs: Union[ModelWeightTransformationSpec, list[ModelWeightTransformationSpec]] = field(default_factory=list)
 
-    def to_metadata(self) -> Dict[str, Any]:
+    def to_metadata(self, parameters_for_current_stage: Optional[set[str]] = None) -> Dict[str, Any]:
         if self.module_fully_qualified_name is None:
             raise ValueError("`module_fully_qualified_name` must be set to serialize the specs")
         serialized_specs = []
         for spec in self.specs:
+            if parameters_for_current_stage is not None and not self.is_transformation_spec_relevant(
+                spec, parameters_for_current_stage
+            ):
+                continue
             spec_data = asdict(spec)
             spec_data["peft_type"] = spec.peft_type
             serialized_specs.append((spec.__class__.__name__, spec_data))
@@ -284,11 +295,20 @@ class ModelWeightTransformationSpecs:
             raise TypeError(f"spec must be of type ModelWeightTransformationSpec, but got {type(spec)}")
         self.specs.append(spec)
 
+    def is_transformation_spec_relevant(
+        self, spec: ModelWeightTransformationSpec, parameters_for_current_stage: set[str]
+    ) -> bool:
+        if self.module_fully_qualified_name is None:
+            raise ValueError("`module_fully_qualified_name` must be set to check relevance of the spec")
+        relevant_param_names = spec.get_relevant_parameter_names(self.module_fully_qualified_name)
+        return any(name in parameters_for_current_stage for name in relevant_param_names)
+
     def adapt_state_dict(
         self,
         named_parameters: Dict[str, torch.nn.Parameter],
         orig_state_dict: Dict[str, torch.Tensor],
         upstanding_sharded_params: Dict[str, torch.Tensor],
+        parameters_for_current_stage: set[str],
         inplace: bool = False,
     ):
         if self.module_fully_qualified_name is None:
@@ -296,6 +316,10 @@ class ModelWeightTransformationSpecs:
         for spec in self.specs:
             if not isinstance(spec, ModelWeightTransformationSpec):
                 raise TypeError(f"spec must be of type ModelWeightTransformationSpec, but got {type(spec)}")
+
+            if not self.is_transformation_spec_relevant(spec, parameters_for_current_stage):
+                continue
+
             orig_state_dict = spec.adapt_state_dict(
                 self.module_fully_qualified_name,
                 named_parameters,
@@ -364,6 +388,28 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
             self.fuse_axis = 0
         elif self.fuse_axis == "row":
             self.fuse_axis = 1
+
+    def get_relevant_parameter_names(self, module_fully_qualified_name: str) -> set[str]:
+        param_names = ["weight", "bias"] if self.bias else ["weight"]
+        fused_names = {
+            f"{module_fully_qualified_name}.{self.fused_linear_name}.{param_name}" for param_name in param_names
+        }
+        original_names = {
+            f"{module_fully_qualified_name}.{linear_name}.{param_name}"
+            for linear_name in self.linear_names
+            for param_name in param_names
+        }
+
+        lora_param_names = set()
+        for name in fused_names:
+            lora_param_names.add(name.replace(self.fused_linear_name, f"{self.fused_linear_name}.lora_A"))
+            lora_param_names.add(name.replace(self.fused_linear_name, f"{self.fused_linear_name}.lora_B"))
+        for name in original_names:
+            for linear_name in self.linear_names:
+                lora_param_names.add(name.replace(linear_name, f"{linear_name}.lora_A"))
+                lora_param_names.add(name.replace(linear_name, f"{linear_name}.lora_B"))
+
+        return fused_names | original_names | lora_param_names
 
     def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
         # Importing here to avoid circular imports
@@ -714,6 +760,58 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
     fuse_qkv: bool
     bias: bool
     tp_size: int = field(default_factory=get_tensor_model_parallel_size)
+
+    def get_relevant_parameter_names(self, module_fully_qualified_name: str) -> set[str]:
+        param_names = ["weight", "bias"] if self.bias else ["weight"]
+        original_proj_names = [
+            self.query_projection_name,
+            self.key_projection_name,
+            self.value_projection_name,
+            self.output_projection_name,
+        ]
+        original_names = {
+            f"{module_fully_qualified_name}.{proj_name}.{param_name}"
+            for proj_name in original_proj_names
+            for param_name in param_names
+        }
+
+        if self.fuse_qkv:
+            gqa_names = {
+                f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_qkv"
+                for param_name in param_names
+            }
+        else:
+            gqa_names = {
+                f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_{suffix}"
+                for param_name in param_names
+                for suffix in ["q", "k", "v"]
+            }
+
+        lora_param_names = set()
+        # LoRA for original layers
+        for param_name in param_names:
+            for proj_name in original_proj_names:
+                lora_param_names.add(f"{module_fully_qualified_name}.{proj_name}.lora_A.{param_name}")
+                lora_param_names.add(f"{module_fully_qualified_name}.{proj_name}.lora_B.{param_name}")
+
+        # LoRA for GQA layer
+        for param_name in param_names:
+            lora_param_names.add(f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_A.{param_name}")
+            if self.fuse_qkv:
+                lora_param_names.add(
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}"
+                )
+            else:
+                lora_param_names.add(
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}_q"
+                )
+                lora_param_names.add(
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}_k"
+                )
+                lora_param_names.add(
+                    f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.lora_B.{param_name}_v"
+                )
+        return original_names | gqa_names | lora_param_names
 
     @staticmethod
     def compute_query_indices_for_rank(
@@ -1434,8 +1532,13 @@ def adapt_state_dict(
     Transforms the state dict from the original Transformers model to match the custom modeling implementation.
     """
     named_parameters = dict(model.named_parameters())
+    named_parameters = {n: p for n, p in named_parameters.items() if n in model.parameters_for_current_stage}
+
     original_data_ptrs = {n: p.data_ptr() for n, p in state_dict.items()}
     original_state_dict_keys = set(state_dict.keys())
+    parameters_for_current_stage_without_adapter_name = {
+        remove_adapter_name(name) for name in model.parameters_for_current_stage
+    }
     for name, module in model.named_modules():
         if not isinstance(module, CustomModule):
             continue
@@ -1445,6 +1548,7 @@ def adapt_state_dict(
             named_parameters,
             state_dict,
             upstanding_sharded_params=upstanding_sharded_params,
+            parameters_for_current_stage=parameters_for_current_stage_without_adapter_name,
             inplace=inplace,
         )
 
@@ -1458,6 +1562,8 @@ def adapt_state_dict(
 
     for name, param in model.named_parameters():
         name_without_adapter_name = remove_adapter_name(name)
+        if name not in model.parameters_for_current_stage:
+            continue
         if is_base_layer(name_without_adapter_name):
             # In this case, it was already handled when loading the base layer weights in
             # `NeuronModelMixin.from_pretrained`.
@@ -1471,6 +1577,7 @@ def adapt_state_dict(
         if name_without_adapter_name in new_keys | mutated_keys:
             # In this case, we don't need to do anything, it was handled by the transformation specs.
             continue
+
         if hasattr(param, "tensor_model_parallel") and param.tensor_model_parallel:
             if param.partition_dim not in [0, 1]:
                 raise Exception(f"Partiton value of 0,1 are supported, found {param.partition_dim}.")
@@ -1563,6 +1670,8 @@ def create_parameter_metadata(model) -> Dict[str, Dict[str, Any]]:
     """
     metadata = {"parameters": {}, "model_weight_transformation_specs": []}
     for name, param in model.named_parameters():
+        if name not in model.parameters_for_current_stage:
+            continue
         tensor_model_parallel = getattr(param, "tensor_model_parallel", False)
         if tensor_model_parallel:
             metadata["parameters"][name] = get_tensor_model_parallel_attributes(param)
@@ -1573,7 +1682,12 @@ def create_parameter_metadata(model) -> Dict[str, Dict[str, Any]]:
     for name, module in model.named_modules():
         if not isinstance(module, CustomModule):
             continue
-        serialized_specs = module.specs.to_metadata()
+        parameters_for_current_stage_without_adapter_name = {
+            remove_adapter_name(n) for n in model.parameters_for_current_stage
+        }
+        serialized_specs = module.specs.to_metadata(
+            parameters_for_current_stage=parameters_for_current_stage_without_adapter_name
+        )
         metadata["model_weight_transformation_specs"].append(serialized_specs)
 
     return metadata

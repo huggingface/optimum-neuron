@@ -220,6 +220,11 @@ class Qwen3Model(LlamaModel):
 class Qwen3ForCausalLM(LlamaForCausalLM):
     config_class = Qwen3Config
 
+    # Pipeline parallelism support
+    PIPELINE_TRANSFORMER_LAYER_CLS = Qwen3DecoderLayer
+    PIPELINE_INPUT_NAMES = ["input_ids", "attention_mask", "labels"]
+    PIPELINE_LEAF_MODULE_CLASSE_NAMES = ["LlamaRMSNorm", "LlamaRotaryEmbedding"]
+
     def __init__(self, config, trn_config: TrainingNeuronConfig):
         super().__init__(config, trn_config)
         self.model = Qwen3Model(config, trn_config)

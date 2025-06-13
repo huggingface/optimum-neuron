@@ -26,6 +26,7 @@ class TrainingNeuronConfig(NeuronConfig):
     sequence_parallel_enabled: bool = False
     kv_size_multiplier: Optional[int] = None
     pipeline_parallel_size: int = 1
+    virtual_pipeline_parallel_size: int = 1
     pipeline_parallel_num_microbatches: int = 1
     pipeline_parallel_use_zero1_optimizer: bool = False
     gradient_checkpointing: bool = False

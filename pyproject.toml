@@ -40,6 +40,7 @@ markers = [
     "is_staging_test",
     "is_trainium_test",
     "is_inferentia_test",
+    "neuron_parallel_compile",
     "world_size",
     "tp_size",
     "pp_size",

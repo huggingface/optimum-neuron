@@ -16,6 +16,7 @@
 from .granite.modeling_granite import GraniteForCausalLM
 from .llama.modeling_llama import LlamaForCausalLM
 from .modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
+from .pipeline_utils import get_pipeline_parameters_for_current_stage
 from .qwen3.modeling_qwen3 import Qwen3ForCausalLM
 from .transformations_utils import (
     CustomModule,

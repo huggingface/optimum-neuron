@@ -15,6 +15,7 @@
 
 from typing import Optional
 
+import torch
 import torch.nn as nn
 
 from ...distributed.utils import parallel_cross_entropy
@@ -28,6 +29,7 @@ if is_neuronx_distributed_available():
 _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT: bool = False
 
 
+@torch.fx.wrap
 def fixed_cross_entropy(source, target, num_items_in_batch: Optional[int] = None, ignore_index: int = -100, **kwargs):
     reduction = "sum" if num_items_in_batch is not None else "mean"
     tp_size = get_tensor_model_parallel_size()

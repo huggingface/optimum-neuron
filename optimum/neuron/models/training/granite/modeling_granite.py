@@ -46,6 +46,10 @@ if is_neuronx_distributed_available():
         scatter_to_sequence_parallel_region,
     )
 
+    # Wrap the gather and scatter functions to ensure they are properly traced by `torch.fx`.
+    gather_from_sequence_parallel_region = torch.fx.wrap(gather_from_sequence_parallel_region)
+    scatter_to_sequence_parallel_region = torch.fx.wrap(scatter_to_sequence_parallel_region)
+
 logger = logging.get_logger(__name__)
 
 
@@ -306,6 +310,11 @@ class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
 
 class GraniteForCausalLM(LlamaForCausalLM):
     config_class = GraniteConfig
+
+    # Pipeline parallelism support
+    PIPELINE_TRANSFORMER_LAYER_CLS = GraniteDecoderLayer
+    PIPELINE_INPUT_NAMES = ["input_ids", "attention_mask", "labels"]
+    PIPELINE_LEAF_MODULE_CLASSE_NAMES = ["LlamaRMSNorm", "LlamaRotaryEmbedding"]
 
     def __init__(self, config, trn_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)
