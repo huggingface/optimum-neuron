@@ -15,7 +15,6 @@
 """Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
 import contextlib
-import copy
 import dataclasses
 import functools
 import inspect
@@ -90,7 +89,6 @@ from optimum.utils import logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType, NeuronPartialState
 from .cache.hub_cache import hub_neuronx_cache, synchronize_hub_cache
 from .cache.training import patch_neuron_cc_wrapper
-from .distributed.utils import make_optimizer_constructor_lazy
 from .peft import get_peft_model
 from .training_args import NeuronTrainingArguments
 from .utils import (
