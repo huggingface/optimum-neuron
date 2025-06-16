@@ -28,7 +28,6 @@ from transformers.utils import (
     WEIGHTS_NAME,
 )
 
-from ...peft.peft_model import ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME
 from ...utils.import_utils import is_peft_available
 from ...utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 from .modeling_utils import MODEL_PARALLEL_SHARDS_DIR_NAME
@@ -170,6 +169,9 @@ def consolidate_model_parallel_checkpoints_to_unified_checkpoint(
     save_format: Literal["pytorch", "safetensors"] = "safetensors",
 ):
     from safetensors.torch import save_file
+
+    # We import here to avoid circular import.
+    from ...peft.peft_model import ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME
 
     if not isinstance(checkpoint_dir, Path):
         checkpoint_dir = Path(checkpoint_dir)
