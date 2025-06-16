@@ -51,7 +51,6 @@ from transformers.utils.versions import require_version
 from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
 from optimum.neuron import NeuronTrainer as Trainer
 from optimum.neuron import NeuronTrainingArguments as TrainingArguments
-from optimum.neuron.distributed import lazy_load_for_parallelism
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -397,9 +396,9 @@ def main():
         "trust_remote_code": model_args.trust_remote_code,
     }
     if model_args.config_name:
-        config = AutoConfig.from_pretrained(model_args.config_name, **config_kwargs)
+    config = AutoConfig.from_pretrained(model_args.config_name, **config_kwargs)
     elif model_args.model_name_or_path:
-        config = AutoConfig.from_pretrained(model_args.model_name_or_path, **config_kwargs)
+    config = AutoConfig.from_pretrained(model_args.model_name_or_path, **config_kwargs)
     else:
         config = CONFIG_MAPPING[model_args.model_type]()
         logger.warning("You are instantiating a new config instance from scratch.")
@@ -416,9 +415,9 @@ def main():
         "trust_remote_code": model_args.trust_remote_code,
     }
     if model_args.tokenizer_name:
-        tokenizer = AutoTokenizer.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs)
+    tokenizer = AutoTokenizer.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs)
     elif model_args.model_name_or_path:
-        tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path, **tokenizer_kwargs)
+    tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path, **tokenizer_kwargs)
     else:
         raise ValueError(
             "You are instantiating a new tokenizer from scratch. This is not supported by this script. "
@@ -426,11 +425,7 @@ def main():
         )
 
     if model_args.model_name_or_path:
-        with lazy_load_for_parallelism(
-            tensor_parallel_size=training_args.tensor_parallel_size,
-            pipeline_parallel_size=training_args.pipeline_parallel_size,
-        ):
-            model = AutoModelForMaskedLM.from_pretrained(
+        model = AutoModelForMaskedLM.from_pretrained(
                 model_args.model_name_or_path,
                 from_tf=bool(".ckpt" in model_args.model_name_or_path),
                 config=config,
@@ -443,11 +438,7 @@ def main():
 
     else:
         logger.info("Training new model from scratch")
-        with lazy_load_for_parallelism(
-            tensor_parallel_size=training_args.tensor_parallel_size,
-            pipeline_parallel_size=training_args.pipeline_parallel_size,
-        ):
-            model = AutoModelForMaskedLM.from_config(config, trust_remote_code=model_args.trust_remote_code)
+        model = AutoModelForMaskedLM.from_config(config, trust_remote_code=model_args.trust_remote_code)
 
     # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
     # on a small vocab and want a smaller embedding size, remove this test.

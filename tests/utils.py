@@ -49,7 +49,6 @@ from transformers.models.auto.modeling_auto import (
 from transformers.testing_utils import ENDPOINT_STAGING
 
 from optimum.neuron import NeuronAccelerator
-from optimum.neuron.distributed import lazy_load_for_parallelism
 from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.utils.cache_utils import (
     delete_custom_cache_repo_name_from_hf_home,
@@ -220,31 +219,25 @@ def get_model(
     model_name_or_path: str,
     tp_size: int = 1,
     pp_size: int = 1,
-    lazy_load: bool = False,
     from_config: bool = False,
     use_static_seed_patcher: bool = False,
     add_random_noise: bool = False,
     config_overwrite: Optional[Dict[str, str]] = None,
 ) -> "PreTrainedModel":
-    if lazy_load:
-        ctx = lazy_load_for_parallelism(tensor_parallel_size=tp_size, pipeline_parallel_size=pp_size)
-    else:
-        ctx = contextlib.nullcontext()
     if use_static_seed_patcher:
         seed_patcher = StaticSeedPatcher(SEED)
     else:
         seed_patcher = contextlib.nullcontext()
-    with ctx:
-        with seed_patcher:
-            config = AutoConfig.from_pretrained(model_name_or_path)
-            if config_overwrite is not None:
-                for key, value in config_overwrite.items():
-                    attr_type = type(getattr(config, key))
-                    setattr(config, key, attr_type(value))
-            if from_config:
-                model = model_class(config)
-            else:
-                model = model_class.from_pretrained(model_name_or_path, config=config, ignore_mismatched_sizes=True)
+    with seed_patcher:
+        config = AutoConfig.from_pretrained(model_name_or_path)
+        if config_overwrite is not None:
+            for key, value in config_overwrite.items():
+                attr_type = type(getattr(config, key))
+                setattr(config, key, attr_type(value))
+        if from_config:
+            model = model_class(config)
+        else:
+            model = model_class.from_pretrained(model_name_or_path, config=config, ignore_mismatched_sizes=True)
 
     if getattr(model.config, "problem_type", None) is None:
         model.config.problem_type = "single_label_classification"

@@ -47,7 +47,6 @@ from utils_qa import postprocess_qa_predictions
 
 from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
 from optimum.neuron import NeuronTrainingArguments as TrainingArguments
-from optimum.neuron.distributed import lazy_load_for_parallelism
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -360,11 +359,7 @@ def main():
         token=model_args.token,
         trust_remote_code=model_args.trust_remote_code,
     )
-    with lazy_load_for_parallelism(
-        tensor_parallel_size=training_args.tensor_parallel_size,
-        pipeline_parallel_size=training_args.pipeline_parallel_size,
-    ):
-        model = AutoModelForQuestionAnswering.from_pretrained(
+    model = AutoModelForQuestionAnswering.from_pretrained(
             model_args.model_name_or_path,
             from_tf=bool(".ckpt" in model_args.model_name_or_path),
             config=config,

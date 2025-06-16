@@ -47,7 +47,6 @@ from transformers.utils.versions import require_version
 from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
 from optimum.neuron import NeuronTrainer as Trainer
 from optimum.neuron import NeuronTrainingArguments as TrainingArguments
-from optimum.neuron.distributed import lazy_load_for_parallelism
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -381,7 +380,7 @@ def main():
 
     tokenizer_name_or_path = model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path
     if config.model_type in {"bloom", "gpt2", "roberta"}:
-        tokenizer = AutoTokenizer.from_pretrained(
+    tokenizer = AutoTokenizer.from_pretrained(
             tokenizer_name_or_path,
             cache_dir=model_args.cache_dir,
             use_fast=True,
@@ -391,7 +390,7 @@ def main():
             add_prefix_space=True,
         )
     else:
-        tokenizer = AutoTokenizer.from_pretrained(
+    tokenizer = AutoTokenizer.from_pretrained(
             tokenizer_name_or_path,
             cache_dir=model_args.cache_dir,
             use_fast=True,
@@ -400,11 +399,7 @@ def main():
             trust_remote_code=model_args.trust_remote_code,
         )
 
-    with lazy_load_for_parallelism(
-        tensor_parallel_size=training_args.tensor_parallel_size,
-        pipeline_parallel_size=training_args.pipeline_parallel_size,
-    ):
-        model = AutoModelForTokenClassification.from_pretrained(
+    model = AutoModelForTokenClassification.from_pretrained(
             model_args.model_name_or_path,
             from_tf=bool(".ckpt" in model_args.model_name_or_path),
             config=config,
