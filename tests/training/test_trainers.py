@@ -30,7 +30,7 @@ from transformers import (
 from transformers.testing_utils import is_staging_test
 
 from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer, NeuronTrainer, NeuronTrainingArguments
-from optimum.neuron.distributed.utils import MODEL_PARALLEL_SHARDS_DIR_NAME
+from optimum.neuron.models.training.modeling_utils import MODEL_PARALLEL_SHARDS_DIR_NAME
 from optimum.neuron.utils import is_neuronx_distributed_available
 from optimum.neuron.utils.cache_utils import (
     list_files_in_neuron_cache,
