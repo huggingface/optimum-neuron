@@ -90,7 +90,6 @@ from optimum.utils import logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType, NeuronPartialState
 from .cache.hub_cache import hub_neuronx_cache, synchronize_hub_cache
 from .cache.training import patch_neuron_cc_wrapper
-from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
 from .peft import get_peft_model
 from .training_args import NeuronTrainingArguments
@@ -350,8 +349,6 @@ class _TrainerForNeuron:
         xm.rendezvous("Hub cache synchronization done")
 
     def _wrap_model(self, model, training=True, dataloader=None):
-        if is_custom_modeling_model(model):
-            return model
         return super()._wrap_model(
             self.accelerator.patch_model_for_neuron(model), training=training, dataloader=dataloader
         )
@@ -372,19 +369,6 @@ class _TrainerForNeuron:
 
     def get_num_trainable_parameters(self):
         return get_model_param_count(self.model, trainable_only=True)
-
-    @staticmethod
-    def get_optimizer_cls_and_kwargs(
-        args: TrainingArguments, model: Optional[PreTrainedModel] = None
-    ) -> Tuple[Any, Any]:
-        # No need for lazy loading logic when using custom modeling.
-        if is_custom_modeling_model(model):
-            return transformers_get_optimizer_cls_and_kwargs(args, model=model)
-        optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args, model=model)
-        lazy_load = args.trn_config.should_parallelize or args.zero_1
-        if lazy_load:
-            optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)
-        return optimizer_cls, optimizer_kwargs
 
     def create_optimizer(self):
         if isinstance(self.model, NxDPPModel):
@@ -613,25 +597,6 @@ class _TrainerForNeuron:
                     output_dir,
                     optimizer=self.optimizer if not self.args.save_only_model else None,
                 )
-            else:
-                if isinstance(model_to_save, PreTrainedModel):
-                    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
-
-                    config = copy.deepcopy(self.model.config)
-                    if self.args.trn_config.parallelize_embeddings:
-                        config.vocab_size = config.vocab_size * get_tensor_model_parallel_size()
-                    config.save_pretrained(output_dir)
-
-                # This mark_step is needed to avoid hang issues.
-                xm.mark_step()
-                Parallelizer.save_model_sharded_checkpoint(
-                    model_to_save,
-                    output_dir,
-                    optimizer=self.optimizer if not self.args.save_only_model else None,
-                    use_xser=self.accelerator.state.trn_config.use_xser,
-                    async_save=self.accelerator.state.trn_config.async_save,
-                    num_local_ranks_per_step=self.accelerator.state.trn_config.num_local_ranks_per_step,
-                )
         else:
             supported_classes = (PreTrainedModel, NeuronPeftModel)
             if not isinstance(self.model, supported_classes):
@@ -741,9 +706,9 @@ class _TrainerForNeuron:
             lr_scheduler_state = torch.load(os.path.join(checkpoint, SCHEDULER_NAME), map_location="cpu")
             xm.send_cpu_data_to_device(lr_scheduler_state, self.args.device)
             self.lr_scheduler.load_state_dict(lr_scheduler_state)
-
-            parallelizer = ParallelizersManager.parallelizer_for_model(self.model)
-            parallelizer.load_optimizer_sharded_checkpoint(self.optimizer, checkpoint)
+            optimizer_state = torch.load(os.path.join(checkpoint, OPTIMIZER_NAME), map_location="cpu")
+            xm.send_cpu_data_to_device(optimizer_state, self.args.device)
+            self.optimizer.load_state_dict(optimizer_state)
         else:
             return super()._load_optimizer_and_scheduler(checkpoint)
 
