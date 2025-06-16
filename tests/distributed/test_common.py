@@ -33,6 +33,7 @@ from optimum.neuron.distributed.utils import (
 )
 from optimum.neuron.models.training import LlamaForCausalLM as NeuronLlamaForCausalLM
 from optimum.neuron.models.training.config import TrainingNeuronConfig
+from optimum.neuron.models.training.pipeline_utils import create_nxdpp_model
 from optimum.neuron.peft import NeuronPeftModelForCausalLM
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
@@ -506,16 +507,16 @@ class TestCommonDistributed(DistributedTest):
     @pytest.mark.parametrize(
         "world_size,tp_size,pp_size,kv_size_multiplier,fuse_qkv",
         [
-            [8, 2, 1, None, False],
+            [32, 2, 4, None, False],
             [8, 8, 1, None, False],
             [8, 8, 1, 4, False],
             [8, 8, 1, 4, True],
         ],
         ids=[
-            "dp=4,tp=2,pp=1",
-            "dp=1,tp=8,pp=1,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
-            "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
-            "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear,fuse_qkv",
+            "dp=4,tp=2,pp=4",
+            "dp=1,tp=8,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
+            "dp=1,tp=8,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
+            "dp=1,tp=8,kv_size_multiplier=4,GQAQKVColumnParallelLinear,fuse_qkv",
         ],
     )
     def test_consolidate_custom_model_parallel_checkpoints(
@@ -535,6 +536,9 @@ class TestCommonDistributed(DistributedTest):
             fuse_qkv=fuse_qkv,
         )
         custom_model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
+
+        if pp_size > 1:
+            custom_model = create_nxdpp_model(custom_model)
 
         custom_model.save_pretrained(tmpdir / "custom_model")
 
@@ -557,7 +561,6 @@ class TestCommonDistributed(DistributedTest):
             for key in orig_state_dict:
                 orig_tensor = orig_state_dict[key]
                 consolidated_tensor = consolidated_state_dict[key]
-                print(f"Testing that {key} match")
                 torch.testing.assert_close(orig_tensor, consolidated_tensor)
 
     @pytest.mark.parametrize(
@@ -568,9 +571,9 @@ class TestCommonDistributed(DistributedTest):
             [8, 8, 1, 4, True],
         ],
         ids=[
-            "dp=4,tp=2,pp=1",
-            "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
-            "dp=1,tp=8,pp=1,kv_size_multiplier=4,GQAQKVColumnParallelLinear,fuse_qkv",
+            "dp=4,tp=2",
+            "dp=1,tp=8,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
+            "dp=1,tp=8,kv_size_multiplier=4,GQAQKVColumnParallelLinear,fuse_qkv",
         ],
     )
     def test_consolidate_custom_lora_model_parallel_checkpoints(
@@ -701,3 +704,34 @@ class TestCommonDistributed(DistributedTest):
                     consolidated_tensor = consolidated_state_dict[key]
                     print(f"Testing that {key} match for adapter {adapter_name}")
                     torch.testing.assert_close(orig_tensor, consolidated_tensor)
+
+    @pytest.mark.parametrize(
+        "world_size,tp_size,pp_size",
+        [
+            [32, 2, 4],
+        ],
+        ids=["dp=4,tp=2,pp=4"],
+    )
+    def test_each_pp_rank_only_loads_relevant_parameters(self, world_size, tp_size, pp_size):
+        trn_config = TrainingNeuronConfig(
+            tensor_parallel_size=tp_size,
+            pipeline_parallel_size=pp_size,
+        )
+        model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
+        parameters_on_cpu = {n for n, p in model.named_parameters() if p.device == torch.device("cpu")}
+        parameters_on_meta = {n for n, p in model.named_parameters() if p.device == torch.device("meta")}
+
+        accelerator = create_accelerator(tp_size, pp_size)
+
+        nxd_pp_model = accelerator.prepare(model)
+
+        local_parameters = {n for n, _ in nxd_pp_model.local_named_parameters()}
+        other_parameters = {n for n, _ in nxd_pp_model.named_parameters() if n not in local_parameters}
+
+        diff = local_parameters ^ parameters_on_cpu
+        assert diff != {}, f"Expected that only the parameters of the current PP rank are on CPU. Got {diff} instead."
+
+        diff = other_parameters ^ parameters_on_meta
+        assert diff != {}, (
+            f"Expected that the parameters of the other PP ranks are on the meta device. Got {diff} instead."
+        )

@@ -70,6 +70,11 @@ from transformers.utils.hub import get_checkpoint_shard_files
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from ...utils.misc import is_main_worker, is_precompilation
 from .config import TrainingNeuronConfig
+from .pipeline_utils import (
+    MetaParametersOnly,
+    get_pipeline_parameters_for_current_stage,
+    move_params_to_cpu,
+)
 from .transformations_utils import (
     adapt_state_dict,
     create_parameter_metadata,
@@ -95,16 +100,23 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_data_parallel_rank,
         get_pipeline_model_parallel_rank,
+        get_pipeline_model_parallel_size,
         get_tensor_model_parallel_rank,
     )
     from neuronx_distributed.parallel_layers.utils import (
         get_local_world_size,
         move_model_to_device,
     )
+    from neuronx_distributed.pipeline import NxDPPModel
+
 else:
     # This is a placeholder for the nki_flash_attn_func function for doc building.
     def nki_flash_attn_func(*args, **kwargs):
         pass
+
+    class NxDPPModel:
+        def __init__(self, *args, **kwargs):
+            pass
 
 
 logger = logging.get_logger(__name__)
@@ -165,6 +177,36 @@ def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):
 
 
 class NeuronModelMixin:
+    SUPPORTS_PIPELINE_PARALLELISM: bool = False
+    PIPELINE_TRANSFORMER_LAYER_CLS: Optional[Type] = None
+    PIPELINE_INPUT_NAMES: Optional[list[str]] = None
+    PIPELINE_LEAF_MODULE_CLASSE_NAMES: Optional[list[str]] = None
+
+    @classmethod
+    def supports_pipeline_parallelism(cls) -> bool:
+        """
+        Returns whether the model supports pipeline parallelism.
+        """
+        if cls.SUPPORTS_PIPELINE_PARALLELISM:
+            if cls.PIPELINE_TRANSFORMER_LAYER_CLS is None or cls.PIPELINE_INPUT_NAMES is None:
+                raise ValueError(
+                    f"{cls.__name__} supports pipeline parallelism but does not have the required attributes "
+                    "`PIPELINE_TRANSFORMER_LAYER_CLS` and `PIPELINE_INPUT_NAMES` set."
+                )
+            return True
+        return False
+
+    @property
+    def parameters_for_current_stage(self) -> set[str]:
+        """
+        Returns the names of the parameters that are in the current pipeline stage.
+        If pipeline parallelism is not used, this returns the names of all the parameters of the model.
+        """
+        if getattr(self, "_parameter_names_for_current_pp_rank", None) is None:
+            self._parameter_names_for_current_pp_rank = get_pipeline_parameters_for_current_stage(self)
+        return self._parameter_names_for_current_pp_rank
+
+    @classmethod
     @classmethod
     def _check_and_enable_flash_attn_2(
         cls,
@@ -478,6 +520,8 @@ class NeuronModelMixin:
         if cls._keys_to_ignore_on_load_missing is not None:
             for pat in cls._keys_to_ignore_on_load_missing:
                 missing_keys = [k for k in missing_keys if re.search(pat, k) is None]
+        # If the key is not in model.parameters_for_current_stage, it is not missing, we just do not need it here.
+        missing_keys = [k for k in missing_keys if k in model.parameters_for_current_stage]
 
         if cls._keys_to_ignore_on_load_unexpected is not None:
             for pat in cls._keys_to_ignore_on_load_unexpected:
@@ -625,6 +669,17 @@ class NeuronModelMixin:
                 upstanding_sharded_params=upstanding_sharded_params,
                 inplace=True,
             )
+
+            # We need to remove the keys only after adapting the state dict otherwise the parameter names might not
+            # match between the custom model and the checkpoint.
+            for key in list(state_dict.keys()):
+                # If the key is a parameter that is not needed for the current pipeline stage, we remove it.
+                if key not in model.parameters_for_current_stage:
+                    del state_dict[key]
+            gc.collect()
+
+            if get_pipeline_model_parallel_size() > 1:
+                move_params_to_cpu(model_to_load, model.parameters_for_current_stage)
 
             # Mistmatched keys contains tuples key/shape1/shape2 of weights in the checkpoint that have a shape not
             # matching the weights in the model.
@@ -1289,6 +1344,10 @@ class NeuronModelMixin:
         # Instantiate model.
         init_contexts = [no_init_weights()]
 
+        # If we are using pipeline parallelism, we need to use the meta device for parameters only while keeping buffers on CPU.
+        if get_pipeline_model_parallel_size() > 1:
+            init_contexts.append(MetaParametersOnly())
+
         # ** Difference from original from_pretrained **
         # In the original from_pretrained implementation there is deepspeed and low_cpu_mem_usage code for
         # `init_contexts`.
@@ -1321,6 +1380,9 @@ class NeuronModelMixin:
             # Let's make sure we don't run the init function of buffer modules
             model = cls(config, trn_config, *model_args, **model_kwargs)
 
+        if get_pipeline_model_parallel_size() > 1:
+            move_params_to_cpu(model, model.parameters_for_current_stage)
+
         # make sure we use the model's config since the __init__ call might have copied it
         config = model.config
 
@@ -1337,8 +1399,10 @@ class NeuronModelMixin:
 
         # ** Difference from original from_pretrained **
         # Here we load the pretrained model by group of ranks.
+        # For pipeline parallelism, we only load the parameters needed for the current stage.
         # The `cls._load_pretrained_model` method takes a subset of the original parameters because we support a subset
         # of the original features.
+
         for worker in range(math.ceil(local_world_size / num_local_ranks_per_step)):
             if local_rank // num_local_ranks_per_step == worker:
                 (
@@ -1381,7 +1445,13 @@ class NeuronModelMixin:
         # If weights are initially tied, we still copy the value but we do not tie them.
         if should_fake_tie:
             with torch.no_grad():
-                model.get_output_embeddings().weight.data.copy_(model.get_input_embeddings().weight)
+                if (
+                    model.get_input_embeddings().weight.device.type == "meta"
+                    or model.get_output_embeddings().weight.device.type == "meta"
+                ):
+                    logger.warning("Either the input or output embeddings are on the meta device, cannot tie them.")
+                else:
+                    model.get_output_embeddings().weight.data.copy_(model.get_input_embeddings().weight)
 
         if output_loading_info:
             if loading_info is None:
@@ -1439,8 +1509,9 @@ class NeuronModelMixin:
             )
             is_main_process = kwargs.pop("save_config")
         if safe_serialization:
-            raise logger.error(
-                "`safe_serialization` is not supported when saving the sharded checkpoints. It is possible to consolidate the model weights into `safetensors` format."
+            raise NotImplementedError(
+                "`safe_serialization` is not supported when saving the sharded checkpoints. It is possible to "
+                "consolidate the model weights into `safetensors` format."
             )
 
         if os.path.isfile(save_directory):

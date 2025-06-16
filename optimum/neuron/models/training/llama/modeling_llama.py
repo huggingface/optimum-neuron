@@ -796,6 +796,11 @@ class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
 class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
 
+    SUPPORTS_PIPELINE_PARALLELISM = True
+    PIPELINE_TRANSFORMER_LAYER_CLS = LlamaDecoderLayer
+    PIPELINE_INPUT_NAMES = ["input_ids", "attention_mask", "labels"]
+    PIPELINE_LEAF_MODULE_CLASSE_NAMES = ["LlamaRMSNorm", "LlamaRotaryEmbedding"]
+
     def __init__(self, config, trn_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)
         self.model = LlamaModel(config, trn_config)
@@ -839,7 +844,7 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
     @can_return_tuple
     def forward(
         self,
-        input_ids: torch.LongTensor = None,
+        input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,

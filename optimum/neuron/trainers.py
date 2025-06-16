@@ -95,6 +95,7 @@ from .distributed.utils import make_optimizer_constructor_lazy
 from .peft import get_peft_model
 from .training_args import NeuronTrainingArguments
 from .utils import (
+    is_neuronx_distributed_available,
     is_torch_xla_available,
     is_trl_available,
     patch_within_function,
@@ -124,6 +125,10 @@ if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
     import torch_xla.debug.metrics as met
     import torch_xla.runtime as xr
+
+
+if is_neuronx_distributed_available():
+    from neuronx_distributed.pipeline import NxDPPModel
 
 if is_sagemaker_mp_enabled():
     from smdistributed.modelparallel import __version__ as SMP_VERSION
@@ -381,9 +386,53 @@ class _TrainerForNeuron:
             optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)
         return optimizer_cls, optimizer_kwargs
 
-    @patch_within_function(("transformers.Trainer.get_optimizer_cls_and_kwargs", get_optimizer_cls_and_kwargs))
     def create_optimizer(self):
-        return super().create_optimizer()
+        if isinstance(self.model, NxDPPModel):
+            opt_model = self.model.original_torch_module
+            named_parameters = list(self.model.local_named_parameters())
+        else:
+            opt_model = self.model
+            named_parameters = list(self.model.named_parameters())
+
+        if self.optimizer is None:
+            decay_parameters = self.get_decay_parameter_names(opt_model)
+            optimizer_grouped_parameters = [
+                {
+                    "params": [p for n, p in named_parameters if (n in decay_parameters and p.requires_grad)],
+                    "weight_decay": self.args.weight_decay,
+                },
+                {
+                    "params": [p for n, p in named_parameters if (n not in decay_parameters and p.requires_grad)],
+                    "weight_decay": 0.0,
+                },
+            ]
+
+            if self.optimizer_cls_and_kwargs is not None:
+                optimizer_cls, optimizer_kwargs = self.optimizer_cls_and_kwargs
+            else:
+                optimizer_cls, optimizer_kwargs = self.get_optimizer_cls_and_kwargs(self.args, opt_model)
+
+            # Overwrite `params` in case it's created by `get_optimizer_cls_and_kwargs`
+            # e.g. for GaLore optimizer.
+            if "params" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("params")
+
+            # Overwrite `model` in case it's created by `get_optimizer_cls_and_kwargs`
+            # e.g. for LOMO optimizer.
+            if "model" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("model")
+
+            # For layer-wise dummy optimizers we overwrite optimizer_grouped_parameters with `optimizer_dict`
+            # to avoid arguments conflicts.
+            if "optimizer_dict" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("optimizer_dict")
+
+            self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
+
+            # ** Difference with the original `create_optimizer` method **
+            # We removed the part handling bitsandbyte optimizers, as it is not supported in Neuron.
+
+        return self.optimizer
 
     def _prepare_input(self, data: Union[torch.Tensor, Any]) -> Union[torch.Tensor, Any]:
         # When pipeline parallelism is enabled, we should not put any tensor on device.
@@ -439,10 +488,10 @@ class _TrainerForNeuron:
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
 
             if num_items_in_batch is None:
-                output = loss / self.args.gradient_accumulation_steps
+                loss = loss / self.args.gradient_accumulation_steps
         else:
-            output = super().training_step(model, inputs, num_items_in_batch=num_items_in_batch)
-        return output
+            loss = super().training_step(model, inputs, num_items_in_batch=num_items_in_batch)
+        return loss
 
     @requires_neuronx_distributed
     def prediction_step(
@@ -482,7 +531,9 @@ class _TrainerForNeuron:
                 dp_size = xr.world_size()
 
             tr_loss_div = tr_loss / dp_size
+
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_replica_groups())
+
             reduced_tr_loss = reduced_tr_loss.detach()
 
             if self.control.should_log:
@@ -553,15 +604,17 @@ class _TrainerForNeuron:
                 logger.info(
                     "Model parallelism is enabled, saving the model sharded state dict instead of the full state dict."
                 )
-            if is_custom_modeling_model(self.model):
+
+            model_to_save = self.model.original_torch_module if isinstance(self.model, NxDPPModel) else self.model
+            if is_custom_modeling_model(model_to_save):
                 # This mark_step is needed to avoid hang issues.
                 xm.mark_step()
-                self.model.save_pretrained(
+                model_to_save.save_pretrained(
                     output_dir,
                     optimizer=self.optimizer if not self.args.save_only_model else None,
                 )
             else:
-                if isinstance(self.model, PreTrainedModel):
+                if isinstance(model_to_save, PreTrainedModel):
                     from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
                     config = copy.deepcopy(self.model.config)
@@ -572,7 +625,7 @@ class _TrainerForNeuron:
                 # This mark_step is needed to avoid hang issues.
                 xm.mark_step()
                 Parallelizer.save_model_sharded_checkpoint(
-                    self.model,
+                    model_to_save,
                     output_dir,
                     optimizer=self.optimizer if not self.args.save_only_model else None,
                     use_xser=self.accelerator.state.trn_config.use_xser,
@@ -801,47 +854,22 @@ class _TrainerForNeuron:
             self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
 
         model = self._wrap_model(self.model_wrapped)
+        model = self.accelerator.prepare(model)
+        self.model = model
 
-        # as the model is wrapped, don't use `accelerator.prepare`
-        # this is for unhandled cases such as
-        # FSDP-XLA, SageMaker MP/DP, DataParallel, IPEX
-        use_accelerator_prepare = True if model is self.model else False
-
-        if use_accelerator_prepare:
-            self.model = self.accelerator.prepare(self.model)
         self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
-        # prepare using `accelerator` prepare
-        if use_accelerator_prepare:
+        if not isinstance(model, NxDPPModel):
             self.model.train()
-            if hasattr(self.lr_scheduler, "step"):
-                if self.use_apex:
-                    model = self.accelerator.prepare(self.model)
-                else:
-                    model, self.optimizer = self.accelerator.prepare(self.model, self.optimizer)
-            else:
-                # to handle cases wherein we pass "DummyScheduler" such as when it is specified in DeepSpeed config.
-                model, self.optimizer, self.lr_scheduler = self.accelerator.prepare(
-                    self.model, self.optimizer, self.lr_scheduler
-                )
 
-        if isinstance(model, NxDPPModel):
-            self.model = model
-
-        if self.is_fsdp_enabled:
-            self.model = self.model_wrapped = model
-
-        # for the rest of this function `model` is the outside model, whether it was wrapped or not
-        if model is not self.model:
-            self.model_wrapped = model
+        if hasattr(self.lr_scheduler, "step"):
+            self.optimizer = self.accelerator.prepare(self.optimizer)
+        else:
+            # to handle cases wherein we pass "DummyScheduler" such as when it is specified in DeepSpeed config.
+            self.optimizer, self.lr_scheduler = self.accelerator.prepare(self.optimizer, self.lr_scheduler)
 
         # Check if saved optimizer or scheduler states exist
         self._load_optimizer_and_scheduler(resume_from_checkpoint)
-
-        # important: at this point:
-        # self.model         is the Transformers Model
-        # self.model_wrapped is DDP(Transformers Model), Deepspeed(Transformers Model),
-        # FSDP(Transformers Model), Dynamo Optimized Module(Transformers Model) etc.
 
         # Train!
         parameter_count = get_model_param_count(model, trainable_only=True)
@@ -850,6 +878,7 @@ class _TrainerForNeuron:
             logger.info(f"  Num examples = {num_examples:,}")
             logger.info(f"  Num Epochs = {num_train_epochs:,}")
             logger.info(f"  Instantaneous batch size per device = {self.args.per_device_train_batch_size:,}")
+            logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
             if self.args.per_device_train_batch_size != self._train_batch_size:
                 logger.info(
                     f"  Training with DataParallel so batch size has been adjusted to: {self._train_batch_size:,}"
@@ -857,7 +886,6 @@ class _TrainerForNeuron:
             logger.info(
                 f"  Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size:,}"
             )
-            logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
             logger.info(f"  Total optimization steps = {max_steps:,}")
             logger.info(f"  Number of trainable parameters = {parameter_count:,}")
 
@@ -913,7 +941,6 @@ class _TrainerForNeuron:
         # (eg.g loss) are logged and sent to the callbacks (for instance WandbCallback).
         self.state.is_world_process_zero = is_main_worker_for_metrics()
 
-        # tr_loss is a tensor to avoid synchronization of TPUs through .item()
         tr_loss = torch.tensor(0.0).to(args.device)
         # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
         self._total_loss_scalar = 0.0
