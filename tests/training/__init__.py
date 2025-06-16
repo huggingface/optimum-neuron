@@ -14,7 +14,7 @@
 # limitations under the License.
 """Training tests module."""
 
-from .distributed_utils import DistributedTest, launch_procs
+from ..distributed_utils import DistributedTest, launch_procs
 
 
 __all__ = ["DistributedTest", "launch_procs"]
