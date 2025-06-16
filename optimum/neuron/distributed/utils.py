@@ -1664,8 +1664,6 @@ def from_pretrained_for_mp(
     return model
 
 
-
-
 def make_optimizer_constructor_lazy(optimizer_cls: Type["torch.optim.Optimizer"]):
     """
     Transforms an optimizer constructor (optimizer class) to make it lazy by not initializing the parameters.

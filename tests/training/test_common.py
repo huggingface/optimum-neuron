@@ -117,7 +117,9 @@ class TestCommonTrainingFeatures(DistributedTest):
             "custom_modeling=True,zero_1=True,gradient_accumulation_steps=12,max_grad_norm=0.01",
         ],
     )
-    def test_optimizer_step(self, world_size, tp_size, pp_size, use_custom_modeling, zero_1, gradient_accumulation_steps, max_grad_norm):
+    def test_optimizer_step(
+        self, world_size, tp_size, pp_size, use_custom_modeling, zero_1, gradient_accumulation_steps, max_grad_norm
+    ):
         dp_size = world_size // (tp_size * pp_size)
         if dp_size == 1 and zero_1:
             pytest.skip("zero_1 needs to be tested only for dp_size > 1")
@@ -126,7 +128,9 @@ class TestCommonTrainingFeatures(DistributedTest):
         if dp_size > 1 and zero_1 and max_grad_norm is not None:
             pytest.skip("Gradient clipping seems to not work properly with ZeRO-1.")
 
-        model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, use_static_seed_patcher=True, custom_modeling=use_custom_modeling)
+        model = get_tiny_llama_model(
+            tp_size=tp_size, pp_size=pp_size, use_static_seed_patcher=True, custom_modeling=use_custom_modeling
+        )
 
         if tp_size == pp_size == 1:
             move_model_to_device(model, xm.xla_device())

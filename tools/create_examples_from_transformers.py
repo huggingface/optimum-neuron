@@ -147,8 +147,6 @@ def generate_new_import_code(*optimum_neuron_imports: str) -> str:
     return " ".join(import_line)
 
 
-
-
 def parse_args():
     parser = ArgumentParser(
         description="Tool to download and prepare 🤗 Transformers example training scripts for AWS Trainium instances."
