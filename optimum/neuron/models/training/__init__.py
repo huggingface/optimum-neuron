@@ -31,3 +31,4 @@ from .transformations_utils import (
     to_original_peft_config_for_model,
     to_original_weights,
 )
+from .checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
