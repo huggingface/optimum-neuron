@@ -26,9 +26,9 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 import optimum
 import optimum.neuron.models.training
-from optimum.neuron.models.training.transformations_utils import GQAQKVColumnParallelLinearSpec
 from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.models.training.granite.modeling_granite import GraniteForCausalLM
+from optimum.neuron.models.training.transformations_utils import GQAQKVColumnParallelLinearSpec
 from optimum.neuron.utils.import_utils import (
     is_neuronx_available,
     is_neuronx_distributed_available,

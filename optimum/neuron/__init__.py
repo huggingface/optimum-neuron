@@ -72,7 +72,7 @@ _import_structure = {
         "NeuronPartialState",
     ],
     "pipelines": ["pipeline"],
-    "utils": ["NeuronSFTConfig", "NeuronORPOConfig", "get_peft_model"],
+    "utils": ["NeuronSFTConfig", "NeuronORPOConfig"],
 }
 
 # Model structures
@@ -141,7 +141,7 @@ if TYPE_CHECKING:
     from .pipelines import pipeline
     from .trainers import NeuronORPOTrainer, NeuronSFTTrainer, NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
-    from .utils import NeuronORPOConfig, NeuronSFTConfig, get_peft_model
+    from .utils import NeuronORPOConfig, NeuronSFTConfig
 
 else:
     import sys

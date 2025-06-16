@@ -14,7 +14,6 @@
 # limitations under the License.
 """Utilities for performing parallelism with `neuronx_distributed`"""
 
-import contextlib
 import copy
 import functools
 import inspect
@@ -31,7 +30,6 @@ from transformers import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
 from ...utils import logging
-from ..utils import DynamicPatch, Patcher
 from ..utils.import_utils import is_neuronx_distributed_available, is_peft_available
 from ..utils.misc import download_checkpoints_in_cache, is_precompilation
 from ..utils.peft_utils import NeuronPeftModel

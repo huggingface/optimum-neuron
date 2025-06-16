@@ -81,7 +81,6 @@ _import_structure = {
         "patch_within_function",
         "replace_class_in_inheritance_hierarchy",
     ],
-    "peft_utils": ["NeuronPeftModel", "get_peft_model"],
     "training_utils": [
         "is_model_officially_supported",
         "patch_transformers_for_neuron_sdk",
@@ -152,7 +151,6 @@ if TYPE_CHECKING:
         patch_within_function,
         replace_class_in_inheritance_hierarchy,
     )
-    from .peft_utils import NeuronPeftModel, get_peft_model
     from .training_utils import (
         is_model_officially_supported,
         patch_transformers_for_neuron_sdk,

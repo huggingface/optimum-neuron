@@ -15,25 +15,20 @@
 """Tests related to PEFT integration."""
 
 import copy
-from pathlib import Path
 
 import pytest
 import torch
-from peft import AutoPeftModelForCausalLM, LoraConfig, PeftModel
+from peft import LoraConfig, PeftModel
 from peft import get_peft_model as orig_get_peft_model
 
 import optimum
-from optimum.neuron import NeuronTrainer, NeuronTrainingArguments, get_peft_model
 from optimum.neuron.utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
-from optimum.neuron.utils.peft_utils import NeuronPeftModel
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .. import DistributedTest
 from ..utils import (
     StaticSeedPatcher,
     create_accelerator,
-    create_dummy_causal_lm_dataset,
-    default_data_collator_for_causal_lm,
     get_model_inputs,
     get_tokenizer_and_tiny_llama_model,
 )
@@ -89,50 +84,6 @@ class TestPeft(DistributedTest):
     )
     def parallel_sizes(self, request):
         return request.param
-
-    @pytest.mark.world_size(2)
-    def test_peft_model_is_converted_to_neuron_peft_model(self):
-        model = AutoPeftModelForCausalLM.from_pretrained("peft-internal-testing/tiny-random-BertModel-lora")
-        assert isinstance(model, PeftModel)
-        accelerator = create_accelerator(1, 1)
-        model = accelerator.prepare(model)
-        assert isinstance(model, NeuronPeftModel)
-
-    def test_training(self, parallel_sizes, tmpdir):
-        _, tp_size, pp_size = parallel_sizes
-
-        per_device_train_batch_size = 1
-        output_dir = Path(tmpdir)
-        args = NeuronTrainingArguments(
-            output_dir=output_dir.as_posix(),
-            do_train=True,
-            do_eval=False,
-            bf16=True,
-            per_device_train_batch_size=per_device_train_batch_size,
-            save_strategy="epoch",
-            logging_steps=10,
-            num_train_epochs=2,
-            tensor_parallel_size=tp_size,
-            pipeline_parallel_size=pp_size,
-        )
-
-        tokenizer, model = get_tokenizer_and_tiny_llama_model()
-
-        num_train_samples = num_eval_samples = 50
-        datasets = create_dummy_causal_lm_dataset(
-            model.config.vocab_size, num_train_samples, num_eval_samples, max_number_of_unique_examples=3
-        )
-
-        trainer = NeuronTrainer(
-            model,
-            args,
-            tokenizer=tokenizer,
-            train_dataset=datasets["train"],
-            eval_dataset=datasets["eval"],
-            data_collator=default_data_collator_for_causal_lm,
-        )
-
-        trainer.train()
 
     def test_tied_weights(self, parallel_sizes):
         _, tp_size, pp_size = parallel_sizes

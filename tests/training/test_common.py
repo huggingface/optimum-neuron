@@ -16,21 +16,15 @@
 
 from collections import defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict
+from typing import TYPE_CHECKING
 
 import pytest
-import safetensors
 import torch
 from peft import PeftModelForCausalLM
 from transformers import LlamaForCausalLM
 
 from optimum.neuron.accelerate.optimizer import NeuronAcceleratedOptimizer
-from optimum.neuron.accelerate.utils.dataclasses import NeuronDistributedType
 from optimum.neuron.distributed.checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
-from optimum.neuron.distributed.utils import (
-    MODEL_PARALLEL_SHARDS_DIR_NAME,
-    make_optimizer_constructor_lazy,
-)
 from optimum.neuron.models.training import LlamaForCausalLM as NeuronLlamaForCausalLM
 from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.models.training.pipeline_utils import create_nxdpp_model
@@ -42,7 +36,7 @@ from optimum.neuron.utils.import_utils import (
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .. import DistributedTest
-from ..utils import StaticSeedPatcher, create_accelerator, get_model, get_model_inputs
+from ..utils import create_accelerator, get_model, get_model_inputs
 
 
 if is_torch_xla_available():
@@ -51,12 +45,6 @@ if is_torch_xla_available():
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_data_parallel_rank,
-        get_pipeline_model_parallel_rank,
-        get_tensor_model_parallel_group,
-        get_tensor_model_parallel_rank,
-    )
     from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
     from neuronx_distributed.pipeline import NxDPPModel
     from neuronx_distributed.utils.model_utils import move_model_to_device
