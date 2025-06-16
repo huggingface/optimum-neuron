@@ -15,6 +15,7 @@ from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
 )
 from optimum.neuron.utils.misc import is_precompilation
+from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.training_utils import is_main_worker_for_metrics
 
 from .. import launch_procs
@@ -39,6 +40,12 @@ def _overfit_causal_lm(
     output_dir,
     peft_config=None,
 ):
+    training_mod = importlib.import_module("optimum.neuron.models.training")
+    model_class = getattr(training_mod, model_class_name)
+
+    if pp_size > 1 and not model_class.supports_pipeline_parallelism():
+        pytest.skip(f"The model {model_class_name} does not support pipeline parallelism, skipping the test.")
+
     # Dataset creation.
     sample_to_overfit = "Paris is the most beautiful city in the world."
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
@@ -78,7 +85,7 @@ def _overfit_causal_lm(
         per_device_train_batch_size=1,
         gradient_accumulation_steps=16,
         lr_scheduler_type="cosine",
-        gradient_checkpointing=True,
+        gradient_checkpointing=False,
         max_grad_norm=1,
         bf16=True,
         logging_steps=1,
@@ -90,8 +97,6 @@ def _overfit_causal_lm(
     )
 
     # Model creation.
-    training_mod = importlib.import_module("optimum.neuron.models.training")
-    model_class = getattr(training_mod, model_class_name)
     model = model_class.from_pretrained(
         model_name_or_path,
         training_args.trn_config,
@@ -155,7 +160,7 @@ def _overfit_causal_lm(
         [
             "GraniteForCausalLM",
             "ibm-granite/granite-3.2-2b-instruct",
-            2e-3,
+            1e-4,
             0,
             {},
             # For now we disable flash attention because the default configuration has a dropout for the attention
@@ -187,24 +192,25 @@ def _overfit_causal_lm(
         [32, 2, 4],
     ],
     ids=[
-        "dp=1,tp=8",
+        "dp=4,tp=8",
         "dp=4,tp=2,pp=4",
     ],
 )
 @pytest.mark.neuron_parallel_compile
+@is_trainium_test
 def test_overfit_causal_lm(
     model_class_name,
     model_name_or_path,
     learning_rate,
     warmup_ratio,
     training_kwargs,
+    use_flash_attention_2,
     max_expected_loss,
     max_length,
     num_steps,
     world_size,
     tp_size,
     pp_size,
-    use_flash_attention_2,
     tmpdir,
     set_cache_for_ci,  # This fixture will handle setting the remote cache to make this test faster.
 ):
@@ -239,6 +245,7 @@ def test_overfit_causal_lm(
     ],
 )
 @pytest.mark.neuron_parallel_compile
+@is_trainium_test
 def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir, set_cache_for_ci):
     peft_config = LoraConfig(
         r=16,

@@ -180,13 +180,19 @@ def _custom_model_matches_original_model(
     # the parallel linears accumulates over the layers.
     torch_dtype=torch.float32,
 ):
-    monkeypatch.setattr(
-        optimum.neuron.models.training.loss_utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
-    )
-
     world_size, tp_size, pp_size = parallel_sizes
     dp_size = world_size // (tp_size * pp_size)
     pp_rank = get_pipeline_model_parallel_rank()
+
+    training_mod = importlib.import_module("optimum.neuron.models.training")
+    custom_model_class = getattr(training_mod, model_class_name)
+
+    if pp_size > 1 and not custom_model_class.supports_pipeline_parallelism():
+        pytest.skip(f"The model {model_class_name} does not support pipeline parallelism, skipping the test.")
+
+    monkeypatch.setattr(
+        optimum.neuron.models.training.loss_utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
+    )
 
     static_seed_patcher = StaticSeedPatcher(SEED)
 
@@ -242,8 +248,6 @@ def _custom_model_matches_original_model(
         recompute_causal_mask=False,  # Recomputing the causal mask does not impact the loss but it impacts the logits.
     )
 
-    training_mod = importlib.import_module("optimum.neuron.models.training")
-    custom_model_class = getattr(training_mod, model_class_name)
     with static_seed_patcher:
         model = custom_model_class.from_pretrained(
             model_name_or_path, trn_config, attn_implementation=attn_implementation, torch_dtype=torch_dtype

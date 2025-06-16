@@ -177,15 +177,24 @@ def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):
 
 
 class NeuronModelMixin:
+    SUPPORTS_PIPELINE_PARALLELISM: bool = False
     PIPELINE_TRANSFORMER_LAYER_CLS: Optional[Type] = None
     PIPELINE_INPUT_NAMES: Optional[list[str]] = None
     PIPELINE_LEAF_MODULE_CLASSE_NAMES: Optional[list[str]] = None
 
-    def supports_pipeline_parallelism(self) -> bool:
+    @classmethod
+    def supports_pipeline_parallelism(cls) -> bool:
         """
         Returns whether the model supports pipeline parallelism.
         """
-        return self.PIPELINE_TRANSFORMER_LAYER_CLS is not None and self.PIPELINE_INPUT_NAMES is not None
+        if cls.SUPPORTS_PIPELINE_PARALLELISM:
+            if cls.PIPELINE_TRANSFORMER_LAYER_CLS is None or cls.PIPELINE_INPUT_NAMES is None:
+                raise ValueError(
+                    f"{cls.__name__} supports pipeline parallelism but does not have the required attributes "
+                    "`PIPELINE_TRANSFORMER_LAYER_CLS` and `PIPELINE_INPUT_NAMES` set."
+                )
+            return True
+        return False
 
     @property
     def parameters_for_current_stage(self) -> set[str]:

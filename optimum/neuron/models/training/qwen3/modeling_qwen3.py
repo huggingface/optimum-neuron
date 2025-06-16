@@ -221,6 +221,7 @@ class Qwen3ForCausalLM(LlamaForCausalLM):
     config_class = Qwen3Config
 
     # Pipeline parallelism support
+    SUPPORTS_PIPELINE_PARALLELISM = True
     PIPELINE_TRANSFORMER_LAYER_CLS = Qwen3DecoderLayer
     PIPELINE_INPUT_NAMES = ["input_ids", "attention_mask", "labels"]
     PIPELINE_LEAF_MODULE_CLASSE_NAMES = ["LlamaRMSNorm", "LlamaRotaryEmbedding"]

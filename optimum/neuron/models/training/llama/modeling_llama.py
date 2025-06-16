@@ -796,6 +796,7 @@ class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
 class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
 
+    SUPPORTS_PIPELINE_PARALLELISM = True
     PIPELINE_TRANSFORMER_LAYER_CLS = LlamaDecoderLayer
     PIPELINE_INPUT_NAMES = ["input_ids", "attention_mask", "labels"]
     PIPELINE_LEAF_MODULE_CLASSE_NAMES = ["LlamaRMSNorm", "LlamaRotaryEmbedding"]
