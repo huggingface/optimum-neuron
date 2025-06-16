@@ -18,7 +18,6 @@ from typing import Optional
 
 import torch
 
-
 def assert_close(
     a: torch.Tensor,
     b: torch.Tensor,

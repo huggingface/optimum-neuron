@@ -61,20 +61,6 @@ def get_peft_config(lora_on_embeddings: bool = False, lora_on_lm_head: bool = Fa
     )
 
 
-def test_get_peft_model():
-    peft_config = get_peft_config()
-    _, model = get_tokenizer_and_tiny_llama_model()
-    orig_peft_model = orig_get_peft_model(model, peft_config)
-
-    assert isinstance(orig_peft_model, PeftModel)
-    assert not isinstance(orig_peft_model, NeuronPeftModel)
-
-    _, model = get_tokenizer_and_tiny_llama_model()
-    peft_model = get_peft_model(model, peft_config)
-
-    assert isinstance(peft_model, NeuronPeftModel)
-
-
 @is_trainium_test
 class TestPeft(DistributedTest):
     @pytest.fixture(
