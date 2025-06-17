@@ -1,4 +1,5 @@
 import itertools
+import os
 
 import pytest
 from transformers import AutoTokenizer
@@ -44,8 +45,14 @@ def _test_generation(p):
 @is_inferentia_test
 @requires_neuronx
 def test_export_no_parameters():
+    visible_cores = os.environ.get("NEURON_RT_NUM_CORES", None)
+    os.environ["NEURON_RT_NUM_CORES"] = "2"
     p = pipeline("text-generation", "Qwen/Qwen2.5-0.5B", export=True)
     _test_generation(p)
+    if visible_cores is None:
+        os.environ.pop("NEURON_RT_NUM_CORES", None)
+    else:
+        os.environ["NEURON_RT_NUM_CORES"] = visible_cores
 
 
 @is_inferentia_test
