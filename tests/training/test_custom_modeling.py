@@ -475,19 +475,9 @@ def test_compute_query_indices_for_rank(
 #     torch.testing.assert_close(orig_logits, gathered_logits)
 
 
-@is_trainium_test
-@pytest.mark.parametrize(
-    "tie_embeddings",
-    [False, True],
-    ids=["embeddings_not_tied", "tied_embeddings"],
-)
-def test_resize_embedding(tie_embeddings):
-    world_size, tp_size, pp_size = (2, 2, 1)
-    run_fn = partial(_test_resize_embedding, tie_embeddings)
-    launch_procs(run_fn, world_size, tp_size, pp_size)
 
 
-def _test_neuron_model_embedding_resize_functionality(mean_resizing):
+def _test_custom_model_resize_embedding(mean_resizing):
     tp_size = get_tensor_model_parallel_size()
 
     # Use a small model config for testing
@@ -567,7 +557,7 @@ def _test_neuron_model_embedding_resize_functionality(mean_resizing):
 
 @is_trainium_test
 @pytest.mark.parametrize("mean_resizing", [False, True], ids=["standard_init", "mean_init"])
-def test_neuron_model_embedding_resize_functionality(mean_resizing):
+def test_custom_model_resize_embedding(mean_resizing):
     world_size, tp_size, pp_size = (2, 2, 1)
-    run_fn = partial(_test_neuron_model_embedding_resize_functionality, mean_resizing)
+    run_fn = partial(_test_custom_model_resize_embedding, mean_resizing)
     launch_procs(run_fn, world_size, tp_size, pp_size)

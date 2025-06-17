@@ -1642,7 +1642,8 @@ class NeuronModelMixin:
         if pad_to_multiple_of is not None:
             if not isinstance(pad_to_multiple_of, int):
                 raise ValueError(
-                    f"Asking to pad the embedding matrix to a multiple of `{pad_to_multiple_of}`, which is not an integer. Please make sure to pass an integer"
+                    f"Asking to pad the embedding matrix to a multiple of `{pad_to_multiple_of}`, which is not an "
+                    "integer. Please make sure to pass an integer"
                 )
             if new_num_tokens is None:
                 new_num_tokens = old_embeddings.num_embeddings * get_tensor_model_parallel_size()
@@ -1681,7 +1682,7 @@ class NeuronModelMixin:
             new_num_tokens,
             old_embedding_dim,
             padding_idx=old_embeddings.padding_idx,
-            sequence_parallel_enabled=getattr(old_embeddings, 'sequence_parallel_enabled', False),
+            sequence_parallel_enabled=old_embeddings.sequence_parallel_enabled,
             device=old_embeddings.weight.device,
             dtype=old_embeddings.weight.dtype,
         )
