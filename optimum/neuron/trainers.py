@@ -604,7 +604,9 @@ class _TrainerForNeuron:
                     xm.save(state_dict, os.path.join(output_dir, WEIGHTS_NAME))
             else:
                 self.model.save_pretrained(
-                    output_dir, is_main_process=self.args.should_save, save_function=xm.save,
+                    output_dir,
+                    is_main_process=self.args.should_save,
+                    save_function=xm.save,
                 )
 
         if self.tokenizer is not None and self.args.should_save:
@@ -1753,7 +1755,7 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
         # for the embedding layer by removing the forward post hook.
         if self.neftune_noise_alpha is not None and not self._trainer_supports_neftune:
             unwrapped_model = unwrap_model(self.model)
-            if is_peft_available() and isinstance(model, NeuronPeftModel):
+            if is_peft_available() and isinstance(unwrapped_model, NeuronPeftModel):
                 embeddings = unwrapped_model.base_model.model.get_input_embeddings()
             else:
                 embeddings = unwrapped_model.get_input_embeddings()

@@ -63,9 +63,9 @@ else:
 
 class OptimumNeuronFXTracer(HFTracerWrapper):
     def is_leaf_module(self, m: torch.nn.Module, module_qualified_name: str) -> bool:
-        return (
-            NxDTracer.is_leaf_module(self, m, module_qualified_name)
-            or HFTracer.is_leaf_module(self, m, module_qualified_name))
+        return NxDTracer.is_leaf_module(self, m, module_qualified_name) or HFTracer.is_leaf_module(
+            self, m, module_qualified_name
+        )
 
 
 class MetaParametersOnly:
