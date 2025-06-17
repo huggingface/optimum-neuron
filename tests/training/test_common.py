@@ -23,8 +23,8 @@ from peft import PeftModelForCausalLM
 from transformers import LlamaForCausalLM
 
 from optimum.neuron.accelerate.optimizer import NeuronAcceleratedOptimizer
-from optimum.neuron.models.training.checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
 from optimum.neuron.models.training import LlamaForCausalLM as NeuronLlamaForCausalLM
+from optimum.neuron.models.training.checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
 from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.models.training.pipeline_utils import create_nxdpp_model
 from optimum.neuron.peft import NeuronPeftModelForCausalLM

@@ -298,6 +298,11 @@ class NeuronAccelerator(Accelerator):
         if model in self._models:
             return model
 
+        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM and not is_custom_modeling_model(model):
+            raise NotImplementedError(
+                "Model parallelism is only supported for models with a custom modeling implementation."
+            )
+
         # Since it is not possible to set the best compiler flags for a given model because XLA is initialized before
         # we get access to the model, we simply check if the flags are the best and notify the user otherwise.
         check_neuron_cc_flags_for_model(model)

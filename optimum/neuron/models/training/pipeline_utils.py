@@ -23,7 +23,6 @@ from typing import Iterable
 
 import torch
 from torch import nn
-
 from transformers.utils.fx import HFTracer
 
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available

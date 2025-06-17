@@ -89,7 +89,7 @@ from optimum.utils import logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType, NeuronPartialState
 from .cache.hub_cache import hub_neuronx_cache, synchronize_hub_cache
 from .cache.training import patch_neuron_cc_wrapper
-from .peft import get_peft_model
+from .peft import NeuronPeftModel, get_peft_model
 from .training_args import NeuronTrainingArguments
 from .utils import (
     is_neuronx_distributed_available,
@@ -104,12 +104,9 @@ from .utils.cache_utils import (
 )
 from .utils.import_utils import is_peft_available
 from .utils.misc import is_main_worker, is_precompilation
-from .utils.peft_utils import NeuronPeftModel
-from .utils.peft_utils import get_peft_model as old_get_peft_model
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils.training_utils import (
     get_model_param_count,
-    is_custom_modeling_model,
     is_main_worker_for_metrics,
     is_main_worker_for_metrics_method,
     patch_generation_mixin_to_neuron_generation_mixin,
@@ -578,38 +575,27 @@ class _TrainerForNeuron:
         # Save a trained model and configuration using `save_pretrained()`.
         # They can then be reloaded using `from_pretrained()`
         xm.rendezvous("saving_checkpoint")
-        if (
-            not isinstance(self.model, NeuronPeftModel)
-            and self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
-        ):
+        if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             if is_main_worker():
                 logger.info(
                     "Model parallelism is enabled, saving the model sharded state dict instead of the full state dict."
                 )
 
             model_to_save = self.model.original_torch_module if isinstance(self.model, NxDPPModel) else self.model
-            if is_custom_modeling_model(model_to_save):
-                # This mark_step is needed to avoid hang issues.
-                xm.mark_step()
-                model_to_save.save_pretrained(
-                    output_dir,
-                    optimizer=self.optimizer if not self.args.save_only_model else None,
-                )
+            # This mark_step is needed to avoid hang issues.
+            xm.mark_step()
+            model_to_save.save_pretrained(
+                output_dir,
+                optimizer=self.optimizer if not self.args.save_only_model else None,
+            )
         else:
-            supported_classes = (PreTrainedModel, NeuronPeftModel)
-            if not isinstance(self.model, supported_classes):
-                if isinstance(unwrap_model(self.model), supported_classes):
-                    kwargs = (
-                        {}
-                        if isinstance(unwrap_model(self.model), PreTrainedModel)
-                        else {"async_save": self.args.async_save}
-                    )
+            if not isinstance(self.model, PreTrainedModel):
+                if isinstance(unwrap_model(self.model), PreTrainedModel):
                     unwrap_model(self.model).save_pretrained(
                         output_dir,
                         is_main_process=self.args.should_save,
                         state_dict=self.model.state_dict(),
                         save_function=xm.save,
-                        **kwargs,
                     )
                 else:
                     if is_main_worker():
@@ -617,9 +603,8 @@ class _TrainerForNeuron:
                     state_dict = self.model.state_dict()
                     xm.save(state_dict, os.path.join(output_dir, WEIGHTS_NAME))
             else:
-                kwargs = {} if isinstance(self.model, PreTrainedModel) else {"async_save": self.args.async_save}
                 self.model.save_pretrained(
-                    output_dir, is_main_process=self.args.should_save, save_function=xm.save, **kwargs
+                    output_dir, is_main_process=self.args.should_save, save_function=xm.save,
                 )
 
         if self.tokenizer is not None and self.args.should_save:
@@ -1530,11 +1515,6 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
             from peft import PeftConfig, prepare_model_for_kbit_training
 
         # We choose the proper get_peft_model function depending on whether we have a custom modeling or not.
-        if is_custom_modeling_model(model):
-            get_peft_model_func = get_peft_model
-        else:
-            get_peft_model_func = old_get_peft_model
-
         if args is None:
             output_dir = "tmp_trainer"
             warnings.warn(f"No `SFTConfig` passed, using `output_dir={output_dir}`.")
@@ -1626,13 +1606,13 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
                         model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
                 if (
-                    "autocast_adapter_dtype" in list(inspect.signature(get_peft_model_func).parameters)
+                    "autocast_adapter_dtype" in list(inspect.signature(get_peft_model).parameters)
                     and getattr(model, "is_loaded_in_4bit", False)
                     and is_sharded_qlora
                 ):
-                    model = get_peft_model_func(model, peft_config, autocast_adapter_dtype=False)
+                    model = get_peft_model(model, peft_config, autocast_adapter_dtype=False)
                 else:
-                    model = get_peft_model_func(model, peft_config)
+                    model = get_peft_model(model, peft_config)
                 if (
                     args is not None
                     and args.bf16
@@ -1773,7 +1753,7 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
         # for the embedding layer by removing the forward post hook.
         if self.neftune_noise_alpha is not None and not self._trainer_supports_neftune:
             unwrapped_model = unwrap_model(self.model)
-            if is_peft_available() and isinstance(unwrapped_model, NeuronPeftModel):
+            if is_peft_available() and isinstance(model, NeuronPeftModel):
                 embeddings = unwrapped_model.base_model.model.get_input_embeddings()
             else:
                 embeddings = unwrapped_model.get_input_embeddings()
@@ -1871,11 +1851,6 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
         from trl.trainer.utils import DPODataCollatorWithPadding, disable_dropout_in_model, peft_module_casting_to_bf16
 
         # We choose the proper get_peft_model function depending on whether we have a custom modeling or not.
-        if is_custom_modeling_model(model):
-            get_peft_model_func = get_peft_model
-        else:
-            get_peft_model_func = old_get_peft_model
-
         if args.model_init_kwargs is None:
             model_init_kwargs = {}
         elif not isinstance(model, str):
@@ -1940,7 +1915,7 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
                     model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
             # get peft model with the given config
-            model = get_peft_model_func(model, peft_config)
+            model = get_peft_model(model, peft_config)
             if args.bf16 and getattr(model, "is_loaded_in_4bit", False):
                 peft_module_casting_to_bf16(model)
                 # If args.bf16 we need to explicitly call `generate` with torch amp autocast context manager
