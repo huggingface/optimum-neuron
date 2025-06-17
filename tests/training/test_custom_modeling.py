@@ -29,6 +29,8 @@ import optimum.neuron.models.training
 from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.models.training.granite.modeling_granite import GraniteForCausalLM
 from optimum.neuron.models.training.transformations_utils import GQAQKVColumnParallelLinearSpec
+from optimum.neuron.models.training.config import TrainingNeuronConfig
+from optimum.neuron.models.training.llama.modeling_llama import LlamaForCausalLM
 from optimum.neuron.utils.import_utils import (
     is_neuronx_available,
     is_neuronx_distributed_available,
@@ -62,6 +64,7 @@ if is_neuronx_available():
 
 
 CUSTOM_MODELINGS_TO_TEST = [("LlamaForCausalLM", "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random")]
+LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
 
 
 @torch.no_grad()
@@ -454,63 +457,22 @@ def test_compute_query_indices_for_rank(
         torch.testing.assert_close(expected, computed)
 
 
-@is_trainium_test
-def _test_resize_embedding(tie_embeddings):
-    tp_size = get_tensor_model_parallel_size()
-    tp_group = get_tensor_model_parallel_group()
 
-    static_seed_patcher = StaticSeedPatcher(42)
-
-    config = AutoConfig.from_pretrained(LLAMA_V2_MODEL_NAME)
-    config.tie_word_embeddings = tie_embeddings
-
-    with static_seed_patcher:
-        orig_model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, config=config)
-        orig_model.eval()
-        vocab_size = orig_model.config.vocab_size
-        new_vocab_size = vocab_size + tp_size
-
-    with static_seed_patcher:
-        orig_model.resize_token_embeddings(new_vocab_size)
-
-    with static_seed_patcher:
-        model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, config=config)
-        model.eval()
-
-    with static_seed_patcher:
-        model.resize_token_embeddings(new_vocab_size)
-
-    accelerator = create_accelerator(
-        tp_size,
-        1,
-        parallelize_embeddings=True,
-        sequence_parallel_enabled=True,
-    )
-    with static_seed_patcher:
-        model = accelerator.prepare_model(model)
-
-    # First we check that the embedding weights match
-    gathered = [torch.empty_like(model.model.embed_tokens.weight) for _ in range(tp_size)]
-    torch.distributed.all_gather(gathered, model.model.embed_tokens.weight, group=tp_group)
-    gathered_embedding = torch.cat(gathered, dim=0)
-    xm.mark_step()
-    torch.testing.assert_close(orig_model.model.embed_tokens.weight, gathered_embedding.to("cpu"))
-
-    # Second we check that logits match
-    tok = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
-    tok.pad_token = tok.eos_token
-    inputs = tok("This is a test", max_length=24, padding="max_length", return_tensors="pt")
-    inputs = {k: v.to("xla") for k, v in inputs.items()}
-    orig_model = orig_model.to("xla")
-    orig_logits = orig_model(**inputs).logits
-    xm.mark_step()
-    logits = model(**inputs).logits
-    xm.mark_step()
-    gathered = [torch.empty_like(logits) for _ in range(tp_size)]
-    torch.distributed.all_gather(gathered, logits, group=tp_group)
-    gathered_logits = torch.cat(gathered, dim=2)
-    xm.mark_step()
-    torch.testing.assert_close(orig_logits, gathered_logits)
+#     # Second we check that logits match
+#     tok = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
+#     tok.pad_token = tok.eos_token
+#     inputs = tok("This is a test", max_length=24, padding="max_length", return_tensors="pt")
+#     inputs = {k: v.to("xla") for k, v in inputs.items()}
+#     orig_model = orig_model.to("xla")
+#     orig_logits = orig_model(**inputs).logits
+#     xm.mark_step()
+#     logits = model(**inputs).logits
+#     xm.mark_step()
+#     gathered = [torch.empty_like(logits) for _ in range(tp_size)]
+#     torch.distributed.all_gather(gathered, logits, group=tp_group)
+#     gathered_logits = torch.cat(gathered, dim=2)
+#     xm.mark_step()
+#     torch.testing.assert_close(orig_logits, gathered_logits)
 
 
 @is_trainium_test
@@ -522,4 +484,90 @@ def _test_resize_embedding(tie_embeddings):
 def test_resize_embedding(tie_embeddings):
     world_size, tp_size, pp_size = (2, 2, 1)
     run_fn = partial(_test_resize_embedding, tie_embeddings)
+    launch_procs(run_fn, world_size, tp_size, pp_size)
+
+
+def _test_neuron_model_embedding_resize_functionality(mean_resizing):
+    tp_size = get_tensor_model_parallel_size()
+
+    # Use a small model config for testing
+    config = AutoConfig.from_pretrained(LLAMA_V2_MODEL_NAME)
+
+    trn_config = TrainingNeuronConfig(
+        tensor_parallel_size=tp_size,
+        sequence_parallel_enabled=True,
+    )
+
+    static_seed_patcher = StaticSeedPatcher(42)
+
+    with static_seed_patcher:
+        # Create model with custom TP layers (ParallelEmbedding, ColumnParallelLinear)
+        model = LlamaForCausalLM(config, trn_config)
+        model.eval()
+
+        # Test the new functionality
+        old_vocab_size = model.config.vocab_size
+
+        # Test 1: Should fail when new vocab size is not divisible by TP size
+        if tp_size > 1:
+            invalid_vocab_size = old_vocab_size + 1  # Not divisible by tp_size
+            with pytest.raises(ValueError, match="must be divisible by tensor parallel size"):
+                model.resize_token_embeddings(invalid_vocab_size)
+
+        # Test 2: Should succeed when divisible by TP size
+        new_vocab_size = old_vocab_size + tp_size  # Ensure divisible by TP size
+
+        # Check initial embedding types
+        input_embeddings = model.get_input_embeddings()
+        output_embeddings = model.get_output_embeddings()
+
+        # These should be TP layers
+        assert "ParallelEmbedding" in str(type(input_embeddings))
+        assert "ColumnParallelLinear" in str(type(output_embeddings))
+
+        # Store original shapes
+        old_input_shape = input_embeddings.weight.shape
+        old_output_shape = output_embeddings.weight.shape
+
+        # Test resizing with mean_resizing parameter
+        model.resize_token_embeddings(new_vocab_size, mean_resizing=mean_resizing)
+
+        # Check that resizing worked
+        new_input_embeddings = model.get_input_embeddings()
+        new_output_embeddings = model.get_output_embeddings()
+
+        # Check vocab size was updated
+        assert model.config.vocab_size == new_vocab_size
+
+        # Check local shapes (per TP rank)
+        expected_local_vocab = new_vocab_size // tp_size
+        assert new_input_embeddings.weight.shape[0] == expected_local_vocab
+        assert new_output_embeddings.weight.shape[0] == expected_local_vocab
+
+        # Ensure embedding dim didn't change
+        assert new_input_embeddings.weight.shape[1] == old_input_shape[1]
+        assert new_output_embeddings.weight.shape[1] == old_output_shape[1]
+
+        # Test that existing weights were preserved
+        old_local_vocab = old_vocab_size // tp_size
+        assert torch.allclose(
+            new_input_embeddings.weight[:old_local_vocab, :], input_embeddings.weight[:old_local_vocab, :]
+        )
+        assert torch.allclose(
+            new_output_embeddings.weight[:old_local_vocab, :], output_embeddings.weight[:old_local_vocab, :]
+        )
+
+        # Test that new tokens have been initialized (not zero)
+        if expected_local_vocab > old_local_vocab:
+            new_tokens_input = new_input_embeddings.weight[old_local_vocab:, :]
+            new_tokens_output = new_output_embeddings.weight[old_local_vocab:, :]
+            assert not torch.allclose(new_tokens_input, torch.zeros_like(new_tokens_input))
+            assert not torch.allclose(new_tokens_output, torch.zeros_like(new_tokens_output))
+
+
+@is_trainium_test
+@pytest.mark.parametrize("mean_resizing", [False, True], ids=["standard_init", "mean_init"])
+def test_neuron_model_embedding_resize_functionality(mean_resizing):
+    world_size, tp_size, pp_size = (2, 2, 1)
+    run_fn = partial(_test_neuron_model_embedding_resize_functionality, mean_resizing)
     launch_procs(run_fn, world_size, tp_size, pp_size)

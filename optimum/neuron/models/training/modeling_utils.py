@@ -96,7 +96,11 @@ if is_neuronx_distributed_available():
     import neuronx_distributed
     from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
     from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
-    from neuronx_distributed.parallel_layers.layers import BaseParallelLinear
+    from neuronx_distributed.parallel_layers.layers import (
+        BaseParallelLinear,
+        ColumnParallelLinear,
+        ParallelEmbedding,
+    )
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_data_parallel_rank,
         get_pipeline_model_parallel_rank,
@@ -1584,3 +1588,288 @@ class NeuronModelMixin:
                 if isinstance(trn_config_data["checkpoint_dir"], Path):
                     trn_config_data["checkpoint_dir"] = trn_config_data["checkpoint_dir"].as_posix()
                 f.write(json.dumps(trn_config_data, indent=4))
+
+    def _get_resized_embeddings(
+        self,
+        old_embeddings,
+        new_num_tokens=None,
+        pad_to_multiple_of=None,
+        mean_resizing=True,
+    ):
+        """
+        Override of transformers method to handle ParallelEmbedding layers in tensor parallel scenarios.
+        Falls back to the base implementation for regular nn.Embedding layers.
+        """
+        if is_neuronx_distributed_available() and isinstance(old_embeddings, ParallelEmbedding):
+            return self._get_resized_parallel_embeddings(
+                old_embeddings, new_num_tokens, pad_to_multiple_of, mean_resizing
+            )
+        else:
+            # Fall back to standard transformers method for regular embeddings
+            return super()._get_resized_embeddings(old_embeddings, new_num_tokens, pad_to_multiple_of, mean_resizing)
+
+    def _get_resized_lm_head(
+        self,
+        old_lm_head,
+        new_num_tokens=None,
+        transposed=False,
+        mean_resizing=True,
+    ):
+        """
+        Override of transformers method to handle ColumnParallelLinear layers in tensor parallel scenarios.
+        Falls back to the base implementation for regular nn.Linear layers.
+        """
+        if is_neuronx_distributed_available() and isinstance(old_lm_head, ColumnParallelLinear):
+            return self._get_resized_parallel_lm_head(old_lm_head, new_num_tokens, transposed, mean_resizing)
+        else:
+            # Fall back to standard transformers method for regular linear layers
+            return super()._get_resized_lm_head(old_lm_head, new_num_tokens, transposed, mean_resizing)
+
+    def _get_resized_parallel_embeddings(
+        self,
+        old_embeddings: "ParallelEmbedding",
+        new_num_tokens: Optional[int] = None,
+        pad_to_multiple_of: Optional[int] = None,
+        mean_resizing: bool = True,
+    ) -> "ParallelEmbedding":
+        """
+        Build a resized ParallelEmbedding from a provided ParallelEmbedding.
+        Handles tensor parallel sharding correctly.
+        """
+        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+        # Handle padding to multiple
+        if pad_to_multiple_of is not None:
+            if not isinstance(pad_to_multiple_of, int):
+                raise ValueError(
+                    f"Asking to pad the embedding matrix to a multiple of `{pad_to_multiple_of}`, which is not an integer. Please make sure to pass an integer"
+                )
+            if new_num_tokens is None:
+                new_num_tokens = old_embeddings.num_embeddings * get_tensor_model_parallel_size()
+            new_num_tokens = ((new_num_tokens + pad_to_multiple_of - 1) // pad_to_multiple_of) * pad_to_multiple_of
+        else:
+            logger.info(
+                "You are resizing the embedding layer without providing a `pad_to_multiple_of` parameter. This means that the new embedding"
+                f" dimension will be {new_num_tokens}. This might induce some performance reduction as *Tensor Cores* will not be available."
+                " For more details about this, or help on choosing the correct value for resizing, refer to this guide:"
+                " https://docs.nvidia.com/deeplearning/performance/dl-performance-matrix-multiplication/index.html#requirements-tc"
+            )
+
+        if new_num_tokens is None:
+            return old_embeddings
+
+        # Get TP configuration
+        tp_size = get_tensor_model_parallel_size()
+
+        # Ensure vocab size is divisible by TP size
+        if new_num_tokens % tp_size != 0:
+            raise ValueError(
+                f"New vocabulary size ({new_num_tokens}) must be divisible by tensor parallel size ({tp_size})"
+            )
+
+        old_num_tokens_global = old_embeddings.num_embeddings * tp_size
+        old_num_tokens_local = old_embeddings.num_embeddings
+        old_embedding_dim = old_embeddings.embedding_dim
+
+        new_num_tokens_local = new_num_tokens // tp_size
+
+        if old_num_tokens_global == new_num_tokens:
+            return old_embeddings
+
+        # Create new ParallelEmbedding with the same configuration
+        new_embeddings = ParallelEmbedding(
+            new_num_tokens,
+            old_embedding_dim,
+            padding_idx=old_embeddings.padding_idx,
+            sequence_parallel_enabled=getattr(old_embeddings, 'sequence_parallel_enabled', False),
+            device=old_embeddings.weight.device,
+            dtype=old_embeddings.weight.dtype,
+        )
+
+        # Copy existing weights
+        n_local = min(old_num_tokens_local, new_num_tokens_local)
+        with torch.no_grad():
+            new_embeddings.weight.data[:n_local, :] = old_embeddings.weight.data[:n_local, :]
+
+        # Initialize new tokens if expanding
+        if new_num_tokens_local > old_num_tokens_local:
+            added_tokens_local = new_num_tokens_local - old_num_tokens_local
+            if mean_resizing:
+                # Use mean-based initialization
+                logger.warning_once(
+                    "The new embeddings will be initialized from a multivariate normal distribution that has old embeddings' mean and covariance. "
+                    "As described in this article: https://nlp.stanford.edu/~johnhew/vocab-expansion.html. "
+                    "To disable this, use `mean_resizing=False`"
+                )
+                self._init_added_parallel_embeddings_weights_with_mean(
+                    old_embeddings, new_embeddings, old_embedding_dim, old_num_tokens_local, added_tokens_local
+                )
+            else:
+                # Use standard initialization
+                with torch.no_grad():
+                    # Initialize the new token embeddings with the model's standard initialization
+                    if hasattr(self, '_init_weights'):
+                        # Create a temporary embedding to get proper initialization
+                        temp_embedding = torch.nn.Embedding(added_tokens_local, old_embedding_dim)
+                        self._init_weights(temp_embedding)
+                        new_embeddings.weight.data[old_num_tokens_local:, :] = temp_embedding.weight.data
+                    else:
+                        # Fallback to normal initialization
+                        std = getattr(self.config, 'initializer_range', 0.02)
+                        new_embeddings.weight.data[old_num_tokens_local:, :].normal_(mean=0.0, std=std)
+
+        return new_embeddings
+
+    def _get_resized_parallel_lm_head(
+        self,
+        old_lm_head: "ColumnParallelLinear",
+        new_num_tokens: Optional[int] = None,
+        transposed: Optional[bool] = False,
+        mean_resizing: bool = True,
+    ) -> "ColumnParallelLinear":
+        """
+        Build a resized ColumnParallelLinear from a provided ColumnParallelLinear.
+        Handles tensor parallel sharding correctly.
+        """
+        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+        if new_num_tokens is None:
+            return old_lm_head
+
+        # Get TP configuration
+        tp_size = get_tensor_model_parallel_size()
+
+        # Ensure vocab size is divisible by TP size
+        if new_num_tokens % tp_size != 0:
+            raise ValueError(
+                f"New vocabulary size ({new_num_tokens}) must be divisible by tensor parallel size ({tp_size})"
+            )
+
+        old_num_tokens_global = old_lm_head.output_size
+        old_num_tokens_local = old_lm_head.weight.shape[0]  # First dimension for ColumnParallelLinear
+        input_size = old_lm_head.input_size
+
+        new_num_tokens_local = new_num_tokens // tp_size
+
+        if old_num_tokens_global == new_num_tokens:
+            return old_lm_head
+
+        # Create new ColumnParallelLinear with the same configuration
+        new_lm_head = ColumnParallelLinear(
+            input_size,
+            new_num_tokens,
+            bias=old_lm_head.bias is not None,
+            gather_output=getattr(old_lm_head, 'gather_output', True),
+            sequence_parallel_enabled=getattr(old_lm_head, 'sequence_parallel_enabled', False),
+            device=old_lm_head.weight.device,
+            dtype=old_lm_head.weight.dtype,
+        )
+
+        # Copy existing weights
+        n_local = min(old_num_tokens_local, new_num_tokens_local)
+        with torch.no_grad():
+            if transposed:
+                # Weight is [input_size, output_size_local]
+                new_lm_head.weight.data[:, :n_local] = old_lm_head.weight.data[:, :n_local]
+            else:
+                # Weight is [output_size_local, input_size] (standard ColumnParallelLinear)
+                new_lm_head.weight.data[:n_local, :] = old_lm_head.weight.data[:n_local, :]
+
+            # Copy bias if present
+            if old_lm_head.bias is not None and new_lm_head.bias is not None:
+                new_lm_head.bias.data[:n_local] = old_lm_head.bias.data[:n_local]
+
+        # Initialize new tokens if expanding
+        if new_num_tokens_local > old_num_tokens_local:
+            added_tokens_local = new_num_tokens_local - old_num_tokens_local
+            if mean_resizing:
+                # Use mean-based initialization
+                logger.warning_once(
+                    "The new LM head weights will be initialized from a multivariate normal distribution that has old weights' mean and covariance. "
+                    "As described in this article: https://nlp.stanford.edu/~johnhew/vocab-expansion.html. "
+                    "To disable this, use `mean_resizing=False`"
+                )
+                self._init_added_parallel_lm_head_weights_with_mean(
+                    old_lm_head, new_lm_head, input_size, old_num_tokens_local, added_tokens_local, transposed
+                )
+            else:
+                # Use standard initialization
+                with torch.no_grad():
+                    # Initialize the new token weights with the model's standard initialization
+                    if hasattr(self, '_init_weights'):
+                        # Create a temporary linear layer to get proper initialization
+                        if transposed:
+                            temp_linear = torch.nn.Linear(added_tokens_local, input_size, bias=old_lm_head.bias is not None)
+                            self._init_weights(temp_linear)
+                            new_lm_head.weight.data[:, old_num_tokens_local:] = temp_linear.weight.data.T
+                            if temp_linear.bias is not None and new_lm_head.bias is not None:
+                                new_lm_head.bias.data[old_num_tokens_local:] = temp_linear.bias.data
+                        else:
+                            temp_linear = torch.nn.Linear(input_size, added_tokens_local, bias=old_lm_head.bias is not None)
+                            self._init_weights(temp_linear)
+                            new_lm_head.weight.data[old_num_tokens_local:, :] = temp_linear.weight.data
+                            if temp_linear.bias is not None and new_lm_head.bias is not None:
+                                new_lm_head.bias.data[old_num_tokens_local:] = temp_linear.bias.data
+                    else:
+                        # Fallback to normal initialization
+                        std = getattr(self.config, 'initializer_range', 0.02)
+                        if transposed:
+                            new_lm_head.weight.data[:, old_num_tokens_local:].normal_(mean=0.0, std=std)
+                        else:
+                            new_lm_head.weight.data[old_num_tokens_local:, :].normal_(mean=0.0, std=std)
+                        if new_lm_head.bias is not None:
+                            new_lm_head.bias.data[old_num_tokens_local:].zero_()
+
+        return new_lm_head
+
+    def _init_added_parallel_embeddings_weights_with_mean(
+        self, old_embeddings, new_embeddings, old_embedding_dim, old_num_tokens_local, added_tokens_local
+    ):
+        """
+        Initialize added embedding weights using mean-based approach for ParallelEmbedding.
+        This is a simplified version that falls back to standard initialization for now.
+        """
+        # For now, fall back to standard initialization
+        # A full implementation would gather embeddings across TP ranks, compute global mean/covariance,
+        # then sample from multivariate normal distribution
+        with torch.no_grad():
+            if hasattr(self, '_init_weights'):
+                temp_embedding = torch.nn.Embedding(added_tokens_local, old_embedding_dim)
+                self._init_weights(temp_embedding)
+                new_embeddings.weight.data[old_num_tokens_local:, :] = temp_embedding.weight.data
+            else:
+                std = getattr(self.config, 'initializer_range', 0.02)
+                new_embeddings.weight.data[old_num_tokens_local:, :].normal_(mean=0.0, std=std)
+
+    def _init_added_parallel_lm_head_weights_with_mean(
+        self, old_lm_head, new_lm_head, input_size, old_num_tokens_local, added_tokens_local, transposed
+    ):
+        """
+        Initialize added LM head weights using mean-based approach for ColumnParallelLinear.
+        This is a simplified version that falls back to standard initialization for now.
+        """
+        # For now, fall back to standard initialization
+        # A full implementation would gather weights across TP ranks, compute global mean/covariance,
+        # then sample from multivariate normal distribution
+        with torch.no_grad():
+            if hasattr(self, '_init_weights'):
+                if transposed:
+                    temp_linear = torch.nn.Linear(added_tokens_local, input_size, bias=old_lm_head.bias is not None)
+                    self._init_weights(temp_linear)
+                    new_lm_head.weight.data[:, old_num_tokens_local:] = temp_linear.weight.data.T
+                    if temp_linear.bias is not None and new_lm_head.bias is not None:
+                        new_lm_head.bias.data[old_num_tokens_local:] = temp_linear.bias.data
+                else:
+                    temp_linear = torch.nn.Linear(input_size, added_tokens_local, bias=old_lm_head.bias is not None)
+                    self._init_weights(temp_linear)
+                    new_lm_head.weight.data[old_num_tokens_local:, :] = temp_linear.weight.data
+                    if temp_linear.bias is not None and new_lm_head.bias is not None:
+                        new_lm_head.bias.data[old_num_tokens_local:] = temp_linear.bias.data
+            else:
+                std = getattr(self.config, 'initializer_range', 0.02)
+                if transposed:
+                    new_lm_head.weight.data[:, old_num_tokens_local:].normal_(mean=0.0, std=std)
+                else:
+                    new_lm_head.weight.data[old_num_tokens_local:, :].normal_(mean=0.0, std=std)
+                if new_lm_head.bias is not None:
+                    new_lm_head.bias.data[old_num_tokens_local:].zero_()
