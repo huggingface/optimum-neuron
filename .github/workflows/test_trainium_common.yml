@@ -24,7 +24,7 @@ jobs:
     runs-on:
       group: aws-trn1-32xlarge
     env:
-      TESTS_TO_IGNORE_FLAGS: --ignore tests/distributed/ --ignore tests/test_examples.py
+      TESTS_TO_IGNORE_FLAGS: --ignore tests/training/ --ignore tests/test_examples.py
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,7 +48,7 @@ jobs:
       - name: Run tests that do not use Neuron cores
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          pytest -m "not is_staging_test and not is_trainium_test and not is_inferentia_test" tests/distributed tests/peft tests/test_utils.py -sv
+          pytest -m "not is_staging_test and not is_trainium_test and not is_inferentia_test" tests/training tests/test_utils.py -sv
       - name: Collect staging tests on Neuron Cores
         run: |
           source aws_neuron_venv_pytorch/bin/activate
