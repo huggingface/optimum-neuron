@@ -1407,6 +1407,11 @@ class NeuronModelMixin:
         # This is due to a Neuron compiler bug, and it should be removed when the bug is fixed.
         should_fake_tie = config.tie_word_embeddings
         if should_fake_tie:
+            if get_pipeline_model_parallel_size() > 1:
+                raise NotImplementedError(
+                    "`config.tie_word_embeddings` is set to True, but it produces NaNs with pipeline parallelism due to "
+                    "a compiler bug."
+                )
             logger.warning(
                 "`config.tie_word_embeddings` is set to True, but it produces compiler errors with the current Neuron "
                 "SDK. Setting it to False until resolved. The weights will be copied but not tied."

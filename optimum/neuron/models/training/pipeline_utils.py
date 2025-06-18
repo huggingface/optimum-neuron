@@ -23,7 +23,7 @@ from typing import Iterable
 
 import torch
 from torch import nn
-from transformers.utils.fx import HFTracer
+from transformers.utils.fx import HFTracer, create_wrapper
 
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from .transformations_utils import get_tensor_model_parallel_attributes
@@ -217,3 +217,11 @@ def move_params_to_cpu(model: nn.Module, param_names: Iterable[str]):
             for part in parts[:-1]:
                 module = getattr(module, part)
             setattr(module, parts[-1], cpu_param)
+
+
+def dynamic_torch_fx_wrap(func):
+    """
+    Wraps a function dynamically (does not need to be done at the top of the module like with `torch.fx.wrap`).
+    This is useful for functions that fail to be traced by the HF tracer during pipeline parallelism setup.
+    """
+    return create_wrapper(func, "call_function")

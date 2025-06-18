@@ -62,7 +62,10 @@ if is_neuronx_available():
     from neuronx_distributed.utils.model_utils import move_model_to_device
 
 
-CUSTOM_MODELINGS_TO_TEST = [("LlamaForCausalLM", "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random")]
+CUSTOM_MODELINGS_TO_TEST = [
+    ("LlamaForCausalLM", "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"),
+    ("Qwen3ForCausalLM", "michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random"),
+]
 LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
 
 
@@ -295,7 +298,7 @@ def _custom_model_matches_original_model(
 
 @pytest.mark.parametrize("qkv_implementation", ["regular_qkv", "fuse_qkv", "qkv_linear"])
 # We only test for [world_size, tp_size, pp_size] = [32, 2, 4] e.g. dp=4,tp=2,pp=4
-@pytest.mark.parametrize("world_size,tp_size,pp_size", [[32, 2, 4]], ids=["dp=8,tp=2,pp=4"])
+@pytest.mark.parametrize("world_size,tp_size,pp_size", [[32, 2, 4]], ids=["dp=4,tp=2,pp=4"])
 @pytest.mark.parametrize("model_specs", CUSTOM_MODELINGS_TO_TEST, ids=[specs[0] for specs in CUSTOM_MODELINGS_TO_TEST])
 def test_custom_modeling_matches_original(
     model_specs,
@@ -454,23 +457,6 @@ def test_compute_query_indices_for_rank(
         print(f"Expected {expected}")
         print(f"Computed {computed}")
         torch.testing.assert_close(expected, computed)
-
-
-#     # Second we check that logits match
-#     tok = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
-#     tok.pad_token = tok.eos_token
-#     inputs = tok("This is a test", max_length=24, padding="max_length", return_tensors="pt")
-#     inputs = {k: v.to("xla") for k, v in inputs.items()}
-#     orig_model = orig_model.to("xla")
-#     orig_logits = orig_model(**inputs).logits
-#     xm.mark_step()
-#     logits = model(**inputs).logits
-#     xm.mark_step()
-#     gathered = [torch.empty_like(logits) for _ in range(tp_size)]
-#     torch.distributed.all_gather(gathered, logits, group=tp_group)
-#     gathered_logits = torch.cat(gathered, dim=2)
-#     xm.mark_step()
-#     torch.testing.assert_close(orig_logits, gathered_logits)
 
 
 def _test_custom_model_resize_embedding():

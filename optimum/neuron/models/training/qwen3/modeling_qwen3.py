@@ -39,12 +39,11 @@ from ..llama.modeling_llama import (
     repeat_kv,
 )
 from ..modeling_utils import ALL_ATTENTION_FUNCTIONS
+from ..pipeline_utils import dynamic_torch_fx_wrap
 
 
 if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers.layers import (
-        ParallelEmbedding,
-    )
+    from neuronx_distributed.parallel_layers.layers import ParallelEmbedding
     from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
 logger = logging.get_logger(__name__)
@@ -178,6 +177,7 @@ class Qwen3Model(LlamaModel):
         self.post_init()
 
     @staticmethod
+    @dynamic_torch_fx_wrap
     def _prepare_4d_causal_attention_mask_with_cache_position(
         attention_mask: torch.Tensor,
         sequence_length: int,
