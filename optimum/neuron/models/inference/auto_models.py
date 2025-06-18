@@ -22,7 +22,7 @@ automatically by the neuron factory classes such as NeuronModelForCausalLM.
 import os
 
 from ..auto_model import register_neuron_model
-from .hlo.granite.model import GraniteHloModelForCausalLM
+from .nxd.granite.modeling_granite import GraniteNxDModelForCausalLM
 from .nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
 from .nxd.mixtral.modeling_mixtral import MixtralNxDModelForCausalLM
 from .nxd.phi3.modeling_phi3 import Phi3NxDModelForCausalLM
@@ -41,9 +41,9 @@ def register_neuron_model_for_inference(model_type: str, task: str):
 
 
 @register_neuron_model_for_inference("granite", "text-generation")
-class GraniteModelForCausalLM(GraniteHloModelForCausalLM):
+class GraniteModelForCausalLM(GraniteNxDModelForCausalLM):
     """
-    Granite model with HLO backend for inference on AWS Neuron.
+    Granite model with NxD backend for inference on AWS Neuron.
     """
 
     pass
