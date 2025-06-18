@@ -320,6 +320,12 @@ def test_custom_modeling_matches_original(
     model_class_name, model_name_or_path = model_specs
 
     config = AutoConfig.from_pretrained(model_name_or_path)
+
+    # For now we enforce that because of a compiler bug.
+    # Once the bug is fixed, we will enforce the opposite to make sure it works since `tie_word_embeddings=True` is more
+    # restrictive.
+    config.tie_word_embeddings = False
+
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
 
     if qkv_implementation == "fuse_qkv":
