@@ -1745,24 +1745,18 @@ class NeuronModelMixin:
         # Initialize new tokens if expanding
         if new_num_tokens_local > old_num_tokens_local:
             added_tokens_local = new_num_tokens_local - old_num_tokens_local
-            if mean_resizing:
-                # Use mean-based initialization
-                self._init_added_parallel_embeddings_weights_with_mean(
-                    old_embeddings, new_embeddings, old_embedding_dim, old_num_tokens_local, added_tokens_local
-                )
-            else:
-                # Use standard initialization
-                with torch.no_grad():
-                    # Initialize the new token embeddings with the model's standard initialization
-                    if hasattr(self, "_init_weights"):
-                        # Create a temporary embedding to get proper initialization
-                        temp_embedding = torch.nn.Embedding(added_tokens_local, old_embedding_dim)
-                        self._init_weights(temp_embedding)
-                        new_embeddings.weight.data[old_num_tokens_local:, :] = temp_embedding.weight.data
-                    else:
-                        # Fallback to normal initialization
-                        std = getattr(self.config, "initializer_range", 0.02)
-                        new_embeddings.weight.data[old_num_tokens_local:, :].normal_(mean=0.0, std=std)
+            # Use standard initialization
+            with torch.no_grad():
+                # Initialize the new token embeddings with the model's standard initialization
+                if hasattr(self, "_init_weights"):
+                    # Create a temporary embedding to get proper initialization
+                    temp_embedding = torch.nn.Embedding(added_tokens_local, old_embedding_dim)
+                    self._init_weights(temp_embedding)
+                    new_embeddings.weight.data[old_num_tokens_local:, :] = temp_embedding.weight.data
+                else:
+                    # Fallback to normal initialization
+                    std = getattr(self.config, "initializer_range", 0.02)
+                    new_embeddings.weight.data[old_num_tokens_local:, :].normal_(mean=0.0, std=std)
 
         return new_embeddings
 
@@ -1840,45 +1834,35 @@ class NeuronModelMixin:
         # Initialize new tokens if expanding
         if new_num_tokens_local > old_num_tokens_local:
             added_tokens_local = new_num_tokens_local - old_num_tokens_local
-            if mean_resizing:
-                self._init_added_parallel_lm_head_weights_with_mean(
-                    old_lm_head,
-                    new_lm_head,
-                    old_lm_head.input_size,
-                    old_num_tokens_local,
-                    added_tokens_local,
-                    transposed,
-                )
-            else:
-                # Use standard initialization
-                with torch.no_grad():
-                    # Initialize the new token weights with the model's standard initialization
-                    if hasattr(self, "_init_weights"):
-                        # Create a temporary linear layer to get proper initialization
-                        if transposed:
-                            temp_linear = torch.nn.Linear(
-                                added_tokens_local, old_lm_head.input_size, bias=old_lm_head.bias is not None
-                            )
-                            self._init_weights(temp_linear)
-                            new_lm_head.weight.data[:, old_num_tokens_local:] = temp_linear.weight.data.T
-                            if temp_linear.bias is not None and new_lm_head.bias is not None:
-                                new_lm_head.bias.data[old_num_tokens_local:] = temp_linear.bias.data
-                        else:
-                            temp_linear = torch.nn.Linear(
-                                old_lm_head.input_size, added_tokens_local, bias=old_lm_head.bias is not None
-                            )
-                            self._init_weights(temp_linear)
-                            new_lm_head.weight.data[old_num_tokens_local:, :] = temp_linear.weight.data
-                            if temp_linear.bias is not None and new_lm_head.bias is not None:
-                                new_lm_head.bias.data[old_num_tokens_local:] = temp_linear.bias.data
+            # Use standard initialization
+            with torch.no_grad():
+                # Initialize the new token weights with the model's standard initialization
+                if hasattr(self, "_init_weights"):
+                    # Create a temporary linear layer to get proper initialization
+                    if transposed:
+                        temp_linear = torch.nn.Linear(
+                            added_tokens_local, old_lm_head.input_size, bias=old_lm_head.bias is not None
+                        )
+                        self._init_weights(temp_linear)
+                        new_lm_head.weight.data[:, old_num_tokens_local:] = temp_linear.weight.data.T
+                        if temp_linear.bias is not None and new_lm_head.bias is not None:
+                            new_lm_head.bias.data[old_num_tokens_local:] = temp_linear.bias.data
                     else:
-                        # Fallback to normal initialization
-                        std = getattr(self.config, "initializer_range", 0.02)
-                        if transposed:
-                            new_lm_head.weight.data[:, old_num_tokens_local:].normal_(mean=0.0, std=std)
-                        else:
-                            new_lm_head.weight.data[old_num_tokens_local:, :].normal_(mean=0.0, std=std)
-                        if new_lm_head.bias is not None:
-                            new_lm_head.bias.data[old_num_tokens_local:].zero_()
+                        temp_linear = torch.nn.Linear(
+                            old_lm_head.input_size, added_tokens_local, bias=old_lm_head.bias is not None
+                        )
+                        self._init_weights(temp_linear)
+                        new_lm_head.weight.data[old_num_tokens_local:, :] = temp_linear.weight.data
+                        if temp_linear.bias is not None and new_lm_head.bias is not None:
+                            new_lm_head.bias.data[old_num_tokens_local:] = temp_linear.bias.data
+                else:
+                    # Fallback to normal initialization
+                    std = getattr(self.config, "initializer_range", 0.02)
+                    if transposed:
+                        new_lm_head.weight.data[:, old_num_tokens_local:].normal_(mean=0.0, std=std)
+                    else:
+                        new_lm_head.weight.data[old_num_tokens_local:, :].normal_(mean=0.0, std=std)
+                    if new_lm_head.bias is not None:
+                        new_lm_head.bias.data[old_num_tokens_local:].zero_()
 
         return new_lm_head
