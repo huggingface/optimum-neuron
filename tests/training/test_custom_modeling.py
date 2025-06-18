@@ -28,9 +28,8 @@ import optimum
 import optimum.neuron.models.training
 from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.models.training.granite.modeling_granite import GraniteForCausalLM
-from optimum.neuron.models.training.transformations_utils import GQAQKVColumnParallelLinearSpec
-from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.models.training.llama.modeling_llama import LlamaForCausalLM
+from optimum.neuron.models.training.transformations_utils import GQAQKVColumnParallelLinearSpec
 from optimum.neuron.utils.import_utils import (
     is_neuronx_available,
     is_neuronx_distributed_available,
@@ -457,7 +456,6 @@ def test_compute_query_indices_for_rank(
         torch.testing.assert_close(expected, computed)
 
 
-
 #     # Second we check that logits match
 #     tok = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
 #     tok.pad_token = tok.eos_token
@@ -473,8 +471,6 @@ def test_compute_query_indices_for_rank(
 #     gathered_logits = torch.cat(gathered, dim=2)
 #     xm.mark_step()
 #     torch.testing.assert_close(orig_logits, gathered_logits)
-
-
 
 
 def _test_custom_model_resize_embedding(mean_resizing):

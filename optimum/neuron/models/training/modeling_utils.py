@@ -1709,14 +1709,14 @@ class NeuronModelMixin:
                 # Use standard initialization
                 with torch.no_grad():
                     # Initialize the new token embeddings with the model's standard initialization
-                    if hasattr(self, '_init_weights'):
+                    if hasattr(self, "_init_weights"):
                         # Create a temporary embedding to get proper initialization
                         temp_embedding = torch.nn.Embedding(added_tokens_local, old_embedding_dim)
                         self._init_weights(temp_embedding)
                         new_embeddings.weight.data[old_num_tokens_local:, :] = temp_embedding.weight.data
                     else:
                         # Fallback to normal initialization
-                        std = getattr(self.config, 'initializer_range', 0.02)
+                        std = getattr(self.config, "initializer_range", 0.02)
                         new_embeddings.weight.data[old_num_tokens_local:, :].normal_(mean=0.0, std=std)
 
         return new_embeddings
@@ -1760,8 +1760,8 @@ class NeuronModelMixin:
             input_size,
             new_num_tokens,
             bias=old_lm_head.bias is not None,
-            gather_output=getattr(old_lm_head, 'gather_output', True),
-            sequence_parallel_enabled=getattr(old_lm_head, 'sequence_parallel_enabled', False),
+            gather_output=getattr(old_lm_head, "gather_output", True),
+            sequence_parallel_enabled=getattr(old_lm_head, "sequence_parallel_enabled", False),
             device=old_lm_head.weight.device,
             dtype=old_lm_head.weight.dtype,
         )
@@ -1797,23 +1797,27 @@ class NeuronModelMixin:
                 # Use standard initialization
                 with torch.no_grad():
                     # Initialize the new token weights with the model's standard initialization
-                    if hasattr(self, '_init_weights'):
+                    if hasattr(self, "_init_weights"):
                         # Create a temporary linear layer to get proper initialization
                         if transposed:
-                            temp_linear = torch.nn.Linear(added_tokens_local, input_size, bias=old_lm_head.bias is not None)
+                            temp_linear = torch.nn.Linear(
+                                added_tokens_local, input_size, bias=old_lm_head.bias is not None
+                            )
                             self._init_weights(temp_linear)
                             new_lm_head.weight.data[:, old_num_tokens_local:] = temp_linear.weight.data.T
                             if temp_linear.bias is not None and new_lm_head.bias is not None:
                                 new_lm_head.bias.data[old_num_tokens_local:] = temp_linear.bias.data
                         else:
-                            temp_linear = torch.nn.Linear(input_size, added_tokens_local, bias=old_lm_head.bias is not None)
+                            temp_linear = torch.nn.Linear(
+                                input_size, added_tokens_local, bias=old_lm_head.bias is not None
+                            )
                             self._init_weights(temp_linear)
                             new_lm_head.weight.data[old_num_tokens_local:, :] = temp_linear.weight.data
                             if temp_linear.bias is not None and new_lm_head.bias is not None:
                                 new_lm_head.bias.data[old_num_tokens_local:] = temp_linear.bias.data
                     else:
                         # Fallback to normal initialization
-                        std = getattr(self.config, 'initializer_range', 0.02)
+                        std = getattr(self.config, "initializer_range", 0.02)
                         if transposed:
                             new_lm_head.weight.data[:, old_num_tokens_local:].normal_(mean=0.0, std=std)
                         else:
@@ -1834,12 +1838,12 @@ class NeuronModelMixin:
         # A full implementation would gather embeddings across TP ranks, compute global mean/covariance,
         # then sample from multivariate normal distribution
         with torch.no_grad():
-            if hasattr(self, '_init_weights'):
+            if hasattr(self, "_init_weights"):
                 temp_embedding = torch.nn.Embedding(added_tokens_local, old_embedding_dim)
                 self._init_weights(temp_embedding)
                 new_embeddings.weight.data[old_num_tokens_local:, :] = temp_embedding.weight.data
             else:
-                std = getattr(self.config, 'initializer_range', 0.02)
+                std = getattr(self.config, "initializer_range", 0.02)
                 new_embeddings.weight.data[old_num_tokens_local:, :].normal_(mean=0.0, std=std)
 
     def _init_added_parallel_lm_head_weights_with_mean(
@@ -1853,7 +1857,7 @@ class NeuronModelMixin:
         # A full implementation would gather weights across TP ranks, compute global mean/covariance,
         # then sample from multivariate normal distribution
         with torch.no_grad():
-            if hasattr(self, '_init_weights'):
+            if hasattr(self, "_init_weights"):
                 if transposed:
                     temp_linear = torch.nn.Linear(added_tokens_local, input_size, bias=old_lm_head.bias is not None)
                     self._init_weights(temp_linear)
@@ -1867,7 +1871,7 @@ class NeuronModelMixin:
                     if temp_linear.bias is not None and new_lm_head.bias is not None:
                         new_lm_head.bias.data[old_num_tokens_local:] = temp_linear.bias.data
             else:
-                std = getattr(self.config, 'initializer_range', 0.02)
+                std = getattr(self.config, "initializer_range", 0.02)
                 if transposed:
                     new_lm_head.weight.data[:, old_num_tokens_local:].normal_(mean=0.0, std=std)
                 else:
