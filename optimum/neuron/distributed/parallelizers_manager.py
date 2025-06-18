@@ -19,9 +19,9 @@ from typing import Dict, List, Tuple, Type, Union
 
 from transformers import PreTrainedModel
 
-from ..utils.peft_utils import NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed
 from .base import Parallelizer
+from .utils import NeuronPeftModel
 
 
 _PARALLELIZER_CLASSES_MODULE_NAMES = ["encoder_models", "decoder_models", "encoder_decoder_models"]

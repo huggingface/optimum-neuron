@@ -22,7 +22,12 @@ from ...utils import is_neuronx_distributed_available
 
 
 if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_tensor_model_parallel_group,
+        get_tensor_model_parallel_rank,
+        get_tensor_model_parallel_size,
+    )
+    from neuronx_distributed.parallel_layers.utils import EmbeddingUtility
 
 
 class _ParallelCrossEntropy(torch.autograd.Function):
