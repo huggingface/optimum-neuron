@@ -473,7 +473,7 @@ def test_compute_query_indices_for_rank(
 #     torch.testing.assert_close(orig_logits, gathered_logits)
 
 
-def _test_custom_model_resize_embedding(mean_resizing):
+def _test_custom_model_resize_embedding():
     tp_size = get_tensor_model_parallel_size()
 
     # Use a small model config for testing
@@ -515,8 +515,8 @@ def _test_custom_model_resize_embedding(mean_resizing):
         old_input_shape = input_embeddings.weight.shape
         old_output_shape = output_embeddings.weight.shape
 
-        # Test resizing with mean_resizing parameter
-        model.resize_token_embeddings(new_vocab_size, mean_resizing=mean_resizing)
+        # Test resizing
+        model.resize_token_embeddings(new_vocab_size, mean_resizing=False)
 
         # Check that resizing worked
         new_input_embeddings = model.get_input_embeddings()
@@ -552,8 +552,7 @@ def _test_custom_model_resize_embedding(mean_resizing):
 
 
 @is_trainium_test
-@pytest.mark.parametrize("mean_resizing", [False, True], ids=["standard_init", "mean_init"])
-def test_custom_model_resize_embedding(mean_resizing):
+def test_custom_model_resize_embedding():
     world_size, tp_size, pp_size = (2, 2, 1)
-    run_fn = partial(_test_custom_model_resize_embedding, mean_resizing)
+    run_fn = partial(_test_custom_model_resize_embedding)
     launch_procs(run_fn, world_size, tp_size, pp_size)
