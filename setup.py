@@ -14,7 +14,6 @@ except Exception as error:
 
 INSTALL_REQUIRES = [
     "transformers ~= 4.51.0",
-    "accelerate == 0.29.2",
     "optimum ~= 1.23.3",
     "huggingface_hub >= 0.29.0",
     "numpy>=1.22.2, <=1.25.2",
@@ -56,6 +55,7 @@ TRAINING_REQUIRES = [
     "peft == 0.14.0",
     "evaluate == 0.4.3",
     "neuronx_distributed==0.10.1",
+    "accelerate == 0.29.2",
 ]
 
 EXTRAS_REQUIRE = {
@@ -79,6 +79,7 @@ EXTRAS_REQUIRE = {
         "torchvision==0.20.*",
         "neuronx_distributed==0.11.0",
         "libneuronxla==2.2.1630.0",
+        "accelerate == 1.3.0",
     ],
     "diffusers": ["diffusers>=0.28.0, <=0.30.3", "peft==0.14.0"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],

@@ -36,7 +36,7 @@ from transformers.modeling_outputs import ModelOutput
 from ..exporters.neuron import (
     load_models_and_neuron_configs,
     main_export,
-    normalize_stable_diffusion_input_shapes,
+    normalize_diffusers_input_shapes,
     replace_stable_diffusion_submodels,
 )
 from ..exporters.neuron.model_configs import *  # noqa: F403
@@ -76,6 +76,7 @@ if is_neuronx_available():
 if is_diffusers_available():
     from diffusers import (
         ControlNetModel,
+        FluxPipeline,
         LatentConsistencyModelPipeline,
         LCMScheduler,
         PixArtAlphaPipeline,
@@ -498,6 +499,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                         submodels[model_name] = None
             return submodels
 
+        # TODO: Initialize model
+        # neuron_model.nxd_model.initialize_with_saved_weights(start_rank_tensor=torch.tensor([0]))
         if data_parallel_mode == "all":
             logger.info("Loading the whole pipeline into both Neuron Cores...")
             submodels = _load_models_to_neuron(submodels=submodels, models_on_both_cores=list(submodels))
@@ -978,7 +981,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 task = TasksManager.infer_task_from_model(cls.auto_model_class)
 
         # mandatory shapes
-        input_shapes = normalize_stable_diffusion_input_shapes(kwargs_shapes)
+        input_shapes = normalize_diffusers_input_shapes(kwargs_shapes)
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
@@ -1648,3 +1651,8 @@ class NeuronStableDiffusionXLControlNetPipeline(
 ):
     main_input_name = "prompt"
     auto_model_class = StableDiffusionXLControlNetPipeline
+
+
+class NeuronFluxPipeline(NeuronDiffusionPipelineBase, FluxPipeline):
+    main_input_name = "prompt"
+    auto_model_class = FluxPipeline
