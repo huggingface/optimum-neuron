@@ -298,6 +298,11 @@ class TestCommonTrainingFeatures(DistributedTest):
             "dp=1,tp=8,kv_size_multiplier=4,GQAQKVColumnParallelLinear,fuse_qkv",
         ],
     )
+    @pytest.mark.parametrize(
+        "use_xser",
+        [True, False],
+        ids=["use_xser=True", "use_xser=False"],
+    )
     def test_consolidate_custom_lora_model_parallel_checkpoints(
         self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, fuse_qkv, use_xser, set_cache_for_ci
     ):
