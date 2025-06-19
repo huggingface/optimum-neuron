@@ -2,12 +2,13 @@ import importlib
 import os
 from datetime import datetime
 from functools import partial
+from typing import Type
 
 import datasets
 import pytest
 import torch
 from peft import LoraConfig
-from transformers import AutoTokenizer, TrainerCallback
+from transformers import AutoConfig, AutoTokenizer, PreTrainedModel, TrainerCallback
 
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.peft import get_peft_model
@@ -25,8 +26,17 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.parallel_state import get_data_parallel_size
 
 
+def get_model_class_from_name(model_class_name: str, use_custom_modeling: bool) -> Type[PreTrainedModel]:
+    if use_custom_modeling:
+        mod = importlib.import_module("optimum.neuron.models.training")
+    else:
+        mod = importlib.import_module("transformers")
+    model_class = getattr(mod, model_class_name)
+    return model_class
+
+
 def _overfit_causal_lm(
-    model_class_name,
+    model_class,
     model_name_or_path,
     learning_rate,
     warmup_ratio,
@@ -40,11 +50,8 @@ def _overfit_causal_lm(
     output_dir,
     peft_config=None,
 ):
-    training_mod = importlib.import_module("optimum.neuron.models.training")
-    model_class = getattr(training_mod, model_class_name)
-
     if pp_size > 1 and not model_class.supports_pipeline_parallelism():
-        pytest.skip(f"The model {model_class_name} does not support pipeline parallelism, skipping the test.")
+        pytest.skip(f"The model {model_class} does not support pipeline parallelism, skipping the test.")
 
     # Dataset creation.
     sample_to_overfit = "Paris is the most beautiful city in the world."
@@ -97,9 +104,17 @@ def _overfit_causal_lm(
     )
 
     # Model creation.
+
+    # For now we enforce that because of a compiler bug.
+    # Once the bug is fixed, we will enforce the opposite to make sure it works since `tie_word_embeddings=True` is more
+    # restrictive.
+    config = AutoConfig.from_pretrained(model_name_or_path)
+    config.tie_word_embeddings = False
+
     model = model_class.from_pretrained(
         model_name_or_path,
         training_args.trn_config,
+        config=config,
         torch_dtype=torch.bfloat16,
         use_flash_attention_2=use_flash_attention_2,
     )
@@ -144,56 +159,64 @@ def _overfit_causal_lm(
 
 
 @pytest.mark.parametrize(
-    "model_class_name,model_name_or_path,learning_rate,warmup_ratio,training_kwargs,use_flash_attention_2,max_expected_loss,max_length,num_steps",
+    "model_class_name,model_name_or_path,use_custom_modeling,learning_rate,warmup_ratio,training_kwargs,use_flash_attention_2,max_expected_loss,max_length,num_steps",
     [
         [
             "LlamaForCausalLM",
             "meta-llama/Llama-3.2-1B-Instruct",
+            True,
             1e-4,
             0.03,
             {},
             True,
-            0.0,
+            0.5,  # Use a smaller value when tie_word_embeddings is fixed.
             2048,
             30,
         ],
         [
             "GraniteForCausalLM",
             "ibm-granite/granite-3.2-2b-instruct",
+            True,
             1e-4,
             0,
             {},
             # For now we disable flash attention because the default configuration has a dropout for the attention
             # which is broken with the flash attention kernel in the current Neuron SDK.
             False,
-            0.07,
+            0.5,  # Use a smaller value when tie_word_embeddings is fixed.
             512,  # Do 2048 once we have flash_attention enabled.
             30,
         ],
         [
             "Qwen3ForCausalLM",
             "Qwen/Qwen3-0.6B",
+            True,
             1e-4,
             0.04,
             {},
             True,
-            0.0,
+            0.5,  # Use a smaller value when tie_word_embeddings is fixed.
+            2048,
+            50,
+        ],
+        [
+            "LlamaForCausalLM",
+            "HuggingFaceTB/SmolLM2-135M-Instruct",
+            False,
+            1e-4,
+            0.04,
+            {},
+            True,
+            0.5,  # Use a smaller value when tie_word_embeddings is fixed.
             2048,
             50,
         ],
     ],
-    ids=["meta-llama/Llama-3.2-1B-Instruct", "ibm-granite/granite-3.2-2b-instruct", "Qwen/Qwen3-0.6B"],
-)
-@pytest.mark.parametrize(
-    "world_size,tp_size,pp_size",
-    [
-        # It is important to make it so that the DP size is the same otherwise the tests are not equivalent with the provided hyperparameters.
-        [32, 8, 1],
-        [32, 2, 4],
-    ],
     ids=[
-        "dp=4,tp=8",
-        "dp=4,tp=2,pp=4",
+        "meta-llama/Llama-3.2-1B-Instruct",
+        "ibm-granite/granite-3.2-2b-instruct",
+        "Qwen/Qwen3-0.6B",
+        "HuggingFaceTB/SmolLM2-135M-Instruct",
     ],
 )
 @pytest.mark.neuron_parallel_compile
@@ -201,6 +224,7 @@ def _overfit_causal_lm(
 def test_overfit_causal_lm(
     model_class_name,
     model_name_or_path,
+    use_custom_modeling,
     learning_rate,
     warmup_ratio,
     training_kwargs,
@@ -208,15 +232,26 @@ def test_overfit_causal_lm(
     max_expected_loss,
     max_length,
     num_steps,
-    world_size,
-    tp_size,
-    pp_size,
     tmpdir,
     set_cache_for_ci,  # This fixture will handle setting the remote cache to make this test faster.
 ):
+    model_class = get_model_class_from_name(model_class_name, use_custom_modeling=use_custom_modeling)
+    if use_custom_modeling:
+        if model_class.supports_pipeline_parallelism():
+            world_size = 32
+            tp_size = 2
+            pp_size = 4
+        else:
+            world_size = 32
+            tp_size = 8
+            pp_size = 1
+    else:
+        world_size = 8
+        tp_size = 1
+        pp_size = 1
     run_fn = partial(
         _overfit_causal_lm,
-        model_class_name,
+        model_class,
         model_name_or_path,
         learning_rate,
         warmup_ratio,
@@ -255,9 +290,10 @@ def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir, set_cache_
         bias="none",
         task_type="CAUSAL_LM",
     )
+    model_class = get_model_class_from_name("LlamaForCausalLM", use_custom_modeling=True)
     run_fn = partial(
         _overfit_causal_lm,
-        "LlamaForCausalLM",
+        model_class,
         "meta-llama/Llama-3.2-1B-Instruct",
         1e-4,
         0.03,

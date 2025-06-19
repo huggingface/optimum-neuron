@@ -38,13 +38,13 @@ from optimum.neuron.utils.cache_utils import (
 from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.training_utils import get_model_param_count
 
-from ..utils import (
+from . import DistributedTest
+from .utils import (
     MODEL_NAME,
     create_dummy_causal_lm_dataset,
     default_data_collator_for_causal_lm,
     get_tokenizer_and_tiny_llama_model,
 )
-from . import DistributedTest
 
 
 if is_neuronx_distributed_available():
