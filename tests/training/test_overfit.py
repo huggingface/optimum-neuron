@@ -1,4 +1,20 @@
+# coding=utf-8
+# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import importlib
+import inspect
 import os
 from datetime import datetime
 from functools import partial
@@ -111,13 +127,22 @@ def _overfit_causal_lm(
     config = AutoConfig.from_pretrained(model_name_or_path)
     config.tie_word_embeddings = False
 
-    model = model_class.from_pretrained(
-        model_name_or_path,
-        training_args.trn_config,
-        config=config,
-        torch_dtype=torch.bfloat16,
-        use_flash_attention_2=use_flash_attention_2,
-    )
+    # If it is a custom model, we provide the trainium config.
+    if "trn_config" in inspect.signature(model_class.__init__).parameters:
+        model = model_class.from_pretrained(
+            model_name_or_path,
+            training_args.trn_config,
+            config=config,
+            torch_dtype=torch.bfloat16,
+            use_flash_attention_2=use_flash_attention_2,
+        )
+    else:
+        model = model_class.from_pretrained(
+            model_name_or_path,
+            config=config,
+            torch_dtype=torch.bfloat16,
+            use_flash_attention_2=use_flash_attention_2,
+        )
 
     if peft_config is not None:
         model = get_peft_model(model, peft_config)
@@ -206,7 +231,7 @@ def _overfit_causal_lm(
             1e-4,
             0.04,
             {},
-            True,
+            False,  # No flash attention for model without custom modeling.
             0.5,  # Use a smaller value when tie_word_embeddings is fixed.
             2048,
             50,
