@@ -3,6 +3,7 @@ from unittest import TestCase
 
 import numpy as np
 import pytest
+from huggingface_hub import get_token, login
 from parameterized import parameterized
 from transformers import (
     AutoConfig,
@@ -12,10 +13,16 @@ from transformers import (
 )
 from transformers.generation.configuration_utils import GenerationConfig
 
+from optimum.utils import logging
 from optimum.neuron.trainers import patch_generation_mixin_to_neuron_generation_mixin
+from optimum.neuron.utils.cache_utils import (
+    delete_custom_cache_repo_name_from_hf_home,
+    load_custom_cache_repo_name_from_hf_home,
+    set_custom_cache_repo_name_in_hf_home,
+)
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from .utils import TrainiumTestMixin
+logger = logging.get_logger(__name__)
 
 
 def _test_generative_decoding(
@@ -85,6 +92,26 @@ BEAM_SEARCH_TESTDATA = [
     ("t5-small", False, False, "--model-type=transformer"),
     ("t5-small", True, False, "--model-type=transformer"),
 ]
+
+class TrainiumTestMixin:
+    @classmethod
+    def setUpClass(cls):
+        cls._token = get_token()
+        cls._cache_repo = load_custom_cache_repo_name_from_hf_home()
+        cls._env = dict(os.environ)
+
+    @classmethod
+    def tearDownClass(cls):
+        os.environ = cls._env
+        if cls._token is not None:
+            login(cls._token)
+        if cls._cache_repo is not None:
+            try:
+                set_custom_cache_repo_name_in_hf_home(cls._cache_repo)
+            except Exception:
+                logger.warning(f"Could not restore the cache repo back to {cls._cache_repo}")
+        else:
+            delete_custom_cache_repo_name_from_hf_home()
 
 
 @is_trainium_test
