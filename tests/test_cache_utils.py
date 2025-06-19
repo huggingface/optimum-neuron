@@ -12,10 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the cache utilities."""
 
-import logging
 import os
+import string
 import random
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -23,9 +22,11 @@ from typing import List
 from unittest import TestCase
 
 import huggingface_hub
-from huggingface_hub import create_repo, delete_repo, get_token, login
+from huggingface_hub import CommitOperationDelete, HfApi, create_repo, delete_repo, get_token, login, logout, create_repo, delete_repo, get_token, login
+from huggingface_hub.utils import RepositoryNotFoundError
 from transformers.testing_utils import is_staging_test
 
+from optimum.utils import logging
 from optimum.neuron.utils.cache_utils import (
     CACHE_REPO_FILENAME,
     get_neuron_cache_path,
@@ -35,13 +36,104 @@ from optimum.neuron.utils.cache_utils import (
     load_custom_cache_repo_name_from_hf_home,
     set_custom_cache_repo_name_in_hf_home,
     set_neuron_cache_path,
+    delete_custom_cache_repo_name_from_hf_home,
+    load_custom_cache_repo_name_from_hf_home,
+    set_custom_cache_repo_name_in_hf_home,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from .utils import TOKEN_STAGING, USER_STAGING, StagingTestMixin, TrainiumTestMixin, get_random_string
+from .conftest import TOKEN_STAGING, USER_STAGING, get_random_string
 
+logger = logging.get_logger(__name__)
 
 DUMMY_COMPILER_VERSION = "1.2.3"
+
+class TrainiumTestMixin:
+    @classmethod
+    def setUpClass(cls):
+        cls._token = get_token()
+        cls._cache_repo = load_custom_cache_repo_name_from_hf_home()
+        cls._env = dict(os.environ)
+
+    @classmethod
+    def tearDownClass(cls):
+        os.environ = cls._env
+        if cls._token is not None:
+            login(cls._token)
+        if cls._cache_repo is not None:
+            try:
+                set_custom_cache_repo_name_in_hf_home(cls._cache_repo)
+            except Exception:
+                logger.warning(f"Could not restore the cache repo back to {cls._cache_repo}")
+        else:
+            delete_custom_cache_repo_name_from_hf_home()
+
+class StagingTestMixin:
+    CUSTOM_CACHE_REPO_NAME = "optimum-neuron-cache-testing"
+    CUSTOM_CACHE_REPO = f"{USER_STAGING}/{CUSTOM_CACHE_REPO_NAME}"
+    CUSTOM_PRIVATE_CACHE_REPO = f"{CUSTOM_CACHE_REPO}-private"
+    _token = ""
+    MAX_NUM_LINEARS = 20
+
+    @classmethod
+    def set_hf_hub_token(cls, token: Optional[str]) -> Optional[str]:
+        orig_token = get_token()
+        login(token=token)
+        if token is not None:
+            login(token=token)
+        else:
+            logout()
+        cls._env = dict(os.environ, HF_ENDPOINT=ENDPOINT_STAGING)
+        return orig_token
+
+    @classmethod
+    def setUpClass(cls):
+        cls._staging_token = TOKEN_STAGING
+        cls._token = cls.set_hf_hub_token(TOKEN_STAGING)
+        cls._custom_cache_repo_name = load_custom_cache_repo_name_from_hf_home()
+        delete_custom_cache_repo_name_from_hf_home()
+
+        # Adding a seed to avoid concurrency issues between staging tests.
+        cls.seed = get_random_string(5)
+        cls.CUSTOM_CACHE_REPO = f"{cls.CUSTOM_CACHE_REPO}-{cls.seed}"
+        cls.CUSTOM_PRIVATE_CACHE_REPO = f"{cls.CUSTOM_PRIVATE_CACHE_REPO}-{cls.seed}"
+
+        create_repo(cls.CUSTOM_CACHE_REPO, repo_type="model", exist_ok=True)
+        create_repo(cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model", exist_ok=True, private=True)
+
+        # We store here which architectures we already used for compiling tiny models.
+        cls.visited_num_linears = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        delete_repo(repo_id=cls.CUSTOM_CACHE_REPO, repo_type="model")
+        delete_repo(repo_id=cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model")
+        if cls._token:
+            cls.set_hf_hub_token(cls._token)
+        if cls._custom_cache_repo_name:
+            try:
+                set_custom_cache_repo_name_in_hf_home(cls._custom_cache_repo_name)
+            except Exception:
+                logger.warning(f"Could not restore the cache repo back to {cls._custom_cache_repo_name}")
+            set_custom_cache_repo_name_in_hf_home(cls._custom_cache_repo_name, check_repo=False)
+
+    def remove_all_files_in_repo(self, repo_id: str):
+        api = HfApi()
+        filenames = api.list_repo_files(repo_id=repo_id)
+        operations = [CommitOperationDelete(path_in_repo=filename) for filename in filenames]
+        try:
+            api.create_commit(
+                repo_id=repo_id,
+                operations=operations,
+                commit_message="Cleanup the repo",
+            )
+        except RepositoryNotFoundError:
+            pass
+
+    def tearDown(self):
+        login(TOKEN_STAGING)
+        self.remove_all_files_in_repo(self.CUSTOM_CACHE_REPO)
+        self.remove_all_files_in_repo(self.CUSTOM_PRIVATE_CACHE_REPO)
 
 
 @is_trainium_test

@@ -63,8 +63,9 @@ def get_tiny_llama_model(
     add_random_noise: bool = False,
     custom_modeling: bool = False,
 ) -> "PreTrainedModel":
+    model_class = NeuronLlamaForCausalLM if custom_modeling else LlamaForCausalLM
     return get_model(
-        LlamaForCausalLM,
+        model_class,
         MODEL_NAME,
         tp_size=tp_size,
         pp_size=pp_size,
@@ -102,22 +103,22 @@ class TestCommonTrainingFeatures(DistributedTest):
         ids=["dp=4,tp=2,pp=4"],
     )
     @pytest.mark.parametrize(
-        "use_custom_modeling,zero_1,gradient_accumulation_steps,max_grad_norm",
+        "zero_1,gradient_accumulation_steps,max_grad_norm",
         [
-            [False, False, 1, None],
-            [False, False, 12, 0.01],
-            [False, True, 12, 0.01],
-            [True, True, 12, 0.01],
+            [False, 1, None],
+            [False, 12, 0.01],
+            [True, 1, 0.01],
+            [True, 12, None],
         ],
         ids=[
-            "custom_modeling=False,zero_1=False,gradient_accumulation_steps=1,max_grad_norm=None",
-            "custom_modeling=False,zero_1=False,gradient_accumulation_steps=12,max_grad_norm=0.01",
-            "custom_modeling=False,zero_1=True,gradient_accumulation_steps=12,max_grad_norm=0.01",
-            "custom_modeling=True,zero_1=True,gradient_accumulation_steps=12,max_grad_norm=0.01",
+            "zero_1=False,gradient_accumulation_steps=1,max_grad_norm=None",
+            "zero_1=False,gradient_accumulation_steps=12,max_grad_norm=0.01",
+            "zero_1=True,gradient_accumulation_steps=1,max_grad_norm=0.01",
+            "zero_1=True,gradient_accumulation_steps=12,max_grad_norm=None",
         ],
     )
     def test_optimizer_step(
-        self, world_size, tp_size, pp_size, use_custom_modeling, zero_1, gradient_accumulation_steps, max_grad_norm
+        self, world_size, tp_size, pp_size, zero_1, gradient_accumulation_steps, max_grad_norm
     ):
         dp_size = world_size // (tp_size * pp_size)
         if dp_size == 1 and zero_1:
@@ -128,7 +129,7 @@ class TestCommonTrainingFeatures(DistributedTest):
             pytest.skip("Gradient clipping seems to not work properly with ZeRO-1.")
 
         model = get_tiny_llama_model(
-            tp_size=tp_size, pp_size=pp_size, use_static_seed_patcher=True, custom_modeling=use_custom_modeling
+            tp_size=tp_size, pp_size=pp_size, use_static_seed_patcher=True, custom_modeling=True,
         )
 
         if tp_size == pp_size == 1:
@@ -252,6 +253,11 @@ class TestCommonTrainingFeatures(DistributedTest):
             "dp=1,tp=8,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
             "dp=1,tp=8,kv_size_multiplier=4,GQAQKVColumnParallelLinear,fuse_qkv",
         ],
+    )
+    @pytest.mark.parametrize(
+        "use_xser",
+        [True, False],
+        ids=["use_xser=True", "use_xser=False"],
     )
     def test_consolidate_custom_model_parallel_checkpoints(
         self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, fuse_qkv, use_xser

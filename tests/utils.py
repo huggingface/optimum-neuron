@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Various utilities used in multiple tests."""
 
 import contextlib
 import functools
@@ -63,20 +62,7 @@ from optimum.utils import logging
 logger = logging.get_logger(__name__)
 
 
-# Not critical, only usable on the sandboxed CI instance.
-USER_STAGING = "__DUMMY_OPTIMUM_USER__"
-TOKEN_STAGING = "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"
-
-SEED = 42
-OPTIMUM_INTERNAL_TESTING_CACHE_REPO = "optimum-internal-testing/optimum-neuron-cache-for-testing"
-OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI = "optimum-internal-testing/optimum-neuron-cache-ci"
-
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
-
-
-def get_random_string(length) -> str:
-    letters = string.ascii_lowercase
-    return "".join(random.choice(letters) for _ in range(length))
 
 
 def create_dummy_dataset(input_specs: Dict[str, Tuple[Tuple[int, ...], torch.dtype]], num_examples: int) -> Dataset:
@@ -425,90 +411,26 @@ def create_accelerator(
     )
 
 
-class TrainiumTestMixin:
-    @classmethod
-    def setUpClass(cls):
-        cls._token = get_token()
-        cls._cache_repo = load_custom_cache_repo_name_from_hf_home()
-        cls._env = dict(os.environ)
+def assert_close(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    atol: Optional[float] = None,
+    rtol: Optional[float] = None,
+    msg: Optional[str] = None,
+):
+    assert a.dtype is b.dtype, f"Expected tensors to have the same dtype, but got {a.dtype} and {b.dtype}"
 
-    @classmethod
-    def tearDownClass(cls):
-        os.environ = cls._env
-        if cls._token is not None:
-            login(cls._token)
-        if cls._cache_repo is not None:
-            try:
-                set_custom_cache_repo_name_in_hf_home(cls._cache_repo)
-            except Exception:
-                logger.warning(f"Could not restore the cache repo back to {cls._cache_repo}")
-        else:
-            delete_custom_cache_repo_name_from_hf_home()
-
-
-class StagingTestMixin:
-    CUSTOM_CACHE_REPO_NAME = "optimum-neuron-cache-testing"
-    CUSTOM_CACHE_REPO = f"{USER_STAGING}/{CUSTOM_CACHE_REPO_NAME}"
-    CUSTOM_PRIVATE_CACHE_REPO = f"{CUSTOM_CACHE_REPO}-private"
-    _token = ""
-    MAX_NUM_LINEARS = 20
-
-    @classmethod
-    def set_hf_hub_token(cls, token: Optional[str]) -> Optional[str]:
-        orig_token = get_token()
-        login(token=token)
-        if token is not None:
-            login(token=token)
-        else:
-            logout()
-        cls._env = dict(os.environ, HF_ENDPOINT=ENDPOINT_STAGING)
-        return orig_token
-
-    @classmethod
-    def setUpClass(cls):
-        cls._staging_token = TOKEN_STAGING
-        cls._token = cls.set_hf_hub_token(TOKEN_STAGING)
-        cls._custom_cache_repo_name = load_custom_cache_repo_name_from_hf_home()
-        delete_custom_cache_repo_name_from_hf_home()
-
-        # Adding a seed to avoid concurrency issues between staging tests.
-        cls.seed = get_random_string(5)
-        cls.CUSTOM_CACHE_REPO = f"{cls.CUSTOM_CACHE_REPO}-{cls.seed}"
-        cls.CUSTOM_PRIVATE_CACHE_REPO = f"{cls.CUSTOM_PRIVATE_CACHE_REPO}-{cls.seed}"
-
-        create_repo(cls.CUSTOM_CACHE_REPO, repo_type="model", exist_ok=True)
-        create_repo(cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model", exist_ok=True, private=True)
-
-        # We store here which architectures we already used for compiling tiny models.
-        cls.visited_num_linears = set()
-
-    @classmethod
-    def tearDownClass(cls):
-        delete_repo(repo_id=cls.CUSTOM_CACHE_REPO, repo_type="model")
-        delete_repo(repo_id=cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model")
-        if cls._token:
-            cls.set_hf_hub_token(cls._token)
-        if cls._custom_cache_repo_name:
-            try:
-                set_custom_cache_repo_name_in_hf_home(cls._custom_cache_repo_name)
-            except Exception:
-                logger.warning(f"Could not restore the cache repo back to {cls._custom_cache_repo_name}")
-            set_custom_cache_repo_name_in_hf_home(cls._custom_cache_repo_name, check_repo=False)
-
-    def remove_all_files_in_repo(self, repo_id: str):
-        api = HfApi()
-        filenames = api.list_repo_files(repo_id=repo_id)
-        operations = [CommitOperationDelete(path_in_repo=filename) for filename in filenames]
-        try:
-            api.create_commit(
-                repo_id=repo_id,
-                operations=operations,
-                commit_message="Cleanup the repo",
-            )
-        except RepositoryNotFoundError:
-            pass
-
-    def tearDown(self):
-        login(TOKEN_STAGING)
-        self.remove_all_files_in_repo(self.CUSTOM_CACHE_REPO)
-        self.remove_all_files_in_repo(self.CUSTOM_PRIVATE_CACHE_REPO)
+    dtype = a.dtype
+    if atol is None:
+        atol = torch.finfo(dtype).resolution
+    # Please refer to that discussion for default rtol values based on the float type:
+    # https://scicomp.stackexchange.com/questions/43111/float-equality-tolerance-for-single-and-half-precision
+    if rtol is None:
+        rtol = {torch.float32: 1e-5, torch.float16: 1e-3, torch.bfloat16: 1e-1}[dtype]
+    torch.testing.assert_close(
+        a,
+        b,
+        atol=atol,
+        rtol=rtol,
+        msg=msg,
+    )

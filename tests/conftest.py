@@ -14,6 +14,8 @@
 # limitations under the License.
 
 import os
+import string
+import random
 import shutil
 from pathlib import Path
 
@@ -27,14 +29,13 @@ from optimum.neuron.utils.cache_utils import (
     set_neuron_cache_path,
 )
 
-from .utils import (
-    OPTIMUM_INTERNAL_TESTING_CACHE_REPO,
-    OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI,
-    TOKEN_STAGING,
-    USER_STAGING,
-    get_random_string,
-)
+# Not critical, only usable on the sandboxed CI instance.
+USER_STAGING = "__DUMMY_OPTIMUM_USER__"
+TOKEN_STAGING = "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"
 
+SEED = 42
+OPTIMUM_INTERNAL_TESTING_CACHE_REPO = "optimum-internal-testing/optimum-neuron-cache-for-testing"
+OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI = "optimum-internal-testing/optimum-neuron-cache-ci"
 
 # Inferentia fixtures
 ENCODER_ARCHITECTURES = [
@@ -93,6 +94,10 @@ def inf_decoder_model(request):
 def inf_diffuser_model(request):
     return request.param
 
+
+def get_random_string(length) -> str:
+    letters = string.ascii_lowercase
+    return "".join(random.choice(letters) for _ in range(length))
 
 def _hub_test(create_local_cache: bool = False):
     orig_token = get_token()
@@ -182,7 +187,6 @@ def set_cache_for_ci():
 
 
 ### The following part is for running distributed tests.
-
 
 # This hook is run before the default pytest_runtest_call
 @pytest.hookimpl(tryfirst=True)

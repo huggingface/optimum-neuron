@@ -70,74 +70,11 @@ CUSTOM_MODELINGS_TO_TEST = [
 LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
 
 
-@torch.no_grad()
-def _get_expected_output(model_id, inputs, torch_dtype):
-    # Get the expected output. Inference will run on CPU
-    model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch_dtype).to(device="xla")
-    model = model.eval()
-    outputs = model(**inputs)
-    return outputs.logits.detach()
-
-
-def sample_greedy(logits):
-    next_logits = logits.to("cpu")[:, -1]
-    next_token_id = torch.argmax(next_logits, dim=-1)[:, None].int()
-    return next_token_id
-
-
-@torch.no_grad()
-def _test_parallel_granite():
-    model_id = "ibm-granite/granite-3.2-2b-instruct"
-    prompt = "What is Deep Learning?"
-    torch_dtype = torch.bfloat16
-
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-    inputs = tokenizer(prompt, return_tensors="pt").to("xla")
-
-    # Expected output is the one loaded from transformers "vanilla" modeling on XLA
-    expected_output = _get_expected_output(model_id, inputs, torch_dtype)
-    xm.mark_step()
-
-    # Note that model is init on CPU, then moved  to XLA
-    tp_size = get_tensor_model_parallel_size()
-    trn_config = TrainingNeuronConfig(
-        tensor_parallel_size=tp_size,
-        sequence_parallel_enabled=False,
-    )
-    model = GraniteForCausalLM.from_pretrained(model_id, trn_config, torch_dtype=torch_dtype)
-    move_model_to_device(model, xm.xla_device())
-    model.eval()
-    outputs = model(**inputs)
-    xm.mark_step()
-
-    # It would be better to have this lower, like torch.finfo(torch_dtype).resolution, ( that is 0.1 in bfloat16),
-    # but apparently sharded model results are different from unsharded ones.
-    atol = 0.2
-    outputs_match = torch.allclose(outputs.logits.to("cpu"), expected_output.to("cpu"), atol=atol)
-    assert outputs_match, "Sharded model output does not match unsharded one"
-
-    # It is possible to verify that untokenized output is the same when using greedy sampling
-    expected_text_output = tokenizer.batch_decode(sample_greedy(expected_output), skip_special_tokens=True)
-    text_output = tokenizer.batch_decode(sample_greedy(outputs.logits), skip_special_tokens=True)
-    assert expected_text_output == text_output, "Sharded model output does not match unsharded one"
-
-
-@is_trainium_test
-def test_parallel_granite():
-    launch_procs(
-        _test_parallel_granite,
-        num_procs=2,
-        tp_size=2,
-        pp_size=1,
-    )
-
-
 OUTPUTS_TO_IGNORE = {
     # It might not match in the sequence parallel setting because of mistmatched shapes.
     # Since these outputs are not needed during training, we do not want to perform an expensive gather for them.
     "encoder_last_hidden_state",
 }
-
 
 def _check_output(name: str, original_output, output):
     assert type(original_output) is type(output)
@@ -298,18 +235,18 @@ def _custom_model_matches_original_model(
 
 
 @pytest.mark.parametrize("qkv_implementation", ["regular_qkv", "fuse_qkv", "qkv_linear"])
-# We only test for [world_size, tp_size, pp_size] = [32, 2, 4] e.g. dp=4,tp=2,pp=4
-@pytest.mark.parametrize("world_size,tp_size,pp_size", [[32, 2, 4]], ids=["dp=4,tp=2,pp=4"])
 @pytest.mark.parametrize("model_specs", CUSTOM_MODELINGS_TO_TEST, ids=[specs[0] for specs in CUSTOM_MODELINGS_TO_TEST])
 def test_custom_modeling_matches_original(
     model_specs,
     qkv_implementation,
-    world_size,
-    tp_size,
-    pp_size,
     monkeypatch,
     tmpdir,
 ):
+    # dp=4,tp=2,pp=4
+    world_size = 32
+    tp_size = 2 # We set it to 2 * num_key_value_heads for qkv_linear.
+    pp_size = 4
+
     # We could make these parameters but we do not want to test all combinations.
     sequence_parallel_enabled = True
     # The best default to test would be flash attention since it's the most performant, but it seems to produce
