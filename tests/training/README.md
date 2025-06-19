@@ -88,12 +88,11 @@ Common test configurations:
 - `dp=4,tp=2,pp=4`: Mixed parallelism (32 total workers)
 
 ### Utilities
-- **`utils.py`**: Provides `assert_close` function for tensor comparison with appropriate floating-point tolerances
 - **Test markers**: `@is_trainium_test` ensures tests only run on Trainium hardware
 
 ## Running Tests
 
-Most tests require AWS Trainium instances to run. The tests are designed to:
+These tests require AWS Trainium instances to run. The tests are designed to:
 1. Validate numerical correctness against CPU/transformers baselines
 2. Test distributed training scenarios
 3. Ensure checkpoint compatibility
