@@ -35,7 +35,7 @@ from optimum.neuron.utils.import_utils import (
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .. import DistributedTest
-from ..utils import create_accelerator, get_model, get_model_inputs
+from ..utils import create_accelerator, get_model_inputs
 
 
 if is_torch_xla_available():
@@ -49,30 +49,10 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.utils.model_utils import move_model_to_device
 
 if TYPE_CHECKING:
-    from transformers import PreTrainedModel
+    pass
 
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"
 MODEL_NAME_WITH_4_KV_HEADS = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
-
-
-def get_tiny_llama_model(
-    tp_size: int = 1,
-    pp_size: int = 1,
-    from_config: bool = False,
-    use_static_seed_patcher: bool = False,
-    add_random_noise: bool = False,
-    custom_modeling: bool = False,
-) -> "PreTrainedModel":
-    model_class = NeuronLlamaForCausalLM if custom_modeling else LlamaForCausalLM
-    return get_model(
-        model_class,
-        MODEL_NAME,
-        tp_size=tp_size,
-        pp_size=pp_size,
-        from_config=from_config,
-        use_static_seed_patcher=use_static_seed_patcher,
-        add_random_noise=add_random_noise,
-    )
 
 
 def get_optimizer(model: torch.nn.Module, with_groups: bool = True) -> torch.optim.Optimizer:
@@ -117,9 +97,7 @@ class TestCommonTrainingFeatures(DistributedTest):
             "zero_1=True,gradient_accumulation_steps=12,max_grad_norm=None",
         ],
     )
-    def test_optimizer_step(
-        self, world_size, tp_size, pp_size, zero_1, gradient_accumulation_steps, max_grad_norm
-    ):
+    def test_optimizer_step(self, world_size, tp_size, pp_size, zero_1, gradient_accumulation_steps, max_grad_norm):
         dp_size = world_size // (tp_size * pp_size)
         if dp_size == 1 and zero_1:
             pytest.skip("zero_1 needs to be tested only for dp_size > 1")
@@ -128,9 +106,8 @@ class TestCommonTrainingFeatures(DistributedTest):
         if dp_size > 1 and zero_1 and max_grad_norm is not None:
             pytest.skip("Gradient clipping seems to not work properly with ZeRO-1.")
 
-        model = get_tiny_llama_model(
-            tp_size=tp_size, pp_size=pp_size, use_static_seed_patcher=True, custom_modeling=True,
-        )
+        trn_config = TrainingNeuronConfig(tensor_parallel_size=tp_size, pipeline_parallel_size=pp_size)
+        model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
 
         if tp_size == pp_size == 1:
             move_model_to_device(model, xm.xla_device())

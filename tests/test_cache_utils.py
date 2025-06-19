@@ -14,21 +14,20 @@
 # limitations under the License.
 
 import os
-import string
 import random
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import List
+from typing import List, Optional
 from unittest import TestCase
 
 import huggingface_hub
-from huggingface_hub import CommitOperationDelete, HfApi, create_repo, delete_repo, get_token, login, logout, create_repo, delete_repo, get_token, login
+from huggingface_hub import CommitOperationDelete, HfApi, create_repo, delete_repo, get_token, login, logout
 from huggingface_hub.utils import RepositoryNotFoundError
-from transformers.testing_utils import is_staging_test
+from transformers.testing_utils import ENDPOINT_STAGING, is_staging_test
 
-from optimum.utils import logging
 from optimum.neuron.utils.cache_utils import (
     CACHE_REPO_FILENAME,
+    delete_custom_cache_repo_name_from_hf_home,
     get_neuron_cache_path,
     get_num_neuron_cores_used,
     has_write_access_to_repo,
@@ -36,17 +35,17 @@ from optimum.neuron.utils.cache_utils import (
     load_custom_cache_repo_name_from_hf_home,
     set_custom_cache_repo_name_in_hf_home,
     set_neuron_cache_path,
-    delete_custom_cache_repo_name_from_hf_home,
-    load_custom_cache_repo_name_from_hf_home,
-    set_custom_cache_repo_name_in_hf_home,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
+from optimum.utils import logging
 
 from .conftest import TOKEN_STAGING, USER_STAGING, get_random_string
+
 
 logger = logging.get_logger(__name__)
 
 DUMMY_COMPILER_VERSION = "1.2.3"
+
 
 class TrainiumTestMixin:
     @classmethod
@@ -67,6 +66,7 @@ class TrainiumTestMixin:
                 logger.warning(f"Could not restore the cache repo back to {cls._cache_repo}")
         else:
             delete_custom_cache_repo_name_from_hf_home()
+
 
 class StagingTestMixin:
     CUSTOM_CACHE_REPO_NAME = "optimum-neuron-cache-testing"

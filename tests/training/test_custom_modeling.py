@@ -22,12 +22,11 @@ import pytest
 import torch
 import torch.utils._pytree as pytree
 import transformers
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer
 
 import optimum
 import optimum.neuron.models.training
 from optimum.neuron.models.training.config import TrainingNeuronConfig
-from optimum.neuron.models.training.granite.modeling_granite import GraniteForCausalLM
 from optimum.neuron.models.training.llama.modeling_llama import LlamaForCausalLM
 from optimum.neuron.models.training.transformations_utils import GQAQKVColumnParallelLinearSpec
 from optimum.neuron.utils.import_utils import (
@@ -75,6 +74,7 @@ OUTPUTS_TO_IGNORE = {
     # Since these outputs are not needed during training, we do not want to perform an expensive gather for them.
     "encoder_last_hidden_state",
 }
+
 
 def _check_output(name: str, original_output, output):
     assert type(original_output) is type(output)
@@ -244,7 +244,7 @@ def test_custom_modeling_matches_original(
 ):
     # dp=4,tp=2,pp=4
     world_size = 32
-    tp_size = 2 # We set it to 2 * num_key_value_heads for qkv_linear.
+    tp_size = 2  # We set it to 2 * num_key_value_heads for qkv_linear.
     pp_size = 4
 
     # We could make these parameters but we do not want to test all combinations.

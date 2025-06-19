@@ -14,9 +14,9 @@
 # limitations under the License.
 
 import os
-import string
 import random
 import shutil
+import string
 from pathlib import Path
 
 import pytest
@@ -28,6 +28,7 @@ from optimum.neuron.utils.cache_utils import (
     set_custom_cache_repo_name_in_hf_home,
     set_neuron_cache_path,
 )
+
 
 # Not critical, only usable on the sandboxed CI instance.
 USER_STAGING = "__DUMMY_OPTIMUM_USER__"
@@ -98,6 +99,7 @@ def inf_diffuser_model(request):
 def get_random_string(length) -> str:
     letters = string.ascii_lowercase
     return "".join(random.choice(letters) for _ in range(length))
+
 
 def _hub_test(create_local_cache: bool = False):
     orig_token = get_token()
@@ -187,6 +189,7 @@ def set_cache_for_ci():
 
 
 ### The following part is for running distributed tests.
+
 
 # This hook is run before the default pytest_runtest_call
 @pytest.hookimpl(tryfirst=True)

@@ -16,7 +16,6 @@
 import contextlib
 import functools
 import inspect
-import os
 import random
 import string
 from pathlib import Path
@@ -24,8 +23,6 @@ from typing import Callable, Dict, List, Optional, Tuple, Type, Union
 
 import torch
 from datasets import Dataset, DatasetDict
-from huggingface_hub import CommitOperationDelete, HfApi, create_repo, delete_repo, get_token, login, logout
-from huggingface_hub.utils import RepositoryNotFoundError
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 from transformers.models.auto import get_values
 from transformers.models.auto.modeling_auto import (
@@ -45,15 +42,9 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES,
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
 )
-from transformers.testing_utils import ENDPOINT_STAGING
 
 from optimum.neuron import NeuronAccelerator
 from optimum.neuron.models.training.config import TrainingNeuronConfig
-from optimum.neuron.utils.cache_utils import (
-    delete_custom_cache_repo_name_from_hf_home,
-    load_custom_cache_repo_name_from_hf_home,
-    set_custom_cache_repo_name_in_hf_home,
-)
 from optimum.neuron.utils.patching import DynamicPatch, Patcher
 from optimum.neuron.utils.require_utils import requires_neuronx_distributed
 from optimum.utils import logging
@@ -63,6 +54,12 @@ logger = logging.get_logger(__name__)
 
 
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
+SEED = 42
+
+
+def get_random_string(length) -> str:
+    letters = string.ascii_lowercase
+    return "".join(random.choice(letters) for _ in range(length))
 
 
 def create_dummy_dataset(input_specs: Dict[str, Tuple[Tuple[int, ...], torch.dtype]], num_examples: int) -> Dataset:
