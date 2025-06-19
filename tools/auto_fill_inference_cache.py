@@ -116,11 +116,11 @@ def build_encoder_command(hf_model_id, task, batch_size, sequence_length, auto_c
 
 
 def build_stable_diffusion_command(
-    hf_model_id, task, batch_size, height, width, num_images_per_prompt, auto_cast, auto_cast_type, output_dir
+    hf_model_id, batch_size, height, width, num_images_per_prompt, auto_cast, auto_cast_type, output_dir
 ):
-    if None in [task, batch_size, height, width, auto_cast, auto_cast_type]:
+    if None in [batch_size, height, width, auto_cast, auto_cast_type]:
         raise ValueError(
-            "You must provide --task, --batch_size, --height, --width, --auto_cast and --auto_cast_type for compiling stable diffusion models."
+            "You must provide --batch_size, --height, --width, --auto_cast and --auto_cast_type for compiling stable diffusion models."
         )
     compile_command = [
         "optimum-cli",
@@ -128,8 +128,6 @@ def build_stable_diffusion_command(
         "neuron",
         "-m",
         hf_model_id,
-        "--task",
-        task,
         "--batch_size",
         str(batch_size),
         "--height",
@@ -147,6 +145,36 @@ def build_stable_diffusion_command(
     return compile_command
 
 
+def build_pixart_command(
+    hf_model_id, batch_size, sequence_length, height, width, num_images_per_prompt, torch_dtype, output_dir
+):
+    if None in [batch_size, sequence_length, height, width, torch_dtype]:
+        raise ValueError(
+            "You must provide --batch_size, --sequence_length, --height, --width and --torch_dtype for compiling pixart models."
+        )
+    compile_command = [
+        "optimum-cli",
+        "export",
+        "neuron",
+        "-m",
+        hf_model_id,
+        "--batch_size",
+        str(batch_size),
+        "--sequence_length",
+        str(sequence_length),
+        "--height",
+        str(height),
+        "--width",
+        str(width),
+        "--num_images_per_prompt",
+        str(num_images_per_prompt),
+        "--torch_dtype",
+        torch_dtype,
+        output_dir,
+    ]
+    return compile_command
+
+
 def compile_and_cache_model(
     hf_model_id: str,
     batch_size: int,
@@ -158,6 +186,7 @@ def compile_and_cache_model(
     task: Optional[str] = None,
     auto_cast: Optional[str] = None,
     auto_cast_type: Optional[str] = None,
+    torch_dtype: Optional[str] = None,
 ):
     start = time.time()
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -171,13 +200,23 @@ def compile_and_cache_model(
         elif "stable-diffusion" in task:
             compile_command = build_stable_diffusion_command(
                 hf_model_id,
-                task,
                 batch_size,
                 height,
                 width,
                 num_images_per_prompt,
                 auto_cast,
                 auto_cast_type,
+                temp_dir,
+            )
+        elif "pixart" in task:
+            compile_command = build_pixart_command(
+                hf_model_id,
+                batch_size,
+                sequence_length,
+                height,
+                width,
+                num_images_per_prompt,
+                torch_dtype,
                 temp_dir,
             )
         else:
@@ -231,7 +270,7 @@ def infer_task_from_model_path(model_id: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compile and cache a model to the Hugging Face Hub.")
     parser.add_argument("--hf_model_id", type=str, help="Hugging Face model ID to compile.")
-    parser.add_argument("--task", type=str, help="Task for compilation (mandatory for encoders and stable diffusion).")
+    parser.add_argument("--task", type=str, help="Task for compilation (mandatory for encoders).")
     parser.add_argument("--batch_size", type=int, help="Batch size for compilation.")
     parser.add_argument("--sequence_length", type=int, help="Sequence length for compilation.")
     parser.add_argument("--height", type=int, help="Image height for compilation.")
@@ -244,6 +283,12 @@ if __name__ == "__main__":
         "--auto_cast", type=str, choices=["none", "matmul", "all"], help="Operations to cast to lower precision."
     )
     parser.add_argument("--auto_cast_type", type=str, choices=["bf16", "fp16"], help="Auto cast type for compilation.")
+    parser.add_argument(
+        "--torch_dtype",
+        type=str,
+        choices=["float16", "bfloat16", "float32"],
+        help="Data type (precision) of tensors used when loading a model with PyTorch.",
+    )
     parser.add_argument("--hf_token", type=str, help="Hugging Face token for authentication if not logged in.")
     parser.add_argument("--config_file", type=str, help="Path to a json config file with model configurations.")
     args = parser.parse_args()
@@ -288,6 +333,7 @@ if __name__ == "__main__":
                     task=model_config.get("task", None),
                     auto_cast=model_config.get("auto_cast", None),
                     auto_cast_type=model_config.get("auto_cast_type", None),
+                    torch_dtype=model_config.get("torch_dtype", None),
                 )
     elif args.hf_model_id is None:
         raise ValueError("You must provide --hf_model_id to compile a model without a config file.")
