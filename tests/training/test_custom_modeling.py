@@ -128,12 +128,6 @@ def _custom_model_matches_original_model(
     dp_size = world_size // (tp_size * pp_size)
     pp_rank = get_pipeline_model_parallel_rank()
 
-    training_mod = importlib.import_module("optimum.neuron.models.training")
-    custom_model_class = getattr(training_mod, model_class_name)
-
-    if pp_size > 1 and not custom_model_class.supports_pipeline_parallelism():
-        pytest.skip(f"The model {model_class_name} does not support pipeline parallelism, skipping the test.")
-
     monkeypatch.setattr(
         optimum.neuron.models.training.loss_utils, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
     )
@@ -192,6 +186,9 @@ def _custom_model_matches_original_model(
         recompute_causal_mask=False,  # Recomputing the causal mask does not impact the loss but it impacts the logits.
     )
 
+    training_mod = importlib.import_module("optimum.neuron.models.training")
+    custom_model_class = getattr(training_mod, model_class_name)
+
     with static_seed_patcher:
         model = custom_model_class.from_pretrained(
             model_name_or_path, trn_config, attn_implementation=attn_implementation, torch_dtype=torch_dtype
@@ -244,11 +241,6 @@ def test_custom_modeling_matches_original(
     tmpdir,
     set_cache_for_ci,  # This fixture will handle setting the remote cache to make this test faster.
 ):
-    # dp=4,tp=2,pp=4
-    world_size = 32
-    tp_size = 2  # We set it to 2 * num_key_value_heads for qkv_linear.
-    pp_size = 4
-
     # We could make these parameters but we do not want to test all combinations.
     sequence_parallel_enabled = True
     # The best default to test would be flash attention since it's the most performant, but it seems to produce
@@ -258,6 +250,17 @@ def test_custom_modeling_matches_original(
     tmpdir = Path(tmpdir)
     new_model_name_or_path = tmpdir / "my_custom_model"
     model_class_name, model_name_or_path = model_specs
+
+    training_mod = importlib.import_module("optimum.neuron.models.training")
+    custom_model_class = getattr(training_mod, model_class_name)
+    if custom_model_class.supports_pipeline_parallelism():
+        world_size = 32
+        tp_size = 2
+        pp_size = 4
+    else:
+        world_size = 8
+        tp_size = 4
+        pp_size = 1
 
     config = AutoConfig.from_pretrained(model_name_or_path)
 
