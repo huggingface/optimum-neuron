@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        config: [stable-diffusion]
+        config: [diffusion]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
