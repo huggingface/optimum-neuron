@@ -55,18 +55,6 @@ MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"
 MODEL_NAME_WITH_4_KV_HEADS = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
 
 
-def get_optimizer(model: torch.nn.Module, with_groups: bool = True) -> torch.optim.Optimizer:
-    if with_groups:
-        groups = [
-            {"params": (p for idx, p in enumerate(model.parameters()) if idx % 2 == 0), "lr": 1e-2},
-            {"params": (p for idx, p in enumerate(model.parameters()) if idx % 2 == 1), "lr": 1e-6},
-        ]
-    else:
-        groups = model.parameters()
-
-    return torch.optim.AdamW(groups)
-
-
 def move_params_to_cpu(parameters):
     parameters = list(parameters)
     xm.mark_step()
@@ -106,20 +94,26 @@ class TestCommonTrainingFeatures(DistributedTest):
         if dp_size > 1 and zero_1 and max_grad_norm is not None:
             pytest.skip("Gradient clipping seems to not work properly with ZeRO-1.")
 
-        trn_config = TrainingNeuronConfig(tensor_parallel_size=tp_size, pipeline_parallel_size=pp_size)
-        model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
-
-        if tp_size == pp_size == 1:
-            move_model_to_device(model, xm.xla_device())
-
-        optimizer = get_optimizer(model, with_groups=False)
-
         accelerator = create_accelerator(
             tp_size, pp_size, zero_1=zero_1, gradient_accumulation_steps=gradient_accumulation_steps
         )
 
-        model, optimizer = accelerator.prepare(model, optimizer)
-        assert isinstance(optimizer, NeuronAcceleratedOptimizer)
+        trn_config = TrainingNeuronConfig(tensor_parallel_size=tp_size, pipeline_parallel_size=pp_size)
+        model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
+
+        model = accelerator.prepare(model)
+
+        if tp_size == pp_size == 1:
+            move_model_to_device(model, xm.xla_device())
+
+        parameters = list(model.local_parameters()) if isinstance(model, NxDPPModel) else list(model.parameters())
+        groups = [
+            {"params": (p for idx, p in enumerate(parameters) if idx % 2 == 0), "lr": 1e-2},
+            {"params": (p for idx, p in enumerate(parameters) if idx % 2 == 1), "lr": 1e-6},
+        ]
+        optimizer = torch.optim.AdamW(groups)
+        optimizer = accelerator.prepare(optimizer)
+        assert isinstance(optimizer, NeuronAcceleratedOptimizer), "Optimizer is not a NeuronAcceleratedOptimizer."
 
         inputs = get_model_inputs(model, MODEL_NAME)
 
@@ -131,9 +125,7 @@ class TestCommonTrainingFeatures(DistributedTest):
         if pp_size == 1:
             inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
 
-        current_parameters = move_params_to_cpu(
-            model.local_parameters() if isinstance(model, NxDPPModel) else model.parameters()
-        )
+        current_parameters = move_params_to_cpu(parameters)
 
         for step in range(int(1.5 * gradient_accumulation_steps)):
             is_optimizer_update_step = (step + 1) % gradient_accumulation_steps == 0
@@ -143,34 +135,37 @@ class TestCommonTrainingFeatures(DistributedTest):
                     loss = model.run_train(**inputs)
                     xm.mark_step()
 
-                    if max_grad_norm is not None:
-                        accelerator.clip_grad_norm_(
-                            model.local_parameters(),
-                            max_norm=max_grad_norm,
-                            norm_type=2,
-                            postpone_clipping_to_optimizer_step=True,
-                        )
-
                     # Checking that at least some of the parameters have a gradient.
                     grads_on_cpu = move_grads_to_cpu(model.local_parameters())
-                    assert any(torch.all(grad != 0) for grad in grads_on_cpu)
+                    assert any(torch.all(grad != 0) for grad in grads_on_cpu), (
+                        "Expected some gradients to be non-zero."
+                    )
 
-                    optimizer.step()
-
-                    # Checking only after an actual optimizer step that the norm has been clipped because it happens
-                    # during the optimizer step in some cases.
-                    if is_optimizer_update_step and max_grad_norm is not None:
-                        grads_on_cpu = move_grads_to_cpu(model.local_parameters())
-                        norms = [torch.linalg.vector_norm(grad, 2) for grad in grads_on_cpu]
-                        total_norm = torch.linalg.vector_norm(torch.stack(norms), 2)
-                        assert total_norm <= max_grad_norm
-
-                    optimizer.zero_grad()
-
-                    grads_on_cpu = move_grads_to_cpu(model.local_parameters())
                     if is_optimizer_update_step:
+                        if max_grad_norm is not None:
+                            accelerator.clip_grad_norm_(
+                                model.local_parameters(),
+                                max_norm=max_grad_norm,
+                                norm_type=2,
+                                postpone_clipping_to_optimizer_step=True,
+                            )
+                        optimizer.step()
+
+                        # Checking only after an actual optimizer step that the norm has been clipped because it happens
+                        # during the optimizer step in some cases.
+                        if max_grad_norm is not None:
+                            grads_on_cpu = move_grads_to_cpu(model.local_parameters())
+                            norms = [torch.linalg.vector_norm(grad, 2) for grad in grads_on_cpu]
+                            total_norm = torch.linalg.vector_norm(torch.stack(norms), 2)
+                            assert total_norm <= max_grad_norm, "Expected the total norm to be clipped."
+
+                        optimizer.zero_grad()
+
+                        grads_on_cpu = move_grads_to_cpu(model.local_parameters())
                         # At this point, no parameter should have a gradient.
-                        assert all(grad is None or torch.all(grad == 0) for grad in grads_on_cpu)
+                        assert all(grad is None or torch.all(grad == 0) for grad in grads_on_cpu), (
+                            "Expected no gradients after zero_grad()."
+                        )
 
                     current_parameters = move_params_to_cpu(model.local_parameters())
                 else:
@@ -180,41 +175,49 @@ class TestCommonTrainingFeatures(DistributedTest):
                     xm.mark_step()
                     loss.backward()
 
-                    if max_grad_norm is not None:
-                        accelerator.clip_grad_norm_(
-                            model.parameters(),
-                            max_norm=max_grad_norm,
-                            norm_type=2,
-                            postpone_clipping_to_optimizer_step=True,
-                        )
-
                     # Checking that at least some of the parameters have a gradient.
                     grads_on_cpu = move_grads_to_cpu(model.parameters())
-                    assert any(torch.all(grad != 0) for grad in grads_on_cpu)
+                    assert any(torch.all(grad != 0) for grad in grads_on_cpu), (
+                        "Expected some gradients to be non-zero."
+                    )
 
-                    optimizer.step()
-
-                    # Checking only after an actual optimizer step that the norm has been clipped because it happens
-                    # during the optimizer step in some cases.
-                    if is_optimizer_update_step and max_grad_norm is not None:
-                        grads_on_cpu = move_grads_to_cpu(model.parameters())
-                        norms = [torch.linalg.vector_norm(grad, 2) for grad in grads_on_cpu]
-                        total_norm = torch.linalg.vector_norm(torch.stack(norms), 2)
-                        assert total_norm <= max_grad_norm
-
-                    optimizer.zero_grad()
-
-                    # At this point, no parameter should have a gradient.
                     if is_optimizer_update_step:
+                        if max_grad_norm is not None:
+                            accelerator.clip_grad_norm_(
+                                model.parameters(),
+                                max_norm=max_grad_norm,
+                                norm_type=2,
+                                postpone_clipping_to_optimizer_step=True,
+                            )
+
+                        optimizer.step()
+
+                        # Checking only after an actual optimizer step that the norm has been clipped because it happens
+                        # during the optimizer step in some cases.
+                        if max_grad_norm is not None:
+                            grads_on_cpu = move_grads_to_cpu(model.parameters())
+                            norms = [torch.linalg.vector_norm(grad, 2) for grad in grads_on_cpu]
+                            total_norm = torch.linalg.vector_norm(torch.stack(norms), 2)
+                            assert total_norm <= max_grad_norm, "Expected the total norm to be clipped."
+
+                        optimizer.zero_grad()
+
+                        # At this point, no parameter should have a gradient.
                         grads_on_cpu = move_grads_to_cpu(model.parameters())
-                        assert all(grad is None or torch.all(grad == 0) for grad in grads_on_cpu)
+                        assert all(grad is None or torch.all(grad == 0) for grad in grads_on_cpu), (
+                            "Expected no gradients after zero_grad()."
+                        )
 
                     current_parameters = move_params_to_cpu(model.parameters())
 
                 if is_optimizer_update_step:
-                    assert any(torch.any(p1 != p2) for (p1, p2) in zip(orig_parameters, current_parameters))
+                    assert any(torch.any(p1 != p2) for (p1, p2) in zip(orig_parameters, current_parameters)), (
+                        "Expected some parameters to have changed after an optimizer step."
+                    )
                 else:
-                    assert all(torch.all(p1 == p2) for (p1, p2) in zip(orig_parameters, current_parameters))
+                    assert all(torch.all(p1 == p2) for (p1, p2) in zip(orig_parameters, current_parameters)), (
+                        "Expected no parameters to have changed before an optimizer step."
+                    )
 
     @pytest.mark.parametrize(
         "world_size,tp_size,pp_size,kv_size_multiplier,fuse_qkv",
