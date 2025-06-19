@@ -49,5 +49,6 @@ jobs:
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/training/ -v --durations=0 
       - name: Synchronize with HF cache repo
         run: |
+          source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} python tests/synchronize_with_cache_repo_for_ci.py 
 
