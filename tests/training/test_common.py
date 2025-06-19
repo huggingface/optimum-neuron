@@ -85,7 +85,9 @@ class TestCommonTrainingFeatures(DistributedTest):
             "zero_1=True,gradient_accumulation_steps=12,max_grad_norm=None",
         ],
     )
-    def test_optimizer_step(self, world_size, tp_size, pp_size, zero_1, gradient_accumulation_steps, max_grad_norm):
+    def test_optimizer_step(
+        self, world_size, tp_size, pp_size, zero_1, gradient_accumulation_steps, max_grad_norm, set_cache_for_ci
+    ):
         dp_size = world_size // (tp_size * pp_size)
         if dp_size == 1 and zero_1:
             pytest.skip("zero_1 needs to be tested only for dp_size > 1")
@@ -240,7 +242,7 @@ class TestCommonTrainingFeatures(DistributedTest):
         ids=["use_xser=True", "use_xser=False"],
     )
     def test_consolidate_custom_model_parallel_checkpoints(
-        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, fuse_qkv, use_xser
+        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, fuse_qkv, use_xser, set_cache_for_ci
     ):
         tmpdir = Path(tmpdir)
         orig_model = LlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS)
@@ -297,7 +299,7 @@ class TestCommonTrainingFeatures(DistributedTest):
         ],
     )
     def test_consolidate_custom_lora_model_parallel_checkpoints(
-        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, fuse_qkv, use_xser
+        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, fuse_qkv, use_xser, set_cache_for_ci
     ):
         tmpdir = Path(tmpdir)
         orig_model = LlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS)
@@ -432,7 +434,7 @@ class TestCommonTrainingFeatures(DistributedTest):
         ],
         ids=["dp=4,tp=2,pp=4"],
     )
-    def test_each_pp_rank_only_loads_relevant_parameters(self, world_size, tp_size, pp_size):
+    def test_each_pp_rank_only_loads_relevant_parameters(self, world_size, tp_size, pp_size, set_cache_for_ci):
         trn_config = TrainingNeuronConfig(
             tensor_parallel_size=tp_size,
             pipeline_parallel_size=pp_size,

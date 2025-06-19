@@ -242,6 +242,7 @@ def test_custom_modeling_matches_original(
     qkv_implementation,
     monkeypatch,
     tmpdir,
+    set_cache_for_ci,  # This fixture will handle setting the remote cache to make this test faster.
 ):
     # dp=4,tp=2,pp=4
     world_size = 32
