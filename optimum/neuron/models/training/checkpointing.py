@@ -31,6 +31,7 @@ from transformers.utils import (
 from ...utils.import_utils import is_peft_available
 from ...utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 from .modeling_utils import MODEL_PARALLEL_SHARDS_DIR_NAME
+from .transformations_utils import ModelWeightTransformationSpecs, to_original_weights
 
 
 if is_peft_available():
@@ -75,8 +76,6 @@ def consolidate_tensor_parallel_checkpoints(
     metadata: Dict[str, Any],
     adapter_name: Optional[str] = None,
 ) -> Dict[str, "torch.Tensor"]:
-    from ..models.training import ModelWeightTransformationSpecs, to_original_weights
-
     state_dicts = []
     sharded_checkpoints = sorted(sharded_checkpoints)
     for sharded_checkpoint in sharded_checkpoints:

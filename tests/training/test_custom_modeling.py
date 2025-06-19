@@ -236,6 +236,7 @@ def _custom_model_matches_original_model(
 
 @pytest.mark.parametrize("qkv_implementation", ["regular_qkv", "fuse_qkv", "qkv_linear"])
 @pytest.mark.parametrize("model_specs", CUSTOM_MODELINGS_TO_TEST, ids=[specs[0] for specs in CUSTOM_MODELINGS_TO_TEST])
+@pytest.mark.timeout(120)  # If a test takes more that 2 minutes, it is likely stuck.
 def test_custom_modeling_matches_original(
     model_specs,
     qkv_implementation,

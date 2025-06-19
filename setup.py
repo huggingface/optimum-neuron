@@ -23,6 +23,7 @@ INSTALL_REQUIRES = [
 
 TESTS_REQUIRE = [
     "pytest <= 8.0.0",
+    "pytest-timeout",
     "psutil",
     "parameterized",
     "GitPython",

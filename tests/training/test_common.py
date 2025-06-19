@@ -115,7 +115,7 @@ class TestCommonTrainingFeatures(DistributedTest):
         optimizer = accelerator.prepare(optimizer)
         assert isinstance(optimizer, NeuronAcceleratedOptimizer), "Optimizer is not a NeuronAcceleratedOptimizer."
 
-        inputs = get_model_inputs(model, MODEL_NAME)
+        inputs = get_model_inputs(model, MODEL_NAME_WITH_4_KV_HEADS)
 
         def move_grads_to_cpu(parameters):
             grads = [p.grad for p in parameters]
