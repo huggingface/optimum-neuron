@@ -168,12 +168,6 @@ class NxDDecoderModel(nn.Module):
         else:
             return self._create_simple_attn_mask(attention_mask)
 
-    def _reorder_helper(self, inp, ids):
-        # alternative, torch_xla compatible version of index_select for 0th (batch) dimension
-        sorted_inp = inp[ids.flatten()]
-
-        return sorted_inp
-
     def _slice_kv_cache(self, kv_cache, n_positions):
         past_key_values = []
         for idx in range(len(kv_cache)):
@@ -205,15 +199,6 @@ class NxDDecoderModel(nn.Module):
             if self.neuron_config.flash_decoding_enabled
             else self.n_positions
         )
-
-        orig_seq_ids = seq_ids
-
-        if self._is_reorder_needed(is_for_context_encoding, is_for_speculation):
-            seq_ids = torch.argsort(seq_ids)
-            input_ids = self._reorder_helper(input_ids, seq_ids)
-            attention_mask = self._reorder_helper(attention_mask, seq_ids)
-            position_ids = self._reorder_helper(position_ids, seq_ids)
-            sampling_params = self._reorder_helper(sampling_params, seq_ids)
 
         # It is either for context encoding or for token generation
         if is_for_context_encoding:
@@ -297,9 +282,6 @@ class NxDDecoderModel(nn.Module):
                 res = nxd_argmax(tensor=logits, dim=2, gather_dim=2, keepdim=False)
             else:
                 res = self.sampler(logits[:, -1, :], sampling_params)
-
-        if self._is_reorder_needed(is_for_context_encoding, is_for_speculation):
-            res = self._reorder_helper(res, orig_seq_ids)
 
         outputs = [res]
         if self.neuron_config.output_logits:
