@@ -14,7 +14,9 @@
 # limitations under the License.
 
 from argparse import ArgumentParser
+
 from optimum.neuron.cache import synchronize_hub_cache
+
 from .conftest import OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI
 
 
