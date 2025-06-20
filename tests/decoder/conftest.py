@@ -37,7 +37,6 @@ DECODER_MODEL_CONFIGURATIONS = {
             "sequence_length": 4096,
             "num_cores": 2,
             "auto_cast_type": "fp16",
-            "load_weights": False,
         },
     },
     "qwen2": {
@@ -47,7 +46,6 @@ DECODER_MODEL_CONFIGURATIONS = {
             "sequence_length": 4096,
             "num_cores": 2,
             "auto_cast_type": "fp16",
-            "load_weights": False,
         },
     },
     "granite": {
@@ -57,7 +55,6 @@ DECODER_MODEL_CONFIGURATIONS = {
             "sequence_length": 4096,
             "num_cores": 2,
             "auto_cast_type": "bf16",
-            "load_weights": False,
         },
     },
     "phi": {
@@ -67,7 +64,6 @@ DECODER_MODEL_CONFIGURATIONS = {
             "sequence_length": 4096,
             "num_cores": 2,
             "auto_cast_type": "bf16",
-            "load_weights": False,
         },
     },
     "qwen3": {
@@ -77,7 +73,6 @@ DECODER_MODEL_CONFIGURATIONS = {
             "sequence_length": 4096,
             "num_cores": 2,
             "auto_cast_type": "bf16",
-            "load_weights": False,
         },
     },
 }
@@ -89,18 +84,12 @@ def _get_hub_neuron_model_prefix():
 
 
 def _get_hub_neuron_model_id(config_name: str, model_config: Dict[str, str]):
-    hub_neuron_model_id = f"{_get_hub_neuron_model_prefix()}-{config_name}"
-    config = AutoConfig.from_pretrained(model_config["model_id"])
-    model_type = config.model_type
-    auto_model_class = get_neuron_model_class(model_type, "text-generation", "inference")
-    if issubclass(auto_model_class, NxDModelForCausalLM):
-        hub_neuron_model_id += "-nxd"
-    return hub_neuron_model_id
+    return f"{_get_hub_neuron_model_prefix()}-{config_name}"
 
 
 def _export_model(model_id, export_kwargs, neuron_model_path):
     try:
-        model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, **export_kwargs)
+        model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, load_weights=False, **export_kwargs)
         model.save_pretrained(neuron_model_path)
         return model
     except Exception as e:
