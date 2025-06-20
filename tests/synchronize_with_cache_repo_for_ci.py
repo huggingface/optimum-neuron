@@ -13,14 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 from argparse import ArgumentParser
-
-from huggingface_hub import login
-
-from optimum.neuron.utils.hub_neuronx_cache import synchronize_hub_cache
-
-from .utils import OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI
+from optimum.neuron.cache import synchronize_hub_cache
+from .conftest import OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI
 
 
 def get_args():
@@ -32,8 +27,6 @@ def get_args():
 
 
 def run(args):
-    token = os.environ.get("HF_TOKEN", None)
-    login(token)
     synchronize_hub_cache(cache_path=args.cache_dir, cache_repo_id=OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI)
 
 
