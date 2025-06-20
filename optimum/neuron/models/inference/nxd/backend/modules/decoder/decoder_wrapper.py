@@ -191,7 +191,23 @@ class NxDDecoderWrapper(NxDModelWrapper):
         return logits[: seq_ids.shape[0]]
 
     def _forward(self, input_ids, attention_mask, position_ids, seq_ids, sampling_params):
-        return self.model(input_ids, attention_mask, position_ids, seq_ids, sampling_params)
+        needs_reordering = False
+        if self.tag == TOKEN_GENERATION_MODEL_TAG and self.neuron_config.continuous_batching:
+            # if continuous batching is enabled, we need to ensure that the inputs are at the expected positions
+            orig_seq_ids = seq_ids.clone()
+            needs_reordering = not torch.equal(seq_ids, torch.arange(seq_ids.shape[0]))
+            if needs_reordering:
+                sorting_index = torch.argsort(seq_ids)
+                seq_ids = torch.index_select(seq_ids, 0, sorting_index)
+                input_ids = torch.index_select(input_ids, 0, sorting_index)
+                attention_mask = torch.index_select(attention_mask, 0, sorting_index)
+                position_ids = torch.index_select(position_ids, 0, sorting_index)
+                sampling_params = torch.index_select(sampling_params, 0, sorting_index)
+        outputs = self.model(input_ids, attention_mask, position_ids, seq_ids, sampling_params)
+        if needs_reordering:
+            # if we reordered the inputs, we need to reorder the outputs as well
+            outputs = torch.index_select(outputs, 0, orig_seq_ids)
+        return outputs
 
     def convert_int64_to_int32(self, *args):
         """
