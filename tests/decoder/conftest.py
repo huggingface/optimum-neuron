@@ -11,8 +11,8 @@ from transformers import AutoConfig, AutoTokenizer
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.cache import synchronize_hub_cache
-from optimum.neuron.models.inference.nxd.backend.config import NxDNeuronConfig
-from optimum.neuron.models.inference.nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
+from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
+from optimum.neuron.models.inference.llama.modeling_llama import LlamaNxDModelForCausalLM
 from optimum.neuron.version import __sdk_version__ as sdk_version
 from optimum.neuron.version import __version__ as version
 

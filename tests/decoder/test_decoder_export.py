@@ -19,7 +19,6 @@ import torch
 from transformers import AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.models.inference.nxd.backend.modules.decoder import NxDModelForCausalLM
 from optimum.neuron.utils import map_torch_dtype
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 

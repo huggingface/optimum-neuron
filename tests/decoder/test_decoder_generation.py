@@ -21,9 +21,9 @@ from transformers import AutoTokenizer
 from transformers.generation import StoppingCriteria
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.models.inference.nxd.backend.modules.decoder import NxDModelForCausalLM
-from optimum.neuron.models.inference.nxd.backend.modules.generation.generation_utils import prepare_sampling_params
-from optimum.neuron.models.inference.nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
+from optimum.neuron.models.inference.backend.modules.decoder import NxDModelForCausalLM
+from optimum.neuron.models.inference.backend.modules.generation.generation_utils import prepare_sampling_params
+from optimum.neuron.models.inference.llama.modeling_llama import LlamaNxDModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
