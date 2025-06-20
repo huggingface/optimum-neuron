@@ -225,8 +225,8 @@ def _overfit_causal_lm(
             50,
         ],
         [
-            "LlamaForCausalLM",
-            "HuggingFaceTB/SmolLM2-135M-Instruct",
+            "GPT2LMHeadModel",
+            "distilbert/distilgpt2",
             False,
             1e-4,
             0.04,
@@ -241,7 +241,7 @@ def _overfit_causal_lm(
         "meta-llama/Llama-3.2-1B-Instruct",
         "ibm-granite/granite-3.2-2b-instruct",
         "Qwen/Qwen3-0.6B",
-        "HuggingFaceTB/SmolLM2-135M-Instruct",
+        "distilbert/distilgpt2",
     ],
 )
 @pytest.mark.neuron_parallel_compile
