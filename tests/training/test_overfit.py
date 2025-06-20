@@ -324,7 +324,7 @@ def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir, set_cache_
         0.03,
         {},
         2048,
-        0.0,
+        0.01,
         30,
         tp_size,
         pp_size,
