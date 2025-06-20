@@ -49,8 +49,7 @@ else:
 def xser_load_on_cpu(path: str):
     """
     Modified version from neuronx_distributed `_xser_load` function load located at:
-    https://github.com/aws-neuron/neuronx-distributed/blob/main/src/neuronx_distributed/parallel_layers/checkpointing.py#L265-L283.
-
+    https://github.com/aws-neuron/neuronx-distributed/blob/e83494557cb4c5b7e185ccf6c9240bfed9a1993d/src/neuronx_distributed/parallel_layers/checkpointing.py#L252
     Instead of moving the loaded tensors to the XLA device, it keeps them on CPU.
     """
     import torch_xla.core.xla_model as xm
