@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 from huggingface_hub import HfApi, create_repo, delete_repo, get_token
 
+from optimum.neuron.cache.hub_cache import synchronize_hub_cache
 from optimum.neuron.utils.cache_utils import (
     delete_custom_cache_repo_name_from_hf_home,
     load_custom_cache_repo_name_from_hf_home,
@@ -153,8 +154,6 @@ def hub_test_with_local_cache():
 
 @pytest.fixture(scope="module")
 def set_cache_for_ci():
-    orig_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
-
     token = os.environ.get("HF_TOKEN", None)
     if token is None:
         orig_token = get_token()
@@ -165,15 +164,15 @@ def set_cache_for_ci():
             )
         else:
             print("Warning: No HF_TOKEN provided. Using the original token.")
-
-    set_custom_cache_repo_name_in_hf_home(OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI)
-
     yield
 
-    if orig_custom_cache_repo is not None:
-        set_custom_cache_repo_name_in_hf_home(orig_custom_cache_repo, check_repo=False)
-    else:
-        delete_custom_cache_repo_name_from_hf_home()
+    # This will synchronizee the cache with the cache repo after every test.
+    # This is useful to make the CI faster by avoiding recompilation eveyr time.
+    try:
+        synchronize_hub_cache(cache_repo_id=OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI)
+    except Exception as e:
+        print(f"Warning: Failed to synchronize the cache with the repo {OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI}.")
+        print(f"Error: {e}")
 
 
 ### The following part is for running distributed tests.

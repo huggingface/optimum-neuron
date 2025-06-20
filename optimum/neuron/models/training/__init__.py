@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from .checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
+from .config import TrainingNeuronConfig
 from .granite.modeling_granite import GraniteForCausalLM
 from .llama.modeling_llama import LlamaForCausalLM
 from .modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin

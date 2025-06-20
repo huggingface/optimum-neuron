@@ -23,7 +23,7 @@ from typing import Callable, Dict, List, Optional, Tuple, Type, Union
 
 import torch
 from datasets import Dataset, DatasetDict
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
+from transformers import AutoConfig, AutoTokenizer, PreTrainedModel
 from transformers.models.auto import get_values
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
@@ -374,13 +374,6 @@ def get_model_inputs(
                 )
                 inputs[name] = tensor
     return inputs
-
-
-def get_tokenizer_and_tiny_llama_model():
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    config = AutoConfig.from_pretrained(MODEL_NAME)
-    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, config=config, ignore_mismatched_sizes=True)
-    return tokenizer, model
 
 
 def create_accelerator(
