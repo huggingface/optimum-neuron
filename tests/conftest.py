@@ -20,7 +20,7 @@ import string
 from pathlib import Path
 
 import pytest
-from huggingface_hub import HfApi, create_repo, delete_repo, get_token, login, logout
+from huggingface_hub import HfApi, create_repo, delete_repo, get_token
 
 from optimum.neuron.utils.cache_utils import (
     delete_custom_cache_repo_name_from_hf_home,
@@ -102,7 +102,6 @@ def get_random_string(length) -> str:
 
 
 def _hub_test(create_local_cache: bool = False):
-    orig_token = get_token()
     orig_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
 
     token = os.environ.get("HF_TOKEN", None)
@@ -120,7 +119,6 @@ def _hub_test(create_local_cache: bool = False):
     if create_local_cache:
         set_neuron_cache_path(local_cache_path_with_seed)
 
-    login(token=token)
     set_custom_cache_repo_name_in_hf_home(custom_cache_repo_with_seed)
 
     if create_local_cache:
@@ -137,10 +135,6 @@ def _hub_test(create_local_cache: bool = False):
 
     if local_cache_path_with_seed.is_dir():
         shutil.rmtree(local_cache_path_with_seed)
-    if orig_token is not None:
-        login(token=orig_token)
-    else:
-        logout()
     if orig_custom_cache_repo is not None:
         set_custom_cache_repo_name_in_hf_home(orig_custom_cache_repo, check_repo=False)
     else:
@@ -159,11 +153,11 @@ def hub_test_with_local_cache():
 
 @pytest.fixture(scope="module")
 def set_cache_for_ci():
-    orig_token = get_token()
     orig_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
 
     token = os.environ.get("HF_TOKEN", None)
     if token is None:
+        orig_token = get_token()
         if orig_token is None:
             raise ValueError(
                 "The token of the `optimum-internal-testing` member on the Hugging Face Hub must be specified via the "
@@ -171,17 +165,11 @@ def set_cache_for_ci():
             )
         else:
             print("Warning: No HF_TOKEN provided. Using the original token.")
-    else:
-        login(token=token)
 
     set_custom_cache_repo_name_in_hf_home(OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI)
 
     yield
 
-    if orig_token is not None:
-        login(token=orig_token)
-    else:
-        logout()
     if orig_custom_cache_repo is not None:
         set_custom_cache_repo_name_in_hf_home(orig_custom_cache_repo, check_repo=False)
     else:

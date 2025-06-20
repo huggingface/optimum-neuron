@@ -5,13 +5,14 @@ on:
     branches: [ main ]
     paths:
       - "setup.py"
-      - "optimum/neuron/training/**.py"
+      - "optimum/neuron/models/training/**.py"
+      - "tests/training/**.py"
       - ".github/workflows/test_trainium_training.yml"
   pull_request:
     branches: [ main ]
     paths:
       - "setup.py"
-      - "optimum/neuron/training/**.py"
+      - "optimum/neuron/models/training/**.py"
       - "tests/training/**.py"
       -  ".github/workflows/test_trainium_training.yml"
 
