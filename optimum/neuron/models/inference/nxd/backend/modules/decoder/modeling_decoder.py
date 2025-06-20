@@ -50,6 +50,7 @@ from ..flashdecode.utils import (
 from ..generation.generation_utils import NxDGenerationMixin
 from ..generation.sampling import (
     Sampler,
+    mask_padded_logits,
     prepare_sampling_params,
     validate_sampling_params,
 )
@@ -273,6 +274,15 @@ class NxDDecoderModel(nn.Module):
 
         logits = self.lm_head(hidden_states)
         logits = logits.float()
+
+        if hasattr(self.lm_head, "pad_size"):
+            if self.lm_head.gather_output:
+                rank_id = torch.tensor(0, device=logits.device, dtype=torch.int32)
+                world_size = 1
+            else:
+                rank_id = self.rank_util.get_rank()
+                world_size = torch.distributed.get_world_size(group=self.lm_head.tensor_parallel_group)
+            logits = mask_padded_logits(logits, rank_id, world_size, pad_size=self.lm_head.pad_size)
 
         res = logits
         if self.neuron_config.on_device_sampling:
