@@ -488,7 +488,7 @@ def _test_custom_model_resize_embedding():
 
 
 @is_trainium_test
-def test_custom_model_resize_embedding():
+def test_custom_model_resize_embedding(set_cache_for_ci):
     world_size, tp_size, pp_size = (2, 2, 1)
     run_fn = partial(_test_custom_model_resize_embedding)
     launch_procs(run_fn, world_size, tp_size, pp_size)
