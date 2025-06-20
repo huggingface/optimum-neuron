@@ -4,7 +4,7 @@ from tempfile import TemporaryDirectory
 import pytest
 
 from optimum.neuron.configuration_utils import NeuronConfig
-from optimum.neuron.models.inference.nxd.backend.config import NxDNeuronConfig
+from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
 from optimum.neuron.utils import map_torch_dtype
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
