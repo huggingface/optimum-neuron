@@ -1,29 +1,28 @@
 from tempfile import TemporaryDirectory
 
 import pytest
+import torch
 
 from optimum.neuron.configuration_utils import NeuronConfig
-from optimum.neuron.models.inference.hlo.backend.config import GQA, HloNeuronConfig, Layout
+from optimum.neuron.models.inference.nxd.backend.config import NxDNeuronConfig
 
 
 @pytest.mark.parametrize(
     "neuron_config_cls, neuron_config_kwargs",
     [
-        (HloNeuronConfig, {}),
+        (NxDNeuronConfig, {}),
         (
-            HloNeuronConfig,
+            NxDNeuronConfig,
             {
                 "sequence_length": 512,
                 "batch_size": 8,
-                "auto_cast_type": "fp16",
+                "torch_dtype": torch.float16,
                 "tp_degree": 4,
                 "continuous_batching": True,
-                "attention_layout": Layout.BSH,
-                "group_query_attention": GQA.REPLICATED_HEADS,
             },
         ),
     ],
-    ids=["hlo-default", "hlo-custom"],
+    ids=["nxd-default", "nxd-custom"],
 )
 def test_serialize_neuron_config(neuron_config_cls, neuron_config_kwargs):
     neuron_config = neuron_config_cls(**neuron_config_kwargs)
