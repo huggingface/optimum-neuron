@@ -230,6 +230,10 @@ class NxDDecoderWrapper(NxDModelWrapper):
             input_ids, attention_mask, position_ids, seq_ids
         )
 
+        sorted_seq_ids = torch.argsort(seq_ids)
+        if not torch.equal(seq_ids, sorted_seq_ids):
+            raise ValueError("Sequence ids must be in ascending odrder.")
+
         input_batch_size = seq_ids.shape[0]
 
         if input_batch_size == self.neuron_config.batch_size:
