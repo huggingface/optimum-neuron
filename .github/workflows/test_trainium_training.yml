@@ -47,8 +47,7 @@ jobs:
       - name: Run tests on Neuron Cores
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          # HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/training/ -v --durations=0 
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest tests/training/test_custom_modeling.py -k "custom_modeling_matches and fuse and qwen" -v
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/training/ -v 
       - name: Synchronize with HF cache repo
         run: |
           source aws_neuron_venv_pytorch/bin/activate
