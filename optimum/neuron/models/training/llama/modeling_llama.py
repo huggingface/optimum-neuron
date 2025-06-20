@@ -37,6 +37,7 @@ from ....utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..config import TrainingNeuronConfig
 from ..loss_utils import ForCausalLMLoss
 from ..modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
+from ..pipeline_utils import dynamic_torch_fx_wrap
 from ..transformations_utils import (
     CustomModule,
     FusedLinearsSpec,
@@ -754,6 +755,7 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         return causal_mask
 
     @staticmethod
+    @dynamic_torch_fx_wrap
     def _prepare_4d_causal_attention_mask_with_cache_position(
         attention_mask: torch.Tensor,
         sequence_length: int,

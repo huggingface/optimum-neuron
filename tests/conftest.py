@@ -14,12 +14,15 @@
 # limitations under the License.
 
 import os
+import random
 import shutil
+import string
 from pathlib import Path
 
 import pytest
-from huggingface_hub import HfApi, create_repo, delete_repo, get_token, login, logout
+from huggingface_hub import HfApi, create_repo, delete_repo, get_token
 
+from optimum.neuron.cache.hub_cache import synchronize_hub_cache
 from optimum.neuron.utils.cache_utils import (
     delete_custom_cache_repo_name_from_hf_home,
     load_custom_cache_repo_name_from_hf_home,
@@ -27,14 +30,14 @@ from optimum.neuron.utils.cache_utils import (
     set_neuron_cache_path,
 )
 
-from .utils import (
-    OPTIMUM_INTERNAL_TESTING_CACHE_REPO,
-    OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI,
-    TOKEN_STAGING,
-    USER_STAGING,
-    get_random_string,
-)
 
+# Not critical, only usable on the sandboxed CI instance.
+USER_STAGING = "__DUMMY_OPTIMUM_USER__"
+TOKEN_STAGING = "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"
+
+SEED = 42
+OPTIMUM_INTERNAL_TESTING_CACHE_REPO = "optimum-internal-testing/optimum-neuron-cache-for-testing"
+OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI = "optimum-internal-testing/optimum-neuron-cache-ci"
 
 # Inferentia fixtures
 ENCODER_ARCHITECTURES = [
@@ -94,8 +97,12 @@ def inf_diffuser_model(request):
     return request.param
 
 
+def get_random_string(length) -> str:
+    letters = string.ascii_lowercase
+    return "".join(random.choice(letters) for _ in range(length))
+
+
 def _hub_test(create_local_cache: bool = False):
-    orig_token = get_token()
     orig_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
 
     token = os.environ.get("HF_TOKEN", None)
@@ -113,7 +120,6 @@ def _hub_test(create_local_cache: bool = False):
     if create_local_cache:
         set_neuron_cache_path(local_cache_path_with_seed)
 
-    login(token=token)
     set_custom_cache_repo_name_in_hf_home(custom_cache_repo_with_seed)
 
     if create_local_cache:
@@ -130,10 +136,6 @@ def _hub_test(create_local_cache: bool = False):
 
     if local_cache_path_with_seed.is_dir():
         shutil.rmtree(local_cache_path_with_seed)
-    if orig_token is not None:
-        login(token=orig_token)
-    else:
-        logout()
     if orig_custom_cache_repo is not None:
         set_custom_cache_repo_name_in_hf_home(orig_custom_cache_repo, check_repo=False)
     else:
@@ -152,11 +154,9 @@ def hub_test_with_local_cache():
 
 @pytest.fixture(scope="module")
 def set_cache_for_ci():
-    orig_token = get_token()
-    orig_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
-
     token = os.environ.get("HF_TOKEN", None)
     if token is None:
+        orig_token = get_token()
         if orig_token is None:
             raise ValueError(
                 "The token of the `optimum-internal-testing` member on the Hugging Face Hub must be specified via the "
@@ -164,21 +164,15 @@ def set_cache_for_ci():
             )
         else:
             print("Warning: No HF_TOKEN provided. Using the original token.")
-    else:
-        login(token=token)
-
-    set_custom_cache_repo_name_in_hf_home(OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI)
-
     yield
 
-    if orig_token is not None:
-        login(token=orig_token)
-    else:
-        logout()
-    if orig_custom_cache_repo is not None:
-        set_custom_cache_repo_name_in_hf_home(orig_custom_cache_repo, check_repo=False)
-    else:
-        delete_custom_cache_repo_name_from_hf_home()
+    # This will synchronizee the cache with the cache repo after every test.
+    # This is useful to make the CI faster by avoiding recompilation eveyr time.
+    try:
+        synchronize_hub_cache(cache_repo_id=OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI)
+    except Exception as e:
+        print(f"Warning: Failed to synchronize the cache with the repo {OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI}.")
+        print(f"Error: {e}")
 
 
 ### The following part is for running distributed tests.
