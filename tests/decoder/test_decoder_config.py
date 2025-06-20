@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from optimum.neuron.configuration_utils import NeuronConfig
-from optimum.neuron.models.inference.nxd.backend.config import NxDNeuronConfig
+from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
 
 
 @pytest.mark.parametrize(

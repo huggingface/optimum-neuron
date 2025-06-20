@@ -34,9 +34,9 @@ from torch import nn
 from transformers import AutoConfig, PretrainedConfig
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from .......cache.entries.single_model import SingleModelCacheEntry
-from .......cache.hub_cache import hub_neuronx_cache
-from .......modeling_decoder import NeuronModelForCausalLM
+from ......cache.entries.single_model import SingleModelCacheEntry
+from ......cache.hub_cache import hub_neuronx_cache
+from ......modeling_decoder import NeuronModelForCausalLM
 from ...config import NxDNeuronConfig
 from ...pretrained_model import NxDPreTrainedModel
 from ...utils.random import set_random_seed

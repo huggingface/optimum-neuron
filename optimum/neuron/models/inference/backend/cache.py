@@ -25,8 +25,8 @@ from typing import List, Optional, Union
 from libneuronxla.neuron_cc_cache import CacheUrl
 from torch_neuronx.xla_impl.trace import HloArtifacts, NeffArtifacts, generate_neff, hlo_compile, setup_compiler_dirs
 
-from .....cache.hub_cache import create_hub_compile_cache_proxy
-from .....utils.patching import patch_everywhere
+from ....cache.hub_cache import create_hub_compile_cache_proxy
+from ....utils.patching import patch_everywhere
 
 
 logger = logging.getLogger("Neuron")
