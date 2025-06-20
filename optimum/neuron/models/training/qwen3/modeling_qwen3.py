@@ -72,7 +72,10 @@ class Qwen3Attention(LlamaAttention):
         else:
             bsz, q_len, _ = hidden_states.size()
 
-        if self.qkv_linear:
+        if self.trn_config.fuse_qkv and self.num_heads == self.num_key_value_heads and self.kv_size_multiplier == 1:
+            qkv_states = self.qkv_proj(hidden_states)
+            query_states, key_states, value_states = qkv_states.split(self.split_size, dim=2)
+        elif self.qkv_linear:
             query_states, key_states, value_states = self.qkv_proj(hidden_states)
         else:
             query_states = self.q_proj(hidden_states)
@@ -96,12 +99,12 @@ class Qwen3Attention(LlamaAttention):
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
         if self.config._attn_implementation == "flash_attention_2":
+            attention_interface = ALL_ATTENTION_FUNCTIONS["flash_attention_2"]
             if self.training and self.attention_dropout > 0.0:
                 raise RuntimeError(
                     "Attention dropout produces NaN with flash_attention_2. Please set it to 0.0 until this bug is "
                     "resolved by the Neuron SDK."
                 )
-            attention_interface = ALL_ATTENTION_FUNCTIONS["flash_attention_2"]
             attn_output = attention_interface(
                 query_states,
                 repeat_kv(key_states, self.num_key_value_groups),

@@ -259,8 +259,8 @@ def test_custom_modeling_matches_original(
         tp_size = 2
         pp_size = 4
     else:
-        world_size = 8
-        tp_size = 4
+        world_size = 32
+        tp_size = 2
         pp_size = 1
 
     config = AutoConfig.from_pretrained(model_name_or_path)
