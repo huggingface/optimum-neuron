@@ -38,16 +38,16 @@ jobs:
         uses: ./.github/actions/prepare_venv
       - name: Install optimum-neuron
         uses: ./.github/actions/install_optimum_neuron
-      # - name: Setup PATH
-      #   run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
-      # - name: Collect tests on Neuron Cores
-      #   run: |
-      #     source aws_neuron_venv_pytorch/bin/activate
-      #     HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/training/ --collect-only
-      # - name: Run tests on Neuron Cores
-      #   run: |
-      #     source aws_neuron_venv_pytorch/bin/activate
-      #     HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/training/ -v --durations=0 
+      - name: Setup PATH
+        run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
+      - name: Collect tests on Neuron Cores
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/training/ --collect-only
+      - name: Run tests on Neuron Cores
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/training/ -v --durations=0 
       - name: Synchronize with HF cache repo
         run: |
           source aws_neuron_venv_pytorch/bin/activate
