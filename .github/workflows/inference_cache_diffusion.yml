@@ -23,7 +23,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        config: [diffusion]
+        config: [
+          pixart-alpha-xl-512x512,
+          pixart-sigma-xl-512x512,
+          sdxl-turbo,
+          stable-diffusion-2-1,
+          stable-diffusion-v1-5,
+          stable-diffusion-xl-base-1.0,
+          stable-diffusion-xl-refiner-1.0,
+        ]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
