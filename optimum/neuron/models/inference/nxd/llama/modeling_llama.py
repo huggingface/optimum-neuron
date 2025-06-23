@@ -257,10 +257,13 @@ class NeuronLlamaAttention(NeuronAttentionBase):
         self,
         config: LlamaConfig,
         neuron_config: NxDNeuronConfig,
-        qkv_proj_bias: bool = False,
-        o_proj_bias: bool = False,
+        qkv_proj_bias: Optional[bool] = False,
+        o_proj_bias: Optional[bool] = False,
+        qk_scale: Optional[float] = None,
     ):
-        super().__init__(config, neuron_config, qkv_proj_bias=qkv_proj_bias, o_proj_bias=o_proj_bias)
+        super().__init__(
+            config, neuron_config, qkv_proj_bias=qkv_proj_bias, o_proj_bias=o_proj_bias, qk_scale=qk_scale
+        )
         head_dim = config.hidden_size // config.num_attention_heads
         if not hasattr(config, "rope_scaling") or config.rope_scaling is None:
             self.rotary_emb = RotaryEmbedding(
