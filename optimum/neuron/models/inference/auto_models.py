@@ -22,6 +22,7 @@ automatically by the neuron factory classes such as NeuronModelForCausalLM.
 import os
 
 from ..auto_model import register_neuron_model
+from .gpt_oss.modeling_gpt_oss import GptOssNxdForCausalLM
 from .granite.modeling_granite import GraniteNxDModelForCausalLM
 from .llama.modeling_llama import LlamaNxDModelForCausalLM
 from .mixtral.modeling_mixtral import MixtralNxDModelForCausalLM
@@ -89,6 +90,15 @@ class MixtralNeuronModelForCausalLM(MixtralNxDModelForCausalLM):
 class Qwen3NeuronModelForCausalLM(Qwen3NxDModelForCausalLM):
     """
     Qwen3 model with NxD backend for inference on AWS Neuron.
+    """
+
+    pass
+
+
+@register_neuron_model_for_inference("gpt_oss", "text-generation")
+class GptOssForCausalLM(GptOssNxdForCausalLM):
+    """
+    GptOss model with NxD backend for inference on AWS Neuron.
     """
 
     pass
