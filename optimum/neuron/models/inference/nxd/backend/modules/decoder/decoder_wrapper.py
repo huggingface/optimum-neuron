@@ -232,7 +232,11 @@ class NxDDecoderWrapper(NxDModelWrapper):
 
         input_batch_size = seq_ids.shape[0]
 
-        if input_batch_size == self.neuron_config.batch_size:
+        if input_batch_size > self.neuron_config.max_batch_size:
+            raise ValueError(
+                f"Input batch size {input_batch_size} exceeds the maximum batch size {self.neuron_config.max_batch_size}."
+            )
+        elif input_batch_size == self.neuron_config.batch_size:
             return self._forward(input_ids, attention_mask, position_ids, seq_ids, sampling_params)
 
         cur_batch = 0
@@ -241,6 +245,7 @@ class NxDDecoderWrapper(NxDModelWrapper):
         logging.debug(
             f"get input_batch_size as {input_batch_size} but compiled batch_size as {self.neuron_config.batch_size}"
         )
+
         args = (input_ids, attention_mask, position_ids, seq_ids, sampling_params)
         while cur_batch < input_batch_size:
             if cur_batch + self.neuron_config.batch_size <= input_batch_size:
