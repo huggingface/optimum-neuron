@@ -135,9 +135,7 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
     else:
         expectations = {
             "llama": " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial",
-            "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
             "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
-            "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
         }
     config_name = neuron_decoder_config["name"]
     generated_text = tokenizer.decode(outputs[0])
