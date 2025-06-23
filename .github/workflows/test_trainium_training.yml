@@ -1,4 +1,4 @@
-name: Optimum Neuron - Test optimum.neuron.distributed on Trainium
+name: Optimum Neuron - Test training on Trainium
 
 on:
   push:
