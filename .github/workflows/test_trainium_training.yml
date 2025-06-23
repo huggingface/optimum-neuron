@@ -5,15 +5,16 @@ on:
     branches: [ main ]
     paths:
       - "setup.py"
-      - "optimum/neuron/distributed/**.py"
-      - ".github/workflows/test_trainium_distributed.yml"
+      - "optimum/neuron/models/training/**.py"
+      - "tests/training/**.py"
+      - ".github/workflows/test_trainium_training.yml"
   pull_request:
     branches: [ main ]
     paths:
       - "setup.py"
-      - "optimum/neuron/distributed/**.py"
-      - "tests/distributed/**.py"
-      -  ".github/workflows/test_trainium_distributed.yml"
+      - "optimum/neuron/models/training/**.py"
+      - "tests/training/**.py"
+      -  ".github/workflows/test_trainium_training.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -42,9 +43,8 @@ jobs:
       - name: Collect tests on Neuron Cores
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/distributed/ --collect-only
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/training/ --collect-only
       - name: Run tests on Neuron Cores
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/distributed/ -v --durations=0 -x
-
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/training/ -v 

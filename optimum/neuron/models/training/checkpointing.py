@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Functions handling checkpointing under parallel settings."""
 
 import json
 import os
@@ -29,10 +28,10 @@ from transformers.utils import (
     WEIGHTS_NAME,
 )
 
-from ..peft.peft_model import ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME
-from ..utils.import_utils import is_peft_available
-from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
-from .utils import MODEL_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, compute_query_indices_for_rank
+from ...utils.import_utils import is_peft_available
+from ...utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
+from .modeling_utils import MODEL_PARALLEL_SHARDS_DIR_NAME
+from .transformations_utils import ModelWeightTransformationSpecs, to_original_weights
 
 
 if is_peft_available():
@@ -50,8 +49,7 @@ else:
 def xser_load_on_cpu(path: str):
     """
     Modified version from neuronx_distributed `_xser_load` function load located at:
-    https://github.com/aws-neuron/neuronx-distributed/blob/main/src/neuronx_distributed/parallel_layers/checkpointing.py#L265-L283.
-
+    https://github.com/aws-neuron/neuronx-distributed/blob/e83494557cb4c5b7e185ccf6c9240bfed9a1993d/src/neuronx_distributed/parallel_layers/checkpointing.py#L252
     Instead of moving the loaded tensors to the XLA device, it keeps them on CPU.
     """
     import torch_xla.core.xla_model as xm
@@ -71,149 +69,12 @@ def xser_load_on_cpu(path: str):
     return xm.ToXlaTensorArena(convert_fn, select_fn).transform(ref_data)
 
 
-def create_gqa_query_or_output_projection_weight_from_full_weight(
-    full_weight: torch.Tensor,
-    tp_size: int,
-    num_attention_heads: int,
-    num_key_value_heads: int,
-    kv_size_multiplier: int,
-    query_or_output: Union[Literal["query"], Literal["output"]],
-):
-    assert query_or_output in ["query", "output"]
-    assert full_weight.device == torch.device("cpu")
-    if query_or_output == "query":
-        hidden_size = full_weight.size(1)
-    else:
-        hidden_size = full_weight.size(0)
-        full_weight = full_weight.transpose(0, 1)
-
-    indices = [
-        compute_query_indices_for_rank(tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier)
-        for tp_rank in range(tp_size)
-    ]
-    indices = torch.cat(indices, dim=0)
-    reversed_indices = torch.sort(indices, dim=0).indices
-
-    full_weight = full_weight.reshape(num_attention_heads, -1, hidden_size)
-    full_weight = full_weight[reversed_indices]
-    full_weight = full_weight.reshape(-1, hidden_size)
-
-    if query_or_output == "output":
-        full_weight = full_weight.transpose(0, 1)
-
-    return full_weight
-
-
-def old_consolidate_tensor_parallel_checkpoints(
-    sharded_checkpoints: List[Path],
-    load_function: Callable[[Union[str, Path]], Dict[str, Any]],
-    metadata: Dict[str, Any],
-) -> Dict[str, "torch.Tensor"]:
-    state_dicts = []
-    sharded_checkpoints = sorted(sharded_checkpoints)
-    for sharded_checkpoint in sharded_checkpoints:
-        if not sharded_checkpoint.is_file():
-            continue
-        state_dicts.append(load_function(sharded_checkpoint.as_posix()))
-
-    parameter_names = state_dicts[0].keys()
-    sharded_metadatas = {
-        name: (
-            ParameterMetadata(**metadata["sharded_metadata"][name])
-            if name in metadata["sharded_metadata"]
-            else ParameterMetadata("tied")
-        )
-        for name in parameter_names
-    }
-
-    gqa_qkv_metadata = metadata["gqa_qkv_metadata"]
-    original_parameter_names_to_gqa_qkv_names = gqa_qkv_metadata["original_names_to_gqa_qkv_names"]
-    gqa_qkv_output_projections_names = gqa_qkv_metadata["output_projections_names"]
-    gqa_qkv_names_to_original_names = {v: k for k, v in original_parameter_names_to_gqa_qkv_names.items()}
-
-    consolidated_state_dict = {}
-    for name in parameter_names:
-        # We need to handle the mapping between the GQA parameter names and the original names.
-        is_gqa_qkv_weight = name in gqa_qkv_names_to_original_names
-        is_fuse_qkv = gqa_qkv_metadata["fuse_qkv"]
-        if is_gqa_qkv_weight:
-            if is_fuse_qkv:
-                original_names = [k for k, v in original_parameter_names_to_gqa_qkv_names.items() if v == name]
-                weight_names = [name.rsplit(".", maxsplit=1)[1] for name in original_names]
-                weight_names = ["weight_q", "weight_k", "weight_v"]
-            else:
-                original_names = [gqa_qkv_names_to_original_names[name]]
-                weight_names = [name.rsplit(".", maxsplit=1)[1]]
-        else:
-            original_names = [name]
-            weight_names = [""]  # Not needed.
-
-        # For now all parameter metadatas are equal so it is enough to take the first element.
-        # This might not be the case anymore when `ParameterMetadata` uses slices.
-        sharded_metadata = sharded_metadatas[name]
-        for original_name, weight_name in zip(original_names, weight_names):
-            if sharded_metadata.is_tied:
-                consolidated_state_dict[original_name] = state_dicts[0][name].to("cpu").contiguous()
-            else:
-                if is_fuse_qkv:
-                    if weight_name == "weight_q":
-                        s = slice(0, gqa_qkv_metadata["q_output_size_per_partition"])
-                    elif weight_name == "weight_k":
-                        s = slice(
-                            gqa_qkv_metadata["q_output_size_per_partition"],
-                            gqa_qkv_metadata["q_output_size_per_partition"]
-                            + gqa_qkv_metadata["kv_output_size_per_partition"],
-                        )
-                    elif weight_name == "weight_v":
-                        s = slice(
-                            gqa_qkv_metadata["q_output_size_per_partition"]
-                            + gqa_qkv_metadata["kv_output_size_per_partition"],
-                            None,
-                        )
-                    else:
-                        s = slice(None, None)
-                else:
-                    s = slice(None, None)
-
-                # Ensure that all tensors are contiguous before concatenating or further processing
-                weights = [state_dict[name][s].contiguous() for state_dict in state_dicts]
-                tp_size = len(weights)
-
-                full_weight = (
-                    torch.cat(
-                        weights,
-                        dim=sharded_metadata.partition_dim,
-                    )
-                    .to("cpu")
-                    .contiguous()
-                )  # Ensure the result is also contiguous
-
-                if weight_name in ["weight_k", "weight_v", "bias_k", "bias_v"]:
-                    full_weight = (
-                        torch.chunk(full_weight, gqa_qkv_metadata["kv_size_multiplier"], dim=0)[0].detach().clone()
-                    )
-                elif weight_name == "weight_q" or original_name in gqa_qkv_output_projections_names:
-                    full_weight = create_gqa_query_or_output_projection_weight_from_full_weight(
-                        full_weight,
-                        tp_size,
-                        gqa_qkv_metadata["num_attention_heads"],
-                        gqa_qkv_metadata["num_key_value_heads"],
-                        gqa_qkv_metadata["kv_size_multiplier"],
-                        "query" if weight_name == "weight_q" else "output",
-                    )
-                consolidated_state_dict[original_name] = full_weight
-
-    return consolidated_state_dict
-
-
 def consolidate_tensor_parallel_checkpoints(
     sharded_checkpoints: List[Path],
     load_function: Callable[[Union[str, Path]], Dict[str, Any]],
     metadata: Dict[str, Any],
     adapter_name: Optional[str] = None,
 ) -> Dict[str, "torch.Tensor"]:
-    from ..models.training import ModelWeightTransformationSpecs, to_original_weights
-
     state_dicts = []
     sharded_checkpoints = sorted(sharded_checkpoints)
     for sharded_checkpoint in sharded_checkpoints:
@@ -272,14 +133,12 @@ def consolidate_model_parallel_checkpoints(
     pp_size = max((int(checkpoint_path.stem[-2:]) for checkpoint_path in sharded_checkpoints)) + 1
     checkpoints_grouped_by_pp_ranks = [[] for _ in range(pp_size)]
     metadatas = []
-    is_old_metadata = False
     for pp_rank in range(pp_size):
         for checkpoint_path in sharded_checkpoints:
             checkpoint_name = checkpoint_path.stem
             if int(checkpoint_name[-2:]) == pp_rank:
                 checkpoints_grouped_by_pp_ranks[pp_rank].append(checkpoint_path)
         if (checkpoint_dir / f"mp_metadata_pp_rank_{pp_rank}.pt").is_file():
-            is_old_metadata = True
             metadatas.append(torch.load(checkpoint_dir / f"mp_metadata_pp_rank_{pp_rank}.pt"))
         else:
             with open(checkpoint_dir / f"mp_metadata_pp_rank_{pp_rank}.json") as fp:
@@ -287,17 +146,12 @@ def consolidate_model_parallel_checkpoints(
 
     consolidated_state_dict = {}
     for pp_rank, checkpoint_group_for_pp_rank in enumerate(checkpoints_grouped_by_pp_ranks):
-        if is_old_metadata:
-            consolidated_for_pp_rank = old_consolidate_tensor_parallel_checkpoints(
-                checkpoint_group_for_pp_rank, load_function, metadatas[pp_rank]
-            )
-        else:
-            consolidated_for_pp_rank = consolidate_tensor_parallel_checkpoints(
-                checkpoint_group_for_pp_rank,
-                load_function,
-                metadatas[pp_rank],
-                adapter_name=adapter_name,
-            )
+        consolidated_for_pp_rank = consolidate_tensor_parallel_checkpoints(
+            checkpoint_group_for_pp_rank,
+            load_function,
+            metadatas[pp_rank],
+            adapter_name=adapter_name,
+        )
         consolidated_state_dict.update(**consolidated_for_pp_rank)
 
     for key, tensor in consolidated_state_dict.items():
@@ -313,6 +167,9 @@ def consolidate_model_parallel_checkpoints_to_unified_checkpoint(
     save_format: Literal["pytorch", "safetensors"] = "safetensors",
 ):
     from safetensors.torch import save_file
+
+    # We import here to avoid circular import.
+    from ...peft.peft_model import ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME
 
     if not isinstance(checkpoint_dir, Path):
         checkpoint_dir = Path(checkpoint_dir)

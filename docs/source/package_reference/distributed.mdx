@@ -31,8 +31,6 @@ Each model that supports parallelization in `optimum-neuron` has its own derived
 
 ### Lazy Loading
 
-Distributed training / inference is usually needed when the model is too big to fit in one device. Tools that allow for lazy loading of model weights and optimizer states are thus needed to avoid going out-of-memory before parallelization.
-
-[[autodoc]] distributed.utils.lazy_load_for_parallelism
+Distributed training / inference is usually needed when the model is too big to fit in one device. Tools that allow for lazy loading of optimizer states are thus needed to avoid going out-of-memory before parallelization.
 
 [[autodoc]] distributed.utils.make_optimizer_constructor_lazy

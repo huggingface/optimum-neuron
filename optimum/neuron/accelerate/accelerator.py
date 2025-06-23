@@ -14,7 +14,6 @@
 # limitations under the License.
 """Custom Accelerator class for Neuron."""
 
-import collections
 import contextlib
 import os
 import re
@@ -23,7 +22,7 @@ import sys
 import warnings
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 import torch
 from accelerate import Accelerator
@@ -35,22 +34,17 @@ from torch.utils.data.distributed import DistributedSampler
 from transformers import PreTrainedModel
 
 from ...utils import logging
-from ..distributed import Parallelizer, ParallelizersManager
 from ..models.neuron_config import TrainingNeuronConfig
 from ..models.training.pipeline_utils import create_nxdpp_model
 from ..utils import (
     DynamicPatch,
     ModelPatcher,
-    NeuronPeftModel,
     Patcher,
     is_neuronx_distributed_available,
     is_torch_xla_available,
     patch_within_function,
-    replace_class_in_inheritance_hierarchy,
 )
-from ..utils.import_utils import is_peft_available
 from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
-from ..utils.model_utils import get_tied_parameters_dict, tie_parameters
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from ..utils.torch_xla_and_neuronx_initialization import check_neuron_cc_flags_for_model
 from ..utils.training_utils import is_custom_modeling_model
@@ -87,14 +81,6 @@ if is_neuronx_distributed_available():
 
 
 logger = logging.get_logger(__name__)
-
-
-MODEL_PATCHING_SPECS = [
-    ("config.layerdrop", 0),
-    ("no_sync", lambda: contextlib.nullcontext()),
-]
-
-NxDPPMODEL_PATCHING_SPECS = []
 
 
 class NeuronAccelerator(Accelerator):
@@ -232,21 +218,6 @@ class NeuronAccelerator(Accelerator):
                 data_loader = MpDeviceLoader(data_loader, self.device)
         return data_loader
 
-    def _prepare_optimizer_for_mp(self, optimizer: torch.optim.Optimizer, device_placement=None):
-        cpu_parameters_to_xla = collections.ChainMap(*self._model_cpu_parameters_to_xla.values())
-        if not self.zero_1:
-            optimizer = Parallelizer.optimizer_for_mp(optimizer, cpu_parameters_to_xla)
-        else:
-            xla_parameters, _ = Parallelizer.optimizer_cpu_params_to_xla_params(optimizer, cpu_parameters_to_xla)
-
-            if hasattr(optimizer, "_args_to_recreate"):
-                args, kwargs = optimizer._args_to_recreate
-                args = (xla_parameters,) + args[1:]
-                optimizer._args_to_recreate = (args, kwargs)
-            else:
-                optimizer.param_groups = xla_parameters
-        return optimizer
-
     @requires_neuronx_distributed
     def _prepare_optimizer_for_zero_1(self, optimizer: torch.optim.Optimizer, device_placement=None):
         mixed_precision_to_dtype = {
@@ -271,55 +242,21 @@ class NeuronAccelerator(Accelerator):
             sharding_groups = get_data_parallel_group(as_list=True)
             grad_norm_groups = get_tensor_model_parallel_group(as_list=True)
 
-        if hasattr(optimizer, "_args_to_recreate"):
-            args, kwargs = optimizer._args_to_recreate
-            params = args[0]
-            defaults = args_and_kwargs_to_kwargs_only(optimizer.__class__, args[1:], kwargs)
+        zero_1_optimizer = NeuronZero1Optimizer(
+            optimizer.param_groups,
+            optimizer.__class__,
+            optimizer_dtype=optimizer_dtype,
+            pin_layout=False,
+            sharding_groups=sharding_groups,
+            grad_norm_groups=grad_norm_groups,
+        )
 
-            zero_1_optimizer = NeuronZero1Optimizer(
-                params,
-                optimizer.__class__,
-                optimizer_dtype=optimizer_dtype,
-                pin_layout=False,
-                sharding_groups=sharding_groups,
-                grad_norm_groups=grad_norm_groups,
-                **defaults,
-            )
-            del optimizer
-        else:
-            logger.warning(
-                f"Creating a NeuronZero1Optimizer from {optimizer}, this might change some default values. When "
-                "using ZeRO 1 it is recommended to create the ZeroRedundancyOptimizer yourself to avoid this kind of "
-                "issues."
-            )
-            zero_1_optimizer = NeuronZero1Optimizer(
-                optimizer.param_groups,
-                optimizer.__class__,
-                optimizer_dtype=optimizer_dtype,
-                pin_layout=False,
-                sharding_groups=sharding_groups,
-                grad_norm_groups=grad_norm_groups,
-            )
         return zero_1_optimizer
 
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement: Optional[bool] = None):
-        # If we use custom modeling, we do not have to do anything for now.
-        # We will have to do some work when supporting ZeRO-1.
-        model = self._models[0] if len(self._models) == 1 else None
-        if model is not None and is_custom_modeling_model(model):
-            return super().prepare_optimizer(optimizer, device_placement=device_placement)
-
-        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            optimizer = self._prepare_optimizer_for_mp(optimizer, device_placement=device_placement)
         if self.zero_1:
             optimizer = self._prepare_optimizer_for_zero_1(optimizer, device_placement=device_placement)
-        # Edge case: if the optimizer was created lazily outside of the Model Parallelism and/or ZeRO-1 setting, we make
-        # sure to actually load the proper parameters.
-        if hasattr(optimizer, "_args_to_recreate"):
-            args, kwargs = optimizer._args_to_recreate
-            optimizer = optimizer.__class__(*args, **kwargs)
-
         return super().prepare_optimizer(optimizer, device_placement=device_placement)
 
     @patch_within_function(("accelerate.accelerator.AcceleratedScheduler", NeuronAcceleratedScheduler))
@@ -329,15 +266,13 @@ class NeuronAccelerator(Accelerator):
     def patch_model_for_neuron(
         self,
         model: "torch.nn.Module",
-        patching_specs: Optional[List[Tuple[str, Any]]] = None,
     ) -> "torch.nn.Module":
-        if patching_specs is None:
-            patching_specs = MODEL_PATCHING_SPECS
+        patching_specs = [
+            ("config.layerdrop", 0),
+            ("no_sync", lambda: contextlib.nullcontext()),
+        ]
 
-        # Working on a copy for safety.
-        patching_specs = list(patching_specs)
-
-        if isinstance(model, PreTrainedModel):
+        if not is_custom_modeling_model(model):
             patching_specs.append(
                 (
                     "save_pretrained",
@@ -345,97 +280,12 @@ class NeuronAccelerator(Accelerator):
                 ),
             )
 
-        # TODO: @michaelbenayoun generalize an implementation of gradient checkpointing working for:
-        #   - DDP
-        #   - TP
-        #   - PP
-        # if hasattr(model, "gradient_checkpointing_enable"):
-        #     patching_specs.append(
-        #         (
-        #             "gradient_checkpointing_enable",
-        #             patched_gradient_checkpointing_enable,
-        #         ),
-        #     )
-
         prepared_patching_specs = []
         for spec in patching_specs:
             prepared_patching_specs.append((model,) + spec)
 
         model_patcher = ModelPatcher(prepared_patching_specs, ignore_missing_attributes=True)
         model_patcher.patch()
-
-        if is_peft_available():
-            from peft import PeftModel
-            from peft.tuners.tuners_utils import BaseTunerLayer
-            from peft.utils import ModulesToSaveWrapper
-
-            if isinstance(model, PeftModel):
-                replace_class_in_inheritance_hierarchy(model, PeftModel, NeuronPeftModel)
-            else:
-                for _, module in model.named_modules():
-                    if isinstance(module, (BaseTunerLayer, ModulesToSaveWrapper)):
-                        raise ValueError(
-                            "It appears that the model is using a PEFT method, please wrap your model with `PeftModel` "
-                            "to make it work with `optimum-neuron`"
-                        )
-        return model
-
-    @requires_neuronx_distributed
-    def _prepare_model_for_mp(
-        self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
-    ):
-        from neuronx_distributed.pipeline import NxDPPModel
-
-        if model in self._models or Parallelizer.was_parallelized(model):
-            return model
-
-        cpu_ids = {name: id(param) for name, param in model.named_parameters()}
-
-        tied_parameters_dict = get_tied_parameters_dict(model)
-        model_main_input_name = getattr(model, "main_input_name", None)
-        model = self.state.trn_config.parallelize_model(model, device=self.device)
-
-        if model_main_input_name is not None:
-            setattr(model, "main_input_name", model_main_input_name)
-
-        if isinstance(model, NxDPPModel):
-            for idx, module in enumerate(model.local_stage_modules):
-                model.local_stage_modules[idx] = self.patch_model_for_neuron(
-                    module, patching_specs=NxDPPMODEL_PATCHING_SPECS
-                )
-
-        # Update CPU ids
-        original_parameter_names_to_gqa_qkv_names = model._gqa_qkv_metadata["original_names_to_gqa_qkv_names"]
-        for key in list(cpu_ids.keys()):
-            cpu_ids[original_parameter_names_to_gqa_qkv_names.get(key, key)] = cpu_ids.pop(key)
-
-        def _tie_or_clone_weights_for_mp(self, output_embeddings, input_embeddings):
-            """Tie or clone module weights depending of whether we are using TorchScript or not"""
-            output_embeddings.weight = input_embeddings.weight
-            if hasattr(output_embeddings, "out_features") and hasattr(input_embeddings, "num_embeddings"):
-                output_embeddings.out_features = input_embeddings.num_embeddings
-
-        if isinstance(model, NxDPPModel):
-            model.move_model_to_device()
-            tie_parameters(model, tied_parameters_dict)
-            xla_params = dict(model.local_named_parameters())
-            self._model_cpu_parameters_to_xla[id(model)] = {
-                cpu_ids[name]: xla_params[name] for name, _ in model.local_named_parameters()
-            }
-        else:
-            move_model_to_device(model, self.device)
-            tie_parameters(model, tied_parameters_dict)
-            xla_params = dict(model.named_parameters())
-
-            symmetric_diff = set(cpu_ids.keys()).symmetric_difference((xla_params.keys()))
-            if symmetric_diff:
-                raise ValueError(
-                    f"The parameters on CPU do not match the parameters on the XLA device: {', '.join(symmetric_diff)}."
-                )
-
-            self._model_cpu_parameters_to_xla[id(model)] = {
-                cpu_ids[name]: xla_params[name] for name, _ in model.named_parameters()
-            }
 
         return model
 
@@ -448,29 +298,16 @@ class NeuronAccelerator(Accelerator):
         if model in self._models:
             return model
 
+        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM and not is_custom_modeling_model(model):
+            raise NotImplementedError(
+                "Model parallelism is only supported for models with a custom modeling implementation."
+            )
+
         # Since it is not possible to set the best compiler flags for a given model because XLA is initialized before
         # we get access to the model, we simply check if the flags are the best and notify the user otherwise.
         check_neuron_cc_flags_for_model(model)
 
-        if is_custom_modeling_model(model):
-            # We do not want to use the cache, or output unused tensors as it would imply more communication that we do not
-            # need.
-            model.config.use_cache = False
-            model.config.output_attentions = False
-            model.config.output_hidden_states = False
-
-            if model.trn_config.pipeline_parallel_size > 1:
-                model = create_nxdpp_model(model)
-                model.move_model_to_device()
-            else:
-                move_model_to_device(model, self.device)
-            model = super().prepare_model(model, device_placement=False, evaluation_mode=evaluation_mode)
-            return model
-
         model = self.patch_model_for_neuron(model)
-
-        if self.state.mixed_precision == "bf16":
-            model.to(torch.bfloat16)
 
         # We do not want to use the cache, or output unused tensors as it would imply more communication that we do not
         # need.
@@ -478,31 +315,37 @@ class NeuronAccelerator(Accelerator):
         model.config.output_attentions = False
         model.config.output_hidden_states = False
 
-        should_apply_activation_checkpointing = False
-        for mod in model.modules():
-            if getattr(mod, "gradient_checkpointing", False):
-                should_apply_activation_checkpointing = True
-                model.gradient_checkpointing_disable()
-
-        # It is needed for now otherwise sdpa is used since PT > 2.* is available.
-        for module in model.modules():
-            if getattr(module, "_use_sdpa", False):
-                module._use_sdpa = False
-            if getattr(module, "_use_flash_attention_2", False):
-                module._use_flash_attention_2 = False
-
-        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            model = self._prepare_model_for_mp(
-                model, device_placement=device_placement, evaluation_mode=evaluation_mode
-            )
-            if should_apply_activation_checkpointing:
-                apply_activation_checkpointing(model)
+        if is_custom_modeling_model(model):
+            if model.trn_config.pipeline_parallel_size > 1:
+                model = create_nxdpp_model(model)
+                model.move_model_to_device()
+            else:
+                move_model_to_device(model, self.device)
+            model = super().prepare_model(model, device_placement=False, evaluation_mode=evaluation_mode)
         else:
+            # Question: should do the same for custom models?
+            if self.state.mixed_precision == "bf16":
+                model.to(torch.bfloat16)
+
+            should_apply_activation_checkpointing = False
+            for mod in model.modules():
+                if getattr(mod, "gradient_checkpointing", False):
+                    should_apply_activation_checkpointing = True
+                    model.gradient_checkpointing_disable()
+
+            # It is needed for now otherwise sdpa is used since PT > 2.* is available.
+            for module in model.modules():
+                if getattr(module, "_use_sdpa", False):
+                    module._use_sdpa = False
+                if getattr(module, "_use_flash_attention_2", False):
+                    module._use_flash_attention_2 = False
+
             if should_apply_activation_checkpointing:
                 apply_activation_checkpointing(model)
             move_model_to_device(model, xm.xla_device())
-        device_placement = False
-        model = super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+            device_placement = False
+            model = super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+
         xm.mark_step()
         return model
 
@@ -646,16 +489,9 @@ class NeuronAccelerator(Accelerator):
         save_model_func = None
 
         def save_optimizer_func(accelerator, optimizer, model, output_dir, i):
+            # TODO: can it be cleaned?
             logger.info("Saving parallel model and optimizer")
-            parallelizer = ParallelizersManager.parallelizer_for_model(model)
-            parallelizer.save_model_sharded_checkpoint(
-                model,
-                output_dir,
-                optimizer=optimizer,
-                use_xser=self.state.trn_config.use_xser,
-                async_save=self.state.trn_config.async_save,
-                num_local_ranks_per_step=self.state.trn_config.num_local_ranks_per_step,
-            )
+            model.save_pretrained(output_dir, optimizer=optimizer)
             logger.info(f"Parallel model and optimizer saved to the directory {output_dir}")
 
         return self._custom_save_state(

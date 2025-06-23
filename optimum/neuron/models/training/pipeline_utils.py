@@ -23,8 +23,8 @@ from typing import Iterable
 
 import torch
 from torch import nn
+from transformers.utils.fx import HFTracer, create_wrapper
 
-from ...distributed.utils import OptimumNeuronFXTracer
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from .transformations_utils import get_tensor_model_parallel_attributes
 
@@ -41,6 +41,7 @@ if is_neuronx_distributed_available():
         get_pipeline_model_parallel_size,
     )
     from neuronx_distributed.pipeline import NxDPPModel
+    from neuronx_distributed.pipeline.trace import HFTracerWrapper, NxDTracer
 
 else:
 
@@ -50,6 +51,21 @@ else:
     class NxDPPModel:
         def __init__(self, *args, **kwargs):
             pass
+
+    class HFTracerWrapper:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class NxDTracer:
+        def __init__(self, *args, **kwargs):
+            pass
+
+
+class OptimumNeuronFXTracer(HFTracerWrapper):
+    def is_leaf_module(self, m: torch.nn.Module, module_qualified_name: str) -> bool:
+        return NxDTracer.is_leaf_module(self, m, module_qualified_name) or HFTracer.is_leaf_module(
+            self, m, module_qualified_name
+        )
 
 
 class MetaParametersOnly:
@@ -201,3 +217,11 @@ def move_params_to_cpu(model: nn.Module, param_names: Iterable[str]):
             for part in parts[:-1]:
                 module = getattr(module, part)
             setattr(module, parts[-1], cpu_param)
+
+
+def dynamic_torch_fx_wrap(func):
+    """
+    Wraps a function dynamically (does not need to be done at the top of the module like with `torch.fx.wrap`).
+    This is useful for functions that fail to be traced by the HF tracer during pipeline parallelism setup.
+    """
+    return create_wrapper(func, "call_function")

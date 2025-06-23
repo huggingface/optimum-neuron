@@ -10,7 +10,6 @@ from transformers import (
 
 from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
 from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer, NeuronTrainingArguments
-from optimum.neuron.distributed import lazy_load_for_parallelism
 
 
 def format_dolly(examples):
@@ -30,8 +29,7 @@ def training_function(script_args, training_args):
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_id)
     tokenizer.pad_token = tokenizer.eos_token
 
-    with lazy_load_for_parallelism(tensor_parallel_size=training_args.tensor_parallel_size):
-        model = AutoModelForCausalLM.from_pretrained(script_args.model_id)
+    model = AutoModelForCausalLM.from_pretrained(script_args.model_id)
 
     config = LoraConfig(
         r=16,

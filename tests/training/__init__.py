@@ -12,11 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Training tests module."""
 
-from .base import Parallelizer
-from .checkpointing import (
-    consolidate_model_parallel_checkpoints,
-    consolidate_model_parallel_checkpoints_to_unified_checkpoint,
-)
-from .parallelizers_manager import ParallelizersManager
-from .utils import make_optimizer_constructor_lazy
+from ..distributed_utils import DistributedTest, launch_procs
+
+
+__all__ = ["DistributedTest", "launch_procs"]

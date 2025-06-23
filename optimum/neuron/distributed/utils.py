@@ -14,7 +14,6 @@
 # limitations under the License.
 """Utilities for performing parallelism with `neuronx_distributed`"""
 
-import contextlib
 import copy
 import functools
 import inspect
@@ -31,10 +30,8 @@ from transformers import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
 from ...utils import logging
-from ..utils import DynamicPatch, Patcher
 from ..utils.import_utils import is_neuronx_distributed_available, is_peft_available
 from ..utils.misc import download_checkpoints_in_cache, is_precompilation
-from ..utils.peft_utils import NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed, requires_peft, requires_safetensors, requires_torch_xla
 
 
@@ -70,6 +67,11 @@ logger = logging.get_logger()
 
 
 MODEL_PARALLEL_SHARDS_DIR_NAME = "shards"
+
+
+# Fake NeuronPeftModel to break circular import
+class NeuronPeftModel:
+    pass
 
 
 def get_base_model_and_peft_prefix(model: torch.nn.Module) -> Tuple[torch.nn.Module, str]:
@@ -1664,53 +1666,6 @@ def from_pretrained_for_mp(
     model.resize_token_embeddings = resize_token_embeddings
 
     return model
-
-
-@contextlib.contextmanager
-def lazy_load_for_parallelism(tensor_parallel_size: int = 1, pipeline_parallel_size: int = 1):
-    """
-    Context manager that makes the loading of a model lazy for model parallelism:
-
-        - Every `torch.nn.Linear` is put on the `torch.device("meta")` device, meaning that it takes no memory to
-        instantiate.
-        - Every `torch.nn.Embedding` is also put on the `torch.device("meta")` device.
-        - No state dict is actually loaded, instead a weight map is created and attached to the model. For more
-        information, read the [`optimum.neuron.distributed.utils.from_pretrained_for_mp`] docstring.
-
-    If both `tensor_parallel_size` and `pipeline_parallel_size` are set to 1, no lazy loading is performed.
-
-    Args:
-        tensor_parallel_size (`int`, defaults to 1):
-            The tensor parallel size considered.
-        pipeline_parallel_size (`int`, defaults to 1):
-            The pipeline parallel size considered.
-    """
-
-    def meta_init(init_fn):
-        @functools.wraps(init_fn)
-        def wrapper(*args, **kwargs):
-            kwargs["device"] = kwargs.pop("device", torch.device("meta"))
-            return init_fn(*args, **kwargs)
-
-        return wrapper
-
-    meta_init_patch = DynamicPatch(meta_init)
-
-    patching_specs = [
-        ("torch.nn.Embedding.__init__", meta_init_patch),
-        ("torch.nn.Linear.__init__", meta_init_patch),
-        ("transformers.modeling_utils.PreTrainedModel.from_pretrained", from_pretrained_for_mp),
-    ]
-    if tensor_parallel_size > 1 or pipeline_parallel_size > 1:
-        patcher = Patcher(patching_specs=patching_specs)
-    else:
-        patcher = contextlib.nullcontext()
-    try:
-        patcher.__enter__()
-        yield
-    finally:
-        patcher.__exit__(None, None, None)
-        pass
 
 
 def make_optimizer_constructor_lazy(optimizer_cls: Type["torch.optim.Optimizer"]):
