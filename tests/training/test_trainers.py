@@ -46,9 +46,9 @@ if is_neuronx_distributed_available():
 @is_trainium_test
 @distributed_test()
 @pytest.mark.parametrize(
-        "world_size, tp_size, pp_size",
-        [[2, 1, 1], [2, 2, 1]],
-        ids=["dp=2", "tp=2"],
+    "world_size, tp_size, pp_size",
+    [[2, 1, 1], [2, 2, 1]],
+    ids=["dp=2", "tp=2"],
 )
 def test_get_model_param_count(world_size, tp_size, pp_size, set_cache_for_ci):
     orig_model = LlamaForCausalLM.from_pretrained(MODEL_NAME)
@@ -64,9 +64,9 @@ def test_get_model_param_count(world_size, tp_size, pp_size, set_cache_for_ci):
 @is_trainium_test
 @distributed_test()
 @pytest.mark.parametrize(
-        "world_size, tp_size, pp_size",
-        [[2, 1, 1], [2, 2, 1]],
-        ids=["dp=2", "tp=2"],
+    "world_size, tp_size, pp_size",
+    [[2, 1, 1], [2, 2, 1]],
+    ids=["dp=2", "tp=2"],
 )
 @pytest.mark.skip("Skipping this test until Trainers refactor is done.")
 def test_save_checkpoint(world_size, tp_size, pp_size, tmpdir, set_cache_for_ci):
@@ -134,12 +134,13 @@ def test_save_checkpoint(world_size, tp_size, pp_size, tmpdir, set_cache_for_ci)
 
         assert (checkpoint_dir / "training_args.bin").is_file()
 
+
 @is_trainium_test
 @distributed_test()
 @pytest.mark.parametrize(
-        "world_size, tp_size, pp_size",
-        [[2, 1, 1], [2, 2, 1]],
-        ids=["dp=2", "tp=2"],
+    "world_size, tp_size, pp_size",
+    [[2, 1, 1], [2, 2, 1]],
+    ids=["dp=2", "tp=2"],
 )
 @pytest.mark.parametrize(
     "packing",
