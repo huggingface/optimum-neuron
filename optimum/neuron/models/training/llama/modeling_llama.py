@@ -161,7 +161,10 @@ def rotate_half(x, flash_attn, transpose):
     x2 = x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
 
-def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1, flash_attn=False, transpose_nki_inputs=False):
+
+def apply_rotary_pos_emb(
+    q, k, cos, sin, position_ids=None, unsqueeze_dim=1, flash_attn=False, transpose_nki_inputs=False
+):
     if unsqueeze_dim != 1:
         raise NotImplementedError(
             f"Unsqueeze dimension {unsqueeze_dim} is not supported. Only unsqueeze_dim=1 is currently implemented."
@@ -424,7 +427,6 @@ class LlamaAttention(nn.Module, CustomModule):
         )
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
 
-
     @property
     def use_flash_attention_v2(self):
         return self.config._attn_implementation == "flash_attention_v2"
@@ -442,12 +444,18 @@ class LlamaAttention(nn.Module, CustomModule):
             return states.view(bsz, q_len, num_heads, head_dim).permute(0, 2, 3, 1)
 
     def permute_qkv_for_attn(
-            self, query_states, key_states, value_states, bsz, q_len, num_heads, num_key_value_heads, head_dim
-        ):
+        self, query_states, key_states, value_states, bsz, q_len, num_heads, num_key_value_heads, head_dim
+    ):
         if self.trn_config.transpose_nki_inputs and self.use_flash_attention_v2 and not self.use_ring_attention:
-            query_states = self.reshape_and_permute_states_for_fa(query_states, bsz, q_len, num_heads, head_dim, self.trn_config.sequence_parallel_enabled)
-            key_states = self.reshape_and_permute_states_for_fa(key_states, bsz, q_len, num_key_value_heads, head_dim, self.trn_config.sequence_parallel_enabled)
-            value_states = self.reshape_and_permute_states_for_fa(value_states, bsz, q_len, num_key_value_heads, head_dim, self.trn_config.sequence_parallel_enabled)
+            query_states = self.reshape_and_permute_states_for_fa(
+                query_states, bsz, q_len, num_heads, head_dim, self.trn_config.sequence_parallel_enabled
+            )
+            key_states = self.reshape_and_permute_states_for_fa(
+                key_states, bsz, q_len, num_key_value_heads, head_dim, self.trn_config.sequence_parallel_enabled
+            )
+            value_states = self.reshape_and_permute_states_for_fa(
+                value_states, bsz, q_len, num_key_value_heads, head_dim, self.trn_config.sequence_parallel_enabled
+            )
         elif self.trn_config.sequence_parallel_enabled:
             query_states = query_states.view(q_len, bsz, num_heads, head_dim).permute(1, 2, 0, 3)
             key_states = key_states.view(q_len, bsz, num_key_value_heads, head_dim).permute(1, 2, 0, 3)
@@ -488,7 +496,14 @@ class LlamaAttention(nn.Module, CustomModule):
 
         cos, sin = position_embeddings
 
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, flash_attn=self.use_flash_attention_v2, transpose_nki_inputs=self.trn_config.transpose_nki_inputs)
+        query_states, key_states = apply_rotary_pos_emb(
+            query_states,
+            key_states,
+            cos,
+            sin,
+            flash_attn=self.use_flash_attention_v2,
+            transpose_nki_inputs=self.trn_config.transpose_nki_inputs,
+        )
         if self.use_flash_attention_v2:
             attention_interface = ALL_ATTENTION_FUNCTIONS["flash_attention_2"]
             if self.training and self.attention_dropout > 0.0:

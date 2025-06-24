@@ -51,6 +51,7 @@ logger = logging.get_logger(__name__)
 def _init_normal(std, w):
     return nn.init.normal_(w, mean=0.0, std=std)
 
+
 class Qwen3RMSNorm(nn.Module):
     def __init__(self, hidden_size, reduction_dim=-1, eps=1e-6, sequence_parallel_enabled=False):
         super().__init__()
@@ -77,8 +78,12 @@ class Qwen3Attention(LlamaAttention):
             reduction_dim = -2
         else:
             reduction_dim = -1
-        self.q_norm = Qwen3RMSNorm(self.head_dim, reduction_dim=reduction_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
-        self.k_norm = Qwen3RMSNorm(self.head_dim, reduction_dim=reduction_dim, eps=config.rms_norm_eps)  # thus post q_norm does not need reshape
+        self.q_norm = Qwen3RMSNorm(
+            self.head_dim, reduction_dim=reduction_dim, eps=config.rms_norm_eps
+        )  # unlike olmo, only on the head dim!
+        self.k_norm = Qwen3RMSNorm(
+            self.head_dim, reduction_dim=reduction_dim, eps=config.rms_norm_eps
+        )  # thus post q_norm does not need reshape
 
     def forward(
         self,
@@ -112,7 +117,14 @@ class Qwen3Attention(LlamaAttention):
         key_states = self.k_norm(key_states)
 
         cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, flash_attn=self.use_flash_attention_v2, transpose_nki_inputs=self.trn_config.transpose_nki_inputs)
+        query_states, key_states = apply_rotary_pos_emb(
+            query_states,
+            key_states,
+            cos,
+            sin,
+            flash_attn=self.use_flash_attention_v2,
+            transpose_nki_inputs=self.trn_config.transpose_nki_inputs,
+        )
 
         if self.use_flash_attention_v2:
             attention_interface = ALL_ATTENTION_FUNCTIONS["flash_attention_2"]
