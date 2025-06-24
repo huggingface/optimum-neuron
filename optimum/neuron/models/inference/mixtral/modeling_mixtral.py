@@ -254,9 +254,7 @@ class MixtralNxDModelForCausalLM(NxDModelForCausalLM):
         compiler_args = "--enable-saturate-infinity --enable-mixed-precision-accumulation --model-type transformer -O1"
         # Add flags for cc-overlap
         compiler_args += " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2'"
-        # Prevent auto-down casting when running with fp32
-        if neuron_config.torch_dtype == torch.float32:
-            compiler_args += " --auto-cast=none"
+        compiler_args += " --auto-cast=none"
         # Enable vector-offset DGE
         compiler_args += " --internal-enable-dge-levels vector_dynamic_offsets"
         return compiler_args
