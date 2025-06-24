@@ -105,13 +105,6 @@ def convert_mixtral_to_neuron_state_dict(neuron_state_dict, config, neuron_confi
     return neuron_state_dict
 
 
-def get_rmsnorm_cls(neuron_config):
-    # Initialize to the appropriate implementation of RMSNorm
-    # If infer on NXD -> CustomRMSNorm
-    # If infer on CPU -> HF_RMSNorm (CustomRMSNorm does not work on CPU)
-    return CustomRMSNorm
-
-
 class NeuronMixtralAttention(NeuronAttentionBase):
     def __init__(self, config: MixtralConfig, neuron_config: NxDNeuronConfig):
         super().__init__(config, neuron_config)
@@ -144,11 +137,11 @@ class NeuronMixtralDecoderLayer(nn.Module):
             hidden_act=config.hidden_act,
         )
 
-        self.input_layernorm = get_rmsnorm_cls(neuron_config)(
+        self.input_layernorm = CustomRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.post_attention_layernorm = get_rmsnorm_cls(neuron_config)(
+        self.post_attention_layernorm = CustomRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
@@ -223,7 +216,7 @@ class NxDMixtralModel(NxDDecoderModel):
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
-        self.norm = get_rmsnorm_cls(neuron_config)(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.lm_head = ColumnParallelLinear(
             config.hidden_size,
             config.vocab_size,
