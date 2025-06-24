@@ -92,6 +92,7 @@ def test_nki_flash_attention(model_id, dtype):
         softmax_scale=scaling,
         causal=True,
         mixed_precision=True,
+        transpose_nki_inputs=False,
     )
     xm.mark_step()
     assert_close(eager_attn_output, flash_attention_output)
