@@ -23,6 +23,7 @@ import torch
 import torch.utils._pytree as pytree
 import transformers
 from transformers import AutoConfig, AutoTokenizer
+from transformers import LlamaForCausalLM as OriginalLlamaForCausalLM
 
 import optimum
 import optimum.neuron.models.training
@@ -47,6 +48,7 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_kv_shared_group,
         get_pipeline_model_parallel_rank,
+        get_pipeline_model_parallel_size,
         get_tensor_model_parallel_group,
         get_tensor_model_parallel_size,
     )
@@ -264,23 +266,27 @@ def test_custom_modeling_matches_original(
         pp_size = 1
 
     config = AutoConfig.from_pretrained(model_name_or_path)
-
-    # For now we enforce that because of a compiler bug.
-    # Once the bug is fixed, we will enforce the opposite to make sure it works since `tie_word_embeddings=True` is more
-    # restrictive.
-    config.tie_word_embeddings = False
+    if pp_size == 1:
+        if not config.tie_word_embeddings:
+            # We test with `tie_word_embeddings=True` because it is more restrictive.
+            config.tie_word_embeddings = True
+    else:
+        # `tie_word_embeddings` is not supported in the PP setting.
+        config.tie_word_embeddings = False
 
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
 
     if qkv_implementation == "fuse_qkv":
         config.num_key_value_heads = config.num_attention_heads
-        model_class = getattr(transformers, model_class_name)
-        model = model_class.from_pretrained(model_name_or_path, config=config, ignore_mismatched_sizes=True)
-        model.save_pretrained(new_model_name_or_path)
-        tokenizer.save_pretrained(new_model_name_or_path)
-        model_name_or_path = new_model_name_or_path
     elif qkv_implementation == "qkv_linear":
         tp_size = 2 * config.num_key_value_heads
+
+    # Saving a local version compatible for what we want to test.
+    model_class = getattr(transformers, model_class_name)
+    model = model_class.from_pretrained(model_name_or_path, config=config, ignore_mismatched_sizes=True)
+    model.save_pretrained(new_model_name_or_path)
+    tokenizer.save_pretrained(new_model_name_or_path)
+    model_name_or_path = new_model_name_or_path
 
     run_fn = partial(
         _custom_model_matches_original_model,
@@ -491,3 +497,88 @@ def test_custom_model_resize_embedding():
             new_tokens_output = new_output_embeddings.weight[old_local_vocab:, :]
             assert not torch.allclose(new_tokens_input, torch.zeros_like(new_tokens_input))
             assert not torch.allclose(new_tokens_output, torch.zeros_like(new_tokens_output))
+
+
+@is_trainium_test
+@distributed_test(world_size=2, tp_size=2, pp_size=1)
+def test_custom_model_tie_weights(tmpdir, set_cache_for_ci):
+    tp_size = get_tensor_model_parallel_size()
+    pp_size = get_pipeline_model_parallel_size()
+
+    config = AutoConfig.from_pretrained(LLAMA_V2_MODEL_NAME)
+
+    trn_config = TrainingNeuronConfig(
+        tensor_parallel_size=tp_size,
+        pipeline_parallel_size=pp_size,
+        sequence_parallel_enabled=True,
+    )
+
+    static_seed_patcher = StaticSeedPatcher(42)
+
+    # Test case 1: Weights should be tied from initialization when tie_word_embeddings=True
+    config.tie_word_embeddings = True
+
+    with static_seed_patcher:
+        model_tied = LlamaForCausalLM(config, trn_config)
+        model_tied.eval()
+
+    input_embeddings = model_tied.get_input_embeddings()
+    output_embeddings = model_tied.get_output_embeddings()
+
+    # Should already be tied from initialization
+    assert input_embeddings.weight.storage().data_ptr() == output_embeddings.weight.storage().data_ptr()
+
+    # Should be still tied after moved to the XLA device
+    accelerator = create_accelerator(
+        tp_size, pp_size, sequence_parallel_enabled=True
+    )
+    model_tied = accelerator.prepare(model_tied)
+    assert input_embeddings.weight is output_embeddings.weight
+    assert input_embeddings.weight.dtype.type == "xla"
+
+    # Test case 2: Weights should also be tied from from_pretrained
+    # We save the model with `tie_word_embeddings=True` to ensure that the weights are tied in the checkpoint and that
+    # there is no `lm_head` weight in the checkpoint.
+    model_name_or_path  = tmpdir / "model_with_tied_weights"
+    orig_model = OriginalLlamaForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, config=config)
+    orig_model.save_pretrained(model_name_or_path)
+    with static_seed_patcher:
+        model_pretrained = LlamaForCausalLM.from_pretrained(model_name_or_path, trn_config, config=config)
+
+    input_emb_pretrained = model_pretrained.get_input_embeddings()
+    output_emb_pretrained = model_pretrained.get_output_embeddings()
+
+    assert input_emb_pretrained.weight.storage().data_ptr() == output_emb_pretrained.weight.storage().data_ptr()
+
+    # Test case 3: Verify modifications propagate in tied weights
+    original_weight = input_embeddings.weight.data.clone()
+
+    with torch.no_grad():
+        input_embeddings.weight.data += 0.1
+
+    torch.testing.assert_close(output_embeddings.weight, original_weight + 0.1)
+
+    # Test case 4: tie_weights() should maintain tying
+    model_tied.tie_weights()
+    assert input_embeddings.weight.storage().data_ptr() == output_embeddings.weight.storage().data_ptr()
+
+    # Test case 5: Untied behavior when tie_word_embeddings=False
+    config.tie_word_embeddings = False
+
+    with static_seed_patcher:
+        model_untied = LlamaForCausalLM(config, trn_config)
+        model_untied.eval()
+
+    input_emb_untied = model_untied.get_input_embeddings()
+    output_emb_untied = model_untied.get_output_embeddings()
+
+    assert input_emb_untied.weight.storage().data_ptr() != output_emb_untied.weight.storage().data_ptr()
+
+    # Test case 6: Weights should also not be tied from from_pretrained
+    with static_seed_patcher:
+        model_pretrained = LlamaForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, trn_config, config=config)
+
+    input_emb_untied = model_untied.get_input_embeddings()
+    output_emb_untied = model_untied.get_output_embeddings()
+
+    assert input_emb_untied.weight.storage().data_ptr() != output_emb_untied.weight.storage().data_ptr()

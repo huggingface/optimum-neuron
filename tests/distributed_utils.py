@@ -24,7 +24,7 @@ import cloudpickle
 import pytest
 import torch.distributed as dist
 import torch_xla.distributed.xla_multiprocessing as xmp
-from _pytest.outcomes import Skipped
+from _pytest.outcomes import Skipped, XFailed
 
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
@@ -199,6 +199,8 @@ def distributed_test(
                 pytest.fail(f"Test timed out after {timeout}s")
             except PickableSkipped as e:
                 pytest.skip(e.msg)
+            except XFailed as e:
+                pytest.xfail(e.msg)
             except Exception as e:
                 pytest.fail(str(e))
             finally:

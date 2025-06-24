@@ -31,6 +31,7 @@ from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
 )
+from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from ..distributed_utils import distributed_test
 from .utils import create_accelerator, get_model_inputs
@@ -79,6 +80,7 @@ def move_params_to_cpu(parameters):
     ],
 )
 @distributed_test(world_size=32, tp_size=2, pp_size=4)
+@is_trainium_test
 def test_optimizer_step(zero_1, gradient_accumulation_steps, max_grad_norm, set_cache_for_ci):
     world_size = xr.world_size()
     tp_size = get_tensor_model_parallel_size()
@@ -234,6 +236,7 @@ def test_optimizer_step(zero_1, gradient_accumulation_steps, max_grad_norm, set_
     ids=["use_xser=True", "use_xser=False"],
 )
 @distributed_test()
+@is_trainium_test
 def test_consolidate_custom_model_parallel_checkpoints(
     tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, fuse_qkv, use_xser, set_cache_for_ci
 ):
@@ -297,6 +300,7 @@ def test_consolidate_custom_model_parallel_checkpoints(
     ids=["use_xser=True", "use_xser=False"],
 )
 @distributed_test()
+@is_trainium_test
 def test_consolidate_custom_lora_model_parallel_checkpoints(
     tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, fuse_qkv, use_xser, set_cache_for_ci
 ):
@@ -424,6 +428,7 @@ def test_consolidate_custom_lora_model_parallel_checkpoints(
 
 
 @distributed_test(world_size=32, tp_size=2, pp_size=4)
+@is_trainium_test
 def test_each_pp_rank_only_loads_relevant_parameters(set_cache_for_ci):
     tp_size = get_tensor_model_parallel_size()
     pp_size = get_pipeline_model_parallel_size()

@@ -9,7 +9,6 @@ from optimum.neuron.utils.import_utils import (
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from ..distributed_utils import distributed_test
 from .utils import assert_close
 
 
@@ -45,7 +44,6 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     ],
     ids=["llama", "granite"],
 )
-@distributed_test()
 def test_nki_flash_attention(model_id, dtype):
     """Test the flash attention kernel with a simple example, comparing
     the output with the one from the eager implementation.

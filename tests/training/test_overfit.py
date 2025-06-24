@@ -121,11 +121,9 @@ def _overfit_causal_lm(
 
     # Model creation.
 
-    # For now we enforce that because of a compiler bug.
-    # Once the bug is fixed, we will enforce the opposite to make sure it works since `tie_word_embeddings=True` is more
-    # restrictive.
     config = AutoConfig.from_pretrained(model_name_or_path)
-    config.tie_word_embeddings = False
+    if config.tie_word_embeddings and pp_size > 1:
+        config.tie_word_embeddings = False
 
     # If it is a custom model, we provide the trainium config.
     if "trn_config" in inspect.signature(model_class.__init__).parameters:
