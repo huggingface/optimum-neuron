@@ -79,6 +79,7 @@ class NeuronAttentionBase(nn.Module):
         tensor_model_parallel_group: Optional[ProcessGroup] = None,
         qkv_proj_bias: bool = False,
         o_proj_bias: bool = False,
+        qk_scale: Optional[float] = None,
     ):
         if not parallel_state.model_parallel_is_initialized():
             raise ValueError(
@@ -112,6 +113,7 @@ class NeuronAttentionBase(nn.Module):
         self.tp_degree = neuron_config.tp_degree
         self.fused_qkv = neuron_config.fused_qkv
         self.clip_qkv = None
+        self.qk_scale = qk_scale
 
         self.o_proj_layer_name = "o_proj"
 
@@ -165,7 +167,8 @@ class NeuronAttentionBase(nn.Module):
         self.logical_nc_config = neuron_config.logical_nc_config
 
     def scaled_qk(self, Q, K, attention_mask):
-        QK = torch.matmul(Q, K.transpose(2, 3)) / math.sqrt(self.head_dim)
+        qk_scale = self.qk_scale or (1.0 / math.sqrt(self.head_dim))
+        QK = torch.matmul(Q, K.transpose(2, 3)) * qk_scale
         QK = torch.where(attention_mask, QK, torch.finfo(QK.dtype).min)
         return QK
 
@@ -290,6 +293,9 @@ class NeuronAttentionBase(nn.Module):
         TODO: Throw an exception instead of disabling flash attention if explicitly enabled but not eligible.
               This must consider bucketing to avoid throwing an exception for smaller buckets.
         """
+        if self.qk_scale is not None:
+            # If a custom qk_scale is provided, flash attention is not supported.
+            return FlashAttentionStrategy.NONE
         if int(self.logical_nc_config) > 1:
             if q_len < 1024:
                 return FlashAttentionStrategy.NONE

@@ -34,9 +34,9 @@ from torch import nn
 from transformers import AutoConfig, PretrainedConfig
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from .......cache.entries.single_model import SingleModelCacheEntry
-from .......cache.hub_cache import hub_neuronx_cache
-from .......modeling_decoder import NeuronModelForCausalLM
+from ......cache.entries.single_model import SingleModelCacheEntry
+from ......cache.hub_cache import hub_neuronx_cache
+from ......modeling_decoder import NeuronModelForCausalLM
 from ...config import NxDNeuronConfig
 from ...pretrained_model import NxDPreTrainedModel
 from ...utils.random import set_random_seed
@@ -50,6 +50,7 @@ from ..flashdecode.utils import (
 from ..generation.generation_utils import NxDGenerationMixin
 from ..generation.sampling import (
     Sampler,
+    mask_padded_logits,
     prepare_sampling_params,
     validate_sampling_params,
 )
@@ -168,12 +169,6 @@ class NxDDecoderModel(nn.Module):
         else:
             return self._create_simple_attn_mask(attention_mask)
 
-    def _reorder_helper(self, inp, ids):
-        # alternative, torch_xla compatible version of index_select for 0th (batch) dimension
-        sorted_inp = inp[ids.flatten()]
-
-        return sorted_inp
-
     def _slice_kv_cache(self, kv_cache, n_positions):
         past_key_values = []
         for idx in range(len(kv_cache)):
@@ -205,15 +200,6 @@ class NxDDecoderModel(nn.Module):
             if self.neuron_config.flash_decoding_enabled
             else self.n_positions
         )
-
-        orig_seq_ids = seq_ids
-
-        if self._is_reorder_needed(is_for_context_encoding, is_for_speculation):
-            seq_ids = torch.argsort(seq_ids)
-            input_ids = self._reorder_helper(input_ids, seq_ids)
-            attention_mask = self._reorder_helper(attention_mask, seq_ids)
-            position_ids = self._reorder_helper(position_ids, seq_ids)
-            sampling_params = self._reorder_helper(sampling_params, seq_ids)
 
         # It is either for context encoding or for token generation
         if is_for_context_encoding:
@@ -289,6 +275,15 @@ class NxDDecoderModel(nn.Module):
         logits = self.lm_head(hidden_states)
         logits = logits.float()
 
+        if hasattr(self.lm_head, "pad_size"):
+            if self.lm_head.gather_output:
+                rank_id = torch.tensor(0, device=logits.device, dtype=torch.int32)
+                world_size = 1
+            else:
+                rank_id = self.rank_util.get_rank()
+                world_size = torch.distributed.get_world_size(group=self.lm_head.tensor_parallel_group)
+            logits = mask_padded_logits(logits, rank_id, world_size, pad_size=self.lm_head.pad_size)
+
         res = logits
         if self.neuron_config.on_device_sampling:
             # perform sampling on Neuron to get tokens
@@ -297,9 +292,6 @@ class NxDDecoderModel(nn.Module):
                 res = nxd_argmax(tensor=logits, dim=2, gather_dim=2, keepdim=False)
             else:
                 res = self.sampler(logits[:, -1, :], sampling_params)
-
-        if self._is_reorder_needed(is_for_context_encoding, is_for_speculation):
-            res = self._reorder_helper(res, orig_seq_ids)
 
         outputs = [res]
         if self.neuron_config.output_logits:

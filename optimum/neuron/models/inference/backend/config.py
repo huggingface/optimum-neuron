@@ -17,8 +17,8 @@ from typing import List, Optional, Union
 
 import torch
 
-from .....configuration_utils import NeuronConfig, register_neuron_config
-from .....utils import map_torch_dtype
+from ....configuration_utils import NeuronConfig, register_neuron_config
+from ....utils import map_torch_dtype
 
 
 NEURON_CONFIG_FILE = "neuron_config.json"

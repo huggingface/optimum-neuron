@@ -19,8 +19,6 @@ import torch
 from transformers import AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.models.inference.hlo.llama.model import LlamaHloModelForCausalLM
-from optimum.neuron.models.inference.nxd.backend.modules.decoder import NxDModelForCausalLM
 from optimum.neuron.utils import map_torch_dtype
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
@@ -59,8 +57,7 @@ def check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num_
     input_ids = torch.ones(input_shape, dtype=torch.int64)
     attention_mask = torch.ones(input_shape, dtype=torch.int64)
     on_device_sampling = getattr(neuron_model.neuron_config, "on_device_sampling", False)
-    nxd_backend = isinstance(neuron_model, NxDModelForCausalLM)
-    sampling_params = torch.ones((batch_size, 3)) if nxd_backend and on_device_sampling else None
+    sampling_params = torch.ones((batch_size, 3)) if on_device_sampling else None
     model_inputs = neuron_model.prepare_inputs_for_prefill(
         input_ids=input_ids, attention_mask=attention_mask, sampling_params=sampling_params
     )
@@ -117,29 +114,6 @@ def test_decoder_export_save_reload(
         NeuronModelForCausalLM,
         is_local=is_local,
         model_id=export_decoder_id,
-        batch_size=batch_size,
-        sequence_length=sequence_length,
-        num_cores=num_cores,
-        auto_cast_type=auto_cast_type,
-    )
-
-
-@pytest.mark.parametrize(
-    "batch_size, sequence_length, num_cores, auto_cast_type",
-    [
-        [1, 100, 2, "bf16"],
-        [1, 100, 2, "fp16"],
-        [2, 100, 2, "fp16"],
-    ],
-)
-@is_inferentia_test
-@requires_neuronx
-@pytest.mark.parametrize("is_local", [True, False], ids=["local", "from_hub"])
-def test_hlo_llama_export_save_reload(is_local, batch_size, sequence_length, num_cores, auto_cast_type):
-    _test_decoder_export_save_reload(
-        LlamaHloModelForCausalLM,
-        is_local=is_local,
-        model_id=DECODER_MODEL_NAMES["llama"],
         batch_size=batch_size,
         sequence_length=sequence_length,
         num_cores=num_cores,

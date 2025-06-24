@@ -1,4 +1,4 @@
-name: Optimum Neuron - Test optimum.neuron.distributed on Trainium
+name: Optimum Neuron - Test training on Trainium
 
 on:
   push:
@@ -8,13 +8,17 @@ on:
       - "optimum/neuron/models/training/**.py"
       - "tests/training/**.py"
       - ".github/workflows/test_trainium_training.yml"
+      - "optimum/neuron/utils/**.py"
+      - "optimum/neuron/version.py"
   pull_request:
     branches: [ main ]
     paths:
       - "setup.py"
       - "optimum/neuron/models/training/**.py"
       - "tests/training/**.py"
-      -  ".github/workflows/test_trainium_training.yml"
+      - ".github/workflows/test_trainium_training.yml"
+      - "optimum/neuron/utils/**.py"
+      - "optimum/neuron/version.py"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}

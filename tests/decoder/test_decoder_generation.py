@@ -21,9 +21,9 @@ from transformers import AutoTokenizer
 from transformers.generation import StoppingCriteria
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.models.inference.nxd.backend.modules.decoder import NxDModelForCausalLM
-from optimum.neuron.models.inference.nxd.backend.modules.generation.generation_utils import prepare_sampling_params
-from optimum.neuron.models.inference.nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
+from optimum.neuron.models.inference.backend.modules.decoder import NxDModelForCausalLM
+from optimum.neuron.models.inference.backend.modules.generation.generation_utils import prepare_sampling_params
+from optimum.neuron.models.inference.llama.modeling_llama import LlamaNxDModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -124,21 +124,13 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
     prompt = "What is Deep Learning?"
     inputs = tokenizer(prompt, return_tensors="pt")
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17)
-    if isinstance(model, NxDModelForCausalLM):
-        expectations = {
-            "llama": " and how does it work?\nDeep learning is a subset of machine learning that uses artificial",
-            "qwen2": "Deep Learning is a subset of Machine Learning that involves the use of artificial neural networks",
-            "qwen3": "What is Deep Learning? A Deep Learning is a subset of machine learning that uses neural networks with multiple layers to",
-            "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
-            "phi": "\nDeep Learning is a subset of machine learning that uses neural networks with many layers",
-        }
-    else:
-        expectations = {
-            "llama": " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial",
-            "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
-            "granite": "\n\nDeep Learning is a subset of Machine Learning, which is a branch of Art",
-            "phi": "\n\nDeep learning is a subset of machine learning that uses neural networks with many",
-        }
+    expectations = {
+        "llama": " and how does it work?\nDeep learning is a subset of machine learning that uses artificial",
+        "qwen2": "Deep Learning is a subset of Machine Learning that involves the use of artificial neural networks",
+        "qwen3": "What is Deep Learning? A Deep Learning is a subset of machine learning that uses neural networks with multiple layers to",
+        "granite": "\n\nDeep learning is a subset of machine learning techniques based on artificial neural networks",
+        "phi": "\nDeep Learning is a subset of machine learning that uses neural networks with many layers",
+    }
     config_name = neuron_decoder_config["name"]
     generated_text = tokenizer.decode(outputs[0])
     expected_text = expectations[config_name]
@@ -204,7 +196,6 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
 
     # Assume by default that we are not doing on-device sampling
     on_device_sampling = getattr(model.neuron_config, "on_device_sampling", False)
-    nxd_backend = isinstance(model, NxDModelForCausalLM)
 
     # We need at least three inputs
     assert model.neuron_config.batch_size >= 3
@@ -235,7 +226,7 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
         "attention_mask": inputs.attention_mask,
         "seq_ids": torch.tensor([0]),
     }
-    if nxd_backend and on_device_sampling:
+    if on_device_sampling:
         first_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
     first_generated_tokens = get_next_tokens(**model.prepare_inputs_for_prefill(**first_inputs))
     # Decode a few tokens
@@ -252,7 +243,7 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
         "attention_mask": inputs.attention_mask,
         "seq_ids": torch.tensor([2]),
     }
-    if nxd_backend and on_device_sampling:
+    if on_device_sampling:
         second_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
     second_generated_tokens = get_next_tokens(**model.prepare_inputs_for_prefill(**second_inputs))
     # Resize the second request attention mask to the size of the first request
@@ -264,7 +255,7 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
         "attention_mask": torch.cat([first_inputs["attention_mask"], second_attention_mask], dim=0),
         "seq_ids": torch.tensor([0, 2]),
     }
-    if nxd_backend and on_device_sampling:
+    if on_device_sampling:
         two_requests_inputs["sampling_params"] = prepare_sampling_params(batch_size=2)
     # Decode more tokens
     for _ in range(10):
