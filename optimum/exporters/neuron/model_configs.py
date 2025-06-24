@@ -88,8 +88,6 @@ if is_neuronx_distributed_available():
 if is_diffusers_available():
     from diffusers.models.model_loading_utils import _get_model_file
     from diffusers.models.autoencoders.vae import Decoder as VaeDecoder
-    from diffusers.utils import _get_checkpoint_shard_files, _add_variant
-    from diffusers.models.model_loading_utils import _fetch_index_file
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -1027,7 +1025,7 @@ class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
         return ["input_ids", "attention_mask"]
 
 
-@register_in_tasks_manager("t5", *["feature-extraction"], library_name="diffusers")
+@register_in_tasks_manager("t5-encoder", *["feature-extraction"], library_name="diffusers")
 class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
     CUSTOM_MODEL_WRAPPER = T5EncoderWrapper
     INPUT_ARGS = ("batch_size", "sequence_length")

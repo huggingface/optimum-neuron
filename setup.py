@@ -14,7 +14,7 @@ except Exception as error:
 
 INSTALL_REQUIRES = [
     "transformers ~= 4.51.0",
-    "optimum ~= 1.23.3",
+    "optimum ~= 1.24.0",
     "huggingface_hub >= 0.29.0",
     "numpy>=1.22.2, <=1.25.2",
     "protobuf>=3.20.3, <4",

@@ -17,7 +17,6 @@
 import copy
 import importlib
 import inspect
-import logging
 import os
 import shutil
 from abc import abstractmethod
@@ -33,15 +32,15 @@ from torch.nn import ModuleList
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig, T5Tokenizer
 from transformers.modeling_outputs import ModelOutput
 
-from ..exporters.neuron import (
+from optimum.exporters.neuron import (
     load_models_and_neuron_configs,
     main_export,
     normalize_diffusers_input_shapes,
     replace_stable_diffusion_submodels,
 )
-from ..exporters.neuron.model_configs import *  # noqa: F403
-from ..exporters.tasks import TasksManager
-from ..utils import is_diffusers_available
+from optimum.exporters.neuron.model_configs import *  # noqa: F403
+from optimum.exporters.tasks import TasksManager
+from optimum.utils import is_diffusers_available, logging
 from .cache.entries.multi_model import MultiModelCacheEntry
 from .cache.hub_cache import create_hub_compile_cache_proxy
 from .modeling_traced import NeuronTracedModel
@@ -119,7 +118,7 @@ if TYPE_CHECKING:
     from ..exporters.neuron import NeuronDefaultConfig
 
 
-logger = logging.getLogger(__name__)
+logger = logging.get_logger(__name__)
 
 
 class NeuronDiffusionPipelineBase(NeuronTracedModel):
@@ -186,7 +185,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 A list of Neuron configurations related to the compilation.
             data_parallel_mode (`Literal["none", "unet", "all"]`):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
-                load unet into both cores of each device), "all"(load the whole pipeline into both cores).
+                load unet into both cores of each device), "all"(load the whole pipeline into both cores). It only applies to inference on a single device.
             scheduler (`Optional[SchedulerMixin]`):
                 A scheduler to be used in combination with the U-NET component to denoise the encoded image latents.
             vae_decoder (`Union[torch.jit._script.ScriptModule, "NeuronModelVaeDecoder"]`):
@@ -415,6 +414,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         controlnet_paths: Optional[List[Path]] = None,
         dynamic_batch_size: bool = False,
         to_neuron: bool = False,
+        configs: Optional[Dict] = None,
     ):
         """
         Loads Stable Diffusion TorchScript modules compiled by neuron(x)-cc compiler. It will be first loaded onto CPU and then moved to
@@ -423,7 +423,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         Args:
             data_parallel_mode (`Optional[Literal["none", "unet", "all"]]`):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
-                load unet into both cores of each device), "all"(load the whole pipeline into both cores).
+                load unet into both cores of each device), "all"(load the whole pipeline into both cores). This applies exclusively to inference 
+                performed on a single device, in case of tensor parallelism, it will be ignored.
             text_encoder_path (`Union[str, Path]`, defaults to `None`):
                 Path of the compiled text encoder.
             text_encoder_2_path (`Optional[Union[str, Path]]`, defaults to `None`):
@@ -444,6 +445,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 Whether enable dynamic batch size for neuron compiled model. If `True`, the input batch size can be a multiple of the batch size during the compilation.
             to_neuron (`bool`, defaults to `False`):
                 Whether to move manually the traced model to NeuronCore. It's only needed when `inline_weights_to_neff=False`, otherwise it is loaded automatically to a Neuron device.
+            configs (`Optional[Dict]`, defaults to `None`):
+                The configurations of models in the pipeline. 
         """
         submodels = {
             # Load the UNet/Diffusion transformer first to avoid CPU OOM
@@ -456,53 +459,58 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             "controlnet": controlnet_paths,
             "image_encoder": image_encoder_path,
         }
+        
+        if data_parallel_mode is None:
+            data_parallel_mode = NeuronDiffusionPipelineBase.set_default_dp_mode(configs)
+        
+        def _load_model_to_single_core(model_name: str, model_path: Path):
+            """
+            Loading models to a signgle core of a Neuron device, eg. text encoders, vae.
+            """
+            logger.info(f"Loading the {model_name} into a signgle Neuron Core...")
+            model = NeuronTracedModel.load_model(model_path, to_neuron=to_neuron)
+            return model
+            
+        def _load_model_to_both_cores(model_name: str,model_path: Path):
+            """
+            Loading models to both cores for data parallelism, eg. unet, transformer.
+            """
+            logger.info(f"Loading the {model_name} into both Neuron Cores...")
+            model = NeuronTracedModel.load_model(
+                model_path, to_neuron=False
+            )  # No need to load to neuron manually when dp
+            model = torch_neuronx.DataParallel(
+                model,
+                [0, 1],
+                set_dynamic_batching=dynamic_batch_size,
+            ) 
+            return model
+        
+        def _load_sharded_model(model_name: str, model_path: Path, tensor_parallel_size: int):
+            """
+            Loading sharded models across multiple Neuron devices for tensor parallelism, eg. flux-transformer.
+            """
+            logger.info(f"Loading the sharded {model_name}...")
+            # load weights
+            weights = []
+            for rank in range(tensor_parallel_size):
+                ckpt = load_file(os.path.join(model_path, f"weights/tp{rank}_sharded_checkpoint.safetensors"))
+                weights.append(ckpt)
+            
+            # load model with weights
+            model = NeuronTracedModel.load_model(model_path, to_neuron=to_neuron)
+            start_rank_tensor = torch.tensor([0], dtype=torch.int32, device="cpu")
+            model.nxd_model.initialize(weights, start_rank_tensor)
+            return model
 
-        def _load_models_to_neuron(submodels, models_on_both_cores=None, models_on_a_single_core=None):
-            # loading models to both cores, eg. unet, transformer.
-            if models_on_both_cores:
-                for model_name in models_on_both_cores:
-                    submodel_paths = submodels[model_name]
-                    # for the case of multiple controlnets the path could be a list
-                    if not isinstance(submodel_paths, list):
-                        submodel_paths = [submodel_paths]
-                    submodels_list = []
-                    for submodel_path in submodel_paths:
-                        if submodel_path is not None and submodel_path.is_file():
-                            submodel = NeuronTracedModel.load_model(
-                                submodel_path, to_neuron=False
-                            )  # No need to load to neuron manually when dp
-                            submodel = torch_neuronx.DataParallel(
-                                submodel,
-                                [0, 1],
-                                set_dynamic_batching=dynamic_batch_size,
-                            )
-                            submodels_list.append(submodel)
-                    if submodels_list:
-                        submodels[model_name] = submodels_list if len(submodels_list) > 1 else submodels_list[0]
-                    else:
-                        submodels[model_name] = None
-            # loading models to a single core, eg. text encoders, vae.
-            if models_on_a_single_core:
-                for model_name in models_on_a_single_core:
-                    submodel_paths = submodels[model_name]
-                    # for the case of multiple controlnets the path could be a list
-                    if not isinstance(submodel_paths, list):
-                        submodel_paths = [submodel_paths]
-                    submodels_list = []
-                    for submodel_path in submodel_paths:
-                        if submodel_path is not None and submodel_path.is_file():
-                            submodel = NeuronTracedModel.load_model(submodel_path, to_neuron=to_neuron)
-                            submodels_list.append(submodel)
-                    if submodels_list:
-                        submodels[model_name] = submodels_list if len(submodels_list) > 1 else submodels_list[0]
-                    else:
-                        submodels[model_name] = None
-            return submodels
-
-        # TODO: Initialize model
-        # neuron_model.nxd_model.initialize_with_saved_weights(start_rank_tensor=torch.tensor([0]))
+        import pdb
+        pdb.set_trace()
+        # define the mode for loading the models
+        models_on_a_single_core = None
+        models_on_both_cores = None
+        models_sharded = None
         if data_parallel_mode == "all":
-            logger.info("Loading the whole pipeline into both Neuron Cores...")
+            
             submodels = _load_models_to_neuron(submodels=submodels, models_on_both_cores=list(submodels))
         elif data_parallel_mode == "unet":
             logger.info("Loading only U-Net into both Neuron Cores...")
@@ -523,6 +531,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             models_on_a_single_core.remove(
                 "controlnet"
             )  # controlnet takes inputs with the same batch_size as the transformer
+                
             submodels = _load_models_to_neuron(
                 submodels=submodels,
                 models_on_both_cores=["transformer", "controlnet"],
@@ -533,6 +542,27 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             submodels = _load_models_to_neuron(submodels=submodels, models_on_a_single_core=list(submodels))
         else:
             raise ValueError("You need to pass `data_parallel_mode` to define Neuron Core allocation.")
+        models_to_load = {
+            "single_core": (models_on_a_single_core, _load_model_to_single_core),
+            "both_cores": (models_on_both_cores, _load_model_to_both_cores),
+            "sharded": (models_sharded, _load_sharded_model),
+        }
+        
+        # load models in the pipe
+        for mode, (model_names, load_func) in models_to_load.items():
+            for model_name in model_names:
+                submodel_paths = submodels[model_name]
+                if not isinstance(submodel_paths, list):
+                    submodel_paths = [submodel_paths]
+                submodels_list = []
+                for submodel_path in submodel_paths:
+                    if submodel_path is not None and submodel_path.is_file():
+                        submodel = load_func(model_name, submodel_path)
+                        submodels_list.append(submodel)
+                if submodels_list:
+                    submodels[model_name] = submodels_list if len(submodels_list) > 1 else submodels_list[0]
+                else:
+                    submodels[model_name] = None
 
         return submodels
 
@@ -646,6 +676,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         src_paths_list = []
         dst_paths_list = []
+        import pdb
+        pdb.set_trace()
         for model_name in set(self.model_and_config_save_paths.keys()).intersection(dst_paths.keys()):
             model_src_path = self.model_and_config_save_paths[model_name][0]
             if isinstance(model_src_path, list):
@@ -811,9 +843,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 configs[name] = sub_model_configs if len(sub_model_configs) > 1 else sub_model_configs[0]
                 neuron_configs[name] = sub_neuron_configs if len(sub_neuron_configs) > 1 else sub_neuron_configs[0]
 
-        if data_parallel_mode is None:
-            data_parallel_mode = cls.set_default_dp_mode(configs)
-
+        import pdb
+        pdb.set_trace()
         pipe = cls.load_model(
             data_parallel_mode=data_parallel_mode,
             text_encoder_path=model_and_config_save_paths["text_encoder"][0],
@@ -826,6 +857,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             controlnet_paths=model_and_config_save_paths["controlnet"][0],
             dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME].dynamic_batch_size,
             to_neuron=not inline_weights_to_neff,
+            configs=configs,
         )
 
         if model_save_dir is None:
@@ -1089,6 +1121,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 model_name_or_path=model_id,
                 output=save_dir_path,
                 compiler_kwargs=compiler_kwargs,
+                tensor_parallel_size=tensor_parallel_size,
                 lora_args=lora_args,
                 ip_adapter_args=ip_adapter_args,
                 torch_dtype=torch_dtype,
