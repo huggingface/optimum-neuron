@@ -67,7 +67,7 @@ _import_structure = {
         "replace_weights",
         "map_torch_dtype",
     ],
-    "model_utils": ["get_tied_parameters_dict", "tie_parameters"],
+    "model_utils": ["get_tied_parameters_dict", "tie_parameters", "saved_model_in_temporary_directory"],
     "optimization_utils": [
         "get_attention_scores_sd",
         "get_attention_scores_sdxl",
@@ -137,7 +137,7 @@ if TYPE_CHECKING:
         map_torch_dtype,
         replace_weights,
     )
-    from .model_utils import get_tied_parameters_dict, tie_parameters
+    from .model_utils import get_tied_parameters_dict, saved_model_in_temporary_directory, tie_parameters
     from .optimization_utils import (
         get_attention_scores_sd,
         get_attention_scores_sdxl,
