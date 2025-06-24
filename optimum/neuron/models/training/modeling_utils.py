@@ -1405,18 +1405,10 @@ class NeuronModelMixin:
 
         # ** Difference from original from_pretrained **
         # This is due to a Neuron compiler bug, and it should be removed when the bug is fixed.
-        should_fake_tie = config.tie_word_embeddings
-        if should_fake_tie:
-            if get_pipeline_model_parallel_size() > 1:
-                raise NotImplementedError(
-                    "`config.tie_word_embeddings` is set to True, but it produces NaNs with pipeline parallelism due to "
-                    "a compiler bug."
-                )
-            logger.warning(
-                "`config.tie_word_embeddings` is set to True, but it produces compiler errors with the current Neuron "
-                "SDK. Setting it to False until resolved. The weights will be copied but not tied."
+        if config.tie_word_embeddings and get_pipeline_model_parallel_size() > 1:
+            raise NotImplementedError(
+                "`config.tie_word_embeddings` is set to True, but it is not supported in pipeline parallelism."
             )
-        config.tie_word_embeddings = False
 
         with ContextManagers(init_contexts):
             # Let's make sure we don't run the init function of buffer modules
@@ -1481,19 +1473,6 @@ class NeuronModelMixin:
 
         if device_map == "xla":
             move_model_to_device(model, xm.xla_device())
-
-        # ** Difference from original from_pretrained **
-        # Currently tie_word_embeddings leads to a compiler bug.
-        # If weights are initially tied, we still copy the value but we do not tie them.
-        if should_fake_tie:
-            with torch.no_grad():
-                if (
-                    model.get_input_embeddings().weight.device.type == "meta"
-                    or model.get_output_embeddings().weight.device.type == "meta"
-                ):
-                    logger.warning("Either the input or output embeddings are on the meta device, cannot tie them.")
-                else:
-                    model.get_output_embeddings().weight.data.copy_(model.get_input_embeddings().weight)
 
         if output_loading_info:
             if loading_info is None:
@@ -1570,6 +1549,9 @@ class NeuronModelMixin:
             )
 
         model_to_save = self
+
+        # We need to specialize the transformation specs for the model before saving.
+        specialize_transformation_specs_for_model(model_to_save)
 
         # save the string version of dtype to the config, e.g. convert torch.float32 => "float32"
         # we currently don't use this setting automatically, but may start to use with v5

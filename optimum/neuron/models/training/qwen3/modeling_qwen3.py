@@ -32,7 +32,6 @@ from ..llama.modeling_llama import (
     LlamaForCausalLM,
     LlamaModel,
     LlamaPreTrainedModel,
-    LlamaRMSNorm,
     LlamaRotaryEmbedding,
     apply_rotary_pos_emb,
     eager_attention_forward,
@@ -52,12 +51,34 @@ logger = logging.get_logger(__name__)
 def _init_normal(std, w):
     return nn.init.normal_(w, mean=0.0, std=std)
 
+class Qwen3RMSNorm(nn.Module):
+    def __init__(self, hidden_size, reduction_dim=-1, eps=1e-6, sequence_parallel_enabled=False):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(hidden_size))
+        setattr(self.weight, "sequence_parallel_enabled", sequence_parallel_enabled)
+        self.variance_epsilon = eps
+        self.reduction_dim = reduction_dim
+
+    def forward(self, hidden_states):
+        input_dtype = hidden_states.dtype
+        hidden_states = hidden_states.to(torch.float32)
+        variance = hidden_states.pow(2).mean(self.reduction_dim, keepdim=True)
+        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        return self.weight * hidden_states.to(input_dtype)
+
+    def extra_repr(self):
+        return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
+
 
 class Qwen3Attention(LlamaAttention):
     def __init__(self, config: Qwen3Config, trn_config: TrainingNeuronConfig, layer_idx: int):
         super().__init__(config, trn_config, layer_idx)
-        self.q_norm = LlamaRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
-        self.k_norm = LlamaRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # thus post q_norm does not need reshape
+        if self.use_flash_attention_v2 and trn_config.transpose_nki_inputs:
+            reduction_dim = -2
+        else:
+            reduction_dim = -1
+        self.q_norm = Qwen3RMSNorm(self.head_dim, reduction_dim=reduction_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
+        self.k_norm = Qwen3RMSNorm(self.head_dim, reduction_dim=reduction_dim, eps=config.rms_norm_eps)  # thus post q_norm does not need reshape
 
     def forward(
         self,
@@ -82,23 +103,18 @@ class Qwen3Attention(LlamaAttention):
             key_states = self.k_proj(hidden_states)
             value_states = self.v_proj(hidden_states)
 
-        if self.trn_config.sequence_parallel_enabled:
-            query_states = query_states.view(q_len, bsz, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
-            key_states = key_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
-            value_states = value_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
-        else:
-            query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-            key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-            value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        query_states, key_states, value_states = self.permute_qkv_for_attn(
+            query_states, key_states, value_states, bsz, q_len, self.num_heads, self.num_key_value_heads, self.head_dim
+        )
 
         # Main difference from LlamaAttention is that Qwen3 applies a norm on query and key after the projection
         query_states = self.q_norm(query_states)
         key_states = self.k_norm(key_states)
 
         cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, flash_attn=self.use_flash_attention_v2, transpose_nki_inputs=self.trn_config.transpose_nki_inputs)
 
-        if self.config._attn_implementation == "flash_attention_2":
+        if self.use_flash_attention_v2:
             attention_interface = ALL_ATTENTION_FUNCTIONS["flash_attention_2"]
             if self.training and self.attention_dropout > 0.0:
                 raise RuntimeError(
@@ -113,6 +129,7 @@ class Qwen3Attention(LlamaAttention):
                 softmax_scale=self.scaling,
                 causal=True,
                 mixed_precision=True,
+                transpose_nki_inputs=self.trn_config.transpose_nki_inputs,
             )
             attn_weights = None
         else:
@@ -172,7 +189,7 @@ class Qwen3Model(LlamaModel):
         self.layers = nn.ModuleList(
             [Qwen3DecoderLayer(config, trn_config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
-        self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
         self.gradient_checkpointing = False
 
@@ -227,7 +244,7 @@ class Qwen3ForCausalLM(LlamaForCausalLM):
     SUPPORTS_PIPELINE_PARALLELISM = True
     PIPELINE_TRANSFORMER_LAYER_CLS = Qwen3DecoderLayer
     PIPELINE_INPUT_NAMES = ["input_ids", "attention_mask", "labels"]
-    PIPELINE_LEAF_MODULE_CLASSE_NAMES = ["LlamaRMSNorm", "LlamaRotaryEmbedding"]
+    PIPELINE_LEAF_MODULE_CLASSE_NAMES = ["Qwen3RMSNorm", "LlamaRotaryEmbedding"]
 
     def __init__(self, config, trn_config: TrainingNeuronConfig):
         super().__init__(config, trn_config)
