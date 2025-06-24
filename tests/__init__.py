@@ -13,4 +13,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .distributed_utils import DistributedTest, launch_procs
+from .distributed_utils import distributed_test, run_distributed_test
