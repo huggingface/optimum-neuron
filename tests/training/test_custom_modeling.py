@@ -36,7 +36,7 @@ from optimum.neuron.utils.import_utils import (
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from .. import launch_procs
+from ..distributed_utils import distributed_test, run_distributed_test
 from .utils import SEED, StaticSeedPatcher, create_accelerator, get_model_inputs
 
 
@@ -292,7 +292,7 @@ def test_custom_modeling_matches_original(
         attn_implementation,
         monkeypatch,
     )
-    launch_procs(run_fn, world_size, tp_size, pp_size)
+    run_distributed_test(run_fn, world_size=world_size, tp_size=tp_size, pp_size=pp_size)
 
 
 @pytest.mark.parametrize(
@@ -409,7 +409,14 @@ def test_compute_query_indices_for_rank(
         torch.testing.assert_close(expected, computed)
 
 
-def _test_custom_model_resize_embedding():
+
+@distributed_test(
+    world_size=2,
+    tp_size=2,
+    pp_size=1,
+)
+@is_trainium_test
+def test_custom_model_resize_embedding():
     tp_size = get_tensor_model_parallel_size()
 
     # Use a small model config for testing
@@ -485,10 +492,3 @@ def _test_custom_model_resize_embedding():
             new_tokens_output = new_output_embeddings.weight[old_local_vocab:, :]
             assert not torch.allclose(new_tokens_input, torch.zeros_like(new_tokens_input))
             assert not torch.allclose(new_tokens_output, torch.zeros_like(new_tokens_output))
-
-
-@is_trainium_test
-def test_custom_model_resize_embedding(set_cache_for_ci):
-    world_size, tp_size, pp_size = (2, 2, 1)
-    run_fn = partial(_test_custom_model_resize_embedding)
-    launch_procs(run_fn, world_size, tp_size, pp_size)

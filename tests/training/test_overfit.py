@@ -35,7 +35,7 @@ from optimum.neuron.utils.misc import is_precompilation
 from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.training_utils import is_main_worker_for_metrics
 
-from .. import launch_procs
+from ..distributed_utils import distributed_test, run_distributed_test
 
 
 if is_neuronx_distributed_available():
@@ -289,7 +289,7 @@ def test_overfit_causal_lm(
         use_flash_attention_2,
         tmpdir,
     )
-    launch_procs(run_fn, world_size, tp_size, pp_size)
+    run_distributed_test(run_fn, world_size=world_size, tp_size=tp_size, pp_size=pp_size, timeout=1200)
 
 
 @pytest.mark.parametrize(
@@ -306,6 +306,7 @@ def test_overfit_causal_lm(
 )
 @pytest.mark.neuron_parallel_compile
 @is_trainium_test
+@distributed_test()
 def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir, set_cache_for_ci):
     peft_config = LoraConfig(
         r=16,
@@ -316,8 +317,7 @@ def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir, set_cache_
         task_type="CAUSAL_LM",
     )
     model_class = get_model_class_from_name("LlamaForCausalLM", use_custom_modeling=True)
-    run_fn = partial(
-        _overfit_causal_lm,
+    _overfit_causal_lm(
         model_class,
         "meta-llama/Llama-3.2-1B-Instruct",
         1e-4,
@@ -332,4 +332,3 @@ def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir, set_cache_
         tmpdir,
         peft_config=peft_config,
     )
-    launch_procs(run_fn, world_size, tp_size, pp_size)
