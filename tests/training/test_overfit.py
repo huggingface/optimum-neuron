@@ -39,7 +39,11 @@ from ..distributed_utils import distributed_test, run_distributed_test
 
 
 if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers.parallel_state import get_data_parallel_size
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_data_parallel_size,
+        get_pipeline_model_parallel_size,
+        get_tensor_model_parallel_size,
+    )
 
 
 def get_model_class_from_name(model_class_name: str, use_custom_modeling: bool) -> Type[PreTrainedModel]:
@@ -60,12 +64,12 @@ def _overfit_causal_lm(
     max_length,
     max_expected_loss,
     num_steps,
-    tp_size,
-    pp_size,
     use_flash_attention_2,
     output_dir,
     peft_config=None,
 ):
+    tp_size = get_tensor_model_parallel_size()
+    pp_size = get_pipeline_model_parallel_size()
     if pp_size > 1 and not model_class.supports_pipeline_parallelism():
         pytest.skip(f"The model {model_class} does not support pipeline parallelism, skipping the test.")
 
@@ -192,7 +196,7 @@ def _overfit_causal_lm(
             0.03,
             {},
             True,
-            0.5,  # Use a smaller value when tie_word_embeddings is fixed.
+            0.05,
             2048,
             30,
         ],
@@ -218,7 +222,7 @@ def _overfit_causal_lm(
             0.04,
             {},
             True,
-            0.5,  # Use a smaller value when tie_word_embeddings is fixed.
+            0.05,
             2048,
             50,
         ],
@@ -230,7 +234,7 @@ def _overfit_causal_lm(
             0.04,
             {},
             False,  # No flash attention for model without custom modeling.
-            0.5,  # Use a smaller value when tie_word_embeddings is fixed.
+            0.05,
             2048,
             50,
         ],
@@ -259,19 +263,8 @@ def test_overfit_causal_lm(
     set_cache_for_ci,  # This fixture will handle setting the remote cache to make this test faster.
 ):
     model_class = get_model_class_from_name(model_class_name, use_custom_modeling=use_custom_modeling)
-    if use_custom_modeling:
-        if model_class.supports_pipeline_parallelism():
-            world_size = 32
-            tp_size = 2
-            pp_size = 4
-        else:
-            world_size = 32
-            tp_size = 8
-            pp_size = 1
-    else:
-        world_size = 8
-        tp_size = 1
-        pp_size = 1
+
+    # Creating the test function.
     run_fn = partial(
         _overfit_causal_lm,
         model_class,
@@ -282,12 +275,19 @@ def test_overfit_causal_lm(
         max_length,
         max_expected_loss,
         num_steps,
-        tp_size,
-        pp_size,
         use_flash_attention_2,
         tmpdir,
     )
-    run_distributed_test(run_fn, world_size=world_size, tp_size=tp_size, pp_size=pp_size, timeout=1200)
+    if use_custom_modeling:
+        if model_class.supports_pipeline_parallelism():
+            print(f"Testing custom modeling overfit of {model_name_or_path} with dp=4, tp_size=2, pp_size=4")
+            run_distributed_test(run_fn, world_size=32, tp_size=2, pp_size=4, timeout=1200)
+
+        print(f"Testing custom modeling overfit of {model_name_or_path} with dp=4, tp_size=8, pp_size=1")
+        run_distributed_test(run_fn, world_size=32, tp_size=8, pp_size=1, timeout=1200)
+    else:
+        print(f"Testing transformers modeling overfit of {model_name_or_path} with dp=8, tp_size=1, pp_size=1")
+        run_distributed_test(run_fn, world_size=8, tp_size=1, pp_size=1, timeout=1200)
 
 
 @pytest.mark.parametrize(
