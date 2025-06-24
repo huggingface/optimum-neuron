@@ -82,7 +82,7 @@ def prune_linear_layer(layer: BaseParallelLinear, index: torch.LongTensor, dim: 
     return new_layer
 
 
-class ParallelAttention(T5Attention):
+class NeuronT5Attention(T5Attention):
     def __init__(
         self,
         config: T5Config,
@@ -266,10 +266,10 @@ class ParallelAttention(T5Attention):
         return outputs
 
 
-class ParallelSelfAttention(T5LayerSelfAttention):
+class NeuronT5LayerSelfAttention(T5LayerSelfAttention):
     def __init__(self, config, has_relative_attention_bias=False, layer_idx: Optional[int] = None):
         super().__init__(config, has_relative_attention_bias=False, layer_idx=layer_idx)
-        self.SelfAttention = ParallelAttention(
+        self.SelfAttention = NeuronT5Attention(
             config,
             has_relative_attention_bias=has_relative_attention_bias,
             layer_idx=layer_idx,
@@ -278,15 +278,15 @@ class ParallelSelfAttention(T5LayerSelfAttention):
         self.dropout = nn.Dropout(config.dropout_rate)
 
 
-class ParallelCrossAttention(T5LayerCrossAttention):
+class NeuronT5LayerCrossAttention(T5LayerCrossAttention):
     def __init__(self, config, layer_idx: Optional[int] = None):
         super().__init__(config)
-        self.EncDecAttention = ParallelAttention(config, has_relative_attention_bias=False, layer_idx=layer_idx)
+        self.EncDecAttention = NeuronT5Attention(config, has_relative_attention_bias=False, layer_idx=layer_idx)
         self.layer_norm = T5LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout_rate)
 
 
-class ParallelDenseActDense(T5DenseActDense):
+class NeuronT5DenseActDense(T5DenseActDense):
     def __init__(self, config: T5Config):
         super().__init__(config)
         self.wi = ColumnParallelLinear(config.d_model, config.d_ff, gather_output=False, bias=False)
@@ -295,7 +295,7 @@ class ParallelDenseActDense(T5DenseActDense):
         self.act = ACT2FN[config.dense_act_fn]
 
 
-class ParallelDenseGatedActDense(T5DenseGatedActDense):
+class NeuronT5DenseGatedActDense(T5DenseGatedActDense):
     def __init__(self, config: T5Config):
         super().__init__(config)
         self.wi_0 = ColumnParallelLinear(config.d_model, config.d_ff, gather_output=False, bias=False)
@@ -305,13 +305,13 @@ class ParallelDenseGatedActDense(T5DenseGatedActDense):
         self.act = ACT2FN[config.dense_act_fn]
 
 
-class ParallelFF(T5LayerFF):
+class NeuronT5LayerFF(T5LayerFF):
     def __init__(self, config: T5Config):
         super().__init__(config)
         if config.is_gated_act:
-            self.DenseReluDense = ParallelDenseGatedActDense(config)
+            self.DenseReluDense = NeuronT5DenseGatedActDense(config)
         else:
-            self.DenseReluDense = ParallelDenseActDense(config)
+            self.DenseReluDense = NeuronT5DenseActDense(config)
 
         self.layer_norm = T5LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout_rate)
@@ -319,12 +319,12 @@ class ParallelFF(T5LayerFF):
 
 def parallelize(model):
     for index, block in enumerate(model.decoder.block):
-        block.layer[0] = ParallelSelfAttention(
+        block.layer[0] = NeuronT5LayerSelfAttention(
             model.config,
             has_relative_attention_bias=bool(index == 0),
             layer_idx=index,
         )
-        block.layer[1] = ParallelCrossAttention(model.config, layer_idx=index)
-        block.layer[2] = ParallelFF(model.config)
+        block.layer[1] = NeuronT5LayerCrossAttention(model.config, layer_idx=index)
+        block.layer[2] = NeuronT5LayerFF(model.config)
 
     return model

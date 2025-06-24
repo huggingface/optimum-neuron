@@ -968,7 +968,7 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
         model.config.use_cache = True
         with saved_model_in_temporary_directory(model) as ckpt_path:
             # Plug in parallel layers
-            from optimum.neuron.models.inference.nxd.t5.modeling_t5 import parallelize
+            from optimum.neuron.models.inference.t5.modeling_t5 import parallelize
 
             parallel_model = parallelize(model)
             # Load the weights into the parallel layers
@@ -1115,7 +1115,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
         model.config.use_cache = True
         with saved_model_in_temporary_directory(model) as ckpt_path:
             # Plug in parallel layers
-            from optimum.neuron.models.inference.nxd.t5.modeling_t5 import parallelize
+            from optimum.neuron.models.inference.t5.modeling_t5 import parallelize
 
             parallel_model = parallelize(model)
             # Load the weights into the parallel layers
