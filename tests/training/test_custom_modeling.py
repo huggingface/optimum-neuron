@@ -529,9 +529,7 @@ def test_custom_model_tie_weights(tmpdir, set_cache_for_ci):
     assert input_embeddings.weight.storage().data_ptr() == output_embeddings.weight.storage().data_ptr()
 
     # Should be still tied after moved to the XLA device
-    accelerator = create_accelerator(
-        tp_size, pp_size, sequence_parallel_enabled=True
-    )
+    accelerator = create_accelerator(tp_size, pp_size, sequence_parallel_enabled=True)
     model_tied = accelerator.prepare(model_tied)
     assert input_embeddings.weight is output_embeddings.weight
     assert input_embeddings.weight.dtype.type == "xla"
@@ -539,7 +537,7 @@ def test_custom_model_tie_weights(tmpdir, set_cache_for_ci):
     # Test case 2: Weights should also be tied from from_pretrained
     # We save the model with `tie_word_embeddings=True` to ensure that the weights are tied in the checkpoint and that
     # there is no `lm_head` weight in the checkpoint.
-    model_name_or_path  = tmpdir / "model_with_tied_weights"
+    model_name_or_path = tmpdir / "model_with_tied_weights"
     orig_model = OriginalLlamaForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, config=config)
     orig_model.save_pretrained(model_name_or_path)
     with static_seed_patcher:
