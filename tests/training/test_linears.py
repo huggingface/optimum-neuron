@@ -14,7 +14,6 @@
 # limitations under the License.
 """Tests checking that `neuronx_distributed` parallel layers are working as expected."""
 
-
 import pytest
 import torch
 from torch import nn
@@ -43,6 +42,7 @@ if is_neuronx_distributed_available():
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+
 
 @is_trainium_test
 @pytest.mark.parametrize(
@@ -132,4 +132,3 @@ def test_parallel_linears(row_or_column, weights_dtype, inputs_dtype, input_size
 
     # Finally we compare that the outputs are the same.
     assert_close(outputs, parallel_outputs, msg="Sharded linear output does not match the unsharded one.")
-

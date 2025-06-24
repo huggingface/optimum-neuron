@@ -44,11 +44,13 @@ if is_neuronx_distributed_available():
 
 TEST_TIMEOUT = 600
 
+
 class PickableSkipped(BaseException):
     """
     A picklable version of Skipped exception to be used in distributed tests.
     This is necessary because the original Skipped exception cannot be pickled.
     """
+
     def __init__(self, msg: str):
         self.msg = msg
 
@@ -59,12 +61,22 @@ class PickableSkipped(BaseException):
 def get_free_port():
     """Find a free port on localhost"""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('', 0))
+        s.bind(("", 0))
         s.listen(1)
         port = s.getsockname()[1]
     return str(port)
 
-def _distributed_worker(index: int, func_bytes: Callable, func_args: Tuple[Any, ...], func_kwargs: Dict[str, Any], master_port: str, world_size: int, tp_size: int, pp_size: int):
+
+def _distributed_worker(
+    index: int,
+    func_bytes: Callable,
+    func_args: Tuple[Any, ...],
+    func_kwargs: Dict[str, Any],
+    master_port: str,
+    world_size: int,
+    tp_size: int,
+    pp_size: int,
+):
     rank = index  # In xmp.spawn, index is the rank of the process
     try:
         func = cloudpickle.loads(func_bytes)
@@ -80,7 +92,7 @@ def _distributed_worker(index: int, func_bytes: Callable, func_args: Tuple[Any, 
             "GROUP_RANK": "0",
             "TORCHELASTIC_RESTART_COUNT": "0",
             "TORCHELASTIC_MAX_RESTARTS": "0",
-            "TORCHELASTIC_RUN_ID": f"test_{hash(func_bytes)}"
+            "TORCHELASTIC_RUN_ID": f"test_{hash(func_bytes)}",
         }
         os.environ.update(env)
 
@@ -106,10 +118,14 @@ def _distributed_worker(index: int, func_bytes: Callable, func_args: Tuple[Any, 
         if dist.is_initialized():
             dist.destroy_process_group()
 
-def distributed_test(world_size: Optional[int] = None, tp_size: Optional[int] = None, pp_size: Optional[int] = None, timeout: int = 600):
+
+def distributed_test(
+    world_size: Optional[int] = None, tp_size: Optional[int] = None, pp_size: Optional[int] = None, timeout: int = 600
+):
     """
     Decorator to run a test function in a distributed setting.
     """
+
     def decorator(func: Callable):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -123,21 +139,21 @@ def distributed_test(world_size: Optional[int] = None, tp_size: Optional[int] = 
             bound.apply_defaults()
 
             if bound.arguments.get("world_size", None) is not None:
-                actual_world_size = bound.arguments.get('world_size')
+                actual_world_size = bound.arguments.get("world_size")
             elif world_size is not None:
                 actual_world_size = world_size
             else:
                 actual_world_size = 1
 
             if bound.arguments.get("tp_size", None) is not None:
-                actual_tp_size = bound.arguments.get('tp_size')
+                actual_tp_size = bound.arguments.get("tp_size")
             elif tp_size is not None:
                 actual_tp_size = tp_size
             else:
                 actual_tp_size = 1
 
             if bound.arguments.get("pp_size", None) is not None:
-                actual_pp_size = bound.arguments.get('pp_size')
+                actual_pp_size = bound.arguments.get("pp_size")
             elif pp_size is not None:
                 actual_pp_size = pp_size
             else:
@@ -167,7 +183,15 @@ def distributed_test(world_size: Optional[int] = None, tp_size: Optional[int] = 
             try:
                 xmp.spawn(
                     _distributed_worker,
-                    args=(func_bytes, bound.args, bound.kwargs, master_port, actual_world_size, actual_tp_size, actual_pp_size),
+                    args=(
+                        func_bytes,
+                        bound.args,
+                        bound.kwargs,
+                        master_port,
+                        actual_world_size,
+                        actual_tp_size,
+                        actual_pp_size,
+                    ),
                     nprocs=nprocs,
                     join=True,
                 )
@@ -181,6 +205,7 @@ def distributed_test(world_size: Optional[int] = None, tp_size: Optional[int] = 
                 signal.alarm(0)
 
         return wrapper
+
     return decorator
 
 

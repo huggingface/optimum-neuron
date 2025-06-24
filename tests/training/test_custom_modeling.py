@@ -409,7 +409,6 @@ def test_compute_query_indices_for_rank(
         torch.testing.assert_close(expected, computed)
 
 
-
 @distributed_test(
     world_size=2,
     tp_size=2,

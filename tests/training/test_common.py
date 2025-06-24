@@ -79,10 +79,7 @@ def move_params_to_cpu(parameters):
     ],
 )
 @distributed_test(world_size=32, tp_size=2, pp_size=4)
-def test_optimizer_step(
-    zero_1, gradient_accumulation_steps, max_grad_norm, set_cache_for_ci
-):
-
+def test_optimizer_step(zero_1, gradient_accumulation_steps, max_grad_norm, set_cache_for_ci):
     world_size = xr.world_size()
     tp_size = get_tensor_model_parallel_size()
     pp_size = get_pipeline_model_parallel_size()
@@ -137,9 +134,7 @@ def test_optimizer_step(
 
                 # Checking that at least some of the parameters have a gradient.
                 grads_on_cpu = move_grads_to_cpu(model.local_parameters())
-                assert any(torch.all(grad != 0) for grad in grads_on_cpu), (
-                    "Expected some gradients to be non-zero."
-                )
+                assert any(torch.all(grad != 0) for grad in grads_on_cpu), "Expected some gradients to be non-zero."
 
                 if is_optimizer_update_step:
                     if max_grad_norm is not None:
@@ -177,9 +172,7 @@ def test_optimizer_step(
 
                 # Checking that at least some of the parameters have a gradient.
                 grads_on_cpu = move_grads_to_cpu(model.parameters())
-                assert any(torch.all(grad != 0) for grad in grads_on_cpu), (
-                    "Expected some gradients to be non-zero."
-                )
+                assert any(torch.all(grad != 0) for grad in grads_on_cpu), "Expected some gradients to be non-zero."
 
                 if is_optimizer_update_step:
                     if max_grad_norm is not None:
@@ -218,6 +211,7 @@ def test_optimizer_step(
                 assert all(torch.all(p1 == p2) for (p1, p2) in zip(orig_parameters, current_parameters)), (
                     "Expected no parameters to have changed before an optimizer step."
                 )
+
 
 @pytest.mark.parametrize(
     "world_size,tp_size,pp_size,kv_size_multiplier,fuse_qkv",
@@ -273,9 +267,7 @@ def test_consolidate_custom_model_parallel_checkpoints(
             save_format="pytorch",
         )
         orig_state_dict = torch.load(tmpdir / "orig_model" / "pytorch_model.bin", weights_only=True)
-        consolidated_state_dict = torch.load(
-            tmpdir / "consolidated_model" / "pytorch_model.bin", weights_only=True
-        )
+        consolidated_state_dict = torch.load(tmpdir / "consolidated_model" / "pytorch_model.bin", weights_only=True)
 
         assert orig_state_dict.keys() == consolidated_state_dict.keys(), (
             "Keys of the original state dict and consolidated state dict do not match."
@@ -284,6 +276,7 @@ def test_consolidate_custom_model_parallel_checkpoints(
             orig_tensor = orig_state_dict[key]
             consolidated_tensor = consolidated_state_dict[key]
             torch.testing.assert_close(orig_tensor, consolidated_tensor)
+
 
 @pytest.mark.parametrize(
     "world_size,tp_size,pp_size,kv_size_multiplier,fuse_qkv",
@@ -310,9 +303,7 @@ def test_consolidate_custom_lora_model_parallel_checkpoints(
     tmpdir = Path(tmpdir)
     orig_model = LlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS)
 
-    first_lora_adapter_model_name_or_path = (
-        "michaelbenayoun/lora-qkv-included-llama-2-tiny-4kv-heads-4layers-random"
-    )
+    first_lora_adapter_model_name_or_path = "michaelbenayoun/lora-qkv-included-llama-2-tiny-4kv-heads-4layers-random"
     second_lora_adapter_model_name_or_path = (
         "michaelbenayoun/lora-2-qkv-included-llama-2-tiny-4kv-heads-4layers-random"
     )
@@ -351,9 +342,7 @@ def test_consolidate_custom_lora_model_parallel_checkpoints(
         adapter_name="test",
     )
 
-    has_gqa_qkv_column_parallel_linear = any(
-        isinstance(m, GQAQKVColumnParallelLinear) for m in custom_model.modules()
-    )
+    has_gqa_qkv_column_parallel_linear = any(isinstance(m, GQAQKVColumnParallelLinear) for m in custom_model.modules())
 
     # Some weights need to be averaged before comparing them.
     # For now it is only the case for the LoRA A weights when there is linear fusion involved.
@@ -432,6 +421,7 @@ def test_consolidate_custom_lora_model_parallel_checkpoints(
                 consolidated_tensor = consolidated_state_dict[key]
                 print(f"Testing that {key} match for adapter {adapter_name}")
                 torch.testing.assert_close(orig_tensor, consolidated_tensor)
+
 
 @distributed_test(world_size=32, tp_size=2, pp_size=4)
 def test_each_pp_rank_only_loads_relevant_parameters(set_cache_for_ci):
