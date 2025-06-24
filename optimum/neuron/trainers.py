@@ -15,7 +15,6 @@
 """Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
 import contextlib
-import copy
 import dataclasses
 import functools
 import inspect
@@ -90,11 +89,10 @@ from optimum.utils import logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType, NeuronPartialState
 from .cache.hub_cache import hub_neuronx_cache, synchronize_hub_cache
 from .cache.training import patch_neuron_cc_wrapper
-from .distributed import Parallelizer, ParallelizersManager
-from .distributed.utils import make_optimizer_constructor_lazy
-from .peft import get_peft_model
+from .peft import NeuronPeftModel, get_peft_model
 from .training_args import NeuronTrainingArguments
 from .utils import (
+    is_neuronx_distributed_available,
     is_torch_xla_available,
     is_trl_available,
     patch_within_function,
@@ -106,12 +104,9 @@ from .utils.cache_utils import (
 )
 from .utils.import_utils import is_peft_available
 from .utils.misc import is_main_worker, is_precompilation
-from .utils.peft_utils import NeuronPeftModel
-from .utils.peft_utils import get_peft_model as old_get_peft_model
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils.training_utils import (
     get_model_param_count,
-    is_custom_modeling_model,
     is_main_worker_for_metrics,
     is_main_worker_for_metrics_method,
     patch_generation_mixin_to_neuron_generation_mixin,
@@ -124,6 +119,10 @@ if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
     import torch_xla.debug.metrics as met
     import torch_xla.runtime as xr
+
+
+if is_neuronx_distributed_available():
+    from neuronx_distributed.pipeline import NxDPPModel
 
 if is_sagemaker_mp_enabled():
     from smdistributed.modelparallel import __version__ as SMP_VERSION
@@ -345,8 +344,6 @@ class _TrainerForNeuron:
         xm.rendezvous("Hub cache synchronization done")
 
     def _wrap_model(self, model, training=True, dataloader=None):
-        if is_custom_modeling_model(model):
-            return model
         return super()._wrap_model(
             self.accelerator.patch_model_for_neuron(model), training=training, dataloader=dataloader
         )
@@ -368,22 +365,53 @@ class _TrainerForNeuron:
     def get_num_trainable_parameters(self):
         return get_model_param_count(self.model, trainable_only=True)
 
-    @staticmethod
-    def get_optimizer_cls_and_kwargs(
-        args: TrainingArguments, model: Optional[PreTrainedModel] = None
-    ) -> Tuple[Any, Any]:
-        # No need for lazy loading logic when using custom modeling.
-        if is_custom_modeling_model(model):
-            return transformers_get_optimizer_cls_and_kwargs(args, model=model)
-        optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args, model=model)
-        lazy_load = args.trn_config.should_parallelize or args.zero_1
-        if lazy_load:
-            optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)
-        return optimizer_cls, optimizer_kwargs
-
-    @patch_within_function(("transformers.Trainer.get_optimizer_cls_and_kwargs", get_optimizer_cls_and_kwargs))
     def create_optimizer(self):
-        return super().create_optimizer()
+        if isinstance(self.model, NxDPPModel):
+            opt_model = self.model.original_torch_module
+            named_parameters = list(self.model.local_named_parameters())
+        else:
+            opt_model = self.model
+            named_parameters = list(self.model.named_parameters())
+
+        if self.optimizer is None:
+            decay_parameters = self.get_decay_parameter_names(opt_model)
+            optimizer_grouped_parameters = [
+                {
+                    "params": [p for n, p in named_parameters if (n in decay_parameters and p.requires_grad)],
+                    "weight_decay": self.args.weight_decay,
+                },
+                {
+                    "params": [p for n, p in named_parameters if (n not in decay_parameters and p.requires_grad)],
+                    "weight_decay": 0.0,
+                },
+            ]
+
+            if self.optimizer_cls_and_kwargs is not None:
+                optimizer_cls, optimizer_kwargs = self.optimizer_cls_and_kwargs
+            else:
+                optimizer_cls, optimizer_kwargs = self.get_optimizer_cls_and_kwargs(self.args, opt_model)
+
+            # Overwrite `params` in case it's created by `get_optimizer_cls_and_kwargs`
+            # e.g. for GaLore optimizer.
+            if "params" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("params")
+
+            # Overwrite `model` in case it's created by `get_optimizer_cls_and_kwargs`
+            # e.g. for LOMO optimizer.
+            if "model" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("model")
+
+            # For layer-wise dummy optimizers we overwrite optimizer_grouped_parameters with `optimizer_dict`
+            # to avoid arguments conflicts.
+            if "optimizer_dict" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("optimizer_dict")
+
+            self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
+
+            # ** Difference with the original `create_optimizer` method **
+            # We removed the part handling bitsandbyte optimizers, as it is not supported in Neuron.
+
+        return self.optimizer
 
     def _prepare_input(self, data: Union[torch.Tensor, Any]) -> Union[torch.Tensor, Any]:
         # When pipeline parallelism is enabled, we should not put any tensor on device.
@@ -439,10 +467,10 @@ class _TrainerForNeuron:
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
 
             if num_items_in_batch is None:
-                output = loss / self.args.gradient_accumulation_steps
+                loss = loss / self.args.gradient_accumulation_steps
         else:
-            output = super().training_step(model, inputs, num_items_in_batch=num_items_in_batch)
-        return output
+            loss = super().training_step(model, inputs, num_items_in_batch=num_items_in_batch)
+        return loss
 
     @requires_neuronx_distributed
     def prediction_step(
@@ -482,7 +510,9 @@ class _TrainerForNeuron:
                 dp_size = xr.world_size()
 
             tr_loss_div = tr_loss / dp_size
+
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_replica_groups())
+
             reduced_tr_loss = reduced_tr_loss.detach()
 
             if self.control.should_log:
@@ -545,55 +575,27 @@ class _TrainerForNeuron:
         # Save a trained model and configuration using `save_pretrained()`.
         # They can then be reloaded using `from_pretrained()`
         xm.rendezvous("saving_checkpoint")
-        if (
-            not isinstance(self.model, NeuronPeftModel)
-            and self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
-        ):
+        if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             if is_main_worker():
                 logger.info(
                     "Model parallelism is enabled, saving the model sharded state dict instead of the full state dict."
                 )
-            if is_custom_modeling_model(self.model):
-                # This mark_step is needed to avoid hang issues.
-                xm.mark_step()
-                self.model.save_pretrained(
-                    output_dir,
-                    optimizer=self.optimizer if not self.args.save_only_model else None,
-                )
-            else:
-                if isinstance(self.model, PreTrainedModel):
-                    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
-                    config = copy.deepcopy(self.model.config)
-                    if self.args.trn_config.parallelize_embeddings:
-                        config.vocab_size = config.vocab_size * get_tensor_model_parallel_size()
-                    config.save_pretrained(output_dir)
-
-                # This mark_step is needed to avoid hang issues.
-                xm.mark_step()
-                Parallelizer.save_model_sharded_checkpoint(
-                    self.model,
-                    output_dir,
-                    optimizer=self.optimizer if not self.args.save_only_model else None,
-                    use_xser=self.accelerator.state.trn_config.use_xser,
-                    async_save=self.accelerator.state.trn_config.async_save,
-                    num_local_ranks_per_step=self.accelerator.state.trn_config.num_local_ranks_per_step,
-                )
+            model_to_save = self.model.original_torch_module if isinstance(self.model, NxDPPModel) else self.model
+            # This mark_step is needed to avoid hang issues.
+            xm.mark_step()
+            model_to_save.save_pretrained(
+                output_dir,
+                optimizer=self.optimizer if not self.args.save_only_model else None,
+            )
         else:
-            supported_classes = (PreTrainedModel, NeuronPeftModel)
-            if not isinstance(self.model, supported_classes):
-                if isinstance(unwrap_model(self.model), supported_classes):
-                    kwargs = (
-                        {}
-                        if isinstance(unwrap_model(self.model), PreTrainedModel)
-                        else {"async_save": self.args.async_save}
-                    )
+            if not isinstance(self.model, PreTrainedModel):
+                if isinstance(unwrap_model(self.model), PreTrainedModel):
                     unwrap_model(self.model).save_pretrained(
                         output_dir,
                         is_main_process=self.args.should_save,
                         state_dict=self.model.state_dict(),
                         save_function=xm.save,
-                        **kwargs,
                     )
                 else:
                     if is_main_worker():
@@ -601,9 +603,10 @@ class _TrainerForNeuron:
                     state_dict = self.model.state_dict()
                     xm.save(state_dict, os.path.join(output_dir, WEIGHTS_NAME))
             else:
-                kwargs = {} if isinstance(self.model, PreTrainedModel) else {"async_save": self.args.async_save}
                 self.model.save_pretrained(
-                    output_dir, is_main_process=self.args.should_save, save_function=xm.save, **kwargs
+                    output_dir,
+                    is_main_process=self.args.should_save,
+                    save_function=xm.save,
                 )
 
         if self.tokenizer is not None and self.args.should_save:
@@ -688,9 +691,9 @@ class _TrainerForNeuron:
             lr_scheduler_state = torch.load(os.path.join(checkpoint, SCHEDULER_NAME), map_location="cpu")
             xm.send_cpu_data_to_device(lr_scheduler_state, self.args.device)
             self.lr_scheduler.load_state_dict(lr_scheduler_state)
-
-            parallelizer = ParallelizersManager.parallelizer_for_model(self.model)
-            parallelizer.load_optimizer_sharded_checkpoint(self.optimizer, checkpoint)
+            optimizer_state = torch.load(os.path.join(checkpoint, OPTIMIZER_NAME), map_location="cpu")
+            xm.send_cpu_data_to_device(optimizer_state, self.args.device)
+            self.optimizer.load_state_dict(optimizer_state)
         else:
             return super()._load_optimizer_and_scheduler(checkpoint)
 
@@ -801,47 +804,22 @@ class _TrainerForNeuron:
             self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
 
         model = self._wrap_model(self.model_wrapped)
+        model = self.accelerator.prepare(model)
+        self.model = model
 
-        # as the model is wrapped, don't use `accelerator.prepare`
-        # this is for unhandled cases such as
-        # FSDP-XLA, SageMaker MP/DP, DataParallel, IPEX
-        use_accelerator_prepare = True if model is self.model else False
-
-        if use_accelerator_prepare:
-            self.model = self.accelerator.prepare(self.model)
         self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
-        # prepare using `accelerator` prepare
-        if use_accelerator_prepare:
+        if not isinstance(model, NxDPPModel):
             self.model.train()
-            if hasattr(self.lr_scheduler, "step"):
-                if self.use_apex:
-                    model = self.accelerator.prepare(self.model)
-                else:
-                    model, self.optimizer = self.accelerator.prepare(self.model, self.optimizer)
-            else:
-                # to handle cases wherein we pass "DummyScheduler" such as when it is specified in DeepSpeed config.
-                model, self.optimizer, self.lr_scheduler = self.accelerator.prepare(
-                    self.model, self.optimizer, self.lr_scheduler
-                )
 
-        if isinstance(model, NxDPPModel):
-            self.model = model
-
-        if self.is_fsdp_enabled:
-            self.model = self.model_wrapped = model
-
-        # for the rest of this function `model` is the outside model, whether it was wrapped or not
-        if model is not self.model:
-            self.model_wrapped = model
+        if hasattr(self.lr_scheduler, "step"):
+            self.optimizer = self.accelerator.prepare(self.optimizer)
+        else:
+            # to handle cases wherein we pass "DummyScheduler" such as when it is specified in DeepSpeed config.
+            self.optimizer, self.lr_scheduler = self.accelerator.prepare(self.optimizer, self.lr_scheduler)
 
         # Check if saved optimizer or scheduler states exist
         self._load_optimizer_and_scheduler(resume_from_checkpoint)
-
-        # important: at this point:
-        # self.model         is the Transformers Model
-        # self.model_wrapped is DDP(Transformers Model), Deepspeed(Transformers Model),
-        # FSDP(Transformers Model), Dynamo Optimized Module(Transformers Model) etc.
 
         # Train!
         parameter_count = get_model_param_count(model, trainable_only=True)
@@ -850,6 +828,7 @@ class _TrainerForNeuron:
             logger.info(f"  Num examples = {num_examples:,}")
             logger.info(f"  Num Epochs = {num_train_epochs:,}")
             logger.info(f"  Instantaneous batch size per device = {self.args.per_device_train_batch_size:,}")
+            logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
             if self.args.per_device_train_batch_size != self._train_batch_size:
                 logger.info(
                     f"  Training with DataParallel so batch size has been adjusted to: {self._train_batch_size:,}"
@@ -857,7 +836,6 @@ class _TrainerForNeuron:
             logger.info(
                 f"  Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size:,}"
             )
-            logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
             logger.info(f"  Total optimization steps = {max_steps:,}")
             logger.info(f"  Number of trainable parameters = {parameter_count:,}")
 
@@ -913,7 +891,6 @@ class _TrainerForNeuron:
         # (eg.g loss) are logged and sent to the callbacks (for instance WandbCallback).
         self.state.is_world_process_zero = is_main_worker_for_metrics()
 
-        # tr_loss is a tensor to avoid synchronization of TPUs through .item()
         tr_loss = torch.tensor(0.0).to(args.device)
         # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
         self._total_loss_scalar = 0.0
@@ -1540,11 +1517,6 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
             from peft import PeftConfig, prepare_model_for_kbit_training
 
         # We choose the proper get_peft_model function depending on whether we have a custom modeling or not.
-        if is_custom_modeling_model(model):
-            get_peft_model_func = get_peft_model
-        else:
-            get_peft_model_func = old_get_peft_model
-
         if args is None:
             output_dir = "tmp_trainer"
             warnings.warn(f"No `SFTConfig` passed, using `output_dir={output_dir}`.")
@@ -1636,13 +1608,13 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
                         model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
                 if (
-                    "autocast_adapter_dtype" in list(inspect.signature(get_peft_model_func).parameters)
+                    "autocast_adapter_dtype" in list(inspect.signature(get_peft_model).parameters)
                     and getattr(model, "is_loaded_in_4bit", False)
                     and is_sharded_qlora
                 ):
-                    model = get_peft_model_func(model, peft_config, autocast_adapter_dtype=False)
+                    model = get_peft_model(model, peft_config, autocast_adapter_dtype=False)
                 else:
-                    model = get_peft_model_func(model, peft_config)
+                    model = get_peft_model(model, peft_config)
                 if (
                     args is not None
                     and args.bf16
@@ -1881,11 +1853,6 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
         from trl.trainer.utils import DPODataCollatorWithPadding, disable_dropout_in_model, peft_module_casting_to_bf16
 
         # We choose the proper get_peft_model function depending on whether we have a custom modeling or not.
-        if is_custom_modeling_model(model):
-            get_peft_model_func = get_peft_model
-        else:
-            get_peft_model_func = old_get_peft_model
-
         if args.model_init_kwargs is None:
             model_init_kwargs = {}
         elif not isinstance(model, str):
@@ -1950,7 +1917,7 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
                     model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
             # get peft model with the given config
-            model = get_peft_model_func(model, peft_config)
+            model = get_peft_model(model, peft_config)
             if args.bf16 and getattr(model, "is_loaded_in_4bit", False):
                 peft_module_casting_to_bf16(model)
                 # If args.bf16 we need to explicitly call `generate` with torch amp autocast context manager

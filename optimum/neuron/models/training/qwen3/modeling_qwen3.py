@@ -39,12 +39,11 @@ from ..llama.modeling_llama import (
     repeat_kv,
 )
 from ..modeling_utils import ALL_ATTENTION_FUNCTIONS
+from ..pipeline_utils import dynamic_torch_fx_wrap
 
 
 if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers.layers import (
-        ParallelEmbedding,
-    )
+    from neuronx_distributed.parallel_layers.layers import ParallelEmbedding
     from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
 logger = logging.get_logger(__name__)
@@ -73,7 +72,10 @@ class Qwen3Attention(LlamaAttention):
         else:
             bsz, q_len, _ = hidden_states.size()
 
-        if self.qkv_linear:
+        if self.trn_config.fuse_qkv and self.num_heads == self.num_key_value_heads and self.kv_size_multiplier == 1:
+            qkv_states = self.qkv_proj(hidden_states)
+            query_states, key_states, value_states = qkv_states.split(self.split_size, dim=2)
+        elif self.qkv_linear:
             query_states, key_states, value_states = self.qkv_proj(hidden_states)
         else:
             query_states = self.q_proj(hidden_states)
@@ -97,12 +99,12 @@ class Qwen3Attention(LlamaAttention):
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
         if self.config._attn_implementation == "flash_attention_2":
+            attention_interface = ALL_ATTENTION_FUNCTIONS["flash_attention_2"]
             if self.training and self.attention_dropout > 0.0:
                 raise RuntimeError(
                     "Attention dropout produces NaN with flash_attention_2. Please set it to 0.0 until this bug is "
                     "resolved by the Neuron SDK."
                 )
-            attention_interface = ALL_ATTENTION_FUNCTIONS["flash_attention_2"]
             attn_output = attention_interface(
                 query_states,
                 repeat_kv(key_states, self.num_key_value_groups),
@@ -178,6 +180,7 @@ class Qwen3Model(LlamaModel):
         self.post_init()
 
     @staticmethod
+    @dynamic_torch_fx_wrap
     def _prepare_4d_causal_attention_mask_with_cache_position(
         attention_mask: torch.Tensor,
         sequence_length: int,
@@ -219,6 +222,12 @@ class Qwen3Model(LlamaModel):
 
 class Qwen3ForCausalLM(LlamaForCausalLM):
     config_class = Qwen3Config
+
+    # Pipeline parallelism support
+    SUPPORTS_PIPELINE_PARALLELISM = True
+    PIPELINE_TRANSFORMER_LAYER_CLS = Qwen3DecoderLayer
+    PIPELINE_INPUT_NAMES = ["input_ids", "attention_mask", "labels"]
+    PIPELINE_LEAF_MODULE_CLASSE_NAMES = ["LlamaRMSNorm", "LlamaRotaryEmbedding"]
 
     def __init__(self, config, trn_config: TrainingNeuronConfig):
         super().__init__(config, trn_config)

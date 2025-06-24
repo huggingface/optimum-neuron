@@ -11,10 +11,8 @@ from transformers import AutoConfig, AutoTokenizer
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.cache import synchronize_hub_cache
-from optimum.neuron.models.auto_model import get_neuron_model_class
-from optimum.neuron.models.inference.nxd.backend.config import NxDNeuronConfig
-from optimum.neuron.models.inference.nxd.backend.modules.decoder import NxDModelForCausalLM
-from optimum.neuron.models.inference.nxd.llama.modeling_llama import LlamaNxDModelForCausalLM
+from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
+from optimum.neuron.models.inference.llama.modeling_llama import LlamaNxDModelForCausalLM
 from optimum.neuron.version import __sdk_version__ as sdk_version
 from optimum.neuron.version import __version__ as version
 
@@ -37,20 +35,43 @@ DECODER_MODEL_CONFIGURATIONS = {
             "sequence_length": 4096,
             "num_cores": 2,
             "auto_cast_type": "fp16",
-            "load_weights": False,
         },
     },
     "qwen2": {
         "model_id": "Qwen/Qwen2.5-0.5B",
-        "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "fp16"},
+        "export_kwargs": {
+            "batch_size": 4,
+            "sequence_length": 4096,
+            "num_cores": 2,
+            "auto_cast_type": "fp16",
+        },
     },
     "granite": {
         "model_id": "ibm-granite/granite-3.1-2b-instruct",
-        "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "bf16"},
+        "export_kwargs": {
+            "batch_size": 4,
+            "sequence_length": 4096,
+            "num_cores": 2,
+            "auto_cast_type": "bf16",
+        },
     },
     "phi": {
         "model_id": "microsoft/Phi-3-mini-4k-instruct",
-        "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "bf16"},
+        "export_kwargs": {
+            "batch_size": 4,
+            "sequence_length": 4096,
+            "num_cores": 2,
+            "auto_cast_type": "bf16",
+        },
+    },
+    "qwen3": {
+        "model_id": "Qwen/Qwen3-1.7B",
+        "export_kwargs": {
+            "batch_size": 4,
+            "sequence_length": 4096,
+            "num_cores": 2,
+            "auto_cast_type": "bf16",
+        },
     },
 }
 
@@ -61,29 +82,22 @@ def _get_hub_neuron_model_prefix():
 
 
 def _get_hub_neuron_model_id(config_name: str, model_config: Dict[str, str]):
-    hub_neuron_model_id = f"{_get_hub_neuron_model_prefix()}-{config_name}"
-    config = AutoConfig.from_pretrained(model_config["model_id"])
-    model_type = config.model_type
-    auto_model_class = get_neuron_model_class(model_type, "text-generation", "inference")
-    if issubclass(auto_model_class, NxDModelForCausalLM):
-        hub_neuron_model_id += "-nxd"
-    return hub_neuron_model_id
+    return f"{_get_hub_neuron_model_prefix()}-{config_name}"
 
 
 def _export_model(model_id, export_kwargs, neuron_model_path):
     try:
-        model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, **export_kwargs)
+        model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, load_weights=False, **export_kwargs)
         model.save_pretrained(neuron_model_path)
         return model
     except Exception as e:
         raise ValueError(f"Failed to export {model_id}: {e}")
 
 
-@pytest.fixture(scope="session", params=DECODER_MODEL_CONFIGURATIONS.keys())
-def neuron_decoder_config(request):
-    """Expose a pre-trained neuron decoder model
+def _get_neuron_model_for_config(config_name: str, model_config, neuron_model_path) -> Dict[str, str]:
+    """Expose a neuron decoder model
 
-    The fixture first makes sure the following model artifacts are present on the hub:
+    The helper first makes sure the following model artifacts are present on the hub:
     - exported neuron model under optimum-internal-testing/neuron-testing-<version>-<name>,
     - cached artifacts under optimum-internal-testing/neuron-testing-cache.
     If not, it will export the model and push it to the hub.
@@ -95,39 +109,52 @@ def neuron_decoder_config(request):
     - the neuron model id,
     - the neuron model local path.
 
-    For each exposed model, the local directory is maintained for the duration of the
-    test session and cleaned up afterwards.
     The hub model artifacts are never cleaned up and persist across sessions.
     They must be cleaned up manually when the optimum-neuron version changes.
 
     """
-    config_name = request.param
-    model_config = copy.deepcopy(DECODER_MODEL_CONFIGURATIONS[request.param])
     model_id = model_config["model_id"]
     export_kwargs = model_config["export_kwargs"]
     neuron_model_id = _get_hub_neuron_model_id(config_name, model_config)
+    hub = huggingface_hub.HfApi()
+    if hub.repo_exists(neuron_model_id):
+        logger.info(f"Fetching {neuron_model_id} from the HuggingFace hub")
+        hub.snapshot_download(neuron_model_id, local_dir=neuron_model_path)
+    else:
+        model = _export_model(model_id, export_kwargs, neuron_model_path)
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+        tokenizer.save_pretrained(neuron_model_path)
+        del tokenizer
+        # Create the test model on the hub
+        model.push_to_hub(save_directory=neuron_model_path, repository_id=neuron_model_id, private=True)
+        # Make sure it is cached
+        synchronize_hub_cache(cache_repo_id=OPTIMUM_CACHE_REPO_ID)
+    # Add dynamic parameters to the model configuration
+    model_config["neuron_model_path"] = neuron_model_path
+    model_config["neuron_model_id"] = neuron_model_id
+    # Also add model configuration name to allow tests to adapt their expectations
+    model_config["name"] = config_name
+    # Yield instead of returning to keep a reference to the temporary directory.
+    # It will go out of scope and be released only once all tests needing the fixture
+    # have been completed.
+    return model_config
+
+
+@pytest.fixture(scope="session", params=DECODER_MODEL_CONFIGURATIONS.keys())
+def neuron_decoder_config(request):
+    """Expose neuron decoder models for predefined configurations.
+
+    The fixture uses the _get_neuron_model_for_config helper to make sure the models
+     corresponding to the predefined configurations are all present locally and on the hub.
+
+    For each exposed model, the local directory is maintained for the duration of the
+    test session and cleaned up afterwards.
+
+    """
+    config_name = request.param
+    model_config = copy.deepcopy(DECODER_MODEL_CONFIGURATIONS[config_name])
     with TemporaryDirectory() as neuron_model_path:
-        hub = huggingface_hub.HfApi()
-        if hub.repo_exists(neuron_model_id):
-            logger.info(f"Fetching {neuron_model_id} from the HuggingFace hub")
-            hub.snapshot_download(neuron_model_id, local_dir=neuron_model_path)
-        else:
-            model = _export_model(model_id, export_kwargs, neuron_model_path)
-            tokenizer = AutoTokenizer.from_pretrained(model_id)
-            tokenizer.save_pretrained(neuron_model_path)
-            del tokenizer
-            # Create the test model on the hub
-            model.push_to_hub(save_directory=neuron_model_path, repository_id=neuron_model_id, private=True)
-            # Make sure it is cached
-            synchronize_hub_cache(cache_repo_id=OPTIMUM_CACHE_REPO_ID)
-        # Add dynamic parameters to the model configuration
-        model_config["neuron_model_path"] = neuron_model_path
-        model_config["neuron_model_id"] = neuron_model_id
-        # Also add model configuration name to allow tests to adapt their expectations
-        model_config["name"] = config_name
-        # Yield instead of returning to keep a reference to the temporary directory.
-        # It will go out of scope and be released only once all tests needing the fixture
-        # have been completed.
+        model_config = _get_neuron_model_for_config(config_name, model_config, neuron_model_path)
         logger.info(f"{config_name} ready for testing ...")
         yield model_config
         logger.info(f"Done with {config_name}")
@@ -136,6 +163,34 @@ def neuron_decoder_config(request):
 @pytest.fixture(scope="module")
 def neuron_decoder_path(neuron_decoder_config):
     yield neuron_decoder_config["neuron_model_path"]
+
+
+@pytest.fixture(scope="module")
+def base_neuron_decoder_config():
+    """Expose a base neuron model path for testing purposes.
+
+    This fixture is used to test the export of models that do not have a predefined configuration.
+    It will create a temporary directory and yield its path.
+    """
+    with TemporaryDirectory() as neuron_model_path:
+        model_config = {
+            "model_id": "Qwen/Qwen2.5-0.5B",
+            "export_kwargs": {
+                "batch_size": 1,
+                "sequence_length": 4096,
+                "num_cores": 2,
+                "auto_cast_type": "bf16",
+            },
+        }
+        neuron_model_config = _get_neuron_model_for_config("base", model_config, neuron_model_path)
+        logger.info("Base neuron model ready for testing ...")
+        yield neuron_model_config
+        logger.info("Done with base neuron model testing")
+
+
+@pytest.fixture(scope="module")
+def base_neuron_decoder_path(base_neuron_decoder_config):
+    yield base_neuron_decoder_config["neuron_model_path"]
 
 
 @pytest.fixture(scope="module")

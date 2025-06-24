@@ -37,6 +37,7 @@ from ....utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..config import TrainingNeuronConfig
 from ..loss_utils import ForCausalLMLoss
 from ..modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
+from ..pipeline_utils import dynamic_torch_fx_wrap
 from ..transformations_utils import (
     CustomModule,
     FusedLinearsSpec,
@@ -754,6 +755,7 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         return causal_mask
 
     @staticmethod
+    @dynamic_torch_fx_wrap
     def _prepare_4d_causal_attention_mask_with_cache_position(
         attention_mask: torch.Tensor,
         sequence_length: int,
@@ -795,6 +797,11 @@ class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
 
 class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
+
+    SUPPORTS_PIPELINE_PARALLELISM = True
+    PIPELINE_TRANSFORMER_LAYER_CLS = LlamaDecoderLayer
+    PIPELINE_INPUT_NAMES = ["input_ids", "attention_mask", "labels"]
+    PIPELINE_LEAF_MODULE_CLASSE_NAMES = ["LlamaRMSNorm", "LlamaRotaryEmbedding"]
 
     def __init__(self, config, trn_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)
@@ -839,7 +846,7 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
     @can_return_tuple
     def forward(
         self,
-        input_ids: torch.LongTensor = None,
+        input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,

@@ -15,32 +15,12 @@
 """Training utilities"""
 
 import inspect
-from typing import TYPE_CHECKING, List, Optional, Type, Union
+from typing import TYPE_CHECKING, Type, Union
 
 import torch
 import transformers
 from accelerate import skip_first_batches as accelerate_skip_first_batches
 from transformers import GenerationMixin
-from transformers.models.auto.modeling_auto import (
-    MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
-    MODEL_FOR_BACKBONE_MAPPING_NAMES,
-    MODEL_FOR_CAUSAL_LM_MAPPING_NAMES,
-    MODEL_FOR_CTC_MAPPING_NAMES,
-    MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES,
-    MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES,
-    MODEL_FOR_MASKED_IMAGE_MODELING_MAPPING_NAMES,
-    MODEL_FOR_MASKED_LM_MAPPING_NAMES,
-    MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES,
-    MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING_NAMES,
-    MODEL_FOR_PRETRAINING_MAPPING_NAMES,
-    MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES,
-    MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING_NAMES,
-    MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES,
-    MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES,
-    MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING_NAMES,
-    MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
-    MODEL_MAPPING_NAMES,
-)
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
@@ -56,73 +36,6 @@ if is_neuronx_distributed_available():
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
-
-
-def _generate_supported_model_class_names(
-    model_type: str,
-    supported_tasks: Optional[Union[str, List[str]]] = None,
-) -> List[str]:
-    task_mapping = {
-        "default": MODEL_MAPPING_NAMES,
-        "pretraining": MODEL_FOR_PRETRAINING_MAPPING_NAMES,
-        "next-sentence-prediction": MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING_NAMES,
-        "masked-lm": MODEL_FOR_MASKED_LM_MAPPING_NAMES,
-        "causal-lm": MODEL_FOR_CAUSAL_LM_MAPPING_NAMES,
-        "seq2seq-lm": MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES,
-        "speech-seq2seq": MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING_NAMES,
-        "multiple-choice": MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES,
-        "document-question-answering": MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES,
-        "question-answering": MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES,
-        "sequence-classification": MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES,
-        "token-classification": MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
-        "masked-image-modeling": MODEL_FOR_MASKED_IMAGE_MODELING_MAPPING_NAMES,
-        "image-classification": MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES,
-        "ctc": MODEL_FOR_CTC_MAPPING_NAMES,
-        "audio-classification": MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
-        "semantic-segmentation": MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING_NAMES,
-        "backbone": MODEL_FOR_BACKBONE_MAPPING_NAMES,
-    }
-
-    if supported_tasks is None:
-        supported_tasks = task_mapping.keys()
-
-    if isinstance(supported_tasks, str):
-        supported_tasks = [supported_tasks]
-
-    model_class_names = []
-    for task in supported_tasks:
-        class_name = task_mapping[task].get(model_type, None)
-        if class_name:
-            model_class_names.append(class_name)
-
-    return model_class_names
-
-
-_SUPPORTED_MODEL_TYPES = [
-    ("albert", ("sequence-classification", "token-classification", "question-answering")),
-    "bart",
-    "bert",
-    "camembert",
-    "distilbert",
-    "electra",
-    "gpt-2",
-    "marian",
-    "roberta",
-    "t5",
-    "vit",
-    ("xlm-roberta", ("sequence-classification", "token-classification", "question-answering")),
-]
-
-_SUPPORTED_MODEL_NAMES = set()
-for model_type in _SUPPORTED_MODEL_TYPES:
-    if isinstance(model_type, str):
-        model_type = (model_type, None)
-    _SUPPORTED_MODEL_NAMES.update(_generate_supported_model_class_names(*model_type))
-
-
-def is_model_officially_supported(model: "PreTrainedModel") -> bool:
-    class_name = model.__class__.__name__
-    return class_name in _SUPPORTED_MODEL_NAMES
 
 
 @requires_torch_xla

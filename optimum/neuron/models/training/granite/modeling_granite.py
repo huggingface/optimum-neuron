@@ -46,11 +46,11 @@ if is_neuronx_distributed_available():
         scatter_to_sequence_parallel_region,
     )
 
+    # Wrap the gather and scatter functions to ensure they are properly traced by `torch.fx`.
+    gather_from_sequence_parallel_region = torch.fx.wrap(gather_from_sequence_parallel_region)
+    scatter_to_sequence_parallel_region = torch.fx.wrap(scatter_to_sequence_parallel_region)
+
 logger = logging.get_logger(__name__)
-
-
-def _init_normal(std, w):
-    return nn.init.normal_(w, mean=0.0, std=std)
 
 
 def rotate_half(x):
@@ -97,31 +97,6 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
         return hidden_states
     hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
-
-
-def eager_attention_forward(
-    module: nn.Module,
-    query: torch.Tensor,
-    key: torch.Tensor,
-    value: torch.Tensor,
-    attention_mask: Optional[torch.Tensor],
-    scaling: float,
-    dropout: float = 0.0,
-):
-    key_states = repeat_kv(key, module.num_key_value_groups)
-    value_states = repeat_kv(value, module.num_key_value_groups)
-
-    attn_weights = torch.matmul(query, key_states.transpose(2, 3)) * scaling
-    if attention_mask is not None:
-        causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
-        attn_weights = attn_weights + causal_mask
-
-    attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
-    attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
-    attn_output = torch.matmul(attn_weights, value_states)
-    # Note: transpose happens outside of this function
-
-    return attn_output, attn_weights
 
 
 class GraniteAttention(LlamaAttention):
@@ -306,6 +281,11 @@ class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
 
 class GraniteForCausalLM(LlamaForCausalLM):
     config_class = GraniteConfig
+
+    SUPPORTS_PIPELINE_PARALLELISM = False
+    PIPELINE_TRANSFORMER_LAYER_CLS = GraniteDecoderLayer
+    PIPELINE_INPUT_NAMES = ["input_ids", "attention_mask", "labels"]
+    PIPELINE_LEAF_MODULE_CLASSE_NAMES = ["LlamaRMSNorm", "LlamaRotaryEmbedding"]
 
     def __init__(self, config, trn_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)

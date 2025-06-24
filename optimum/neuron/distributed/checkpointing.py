@@ -29,8 +29,8 @@ from transformers.utils import (
     WEIGHTS_NAME,
 )
 
+from ..peft.peft_model import ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME
 from ..utils.import_utils import is_peft_available
-from ..utils.peft_utils import ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME
 from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 from .utils import MODEL_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, compute_query_indices_for_rank
 

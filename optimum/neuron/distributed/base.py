@@ -35,7 +35,6 @@ from ..utils.model_utils import (
     get_tied_parameters_dict,
 )
 from ..utils.patching import Patcher
-from ..utils.peft_utils import NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from ..utils.training_utils import is_custom_modeling_model
 from .parallel_layers import (
@@ -46,6 +45,7 @@ from .parallel_layers import (
 )
 from .utils import (
     MODEL_PARALLEL_SHARDS_DIR_NAME,
+    NeuronPeftModel,
     OptimumGQAQKVColumnParallelLinear,
     OptimumNeuronFXTracer,
     WeightInformation,

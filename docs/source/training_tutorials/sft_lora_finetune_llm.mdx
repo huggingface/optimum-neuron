@@ -140,7 +140,6 @@ Our training code will look as follows:
 ```python
 from peft import LoraConfig
 from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer
-from optimum.neuron.distributed import lazy_load_for_parallelism
 
 # Define the tensor_parallel_size
 tensor_parallel_size = 2
@@ -152,8 +151,7 @@ model_id = "meta-llama/Meta-Llama-3-8B"
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 tokenizer.pad_token = tokenizer.eos_token
 
-with lazy_load_for_parallelism(tensor_parallel_size=tensor_parallel_size):
-    model = AutoModelForCausalLM.from_pretrained(model_id)
+model = AutoModelForCausalLM.from_pretrained(model_id)
 
 config = LoraConfig(
     r=16,
@@ -196,11 +194,9 @@ trainer.save_model()  # Saves the tokenizer too for easy upload
 ```
 
 The key points here are:
-
-- We use the `lazy_load_for_parallelism` context manager to lazily load the model. This will not load the full model weights on each worker, but instead only load the required weights (sharded or full). **This is much more memory efficient, and often mandatory to use.**
 - We define a `LoraConfig` that specifies which layers should have adapters, and the hyperparameters for theses adapters.
 - We create a [`~optimum.neuron.NeuronSFTConfig`] from regular `NeuronTrainingArguments`. Here we specify that we do not want to pack our examples, and that the max sequence length should be `1024`, meaning that every example will be either padded or truncated to a length of `1024`.
-- We use the [`~optimum.neuron.NeuronSFTTrainer`] to perform training. It will take the lazily loaded model, along with `lora_config`, `sft_config` and `format_dolly` and prepare the dataset and model for supervised fine-tuning.
+- We use the [`~optimum.neuron.NeuronSFTTrainer`] to perform training. It will take the model, along with `lora_config`, `sft_config` and `format_dolly` and prepare the dataset and model for supervised fine-tuning.
 
 ## 4. Launch Training
 

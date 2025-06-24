@@ -25,7 +25,6 @@ import torch
 from ....utils import logging
 from ...utils import is_torch_neuronx_available, is_torch_xla_available, patch_everywhere
 from ...utils.patching import Patcher
-from ...utils.peft_utils import NeuronPeftModel
 from ...utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 
 
@@ -33,6 +32,11 @@ logger = logging.get_logger(__name__)
 
 if TYPE_CHECKING:
     import os
+
+    # Dummy class to avoid import errors in type checking.
+    class NeuronPeftModel:
+        def __init__(self, *args, **kwargs):
+            pass
 
     from transformers import PreTrainedModel
 
@@ -166,11 +170,13 @@ def patched_gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=No
 
 
 @requires_neuronx_distributed
-def apply_activation_checkpointing(model: Union["PreTrainedModel", "NxDPPModel", NeuronPeftModel]):
+def apply_activation_checkpointing(model: Union["PreTrainedModel", "NxDPPModel", "NeuronPeftModel"]):
     from neuronx_distributed.pipeline import NxDPPModel
     from neuronx_distributed.utils.activation_checkpoint import (
         apply_activation_checkpointing as nxd_apply_activation_checkpointing,
     )
+
+    from ...peft.peft_model import NeuronPeftModel
 
     if isinstance(model, NeuronPeftModel):
         model._prepare_model_for_gradient_checkpointing(model.get_base_model())
