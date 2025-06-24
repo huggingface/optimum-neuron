@@ -255,6 +255,7 @@ def test_consolidate_custom_model_parallel_checkpoints(
         use_xser=use_xser,
         async_save=False,
         fuse_qkv=fuse_qkv,
+        kv_size_multiplier=kv_size_multiplier,
     )
     custom_model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
 
