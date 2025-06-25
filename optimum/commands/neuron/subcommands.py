@@ -16,7 +16,7 @@
 
 from typing import TYPE_CHECKING
 
-from ...neuron.distributed import consolidate_model_parallel_checkpoints_to_unified_checkpoint
+from ...neuron.models.training import consolidate_model_parallel_checkpoints_to_unified_checkpoint
 from ...utils import logging
 from ..base import BaseOptimumCLICommand
 
