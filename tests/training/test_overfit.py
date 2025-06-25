@@ -17,7 +17,6 @@ import importlib
 import inspect
 import os
 from datetime import datetime
-from functools import partial
 from typing import Type
 
 import datasets
@@ -35,7 +34,7 @@ from optimum.neuron.utils.misc import is_precompilation
 from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.training_utils import is_main_worker_for_metrics
 
-from ..distributed_utils import distributed_test, run_distributed_test
+from ..distributed_utils import distributed_test
 
 
 if is_neuronx_distributed_available():
@@ -178,24 +177,22 @@ def _overfit_causal_lm(
 
 
 @pytest.mark.parametrize(
-    "model_class_name,model_name_or_path,use_custom_modeling,learning_rate,warmup_ratio,training_kwargs,use_flash_attention_2,max_expected_loss,max_length,num_steps",
+    "model_class_name,model_name_or_path,learning_rate,warmup_ratio,training_kwargs,use_flash_attention_2,max_expected_loss,max_length,num_steps",
     [
         [
             "LlamaForCausalLM",
             "meta-llama/Llama-3.2-1B-Instruct",
-            True,
             1e-4,
             0.03,
             {},
             True,
-            0.05,
+            0.5,
             2048,
             30,
         ],
         [
             "GraniteForCausalLM",
             "ibm-granite/granite-3.2-2b-instruct",
-            True,
             1e-4,
             0,
             {},
@@ -203,30 +200,17 @@ def _overfit_causal_lm(
             # which is broken with the flash attention kernel in the current Neuron SDK.
             False,
             0.5,  # Use a smaller value when tie_word_embeddings is fixed.
-            512,  # Do 2048 once we have flash_attention enabled.
+            2048,  # Do 2048 once we have flash_attention enabled.
             30,
         ],
         [
             "Qwen3ForCausalLM",
             "Qwen/Qwen3-0.6B",
-            True,
             1e-4,
             0.04,
             {},
             True,
-            0.05,
-            2048,
-            50,
-        ],
-        [
-            "LlamaForCausalLM",
-            "HuggingFaceTB/SmolLM2-135M-Instruct",
-            False,
-            1e-4,
-            0.04,
-            {},
-            False,  # No flash attention for model without custom modeling.
-            0.05,
+            0.5,
             2048,
             50,
         ],
@@ -235,15 +219,22 @@ def _overfit_causal_lm(
         "meta-llama/Llama-3.2-1B-Instruct",
         "ibm-granite/granite-3.2-2b-instruct",
         "Qwen/Qwen3-0.6B",
-        "HuggingFaceTB/SmolLM2-135M-Instruct",
     ],
+)
+@pytest.mark.parametrize(
+    "world_size,tp_size,pp_size",
+    [[32, 2, 4], [32, 8, 1]],
+    ids=["dp=4,tp=2,pp=4", "dp=4,tp=8,pp=1"],
 )
 @pytest.mark.neuron_parallel_compile
 @is_trainium_test
-def test_overfit_causal_lm(
+@distributed_test(timeout=1200)
+def test_overfit_custom_modeling_causal_lm(
+    world_size,
+    tp_size,
+    pp_size,
     model_class_name,
     model_name_or_path,
-    use_custom_modeling,
     learning_rate,
     warmup_ratio,
     training_kwargs,
@@ -254,11 +245,10 @@ def test_overfit_causal_lm(
     tmpdir,
     set_cache_for_ci,  # This fixture will handle setting the remote cache to make this test faster.
 ):
-    model_class = get_model_class_from_name(model_class_name, use_custom_modeling=use_custom_modeling)
-
-    # Creating the test function.
-    run_fn = partial(
-        _overfit_causal_lm,
+    model_class = get_model_class_from_name(model_class_name, use_custom_modeling=True)
+    if pp_size > 1 and not model_class.supports_pipeline_parallelism():
+        pytest.skip(f"The model {model_class} does not support pipeline parallelism, skipping the test.")
+    _overfit_causal_lm(
         model_class,
         model_name_or_path,
         learning_rate,
@@ -270,16 +260,6 @@ def test_overfit_causal_lm(
         use_flash_attention_2,
         tmpdir,
     )
-    if use_custom_modeling:
-        if model_class.supports_pipeline_parallelism():
-            print(f"Testing custom modeling overfit of {model_name_or_path} with dp=4, tp_size=2, pp_size=4")
-            run_distributed_test(run_fn, world_size=32, tp_size=2, pp_size=4, timeout=1200)
-
-        print(f"Testing custom modeling overfit of {model_name_or_path} with dp=4, tp_size=8, pp_size=1")
-        run_distributed_test(run_fn, world_size=32, tp_size=8, pp_size=1, timeout=1200)
-    else:
-        print(f"Testing transformers modeling overfit of {model_name_or_path} with dp=8, tp_size=1, pp_size=1")
-        run_distributed_test(run_fn, world_size=8, tp_size=1, pp_size=1, timeout=1200)
 
 
 @pytest.mark.parametrize(
@@ -297,7 +277,7 @@ def test_overfit_causal_lm(
 @pytest.mark.neuron_parallel_compile
 @is_trainium_test
 @distributed_test()
-def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir, set_cache_for_ci):
+def test_overfit_custom_modeling_lora_causal_lm(world_size, tp_size, pp_size, tmpdir, set_cache_for_ci):
     peft_config = LoraConfig(
         r=16,
         lora_alpha=32,
@@ -316,9 +296,55 @@ def test_overfit_lora_causal_lm(world_size, tp_size, pp_size, tmpdir, set_cache_
         2048,
         0.01,
         30,
-        tp_size,
-        pp_size,
         True,
         tmpdir,
         peft_config=peft_config,
+    )
+
+
+@pytest.mark.parametrize(
+    "model_class_name,model_name_or_path,learning_rate,warmup_ratio,training_kwargs,use_flash_attention_2,max_expected_loss,max_length,num_steps",
+    [
+        [
+            "LlamaForCausalLM",
+            "HuggingFaceTB/SmolLM2-135M-Instruct",
+            1e-4,
+            0.5,
+            {},
+            False,  # No flash attention for model without custom modeling.
+            0.05,
+            2048,
+            50,
+        ],
+    ],
+    ids=["HuggingFaceTB/SmolLM2-135M-Instruct"],
+)
+@pytest.mark.neuron_parallel_compile
+@is_trainium_test
+@distributed_test(world_size=8, tp_size=1, pp_size=1, timeout=1200)
+def test_overfit_transformers_modeling_causal_lm(
+    model_class_name,
+    model_name_or_path,
+    learning_rate,
+    warmup_ratio,
+    training_kwargs,
+    use_flash_attention_2,
+    max_expected_loss,
+    max_length,
+    num_steps,
+    tmpdir,
+    set_cache_for_ci,  # This fixture will handle setting the remote cache to make this test faster.
+):
+    model_class = get_model_class_from_name(model_class_name, use_custom_modeling=False)
+    _overfit_causal_lm(
+        model_class,
+        model_name_or_path,
+        learning_rate,
+        warmup_ratio,
+        training_kwargs,
+        max_length,
+        max_expected_loss,
+        num_steps,
+        use_flash_attention_2,
+        tmpdir,
     )
