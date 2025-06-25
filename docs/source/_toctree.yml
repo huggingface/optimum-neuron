@@ -132,8 +132,6 @@
   - sections:
     - local: package_reference/trainer
       title: Neuron Trainer
-    - local: package_reference/distributed
-      title: Neuron Distributed
     - local: package_reference/supported_models
       title: Supported Architectures
     - local: package_reference/export
