@@ -28,16 +28,8 @@ from _pytest.outcomes import Skipped, XFailed
 
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
-    is_torch_neuronx_available,
-    is_torch_xla_available,
 )
 
-
-if is_torch_neuronx_available():
-    import torch_neuronx
-
-if is_torch_xla_available():
-    pass
 
 if is_neuronx_distributed_available():
     import neuronx_distributed
@@ -96,12 +88,8 @@ def _distributed_worker(
         }
         os.environ.update(env)
 
-        # Now that the environment has been set, we can initialize the XLA environment.
-        torch_neuronx.initialization.initialize()
-
         dist.init_process_group(backend="xla")
 
-        # Initializing NxD.
         neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(
             tensor_model_parallel_size=tp_size,
             pipeline_model_parallel_size=pp_size,
@@ -169,7 +157,8 @@ def distributed_test(
             #   - `nprocs = None` means that xmp.spawn will spawn as many processes as the number of Neuron cores
             #   available, e.g. NEURONCORE_NUM_DEVICES=8 will spawn 8 processes.
             #   - `nprocs = 1` means that xmp.spawn will spawn only one process.
-            nprocs = 1 if actual_world_size == 1 else None
+            # Here we set `nprocs` to None and set `NEURONCORE_NUM_DEVICES` to the number of processes we want to spawn.
+            nprocs = None
 
             master_port = get_free_port()
 
