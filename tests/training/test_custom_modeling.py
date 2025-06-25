@@ -532,7 +532,7 @@ def test_custom_model_tie_weights(tmpdir, set_cache_for_ci):
     accelerator = create_accelerator(tp_size, pp_size, sequence_parallel_enabled=True)
     model_tied = accelerator.prepare(model_tied)
     assert input_embeddings.weight is output_embeddings.weight
-    assert input_embeddings.weight.dtype.type == "xla"
+    assert input_embeddings.weight.device.type == "xla"
 
     # Test case 2: Weights should also be tied from from_pretrained
     # We save the model with `tie_word_embeddings=True` to ensure that the weights are tied in the checkpoint and that

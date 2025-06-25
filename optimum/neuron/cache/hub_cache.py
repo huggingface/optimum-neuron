@@ -27,13 +27,17 @@ from huggingface_hub.hf_api import RepoFile
 from optimum.exporters import TasksManager
 
 from ..utils.cache_utils import get_hf_hub_cache_repo
-from ..utils.import_utils import is_neuronx_available
+from ..utils.import_utils import is_neuronx_available, is_torch_xla_available
 from ..utils.patching import patch_everywhere
 from ..utils.require_utils import requires_torch_neuronx
 from ..utils.version_utils import get_neuronxcc_version
 from ..version import __version__
 from .entries.cache_entry import ModelCacheEntry
 
+
+if is_torch_xla_available():
+    import torch_xla.core.xla_model as xm
+    import torch_xla.runtime as xr
 
 if is_neuronx_available():
     from libneuronxla.neuron_cc_cache import (
@@ -191,12 +195,24 @@ class CompileCacheHfProxy(CompileCache):
         if isinstance(self.default_cache, CompileCacheS3):
             raise ValueError("Hugging Face hub compiler cache synchronization is not supported for S3.")
         logger.info(f"Synchronizing {self.repo_id} Hub cache with {self.default_cache.cache_path} local cache")
-        self.api.upload_folder(
-            repo_id=self.repo_id,
-            folder_path=self.default_cache.cache_path,
-            commit_message="Synchronizing local compiler cache.",
-            ignore_patterns="lock",
-        )
+
+        if os.environ.get("TORCHELASTIC_RUN_ID", None) is None:
+            self.api.upload_large_folder(
+                repo_id=self.repo_id,
+                repo_type="model",
+                folder_path=self.default_cache.cache_path,
+                ignore_patterns="lock",
+            )
+        else:
+            if xr.local_ordinal() == 0:
+                # Only the first process uploads the cache to the Hub
+                self.api.upload_large_folder(
+                    repo_id=self.repo_id,
+                    repo_type="model",
+                    folder_path=self.default_cache.cache_path,
+                    ignore_patterns="lock",
+                )
+            xm.rendezvous("synchronize_hub_cache")
         logger.info("Synchronization complete.")
 
     def upload_file(self, cache_path: str, src_path: str):
