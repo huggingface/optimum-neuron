@@ -197,19 +197,19 @@ class CompileCacheHfProxy(CompileCache):
         logger.info(f"Synchronizing {self.repo_id} Hub cache with {self.default_cache.cache_path} local cache")
 
         if os.environ.get("TORCHELASTIC_RUN_ID", None) is None:
-            self.api.upload_large_folder(
+            self.api.upload_folder(
                 repo_id=self.repo_id,
-                repo_type="model",
                 folder_path=self.default_cache.cache_path,
+                commit_message="Synchronizing local compiler cache.",
                 ignore_patterns="lock",
             )
         else:
             if xr.local_ordinal() == 0:
                 # Only the first process uploads the cache to the Hub
-                self.api.upload_large_folder(
+                self.api.upload_folder(
                     repo_id=self.repo_id,
-                    repo_type="model",
                     folder_path=self.default_cache.cache_path,
+                    commit_message="Synchronizing local compiler cache.",
                     ignore_patterns="lock",
                 )
             xm.rendezvous("synchronize_hub_cache")
