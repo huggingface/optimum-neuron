@@ -429,33 +429,25 @@ class LlamaAttention(nn.Module, CustomModule):
 
     @property
     def use_flash_attention_v2(self):
-        return self.config._attn_implementation == "flash_attention_v2"
+        return self.config._attn_implementation == "flash_attention_2"
 
     @property
     def use_ring_attention(self):
         # We do not support ring attention for now, it should be added.
         return False
 
-    def reshape_and_permute_states_for_fa(self, states, bsz, q_len, num_heads, head_dim, sequence_parallel_enabled):
-        # Output shape is (bsz, num_heads, head_dim, q_len)
-        if sequence_parallel_enabled:
-            return states.view(q_len, bsz, num_heads, head_dim).permute(1, 2, 3, 0)
-        else:
-            return states.view(bsz, q_len, num_heads, head_dim).permute(0, 2, 3, 1)
-
     def permute_qkv_for_attn(
         self, query_states, key_states, value_states, bsz, q_len, num_heads, num_key_value_heads, head_dim
     ):
         if self.trn_config.transpose_nki_inputs and self.use_flash_attention_v2 and not self.use_ring_attention:
-            query_states = self.reshape_and_permute_states_for_fa(
-                query_states, bsz, q_len, num_heads, head_dim, self.trn_config.sequence_parallel_enabled
-            )
-            key_states = self.reshape_and_permute_states_for_fa(
-                key_states, bsz, q_len, num_key_value_heads, head_dim, self.trn_config.sequence_parallel_enabled
-            )
-            value_states = self.reshape_and_permute_states_for_fa(
-                value_states, bsz, q_len, num_key_value_heads, head_dim, self.trn_config.sequence_parallel_enabled
-            )
+            if self.trn_config.sequence_parallel_enabled:
+                query_states = query_states.view(q_len, bsz, num_heads, head_dim).permute(1, 2, 3, 0)
+                key_states = key_states.view(q_len, bsz, num_key_value_heads, head_dim).permute(1, 2, 3, 0)
+                value_states = value_states.view(q_len, bsz, num_key_value_heads, head_dim).permute(1, 2, 3, 0)
+            else:
+                query_states = query_states.view(bsz, q_len, num_heads, head_dim).permute(0, 2, 3, 1)
+                key_states = key_states.view(bsz, q_len, num_key_value_heads, head_dim).permute(0, 2, 3, 1)
+                value_states = value_states.view(bsz, q_len, num_key_value_heads, head_dim).permute(0, 2, 3, 1)
         elif self.trn_config.sequence_parallel_enabled:
             query_states = query_states.view(q_len, bsz, num_heads, head_dim).permute(1, 2, 0, 3)
             key_states = key_states.view(q_len, bsz, num_key_value_heads, head_dim).permute(1, 2, 0, 3)

@@ -24,7 +24,7 @@ import datasets
 import pytest
 import torch
 from peft import LoraConfig
-from transformers import AutoConfig, AutoTokenizer, PreTrainedModel, TrainerCallback
+from transformers import AutoTokenizer, PreTrainedModel, TrainerCallback
 
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.peft import get_peft_model
@@ -123,25 +123,17 @@ def _overfit_causal_lm(
         **training_kwargs,
     )
 
-    # Model creation.
-
-    config = AutoConfig.from_pretrained(model_name_or_path)
-    if config.tie_word_embeddings and pp_size > 1:
-        config.tie_word_embeddings = False
-
     # If it is a custom model, we provide the trainium config.
     if "trn_config" in inspect.signature(model_class.__init__).parameters:
         model = model_class.from_pretrained(
             model_name_or_path,
             training_args.trn_config,
-            config=config,
             torch_dtype=torch.bfloat16,
             use_flash_attention_2=use_flash_attention_2,
         )
     else:
         model = model_class.from_pretrained(
             model_name_or_path,
-            config=config,
             torch_dtype=torch.bfloat16,
             use_flash_attention_2=use_flash_attention_2,
         )
