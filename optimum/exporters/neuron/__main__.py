@@ -328,7 +328,7 @@ def get_submodels_and_neuron_configs(
         # TODO: Enable optional outputs for Stable Diffusion
         if output_attentions:
             raise ValueError(f"`output_attentions`is not supported by the {task} task yet.")
-        models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_stable_diffusion(
+        models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_diffusion(
             model=model,
             input_shapes=input_shapes,
             output=output,
@@ -381,7 +381,7 @@ def get_submodels_and_neuron_configs(
     return models_and_neuron_configs, output_model_names
 
 
-def _get_submodels_and_neuron_configs_for_stable_diffusion(
+def _get_submodels_and_neuron_configs_for_diffusion(
     model: Union["PreTrainedModel", "DiffusionPipeline"],
     input_shapes: Dict[str, int],
     output: Path,
@@ -420,8 +420,8 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         text_encoder_input_shapes=input_shapes["text_encoder"],
         unet_input_shapes=input_shapes.get("unet", None),
         transformer_input_shapes=input_shapes.get("transformer", None),
-        vae_encoder_input_shapes=input_shapes["vae_encoder"],
-        vae_decoder_input_shapes=input_shapes["vae_decoder"],
+        vae_encoder_input_shapes=input_shapes.get("vae_encoder", None),
+        vae_decoder_input_shapes=input_shapes.get("vae_decoder", None),
         lora_args=lora_args,
         dynamic_batch_size=dynamic_batch_size,
         output_hidden_states=output_hidden_states,
@@ -430,7 +430,6 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         image_encoder_input_shapes=input_shapes.get("image_encoder", None),
     )
     output_model_names = {
-        DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
         DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
     }
     if getattr(model, "text_encoder", None) is not None:
@@ -446,6 +445,10 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     if getattr(model, "transformer", None) is not None:
         output_model_names[DIFFUSION_MODEL_TRANSFORMER_NAME] = os.path.join(
             DIFFUSION_MODEL_TRANSFORMER_NAME, NEURON_FILE_NAME
+        )
+    if getattr(model, "vae_encoder", None) is not None:
+        output_model_names[DIFFUSION_MODEL_VAE_ENCODER_NAME] = os.path.join(
+            DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME
         )
     if getattr(model, "image_encoder", None) is not None:
         output_model_names["image_encoder"] = os.path.join("image_encoder", NEURON_FILE_NAME)

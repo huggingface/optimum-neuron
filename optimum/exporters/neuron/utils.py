@@ -61,6 +61,8 @@ if is_diffusers_available():
         ControlNetModel,
         DiffusionPipeline,
         ModelMixin,
+        PixArtAlphaPipeline,
+        PixArtSigmaPipeline,
         StableDiffusionXLImg2ImgPipeline,
         StableDiffusionXLInpaintPipeline,
         StableDiffusionXLPipeline,
@@ -260,40 +262,42 @@ def get_diffusion_models_for_export(
         models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (transformer, transformer_neuron_config)
 
     # VAE Encoder
-    vae_encoder = models_for_export[DIFFUSION_MODEL_VAE_ENCODER_NAME]
-    vae_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
-        model=vae_encoder,
-        exporter="neuron",
-        task="semantic-segmentation",
-        model_type="vae-encoder",
-        library_name=library_name,
-    )
-    vae_encoder_neuron_config = vae_encoder_config_constructor(
-        vae_encoder.config,
-        task="semantic-segmentation",
-        dynamic_batch_size=dynamic_batch_size,
-        float_dtype=vae_encoder.dtype,
-        input_shapes=vae_encoder_input_shapes,
-    )
-    models_for_export[DIFFUSION_MODEL_VAE_ENCODER_NAME] = (vae_encoder, vae_encoder_neuron_config)
+    if DIFFUSION_MODEL_VAE_ENCODER_NAME in models_for_export:
+        vae_encoder = models_for_export[DIFFUSION_MODEL_VAE_ENCODER_NAME]
+        vae_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
+            model=vae_encoder,
+            exporter="neuron",
+            task="semantic-segmentation",
+            model_type="vae-encoder",
+            library_name=library_name,
+        )
+        vae_encoder_neuron_config = vae_encoder_config_constructor(
+            vae_encoder.config,
+            task="semantic-segmentation",
+            dynamic_batch_size=dynamic_batch_size,
+            float_dtype=vae_encoder.dtype,
+            input_shapes=vae_encoder_input_shapes,
+        )
+        models_for_export[DIFFUSION_MODEL_VAE_ENCODER_NAME] = (vae_encoder, vae_encoder_neuron_config)
 
     # VAE Decoder
-    vae_decoder = models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME]
-    vae_decoder_config_constructor = TasksManager.get_exporter_config_constructor(
-        model=vae_decoder,
-        exporter="neuron",
-        task="semantic-segmentation",
-        model_type="vae-decoder",
-        library_name=library_name,
-    )
-    vae_decoder_neuron_config = vae_decoder_config_constructor(
-        vae_decoder.config,
-        task="semantic-segmentation",
-        dynamic_batch_size=dynamic_batch_size,
-        float_dtype=transformer.dtype if transformer else vae_decoder.dtype,
-        input_shapes=vae_decoder_input_shapes,
-    )
-    models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME] = (vae_decoder, vae_decoder_neuron_config)
+    if DIFFUSION_MODEL_VAE_DECODER_NAME in models_for_export:
+        vae_decoder = models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME]
+        vae_decoder_config_constructor = TasksManager.get_exporter_config_constructor(
+            model=vae_decoder,
+            exporter="neuron",
+            task="semantic-segmentation",
+            model_type="vae-decoder",
+            library_name=library_name,
+        )
+        vae_decoder_neuron_config = vae_decoder_config_constructor(
+            vae_decoder.config,
+            task="semantic-segmentation",
+            dynamic_batch_size=dynamic_batch_size,
+            float_dtype=transformer.dtype if transformer else vae_decoder.dtype,
+            input_shapes=vae_decoder_input_shapes,
+        )
+        models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME] = (vae_decoder, vae_decoder_neuron_config)
 
     # ControlNet
     if controlnet_ids:
@@ -393,6 +397,7 @@ def get_submodels_for_export_diffusion(
     is_stable_diffusion_xl = isinstance(
         pipeline, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline, StableDiffusionXLPipeline)
     )
+    is_pixart = isinstance(pipeline, (PixArtAlphaPipeline, PixArtSigmaPipeline))
 
     # Lora
     pipeline = _load_lora_weights_to_pipeline(pipeline=pipeline, lora_args=lora_args)
@@ -461,9 +466,13 @@ def get_submodels_for_export_diffusion(
         pipeline.vae.to(dtype=torch.float32)
 
     # VAE Encoder
-    vae_encoder = copy.deepcopy(pipeline.vae)
-    vae_encoder.forward = lambda sample: {"latent_parameters": vae_encoder.encode(x=sample)["latent_dist"].parameters}
-    models_for_export.append((DIFFUSION_MODEL_VAE_ENCODER_NAME, vae_encoder))
+    # PixArt only supports text-to-image, no need to compile the VAE encoder.
+    if not is_pixart:
+        vae_encoder = copy.deepcopy(pipeline.vae)
+        vae_encoder.forward = lambda sample: {
+            "latent_parameters": vae_encoder.encode(x=sample)["latent_dist"].parameters
+        }
+        models_for_export.append((DIFFUSION_MODEL_VAE_ENCODER_NAME, vae_encoder))
 
     # VAE Decoder
     vae_decoder = copy.deepcopy(pipeline.vae)
