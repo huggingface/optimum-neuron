@@ -77,9 +77,9 @@ EXTRAS_REQUIRE = {
     "neuronx": [
         "wheel",
         "neuronx-cc==2.19.8089.0",
-        "torch-neuronx==2.6.0.2.8.6734",
-        "torch==2.6.0.*",
-        "torchvision==0.21.*",
+        "torch-neuronx==2.7.0.2.8",
+        "torch==2.7.0.*",
+        "torchvision==0.22.*",
         "neuronx_distributed==0.13.14393",
         "libneuronxla==2.2.4410.0",
     ],
