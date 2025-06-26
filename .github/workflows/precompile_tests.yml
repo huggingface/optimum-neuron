@@ -39,8 +39,7 @@ jobs:
       - name: Run neuron_parallel_compile tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} neuron_parallel_compile pytest -m "neuron_parallel_compile" ${{ inputs.test_path }} -v --durations=0 -x
-
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} neuron_parallel_compile pytest -m "neuron_parallel_compile" ${{ inputs.test_path }} -vs
       - name: Synchronize with HF cache repo
         run: |
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} python tests/synchronize_with_cache_repo_for_ci.py 
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} python -m tests.synchronize_with_cache_repo_for_ci
