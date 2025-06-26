@@ -25,7 +25,6 @@ import torch
 from safetensors.torch import load_file
 
 from optimum.exporters.tasks import TasksManager
-from optimum.neuron.distributed import ParallelizersManager
 from optimum.neuron.utils import (
     SAFE_WEIGHTS_INDEX_NAME,
     ASTDummyAudioInputGenerator,
