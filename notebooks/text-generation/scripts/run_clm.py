@@ -44,7 +44,7 @@ def training_function(script_args, training_args):
     # perrysc@amazon.com
     # if (int(os.environ.get("RANK", -1)) == 0) and int(training_args.tensor_parallel_size) > 1:
     #     print("Converting sharded checkpoint to consolidated format")
-    #     from optimum.neuron.distributed.checkpointing import (
+    #     from optimum.neuron.models.training.checkpointing import (
     #         consolidate_model_parallel_checkpoints_to_unified_checkpoint,
     #     )
     #     from shutil import rmtree

@@ -14,6 +14,9 @@
 # limitations under the License.
 """Utilities related to the model."""
 
+import contextlib
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Dict, Tuple, Union
 
 import torch
@@ -25,6 +28,7 @@ from .require_utils import requires_neuronx_distributed
 if TYPE_CHECKING:
     if is_torch_neuronx_available():
         from neuronx_distributed.pipeline import NxDPPModel
+    from transformers import PreTrainedModel
 
 
 @requires_neuronx_distributed
@@ -77,3 +81,14 @@ def tie_parameters(model: Union["torch.nn.Module", "NxDPPModel"], tied_parameter
             if param_to_tie is not param:
                 del param_to_tie
                 setattr(param_to_tie_parent_module, param_to_tie_name, param)
+
+
+@contextlib.contextmanager
+def saved_model_in_temporary_directory(model: "PreTrainedModel"):
+    tmpdir = TemporaryDirectory()
+    path = Path(tmpdir.name) / "pytorch_model.bin"
+    torch.save({"model": model.state_dict()}, path.as_posix())
+    try:
+        yield path
+    finally:
+        tmpdir.cleanup()
