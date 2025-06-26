@@ -38,6 +38,8 @@ _import_structure = {
         "DIFFUSION_MODEL_VAE_DECODER_NAME",
         "DIFFUSION_MODEL_VAE_ENCODER_NAME",
         "DIFFUSION_MODEL_CONTROLNET_NAME",
+        "WEIGHTS_INDEX_NAME",
+        "SAFE_WEIGHTS_INDEX_NAME",
         "ENCODER_NAME",
         "NEURON_FILE_NAME",
     ],
@@ -56,6 +58,7 @@ _import_structure = {
         "DummyControNetInputGenerator",
         "ASTDummyAudioInputGenerator",
         "DummyIPAdapterInputGenerator",
+        "DummyFluxTransformerRotaryEmbGenerator",
         "WhisperDummyTextInputGenerator",
     ],
     "misc": [
@@ -66,6 +69,7 @@ _import_structure = {
         "is_precompilation",
         "replace_weights",
         "map_torch_dtype",
+        "get_checkpoint_shard_files",
     ],
     "model_utils": ["get_tied_parameters_dict", "tie_parameters", "saved_model_in_temporary_directory"],
     "optimization_utils": [
@@ -110,6 +114,8 @@ if TYPE_CHECKING:
         DIFFUSION_MODEL_VAE_ENCODER_NAME,
         ENCODER_NAME,
         NEURON_FILE_NAME,
+        SAFE_WEIGHTS_INDEX_NAME,
+        WEIGHTS_INDEX_NAME,
     )
     from .import_utils import (
         is_accelerate_available,
@@ -124,6 +130,7 @@ if TYPE_CHECKING:
         ASTDummyAudioInputGenerator,
         DummyBeamValuesGenerator,
         DummyControNetInputGenerator,
+        DummyFluxTransformerRotaryEmbGenerator,
         DummyIPAdapterInputGenerator,
         DummyMaskedPosGenerator,
         WhisperDummyTextInputGenerator,
@@ -131,6 +138,7 @@ if TYPE_CHECKING:
     from .misc import (
         DiffusersPretrainedConfig,
         check_if_weights_replacable,
+        get_checkpoint_shard_files,
         get_stable_diffusion_configs,
         is_main_worker,
         is_precompilation,

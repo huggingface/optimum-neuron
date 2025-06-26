@@ -14,7 +14,6 @@
 # limitations under the License.
 """NeuronTracedModel base classe for inference on neuron devices using the same API as Transformers."""
 
-import logging
 import os
 import shutil
 from contextlib import contextmanager
@@ -26,10 +25,12 @@ import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download
 from transformers import AutoConfig, AutoModel, GenerationMixin
 
-from ..exporters.neuron import main_export
-from ..exporters.neuron.model_configs import *  # noqa: F403
-from ..exporters.tasks import TasksManager
-from ..utils.save_utils import maybe_load_preprocessors
+from optimum.exporters.neuron import main_export
+from optimum.exporters.neuron.model_configs import *  # noqa: F403
+from optimum.exporters.tasks import TasksManager
+from optimum.utils import logging
+from optimum.utils.save_utils import maybe_load_preprocessors
+
 from .cache.entries.single_model import SingleModelCacheEntry
 from .cache.hub_cache import create_hub_compile_cache_proxy
 from .modeling_base import NeuronModel
@@ -48,7 +49,7 @@ from .utils.version_utils import check_compiler_compatibility, get_neuroncc_vers
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
-    from ..exporters.neuron import NeuronDefaultConfig
+    from optimum.exporters.neuron import NeuronDefaultConfig
 
 if is_neuron_available():
     NEURON_COMPILER_TYPE = "neuron-cc"
@@ -61,7 +62,7 @@ if is_neuronx_available():
     NEURON_COMPILER_TYPE = "neuronx-cc"
     NEURON_COMPILER_VERSION = get_neuronxcc_version()
 
-logger = logging.getLogger(__name__)
+logger = logging.get_logger(__name__)
 
 
 class NeuronTracedModel(NeuronModel):
