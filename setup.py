@@ -32,7 +32,7 @@ TESTS_REQUIRE = [
     "diffusers>=0.29.0, <=0.30.3",
     "safetensors",
     "sentence-transformers >= 2.2.0",
-    "peft==0.14.0",
+    "peft==0.15.2",
     "trl==0.11.4",
     "compel",
     "rjieba",
@@ -53,7 +53,7 @@ QUALITY_REQUIRES = [
 
 TRAINING_REQUIRES = [
     "trl == 0.11.4",
-    "peft == 0.14.0",
+    "peft == 0.15.2",
     "evaluate == 0.4.3",
     "neuronx_distributed==0.10.1",
     "accelerate == 0.29.2",
@@ -82,7 +82,7 @@ EXTRAS_REQUIRE = {
         "libneuronxla==2.2.1630.0",
         "accelerate == 1.3.0",
     ],
-    "diffusers": ["diffusers>=0.28.0, <=0.30.3", "peft==0.14.0"],
+    "diffusers": ["diffusers>=0.28.0, <=0.30.3", "peft==0.15.2"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
 }
 

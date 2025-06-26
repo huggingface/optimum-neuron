@@ -112,10 +112,10 @@ if TYPE_CHECKING:
         DIFFUSION_MODEL_UNET_NAME,
         DIFFUSION_MODEL_VAE_DECODER_NAME,
         DIFFUSION_MODEL_VAE_ENCODER_NAME,
-        WEIGHTS_INDEX_NAME,
-        SAFE_WEIGHTS_INDEX_NAME,
         ENCODER_NAME,
         NEURON_FILE_NAME,
+        SAFE_WEIGHTS_INDEX_NAME,
+        WEIGHTS_INDEX_NAME,
     )
     from .import_utils import (
         is_accelerate_available,
@@ -138,12 +138,12 @@ if TYPE_CHECKING:
     from .misc import (
         DiffusersPretrainedConfig,
         check_if_weights_replacable,
+        get_checkpoint_shard_files,
         get_stable_diffusion_configs,
         is_main_worker,
         is_precompilation,
         map_torch_dtype,
         replace_weights,
-        get_checkpoint_shard_files,
     )
     from .model_utils import get_tied_parameters_dict, tie_parameters
     from .optimization_utils import (

@@ -203,7 +203,7 @@ def get_diffusion_models_for_export(
             input_shapes=text_encoder_input_shapes,
         )
         models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (text_encoder, text_encoder_neuron_config)
-    
+
     if DIFFUSION_MODEL_TEXT_ENCODER_2_NAME in models_for_export:
         text_encoder_2 = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME]
         text_encoder_config_constructor_2 = TasksManager.get_exporter_config_constructor(
@@ -282,7 +282,7 @@ def get_diffusion_models_for_export(
             if model_name_or_path:
                 transformer_neuron_config.pretrained_model_name_or_path = model_name_or_path
                 models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (model_name_or_path, transformer_neuron_config)
-                
+
             else:
                 raise ValueError(
                     f"you need to precise `model_name_or_path` when the parallelism is on, but now it's {model_name_or_path}."
@@ -579,7 +579,10 @@ _DIFFUSERS_CLASS_NAME_TO_SUBMODEL_TYPE = {
 
 
 def _get_diffusers_submodel_type(submodel):
-    return _DIFFUSERS_CLASS_NAME_TO_SUBMODEL_TYPE.get(submodel.__class__.__name__)
+    export_model_type = _DIFFUSERS_CLASS_NAME_TO_SUBMODEL_TYPE.get(submodel.__class__.__name__)
+    if "t5" in export_model_type:
+        export_model_type = "t5-encoder"
+    return export_model_type
 
 
 def get_encoder_decoder_models_for_export(

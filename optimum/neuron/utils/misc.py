@@ -15,16 +15,17 @@
 """Utilities of various sorts."""
 
 import copy
-import json
 import functools
 import inspect
+import json
 import os
 import re
 from pathlib import Path
-from requests import HTTPError
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Union
 
 import torch
+from huggingface_hub import model_info, snapshot_download
+from requests import HTTPError
 from transformers import PretrainedConfig
 from transformers.modeling_utils import _add_variant
 from transformers.utils import (
@@ -40,8 +41,6 @@ from transformers.utils import (
     has_file,
     is_remote_url,
 )
-from transformers.utils.hub import get_checkpoint_shard_files
-from huggingface_hub import model_info, snapshot_download
 
 from ...utils import is_diffusers_available, logging
 from .import_utils import is_torch_neuronx_available, is_torch_xla_available
@@ -716,10 +715,10 @@ def get_checkpoint_shard_files(
                 f"We couldn't connect to '{hf_co_resolve_endpoint}' to load {pretrained_model_name_or_path}. You should try"
                 " again after checking your internet connection."
             ) from e
-        
+
     # List of paths for sharded ckpts.
     shards_file_paths = []
     for shard_filename in original_shard_filenames:
         shards_file_paths.append(Path(shards_path, shard_filename).as_posix())
-        
+
     return shards_file_paths, sharded_metadata

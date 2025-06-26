@@ -15,10 +15,8 @@
 """Neuron compiled model check and export functions."""
 
 import copy
-import tempfile
 import time
 from collections import OrderedDict
-from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -26,7 +24,6 @@ import numpy as np
 import torch
 from transformers import PreTrainedModel
 
-from ...exporters.error_utils import OutputMatchError, ShapeError
 from optimum.neuron.cache.entries.multi_model import MultiModelCacheEntry
 from optimum.neuron.cache.entries.single_model import SingleModelCacheEntry
 from optimum.neuron.cache.traced import cache_traced_neuron_artifacts
@@ -38,6 +35,8 @@ from optimum.neuron.utils import (
     is_neuronx_distributed_available,
     store_compilation_config,
 )
+
+from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils.cache_utils import get_model_name_or_path
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
 from ...utils import (
@@ -644,7 +643,7 @@ def trace_neuronx(
     if tensor_parallel_size > 1:
         # Tensor Parallelism
         if isinstance(model, BaseModelInstance):
-            # Case 1: Using `neuronx_distributed.trace.model_builder`            
+            # Case 1: Using `neuronx_distributed.trace.model_builder`
             #TODO: from optimum.neuron.models.inference.nxd.backend.cache import neff_cache
             model_builder = ModelBuilder(
                 router=None,
@@ -662,7 +661,7 @@ def trace_neuronx(
                 compiler_args=compiler_args,
             )
             neuron_model = model_builder.trace(initialize_model_weights=False)
-            
+
             model_builder.shard_checkpoint(serialize_path=output.parent / "weights/")
             torch.jit.save(neuron_model, output)
         else:
@@ -675,7 +674,7 @@ def trace_neuronx(
                 compiler_workdir=compiler_workdir,
                 tp_degree=tensor_parallel_size,
             )
-            neuronx_distributed.trace.parallel_model_save(neuron_model, output)  
+            neuronx_distributed.trace.parallel_model_save(neuron_model, output)
     else:
         # Case 3: Using `torch_neuronx.trace`
         neuron_model = neuronx.trace(
@@ -691,7 +690,7 @@ def trace_neuronx(
         # diffusers specific
         improve_stable_diffusion_loading(config, neuron_model)
         torch.jit.save(neuron_model, output)
-    
+
     del model
     del neuron_model
     del dummy_inputs
@@ -713,8 +712,8 @@ def add_stable_diffusion_compiler_args(config, compiler_args):
         # SDXL unet doesn't support fast loading neuron binaries(sdk 2.19.1)
         if not getattr(config, "is_sdxl", False):
             compiler_args.append("--enable-fast-loading-neuron-binaries")
-        if "unet" in identifier or "controlnet" in identifier:
-            compiler_args.append("--model-type=unet-inference")
+    if any(pattern in identifier for pattern in ("unet", "controlnet", "vae")):
+        compiler_args.append("--model-type=unet-inference")
     return compiler_args
 
 

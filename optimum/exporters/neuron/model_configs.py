@@ -19,12 +19,25 @@ import inspect
 import os
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import List
 
 import torch
 from safetensors.torch import load_file
 
 from optimum.exporters.tasks import TasksManager
+from optimum.neuron.distributed import ParallelizersManager
+from optimum.neuron.utils import (
+    SAFE_WEIGHTS_INDEX_NAME,
+    ASTDummyAudioInputGenerator,
+    DummyBeamValuesGenerator,
+    DummyControNetInputGenerator,
+    DummyFluxTransformerRotaryEmbGenerator,
+    DummyIPAdapterInputGenerator,
+    DummyMaskedPosGenerator,
+    WhisperDummyTextInputGenerator,
+    get_checkpoint_shard_files,
+    is_neuronx_distributed_available,
+)
 from optimum.utils import (
     DummyFluxTransformerTextInputGenerator,
     DummyFluxTransformerVisionInputGenerator,
@@ -44,19 +57,6 @@ from optimum.utils import (
     logging,
 )
 
-from optimum.neuron.distributed import ParallelizersManager
-from optimum.neuron.utils import (
-    ASTDummyAudioInputGenerator,
-    DummyBeamValuesGenerator,
-    DummyControNetInputGenerator,
-    DummyFluxTransformerRotaryEmbGenerator,
-    DummyIPAdapterInputGenerator,
-    DummyMaskedPosGenerator,
-    WhisperDummyTextInputGenerator,
-    SAFE_WEIGHTS_INDEX_NAME,
-    is_neuronx_distributed_available,
-    get_checkpoint_shard_files,
-)
 from .config import (
     AudioNeuronConfig,
     TextAndVisionNeuronConfig,
@@ -86,8 +86,8 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.trace.model_builder import BaseModelInstance
 
 if is_diffusers_available():
-    from diffusers.models.model_loading_utils import _get_model_file
     from diffusers.models.autoencoders.vae import Decoder as VaeDecoder
+    from diffusers.models.model_loading_utils import _get_model_file
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -849,7 +849,7 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
         return base_model_instance, None
 
     def get_parallel_callable(self, config):
-        from ...neuron.models.inference.nxd.flux.modeling_flux import NeuronFluxTransformer2DModel
+        from optimum.neuron.models.inference.flux.modeling_flux import NeuronFluxTransformer2DModel
 
         # Parallelize Flux transformer with NxD backend modeling
         valid_params = inspect.signature(NeuronFluxTransformer2DModel.__init__).parameters
@@ -879,7 +879,7 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
             index_file = _get_model_file(
                 self.pretrained_model_name_or_path,
                 weights_name=index_file_in_repo,
-                # TODO: add extra args, eg. revision, trust_remote_code, etc. 
+                # TODO: add extra args, eg. revision, trust_remote_code, etc.
             )
 
         model_shards_file_paths, _ = get_checkpoint_shard_files(

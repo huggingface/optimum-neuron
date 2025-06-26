@@ -111,6 +111,7 @@ if TYPE_CHECKING:
     from .modeling_decoder import NeuronModelForCausalLM
     from .modeling_diffusion import (
         NeuronDiffusionPipelineBase,
+        NeuronFluxPipeline,
         NeuronLatentConsistencyModelPipeline,
         NeuronPixArtAlphaPipeline,
         NeuronPixArtSigmaPipeline,
@@ -123,7 +124,6 @@ if TYPE_CHECKING:
         NeuronStableDiffusionXLImg2ImgPipeline,
         NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
-        NeuronFluxPipeline,
     )
     from .modeling_seq2seq import NeuronModelForSeq2SeqLM
     from .modeling_traced import NeuronTracedModel
