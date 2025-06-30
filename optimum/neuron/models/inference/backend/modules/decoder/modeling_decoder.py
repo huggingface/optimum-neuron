@@ -822,7 +822,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     def export(
         cls,
         model_id: str,
-        config: "PretrainedConfig",
+        config: Union["PretrainedConfig", None],
         neuron_config: "NxDNeuronConfig",
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
@@ -836,14 +836,15 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     ) -> "NeuronModelForCausalLM":
         if len(kwargs) > 0:
             logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
-        config = AutoConfig.from_pretrained(
-            model_id,
-            token=token,
-            revision=revision,
-            cache_dir=cache_dir,
-            force_download=force_download,
-            trust_remote_code=trust_remote_code,
-        )
+        if config is None:
+            config = AutoConfig.from_pretrained(
+                model_id,
+                token=token,
+                revision=revision,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                trust_remote_code=trust_remote_code,
+            )
         # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
         config.torch_dtype = neuron_config.torch_dtype
         context_encoding_model, token_generation_model, speculation_model = cls.create_model_wrappers(
