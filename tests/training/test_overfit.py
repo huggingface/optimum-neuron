@@ -196,11 +196,9 @@ def _overfit_causal_lm(
             1e-4,
             0,
             {},
-            # For now we disable flash attention because the default configuration has a dropout for the attention
-            # which is broken with the flash attention kernel in the current Neuron SDK.
-            False,
-            0.5,  # Use a smaller value when tie_word_embeddings is fixed.
-            2048,  # Do 2048 once we have flash_attention enabled.
+            True,
+            0.5,
+            2048,
             30,
         ],
         [
@@ -224,7 +222,7 @@ def _overfit_causal_lm(
 @pytest.mark.parametrize(
     "world_size,tp_size,pp_size",
     [[32, 2, 4], [32, 8, 1]],
-    ids=["dp=4,tp=2,pp=4", "dp=4,tp=8,pp=1"],
+    ids=["dp=4,tp=2,pp=4", "dp=4,tp=8"],
 )
 @pytest.mark.neuron_parallel_compile
 @is_trainium_test

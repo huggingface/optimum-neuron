@@ -37,11 +37,11 @@ from ..llama.modeling_llama import (
     eager_attention_forward,
     repeat_kv,
 )
-from ..modeling_utils import ALL_ATTENTION_FUNCTIONS
 from ..pipeline_utils import dynamic_torch_fx_wrap
 
 
 if is_neuronx_distributed_available():
+    from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
     from neuronx_distributed.parallel_layers.layers import ParallelEmbedding
     from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
@@ -127,22 +127,17 @@ class Qwen3Attention(LlamaAttention):
         )
 
         if self.use_flash_attention_v2:
-            attention_interface = ALL_ATTENTION_FUNCTIONS["flash_attention_2"]
-            if self.training and self.attention_dropout > 0.0:
-                raise RuntimeError(
-                    "Attention dropout produces NaN with flash_attention_2. Please set it to 0.0 until this bug is "
-                    "resolved by the Neuron SDK."
-                )
-            attn_output = attention_interface(
+            attn_output = nki_flash_attn_func(
                 query_states,
                 repeat_kv(key_states, self.num_key_value_groups),
                 repeat_kv(value_states, self.num_key_value_groups),
-                dropout_p=0.0 if not self.training else self.attention_dropout,
+                dropout_p=0.0,  # We never apply dropout in the flash attention path because it produces NaNs.
                 softmax_scale=self.scaling,
                 causal=True,
                 mixed_precision=True,
                 transpose_nki_inputs=self.trn_config.transpose_nki_inputs,
             )
+            attn_output = nn.functional.dropout(attn_output, p=0.0 if not self.training else self.attention_dropout)
             attn_weights = None
         else:
             attn_output, attn_weights = eager_attention_forward(
