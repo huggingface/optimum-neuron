@@ -745,7 +745,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         tensorizer_options = (
             "--enable-ccop-compute-overlap "
             f"--cc-pipeline-tiling-factor={neuron_config.cc_pipeline_tiling_factor} "
-            "--vectorize-dge-dma "
             "--vectorize-strided-dma "
         )
 
@@ -753,7 +752,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             "--auto-cast=none --model-type=transformer "
             f"--tensorizer-options='{tensorizer_options}'"
             " -O2 "
-            f" --internal-num-neuroncores-per-sengine={neuron_config.logical_nc_config}"
+            f" --lnc={neuron_config.logical_nc_config}"
         )
 
         if neuron_config.target:
