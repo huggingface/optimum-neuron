@@ -1,4 +1,4 @@
-name: Optimum neuron / Test INF2 partial export
+name: Optimum neuron / Test INF2 Export
 
 on:
   push:
