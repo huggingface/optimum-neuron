@@ -55,6 +55,7 @@ def _init_normal(std, w):
 class Qwen3RMSNorm(nn.Module):
     def __init__(self, hidden_size, reduction_dim=-1, eps=1e-6, sequence_parallel_enabled=False):
         super().__init__()
+        self.hidden_size = hidden_size
         self.weight = nn.Parameter(torch.ones(hidden_size))
         setattr(self.weight, "sequence_parallel_enabled", sequence_parallel_enabled)
         self.variance_epsilon = eps
@@ -65,7 +66,15 @@ class Qwen3RMSNorm(nn.Module):
         hidden_states = hidden_states.to(torch.float32)
         variance = hidden_states.pow(2).mean(self.reduction_dim, keepdim=True)
         hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        return self.weight * hidden_states.to(input_dtype)
+        if self.reduction_dim not in [-1, hidden_states.dim() - 1]:
+            # If reduction_dim is not the last dimension, we cannot broadcast the weight directly.
+            weight_shape = [1] * hidden_states.dim()
+            weight_shape[self.reduction_dim] = self.hidden_size
+            output = self.weight.view(weight_shape) * hidden_states.to(input_dtype)
+        else:
+            # In this case, we can broadcast the weight directly.
+            output = self.weight * hidden_states.to(input_dtype)
+        return output
 
     def extra_repr(self):
         return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
