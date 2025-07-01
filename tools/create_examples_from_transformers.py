@@ -147,46 +147,6 @@ def generate_new_import_code(*optimum_neuron_imports: str) -> str:
     return " ".join(import_line)
 
 
-def wrap_with_lazy_load_for_parallelism(file_content: str) -> str:
-    model_loading_pattern = r"\w+ = AutoModel[\w.]+"
-    shift = 0
-    for m in re.finditer(model_loading_pattern, file_content):
-        position = m.end(0) + shift
-        opened = 1
-        if file_content[position] != "(":
-            raise ValueError(f"Did not find an opening parenthesis, match: {m}")
-        while opened > 0:
-            position += 1
-            if file_content[position] == ")":
-                opened -= 1
-            elif file_content[position] == "(":
-                opened += 1
-
-        start = m.start(0) + shift
-        model_loading_content = file_content[start : position + 1]
-        initial_length = len(model_loading_content)
-        model_loading_content = model_loading_content.replace("\n", "\n    ")
-        number_of_spaces = 0
-        for i in range(start - 1, 0, -1):
-            if file_content[i] == "\n":
-                break
-            elif file_content[i] == "\t":
-                number_of_spaces += 4
-            else:
-                number_of_spaces += 1
-        # Adding one tab to indent from the lazy_load_for_parallelism context manager.
-        number_of_spaces += 4
-        model_loading_content = " " * number_of_spaces + model_loading_content
-        new_content = (
-            "with lazy_load_for_parallelism(tensor_parallel_size=training_args.tensor_parallel_size, "
-            f"pipeline_parallel_size=training_args.pipeline_parallel_size):\n{model_loading_content}\n"
-        )
-        file_content = file_content[:start] + new_content + file_content[position + 1 :]
-        shift += len(new_content) - initial_length
-
-    return file_content
-
-
 def parse_args():
     parser = ArgumentParser(
         description="Tool to download and prepare 🤗 Transformers example training scripts for AWS Trainium instances."
@@ -259,14 +219,8 @@ def main():
                     TRAINING_ARGUMENTS_IMPORT_PATTERN, file_content
                 )
                 code = generate_new_import_code(AWS_CODE[training_args_cls])
-                code = f"\n{code}\nfrom optimum.neuron.distributed import lazy_load_for_parallelism\n"
+                code = f"\n{code}\n"
                 processed_content = insert_code_at_position(code, processed_content, import_end_index)
-                with open(training_argument_file_path, "w") as fp:
-                    fp.write(processed_content)
-
-                with open(training_argument_file_path, "r") as fp:
-                    file_content = fp.read()
-                processed_content = wrap_with_lazy_load_for_parallelism(file_content)
                 with open(training_argument_file_path, "w") as fp:
                     fp.write(processed_content)
 

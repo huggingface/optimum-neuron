@@ -69,6 +69,12 @@ from transformers.utils.hub import get_checkpoint_shard_files
 
 from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from ...utils.misc import is_main_worker, is_precompilation
+from .config import TrainingNeuronConfig
+from .pipeline_utils import (
+    MetaParametersOnly,
+    get_pipeline_parameters_for_current_stage,
+    move_params_to_cpu,
+)
 from .transformations_utils import (
     adapt_state_dict,
     create_parameter_metadata,
@@ -79,6 +85,7 @@ from .transformations_utils import (
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+    import torch_xla.runtime as xr
     from torch_xla.utils.checkpoint import checkpoint
 else:
     # This is a placeholder for the checkpoint function for doc building.
@@ -90,19 +97,63 @@ if is_neuronx_distributed_available():
     import neuronx_distributed
     from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
     from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
-    from neuronx_distributed.parallel_layers.layers import BaseParallelLinear
+    from neuronx_distributed.parallel_layers.layers import (
+        BaseParallelLinear,
+        ColumnParallelLinear,
+        ParallelEmbedding,
+    )
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_data_parallel_rank,
         get_pipeline_model_parallel_rank,
+        get_pipeline_model_parallel_size,
         get_tensor_model_parallel_rank,
+        get_tensor_model_parallel_size,
     )
     from neuronx_distributed.parallel_layers.utils import (
         get_local_world_size,
         move_model_to_device,
     )
+
 else:
     # This is a placeholder for the nki_flash_attn_func function for doc building.
     def nki_flash_attn_func(*args, **kwargs):
+        pass
+
+    class GQAQKVColumnParallelLinear:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class BaseParallelLinear:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class ColumnParallelLinear:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class ParallelEmbedding:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    def get_data_parallel_rank(*args, **kwargs):
+        pass
+
+    def get_pipeline_model_parallel_rank(*args, **kwargs):
+        pass
+
+    def get_pipeline_model_parallel_size(*args, **kwargs):
+        pass
+
+    def get_tensor_model_parallel_rank(*args, **kwargs):
+        pass
+
+    def get_tensor_model_parallel_size(*args, **kwargs):
+        pass
+
+    def get_local_world_size(*args, **kwargs):
+        pass
+
+    def move_model_to_device(*args, **kwargs):
         pass
 
 
@@ -164,6 +215,36 @@ def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):
 
 
 class NeuronModelMixin:
+    SUPPORTS_PIPELINE_PARALLELISM: bool = False
+    PIPELINE_TRANSFORMER_LAYER_CLS: Optional[Type] = None
+    PIPELINE_INPUT_NAMES: Optional[list[str]] = None
+    PIPELINE_LEAF_MODULE_CLASSE_NAMES: Optional[list[str]] = None
+
+    @classmethod
+    def supports_pipeline_parallelism(cls) -> bool:
+        """
+        Returns whether the model supports pipeline parallelism.
+        """
+        if cls.SUPPORTS_PIPELINE_PARALLELISM:
+            if cls.PIPELINE_TRANSFORMER_LAYER_CLS is None or cls.PIPELINE_INPUT_NAMES is None:
+                raise ValueError(
+                    f"{cls.__name__} supports pipeline parallelism but does not have the required attributes "
+                    "`PIPELINE_TRANSFORMER_LAYER_CLS` and `PIPELINE_INPUT_NAMES` set."
+                )
+            return True
+        return False
+
+    @property
+    def parameters_for_current_stage(self) -> set[str]:
+        """
+        Returns the names of the parameters that are in the current pipeline stage.
+        If pipeline parallelism is not used, this returns the names of all the parameters of the model.
+        """
+        if getattr(self, "_parameter_names_for_current_pp_rank", None) is None:
+            self._parameter_names_for_current_pp_rank = get_pipeline_parameters_for_current_stage(self)
+        return self._parameter_names_for_current_pp_rank
+
+    @classmethod
     @classmethod
     def _check_and_enable_flash_attn_2(
         cls,
@@ -477,6 +558,8 @@ class NeuronModelMixin:
         if cls._keys_to_ignore_on_load_missing is not None:
             for pat in cls._keys_to_ignore_on_load_missing:
                 missing_keys = [k for k in missing_keys if re.search(pat, k) is None]
+        # If the key is not in model.parameters_for_current_stage, it is not missing, we just do not need it here.
+        missing_keys = [k for k in missing_keys if k in model.parameters_for_current_stage]
 
         if cls._keys_to_ignore_on_load_unexpected is not None:
             for pat in cls._keys_to_ignore_on_load_unexpected:
@@ -625,6 +708,17 @@ class NeuronModelMixin:
                 inplace=True,
             )
 
+            # We need to remove the keys only after adapting the state dict otherwise the parameter names might not
+            # match between the custom model and the checkpoint.
+            for key in list(state_dict.keys()):
+                # If the key is a parameter that is not needed for the current pipeline stage, we remove it.
+                if key not in model.parameters_for_current_stage:
+                    del state_dict[key]
+            gc.collect()
+
+            if get_pipeline_model_parallel_size() > 1:
+                move_params_to_cpu(model_to_load, model.parameters_for_current_stage)
+
             # Mistmatched keys contains tuples key/shape1/shape2 of weights in the checkpoint that have a shape not
             # matching the weights in the model.
             mismatched_keys += _find_mismatched_keys(
@@ -711,6 +805,7 @@ class NeuronModelMixin:
     def from_pretrained(
         cls: Type[SpecificPreTrainedModelType],
         pretrained_model_name_or_path: Optional[Union[str, os.PathLike]],
+        trn_config: TrainingNeuronConfig,
         *model_args,
         config: Optional[Union[PretrainedConfig, str, os.PathLike]] = None,
         cache_dir: Optional[Union[str, os.PathLike]] = None,
@@ -920,7 +1015,8 @@ class NeuronModelMixin:
 
         # ** Difference from original from_pretrained **
         # We set a few variables that will be needed later in the code.
-        trn_config = model_args[0]
+        if trn_config is None:
+            raise ValueError("`trn_config` is required to load a model in optimum-neuron.")
         num_local_ranks_per_step = trn_config.num_local_ranks_per_step
         local_world_size = get_local_world_size()
         local_rank = xm.get_local_ordinal()
@@ -1286,6 +1382,10 @@ class NeuronModelMixin:
         # Instantiate model.
         init_contexts = [no_init_weights()]
 
+        # If we are using pipeline parallelism, we need to use the meta device for parameters only while keeping buffers on CPU.
+        if get_pipeline_model_parallel_size() > 1:
+            init_contexts.append(MetaParametersOnly())
+
         # ** Difference from original from_pretrained **
         # In the original from_pretrained implementation there is deepspeed and low_cpu_mem_usage code for
         # `init_contexts`.
@@ -1305,18 +1405,26 @@ class NeuronModelMixin:
             )
 
         # ** Difference from original from_pretrained **
-        # This is due to a Neuron compiler bug, and it should be removed when the bug is fixed.
-        should_fake_tie = config.tie_word_embeddings
-        if should_fake_tie:
-            logger.warning(
-                "`config.tie_word_embeddings` is set to True, but it produces compiler errors with the current Neuron "
-                "SDK. Setting it to False until resolved. The weights will be copied but not tied."
-            )
-        config.tie_word_embeddings = False
+        # We do not support the `tie_word_embeddings` feature in pipeline parallelism.
+        # Instead when `config.tie_word_embeddings` is set to True, we set it to False and simply clone the data between
+        # the tied weights.
+
+        should_soft_tie = False
+        if config.tie_word_embeddings and get_pipeline_model_parallel_size() > 1:
+            if xr.local_ordinal() == 0:
+                logger.warning(
+                    "`config.tie_word_embeddings` is set to True, but it is not supported in pipeline parallelism. Setting "
+                    "it to `False`."
+                )
+            config.tie_word_embeddings = False
+            should_soft_tie = True
 
         with ContextManagers(init_contexts):
             # Let's make sure we don't run the init function of buffer modules
-            model = cls(config, *model_args, **model_kwargs)
+            model = cls(config, trn_config, *model_args, **model_kwargs)
+
+        if get_pipeline_model_parallel_size() > 1:
+            move_params_to_cpu(model, model.parameters_for_current_stage)
 
         # make sure we use the model's config since the __init__ call might have copied it
         config = model.config
@@ -1334,8 +1442,10 @@ class NeuronModelMixin:
 
         # ** Difference from original from_pretrained **
         # Here we load the pretrained model by group of ranks.
+        # For pipeline parallelism, we only load the parameters needed for the current stage.
         # The `cls._load_pretrained_model` method takes a subset of the original parameters because we support a subset
         # of the original features.
+
         for worker in range(math.ceil(local_world_size / num_local_ranks_per_step)):
             if local_rank // num_local_ranks_per_step == worker:
                 (
@@ -1364,6 +1474,10 @@ class NeuronModelMixin:
         # Set model in evaluation mode to deactivate DropOut modules by default
         model.eval()
 
+        if should_soft_tie:
+            with torch.no_grad():
+                model.get_output_embeddings().weight.data = model.get_input_embeddings().weight.data.clone()
+
         # ** Difference from original from_pretrained **
         # We skip the code about generation since we do not support this.
 
@@ -1372,13 +1486,6 @@ class NeuronModelMixin:
 
         if device_map == "xla":
             move_model_to_device(model, xm.xla_device())
-
-        # ** Difference from original from_pretrained **
-        # Currently tie_word_embeddings leads to a compiler bug.
-        # If weights are initially tied, we still copy the value but we do not tie them.
-        if should_fake_tie:
-            with torch.no_grad():
-                model.get_output_embeddings().weight.data.copy_(model.get_input_embeddings().weight)
 
         if output_loading_info:
             if loading_info is None:
@@ -1436,8 +1543,9 @@ class NeuronModelMixin:
             )
             is_main_process = kwargs.pop("save_config")
         if safe_serialization:
-            raise logger.error(
-                "`safe_serialization` is not supported when saving the sharded checkpoints. It is possible to consolidate the model weights into `safetensors` format."
+            raise NotImplementedError(
+                "`safe_serialization` is not supported when saving the sharded checkpoints. It is possible to "
+                "consolidate the model weights into `safetensors` format."
             )
 
         if os.path.isfile(save_directory):
@@ -1454,6 +1562,9 @@ class NeuronModelMixin:
             )
 
         model_to_save = self
+
+        # We need to specialize the transformation specs for the model before saving.
+        specialize_transformation_specs_for_model(model_to_save)
 
         # save the string version of dtype to the config, e.g. convert torch.float32 => "float32"
         # we currently don't use this setting automatically, but may start to use with v5
@@ -1510,3 +1621,248 @@ class NeuronModelMixin:
                 if isinstance(trn_config_data["checkpoint_dir"], Path):
                     trn_config_data["checkpoint_dir"] = trn_config_data["checkpoint_dir"].as_posix()
                 f.write(json.dumps(trn_config_data, indent=4))
+
+    def resize_token_embeddings(
+        self,
+        new_num_tokens: Optional[int] = None,
+        pad_to_multiple_of: Optional[int] = None,
+        mean_resizing: bool = False,
+    ) -> Union[nn.Embedding, "ParallelEmbedding"]:
+        embeddings = super().resize_token_embeddings(new_num_tokens, pad_to_multiple_of, mean_resizing)
+        # The way the vocab size by the main method is wrong when using ParallelEmbedding.
+        # So we reset it here.
+        self.config.get_text_config().vocab_size = embeddings.num_embeddings
+        self.vocab_size = embeddings.num_embeddings
+        return embeddings
+
+    def _get_resized_embeddings(
+        self,
+        old_embeddings: Union[nn.Embedding, ParallelEmbedding],
+        new_num_tokens: Optional[int] = None,
+        pad_to_multiple_of: Optional[int] = None,
+        mean_resizing: bool = False,
+    ):
+        """
+        Override of transformers method to handle ParallelEmbedding layers in tensor parallel scenarios.
+        Falls back to the base implementation for regular nn.Embedding layers.
+        """
+        if is_neuronx_distributed_available() and isinstance(old_embeddings, ParallelEmbedding):
+            return self._get_resized_parallel_embeddings(
+                old_embeddings, new_num_tokens, pad_to_multiple_of, mean_resizing
+            )
+        else:
+            # Fall back to standard transformers method for regular embeddings
+            return super()._get_resized_embeddings(old_embeddings, new_num_tokens, pad_to_multiple_of, mean_resizing)
+
+    def _get_resized_lm_head(
+        self,
+        old_lm_head: Union[nn.Linear, ColumnParallelLinear],
+        new_num_tokens: Optional[int] = None,
+        transposed: bool = False,
+        mean_resizing: bool = False,
+    ):
+        """
+        Override of transformers method to handle ColumnParallelLinear layers in tensor parallel scenarios.
+        Falls back to the base implementation for regular nn.Linear layers.
+        """
+        if is_neuronx_distributed_available() and isinstance(old_lm_head, ColumnParallelLinear):
+            return self._get_resized_parallel_lm_head(old_lm_head, new_num_tokens, transposed, mean_resizing)
+        else:
+            # Fall back to standard transformers method for regular linear layers
+            return super()._get_resized_lm_head(old_lm_head, new_num_tokens, transposed, mean_resizing)
+
+    def _get_resized_parallel_embeddings(
+        self,
+        old_embeddings: ParallelEmbedding,
+        new_num_tokens: Optional[int] = None,
+        pad_to_multiple_of: Optional[int] = None,
+        mean_resizing: bool = False,
+    ) -> ParallelEmbedding:
+        """
+        Builds a resized ParallelEmbedding from a provided ParallelEmbedding.
+        """
+        if mean_resizing:
+            raise NotImplementedError(
+                "Mean resizing is not supported for ParallelEmbedding layers. "
+                "Please use standard initialization for resizing."
+            )
+
+        # Handle padding to multiple
+        if pad_to_multiple_of is not None:
+            if not isinstance(pad_to_multiple_of, int):
+                raise ValueError(
+                    f"Asking to pad the embedding matrix to a multiple of `{pad_to_multiple_of}`, which is not an "
+                    "integer. Please make sure to pass an integer"
+                )
+            if new_num_tokens is None:
+                new_num_tokens = old_embeddings.num_embeddings
+            new_num_tokens = ((new_num_tokens + pad_to_multiple_of - 1) // pad_to_multiple_of) * pad_to_multiple_of
+
+        if new_num_tokens is None:
+            return old_embeddings
+
+        # Get TP configuration
+        tp_size = get_tensor_model_parallel_size()
+
+        # Ensure vocab size is divisible by TP size
+        if new_num_tokens % tp_size != 0:
+            raise ValueError(
+                f"New vocabulary size ({new_num_tokens}) must be divisible by tensor parallel size ({tp_size})"
+            )
+
+        old_num_tokens_global = old_embeddings.num_embeddings
+        old_num_tokens_local = old_embeddings.num_embeddings_per_partition
+        old_embedding_dim = old_embeddings.embedding_dim
+
+        new_num_tokens_local = new_num_tokens // tp_size
+
+        if old_num_tokens_global == new_num_tokens:
+            return old_embeddings
+
+        # Create new ParallelEmbedding with the same configuration
+        new_embeddings = ParallelEmbedding(
+            new_num_tokens,
+            old_embedding_dim,
+            padding_idx=old_embeddings.padding_idx,
+            max_norm=old_embeddings.max_norm,
+            norm_type=old_embeddings.norm_type,
+            scale_grad_by_freq=old_embeddings.scale_grad_by_freq,
+            sparse=old_embeddings.sparse,
+            device=old_embeddings.weight.device,
+            dtype=old_embeddings.weight.dtype,
+            shard_across_embedding=old_embeddings.shard_across_embedding,
+            pad=old_embeddings.pad,
+            tensor_model_parallel_group=old_embeddings.tensor_model_parallel_group,
+            sequence_parallel_enabled=old_embeddings.sequence_parallel_enabled,
+            sequence_dimension=old_embeddings.sequence_dim,
+        )
+
+        # Copy existing weights
+        n_local = min(old_num_tokens_local, new_num_tokens_local)
+        with torch.no_grad():
+            new_embeddings.weight.data[:n_local, :] = old_embeddings.weight.data[:n_local, :]
+
+        # Initialize new tokens if expanding
+        if new_num_tokens_local > old_num_tokens_local:
+            added_tokens_local = new_num_tokens_local - old_num_tokens_local
+            # Use standard initialization
+            with torch.no_grad():
+                # Initialize the new token embeddings with the model's standard initialization
+                if hasattr(self, "_init_weights"):
+                    # Create a temporary embedding to get proper initialization
+                    temp_embedding = torch.nn.Embedding(added_tokens_local, old_embedding_dim)
+                    self._init_weights(temp_embedding)
+                    new_embeddings.weight.data[old_num_tokens_local:, :] = temp_embedding.weight.data
+                else:
+                    # Fallback to normal initialization
+                    std = getattr(self.config, "initializer_range", 0.02)
+                    new_embeddings.weight.data[old_num_tokens_local:, :].normal_(mean=0.0, std=std)
+
+        return new_embeddings
+
+    def _get_resized_parallel_lm_head(
+        self,
+        old_lm_head: ColumnParallelLinear,
+        new_num_tokens: Optional[int] = None,
+        transposed: Optional[bool] = False,
+        mean_resizing: bool = False,
+    ) -> ColumnParallelLinear:
+        """
+        Builds a resized ColumnParallelLinear from a provided ColumnParallelLinear.
+        """
+        if mean_resizing:
+            raise NotImplementedError(
+                "Mean resizing is not supported for ColumnParallelLinear layers. "
+                "Please use standard initialization for resizing."
+            )
+
+        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+        if new_num_tokens is None:
+            return old_lm_head
+
+        # Get TP configuration
+        tp_size = get_tensor_model_parallel_size()
+
+        # Ensure vocab size is divisible by TP size
+        if new_num_tokens % tp_size != 0:
+            raise ValueError(
+                f"New vocabulary size ({new_num_tokens}) must be divisible by tensor parallel size ({tp_size})"
+            )
+
+        old_num_tokens_global = old_lm_head.output_size
+        old_num_tokens_local = old_lm_head.weight.shape[0]  # First dimension for ColumnParallelLinear
+
+        new_num_tokens_local = new_num_tokens // tp_size
+
+        if old_num_tokens_global == new_num_tokens:
+            return old_lm_head
+
+        # Create new ColumnParallelLinear with the same configuration
+        new_lm_head = ColumnParallelLinear(
+            old_lm_head.input_size,
+            new_num_tokens,
+            bias=old_lm_head.bias is not None,
+            gather_output=old_lm_head.gather_output,
+            dtype=old_lm_head.dtype,
+            device=old_lm_head.weight.device,
+            stride=old_lm_head.stride,
+            init_method=old_lm_head.arg_init_method,
+            sequence_parallel_enabled=old_lm_head.sequence_parallel_enabled,
+            sequence_dimension=old_lm_head.sequence_dimension,
+            keep_master_weight=old_lm_head.keep_master_weight,
+            skip_bias_add=old_lm_head.skip_bias_add,
+            pad=old_lm_head.pad,
+            tensor_model_parallel_group=old_lm_head.tensor_parallel_group,
+            reduce_dtype=old_lm_head.reduce_dtype,
+        )
+
+        # Copy existing weights
+        n_local = min(old_num_tokens_local, new_num_tokens_local)
+        with torch.no_grad():
+            if transposed:
+                # Weight is [input_size, output_size_local]
+                new_lm_head.weight.data[:, :n_local] = old_lm_head.weight.data[:, :n_local]
+            else:
+                # Weight is [output_size_local, input_size] (standard ColumnParallelLinear)
+                new_lm_head.weight.data[:n_local, :] = old_lm_head.weight.data[:n_local, :]
+
+            # Copy bias if present
+            if old_lm_head.bias is not None and new_lm_head.bias is not None:
+                new_lm_head.bias.data[:n_local] = old_lm_head.bias.data[:n_local]
+
+        # Initialize new tokens if expanding
+        if new_num_tokens_local > old_num_tokens_local:
+            added_tokens_local = new_num_tokens_local - old_num_tokens_local
+            # Use standard initialization
+            with torch.no_grad():
+                # Initialize the new token weights with the model's standard initialization
+                if hasattr(self, "_init_weights"):
+                    # Create a temporary linear layer to get proper initialization
+                    if transposed:
+                        temp_linear = torch.nn.Linear(
+                            added_tokens_local, old_lm_head.input_size, bias=old_lm_head.bias is not None
+                        )
+                        self._init_weights(temp_linear)
+                        new_lm_head.weight.data[:, old_num_tokens_local:] = temp_linear.weight.data.T
+                        if temp_linear.bias is not None and new_lm_head.bias is not None:
+                            new_lm_head.bias.data[old_num_tokens_local:] = temp_linear.bias.data
+                    else:
+                        temp_linear = torch.nn.Linear(
+                            old_lm_head.input_size, added_tokens_local, bias=old_lm_head.bias is not None
+                        )
+                        self._init_weights(temp_linear)
+                        new_lm_head.weight.data[old_num_tokens_local:, :] = temp_linear.weight.data
+                        if temp_linear.bias is not None and new_lm_head.bias is not None:
+                            new_lm_head.bias.data[old_num_tokens_local:] = temp_linear.bias.data
+                else:
+                    # Fallback to normal initialization
+                    std = getattr(self.config, "initializer_range", 0.02)
+                    if transposed:
+                        new_lm_head.weight.data[:, old_num_tokens_local:].normal_(mean=0.0, std=std)
+                    else:
+                        new_lm_head.weight.data[old_num_tokens_local:, :].normal_(mean=0.0, std=std)
+                    if new_lm_head.bias is not None:
+                        new_lm_head.bias.data[old_num_tokens_local:].zero_()
+
+        return new_lm_head

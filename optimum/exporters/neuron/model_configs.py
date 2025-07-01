@@ -36,7 +36,6 @@ from optimum.utils import (
     is_diffusers_available,
 )
 
-from ...neuron.distributed import ParallelizersManager
 from ...neuron.utils import (
     ASTDummyAudioInputGenerator,
     DummyBeamValuesGenerator,
@@ -45,6 +44,7 @@ from ...neuron.utils import (
     DummyMaskedPosGenerator,
     WhisperDummyTextInputGenerator,
     is_neuronx_distributed_available,
+    saved_model_in_temporary_directory,
 )
 from .config import (
     AudioNeuronConfig,
@@ -966,10 +966,11 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
             library_name="transformers",
         )  # TODO: add extra args, eg. revision, trust_remote_code, etc.
         model.config.use_cache = True
-        parallelizer = ParallelizersManager.parallelizer_for_model(model)
-        with parallelizer.saved_model_in_temporary_directory(model) as ckpt_path:
-            # Replace parallel layers
-            parallel_model = parallelizer._parallelize(model, parallelize_embeddings=False)
+        with saved_model_in_temporary_directory(model) as ckpt_path:
+            # Plug in parallel layers
+            from optimum.neuron.models.inference.t5.modeling_t5 import parallelize
+
+            parallel_model = parallelize(model)
             # Load the weights into the parallel layers
             neuronx_distributed.parallel_layers.load(ckpt_path, parallel_model, sharded=False)
         encoder = self.CUSTOM_MODEL_WRAPPER(
@@ -1112,13 +1113,13 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             library_name="transformers",
         )  # TODO: add extra args, eg. revision, trust_remote_code, etc.
         model.config.use_cache = True
-        parallelizer = ParallelizersManager.parallelizer_for_model(model)
-        with parallelizer.saved_model_in_temporary_directory(model) as ckpt_path:
-            # Replace parallel layers
-            parallel_model = parallelizer._parallelize(model, parallelize_embeddings=False)
+        with saved_model_in_temporary_directory(model) as ckpt_path:
+            # Plug in parallel layers
+            from optimum.neuron.models.inference.t5.modeling_t5 import parallelize
+
+            parallel_model = parallelize(model)
             # Load the weights into the parallel layers
             neuronx_distributed.parallel_layers.load(ckpt_path, parallel_model, sharded=False)
-
         decoder = self.CUSTOM_MODEL_WRAPPER(
             parallel_model,
             batch_size=batch_size,

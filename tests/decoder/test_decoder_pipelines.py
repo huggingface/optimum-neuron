@@ -1,4 +1,5 @@
 import itertools
+import os
 
 import pytest
 from transformers import AutoTokenizer
@@ -44,31 +45,37 @@ def _test_generation(p):
 @is_inferentia_test
 @requires_neuronx
 def test_export_no_parameters():
+    visible_cores = os.environ.get("NEURON_RT_NUM_CORES", None)
+    os.environ["NEURON_RT_NUM_CORES"] = "2"
     p = pipeline("text-generation", "Qwen/Qwen2.5-0.5B", export=True)
     _test_generation(p)
+    if visible_cores is None:
+        os.environ.pop("NEURON_RT_NUM_CORES", None)
+    else:
+        os.environ["NEURON_RT_NUM_CORES"] = visible_cores
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_load_no_parameters(neuron_decoder_path):
-    p = pipeline("text-generation", neuron_decoder_path)
+def test_load_no_parameters(base_neuron_decoder_path):
+    p = pipeline("text-generation", base_neuron_decoder_path)
     _test_generation(p)
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_from_model_and_tokenizer(neuron_decoder_path):
-    m = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
-    t = AutoTokenizer.from_pretrained(neuron_decoder_path)
+def test_from_model_and_tokenizer(base_neuron_decoder_path):
+    m = NeuronModelForCausalLM.from_pretrained(base_neuron_decoder_path)
+    t = AutoTokenizer.from_pretrained(base_neuron_decoder_path)
     p = pipeline("text-generation", model=m, tokenizer=t)
     _test_generation(p)
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_error_already_exported(neuron_decoder_path):
+def test_error_already_exported(base_neuron_decoder_path):
     with pytest.raises(ValueError, match="already been exported"):
-        pipeline("text-generation", neuron_decoder_path, export=True)
+        pipeline("text-generation", base_neuron_decoder_path, export=True)
 
 
 @is_inferentia_test
@@ -80,7 +87,7 @@ def test_error_needs_export():
 
 @is_inferentia_test
 @requires_neuronx
-def test_from_hub(neuron_decoder_config):
-    model_id = neuron_decoder_config["neuron_model_id"]
+def test_from_hub(base_neuron_decoder_config):
+    model_id = base_neuron_decoder_config["neuron_model_id"]
     p = pipeline("text-generation", model_id)
     _test_generation(p)

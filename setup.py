@@ -23,6 +23,8 @@ INSTALL_REQUIRES = [
 
 TESTS_REQUIRE = [
     "pytest <= 8.0.0",
+    "pytest-rerunfailures",
+    "cloudpickle",
     "psutil",
     "parameterized",
     "GitPython",
@@ -55,7 +57,7 @@ TRAINING_REQUIRES = [
     "trl == 0.11.4",
     "peft == 0.14.0",
     "evaluate == 0.4.3",
-    "neuronx_distributed==0.12.12111",
+    "neuronx_distributed==0.13.14393",
 ]
 
 EXTRAS_REQUIRE = {
@@ -73,12 +75,12 @@ EXTRAS_REQUIRE = {
     ],
     "neuronx": [
         "wheel",
-        "neuronx-cc==2.18.121.0",
-        "torch-neuronx==2.6.0.2.7.5413",
-        "torch==2.6.0.*",
-        "torchvision==0.21.*",
-        "neuronx_distributed==0.12.12111",
-        "libneuronxla==2.2.3493.0",
+        "neuronx-cc==2.19.8089.0",
+        "torch-neuronx==2.7.0.2.8.6734+ac864f72",
+        "torch==2.7.0.*",
+        "torchvision==0.22.*",
+        "neuronx_distributed==0.13.14393",
+        "libneuronxla==2.2.4410.0",
     ],
     "diffusers": ["diffusers>=0.28.0, <=0.30.3", "peft==0.14.0"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],

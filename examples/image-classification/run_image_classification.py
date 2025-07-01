@@ -50,7 +50,6 @@ from transformers.utils.versions import require_version
 from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
 from optimum.neuron import NeuronTrainer as Trainer
 from optimum.neuron import NeuronTrainingArguments as TrainingArguments
-from optimum.neuron.distributed import lazy_load_for_parallelism
 
 
 """ Fine-tuning a 🤗 Transformers model for image classification"""
@@ -307,20 +306,16 @@ def main():
         token=model_args.token,
         trust_remote_code=model_args.trust_remote_code,
     )
-    with lazy_load_for_parallelism(
-        tensor_parallel_size=training_args.tensor_parallel_size,
-        pipeline_parallel_size=training_args.pipeline_parallel_size,
-    ):
-        model = AutoModelForImageClassification.from_pretrained(
-            model_args.model_name_or_path,
-            from_tf=bool(".ckpt" in model_args.model_name_or_path),
-            config=config,
-            cache_dir=model_args.cache_dir,
-            revision=model_args.model_revision,
-            token=model_args.token,
-            trust_remote_code=model_args.trust_remote_code,
-            ignore_mismatched_sizes=model_args.ignore_mismatched_sizes,
-        )
+    model = AutoModelForImageClassification.from_pretrained(
+        model_args.model_name_or_path,
+        from_tf=bool(".ckpt" in model_args.model_name_or_path),
+        config=config,
+        cache_dir=model_args.cache_dir,
+        revision=model_args.model_revision,
+        token=model_args.token,
+        trust_remote_code=model_args.trust_remote_code,
+        ignore_mismatched_sizes=model_args.ignore_mismatched_sizes,
+    )
 
     image_processor = AutoImageProcessor.from_pretrained(
         model_args.image_processor_name or model_args.model_name_or_path,

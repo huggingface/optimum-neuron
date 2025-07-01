@@ -1,21 +1,16 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
+from typing import Optional, Union
 
 import torch
 
 from ...configuration_utils import NeuronConfig, register_neuron_config
-from ...distributed import ParallelizersManager
 from ...utils import is_neuronx_distributed_available
 from ...utils.torch_xla_and_neuronx_initialization import init_process_group
 
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers import parallel_state
-
-
-if TYPE_CHECKING:
-    from transformers import PreTrainedModel
 
 
 @dataclass
@@ -26,6 +21,7 @@ class TrainingNeuronConfig(NeuronConfig):
     sequence_parallel_enabled: bool = False
     kv_size_multiplier: Optional[int] = None
     pipeline_parallel_size: int = 1
+    virtual_pipeline_parallel_size: int = 1
     pipeline_parallel_num_microbatches: int = 1
     pipeline_parallel_use_zero1_optimizer: bool = False
     gradient_checkpointing: bool = False
@@ -35,6 +31,7 @@ class TrainingNeuronConfig(NeuronConfig):
     async_save: bool = False
     fuse_qkv: bool = False
     recompute_causal_mask: bool = True
+    transpose_nki_inputs: bool = True
 
     def __post_init__(self):
         if self.tensor_parallel_size < 1:
@@ -48,6 +45,11 @@ class TrainingNeuronConfig(NeuronConfig):
 
         if not torch.distributed.is_initialized():
             init_process_group()
+            if not torch.distributed.is_initialized():
+                raise ValueError(
+                    "Neuron training requires torch distributed to be initialized. "
+                    "You can initialize it by running `torchrun`."
+                )
 
         if not parallel_state.model_parallel_is_initialized():
             parallel_state.initialize_model_parallel(
@@ -67,23 +69,3 @@ class TrainingNeuronConfig(NeuronConfig):
     @property
     def should_parallelize(self):
         return self.tensor_parallel_size > 1 or self.pipeline_parallel_size > 1
-
-    def parallelize_model(
-        self,
-        model: "PreTrainedModel",
-        device: Optional["torch.device"] = None,
-    ) -> Union["PreTrainedModel", Tuple["PreTrainedModel", Dict[int, "torch.nn.Parameter"]]]:
-        parallelizer = ParallelizersManager.parallelizer_for_model(model)
-        parallelized_model = parallelizer.parallelize(
-            model,
-            device=device,
-            parallelize_embeddings=self.parallelize_embeddings,
-            sequence_parallel_enabled=self.sequence_parallel_enabled,
-            kv_size_multiplier=self.kv_size_multiplier,
-            pipeline_parallel_num_microbatches=self.pipeline_parallel_num_microbatches,
-            pipeline_parallel_use_zero1_optimizer=self.pipeline_parallel_use_zero1_optimizer,
-            pipeline_parallel_gradient_checkpointing_enabled=self.gradient_checkpointing,
-            checkpoint_dir=self.checkpoint_dir,
-            num_local_ranks_per_step=self.num_local_ranks_per_step,
-        )
-        return parallelized_model

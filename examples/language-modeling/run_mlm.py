@@ -51,7 +51,6 @@ from transformers.utils.versions import require_version
 from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
 from optimum.neuron import NeuronTrainer as Trainer
 from optimum.neuron import NeuronTrainingArguments as TrainingArguments
-from optimum.neuron.distributed import lazy_load_for_parallelism
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -426,28 +425,20 @@ def main():
         )
 
     if model_args.model_name_or_path:
-        with lazy_load_for_parallelism(
-            tensor_parallel_size=training_args.tensor_parallel_size,
-            pipeline_parallel_size=training_args.pipeline_parallel_size,
-        ):
-            model = AutoModelForMaskedLM.from_pretrained(
-                model_args.model_name_or_path,
-                from_tf=bool(".ckpt" in model_args.model_name_or_path),
-                config=config,
-                cache_dir=model_args.cache_dir,
-                revision=model_args.model_revision,
-                token=model_args.token,
-                trust_remote_code=model_args.trust_remote_code,
-                low_cpu_mem_usage=model_args.low_cpu_mem_usage,
-            )
+        model = AutoModelForMaskedLM.from_pretrained(
+            model_args.model_name_or_path,
+            from_tf=bool(".ckpt" in model_args.model_name_or_path),
+            config=config,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+            token=model_args.token,
+            trust_remote_code=model_args.trust_remote_code,
+            low_cpu_mem_usage=model_args.low_cpu_mem_usage,
+        )
 
     else:
         logger.info("Training new model from scratch")
-        with lazy_load_for_parallelism(
-            tensor_parallel_size=training_args.tensor_parallel_size,
-            pipeline_parallel_size=training_args.pipeline_parallel_size,
-        ):
-            model = AutoModelForMaskedLM.from_config(config, trust_remote_code=model_args.trust_remote_code)
+        model = AutoModelForMaskedLM.from_config(config, trust_remote_code=model_args.trust_remote_code)
 
     # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
     # on a small vocab and want a smaller embedding size, remove this test.

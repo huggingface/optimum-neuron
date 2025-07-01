@@ -121,15 +121,12 @@ When doing Tensor Parallelism, you have different settings:
     - For language models, where the embedding layer weights and the language-modeling head weights are usually tied, the language-modeling head ends up parallel
     and does not require to `all-gather` its output since it is fed to a cross entropy loss compatible with parallelism, saving expensive communication.
 
-On top of that, it is very important to make sure that the original model is loaded in an efficient manner: the training script is going to be called by `torchrun`, which will dispatch it to workers, one worker per core. If each worker (there are 32 of them in  a `trn1.32xlarge` instance) loads the full model weights, it can take a lot of time and go out-of-memory really fast.
-
-`optimum-neuron` provides a context-manager [`distributed.lazy_load_for_parallelism`] that loads the model lazily to prevent that, only the parameters of the corresponding model shard will be materialized in each worker.
+When using distributed training, the training script is called by `torchrun`, which will dispatch it to workers, one worker per core. Each worker will load the model normally, and then the model will be parallelized across the workers.
 
 ### Via the `NeuronTrainer`
 
 ```python
 from optimum.neuron import NeuronTrainingArguments, NeuronTrainer
-from optimum.neuron.distributed import lazy_load_for_parallelism
 
 # Specify the `tensor_parallel_size` in the training arguments.
 training_args = NeuronTrainingArguments(
@@ -139,8 +136,7 @@ training_args = NeuronTrainingArguments(
     disable_sequence_parallel=False, # It is `False` by default.
 )
 
-with lazy_load_for_parallelism(tensor_parallel_size=training_args.tensor_parallel_size):
-    model = ...
+model = ...
 
 
 trainer = NeuronTrainer(
@@ -184,7 +180,7 @@ Just as for ZeRO-1, it is possible to wrap the optimizer class to make it lazy. 
 from torch.optim import AdamW
 from optimum.neuron import NeuronAccelerator
 from optimum.neuron.models.training.config import TrainingNeuronConfig
-from optimum.neuron.distributed import lazy_load_for_parallelism
+from optimum.neuron.distributed import make_optimizer_constructor_lazy
 
 tensor_parallel_size = 8
 trn_config = TrainingNeuronConfig(
@@ -199,8 +195,7 @@ accelerator = NeuronAccelerator(
     trn_config=trn_config,
 )
 
-with lazy_load_for_parallelism(tensor_parallel_size=tensor_parallel_size):
-    model = ...
+model = ...
 
 lazy_adamw = make_optimizer_constructor_lazy(AdamW)
 lazy_optimizer = lazy_adamw(...) # Actually instantiate the optimizer.

@@ -11,7 +11,6 @@ from transformers import (
 from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
 from optimum.neuron import NeuronTrainer as Trainer
 from optimum.neuron import NeuronTrainingArguments as TrainingArguments
-from optimum.neuron.distributed import lazy_load_for_parallelism
 
 
 def training_function(script_args, training_args):
@@ -20,13 +19,12 @@ def training_function(script_args, training_args):
 
     # load model from the hub with a bnb config
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_id)
-    with lazy_load_for_parallelism(tensor_parallel_size=training_args.tensor_parallel_size):
-        model = AutoModelForCausalLM.from_pretrained(
-            script_args.model_id,
-            torch_dtype="auto",
-            low_cpu_mem_usage=True,
-            use_cache=False if training_args.gradient_checkpointing else True,
-        )
+    model = AutoModelForCausalLM.from_pretrained(
+        script_args.model_id,
+        torch_dtype="auto",
+        low_cpu_mem_usage=True,
+        use_cache=False if training_args.gradient_checkpointing else True,
+    )
 
     # Create Trainer instance
     trainer = Trainer(
@@ -46,7 +44,7 @@ def training_function(script_args, training_args):
     # perrysc@amazon.com
     # if (int(os.environ.get("RANK", -1)) == 0) and int(training_args.tensor_parallel_size) > 1:
     #     print("Converting sharded checkpoint to consolidated format")
-    #     from optimum.neuron.distributed.checkpointing import (
+    #     from optimum.neuron.models.training.checkpointing import (
     #         consolidate_model_parallel_checkpoints_to_unified_checkpoint,
     #     )
     #     from shutil import rmtree
