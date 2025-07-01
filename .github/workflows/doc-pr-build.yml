@@ -37,7 +37,7 @@ jobs:
       - name: Setup environment
         run: |
           pip install --upgrade pip
-          pip install ".[quality, diffusers]"
+          pip install ".[quality, tests, diffusers]"
 
       - name: Make documentation
         shell: bash

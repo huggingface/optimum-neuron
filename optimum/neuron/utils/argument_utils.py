@@ -93,6 +93,7 @@ class InputShapesArguments:
     vae_scale_factor: Optional[int] = None
     encoder_hidden_size: Optional[int] = None
     image_encoder_shapes: Optional[ImageEncoderArguments] = None
+    rotary_axes_dim: Optional[int] = None
 
 
 class DataclassParser:

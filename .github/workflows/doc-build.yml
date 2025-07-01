@@ -53,7 +53,7 @@ jobs:
         run: |
           python -m ensurepip --upgrade
           python -m pip install --upgrade setuptools
-          python -m pip install ".[quality, diffusers]"
+          python -m pip install ".[quality, tests, diffusers]"
 
       - name: Make documentation
         shell: bash
