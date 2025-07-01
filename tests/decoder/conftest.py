@@ -65,7 +65,7 @@ DECODER_MODEL_CONFIGURATIONS = {
         },
     },
     "qwen3": {
-        "model_id": "Qwen/Qwen3-1.7B",
+        "model_id": "Qwen/Qwen3-0.6B",
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
