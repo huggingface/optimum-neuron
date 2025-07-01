@@ -18,13 +18,16 @@ import inspect
 import os
 import signal
 import socket
+import time
+import traceback
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import cloudpickle
+import psutil
 import pytest
 import torch.distributed as dist
 import torch_xla.distributed.xla_multiprocessing as xmp
-from _pytest.outcomes import Skipped, XFailed
+from _pytest.outcomes import Skipped
 
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
@@ -37,17 +40,26 @@ if is_neuronx_distributed_available():
 TEST_TIMEOUT = 600
 
 
-class PickableSkipped(BaseException):
+class PicklableException(BaseException):
     """
-    A picklable version of Skipped exception to be used in distributed tests.
-    This is necessary because the original Skipped exception cannot be pickled.
+    A wrapper that can serialize any exception with its traceback.
+    Works across process boundaries where original exceptions might fail to pickle.
     """
 
-    def __init__(self, msg: str):
-        self.msg = msg
+    def __init__(self, exc_type: str, exc_value: str, tb_str: str):
+        self.exc_type_name = exc_type
+        self.exc_value = exc_value
+        self.tb_str = tb_str
+        super().__init__(f"{self.exc_type_name}: {exc_value}")
 
     def __reduce__(self):
-        return (self.__class__, (self.msg,))
+        # This method enables pickling
+        return (self.__class__, (self.exc_type_name, self.exc_value, self.tb_str))
+
+    @classmethod
+    def from_exception(cls, exc: BaseException):
+        tb_str = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        return cls(type(exc).__name__, str(exc), tb_str)
 
 
 def get_free_port():
@@ -97,14 +109,34 @@ def _distributed_worker(
 
         func(*func_args, **func_kwargs)
 
-    except Skipped as e:
-        raise PickableSkipped(e.msg)
-    except Exception as e:
-        raise e
+    except BaseException as e:
+        # Catch all exceptions and wrap them in a PicklableException
+        raise PicklableException.from_exception(e)
     finally:
         # Ensure that the process group is destroyed after the test
         if dist.is_initialized():
             dist.destroy_process_group()
+
+
+def _terminate_processes():
+    print("Terminating child processes...")
+    current_process = psutil.Process()
+    children = list(current_process.children(recursive=True))
+    for child in children:
+        try:
+            child.terminate()
+        except psutil.NoSuchProcess:
+            pass
+
+    # Wait briefly for graceful termination
+    time.sleep(2)
+
+    # Force kill if still alive
+    for child in children:
+        try:
+            child.kill()
+        except psutil.NoSuchProcess:
+            pass
 
 
 def distributed_test(
@@ -185,14 +217,21 @@ def distributed_test(
                     join=True,
                 )
             except TimeoutError:
-                pytest.fail(f"Test timed out after {timeout}s")
-            except PickableSkipped as e:
-                pytest.skip(e.msg)
-            except XFailed as e:
-                pytest.xfail(e.msg)
-            except Exception as e:
-                pytest.fail(str(e))
+                pytest.fail(f"Test timed out after {timeout}s", pytrace=False)
+            except PicklableException as e:
+                if e.exc_type_name == "Skipped":
+                    pytest.skip(e.exc_value)
+                elif e.exc_type_name == "XFailed":
+                    pytest.xfail(e.exc_value)
+                else:
+                    print(f"\n{'=' * 60}")
+                    print("Exception from distributed process:")
+                    print(f"{'=' * 60}")
+                    print(e.tb_str)
+                    print(f"{'=' * 60}\n")
+                    pytest.fail(f"Test failed with {e.exc_type_name}: {e.exc_value}", pytrace=False)
             finally:
+                _terminate_processes()
                 signal.alarm(0)
 
         return wrapper

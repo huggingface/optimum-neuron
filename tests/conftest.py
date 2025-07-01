@@ -23,13 +23,13 @@ import pytest
 from huggingface_hub import HfApi, create_repo, delete_repo, get_token
 
 from optimum.neuron.cache.hub_cache import synchronize_hub_cache
-from optimum.neuron.utils.misc import is_precompilation
 from optimum.neuron.utils.cache_utils import (
     delete_custom_cache_repo_name_from_hf_home,
     load_custom_cache_repo_name_from_hf_home,
     set_custom_cache_repo_name_in_hf_home,
     set_neuron_cache_path,
 )
+from optimum.neuron.utils.misc import is_precompilation
 
 
 # Not critical, only usable on the sandboxed CI instance.
@@ -173,7 +173,9 @@ def set_cache_for_ci():
         try:
             synchronize_hub_cache(cache_repo_id=OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI, non_blocking=True)
         except Exception as e:
-            print(f"Warning: Failed to synchronize the cache with the repo {OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI}.")
+            print(
+                f"Warning: Failed to synchronize the cache with the repo {OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI}."
+            )
             print(f"Error: {e}")
 
 
