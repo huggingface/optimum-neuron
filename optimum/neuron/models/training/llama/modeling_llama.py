@@ -441,6 +441,7 @@ class LlamaAttention(nn.Module, CustomModule):
         self, query_states, key_states, value_states, bsz, q_len, num_heads, num_key_value_heads, head_dim
     ):
         if self.trn_config.transpose_nki_inputs and self.use_flash_attention_v2 and not self.use_ring_attention:
+            # Expected output shape is (batch size, num heads, head dim, sequence length)
             if self.trn_config.sequence_parallel_enabled:
                 query_states = query_states.view(q_len, bsz, num_heads, head_dim).permute(1, 2, 3, 0)
                 key_states = key_states.view(q_len, bsz, num_key_value_heads, head_dim).permute(1, 2, 3, 0)
@@ -450,10 +451,12 @@ class LlamaAttention(nn.Module, CustomModule):
                 key_states = key_states.view(bsz, q_len, num_key_value_heads, head_dim).permute(0, 2, 3, 1)
                 value_states = value_states.view(bsz, q_len, num_key_value_heads, head_dim).permute(0, 2, 3, 1)
         elif self.trn_config.sequence_parallel_enabled:
+            # Expected output shape is (batch size, num heads, sequence length, head dim)
             query_states = query_states.view(q_len, bsz, num_heads, head_dim).permute(1, 2, 0, 3)
             key_states = key_states.view(q_len, bsz, num_key_value_heads, head_dim).permute(1, 2, 0, 3)
             value_states = value_states.view(q_len, bsz, num_key_value_heads, head_dim).permute(1, 2, 0, 3)
         else:
+            # Expected output shape is (batch size, num heads, sequence length, head dim)
             query_states = query_states.view(bsz, q_len, num_heads, head_dim).transpose(1, 2)
             key_states = key_states.view(bsz, q_len, num_key_value_heads, head_dim).transpose(1, 2)
             value_states = value_states.view(bsz, q_len, num_key_value_heads, head_dim).transpose(1, 2)

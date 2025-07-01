@@ -544,14 +544,19 @@ class NeuronModelMixin:
             # id function doesn't work for meta tensor so we need this function
             tied_params = find_tied_parameters(model)
 
+        new_tied_params = []
         for group in tied_params:
             if remove_prefix_from_model:
                 group = [key[len(_prefix) :] if key.startswith(_prefix) else key for key in group]
             elif add_prefix_to_model:
                 group = [".".join([prefix, key]) for key in group]
+            new_tied_params.append(group)
             missing_in_group = [k for k in missing_keys if k in group]
             if len(missing_in_group) > 0 and len(missing_in_group) < len(group):
                 missing_keys = [k for k in missing_keys if k not in missing_in_group]
+
+        # If the model has tied parameters, we make sure they have the same names as in the state dict.
+        tied_params = new_tied_params
 
         # Some models may have keys that are not in the state by design, removing them before needlessly warning
         # the user.
@@ -698,6 +703,11 @@ class NeuronModelMixin:
                 state_dict = load_state_dict(
                     shard_file, is_quantized=False, map_location=None, weights_only=weights_only
                 )
+
+            # Remove "duplicated" parameters that are tied together in the state dict.
+            for group in tied_params:
+                for param_name in group[1:]:
+                    state_dict.pop(param_name, None)
 
             # ** Difference from original _load_state_dict_into_model **
             # We adapt the state dict to the custom model.
@@ -1408,15 +1418,14 @@ class NeuronModelMixin:
         # We do not support the `tie_word_embeddings` feature in pipeline parallelism.
         # Instead when `config.tie_word_embeddings` is set to True, we set it to False and simply clone the data between
         # the tied weights.
-
         should_soft_tie = False
-        if config.tie_word_embeddings and get_pipeline_model_parallel_size() > 1:
+        if config.get_text_config(decoder=True).tie_word_embeddings and get_pipeline_model_parallel_size() > 1:
             if xr.local_ordinal() == 0:
                 logger.warning(
                     "`config.tie_word_embeddings` is set to True, but it is not supported in pipeline parallelism. Setting "
                     "it to `False`."
                 )
-            config.tie_word_embeddings = False
+            config.get_text_config(decoder=True).tie_word_embeddings = False
             should_soft_tie = True
 
         with ContextManagers(init_contexts):
