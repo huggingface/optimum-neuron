@@ -310,7 +310,9 @@ def hub_neuronx_cache(
 
 
 @requires_torch_neuronx
-def synchronize_hub_cache(cache_path: Optional[Union[str, Path]] = None, cache_repo_id: Optional[str] = None, non_blocking: bool = False):
+def synchronize_hub_cache(
+    cache_path: Optional[Union[str, Path]] = None, cache_repo_id: Optional[str] = None, non_blocking: bool = False
+):
     """Synchronize the neuronx compiler cache with the optimum-neuron hub cache.
 
     Args:
