@@ -87,17 +87,11 @@ class KVCacheManager(nn.Module):
 
         return utils.divide(num_key_value_heads, tp_degree)
 
-    def _get_hidden_dim_per_head(self, config: PretrainedConfig):
-        hidden_size = config.hidden_size
-        num_atten_head = config.num_attention_heads
-        hidden_dim_per_head = hidden_size // num_atten_head
-        return hidden_dim_per_head
-
     def _init_kv_shape(self, config: PretrainedConfig, neuron_config: NxDNeuronConfig):
         max_batch_size = neuron_config.max_batch_size
         max_len = neuron_config.sequence_length
         num_kv_heads_per_rank = self._get_num_kv_heads_per_rank(config, neuron_config)
-        hidden_dim_per_head = self._get_hidden_dim_per_head(config)
+        hidden_dim_per_head = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
 
         if self.flash_decoding_enabled:
             padded_max_len = max_len
