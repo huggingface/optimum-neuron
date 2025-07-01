@@ -99,7 +99,7 @@ class NeuronAttentionBase(nn.Module):
         self.hidden_size = config.hidden_size
         self.num_attention_heads = config.num_attention_heads
         self.num_key_value_heads = config.num_key_value_heads
-        self.head_dim = self.hidden_size // self.num_attention_heads
+        self.head_dim = getattr(config, "head_dim", self.hidden_size // self.num_attention_heads)
         self.max_position_embeddings = config.max_position_embeddings
         self.rope_theta = config.rope_theta
         self.padding_side = neuron_config.padding_side
@@ -116,12 +116,6 @@ class NeuronAttentionBase(nn.Module):
         self.qk_scale = qk_scale
 
         self.o_proj_layer_name = "o_proj"
-
-        if (self.head_dim * self.num_attention_heads) != self.hidden_size:
-            raise ValueError(
-                f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
-                f" and `num_heads`: {self.num_attention_heads})."
-            )
 
         self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
         self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
