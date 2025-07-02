@@ -1,4 +1,4 @@
-name: Optimum neuron / Test INF2 partial export
+name: Optimum neuron / Test INF2 Export
 
 on:
   push:
@@ -38,5 +38,5 @@ jobs:
       - name: Run exporters tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          export MAX_EXPORT_TEST_COMBINATIONS=1
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/exporters
+          export RANDOM_TASK_PER_MODEL=TRUE
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/exporters --durations=0 --timeout=300

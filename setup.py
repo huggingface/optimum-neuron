@@ -25,6 +25,7 @@ TESTS_REQUIRE = [
     "pytest <= 8.0.0",
     "pytest-rerunfailures",
     "cloudpickle",
+    "pytest-timeout",
     "psutil",
     "parameterized",
     "GitPython",
