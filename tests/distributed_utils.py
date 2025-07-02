@@ -83,30 +83,6 @@ def _distributed_worker(
     pp_size: int,
 ):
     rank = index  # In xmp.spawn, index is the rank of the process
-
-    # First, we register signal handlers to catch Unix signals to redirect them to the main test process.
-    def signal_handler(signum, frame):
-        signal_name = signal.Signals(signum).name
-        print(f"Worker {os.getpid()} caught {signal_name}")
-
-        # Cleanup torch.distributed
-        try:
-            if dist.is_initialized():
-                dist.destroy_process_group()
-        except Exception:
-            pass
-
-        # Standard Unix convention: exit with 128 + signal number
-        sys.exit(128 + signum)
-
-    # Register handlers for catchable signals
-    signal.signal(signal.SIGTERM, signal_handler)  # 15 - graceful shutdown
-    signal.signal(signal.SIGINT, signal_handler)  # 2 - Ctrl+C
-    signal.signal(signal.SIGHUP, signal_handler)  # 1 - terminal disconnect
-    signal.signal(signal.SIGQUIT, signal_handler)  # 3 - quit signal
-    signal.signal(signal.SIGUSR1, signal_handler)  # 10 - user signal 1
-    signal.signal(signal.SIGUSR2, signal_handler)  # 12 - user signal 2
-
     try:
         func = cloudpickle.loads(func_bytes)
         # Set up environment variables to emulate torchrun
@@ -134,11 +110,11 @@ def _distributed_worker(
 
         func(*func_args, **func_kwargs)
 
-    except SystemExit as e:
-        raise e
     except BaseException as e:
         # Catch all exceptions and wrap them in a PicklableException
-        raise PicklableException.from_exception(e)
+        print(f"Exception in process {rank}: {e}")
+        # raise PicklableException.from_exception(e)
+        sys.exit(1)
     finally:
         # Ensure that the process group is destroyed after the test
         if dist.is_initialized():
@@ -245,8 +221,6 @@ def distributed_test(
                 )
             except TimeoutError:
                 pytest.fail(f"Test timed out after {timeout}s", pytrace=False)
-            except SystemExit as e:
-                sys.exit(e.code)  # Exit with the same code as the test function
             except PicklableException as e:
                 if e.exc_type_name == "Skipped":
                     pytest.skip(e.exc_value)
