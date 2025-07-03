@@ -24,4 +24,4 @@ def register():
     This function is called to ensure that the plugin is registered when the package is imported.
     """
     logger.info("Optimum Neuron platform plugin registered for vLLM.")
-    return None
+    return "optimum.neuron.vllm.platform.OptimumNeuronPlatform"
