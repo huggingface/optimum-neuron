@@ -13,22 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import concurrent
 import functools
 import inspect
 import os
-import signal
 import socket
-import sys
 import time
 import traceback
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 
 import cloudpickle
 import psutil
 import pytest
+import torch
 import torch.distributed as dist
-import torch_xla.distributed.xla_multiprocessing as xmp
-from _pytest.outcomes import Skipped
+import torch_xla
+from _pytest.outcomes import Skipped, XFailed
+from torch_xla import runtime
+from torch_xla._internal import neuron
+from torch_xla._internal.pjrt import _merge_replica_results, _run_thread_per_device, initialize_multiprocess
 
 from optimum.neuron.utils.import_utils import (
     is_neuronx_distributed_available,
@@ -40,8 +43,98 @@ if is_neuronx_distributed_available():
 
 TEST_TIMEOUT = 600
 
+R = TypeVar("R")
 
-class PicklableException(BaseException):
+
+def _termintate_executor_processes(
+    executor: concurrent.futures.ProcessPoolExecutor, futures: list[concurrent.futures.Future]
+):
+    # Cancel all futures in the executor
+    # This will cancel only the pending tasks, not the ones that are already running.
+    for future in futures:
+        future.cancel()
+
+    # Terminate all processes in the executor
+    for process in executor._processes.values():
+        if not process.is_alive():
+            continue
+        process.terminate()
+    time.sleep(2)  # Allow time for processes to terminate gracefully
+    for process in executor._processes.values():
+        if not process.is_alive():
+            continue
+        process.kill()
+
+    # Shutdown the executor, it will free all the resources used by the executor
+    executor.shutdown(wait=False)
+
+
+def run_multiprocess(
+    fn: Callable[..., R], *args, start_method: str = "spawn", timeout: int = TEST_TIMEOUT, **kwargs
+) -> Dict[int, R]:
+    """
+    Runs `fn` on all devices available to PjRt.
+    Spawns one process per physical device (e.g. Neuron device).
+
+    Args:
+        fn: Function to run on all devices
+        args: args to pass to `fn`
+        start_method: The Python `multiprocessing` process creation method.
+          Default: `spawn`
+        timeout: Timeout for the test in seconds.
+         kwargs: kwargs to pass to `fn`
+
+    Returns:
+      Dict of the form {device_ordinal: return_value}, where return_value is the result of calling `fn`.
+    """
+    if torch_xla._XLAC._xla_runtime_is_initialized():
+        raise RuntimeError("Runtime is already initialized. Do not use the XLA device before calling xmp.spawn.")
+
+    if runtime.device_type() == "NEURON":
+        num_processes = neuron.num_local_processes()
+    else:
+        num_processes = 1
+
+    replica_results = []
+    with concurrent.futures.ProcessPoolExecutor(
+        max_workers=num_processes,
+        mp_context=torch.multiprocessing.get_context(start_method),
+    ) as executor:
+        mp_fn = functools.partial(
+            _run_thread_per_device,
+            local_world_size=num_processes,
+            fn=functools.partial(fn, *args, **kwargs),
+            initializer_fn=initialize_multiprocess,
+        )
+        futures = [executor.submit(mp_fn, i) for i in range(num_processes)]
+        future_to_ordinal = {future: i for i, future in enumerate(futures)}
+
+        try:
+            for future in concurrent.futures.as_completed(futures, timeout=timeout):
+                try:
+                    result = future.result()
+                    ordinal = future_to_ordinal[future]
+                    replica_results.append((ordinal, result))
+                except PicklableException as e:
+                    if e.exc_type_name == "Skipped":
+                        pytest.skip(e.exc_value)
+                    elif e.exc_type_name == "XFailed":
+                        pytest.xfail(e.exc_value)
+                    print(f"\n{'=' * 80}")
+                    print("Exception from distributed process:")
+                    print(f"{'=' * 80}")
+                    print(e.tb_str)
+                    print(f"{'=' * 80}\n")
+                    pytest.fail(f"Test failed with {e.exc_type_name}: {e.exc_value}", pytrace=False)
+        except concurrent.futures.TimeoutError:
+            pytest.fail(f"Test timed out after {timeout}s", pytrace=False)
+        finally:
+            _termintate_executor_processes(executor, futures)
+
+    return _merge_replica_results(replica_results)
+
+
+class PicklableException(Exception):
     """
     A wrapper that can serialize any exception with its traceback.
     Works across process boundaries where original exceptions might fail to pickle.
@@ -58,7 +151,7 @@ class PicklableException(BaseException):
         return (self.__class__, (self.exc_type_name, self.exc_value, self.tb_str))
 
     @classmethod
-    def from_exception(cls, exc: BaseException):
+    def from_exception(cls, exc: Exception):
         tb_str = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
         return cls(type(exc).__name__, str(exc), tb_str)
 
@@ -73,7 +166,7 @@ def get_free_port():
 
 
 def _distributed_worker(
-    index: int,
+    # index: int,
     func_bytes: Callable,
     func_args: Tuple[Any, ...],
     func_kwargs: Dict[str, Any],
@@ -82,7 +175,8 @@ def _distributed_worker(
     tp_size: int,
     pp_size: int,
 ):
-    rank = index  # In xmp.spawn, index is the rank of the process
+    # rank = index  # In xmp.spawn, index is the rank of the process
+    rank = runtime.local_ordinal()
     try:
         func = cloudpickle.loads(func_bytes)
         # Set up environment variables to emulate torchrun
@@ -110,15 +204,16 @@ def _distributed_worker(
 
         func(*func_args, **func_kwargs)
 
-    except BaseException as e:
-        # Catch all exceptions and wrap them in a PicklableException
-        print(f"Exception in process {rank}: {e}")
-        # raise PicklableException.from_exception(e)
-        sys.exit(1)
+    except (Skipped, XFailed) as e:
+        raise PicklableException.from_exception(e)
+    except Exception as e:
+        raise PicklableException.from_exception(e)
     finally:
-        # Ensure that the process group is destroyed after the test
-        if dist.is_initialized():
-            dist.destroy_process_group()
+        try:
+            if dist.is_initialized():
+                dist.destroy_process_group()
+        except Exception as dist_e:
+            print(f"Failed to destroy process group: {dist_e}")
 
 
 def _terminate_processes():
@@ -187,55 +282,19 @@ def distributed_test(
 
             # This environment variable controls the number of Neuron cores used by the test.
             os.environ["NEURONCORE_NUM_DEVICES"] = str(actual_world_size)
-
-            # There are two values allowed for `nprocs`:
-            #   - `nprocs = None` means that xmp.spawn will spawn as many processes as the number of Neuron cores
-            #   available, e.g. NEURONCORE_NUM_DEVICES=8 will spawn 8 processes.
-            #   - `nprocs = 1` means that xmp.spawn will spawn only one process.
-            # Here we set `nprocs` to None and set `NEURONCORE_NUM_DEVICES` to the number of processes we want to spawn.
-            nprocs = None
-
             master_port = get_free_port()
 
-            # Setting the timeout feature
-            def timeout_handler(signum, frame):
-                raise TimeoutError()
-
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(timeout)
-
-            try:
-                xmp.spawn(
-                    _distributed_worker,
-                    args=(
-                        func_bytes,
-                        bound.args,
-                        bound.kwargs,
-                        master_port,
-                        actual_world_size,
-                        actual_tp_size,
-                        actual_pp_size,
-                    ),
-                    nprocs=nprocs,
-                    join=True,
-                )
-            except TimeoutError:
-                pytest.fail(f"Test timed out after {timeout}s", pytrace=False)
-            except PicklableException as e:
-                if e.exc_type_name == "Skipped":
-                    pytest.skip(e.exc_value)
-                elif e.exc_type_name == "XFailed":
-                    pytest.xfail(e.exc_value)
-                else:
-                    print(f"\n{'=' * 60}")
-                    print("Exception from distributed process:")
-                    print(f"{'=' * 60}")
-                    print(e.tb_str)
-                    print(f"{'=' * 60}\n")
-                    pytest.fail(f"Test failed with {e.exc_type_name}: {e.exc_value}", pytrace=False)
-            finally:
-                _terminate_processes()
-                signal.alarm(0)
+            run_multiprocess(
+                _distributed_worker,
+                func_bytes,
+                bound.args,
+                bound.kwargs,
+                master_port,
+                actual_world_size,
+                actual_tp_size,
+                actual_pp_size,
+                timeout=timeout,
+            )
 
         return wrapper
 
