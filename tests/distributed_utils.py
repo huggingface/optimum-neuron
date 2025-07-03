@@ -17,7 +17,9 @@ import concurrent
 import functools
 import inspect
 import os
+import signal
 import socket
+import sys
 import time
 import traceback
 from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
@@ -25,7 +27,6 @@ from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 import cloudpickle
 import psutil
 import pytest
-import torch
 import torch.distributed as dist
 import torch_xla
 from _pytest.outcomes import Skipped, XFailed
@@ -166,7 +167,6 @@ def get_free_port():
 
 
 def _distributed_worker(
-    # index: int,
     func_bytes: Callable,
     func_args: Tuple[Any, ...],
     func_kwargs: Dict[str, Any],
@@ -175,7 +175,6 @@ def _distributed_worker(
     tp_size: int,
     pp_size: int,
 ):
-    # rank = index  # In xmp.spawn, index is the rank of the process
     rank = runtime.local_ordinal()
     try:
         func = cloudpickle.loads(func_bytes)
@@ -214,7 +213,6 @@ def _distributed_worker(
                 dist.destroy_process_group()
         except Exception as dist_e:
             print(f"Failed to destroy process group: {dist_e}")
-
 
 def _terminate_processes():
     print("Terminating child processes...")
