@@ -119,6 +119,10 @@ def _overfit_causal_lm(
         max_steps=10 if is_precompilation() else num_steps,
         output_dir=output_dir,
         run_name=wandb_run_name,
+        # This will load the weights on every worker at the same time.
+        # By default it is set to 8 to avoid OOM errors, but here the model are small enough to use 32.
+        # This will save some time during weight loading.
+        num_local_ranks_per_step=32,
         **training_kwargs,
     )
 
@@ -188,7 +192,7 @@ def _overfit_causal_lm(
             True,
             0.5,
             2048,
-            30,
+            50,
         ],
         [
             "GraniteForCausalLM",
@@ -199,7 +203,7 @@ def _overfit_causal_lm(
             True,
             0.5,
             2048,
-            30,
+            50,
         ],
         [
             "Qwen3ForCausalLM",
