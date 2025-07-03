@@ -17,7 +17,9 @@ import concurrent
 import functools
 import inspect
 import os
+import signal
 import socket
+import sys
 import time
 import traceback
 from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
@@ -25,7 +27,6 @@ from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 import cloudpickle
 import psutil
 import pytest
-import torch
 import torch.distributed as dist
 import torch_xla
 from _pytest.outcomes import Skipped, XFailed
@@ -297,7 +298,6 @@ def distributed_test(
         return wrapper
 
     return decorator
-
 
 def run_distributed_test(func: Callable, world_size: int = 1, tp_size: int = 1, pp_size: int = 1, timeout: int = 600):
     return distributed_test(world_size=world_size, tp_size=tp_size, pp_size=pp_size, timeout=timeout)(func)()

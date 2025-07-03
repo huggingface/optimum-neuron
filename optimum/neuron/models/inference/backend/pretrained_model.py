@@ -214,11 +214,7 @@ class NxDPreTrainedModel:
                 checkpoint_loader=checkpoint_loader,
                 compiler_args=self.get_compiler_args(self.neuron_config),
             )
-            source_model_key = list(sharder.model_collection.keys())[0]
-            for rank in range(start_rank_id, start_rank_id + local_ranks_size):
-                logger.info(f"Sharding and loading rank {rank}")
-                ckpt = sharder.shard_weights(rank, sharder.model_collection[source_model_key])
-                weights.append(ckpt)
+            weights = sharder.shard_checkpoint()
         start_rank_tensor = torch.tensor([start_rank_id], dtype=torch.int32, device="cpu")
         self._traced_model.nxd_model.initialize(weights, start_rank_tensor)
 
