@@ -155,7 +155,11 @@ def neuron_decoder_config(request):
     with TemporaryDirectory() as neuron_model_path:
         model_config = _get_neuron_model_for_config(config_name, model_config, neuron_model_path)
         logger.info(f"{config_name} ready for testing ...")
+        cache_repo_id = os.environ.get("CUSTOM_CACHE_REPO", None)
+        os.environ["CUSTOM_CACHE_REPO"] = OPTIMUM_CACHE_REPO_ID
         yield model_config
+        if cache_repo_id is not None:
+            os.environ["CUSTOM_CACHE_REPO"] = cache_repo_id
         logger.info(f"Done with {config_name}")
 
 
