@@ -17,16 +17,16 @@ import concurrent
 import functools
 import inspect
 import os
-import signal
 import socket
-import sys
 import time
 import traceback
 from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 
 import cloudpickle
+import neuronx_distributed
 import psutil
 import pytest
+import torch
 import torch.distributed as dist
 import torch_xla
 from _pytest.outcomes import Skipped, XFailed
@@ -34,13 +34,6 @@ from torch_xla import runtime
 from torch_xla._internal import neuron
 from torch_xla._internal.pjrt import _merge_replica_results, _run_thread_per_device, initialize_multiprocess
 
-from optimum.neuron.utils.import_utils import (
-    is_neuronx_distributed_available,
-)
-
-
-if is_neuronx_distributed_available():
-    import neuronx_distributed
 
 TEST_TIMEOUT = 600
 
@@ -57,14 +50,20 @@ def _termintate_executor_processes(
 
     # Terminate all processes in the executor
     for process in executor._processes.values():
-        if not process.is_alive():
-            continue
-        process.terminate()
+        try:
+            if not process.is_alive():
+                continue
+            process.terminate()
+        except psutil.NoSuchProcess:
+            pass
     time.sleep(2)  # Allow time for processes to terminate gracefully
     for process in executor._processes.values():
-        if not process.is_alive():
-            continue
-        process.kill()
+        try:
+            if not process.is_alive():
+                continue
+            process.kill()
+        except psutil.NoSuchProcess:
+            pass
 
     # Shutdown the executor, it will free all the resources used by the executor
     executor.shutdown(wait=False)
@@ -215,27 +214,6 @@ def _distributed_worker(
             print(f"Failed to destroy process group: {dist_e}")
 
 
-def _terminate_processes():
-    print("Terminating child processes...")
-    current_process = psutil.Process()
-    children = list(current_process.children(recursive=True))
-    for child in children:
-        try:
-            child.terminate()
-        except psutil.NoSuchProcess:
-            pass
-
-    # Wait briefly for graceful termination
-    time.sleep(2)
-
-    # Force kill if still alive
-    for child in children:
-        try:
-            child.kill()
-        except psutil.NoSuchProcess:
-            pass
-
-
 def distributed_test(
     world_size: Optional[int] = None, tp_size: Optional[int] = None, pp_size: Optional[int] = None, timeout: int = 600
 ):
@@ -298,6 +276,7 @@ def distributed_test(
         return wrapper
 
     return decorator
+
 
 def run_distributed_test(func: Callable, world_size: int = 1, tp_size: int = 1, pp_size: int = 1, timeout: int = 600):
     return distributed_test(world_size=world_size, tp_size=tp_size, pp_size=pp_size, timeout=timeout)(func)()
