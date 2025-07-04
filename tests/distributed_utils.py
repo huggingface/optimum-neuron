@@ -24,7 +24,6 @@ from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 
 import cloudpickle
 import neuronx_distributed
-import psutil
 import pytest
 import torch
 import torch.distributed as dist
@@ -159,7 +158,6 @@ def run_multiprocess(
                             pytrace=False,
                         )
                     elif e.exc_type_name == "EarlyExit" and e.exception_attributes["returncode"] in (0, None):
-                        print(f"Early exit requested by process {ordinal}: {e}")
                         replica_results.append((ordinal, None))
                         # We need to break since we do not raise anything here.
                         # If we don't, we will wait for all processes to finish.
