@@ -61,7 +61,6 @@ class PicklableException(Exception):
         self.tb_str = tb_str
         self.exception_attributes = {}
         if exception_attributes is not None:
-            print(f"Received exception attributes: {exception_attributes}")
             for key, value in exception_attributes.items():
                 if value is None or isinstance(value, (str, int, float, bool)):
                     self.exception_attributes[key] = value
@@ -89,20 +88,14 @@ def _termintate_executor_processes(
 
     # Terminate all processes in the executor
     for process in executor._processes.values():
-        try:
-            if not process.is_alive():
-                continue
-            process.terminate()
-        except psutil.NoSuchProcess:
-            pass
+        if not process.is_alive():
+            continue
+        process.terminate()
     time.sleep(2)  # Allow time for processes to terminate gracefully
     for process in executor._processes.values():
-        try:
-            if not process.is_alive():
-                continue
-            process.kill()
-        except psutil.NoSuchProcess:
-            pass
+        if not process.is_alive():
+            continue
+        process.kill()
 
     # Shutdown the executor, it will free all the resources used by the executor
     executor.shutdown(wait=False)
@@ -166,7 +159,11 @@ def run_multiprocess(
                             pytrace=False,
                         )
                     elif e.exc_type_name == "EarlyExit" and e.exception_attributes["returncode"] in (0, None):
+                        print(f"Early exit requested by process {ordinal}: {e}")
                         replica_results.append((ordinal, None))
+                        # We need to break since we do not raise anything here.
+                        # If we don't, we will wait for all processes to finish.
+                        break
                     else:
                         print(f"\n{'=' * 80}")
                         print("Exception from distributed process:")

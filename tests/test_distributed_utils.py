@@ -89,5 +89,8 @@ def test_succeed():
 @pytest.mark.parametrize("exit_code", [0, pytest.param(1, marks=pytest.mark.xfail(reason="Expected failure"))])
 def test_succeed_with_early_exit(exit_code):
     print("Running a test that succeeds")
-    raise EarlyExit(exit_code)
-    print("Some work left here that should not be executed")
+    if xr.global_ordinal() == 0:
+        print(f"Raising EarlyExit with exit code {exit_code} on process 0")
+        raise EarlyExit(exit_code)
+    time.sleep(600)  # This should not be executed if EarlyExit is raised
+    print("Work done")
