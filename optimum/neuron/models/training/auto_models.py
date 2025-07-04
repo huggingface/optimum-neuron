@@ -32,6 +32,6 @@ register_neuron_model_for_training("granite", "model")(GraniteModel)
 register_neuron_model_for_training("qwen3", "model")(Qwen3Model)
 
 # Register all training models for CausalLM task
-register_neuron_model_for_training("llama", "causal-lm")(LlamaForCausalLM)
-register_neuron_model_for_training("granite", "causal-lm")(GraniteForCausalLM)
-register_neuron_model_for_training("qwen3", "causal-lm")(Qwen3ForCausalLM)
+register_neuron_model_for_training("llama", "text-generation")(LlamaForCausalLM)
+register_neuron_model_for_training("granite", "text-generation")(GraniteForCausalLM)
+register_neuron_model_for_training("qwen3", "text-generation")(Qwen3ForCausalLM)
