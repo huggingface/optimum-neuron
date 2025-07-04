@@ -51,4 +51,4 @@ jobs:
       - name: Run tests on Neuron Cores
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/training/ -v 
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest -m "is_trainium_test" tests/training/ -v 

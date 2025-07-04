@@ -29,7 +29,7 @@ import pytest
 import torch
 import torch.distributed as dist
 import torch_xla
-from _pytest.outcomes import Skipped, XFailed
+from _pytest.outcomes import Exit, Skipped, XFailed
 from torch_xla import runtime
 from torch_xla._internal import neuron
 from torch_xla._internal.pjrt import _merge_replica_results, _run_thread_per_device, initialize_multiprocess
@@ -38,6 +38,45 @@ from torch_xla._internal.pjrt import _merge_replica_results, _run_thread_per_dev
 TEST_TIMEOUT = 600
 
 R = TypeVar("R")
+
+
+class EarlyExit(Exception):
+    """
+    Exception to indicate that the distributed test should exit early.
+    `returncode=0` or `returncode=None` indicates success, while any other values indicate failure.
+    """
+
+    def __init__(self, msg: str, returncode: int = 0):
+        super().__init__(msg)
+        self.msg = msg
+        self.returncode = returncode
+
+
+class PicklableException(Exception):
+    def __init__(
+        self, exc_type: str, exc_value: str, tb_str: str, exception_attributes: Optional[Dict[str, Any]] = None
+    ):
+        self.exc_type_name = exc_type
+        self.exc_value = exc_value
+        self.tb_str = tb_str
+        self.exception_attributes = {}
+        if exception_attributes is not None:
+            print(f"Received exception attributes: {exception_attributes}")
+            for key, value in exception_attributes.items():
+                if value is None or isinstance(value, (str, int, float, bool)):
+                    self.exception_attributes[key] = value
+        super().__init__(f"{self.exc_type_name}: {exc_value}")
+
+    def __reduce__(self):
+        return (
+            self.__class__,
+            (self.exc_type_name, self.exc_value, self.tb_str, self.exception_attributes),
+        )
+
+    @classmethod
+    def from_exception(cls, exc: Exception):
+        tb_str = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        return cls(type(exc).__name__, str(exc), tb_str, exc.__dict__)
 
 
 def _termintate_executor_processes(
@@ -111,49 +150,36 @@ def run_multiprocess(
 
         try:
             for future in concurrent.futures.as_completed(futures, timeout=timeout):
+                ordinal = future_to_ordinal[future]
                 try:
                     result = future.result()
-                    ordinal = future_to_ordinal[future]
                     replica_results.append((ordinal, result))
                 except PicklableException as e:
                     if e.exc_type_name == "Skipped":
-                        pytest.skip(e.exc_value)
+                        pytest.skip(e.exception_attributes["msg"])
                     elif e.exc_type_name == "XFailed":
-                        pytest.xfail(e.exc_value)
-                    print(f"\n{'=' * 80}")
-                    print("Exception from distributed process:")
-                    print(f"{'=' * 80}")
-                    print(e.tb_str)
-                    print(f"{'=' * 80}\n")
-                    pytest.fail(f"Test failed with {e.exc_type_name}: {e.exc_value}", pytrace=False)
+                        pytest.xfail(e.exception_attributes["msg"], pytrace=False)
+                    elif e.exc_type_name == "Exit":
+                        pytest.exit(
+                            e.exception_attributes["msg"],
+                            returncode=e.exception_attributes["returncode"],
+                            pytrace=False,
+                        )
+                    elif e.exc_type_name == "EarlyExit" and e.exception_attributes["returncode"] in (0, None):
+                        replica_results.append((ordinal, None))
+                    else:
+                        print(f"\n{'=' * 80}")
+                        print("Exception from distributed process:")
+                        print(f"{'=' * 80}")
+                        print(e.tb_str)
+                        print(f"{'=' * 80}\n")
+                        pytest.fail(f"Test failed with {e.exc_type_name}: {e.exc_value}", pytrace=False)
         except concurrent.futures.TimeoutError:
             pytest.fail(f"Test timed out after {timeout}s", pytrace=False)
         finally:
             _termintate_executor_processes(executor, futures)
 
     return _merge_replica_results(replica_results)
-
-
-class PicklableException(Exception):
-    """
-    A wrapper that can serialize any exception with its traceback.
-    Works across process boundaries where original exceptions might fail to pickle.
-    """
-
-    def __init__(self, exc_type: str, exc_value: str, tb_str: str):
-        self.exc_type_name = exc_type
-        self.exc_value = exc_value
-        self.tb_str = tb_str
-        super().__init__(f"{self.exc_type_name}: {exc_value}")
-
-    def __reduce__(self):
-        # This method enables pickling
-        return (self.__class__, (self.exc_type_name, self.exc_value, self.tb_str))
-
-    @classmethod
-    def from_exception(cls, exc: Exception):
-        tb_str = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-        return cls(type(exc).__name__, str(exc), tb_str)
 
 
 def get_free_port():
@@ -202,9 +228,7 @@ def _distributed_worker(
 
         func(*func_args, **func_kwargs)
 
-    except (Skipped, XFailed) as e:
-        raise PicklableException.from_exception(e)
-    except Exception as e:
+    except (Skipped, XFailed, Exit, Exception) as e:
         raise PicklableException.from_exception(e)
     finally:
         try:

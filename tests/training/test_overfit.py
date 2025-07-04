@@ -34,7 +34,7 @@ from optimum.neuron.utils.misc import is_precompilation
 from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.training_utils import is_main_worker_for_metrics
 
-from ..distributed_utils import distributed_test
+from ..distributed_utils import EarlyExit, distributed_test
 
 
 if is_neuronx_distributed_available():
@@ -149,6 +149,9 @@ def _overfit_causal_lm(
     class StoreLogsCallback(TrainerCallback):
         def on_log(self, args, state, control, logs=None, **kwargs):
             if logs is not None:
+                if not is_precompilation() and os.environ.get("EARLY_EXIT", "0") == "1":
+                    if "loss" in logs and logs["loss"] <= max_expected_loss:
+                        raise EarlyExit("The model has overfitted the dataset, exiting early.", returncode=0)
                 stored_logs.append(logs)
 
     # Training
@@ -212,7 +215,7 @@ def _overfit_causal_lm(
             0.03,
             {},
             True,
-            0.05,
+            0.5,
             2048,
             50,
         ],

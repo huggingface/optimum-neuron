@@ -21,7 +21,7 @@ import pytest
 import torch_xla.core.xla_model as xm
 import torch_xla.runtime as xr
 
-from .distributed_utils import distributed_test
+from .distributed_utils import EarlyExit, distributed_test
 
 
 @pytest.mark.parametrize(
@@ -83,3 +83,11 @@ def test_succeed():
     print("Running a test that succeeds")
     assert True, "This test should succeed"
     print("Test succeeded")
+
+
+@distributed_test(world_size=2)
+@pytest.mark.parametrize("exit_code", [0, pytest.param(1, marks=pytest.mark.xfail(reason="Expected failure"))])
+def test_succeed_with_early_exit(exit_code):
+    print("Running a test that succeeds")
+    raise EarlyExit(exit_code)
+    print("Some work left here that should not be executed")
