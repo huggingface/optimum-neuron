@@ -16,6 +16,7 @@
 """PyTorch Qwen2 model for NXD inference."""
 
 import logging
+import warnings
 
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
@@ -117,14 +118,23 @@ class Qwen2NxDModelForCausalLM(LlamaNxDModelForCausalLM):
         tensor_parallel_size: int,
         auto_cast_type: str,
     ):
-        neuron_config = super()._get_neuron_config(
+        continuous_batching = (batch_size > 1) if batch_size else False
+        on_device_sampling = True
+        if continuous_batching and tensor_parallel_size == 2:
+            # Neuron SDK 2.24 bug: the model will produce garbage output when continuous_batching is enabled
+            # if the tensor parallel size is 2 and on_device_sampling is enabled.
+            warnings.warn(
+                "Activating continuous batching but disabling on-device sampling because of a neuron runtime bug when tensor parallel size is 2."
+            )
+            on_device_sampling = False
+        return NxDNeuronConfig(
             checkpoint_id=checkpoint_id,
             checkpoint_revision=checkpoint_revision,
             batch_size=batch_size,
             sequence_length=sequence_length,
-            tensor_parallel_size=tensor_parallel_size,
-            auto_cast_type=auto_cast_type,
+            tp_degree=tensor_parallel_size,
+            torch_dtype=auto_cast_type,
+            on_device_sampling=on_device_sampling,
+            fused_qkv=False,
+            continuous_batching=continuous_batching,
         )
-        # Do not use fused QKV for Qwen2 models because of the QKV biases
-        neuron_config.fused_qkv = False
-        return neuron_config
