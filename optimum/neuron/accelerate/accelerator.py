@@ -321,6 +321,7 @@ class NeuronAccelerator(Accelerator):
                 model.move_model_to_device()
             else:
                 move_model_to_device(model, self.device)
+                model.tie_weights()
             model = super().prepare_model(model, device_placement=False, evaluation_mode=evaluation_mode)
         else:
             # Question: should do the same for custom models?
@@ -343,6 +344,7 @@ class NeuronAccelerator(Accelerator):
             if should_apply_activation_checkpointing:
                 apply_activation_checkpointing(model)
             move_model_to_device(model, xm.xla_device())
+            model.tie_weights()
             device_placement = False
             model = super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
 

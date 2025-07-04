@@ -378,7 +378,32 @@ def get_submodels_and_neuron_configs(
         output_model_names = {model_name: "model.neuron"}
         models_and_neuron_configs = {model_name: (model, neuron_config)}
         maybe_save_preprocessors(model_name_or_path, output, src_subfolder=subfolder)
+
+    models_and_neuron_configs = _reorder_models_and_neuron_configs(models_and_neuron_configs)
+
     return models_and_neuron_configs, output_model_names
+
+
+def _reorder_models_and_neuron_configs(models_and_neuron_configs):
+    """
+    Reorder to ensure that the export starts with NxD backend in case of TP(otherwise, runtime error).
+    """
+    tp_model = next(
+        (
+            model_name
+            for model_name, (_, config) in models_and_neuron_configs.items()
+            if getattr(config, "tensor_parallel_size", 1) > 1
+        ),
+        None,
+    )
+
+    if tp_model:
+        models_and_neuron_configs = {
+            tp_model: models_and_neuron_configs[tp_model],
+            **{k: v for k, v in models_and_neuron_configs.items() if k != tp_model},
+        }
+
+    return models_and_neuron_configs
 
 
 def _get_submodels_and_neuron_configs_for_stable_diffusion(

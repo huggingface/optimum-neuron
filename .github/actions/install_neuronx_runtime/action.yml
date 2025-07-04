@@ -12,5 +12,5 @@ runs:
           EOF
           wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
           sudo apt-get update -y
-          sudo apt-get install aws-neuronx-tools=2.22.61.0 aws-neuronx-runtime-lib=2.24.53.0-f239092cc aws-neuronx-collectives=2.24.59.0-838c7fc8b  -y
+          sudo apt-get install aws-neuronx-tools=2.24.54.0 aws-neuronx-runtime-lib=2.26.42.0-2ff3b5c7d aws-neuronx-collectives=2.26.43.0-47cc904ea -y
           export PATH=/opt/aws/neuron/bin:$PATH

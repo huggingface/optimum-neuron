@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Activate the neuron virtual environment
-source /opt/aws_neuronx_venv_pytorch_2_5/bin/activate
+source /opt/aws_neuronx_venv_pytorch_2_7/bin/activate
 
 echo "Step: install-hugging-face-libraries"
 

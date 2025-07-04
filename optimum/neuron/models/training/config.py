@@ -31,6 +31,7 @@ class TrainingNeuronConfig(NeuronConfig):
     async_save: bool = False
     fuse_qkv: bool = False
     recompute_causal_mask: bool = True
+    transpose_nki_inputs: bool = True
 
     def __post_init__(self):
         if self.tensor_parallel_size < 1:
