@@ -187,7 +187,7 @@ def _overfit_causal_lm(
 @pytest.mark.parametrize(
     "model_class_name,model_name_or_path,learning_rate,warmup_ratio,training_kwargs,use_flash_attention_2,max_expected_loss,max_length,num_steps",
     [
-        [
+        pytest.param(
             "LlamaForCausalLM",
             "meta-llama/Llama-3.2-1B-Instruct",
             1e-4,
@@ -197,8 +197,9 @@ def _overfit_causal_lm(
             0.5,
             2048,
             50,
-        ],
-        [
+            # This is a flagship model, so we only test this one on PRs to avoid long CI times.
+            marks=pytest.mark.flagship_model,
+        )[
             "GraniteForCausalLM",
             "ibm-granite/granite-3.2-2b-instruct",
             1e-4,
@@ -280,6 +281,7 @@ def test_overfit_custom_modeling_causal_lm(
         "dp=1,tp=32",
     ],
 )
+@pytest.mark.flagship_model
 @pytest.mark.neuron_parallel_compile
 @is_trainium_test
 @distributed_test()

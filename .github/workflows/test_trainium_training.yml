@@ -19,6 +19,8 @@ on:
       - ".github/workflows/test_trainium_training.yml"
       - "optimum/neuron/utils/**.py"
       - "optimum/neuron/version.py"
+  schedule:
+    - cron: "0 8 * * 1-5"  # 9 AM UTC + 1 time, Monday-Friday
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -49,6 +51,25 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/training/ --collect-only
       - name: Run tests on Neuron Cores
+        env:
+          IS_CRON: ${{ github.event_name == 'schedule' }}
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest -m "is_trainium_test" tests/training/ -v 
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest \
+            -m "is_trainium_test" \
+            --ignore tests/training/test_overfit.py \
+            tests/training/ \
+            -v
+          if [ "$IS_CRON" = "true" ]; then
+            # 2. Run all the overfit tests if the workflow is triggered by a cron job.
+            HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest \
+              -m "is_trainium_test" \
+              tests/training/test_overfit.py \
+              -v
+          else
+            # 2. Run the overfit tests only on the flagship model if the workflow is triggered by a push or pull request.
+            HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest \
+              -m "is_trainium_test and flagship_model" \
+              tests/training/test_overfit.py \
+              -v
+          fi
