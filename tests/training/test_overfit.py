@@ -199,7 +199,8 @@ def _overfit_causal_lm(
             50,
             # This is a flagship model, so we only test this one on PRs to avoid long CI times.
             marks=pytest.mark.flagship_model,
-        )[
+        ),
+        [
             "GraniteForCausalLM",
             "ibm-granite/granite-3.2-2b-instruct",
             1e-4,
