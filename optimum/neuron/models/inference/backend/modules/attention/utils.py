@@ -184,14 +184,17 @@ def apply_rotary_polar_compatible(query, key, freqs_cis):
     return query_rot.type_as(query), key_rot.type_as(key)
 
 
-def manual_softmax(prior_scores, active_scores, is_speculation) -> tuple[Tensor, Tensor]:
+def manual_softmax(prior_scores, active_scores) -> tuple[Tensor, Tensor]:
     """
     simple softmax computation: denominator is the sum of exp over all vocab and only need compute numerator (exp)
     """
     max_score = torch.max(prior_scores, dim=-1, keepdim=True)[0]
     max_active_score = torch.max(active_scores, dim=-1, keepdim=True)[0]
+    active_score_last_dim_not_1 = active_scores.shape[-1] > 1
     max_score = (
-        torch.maximum(max_score, max_active_score) if is_speculation else torch.maximum(max_score, active_scores)
+        torch.maximum(max_score, max_active_score)
+        if active_score_last_dim_not_1
+        else torch.maximum(max_score, active_scores)
     )
 
     exp_prior = torch.exp(prior_scores - max_score)

@@ -306,7 +306,7 @@ class NeuronAttentionBase(nn.Module):
         active_scores = active_scores.to(torch.float32)
 
         # iii. attention scores
-        softmax_prior, softmax_active = manual_softmax(prior_scores, active_scores, is_speculation)
+        softmax_prior, softmax_active = manual_softmax(prior_scores, active_scores)
         softmax_prior, softmax_active = softmax_prior.to(Q.dtype), softmax_active.to(Q.dtype)
         attn_prior = torch.matmul(softmax_prior, V_prior)
         attn_active = torch.matmul(softmax_active, V_active)
