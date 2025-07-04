@@ -33,6 +33,7 @@ from optimum.neuron.utils.import_utils import (
 from optimum.neuron.utils.misc import is_precompilation
 from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.training_utils import is_main_worker_for_metrics
+from optimum.neuron.version import __sdk_version__ as sdk_version
 
 from ..distributed_utils import EarlyExit, distributed_test
 
@@ -327,6 +328,7 @@ def test_overfit_custom_modeling_lora_causal_lm(world_size, tp_size, pp_size, tm
 @pytest.mark.neuron_parallel_compile
 @is_trainium_test
 @distributed_test(world_size=8, tp_size=1, pp_size=1, timeout=1200)
+@pytest.mark.skipif(sdk_version == "2.24.0", reason="This test produces a compiler error with SDK 2.24.0")
 def test_overfit_transformers_modeling_causal_lm(
     model_class_name,
     model_name_or_path,
