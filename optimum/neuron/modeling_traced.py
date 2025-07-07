@@ -109,9 +109,7 @@ class NeuronTracedModel(NeuronModel):
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
 
     @staticmethod
-    def load_model(
-        path: str | Path, to_neuron: bool = False, device_id: int = 0
-    ) -> torch.jit._script.ScriptModule:
+    def load_model(path: str | Path, to_neuron: bool = False, device_id: int = 0) -> torch.jit._script.ScriptModule:
         """
         Loads a TorchScript module compiled by neuron(x)-cc compiler. It will be first loaded onto CPU and then moved to
         one or multiple [NeuronCore](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/neuroncores-arch.html).
