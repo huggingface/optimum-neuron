@@ -26,7 +26,6 @@ TESTS_REQUIRE = [
     "pytest-rerunfailures",
     "cloudpickle",
     "pytest-timeout",
-    "cloudpickle",
     "psutil",
     "parameterized",
     "GitPython",
