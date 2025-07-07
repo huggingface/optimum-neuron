@@ -69,8 +69,7 @@ from .model_wrappers import (
 )
 
 
-if is_neuronx_distributed_available():
-    import neuronx_distributed
+import neuronx_distributed
 
 if TYPE_CHECKING:
     if is_diffusers_available():
