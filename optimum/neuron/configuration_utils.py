@@ -19,7 +19,7 @@ import enum
 import json
 import os
 from dataclasses import dataclass, is_dataclass
-from typing import Any, Dict, Optional, Union
+from typing import Any
 
 import torch
 from transformers.utils import (
@@ -76,8 +76,8 @@ class NeuronConfig(PushToHubMixin):
 
     def save_pretrained(
         self,
-        save_directory: Union[str, os.PathLike],
-        config_file_name: Optional[Union[str, os.PathLike]] = None,
+        save_directory: str | os.PathLike,
+        config_file_name: str | os.PathLike | None = None,
         push_to_hub: bool = False,
         **kwargs,
     ):
@@ -94,7 +94,7 @@ class NeuronConfig(PushToHubMixin):
                 Whether or not to push your model to the Hugging Face model hub after saving it. You can specify the
                 repository you want to push to with `repo_id` (will default to the name of `save_directory` in your
                 namespace).
-            kwargs (`Dict[str, Any]`, *optional*):
+            kwargs (`dict[str, Any]`, *optional*):
                 Additional key word arguments passed along to the [`~utils.PushToHubMixin.push_to_hub`] method.
         """
 
@@ -128,9 +128,9 @@ class NeuronConfig(PushToHubMixin):
     @classmethod
     def from_pretrained(
         cls,
-        pretrained_model_name: Union[str, os.PathLike],
-        config_file_name: Optional[Union[str, os.PathLike]] = None,
-        token: Optional[Union[str, bool]] = None,
+        pretrained_model_name: str | os.PathLike,
+        config_file_name: str | os.PathLike | None = None,
+        token: str | bool | None = None,
         revision: str = "main",
     ) -> "NeuronConfig":
         r"""
@@ -211,12 +211,12 @@ class NeuronConfig(PushToHubMixin):
         return cls.from_dict(config_dict)
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> "NeuronConfig":
+    def from_dict(cls, config_dict: dict[str, Any]) -> "NeuronConfig":
         """
         Instantiates a [`NeuronConfig`] from a Python dictionary of parameters.
 
         Args:
-            config_dict (`Dict[str, Any]`):
+            config_dict (`dict[str, Any]`):
                 Dictionary that will be used to instantiate the configuration object.
 
         Returns:
@@ -256,12 +256,12 @@ class NeuronConfig(PushToHubMixin):
         logger.info(f"Neuron config {config}")
         return config
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Serializes this instance to a Python dictionary.
 
         Returns:
-            `Dict[str, Any]`: Dictionary of all the attributes that make up this configuration instance.
+            `dict[str, Any]`: Dictionary of all the attributes that make up this configuration instance.
         """
         output = copy.deepcopy(self)
 
