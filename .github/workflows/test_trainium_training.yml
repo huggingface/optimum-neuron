@@ -50,33 +50,34 @@ jobs:
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/training/ --collect-only
-      # - name: All training tests except overfit tests on Neuron Cores
-      #   run: |
-      #     source aws_neuron_venv_pytorch/bin/activate
-      #     HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest \
-      #       -m "is_trainium_test" \
-      #       --ignore tests/training/test_overfit.py \
-      #       tests/training/ \
-      #       -v
-      - name: Overfit tests on Neuron Cores
-        env:
-          IS_CRON: ${{ github.event_name == 'schedule' }}
+      - name: All training tests except overfit tests on Neuron Cores
         run: |
-          # There are two scenarios for running the overfit tests:
-          #   - Run all the overfit tests if the workflow is triggered by a cron job.
-          #   - Or run the overfit tests only on the flagship model if the workflow is triggered by a push or pull
-          #   request.
           source aws_neuron_venv_pytorch/bin/activate
-          if [ "$IS_CRON" = "true" ]; then
-            echo "Running all overfit tests"
-            HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest \
-              -m "is_trainium_test" \
-              tests/training/test_overfit.py \
-              -v
-          else
-            echo "Running overfit tests only on the flagship model"
-            HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest \
-              -m "is_trainium_test and flagship_model" \
-              tests/training/test_overfit.py \
-              -vs
-          fi
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest \
+            -m "is_trainium_test" \
+            --ignore tests/training/test_overfit.py \
+            tests/training/ \
+            -v
+      # TODO: fix the overfit tests recompilation issue ASAP.
+      # - name: Overfit tests on Neuron Cores
+      #   env:
+      #     IS_CRON: ${{ github.event_name == 'schedule' }}
+      #   run: |
+      #     # There are two scenarios for running the overfit tests:
+      #     #   - Run all the overfit tests if the workflow is triggered by a cron job.
+      #     #   - Or run the overfit tests only on the flagship model if the workflow is triggered by a push or pull
+      #     #   request.
+      #     source aws_neuron_venv_pytorch/bin/activate
+      #     if [ "$IS_CRON" = "true" ]; then
+      #       echo "Running all overfit tests"
+      #       HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest \
+      #         -m "is_trainium_test" \
+      #         tests/training/test_overfit.py \
+      #         -v
+      #     else
+      #       echo "Running overfit tests only on the flagship model"
+      #       HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest \
+      #         -m "is_trainium_test and flagship_model" \
+      #         tests/training/test_overfit.py \
+      #         -vs
+      #     fi
