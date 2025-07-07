@@ -61,8 +61,7 @@ if TYPE_CHECKING:
 if is_neuronx_available():
     import torch_neuronx
 
-if is_neuronx_distributed_available():
-    import neuronx_distributed
+import neuronx_distributed
 
 logger = logging.getLogger(__name__)
 
