@@ -25,15 +25,14 @@ from ...utils.require_utils import requires_torch_xla
 def _xla_gather(tensor, out_of_graph: bool = False):
     import torch_xla.core.xla_model as xm
 
-    groups = None
-    if is_neuronx_distributed_available():
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_data_parallel_group,
-            model_parallel_is_initialized,
-        )
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_data_parallel_group,
+        model_parallel_is_initialized,
+    )
 
-        if model_parallel_is_initialized():
-            groups = get_data_parallel_group(as_list=True)
+    groups = None
+    if model_parallel_is_initialized():
+        groups = get_data_parallel_group(as_list=True)
 
     def _xla_gather_one(tensor):
         if tensor.ndim == 0:
