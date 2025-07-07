@@ -68,13 +68,15 @@ jobs:
           #   request.
           source aws_neuron_venv_pytorch/bin/activate
           if [ "$IS_CRON" = "true" ]; then
+            echo "Running all overfit tests"
             HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest \
               -m "is_trainium_test" \
               tests/training/test_overfit.py \
               -v
           else
+            echo "Running overfit tests only on the flagship model"
             HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest \
               -m "is_trainium_test and flagship_model" \
               tests/training/test_overfit.py \
-              -v
+              -vs
           fi

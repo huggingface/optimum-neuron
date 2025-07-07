@@ -117,7 +117,7 @@ def _overfit_causal_lm(
         bf16=True,
         logging_steps=1,
         save_strategy="no",
-        max_steps=10 if is_precompilation() else num_steps,
+        max_steps=6 if is_precompilation() else num_steps,
         output_dir=output_dir,
         run_name=wandb_run_name,
         # This will load the weights on every worker at the same time.
