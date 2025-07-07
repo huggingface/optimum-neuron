@@ -28,12 +28,12 @@ jobs:
         with:
           node-version: '18'
           cache-dependency-path: "kit/package-lock.json"
-
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-
+      - name: Install Neuronx runtime
+        uses: ./.github/actions/install_neuronx_runtime
       - name: Setup environment
         run: |
           # We need to install the Neuron X ecosystem for the doc-builder to be able to work.
