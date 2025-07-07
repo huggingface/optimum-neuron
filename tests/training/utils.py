@@ -23,6 +23,7 @@ from typing import Callable, Dict, List, Optional, Tuple, Type, Union
 
 import torch
 from datasets import Dataset, DatasetDict
+from neuronx_distributed.pipeline import NxDPPModel
 from transformers import AutoConfig, AutoTokenizer, PreTrainedModel
 from transformers.models.auto import get_values
 from transformers.models.auto.modeling_auto import (
@@ -46,7 +47,6 @@ from transformers.models.auto.modeling_auto import (
 from optimum.neuron import NeuronAccelerator
 from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.utils.patching import DynamicPatch, Patcher
-from optimum.neuron.utils.require_utils import requires_neuronx_distributed
 from optimum.utils import logging
 
 
@@ -232,7 +232,6 @@ def get_model(
     return model
 
 
-@requires_neuronx_distributed
 def generate_dummy_labels(
     model: "PreTrainedModel",
     shape: List[int],
@@ -241,7 +240,6 @@ def generate_dummy_labels(
     device: Optional[Union[str, torch.device]] = None,
 ) -> Dict[str, torch.Tensor]:
     """Generates dummy labels."""
-    from neuronx_distributed.pipeline import NxDPPModel
 
     if isinstance(model, NxDPPModel):
         model_class_name = model.original_torch_module.__class__.__name__
