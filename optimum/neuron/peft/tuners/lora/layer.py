@@ -42,39 +42,14 @@ else:
         pass
 
 
-if is_neuronx_distributed_available():
-    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear as NxDGQAQKVColumnParallelLinear
-    from neuronx_distributed.parallel_layers.layers import (
-        BaseParallelLinear,
-        ColumnParallelLinear,
-        RowParallelLinear,
-    )
-    from neuronx_distributed.parallel_layers.layers import ParallelEmbedding as NxDParallelEmbedding
-    from neuronx_distributed.parallel_layers.mappings import scatter_to_sequence_parallel_region
-else:
-
-    class NxDParallelEmbedding:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class BaseParallelLinear:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class ColumnParallelLinear:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class RowParallelLinear:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class NxDGQAQKVColumnParallelLinear:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    def scatter_to_sequence_parallel_region(*args, **kwargs):
-        pass
+from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear as NxDGQAQKVColumnParallelLinear
+from neuronx_distributed.parallel_layers.layers import (
+    BaseParallelLinear,
+    ColumnParallelLinear,
+    RowParallelLinear,
+)
+from neuronx_distributed.parallel_layers.layers import ParallelEmbedding as NxDParallelEmbedding
+from neuronx_distributed.parallel_layers.mappings import scatter_to_sequence_parallel_region
 
 
 class NeuronLoraLayer(LoraLayer):
