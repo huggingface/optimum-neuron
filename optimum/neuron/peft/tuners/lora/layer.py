@@ -17,9 +17,17 @@ import math
 from typing import Any, Union
 
 import torch
+from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear as NxDGQAQKVColumnParallelLinear
+from neuronx_distributed.parallel_layers.layers import (
+    BaseParallelLinear,
+    ColumnParallelLinear,
+    RowParallelLinear,
+)
+from neuronx_distributed.parallel_layers.layers import ParallelEmbedding as NxDParallelEmbedding
+from neuronx_distributed.parallel_layers.mappings import scatter_to_sequence_parallel_region
 from torch import nn
 
-from ....utils.import_utils import is_neuronx_distributed_available, is_peft_available
+from ....utils.import_utils import is_peft_available
 
 
 if is_peft_available():
@@ -39,41 +47,6 @@ else:
         pass
 
     def gather_params_ctx(param):
-        pass
-
-
-if is_neuronx_distributed_available():
-    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear as NxDGQAQKVColumnParallelLinear
-    from neuronx_distributed.parallel_layers.layers import (
-        BaseParallelLinear,
-        ColumnParallelLinear,
-        RowParallelLinear,
-    )
-    from neuronx_distributed.parallel_layers.layers import ParallelEmbedding as NxDParallelEmbedding
-    from neuronx_distributed.parallel_layers.mappings import scatter_to_sequence_parallel_region
-else:
-
-    class NxDParallelEmbedding:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class BaseParallelLinear:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class ColumnParallelLinear:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class RowParallelLinear:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class NxDGQAQKVColumnParallelLinear:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    def scatter_to_sequence_parallel_region(*args, **kwargs):
         pass
 
 

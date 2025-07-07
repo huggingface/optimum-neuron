@@ -16,7 +16,12 @@
 from typing import Optional, Tuple, Union
 
 import torch
+from neuronx_distributed.parallel_layers.mappings import (
+    gather_from_sequence_parallel_region,
+    scatter_to_sequence_parallel_region,
+)
 from torch import nn
+from torch_xla.utils.checkpoint import checkpoint
 from transformers.loss.loss_utils import ForCausalLMLoss
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
@@ -24,7 +29,6 @@ from transformers.models.granite.configuration_granite import GraniteConfig
 from transformers.processing_utils import Unpack
 from transformers.utils import LossKwargs, can_return_tuple, logging
 
-from ....utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..config import TrainingNeuronConfig
 from ..llama.modeling_llama import (
     LlamaAttention,
@@ -37,18 +41,9 @@ from ..llama.modeling_llama import (
 )
 
 
-if is_torch_xla_available():
-    from torch_xla.utils.checkpoint import checkpoint
-
-if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers.mappings import (
-        gather_from_sequence_parallel_region,
-        scatter_to_sequence_parallel_region,
-    )
-
-    # Wrap the gather and scatter functions to ensure they are properly traced by `torch.fx`.
-    gather_from_sequence_parallel_region = torch.fx.wrap(gather_from_sequence_parallel_region)
-    scatter_to_sequence_parallel_region = torch.fx.wrap(scatter_to_sequence_parallel_region)
+# Wrap the gather and scatter functions to ensure they are properly traced by `torch.fx`.
+gather_from_sequence_parallel_region = torch.fx.wrap(gather_from_sequence_parallel_region)
+scatter_to_sequence_parallel_region = torch.fx.wrap(scatter_to_sequence_parallel_region)
 
 logger = logging.get_logger(__name__)
 

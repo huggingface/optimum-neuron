@@ -32,7 +32,6 @@ from ...modeling_traced import NeuronTracedModel
 from ...utils import (
     NEURON_FILE_NAME,
     is_neuronx_available,
-    is_neuronx_distributed_available,
 )
 from ...utils.doc import (
     NEURON_AUDIO_SEQ2SEQ_INPUTS_DOCSTRING,
@@ -48,8 +47,6 @@ if TYPE_CHECKING:
 if is_neuronx_available():
     pass
 
-if is_neuronx_distributed_available():
-    pass
 
 logger = logging.getLogger(__name__)
 

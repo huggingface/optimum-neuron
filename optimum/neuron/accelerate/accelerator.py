@@ -40,12 +40,9 @@ from ..utils import (
     DynamicPatch,
     ModelPatcher,
     Patcher,
-    is_neuronx_distributed_available,
-    is_torch_xla_available,
     patch_within_function,
 )
 from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
-from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from ..utils.torch_xla_and_neuronx_initialization import check_neuron_cc_flags_for_model
 from ..utils.training_utils import is_custom_modeling_model
 from .optimizer import NeuronAcceleratedOptimizer
@@ -69,15 +66,10 @@ if TYPE_CHECKING:
     except ImportError:
         from torch.optim.lr_scheduler import _LRScheduler as LRScheduler
 
-if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
-    import torch_xla.runtime as xr
-    from torch_xla.distributed.parallel_loader import MpDeviceLoader
-else:
-    xm = None
-
-if is_neuronx_distributed_available():
-    from neuronx_distributed.utils.model_utils import move_model_to_device
+import torch_xla.core.xla_model as xm
+import torch_xla.runtime as xr
+from neuronx_distributed.utils.model_utils import move_model_to_device
+from torch_xla.distributed.parallel_loader import MpDeviceLoader
 
 
 logger = logging.get_logger(__name__)
@@ -128,7 +120,7 @@ class NeuronAccelerator(Accelerator):
         # The original `is_torch_xla_available` function is checking for TPU or GPU in `accelerate`.
         # Here, we patch it to return True for Neuron cores as well.
         def patched_is_torch_xla_available(check_is_tpu: bool = False, check_is_gpu: bool = False) -> bool:
-            return is_torch_xla_available()
+            return True
 
         import accelerate
 
@@ -218,7 +210,6 @@ class NeuronAccelerator(Accelerator):
                 data_loader = MpDeviceLoader(data_loader, self.device)
         return data_loader
 
-    @requires_neuronx_distributed
     def _prepare_optimizer_for_zero_1(self, optimizer: torch.optim.Optimizer, device_placement=None):
         mixed_precision_to_dtype = {
             "no": torch.float32,
@@ -289,8 +280,6 @@ class NeuronAccelerator(Accelerator):
 
         return model
 
-    @requires_torch_xla
-    @requires_neuronx_distributed
     def prepare_model(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):

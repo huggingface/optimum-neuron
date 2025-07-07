@@ -17,13 +17,17 @@ from pathlib import Path
 
 import pytest
 from datasets import load_dataset
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_data_parallel_rank,
+    get_pipeline_model_parallel_rank,
+    get_tensor_model_parallel_rank,
+)
 from transformers import AutoTokenizer, LlamaForCausalLM
 
 from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer, NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.models.training import LlamaForCausalLM as NeuronLlamaForCausalLM
 from optimum.neuron.models.training import TrainingNeuronConfig
 from optimum.neuron.models.training.modeling_utils import MODEL_PARALLEL_SHARDS_DIR_NAME
-from optimum.neuron.utils import is_neuronx_distributed_available
 from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.training_utils import get_model_param_count
 
@@ -33,14 +37,6 @@ from .utils import (
     create_dummy_causal_lm_dataset,
     default_data_collator_for_causal_lm,
 )
-
-
-if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_data_parallel_rank,
-        get_pipeline_model_parallel_rank,
-        get_tensor_model_parallel_rank,
-    )
 
 
 @is_trainium_test

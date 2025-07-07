@@ -18,6 +18,7 @@ import copy
 from functools import partial
 from typing import TYPE_CHECKING, Dict, List
 
+import neuronx_distributed
 import torch
 
 from optimum.exporters.tasks import TasksManager
@@ -43,7 +44,6 @@ from ...neuron.utils import (
     DummyIPAdapterInputGenerator,
     DummyMaskedPosGenerator,
     WhisperDummyTextInputGenerator,
-    is_neuronx_distributed_available,
     saved_model_in_temporary_directory,
 )
 from .config import (
@@ -68,9 +68,6 @@ from .model_wrappers import (
     WhisperEncoderWrapper,
 )
 
-
-if is_neuronx_distributed_available():
-    import neuronx_distributed
 
 if TYPE_CHECKING:
     if is_diffusers_available():

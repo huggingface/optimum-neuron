@@ -29,7 +29,6 @@ from transformers.utils import (
 )
 
 from ...utils.import_utils import is_peft_available
-from ...utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 from .modeling_utils import MODEL_PARALLEL_SHARDS_DIR_NAME
 from .transformations_utils import ModelWeightTransformationSpecs, to_original_weights
 
@@ -45,7 +44,6 @@ else:
     PEFT_SAFETENSORS_WEIGHTS_NAME = PEFT_WEIGHTS_NAME = ""
 
 
-@requires_torch_xla
 def xser_load_on_cpu(path: str):
     """
     Modified version from neuronx_distributed `_xser_load` function load located at:
@@ -107,7 +105,6 @@ def consolidate_tensor_parallel_checkpoints(
     return consolidated_state_dict
 
 
-@requires_neuronx_distributed
 def consolidate_model_parallel_checkpoints(
     checkpoint_dir: Path, adapter_name: Optional[str] = None
 ) -> Dict[str, "torch.Tensor"]:
@@ -160,7 +157,6 @@ def consolidate_model_parallel_checkpoints(
     return consolidated_state_dict
 
 
-@requires_safetensors
 def consolidate_model_parallel_checkpoints_to_unified_checkpoint(
     checkpoint_dir: Union[str, Path],
     output_dir: Union[str, Path],

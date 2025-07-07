@@ -31,8 +31,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import datasets
 import numpy as np
 import torch
+import torch_xla.core.xla_model as xm
+import torch_xla.debug.metrics as met
+import torch_xla.runtime as xr
 from accelerate import __version__ as accelerate_version
 from accelerate.utils import AutocastKwargs, DataLoaderConfiguration
+from neuronx_distributed.pipeline import NxDPPModel
 from packaging import version
 from torch import nn
 from torch.utils.data import Dataset
@@ -92,8 +96,6 @@ from .cache.training import patch_neuron_cc_wrapper
 from .peft import NeuronPeftModel, get_peft_model
 from .training_args import NeuronTrainingArguments
 from .utils import (
-    is_neuronx_distributed_available,
-    is_torch_xla_available,
     is_trl_available,
     patch_within_function,
 )
@@ -104,7 +106,7 @@ from .utils.cache_utils import (
 )
 from .utils.import_utils import is_peft_available
 from .utils.misc import is_main_worker, is_precompilation
-from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
+from .utils.require_utils import requires_torch_neuronx
 from .utils.training_utils import (
     get_model_param_count,
     is_main_worker_for_metrics,
@@ -114,15 +116,6 @@ from .utils.training_utils import (
 )
 from .utils.trl_utils import NeuronSFTConfig
 
-
-if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
-    import torch_xla.debug.metrics as met
-    import torch_xla.runtime as xr
-
-
-if is_neuronx_distributed_available():
-    from neuronx_distributed.pipeline import NxDPPModel
 
 if is_sagemaker_mp_enabled():
     from smdistributed.modelparallel import __version__ as SMP_VERSION
@@ -472,7 +465,6 @@ class _TrainerForNeuron:
             loss = super().training_step(model, inputs, num_items_in_batch=num_items_in_batch)
         return loss
 
-    @requires_neuronx_distributed
     def prediction_step(
         self,
         model: torch.nn.Module,
@@ -697,7 +689,6 @@ class _TrainerForNeuron:
         else:
             return super()._load_optimizer_and_scheduler(checkpoint)
 
-    @requires_neuronx_distributed
     def _inner_training_loop(
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
     ):
@@ -1016,11 +1007,7 @@ class _TrainerForNeuron:
                     with context():
                         tr_loss_step = self.training_step(model, inputs, num_items_in_batch)
 
-                    if (
-                        args.logging_nan_inf_filter
-                        and not is_torch_xla_available()
-                        and (torch.isnan(tr_loss_step) or torch.isinf(tr_loss_step))
-                    ):
+                    if args.logging_nan_inf_filter and (torch.isnan(tr_loss_step) or torch.isinf(tr_loss_step)):
                         # if loss is nan or inf simply add the average of previous logged losses
                         tr_loss += tr_loss / (1 + self.state.global_step - self._globalstep_last_logged)
                     else:
@@ -1097,14 +1084,8 @@ class _TrainerForNeuron:
             self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
 
             if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
-                if is_torch_xla_available():
-                    # tpu-comment: Logging debug metrics for PyTorch/XLA (compile, execute times, ops, etc.)
-                    xm.master_print(met.metrics_report())
-                else:
-                    logger.warning(
-                        "You enabled PyTorch/XLA debug metrics but you don't have a TPU "
-                        "configured. Check your training configuration if this is unexpected."
-                    )
+                # tpu-comment: Logging debug metrics for PyTorch/XLA (compile, execute times, ops, etc.)
+                xm.master_print(met.metrics_report())
             if self.control.should_training_stop:
                 break
 
@@ -1167,7 +1148,6 @@ class _TrainerForNeuron:
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
 
-    @requires_neuronx_distributed
     def evaluation_loop(
         self,
         dataloader: torch.utils.data.DataLoader,

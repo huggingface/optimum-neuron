@@ -19,6 +19,7 @@ INSTALL_REQUIRES = [
     "huggingface_hub >= 0.29.0",
     "numpy>=1.22.2, <=1.25.2",
     "protobuf>=3.20.3, <4",
+    "neuronx_distributed==0.13.14393",
 ]
 
 TESTS_REQUIRE = [
@@ -58,7 +59,6 @@ TRAINING_REQUIRES = [
     "trl == 0.11.4",
     "peft == 0.14.0",
     "evaluate == 0.4.3",
-    "neuronx_distributed==0.13.14393",
 ]
 
 EXTRAS_REQUIRE = {
@@ -80,7 +80,6 @@ EXTRAS_REQUIRE = {
         "torch-neuronx==2.7.0.2.8.6734+ac864f72",
         "torch==2.7.0.*",
         "torchvision==0.22.*",
-        "neuronx_distributed==0.13.14393",
         "libneuronxla==2.2.4410.0",
     ],
     "diffusers": ["diffusers>=0.28.0, <=0.30.3", "peft==0.14.0"],

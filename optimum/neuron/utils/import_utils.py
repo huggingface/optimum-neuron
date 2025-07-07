@@ -32,21 +32,6 @@ def is_neuronx_available() -> bool:
     return importlib.util.find_spec("torch_neuronx") is not None
 
 
-def is_torch_xla_available() -> bool:
-    found_torch_xla = importlib.util.find_spec("torch_xla") is not None
-    import_succeeded = True
-    if found_torch_xla:
-        try:
-            pass
-        except Exception:
-            import_succeeded = False
-    return found_torch_xla and import_succeeded
-
-
-def is_neuronx_distributed_available() -> bool:
-    return importlib.util.find_spec("neuronx_distributed") is not None
-
-
 def is_accelerate_available(min_version: Optional[str] = MIN_ACCELERATE_VERSION) -> bool:
     _accelerate_available = importlib.util.find_spec("accelerate") is not None
     if min_version is not None:

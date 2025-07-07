@@ -1,24 +1,14 @@
 import pytest
 import torch
+import torch_xla.core.xla_model as xm
+from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
 from torch import nn
 from transformers import AutoConfig, set_seed
 
-from optimum.neuron.utils.import_utils import (
-    is_neuronx_distributed_available,
-    is_torch_xla_available,
-)
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from ..distributed_utils import distributed_test
 from .utils import assert_close
-
-
-if is_neuronx_distributed_available():
-    from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
-
-
-if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
 
 
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:

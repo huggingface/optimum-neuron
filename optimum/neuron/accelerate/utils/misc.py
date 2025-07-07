@@ -20,12 +20,20 @@ import inspect
 import itertools
 from typing import TYPE_CHECKING, Callable, Dict, Optional, Union
 
+import accelerate
 import torch
+import torch_xla.core.xla_model as xm
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_data_parallel_rank,
+    model_parallel_is_initialized,
+)
+from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
+from torch_xla.core.xla_model import is_master_ordinal
+from torch_xla.utils.checkpoint import checkpoint
 
 from ....utils import logging
-from ...utils import is_torch_neuronx_available, is_torch_xla_available, patch_everywhere
+from ...utils import is_torch_neuronx_available, patch_everywhere
 from ...utils.patching import Patcher
-from ...utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 
 
 logger = logging.get_logger(__name__)
@@ -48,19 +56,15 @@ def patched_accelerate_is_torch_xla_available(check_is_tpu=False, check_is_gpu=F
     """
     Fake `is_tpu_available` that returns `is_torch_xla_available` to patch `accelerate`.
     """
-    return is_torch_xla_available()
+    return True
 
 
 def patch_accelerate_is_torch_xla_available():
-    if is_torch_xla_available():
-        import accelerate
-        import torch_xla.core.xla_model as xm
-
-        # Since `is_torch_xla_available` does not work properly for us, it does not import `xm`, which causes failure.
-        # We set it manually.
-        accelerate.accelerator.xm = xm
-        accelerate.state.xm = xm
-        accelerate.checkpointing.xm = xm
+    # Since `is_torch_xla_available` does not work properly for us, it does not import `xm`, which causes failure.
+    # We set it manually.
+    accelerate.accelerator.xm = xm
+    accelerate.state.xm = xm
+    accelerate.checkpointing.xm = xm
 
     patch_everywhere(
         "is_torch_xla_available", patched_accelerate_is_torch_xla_available, module_name_prefix="accelerate"
@@ -70,8 +74,6 @@ def patch_accelerate_is_torch_xla_available():
 _ORIG_TORCH_FINFO = torch.finfo
 
 
-@requires_neuronx_distributed
-@requires_safetensors
 def torch_xla_safe_save_file(
     tensors: Dict[str, torch.Tensor],
     filename: Union[str, "os.PathLike"],
@@ -82,9 +84,7 @@ def torch_xla_safe_save_file(
     """
     Torch XLA compatible implementation of `safetensors.torch.save_file`.
     """
-    from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
     from safetensors.torch import save_file
-    from torch_xla.core.xla_model import is_master_ordinal
 
     should_write_data = not master_only or is_master_ordinal(local=not global_master)
     cpu_data = move_all_tensor_to_cpu(tensors, convert=should_write_data)
@@ -92,20 +92,12 @@ def torch_xla_safe_save_file(
         save_file(cpu_data, filename, metadata=metadata)
 
 
-@requires_neuronx_distributed
 def create_patched_save_pretrained(orig_save_pretrained_function: Callable[["PreTrainedModel"], None]):
     """
     Creates a wrapper around the `transformers.modeling_utils.PreTrainedModel.save_pretrained` method.
     This methods calls `tensor.data_ptr()` on the model parameters, which causes segmentation fault when the tensors
     are on the XLA device. To prevent that, this wrapper calls `save_pretrained` with the model on the CPU device.
     """
-    import torch_xla.core.xla_model as xm
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_data_parallel_rank,
-        model_parallel_is_initialized,
-    )
-    from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
-
     orig_self = orig_save_pretrained_function.__self__
     orig_func = orig_save_pretrained_function.__func__
 
@@ -136,10 +128,7 @@ def create_patched_save_pretrained(orig_save_pretrained_function: Callable[["Pre
 
 # TODO: @michaelbenayoun
 # Needs to make it work in the general case or be deleted and only use `apply_activation_checkpointing`.
-@requires_torch_xla
 def patched_gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=None):
-    from torch_xla.utils.checkpoint import checkpoint
-
     if not self.supports_gradient_checkpointing:
         raise ValueError(f"{self.__class__.__name__} does not support gradient checkpointing.")
 
@@ -169,7 +158,6 @@ def patched_gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=No
         self.enable_input_require_grads()
 
 
-@requires_neuronx_distributed
 def apply_activation_checkpointing(model: Union["PreTrainedModel", "NxDPPModel", "NeuronPeftModel"]):
     from neuronx_distributed.pipeline import NxDPPModel
     from neuronx_distributed.utils.activation_checkpoint import (
