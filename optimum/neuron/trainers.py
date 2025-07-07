@@ -92,8 +92,6 @@ from .cache.training import patch_neuron_cc_wrapper
 from .peft import NeuronPeftModel, get_peft_model
 from .training_args import NeuronTrainingArguments
 from .utils import (
-    is_neuronx_distributed_available,
-    is_torch_xla_available,
     is_trl_available,
     patch_within_function,
 )
@@ -104,7 +102,7 @@ from .utils.cache_utils import (
 )
 from .utils.import_utils import is_peft_available
 from .utils.misc import is_main_worker, is_precompilation
-from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
+from .utils.require_utils import requires_torch_neuronx
 from .utils.training_utils import (
     get_model_param_count,
     is_main_worker_for_metrics,
@@ -115,14 +113,12 @@ from .utils.training_utils import (
 from .utils.trl_utils import NeuronSFTConfig
 
 
-if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
-    import torch_xla.debug.metrics as met
-    import torch_xla.runtime as xr
+import torch_xla.core.xla_model as xm
+import torch_xla.debug.metrics as met
+import torch_xla.runtime as xr
 
 
-if is_neuronx_distributed_available():
-    from neuronx_distributed.pipeline import NxDPPModel
+from neuronx_distributed.pipeline import NxDPPModel
 
 if is_sagemaker_mp_enabled():
     from smdistributed.modelparallel import __version__ as SMP_VERSION
@@ -1018,7 +1014,6 @@ class _TrainerForNeuron:
 
                     if (
                         args.logging_nan_inf_filter
-                        and not is_torch_xla_available()
                         and (torch.isnan(tr_loss_step) or torch.isinf(tr_loss_step))
                     ):
                         # if loss is nan or inf simply add the average of previous logged losses
@@ -1097,14 +1092,8 @@ class _TrainerForNeuron:
             self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
 
             if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
-                if is_torch_xla_available():
-                    # tpu-comment: Logging debug metrics for PyTorch/XLA (compile, execute times, ops, etc.)
-                    xm.master_print(met.metrics_report())
-                else:
-                    logger.warning(
-                        "You enabled PyTorch/XLA debug metrics but you don't have a TPU "
-                        "configured. Check your training configuration if this is unexpected."
-                    )
+                # tpu-comment: Logging debug metrics for PyTorch/XLA (compile, execute times, ops, etc.)
+                xm.master_print(met.metrics_report())
             if self.control.should_training_stop:
                 break
 
