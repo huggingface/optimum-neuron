@@ -43,9 +43,6 @@ jobs:
       - name: Setup environment
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          # We need to install the Neuron X ecosystem for the doc-builder to be able to work.
-          # python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
-          # python -m pip install neuronx-cc==2.* torch-neuronx torchvision
           pip install --upgrade pip
           pip install ".[quality, diffusers]"
       - name: Make documentation
