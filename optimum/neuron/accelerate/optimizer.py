@@ -20,14 +20,11 @@ import torch
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.utils import DistributedType
 
-from ..utils import is_torch_xla_available
-from ..utils.require_utils import requires_neuronx_distributed
 from .utils.dataclasses import NeuronDistributedType
 
 
-if is_torch_xla_available():
-    import accelerate
-    import torch_xla.core.xla_model as xm
+import accelerate
+import torch_xla.core.xla_model as xm
     from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
 
     accelerate.optimizer.xm = xm
