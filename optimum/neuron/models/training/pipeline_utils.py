@@ -22,20 +22,18 @@ import logging as python_logging
 from typing import Iterable
 
 import torch
-from torch import nn
-from transformers.utils.fx import HFTracer, create_wrapper
-
-from .transformations_utils import get_tensor_model_parallel_attributes
-
-
 import torch_xla.core.xla_model as xm
-
+from torch import nn
 
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_pipeline_model_parallel_size,
 )
 from neuronx_distributed.pipeline import NxDPPModel
 from neuronx_distributed.pipeline.trace import HFTracerWrapper, NxDTracer
+
+from transformers.utils.fx import HFTracer, create_wrapper
+
+from .transformations_utils import get_tensor_model_parallel_attributes
 
 
 class OptimumNeuronFXTracer(HFTracerWrapper):

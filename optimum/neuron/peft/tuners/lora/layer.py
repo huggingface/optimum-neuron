@@ -19,6 +19,15 @@ from typing import Any, Union
 import torch
 from torch import nn
 
+from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear as NxDGQAQKVColumnParallelLinear
+from neuronx_distributed.parallel_layers.layers import (
+    BaseParallelLinear,
+    ColumnParallelLinear,
+    RowParallelLinear,
+)
+from neuronx_distributed.parallel_layers.layers import ParallelEmbedding as NxDParallelEmbedding
+from neuronx_distributed.parallel_layers.mappings import scatter_to_sequence_parallel_region
+
 from ....utils.import_utils import is_peft_available
 
 
@@ -40,16 +49,6 @@ else:
 
     def gather_params_ctx(param):
         pass
-
-
-from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear as NxDGQAQKVColumnParallelLinear
-from neuronx_distributed.parallel_layers.layers import (
-    BaseParallelLinear,
-    ColumnParallelLinear,
-    RowParallelLinear,
-)
-from neuronx_distributed.parallel_layers.layers import ParallelEmbedding as NxDParallelEmbedding
-from neuronx_distributed.parallel_layers.mappings import scatter_to_sequence_parallel_region
 
 
 class NeuronLoraLayer(LoraLayer):

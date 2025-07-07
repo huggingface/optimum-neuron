@@ -16,6 +16,9 @@
 
 import pytest
 import torch
+import torch_xla.core.xla_model as xm
+from torch import nn
+
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
     RowParallelLinear,
@@ -25,16 +28,13 @@ from neuronx_distributed.parallel_layers.utils import (
     get_tensor_model_parallel_rank,
     get_tensor_model_parallel_size,
 )
-from torch import nn
+
 from transformers import set_seed
 
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from ..distributed_utils import distributed_test
 from .utils import assert_close
-
-
-import torch_xla.core.xla_model as xm
 
 
 @is_trainium_test

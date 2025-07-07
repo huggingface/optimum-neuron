@@ -21,6 +21,18 @@ from pathlib import Path
 import pytest
 import torch
 import torch.utils._pytree as pytree
+import torch_xla.core.xla_model as xm
+
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_kv_shared_group,
+    get_pipeline_model_parallel_rank,
+    get_pipeline_model_parallel_size,
+    get_tensor_model_parallel_group,
+    get_tensor_model_parallel_size,
+)
+from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
+from neuronx_distributed.utils.model_utils import move_model_to_device
+
 import transformers
 from transformers import AutoConfig, AutoTokenizer
 from transformers import LlamaForCausalLM as OriginalLlamaForCausalLM
@@ -39,22 +51,8 @@ from ..distributed_utils import distributed_test, run_distributed_test
 from .utils import SEED, StaticSeedPatcher, create_accelerator, get_model_inputs
 
 
-import torch_xla.core.xla_model as xm
-
-from neuronx_distributed.parallel_layers.parallel_state import (
-    get_kv_shared_group,
-    get_pipeline_model_parallel_rank,
-    get_pipeline_model_parallel_size,
-    get_tensor_model_parallel_group,
-    get_tensor_model_parallel_size,
-)
-from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
-from neuronx_distributed.utils.model_utils import move_model_to_device
-
-
 if is_neuronx_available():
-    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
-    from neuronx_distributed.utils.model_utils import move_model_to_device
+    pass
 
 
 CUSTOM_MODELINGS_TO_TEST = [

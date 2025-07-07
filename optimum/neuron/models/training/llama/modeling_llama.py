@@ -17,9 +17,12 @@
 from functools import partial
 from typing import Optional, Tuple, Union
 
-import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
 import torch
 import torch.utils.checkpoint
+from torch import nn
+from torch_xla.utils.checkpoint import checkpoint
+
+import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
 from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
 from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
 from neuronx_distributed.parallel_layers.layers import (
@@ -28,8 +31,7 @@ from neuronx_distributed.parallel_layers.layers import (
     RowParallelLinear,
 )
 from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
-from torch import nn
-from torch_xla.utils.checkpoint import checkpoint
+
 from transformers import PreTrainedModel
 from transformers.activations import ACT2FN
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
