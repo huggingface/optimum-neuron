@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 import torch
 
@@ -32,7 +32,7 @@ class NeuronModel(OptimizedModel):
         else:
             self.device = torch.device("cpu")
 
-    def to(self, device: Union[str, torch.device]):
+    def to(self, device: str | torch.device):
         if not isinstance(device, torch.device):
             device = torch.device(device)
         if device.type != self.device.type:
