@@ -331,7 +331,7 @@ class NeuronConfig(PushToHubMixin):
 
         return json.dumps(config_dict, indent=2, sort_keys=True) + "\n"
 
-    def to_json_file(self, json_file_path: Union[str, os.PathLike]):
+    def to_json_file(self, json_file_path: str | os.PathLike):
         """
         Save this instance to a JSON file.
 

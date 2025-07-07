@@ -584,7 +584,7 @@ def check_if_weights_replacable(
 
     if isinstance(config, PretrainedConfig):
         is_weights_neff_separated = _is_weights_neff_separated(config)
-    elif isinstance(config, Dict):
+    elif isinstance(config, dict):
         is_weights_neff_separated = []
         for _, config_value in config.items():
             is_weights_neff_separated.append(_is_weights_neff_separated(config_value))

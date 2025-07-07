@@ -384,10 +384,10 @@ class NeuronTracedModel(NeuronModel):
         self,
         save_directory: str,
         repository_id: str,
-        private: Optional[bool] = None,
-        revision: Optional[str] = None,
-        token: Optional[Union[bool, str]] = None,
-        endpoint: Optional[str] = None,
+        private: bool | None = None,
+        revision: str | None = None,
+        token: bool | str | None = None,
+        endpoint: str | None = None,
     ) -> str:
         api = HfApi(endpoint=endpoint)
 
@@ -414,8 +414,8 @@ class NeuronTracedModel(NeuronModel):
 
     def _attributes_init(
         self,
-        model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        preprocessors: Optional[List] = None,
+        model_save_dir: str | Path | TemporaryDirectory | None = None,
+        preprocessors: list | None = None,
         **kwargs,
     ):
         """
@@ -485,7 +485,7 @@ class NeuronTracedModel(NeuronModel):
         )
 
     @classmethod
-    def get_input_static_shapes(cls, neuron_config: "NeuronDefaultConfig") -> Dict[str, int]:
+    def get_input_static_shapes(cls, neuron_config: "NeuronDefaultConfig") -> dict[str, int]:
         """
         Gets a dictionary of inputs with their valid static shapes.
         """
@@ -496,7 +496,7 @@ class NeuronTracedModel(NeuronModel):
         }
         return input_static_shapes
 
-    def _validate_static_shape(self, input_shapes: List[int], target_shapes: List[int]) -> bool:
+    def _validate_static_shape(self, input_shapes: list[int], target_shapes: list[int]) -> bool:
         """
         Checks if a input needs to be padded.
         """
@@ -516,7 +516,7 @@ class NeuronTracedModel(NeuronModel):
             )
 
     def _pad_to_compiled_shape(
-        self, inputs: Dict[str, "torch.Tensor"], padding_side: Literal["right", "left"] = "right"
+        self, inputs: dict[str, "torch.Tensor"], padding_side: Literal["right", "left"] = "right"
     ):
         """
         Pads input tensors if they are not in valid shape.
@@ -577,17 +577,17 @@ class NeuronTracedModel(NeuronModel):
         return inputs
 
     @contextmanager
-    def neuron_padding_manager(self, inputs: Dict[str, "torch.Tensor"]):
+    def neuron_padding_manager(self, inputs: dict[str, "torch.Tensor"]):
         inputs = tuple(self._pad_to_compiled_shape(inputs).values())
         yield inputs
 
     @staticmethod
     def remove_padding(
-        outputs: List[torch.Tensor],
-        dims: List[int],
-        indices: List[int],
+        outputs: list[torch.Tensor],
+        dims: list[int],
+        indices: list[int],
         padding_side: Literal["right", "left"] = "right",
-    ) -> List[torch.Tensor]:
+    ) -> list[torch.Tensor]:
         """
         Removes padding from output tensors.
 
