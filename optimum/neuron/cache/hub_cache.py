@@ -20,6 +20,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Optional, Union
 
+import torch_xla.core.xla_model as xm
+import torch_xla.runtime as xr
 from huggingface_hub import HfApi, get_token
 from huggingface_hub.errors import EntryNotFoundError
 from huggingface_hub.hf_api import RepoFile
@@ -34,9 +36,6 @@ from ..utils.version_utils import get_neuronxcc_version
 from ..version import __version__
 from .entries.cache_entry import ModelCacheEntry
 
-
-import torch_xla.core.xla_model as xm
-import torch_xla.runtime as xr
 
 if is_neuronx_available():
     from libneuronxla.neuron_cc_cache import (

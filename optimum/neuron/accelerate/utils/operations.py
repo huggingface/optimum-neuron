@@ -18,7 +18,6 @@ import torch
 from accelerate.utils.operations import recursively_apply
 
 
-
 def _xla_gather(tensor, out_of_graph: bool = False):
     import torch_xla.core.xla_model as xm
     from neuronx_distributed.parallel_layers.parallel_state import (
