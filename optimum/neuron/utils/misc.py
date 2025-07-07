@@ -20,7 +20,7 @@ import inspect
 import os
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable
 
 import torch
 from transformers import PretrainedConfig
@@ -72,7 +72,7 @@ def is_main_worker(global_main: bool = True) -> bool:
 
 
 # From https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
-def string_to_bool(v: Union[str, bool]) -> bool:
+def string_to_bool(v: str | bool) -> bool:
     if isinstance(v, bool):
         return v
     if v.lower() in ("yes", "true", "t", "y", "1"):
@@ -87,10 +87,10 @@ def string_to_bool(v: Union[str, bool]) -> bool:
 
 def args_and_kwargs_to_kwargs_only(
     f: Callable,
-    args: Optional[Tuple[Any, ...]] = None,
-    kwargs: Optional[Dict[str, Any]] = None,
+    args: tuple[Any, ...] | None = None,
+    kwargs: dict[str, Any] | None = None,
     include_default_values: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Takes a function `f`, the `args` and `kwargs` provided to the function call, and returns the save arguments in the
     keyword arguments format.
@@ -107,7 +107,7 @@ def args_and_kwargs_to_kwargs_only(
             which have defaults values.
 
     Returns:
-        `Dict[str, Any]`: The same arguments all formated as keyword arguments.
+        `dict[str, Any]`: The same arguments all formated as keyword arguments.
     """
     if args is None:
         args = ()
@@ -141,21 +141,21 @@ def _original_filename_to_safetensors_filename(filename: str) -> str:
 
 @requires_safetensors
 def convert_checkpoint_to_safetensors(
-    weight_file: Union[str, Path],
-    output_dir: Optional[Union[str, Path]] = None,
-    safetensors_weight_filename_prefix: Optional[str] = None,
+    weight_file: str | Path,
+    output_dir: str | Path | None = None,
+    safetensors_weight_filename_prefix: str | None = None,
     log: bool = False,
 ) -> Path:
     """
     Converts a PyTorch model checkpoint to a `safetensors` model checkpoint.
 
     Args:
-        weight_file (`Union[str, Path]`):
+        weight_file (`str | Path`):
             The path to the PyTorch model checkpoint.
-        output_dir (`Optional[Union[str, Path]]`, defaults to `None`):
+        output_dir (`str | Path | None`, defaults to `None`):
             The output directory where the `safetensors` checkpoint will be saved.
             If left unspecified, the parent directory of the PyTorch checkpoint will be used.
-        safetensors_weight_filename_prefix (`Optional[str]`, defaults to `None`):
+        safetensors_weight_filename_prefix (`str | None`, defaults to `None`):
             If specified, the name of the converted file will be prefixed by "safetensors_weight_filename_prefix-".
         log (`bool`, defaults to `False`):
             Whether or not the function should log which file it is converting.
@@ -218,14 +218,14 @@ def distributed_friendly_cached_file(*args, **kwargs):
 
 
 def download_checkpoints_in_cache(
-    pretrained_model_name_or_path: Optional[Union[str, os.PathLike]],
-    cache_dir: Optional[Union[str, os.PathLike]] = None,
+    pretrained_model_name_or_path: str | os.PathLike | None,
+    cache_dir: str | os.PathLike | None = None,
     force_download: bool = False,
     local_files_only: bool = False,
-    token: Optional[Union[str, bool]] = None,
+    token: str | bool | None = None,
     revision: str = "main",
-    use_safetensors: Optional[bool] = None,
-    use_safetensors_in_priority: Optional[bool] = None,
+    use_safetensors: bool | None = None,
+    use_safetensors_in_priority: bool | None = None,
     convert_to_safetensors: bool = False,
     **kwargs,
 ):
@@ -544,8 +544,8 @@ def download_checkpoints_in_cache(
 
 
 def replace_weights(
-    model: Union[torch.jit._script.RecursiveScriptModule, "DataParallel"],
-    weights: Union[Dict[str, torch.Tensor], torch.nn.Module],
+    model: torch.jit._script.RecursiveScriptModule | "DataParallel",
+    weights: dict[str, torch.Tensor] | torch.nn.Module,
     prefix: str = "model",
 ):
     """
@@ -576,8 +576,8 @@ def replace_weights(
 
 
 def check_if_weights_replacable(
-    config: Union["PretrainedConfig", Dict[str, "PretrainedConfig"]],
-    weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]],
+    config: "PretrainedConfig" | dict[str, "PretrainedConfig"],
+    weights: dict[str, torch.Tensor] | torch.nn.Module | None,
 ):
     def _is_weights_neff_separated(config):
         return not config.neuron.get("inline_weights_to_neff", True) if hasattr(config, "neuron") else False
@@ -604,14 +604,14 @@ class DiffusersPretrainedConfig(PretrainedConfig):
         Serializes this instance to a Python dictionary.
 
         Returns:
-            :obj:`Dict[str, any]`: Dictionary of all the attributes that make up this configuration instance.
+            :obj:`dict[str, any]`: Dictionary of all the attributes that make up this configuration instance.
         """
         output = copy.deepcopy(self.__dict__)
         return output
 
 
 def get_stable_diffusion_configs(
-    models_for_export: Dict[str, Union["PreTrainedModel", "ModelMixin"]],
+    models_for_export: dict[str, "PreTrainedModel" | "ModelMixin"],
 ):
     subfolders = ["text_encoder", "text_encoder_2", "unet", "vae"]
     configs = {}
@@ -622,7 +622,7 @@ def get_stable_diffusion_configs(
     return configs
 
 
-def map_torch_dtype(dtype: Union[str, torch.dtype]):
+def map_torch_dtype(dtype: str | torch.dtype):
     dtype_mapping = {
         "bfloat16": torch.bfloat16,
         "float16": torch.float16,
