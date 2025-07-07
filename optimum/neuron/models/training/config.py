@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Optional, Union
 
 import torch
-
 from neuronx_distributed.parallel_layers import parallel_state
 
 from ...configuration_utils import NeuronConfig, register_neuron_config

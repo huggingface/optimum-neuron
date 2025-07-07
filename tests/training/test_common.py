@@ -20,7 +20,6 @@ import pytest
 import torch
 import torch_xla.core.xla_model as xm
 import torch_xla.runtime as xr
-
 from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_pipeline_model_parallel_size,
@@ -29,7 +28,6 @@ from neuronx_distributed.parallel_layers.parallel_state import (
 from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
 from neuronx_distributed.pipeline import NxDPPModel
 from neuronx_distributed.utils.model_utils import move_model_to_device
-
 from peft import PeftModelForCausalLM
 from transformers import LlamaForCausalLM
 

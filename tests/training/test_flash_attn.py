@@ -1,10 +1,8 @@
 import pytest
 import torch
 import torch_xla.core.xla_model as xm
-from torch import nn
-
 from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
-
+from torch import nn
 from transformers import AutoConfig, set_seed
 
 from optimum.neuron.utils.testing_utils import is_trainium_test
