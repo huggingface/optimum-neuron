@@ -121,9 +121,9 @@ def _overfit_causal_lm(
         output_dir=output_dir,
         run_name=wandb_run_name,
         # This will load the weights on every worker at the same time.
-        # By default it is set to 8 to avoid OOM errors, but here the model are small enough to use 32.
+        # By default it is set to 8 to avoid OOM errors, but here the model are small enough to use the maximum size.
         # This will save some time during weight loading.
-        num_local_ranks_per_step=32,
+        num_local_ranks_per_step=-1,
         **training_kwargs,
     )
 
