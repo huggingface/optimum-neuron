@@ -36,11 +36,12 @@ jobs:
 
       - name: Setup environment
         run: |
+          # We need to install the Neuron X ecosystem for the doc-builder to be able to work.
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+          python -m pip install neuronx-cc==2.* torch-neuronx torchvision
           pip install --upgrade pip
           pip install ".[quality, diffusers]"
-          # We need to install `torch-xla` for the doc-builder to be able to work.
-          pip install https://storage.googleapis.com/pytorch-xla-releases/wheels/cuda/12.1/torch_xla-2.5.0-cp311-cp311-manylinux_2_28_x86_64.whl
+
 
       - name: Make documentation
         shell: bash
