@@ -53,7 +53,6 @@ QUALITY_REQUIRES = [
     "ruff",
     "isort",
     "hf_doc_builder @ git+https://github.com/huggingface/doc-builder.git",
-    "torch_xla",
 ]
 
 TRAINING_REQUIRES = [

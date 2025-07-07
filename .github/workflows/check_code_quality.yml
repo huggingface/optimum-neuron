@@ -46,5 +46,5 @@ jobs:
     - name: Check style with ruff
       run: |
         source aws_neuron_venv_pytorch/bin/activate
-        ruff format . --diff
-        ruff check .
+        ruff format . --diff --exclude aws_neuron_venv_pytorch
+        ruff check . --exclude aws_neuron_venv_pytorch
