@@ -48,8 +48,6 @@ if TYPE_CHECKING:
 if is_neuronx_available():
     pass
 
-if is_neuronx_distributed_available():
-    pass
 
 logger = logging.getLogger(__name__)
 
