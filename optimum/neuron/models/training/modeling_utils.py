@@ -67,7 +67,6 @@ from transformers.utils import (
 )
 from transformers.utils.hub import get_checkpoint_shard_files
 
-from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from ...utils.misc import is_main_worker, is_precompilation
 from .config import TrainingNeuronConfig
 from .pipeline_utils import (
@@ -83,78 +82,30 @@ from .transformations_utils import (
 )
 
 
-if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
-    import torch_xla.runtime as xr
-    from torch_xla.utils.checkpoint import checkpoint
-else:
-    # This is a placeholder for the checkpoint function for doc building.
-    def checkpoint(*args, **kwargs):
-        pass
+import torch_xla.core.xla_model as xm
+import torch_xla.runtime as xr
+from torch_xla.utils.checkpoint import checkpoint
 
 
-if is_neuronx_distributed_available():
-    import neuronx_distributed
-    from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
-    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
-    from neuronx_distributed.parallel_layers.layers import (
-        BaseParallelLinear,
-        ColumnParallelLinear,
-        ParallelEmbedding,
-    )
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_data_parallel_rank,
-        get_pipeline_model_parallel_rank,
-        get_pipeline_model_parallel_size,
-        get_tensor_model_parallel_rank,
-        get_tensor_model_parallel_size,
-    )
-    from neuronx_distributed.parallel_layers.utils import (
-        get_local_world_size,
-        move_model_to_device,
-    )
-
-else:
-    # This is a placeholder for the nki_flash_attn_func function for doc building.
-    def nki_flash_attn_func(*args, **kwargs):
-        pass
-
-    class GQAQKVColumnParallelLinear:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class BaseParallelLinear:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class ColumnParallelLinear:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class ParallelEmbedding:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    def get_data_parallel_rank(*args, **kwargs):
-        pass
-
-    def get_pipeline_model_parallel_rank(*args, **kwargs):
-        pass
-
-    def get_pipeline_model_parallel_size(*args, **kwargs):
-        pass
-
-    def get_tensor_model_parallel_rank(*args, **kwargs):
-        pass
-
-    def get_tensor_model_parallel_size(*args, **kwargs):
-        pass
-
-    def get_local_world_size(*args, **kwargs):
-        pass
-
-    def move_model_to_device(*args, **kwargs):
-        pass
+import neuronx_distributed
+from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
+from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
+from neuronx_distributed.parallel_layers.layers import (
+    BaseParallelLinear,
+    ColumnParallelLinear,
+    ParallelEmbedding,
+)
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_data_parallel_rank,
+    get_pipeline_model_parallel_rank,
+    get_pipeline_model_parallel_size,
+    get_tensor_model_parallel_rank,
+    get_tensor_model_parallel_size,
+)
+from neuronx_distributed.parallel_layers.utils import (
+    get_local_world_size,
+    move_model_to_device,
+)
 
 
 logger = logging.get_logger(__name__)
@@ -1655,7 +1606,7 @@ class NeuronModelMixin:
         Override of transformers method to handle ParallelEmbedding layers in tensor parallel scenarios.
         Falls back to the base implementation for regular nn.Embedding layers.
         """
-        if is_neuronx_distributed_available() and isinstance(old_embeddings, ParallelEmbedding):
+        if isinstance(old_embeddings, ParallelEmbedding):
             return self._get_resized_parallel_embeddings(
                 old_embeddings, new_num_tokens, pad_to_multiple_of, mean_resizing
             )
@@ -1674,7 +1625,7 @@ class NeuronModelMixin:
         Override of transformers method to handle ColumnParallelLinear layers in tensor parallel scenarios.
         Falls back to the base implementation for regular nn.Linear layers.
         """
-        if is_neuronx_distributed_available() and isinstance(old_lm_head, ColumnParallelLinear):
+        if isinstance(old_lm_head, ColumnParallelLinear):
             return self._get_resized_parallel_lm_head(old_lm_head, new_num_tokens, transposed, mean_resizing)
         else:
             # Fall back to standard transformers method for regular linear layers
