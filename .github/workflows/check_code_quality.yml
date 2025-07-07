@@ -23,30 +23,28 @@ concurrency:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10"]
-        os: [ubuntu-22.04]
-
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v2
-    - name: Setup Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v2
+    - name: Setup Python
+      uses: actions/setup-python@v4
       with:
-        python-version: ${{ matrix.python-version }}
-    - name: Create and start a virtual environment
-      run: |
-        python -m venv venv
-        source venv/bin/activate
+        python-version: "3.11"
+    - name: Install Neuronx runtime
+      uses: ./.github/actions/install_neuronx_runtime
+    - name: Prepare virtual environment
+      uses: ./.github/actions/prepare_venv
+    - name: Install optimum-neuron
+      uses: ./.github/actions/install_optimum_neuron
+    - name: Setup PATH
+      run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
     - name: Install dependencies
       run: |
-        source venv/bin/activate
+        source aws_neuron_venv_pytorch/bin/activate
         pip install --upgrade pip
         pip install .[quality]
     - name: Check style with ruff
       run: |
-        source venv/bin/activate
+        source aws_neuron_venv_pytorch/bin/activate
         ruff format . --diff
         ruff check .
