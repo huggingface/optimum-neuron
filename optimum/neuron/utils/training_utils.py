@@ -15,7 +15,7 @@
 """Training utilities"""
 
 import inspect
-from typing import TYPE_CHECKING, Type, Union
+from typing import TYPE_CHECKING, Type
 
 import torch
 import transformers
@@ -87,7 +87,7 @@ def skip_first_batches(dataloader, num_batches=0):
     return dataloader
 
 
-def _get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"]):
+def _get_model_param_count(model: torch.nn.Module | "NxDPPModel"):
     """Counts the number of parameters of the model."""
     import torch_xla.core.xla_model as xm
     from neuronx_distributed.parallel_layers.parallel_state import (
