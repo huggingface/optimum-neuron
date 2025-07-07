@@ -31,16 +31,11 @@ from optimum.utils import logging
 from ...utils.import_utils import is_neuronx_distributed_available, is_peft_available
 
 
-if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers.layers import create_local_weight
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_tensor_model_parallel_rank,
-        get_tensor_model_parallel_size,
-    )
-else:
-    # We define this dummy function in case we do not have neuronx_distributed, for instance when building the docs.
-    def get_tensor_model_parallel_size():
-        return 0
+from neuronx_distributed.parallel_layers.layers import create_local_weight
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_tensor_model_parallel_rank,
+    get_tensor_model_parallel_size,
+)
 
 
 if is_peft_available():
