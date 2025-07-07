@@ -21,7 +21,6 @@ import re
 import subprocess
 import tempfile
 import time
-from typing import Optional
 
 import huggingface_hub
 import requests
@@ -178,15 +177,15 @@ def build_pixart_command(
 def compile_and_cache_model(
     hf_model_id: str,
     batch_size: int,
-    sequence_length: Optional[int] = None,
-    height: Optional[int] = None,
-    width: Optional[int] = None,
-    num_images_per_prompt: Optional[int] = None,
-    num_cores: Optional[int] = None,
-    task: Optional[str] = None,
-    auto_cast: Optional[str] = None,
-    auto_cast_type: Optional[str] = None,
-    torch_dtype: Optional[str] = None,
+    sequence_length: int | None = None,
+    height: int | None = None,
+    width: int | None = None,
+    num_images_per_prompt: int | None = None,
+    num_cores: int | None = None,
+    task: str | None = None,
+    auto_cast: str | None = None,
+    auto_cast_type: str | None = None,
+    torch_dtype: str | None = None,
 ):
     start = time.time()
     with tempfile.TemporaryDirectory() as temp_dir:

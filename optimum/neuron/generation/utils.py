@@ -18,7 +18,7 @@ import copy
 import inspect
 import warnings
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Union
 
 import torch
 import torch.distributed as dist
@@ -53,19 +53,19 @@ from ..utils.misc import args_and_kwargs_to_kwargs_only
 logger = logging.get_logger(__name__)
 
 
-def _move_dict_args_to_device(kwargs: Dict[str, Any], device: str = "cpu") -> Dict[str, Any]:
+def _move_dict_args_to_device(kwargs: dict[str, Any], device: str = "cpu") -> dict[str, Any]:
     """
     Takes keyword arguments which will be passed to a model's forward function
     and moves its values to `device` if
     they are of type `torch.Tensor`. If the key is a dictionary it does the same to the
     respective values.
     Args:
-        kwargs: (`Dict[str, Any]`):
+        kwargs: (`dict[str, Any]`):
             The kwargs to be passed to the models forward function.
         device: (`str`, defaults to `cpu`):
             The target device to which tensors should be moved.
     Returns:
-        `Dict[str, Any]`: The kwargs dict with its tensors moved to `device`.
+        `dict[str, Any]`: The kwargs dict with its tensors moved to `device`.
     """
 
     def needs_move(src_device, tgt_device):
@@ -229,8 +229,8 @@ class GeneralNeuronGenerationMixin(GenerationMixin):
     @torch.no_grad()
     def generate(
         self,
-        inputs: Optional[torch.Tensor] = None,
-        generation_config: Optional[GenerationConfig] = None,
+        inputs: torch.Tensor | None = None,
+        generation_config: GenerationConfig | None = None,
         **kwargs,
     ):
         # 1. Handle `generation_config` and kwargs that might update it, and validate the `.generate()` call
@@ -311,8 +311,8 @@ class GeneralNeuronGenerationMixin(GenerationMixin):
             self.forward = original_forward
 
     def _prepare_encoder_decoder_kwargs_for_generation(
-        self, inputs_tensor: torch.Tensor, model_kwargs, model_input_name: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, inputs_tensor: torch.Tensor, model_kwargs, model_input_name: str | None = None
+    ) -> dict[str, Any]:
         """Move the input tensor to XLA device and move the output tensors back to CPU."""
         output = super()._prepare_encoder_decoder_kwargs_for_generation(
             inputs_tensor.to(self.device), model_kwargs, model_input_name
@@ -433,14 +433,14 @@ class NeuronGenerationMixin(GenerationMixin):
     def _update_model_kwargs_for_xla_generation(
         self,
         outputs: ModelOutput,
-        model_kwargs: Dict[str, Any],
+        model_kwargs: dict[str, Any],
         batch_size: int,
         is_encoder_decoder: bool = False,
         standardize_cache_format: bool = False,
-        max_length: Optional[int] = None,
-        seq_length: Optional[int] = None,
+        max_length: int | None = None,
+        seq_length: int | None = None,
         use_cache: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if use_cache:
             past_key_values = self._extract_past_from_model_output(outputs)
             if past_key_values is None:
@@ -502,9 +502,9 @@ class NeuronGenerationMixin(GenerationMixin):
     def _expand_inputs_for_generation(
         expand_size: int = 1,
         is_encoder_decoder: bool = False,
-        input_ids: Optional[torch.LongTensor] = None,
+        input_ids: torch.LongTensor | None = None,
         **model_kwargs,
-    ) -> Tuple[torch.LongTensor, Dict[str, Any]]:
+    ) -> tuple[torch.LongTensor, dict[str, Any]]:
         """Expands tensors from [batch_size, ...] to [batch_size * expand_size, ...]"""
 
         def _expand_dict_for_generation(dict_to_expand):
@@ -538,15 +538,15 @@ class NeuronGenerationMixin(GenerationMixin):
     @torch.no_grad()
     def generate(
         self,
-        inputs: Optional[torch.Tensor] = None,
-        generation_config: Optional[GenerationConfig] = None,
-        logits_processor: Optional[LogitsProcessorList] = None,
-        stopping_criteria: Optional[StoppingCriteriaList] = None,
-        prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
-        synced_gpus: Optional[bool] = None,
+        inputs: torch.Tensor | None = None,
+        generation_config: GenerationConfig | None = None,
+        logits_processor: LogitsProcessorList | None = None,
+        stopping_criteria: StoppingCriteriaList | None = None,
+        prefix_allowed_tokens_fn: Callable[[int, torch.Tensor | None, list[int]]] = None,
+        synced_gpus: bool | None = None,
         is_traced_inference: bool = False,
         **kwargs,
-    ) -> Union[GenerateOutput, torch.LongTensor]:
+    ) -> GenerateOutput | torch.LongTensor:
         r"""
 
         Generates sequences of token ids for models with a language modeling head.
@@ -563,34 +563,34 @@ class NeuronGenerationMixin(GenerationMixin):
         </Tip>
 
         Parameters:
-            inputs (`Optional[torch.Tensor]`, defaults to `None`):
+            inputs (`torch.Tensor | None`, defaults to `None`):
                 The sequence used as a prompt for the generation or as model inputs to the encoder. If `None` the
                 method initializes it with `bos_token_id` and a batch size of 1. For decoder-only models `inputs`
                 should of in the format of `input_ids`. For encoder-decoder models *inputs* can represent any of
                 `input_ids`, `input_values`, `input_features`, or `pixel_values`.
-            generation_config (`Optional[GenerationConfig]`, defaults to `None`):
+            generation_config (`GenerationConfig | None`, defaults to `None`):
                 The generation configuration to be used as base parametrization for the generation call. `**kwargs`
                 passed to generate matching the attributes of `generation_config` will override them. If
                 `generation_config` is not provided, the default will be used, which had the following loading
                 priority: 1) from the `generation_config.json` model file, if it exists; 2) from the model
                 configuration. Please note that unspecified parameters will inherit [`~generation.GenerationConfig`]'s
                 default values, whose documentation should be checked to parameterize generation.
-            logits_processor (`Optional[LogitsProcessorList]`, defaults to `None`):
+            logits_processor (`LogitsProcessorList | None`, defaults to `None`):
                 Custom logits processors that complement the default logits processors built from arguments and
                 generation config. If a logit processor is passed that is already created with the arguments or a
                 generation config an error is thrown. This feature is intended for advanced users.
-            stopping_criteria (`Optional[StoppingCriteriaList]`, defaults to `None`):
+            stopping_criteria (`StoppingCriteriaList | None`, defaults to `None`):
                 Custom stopping criteria that complement the default stopping criteria built from arguments and a
                 generation config. If a stopping criteria is passed that is already created with the arguments or a
                 generation config an error is thrown. This feature is intended for advanced users.
-            prefix_allowed_tokens_fn (`Callable[[int, torch.Tensor], List[int]]`, *optional*):
+            prefix_allowed_tokens_fn (`Callable[[int, torch.Tensor], list[int]]`, *optional*):
                 If provided, this function constraints the beam search to allowed tokens only at each step. If not
                 provided no constraint is applied. This function takes 2 arguments: the batch ID `batch_id` and
                 `input_ids`. It has to return a list with the allowed tokens for the next generation step conditioned
                 on the batch ID `batch_id` and the previously generated tokens `inputs_ids`. This argument is useful
                 for constrained generation conditioned on the prefix, as described in [Autoregressive Entity
                 Retrieval](https://arxiv.org/abs/2010.00904).
-            synced_gpus (`Optional[bool]`, defaults to `None`):
+            synced_gpus (`bool | None`, defaults to `None`):
                 Whether to continue running the while loop until max_length. Unless overridden this flag will be set to
                 `True` under DeepSpeed ZeRO Stage 3 multiple GPUs environment to avoid hanging if one GPU finished
                 generating before other GPUs. Otherwise it'll be set to `False`.
@@ -903,20 +903,20 @@ class NeuronGenerationMixin(GenerationMixin):
     def greedy_search(
         self,
         input_ids: torch.LongTensor,
-        logits_processor: Optional[LogitsProcessorList] = None,
-        stopping_criteria: Optional[StoppingCriteriaList] = None,
-        max_length: Optional[int] = None,
-        pad_token_id: Optional[int] = None,
-        eos_token_id: Optional[Union[int, List[int]]] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        output_scores: Optional[bool] = None,
-        return_dict_in_generate: Optional[bool] = None,
+        logits_processor: LogitsProcessorList | None = None,
+        stopping_criteria: StoppingCriteriaList | None = None,
+        max_length: int | None = None,
+        pad_token_id: int | None = None,
+        eos_token_id: Union[int, list[int | None]] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        output_scores: bool | None = None,
+        return_dict_in_generate: bool | None = None,
         synced_gpus: bool = False,
-        seq_length: Optional[int] = None,
+        seq_length: int | None = None,
         is_traced_inference: bool = False,
         **model_kwargs,
-    ) -> Union[GreedySearchOutput, torch.LongTensor]:
+    ) -> GreedySearchOutput | torch.LongTensor:
         r"""
         Generates sequences of token ids for models with a language modeling head using **greedy decoding** and can be
         used for text-decoder, text-to-text, speech-to-text, and vision-to-text models.
@@ -945,7 +945,7 @@ class NeuronGenerationMixin(GenerationMixin):
                 tokens. The maximum length of the sequence to be generated.
             pad_token_id (`int`, *optional*):
                 The id of the *padding* token.
-            eos_token_id (`Union[int, List[int]]`, *optional*):
+            eos_token_id (`Union[int, list[int]]`, *optional*):
                 The id of the *end-of-sequence* token. Optionally, use a list to set multiple *end-of-sequence* tokens.
             output_attentions (`bool`, *optional*, defaults to `False`):
                 Whether or not to return the attentions tensors of all attention layers. See `attentions` under
@@ -959,7 +959,7 @@ class NeuronGenerationMixin(GenerationMixin):
                 Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
             synced_gpus (`bool`, *optional*, defaults to `False`):
                 Whether to continue running the while loop until max_length (needed for ZeRO stage 3)
-            seq_length (`Optional[int]`, defaults to `False`):
+            seq_length (`int | None`, defaults to `False`):
                 Length of current input_ids sequence
             is_traced_inference (`bool`, defaults to `False`):
                 Whether the decoder is traced or using XLA lazy tensor. If the decoder is traced, next tokens and the beam scores
@@ -1227,20 +1227,20 @@ class NeuronGenerationMixin(GenerationMixin):
         self,
         input_ids: torch.LongTensor,
         beam_scorer: BeamScorer,
-        logits_processor: Optional[LogitsProcessorList] = None,
-        stopping_criteria: Optional[StoppingCriteriaList] = None,
-        max_length: Optional[int] = None,
-        pad_token_id: Optional[int] = None,
-        eos_token_id: Optional[Union[int, List[int]]] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        output_scores: Optional[bool] = None,
-        return_dict_in_generate: Optional[bool] = None,
-        synced_gpus: Optional[bool] = False,
-        seq_length: Optional[int] = None,
+        logits_processor: LogitsProcessorList | None = None,
+        stopping_criteria: StoppingCriteriaList | None = None,
+        max_length: int | None = None,
+        pad_token_id: int | None = None,
+        eos_token_id: Union[int, list[int | None]] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        output_scores: bool | None = None,
+        return_dict_in_generate: bool | None = None,
+        synced_gpus: bool | None = False,
+        seq_length: int | None = None,
         is_traced_inference: bool = False,
         **model_kwargs,
-    ) -> Union[BeamSearchOutput, torch.LongTensor]:
+    ) -> BeamSearchOutput | torch.LongTensor:
         r"""
         Generates sequences of token ids for models with a language modeling head using **beam search decoding** and
         can be used for text-decoder, text-to-text, speech-to-text, and vision-to-text models.
@@ -1270,7 +1270,7 @@ class NeuronGenerationMixin(GenerationMixin):
                 tokens. The maximum length of the sequence to be generated.
             pad_token_id (`int`, *optional*):
                 The id of the *padding* token.
-            eos_token_id (`Union[int, List[int]]`, *optional*):
+            eos_token_id (`Union[int, list[int]]`, *optional*):
                 The id of the *end-of-sequence* token. Optionally, use a list to set multiple *end-of-sequence* tokens.
             output_attentions (`bool`, *optional*, defaults to `False`):
                 Whether or not to return the attentions tensors of all attention layers. See `attentions` under
@@ -1284,7 +1284,7 @@ class NeuronGenerationMixin(GenerationMixin):
                 Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
             synced_gpus (`bool`, *optional*, defaults to `False`):
                 Whether to continue running the while loop until max_length (needed for ZeRO stage 3)
-            seq_length (`Optional[int]`, defaults to `False`):
+            seq_length (`int | None`, defaults to `False`):
                 Length of current input_ids sequence
             is_traced_inference (`bool`, defaults to `False`):
                 Whether the decoder is traced or using XLA lazy tensor. If the decoder is traced, next tokens and the beam scores

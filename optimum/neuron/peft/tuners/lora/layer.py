@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import math
-from typing import Any, Union
+from typing import Any
 
 import torch
 from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear as NxDGQAQKVColumnParallelLinear
@@ -188,7 +188,7 @@ class ParallelLinear(nn.Module, NeuronLoraLayer):
         lora_dropout: float = 0.0,
         fan_in_fan_out: bool = False,  # Set this to True if the layer to replace stores weight like (fan_in, fan_out)
         is_target_conv_1d_layer: bool = False,
-        init_lora_weights: Union[bool, str] = True,
+        init_lora_weights: bool | str = True,
         use_rslora: bool = False,
         use_dora: bool = False,
         lora_bias: bool = False,
@@ -231,7 +231,7 @@ class GQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
         lora_dropout: float = 0.0,
         fan_in_fan_out: bool = False,  # Set this to True if the layer to replace stores weight like (fan_in, fan_out)
         is_target_conv_1d_layer: bool = False,
-        init_lora_weights: Union[bool, str] = True,
+        init_lora_weights: bool | str = True,
         use_rslora: bool = False,
         use_dora: bool = False,
         lora_bias: bool = False,
@@ -385,7 +385,7 @@ class ParallelEmbedding(nn.Module, NeuronLoraLayer):
         r: int = 0,
         lora_alpha: int = 1,
         lora_dropout: float = 0.0,
-        init_lora_weights: Union[bool, str] = True,
+        init_lora_weights: bool | str = True,
         use_rslora: bool = False,
         use_dora: bool = False,
         lora_bias: bool = False,

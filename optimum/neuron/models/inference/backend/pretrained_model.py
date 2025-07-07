@@ -17,7 +17,6 @@ import logging
 import os
 from functools import partial
 from pathlib import Path
-from typing import List, Optional, Union
 
 import neuronx_distributed.trace.hlo_utils as hlo_utils
 import torch
@@ -50,7 +49,7 @@ def get_shards_path(dest_path):
 
 def get_builder(
     neuron_config: NxDNeuronConfig,
-    model_wrappers: List[NxDModelWrapper],
+    model_wrappers: list[NxDModelWrapper],
     debug: bool = False,
     checkpoint_loader=None,
     compiler_args: str = None,
@@ -64,7 +63,7 @@ def get_builder(
 
     Args:
         neuron_config (NxDNeuronConfig): The Neuron configuration.
-        model_wrappers (List[NxDModelWrapper]): The model wrappers to be added to the builder.
+        model_wrappers (list[NxDModelWrapper]): The model wrappers to be added to the builder.
         debug (bool): Whether to enable debug mode.
         checkpoint_loader (callable): A function to load the model's state dictionary and weights.
         compiler_args (str): Compiler arguments to be passed to the builder.
@@ -112,7 +111,7 @@ class NxDPreTrainedModel:
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
         traced_model: torch.jit.ScriptModule,
-        model_wrappers: List[NxDModelWrapper],
+        model_wrappers: list[NxDModelWrapper],
     ):
         self.config = copy.deepcopy(config)
         self.neuron_config = copy.deepcopy(neuron_config)
@@ -148,12 +147,12 @@ class NxDPreTrainedModel:
         return None
 
     @staticmethod
-    def compile(neuron_config, model_wrappers: List[NxDModelWrapper], compiler_args: str, debug: bool = False):
+    def compile(neuron_config, model_wrappers: list[NxDModelWrapper], compiler_args: str, debug: bool = False):
         builder = get_builder(neuron_config, model_wrappers, debug=debug, compiler_args=compiler_args)
         with neff_cache():
             return builder.trace(initialize_model_weights=False)
 
-    def save(self, dest_path, weight_path: Optional[str] = None):
+    def save(self, dest_path, weight_path: str | None = None):
         if self._traced_model is None:
             raise ValueError("Model has not been compiled or loaded")
         dest_path = normalize_path(dest_path)
@@ -220,11 +219,11 @@ class NxDPreTrainedModel:
 
     def load_weights(
         self,
-        model_name_or_path: Union[str, Path],
-        token: Optional[Union[bool, str]] = None,
-        cache_dir: Optional[str] = None,
-        force_download: Optional[bool] = False,
-        local_files_only: Optional[bool] = False,
+        model_name_or_path: str | Path,
+        token: bool | str | None = None,
+        cache_dir: str | None = None,
+        force_download: bool | None = False,
+        local_files_only: bool | None = False,
     ) -> None:
         """Loads the model weights from the given path."""
         if os.path.exists(model_name_or_path):

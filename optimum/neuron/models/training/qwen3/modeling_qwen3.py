@@ -15,7 +15,6 @@
 """PyTorch Qwen3 model, partly based on Llama model and on Transformers implementation."""
 
 from functools import partial
-from typing import Optional, Tuple
 
 import torch
 from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
@@ -94,10 +93,10 @@ class Qwen3Attention(LlamaAttention):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        position_embeddings: Tuple[torch.Tensor, torch.Tensor],
-        attention_mask: Optional[torch.Tensor],
+        position_embeddings: tuple[torch.Tensor, torch.Tensor],
+        attention_mask: torch.Tensor | None,
         **kwargs: Unpack[FlashAttentionKwargs],
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         if self.trn_config.sequence_parallel_enabled:
             q_len, bsz, _ = hidden_states.size()
             q_len = q_len * get_tensor_model_parallel_size()

@@ -23,7 +23,7 @@ from enum import Enum
 from pathlib import Path
 from subprocess import PIPE
 from tempfile import TemporaryDirectory
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Union
 
 import requests
 from huggingface_hub import (
@@ -70,7 +70,7 @@ _TASK_TO_EXAMPLE_SCRIPT = {
 
 def list_filenames_in_github_repo_directory(
     github_repo_directory_url: str, only_files: bool = False, only_directories: bool = False
-) -> List[str]:
+) -> list[str]:
     """
     Lists the content of a repository on GitHub.
     """
@@ -137,7 +137,7 @@ class Precision(str, Enum):
     bf16 = "bf16"
 
 
-def run_command_with_realtime_output(cmd: List[str], **popen_kwargs) -> Tuple[int, str]:
+def run_command_with_realtime_output(cmd: list[str], **popen_kwargs) -> tuple[int, str]:
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **popen_kwargs)
     stdout = []
     decoder = codecs.getincrementaldecoder("utf-8")()
@@ -230,8 +230,8 @@ class ExampleRunner:
         self,
         model_name_or_path: str,
         task: str,
-        example_dir: Optional[Union[str, Path]] = None,
-        config_overrides: Optional[Dict[str, Any]] = None,
+        example_dir: str | Path | None = None,
+        config_overrides: dict[str, Any | None] = None,
         use_venv: bool = False,
         install_requirements: bool = True,
     ):
@@ -295,7 +295,7 @@ class ExampleRunner:
         """
         self.venv_dir.cleanup()
 
-    def install_requirements(self, requirements_filename: Union[str, Path]):
+    def install_requirements(self, requirements_filename: str | Path):
         """
         Installs the necessary requirements to run the example if the provided file exists, otherwise does nothing.
         """
@@ -364,8 +364,8 @@ class ExampleRunner:
             )
 
     def download_model_repo_and_override_config(
-        self, model_name_or_path: str, config_overrides: Dict[str, Any], output_dir: Union[str, Path]
-    ) -> Union[str, Path]:
+        self, model_name_or_path: str, config_overrides: dict[str, Any], output_dir: str | Path
+    ) -> str | Path:
         if not config_overrides:
             return model_name_or_path
 
@@ -402,15 +402,15 @@ class ExampleRunner:
     def run(
         self,
         num_cores: int,
-        precision: Union[str, Precision],
+        precision: str | Precision,
         train_batch_size: int,
-        sequence_length: Optional[Union[int, Tuple[int, int], List[int]]] = None,
+        sequence_length: Union[int, tuple[int, int | None, list[int]]] = None,
         do_eval: bool = False,
-        eval_batch_size: Optional[int] = None,
+        eval_batch_size: int | None = None,
         gradient_accumulation_steps: int = 1,
         num_epochs: int = 1,
-        max_steps: Optional[int] = None,
-        max_eval_samples: Optional[int] = None,
+        max_steps: int | None = None,
+        max_eval_samples: int | None = None,
         logging_steps: int = 1,
         save_steps: int = -1,
         save_total_limit: int = -1,
@@ -419,12 +419,12 @@ class ExampleRunner:
         pipeline_parallel_size: int = 1,
         disable_embedding_parallelization: bool = False,
         zero_1: bool = False,
-        output_dir: Optional[Union[Path, str]] = None,
+        output_dir: Path | str | None = None,
         do_precompilation: bool = False,
         print_outputs: bool = False,
-        resume_from_checkpoint: Optional[Union[str, Path]] = None,
+        resume_from_checkpoint: str | Path | None = None,
         _disable_is_private_model_repo_check: bool = False,
-    ) -> Tuple[int, str]:
+    ) -> tuple[int, str]:
         if num_cores <= 0 or num_cores > 32:
             raise ValueError("The number of Neuron cores to use must be between 1 and 32.")
         if isinstance(precision, str) and not isinstance(precision, Precision):
@@ -550,7 +550,7 @@ class ExampleRunner:
             else:
                 cmd.append(f"--{name} {value}")
 
-        def split_args_and_value_in_command(cmd: List[str]) -> List[str]:
+        def split_args_and_value_in_command(cmd: list[str]) -> list[str]:
             pattern = re.compile(r"([\"\'].+?[\"\'])|\s")
             return [x for y in cmd for x in re.split(pattern, y) if x]
 

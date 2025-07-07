@@ -15,7 +15,7 @@
 """Pipelines running different Neuron Accelerators."""
 
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Union
 
 from transformers import (
     AudioClassificationPipeline,
@@ -135,7 +135,7 @@ NEURONX_SUPPORTED_TASKS = {
 }
 
 
-def check_model_type(self, supported_models: Union[List[str], dict]):
+def check_model_type(self, supported_models: Union[list[str], dict]):
     """
     Dummy function to avoid the error logs raised by https://github.com/huggingface/transformers/blob/v4.45.2/src/transformers/pipelines/base.py#L1091
     """
@@ -145,9 +145,9 @@ def check_model_type(self, supported_models: Union[List[str], dict]):
 def load_pipeline(
     model,
     targeted_task,
-    tokenizer: Optional[Union[str, PreTrainedTokenizer, "PreTrainedTokenizerFast"]],
-    feature_extractor: Optional[Union[str, PreTrainedFeatureExtractor]],
-    image_processor: Optional[Union[str, BaseImageProcessor]],
+    tokenizer: str | PreTrainedTokenizer | "PreTrainedTokenizerFast" | None,
+    feature_extractor: str | PreTrainedFeatureExtractor | None,
+    image_processor: str | BaseImageProcessor | None,
     load_tokenizer: bool,
     load_feature_extractor: bool,
     load_image_processor: bool,
@@ -155,10 +155,10 @@ def load_pipeline(
     input_shapes={},
     export=False,
     subfolder: str = "",
-    token: Optional[Union[bool, str]] = None,
+    token: bool | str | None = None,
     revision: str = "main",
-    compiler_args: Optional[Dict[str, Any]] = {},
-    hub_kwargs: Optional[Dict[str, Any]] = {},
+    compiler_args: dict[str, Any | None] = {},
+    hub_kwargs: dict[str, Any | None] = {},
     **kwargs,
 ):
     # loads default model
@@ -222,17 +222,17 @@ def load_pipeline(
 
 def pipeline(
     task: str = None,
-    model: Optional[Union[str, NeuronModel]] = None,
-    tokenizer: Optional[Union[str, PreTrainedTokenizer]] = None,
-    feature_extractor: Optional[Union[str, PreTrainedFeatureExtractor]] = None,
-    image_processor: Optional[Union[str, BaseImageProcessor]] = None,
+    model: str | NeuronModel | None = None,
+    tokenizer: str | PreTrainedTokenizer | None = None,
+    feature_extractor: str | PreTrainedFeatureExtractor | None = None,
+    image_processor: str | BaseImageProcessor | None = None,
     use_fast: bool = True,
     export: bool = False,
-    input_shapes: Optional[Dict[str, int]] = {},
-    compiler_args: Optional[Dict[str, int]] = {},
-    token: Optional[Union[str, bool]] = None,
-    revision: Optional[str] = None,
-    trust_remote_code: Optional[bool] = None,
+    input_shapes: dict[str, int | None] = {},
+    compiler_args: dict[str, int | None] = {},
+    token: str | bool | None = None,
+    revision: str | None = None,
+    trust_remote_code: bool | None = None,
     **kwargs,
 ) -> Pipeline:
     if task not in NEURONX_SUPPORTED_TASKS:

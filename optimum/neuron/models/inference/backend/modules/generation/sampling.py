@@ -14,7 +14,6 @@
 # limitations under the License.
 # Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/modules/generation/sampling.py
 import logging
-from typing import Optional, Union
 
 import torch
 from neuronx_distributed.operators.argmax import argmax as nxd_argmax
@@ -165,7 +164,7 @@ def prepare_sampling_params(batch_size, top_k=[1], top_p=[1.0], temperature=[1.0
     return stacked
 
 
-def prepare_tensor(val: Union[torch.Tensor, list, float]):
+def prepare_tensor(val: torch.Tensor | list | float):
     if not torch.is_tensor(val):
         if not isinstance(val, list):
             val = [val]
@@ -184,16 +183,14 @@ class Sampler(torch.nn.Module):
     For that reason, multinomial sampling is the default sampling method.
 
     Args:
-        do_sample(`Optional[bool]`): whether to use sampling or not. If False, argmax sampling is used, whatever sampling parameters are passed at runtime.
-        max_topk(`Optional[int]`): the maximum number of top tokens to sample from. It is used to optimize calculations
+        do_sample(`bool | None`): whether to use sampling or not. If False, argmax sampling is used, whatever sampling parameters are passed at runtime.
+        max_topk(`int | None`): the maximum number of top tokens to sample from. It is used to optimize calculations
         by performing a single topk operation on all logits in a batch then apply a mask by sequence instead of
         applying top_k on each sequence in the batch individually. Defaults to 0, which means no optimization.
-        on_cpu(`Optional[bool]`): whether to run on CPU or not
+        on_cpu(`bool | None`): whether to run on CPU or not
     """
 
-    def __init__(
-        self, neuron_config: NxDNeuronConfig, do_sample: Optional[bool] = True, on_cpu: Optional[bool] = False
-    ):
+    def __init__(self, neuron_config: NxDNeuronConfig, do_sample: bool | None = True, on_cpu: bool | None = False):
         super().__init__()
         if not do_sample:
             logger.warning("Greedy sampling is used. Sampling parameters will be ignored at runtime.")

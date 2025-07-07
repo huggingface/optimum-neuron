@@ -19,7 +19,7 @@ import importlib
 import inspect
 import sys
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, Callable, Type, Union
 
 
 if TYPE_CHECKING:
@@ -31,9 +31,7 @@ class BasePatcher(ABC):
     Base abstract class providing the core features for efficient context manager based patching.
     """
 
-    def __init__(
-        self, patching_specs: Optional[List[Tuple[Any, ...]]] = None, ignore_missing_attributes: bool = False
-    ):
+    def __init__(self, patching_specs: list[tuple[Any, ... | None]] = None, ignore_missing_attributes: bool = False):
         self.patching_specs = self.process_patching_specs(
             patching_specs, ignore_missing_attributes=ignore_missing_attributes
         )
@@ -41,8 +39,8 @@ class BasePatcher(ABC):
 
     @abstractmethod
     def process_patching_specs(
-        self, patching_specs: Optional[List[Tuple[Any, Any]]] = None, ignore_missing_attributes: bool = False
-    ) -> List[Tuple[Any, str, Any, Any, bool]]:
+        self, patching_specs: list[tuple[Any, Any | None]] = None, ignore_missing_attributes: bool = False
+    ) -> list[tuple[Any, str, Any, Any, bool]]:
         pass
 
     def patch(self):
@@ -88,7 +86,7 @@ class Patcher(BasePatcher):
     """
 
     def process_patching_specs(
-        self, patching_specs: Optional[List[Tuple[str, Any]]] = None, ignore_missing_attributes: bool = False
+        self, patching_specs: list[tuple[str, Any | None]] = None, ignore_missing_attributes: bool = False
     ):
         processed_patching_specs = []
         for orig, patch in patching_specs or []:
@@ -130,7 +128,7 @@ class ModelPatcher(BasePatcher):
 
     def process_patching_specs(
         self,
-        patching_specs: Optional[List[Tuple["PreTrainedModel", str, Any]]] = None,
+        patching_specs: list[tuple["PreTrainedModel", str, Any | None]] = None,
         ignore_missing_attributes: bool = False,
     ):
         processed_patching_specs = []
@@ -166,13 +164,13 @@ class ModelPatcher(BasePatcher):
 
 
 def patch_within_function(
-    patching_specs: Union[List[Tuple[str, Any]], Tuple[str, Any]], ignore_missing_attributes: bool = False
+    patching_specs: Union[list[tuple[str, Any]], tuple[str, Any]], ignore_missing_attributes: bool = False
 ):
     """
     Decorator that patches attributes of a module during the lifetime of the decorated function.
 
     Args:
-        patching_specs (`Union[List[Tuple[str, Any]], Tuple[str, Any]]`):
+        patching_specs (`Union[list[tuple[str, Any]], tuple[str, Any]]`):
             The specifications of what to patch.
         ignore_missing_attributes (`bool`, defaults to `False`):
             Whether or not the patch should fail if the attribute to patch does not exist.
@@ -204,7 +202,7 @@ def patch_within_function(
 
 
 @functools.lru_cache()
-def patch_everywhere(attribute_name: str, patch: Any, module_name_prefix: Optional[str] = None):
+def patch_everywhere(attribute_name: str, patch: Any, module_name_prefix: str | None = None):
     """
     Finds all occurences of `attribute_name` in the loaded modules and patches them with `patch`.
 
@@ -213,7 +211,7 @@ def patch_everywhere(attribute_name: str, patch: Any, module_name_prefix: Option
             The name of attribute to patch.
         patch (`Any`):
             The patch for the attribute.
-        module_name_prefix (`Optional[str]`, defaults to `None`):
+        module_name_prefix (`str | None`, defaults to `None`):
             If set, only module names starting with this prefix will be considered for patching.
     """
     for name, module in dict(sys.modules).items():

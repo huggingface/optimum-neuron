@@ -14,11 +14,10 @@
 # limitations under the License.
 """Custom AcceleratedOptimizer for Neuron."""
 
-from typing import Optional
-
-import accelerate
 import torch
 import torch_xla.core.xla_model as xm
+
+import accelerate
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.utils import DistributedType
 from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
@@ -57,7 +56,7 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
         self,
         optimizer: "torch.optim.Optimizer",
         device_placement: bool = True,
-        scaler: Optional["torch.cuda.amp.GradScaler"] = None,
+        scaler: "torch.cuda.amp.GradScaler" | None = None,
     ):
         super().__init__(optimizer, device_placement=device_placement, scaler=scaler)
 

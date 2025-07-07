@@ -17,7 +17,7 @@ import json
 import os
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Union
+from typing import Any, Callable, Literal
 
 import torch
 from huggingface_hub import split_torch_state_dict_into_shards
@@ -68,11 +68,11 @@ def xser_load_on_cpu(path: str):
 
 
 def consolidate_tensor_parallel_checkpoints(
-    sharded_checkpoints: List[Path],
-    load_function: Callable[[Union[str, Path]], Dict[str, Any]],
-    metadata: Dict[str, Any],
-    adapter_name: Optional[str] = None,
-) -> Dict[str, "torch.Tensor"]:
+    sharded_checkpoints: list[Path],
+    load_function: Callable[[str | Path], dict[str, Any]],
+    metadata: dict[str, Any],
+    adapter_name: str | None = None,
+) -> dict[str, "torch.Tensor"]:
     state_dicts = []
     sharded_checkpoints = sorted(sharded_checkpoints)
     for sharded_checkpoint in sharded_checkpoints:
@@ -106,8 +106,8 @@ def consolidate_tensor_parallel_checkpoints(
 
 
 def consolidate_model_parallel_checkpoints(
-    checkpoint_dir: Path, adapter_name: Optional[str] = None
-) -> Dict[str, "torch.Tensor"]:
+    checkpoint_dir: Path, adapter_name: str | None = None
+) -> dict[str, "torch.Tensor"]:
     model_checkpoint_dir = checkpoint_dir / "model"
 
     # Case 1: the checkpoint was saved with xser.
@@ -158,8 +158,8 @@ def consolidate_model_parallel_checkpoints(
 
 
 def consolidate_model_parallel_checkpoints_to_unified_checkpoint(
-    checkpoint_dir: Union[str, Path],
-    output_dir: Union[str, Path],
+    checkpoint_dir: str | Path,
+    output_dir: str | Path,
     save_format: Literal["pytorch", "safetensors"] = "safetensors",
 ):
     from safetensors.torch import save_file

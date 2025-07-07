@@ -17,7 +17,7 @@
 import re
 from abc import ABC, abstractmethod
 from dataclasses import fields, is_dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, List, Union
 
 import torch
 
@@ -45,7 +45,7 @@ class NeuronExportConfig(ExportConfig):
 
     Class attributes:
 
-    - INPUT_ARGS (`Tuple[Union[str, Tuple[Union[str, Tuple[str]]]]]`) -- A tuple where each element is either:
+    - INPUT_ARGS (`tuple[Union[str, Tuple[Union[str, Tuple[str]]]]]`) -- A tuple where each element is either:
         - An argument  name, for instance "batch_size" or "sequence_length", that indicates that the argument can
         be passed to export the model,
         - Or a tuple containing two elements:
@@ -62,7 +62,7 @@ class NeuronExportConfig(ExportConfig):
     INPUT_ARGS = ()
 
     @classmethod
-    def get_input_args_for_task(cls, task: str) -> Tuple[str]:
+    def get_input_args_for_task(cls, task: str) -> tuple[str]:
         axes = []
         for axis in cls.INPUT_ARGS:
             if isinstance(axis, tuple):
@@ -85,11 +85,11 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
 
     - NORMALIZED_CONFIG_CLASS (`Type`) -- A class derived from [`~optimum.utils.NormalizedConfig`] specifying how to
     normalize the model config.
-    - DUMMY_INPUT_GENERATOR_CLASSES (`Tuple[Type]`) -- A tuple of classes derived from
+    - DUMMY_INPUT_GENERATOR_CLASSES (`tuple[Type]`) -- A tuple of classes derived from
     [`~optimum.utils.DummyInputGenerator`] specifying how to create dummy inputs.
-    - ATOL_FOR_VALIDATION (`Union[float, Dict[str, float]]`) -- A float or a dictionary mapping task names to float,
+    - ATOL_FOR_VALIDATION (`Union[float, dict[str, float]]`) -- A float or a dictionary mapping task names to float,
     where the float values represent the absolute tolerance value to use during model conversion validation.
-    - INPUT_ARGS (`Tuple[Union[str, Tuple[Union[str, Tuple[str]]]]]`) -- A tuple where each element is either:
+    - INPUT_ARGS (`tuple[Union[str, Tuple[Union[str, Tuple[str]]]]]`) -- A tuple where each element is either:
         - An argument  name, for instance "batch_size" or "sequence_length", that indicates that the argument MUST
         be passed to export the model,
         - Or a tuple containing two elements:
@@ -118,7 +118,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
 
     NORMALIZED_CONFIG_CLASS = None
     DUMMY_INPUT_GENERATOR_CLASSES = ()
-    ATOL_FOR_VALIDATION: Union[float, Dict[str, float]] = 1e-5
+    ATOL_FOR_VALIDATION: Union[float, dict[str, float]] = 1e-5
     MODEL_TYPE = None
     CUSTOM_MODEL_WRAPPER = None
 
@@ -147,22 +147,22 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         config: "PretrainedConfig",
         task: str,
         input_shapes: InputShapesArguments,
-        preprocessors: Optional[List] = None,
-        compiler_type: Optional[str] = None,
-        compiler_version: Optional[str] = None,
+        preprocessors: List | None = None,
+        compiler_type: str | None = None,
+        compiler_version: str | None = None,
         tensor_parallel_size: int = 1,
         dynamic_batch_size: bool = False,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
-        int_dtype: Union[str, torch.dtype] = "int64",  # Int dtype of dummy inputs used for tracing
-        float_dtype: Union[str, torch.dtype] = "fp32",  # Float dtype of dummy inputs used for tracing
+        int_dtype: str | torch.dtype = "int64",  # Int dtype of dummy inputs used for tracing
+        float_dtype: str | torch.dtype = "fp32",  # Float dtype of dummy inputs used for tracing
     ):
         self._config = config
         self._normalized_config = self.NORMALIZED_CONFIG_CLASS(self._config)
         self.mandatory_axes = ()
         self.tensor_parallel_size = tensor_parallel_size
         self.task = task
-        self._axes: Dict[str, int] = {}
+        self._axes: dict[str, int] = {}
         self.dynamic_batch_size = dynamic_batch_size
         self.int_dtype = int_dtype
         self.float_dtype = float_dtype
@@ -222,7 +222,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         setattr(self, "compiler_version", compiler_version)
 
     @classmethod
-    def get_mandatory_axes_for_task(cls, task: str) -> Tuple[str]:
+    def get_mandatory_axes_for_task(cls, task: str) -> tuple[str]:
         return cls.get_input_args_for_task(task)
 
     @property
@@ -265,53 +265,53 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
                     f"The value for the {name} axis is missing, it is needed to perform the export to Neuron compiled model."
                 )
 
-    def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
+    def _create_dummy_input_generator_classes(self, **kwargs) -> list["DummyInputGenerator"]:
         for name, axis_dim in self._axes.items():
             self._axes[name] = kwargs.pop(name, axis_dim)
 
         return [cls_(self.task, self._normalized_config, **self._axes) for cls_ in self.DUMMY_INPUT_GENERATOR_CLASSES]
 
     @property
-    def values_override(self) -> Optional[Dict[str, Any]]:
+    def values_override(self) -> dict[str, Any | None]:
         """
         Dictionary of keys to override in the model's config before exporting.
 
         Returns:
-            `Optional[Dict[str, Any]]`: A dictionary specifying the configuration items to override.
+            `dict[str, Any | None]`: A dictionary specifying the configuration items to override.
         """
 
         return None
 
     @property
     @abstractmethod
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         """
         List containing the names of the inputs the exported model should take.
 
         Returns:
-            `List[str]`: A list of input names.
+            `list[str]`: A list of input names.
         """
         raise NotImplementedError()
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         """
         List containing the names of the outputs the exported model should have.
 
         Returns:
-            `List[str]`: A list of output names.
+            `list[str]`: A list of output names.
         """
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
     def generate_dummy_inputs(
         self, return_tuple: bool = False, **kwargs
-    ) -> Union[Dict[str, torch.Tensor], Tuple[torch.Tensor]]:
+    ) -> Union[dict[str, torch.Tensor], tuple[torch.Tensor]]:
         """
         Generates dummy inputs that the exported model should be able to process.
         This method is actually used to determine the input specs and their static shapes that are needed for the export.
 
         Returns:
-            `Union[Dict[str, torch.Tensor], Tuple[torch.Tensor]]`: A dictionary mapping input names to dummy tensors or a tuple with dummy tensors.
+            `Union[dict[str, torch.Tensor], tuple[torch.Tensor]]`: A dictionary mapping input names to dummy tensors or a tuple with dummy tensors.
         """
         dummy_inputs_generators = self._create_dummy_input_generator_classes(**kwargs)
         dummy_inputs = {}
@@ -343,7 +343,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
             return dummy_inputs
 
     @classmethod
-    def flatten_inputs(cls, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def flatten_inputs(cls, inputs: dict[str, Any]) -> dict[str, Any]:
         """
         Flatten nested structure in dummy inputs, e.g `addition_embed_type` of unet model.
         """
@@ -357,7 +357,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         return flatten
 
     @classmethod
-    def unflatten_inputs(cls, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def unflatten_inputs(cls, inputs: dict[str, Any]) -> dict[str, Any]:
         """
         Re-construct inputs that have been flatten for tracing.
         """
@@ -383,10 +383,10 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
     def patch_model_for_export(
         self,
         model: "PreTrainedModel",
-        dummy_inputs: Optional[Dict[str, torch.Tensor]] = None,
+        dummy_inputs: dict[str, torch.Tensor | None] = None,
         forward_with_tuple: bool = False,
-        eligible_outputs: Optional[List[Union[str, int]]] = None,
-        device: Optional[str] = None,
+        eligible_outputs: list[str | int | None] = None,
+        device: str | None = None,
     ):
         """
         Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
@@ -395,7 +395,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         output_hidden_states = self.output_hidden_states
 
         class ModelWrapper(torch.nn.Module):
-            def __init__(self, model: "PreTrainedModel", input_names: List[str]):
+            def __init__(self, model: "PreTrainedModel", input_names: list[str]):
                 super().__init__()
                 self.model = model
                 self.input_names = input_names

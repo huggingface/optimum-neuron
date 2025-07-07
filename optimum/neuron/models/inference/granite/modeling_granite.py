@@ -16,7 +16,7 @@
 """PyTorch Granite model for NXD inference."""
 
 import logging
-from typing import Any, Optional, Tuple
+from typing import Any
 
 import torch
 from neuronx_distributed.parallel_layers.layers import (
@@ -66,11 +66,11 @@ class NeuronGraniteDecoderLayer(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_value: tuple[torch.Tensor | None] = None,
         **kwargs,
-    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+    ) -> tuple[torch.FloatTensor, Tuple[torch.FloatTensor, torch.FloatTensor | None]]:
         residual = hidden_states
 
         # RMSNorm (fused with QKV kernel when SP is disabled)

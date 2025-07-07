@@ -19,7 +19,7 @@ import inspect
 import random
 import string
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import Callable, Tuple, Type
 
 import torch
 from datasets import Dataset, DatasetDict
@@ -62,7 +62,7 @@ def get_random_string(length) -> str:
     return "".join(random.choice(letters) for _ in range(length))
 
 
-def create_dummy_dataset(input_specs: Dict[str, Tuple[Tuple[int, ...], torch.dtype]], num_examples: int) -> Dataset:
+def create_dummy_dataset(input_specs: dict[str, tuple[Tuple[int, ...], torch.dtype]], num_examples: int) -> Dataset:
     def gen():
         for _ in range(num_examples):
             yield {name: torch.rand(shape) for name, shape in input_specs.items()}
@@ -71,7 +71,7 @@ def create_dummy_dataset(input_specs: Dict[str, Tuple[Tuple[int, ...], torch.dty
 
 
 def create_dummy_text_classification_dataset(
-    num_train_examples: int, num_eval_examples: int, num_test_examples: Optional[int]
+    num_train_examples: int, num_eval_examples: int, num_test_examples: int | None
 ) -> DatasetDict:
     if num_test_examples is None:
         num_test_examples = num_eval_examples
@@ -108,8 +108,8 @@ def create_dummy_causal_lm_dataset(
     vocab_size: int,
     num_train_examples: int,
     num_eval_examples: int,
-    num_test_examples: Optional[int] = None,
-    max_number_of_unique_examples: Optional[int] = None,
+    num_test_examples: int | None = None,
+    max_number_of_unique_examples: int | None = None,
     sequence_length: int = 32,
     random_attention_mask: bool = False,
 ) -> DatasetDict:
@@ -145,7 +145,7 @@ def create_dummy_causal_lm_dataset(
     return ds
 
 
-def default_data_collator_for_causal_lm(features: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+def default_data_collator_for_causal_lm(features: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
     feature_names = features[0].keys()
     return {k: torch.cat([torch.tensor(feature[k]) for feature in features], dim=0) for k in feature_names}
 
@@ -205,7 +205,7 @@ def get_model(
     from_config: bool = False,
     use_static_seed_patcher: bool = False,
     add_random_noise: bool = False,
-    config_overwrite: Optional[Dict[str, str]] = None,
+    config_overwrite: dict[str, str | None] = None,
 ) -> "PreTrainedModel":
     if use_static_seed_patcher:
         seed_patcher = StaticSeedPatcher(SEED)
@@ -234,11 +234,11 @@ def get_model(
 
 def generate_dummy_labels(
     model: "PreTrainedModel",
-    shape: List[int],
-    vocab_size: Optional[int] = None,
-    seed: Optional[int] = None,
-    device: Optional[Union[str, torch.device]] = None,
-) -> Dict[str, torch.Tensor]:
+    shape: list[int],
+    vocab_size: int | None = None,
+    seed: int | None = None,
+    device: str | torch.device | None = None,
+) -> dict[str, torch.Tensor]:
     """Generates dummy labels."""
 
     if isinstance(model, NxDPPModel):
@@ -329,7 +329,7 @@ def get_model_inputs(
     include_labels: bool = True,
     random_labels: bool = True,
     batch_size: int = 1,
-    pad_to_multiple_of: Optional[int] = None,
+    pad_to_multiple_of: int | None = None,
 ):
     input_str = "Hello there, I'm Michael and I live in Paris!"
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
@@ -381,8 +381,8 @@ def create_accelerator(
     gradient_accumulation_steps: int = 1,
     parallelize_embeddings: bool = True,
     sequence_parallel_enabled: bool = True,
-    kv_size_multiplier: Optional[int] = None,
-    checkpoint_dir: Optional[Union[Path, str]] = None,
+    kv_size_multiplier: int | None = None,
+    checkpoint_dir: Path | str | None = None,
     use_xser: bool = True,
 ) -> NeuronAccelerator:
     trn_config = TrainingNeuronConfig(
@@ -402,9 +402,9 @@ def create_accelerator(
 def assert_close(
     a: torch.Tensor,
     b: torch.Tensor,
-    atol: Optional[float] = None,
-    rtol: Optional[float] = None,
-    msg: Optional[str] = None,
+    atol: float | None = None,
+    rtol: float | None = None,
+    msg: str | None = None,
 ):
     assert a.dtype is b.dtype, f"Expected tensors to have the same dtype, but got {a.dtype} and {b.dtype}"
 

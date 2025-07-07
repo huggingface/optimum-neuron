@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from abc import abstractmethod
-from typing import List
 
 import torch
 from neuronx_distributed.trace.model_builder import BaseModelInstance
@@ -27,7 +26,7 @@ class NxDModelWrapper(torch.nn.Module):
         self.priority_model_idx = priority_model_idx
 
     @abstractmethod
-    def input_generator(self) -> List[torch.Tensor]:
+    def input_generator(self) -> list[torch.Tensor]:
         """Return the list of the model input tensors
 
         Used at compilation time only when tracing the model.
@@ -51,5 +50,5 @@ class NxDModelWrapper(torch.nn.Module):
         raise NotImplementedError
 
     @abstractmethod
-    def forward(self, *args) -> List[torch.Tensor]:
+    def forward(self, *args) -> list[torch.Tensor]:
         raise NotImplementedError

@@ -23,7 +23,6 @@ import os
 import sys
 import warnings
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
 
 import datasets
 import evaluate
@@ -63,13 +62,13 @@ class ModelArguments:
     model_name_or_path: str = field(
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
     )
-    config_name: Optional[str] = field(
+    config_name: str | None = field(
         default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
     )
-    tokenizer_name: Optional[str] = field(
+    tokenizer_name: str | None = field(
         default=None, metadata={"help": "Pretrained tokenizer name or path if not the same as model_name"}
     )
-    cache_dir: Optional[str] = field(
+    cache_dir: str | None = field(
         default=None,
         metadata={"help": "Path to directory to store the pretrained models downloaded from huggingface.co"},
     )
@@ -114,37 +113,37 @@ class DataTrainingArguments:
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
 
-    dataset_name: Optional[str] = field(
+    dataset_name: str | None = field(
         default=None, metadata={"help": "The name of the dataset to use (via the datasets library)."}
     )
-    dataset_config_name: Optional[str] = field(
+    dataset_config_name: str | None = field(
         default=None, metadata={"help": "The configuration name of the dataset to use (via the datasets library)."}
     )
-    context_column: Optional[str] = field(
+    context_column: str | None = field(
         default="context",
         metadata={"help": "The name of the column in the datasets containing the contexts (for question answering)."},
     )
-    question_column: Optional[str] = field(
+    question_column: str | None = field(
         default="question",
         metadata={"help": "The name of the column in the datasets containing the questions (for question answering)."},
     )
-    answer_column: Optional[str] = field(
+    answer_column: str | None = field(
         default="answers",
         metadata={"help": "The name of the column in the datasets containing the answers (for question answering)."},
     )
-    train_file: Optional[str] = field(default=None, metadata={"help": "The input training data file (a text file)."})
-    validation_file: Optional[str] = field(
+    train_file: str | None = field(default=None, metadata={"help": "The input training data file (a text file)."})
+    validation_file: str | None = field(
         default=None,
         metadata={"help": "An optional input evaluation data file to evaluate the perplexity on (a text file)."},
     )
-    test_file: Optional[str] = field(
+    test_file: str | None = field(
         default=None,
         metadata={"help": "An optional input test data file to evaluate the perplexity on (a text file)."},
     )
     overwrite_cache: bool = field(
         default=False, metadata={"help": "Overwrite the cached training and evaluation sets"}
     )
-    preprocessing_num_workers: Optional[int] = field(
+    preprocessing_num_workers: int | None = field(
         default=None,
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
@@ -166,7 +165,7 @@ class DataTrainingArguments:
             )
         },
     )
-    val_max_answer_length: Optional[int] = field(
+    val_max_answer_length: int | None = field(
         default=None,
         metadata={
             "help": (
@@ -186,7 +185,7 @@ class DataTrainingArguments:
             )
         },
     )
-    max_train_samples: Optional[int] = field(
+    max_train_samples: int | None = field(
         default=None,
         metadata={
             "help": (
@@ -195,7 +194,7 @@ class DataTrainingArguments:
             )
         },
     )
-    max_eval_samples: Optional[int] = field(
+    max_eval_samples: int | None = field(
         default=None,
         metadata={
             "help": (
@@ -204,7 +203,7 @@ class DataTrainingArguments:
             )
         },
     )
-    max_predict_samples: Optional[int] = field(
+    max_predict_samples: int | None = field(
         default=None,
         metadata={
             "help": (
@@ -234,7 +233,7 @@ class DataTrainingArguments:
         default=20,
         metadata={"help": "The total number of n-best predictions to generate when looking for an answer."},
     )
-    num_beams: Optional[int] = field(
+    num_beams: int | None = field(
         default=None,
         metadata={
             "help": (
@@ -484,7 +483,7 @@ def main():
         question_column: str,
         context_column: str,
         answer_column: str,
-    ) -> Tuple[List[str], List[str]]:
+    ) -> tuple[list[str], list[str]]:
         questions = examples[question_column]
         contexts = examples[context_column]
         answers = examples[answer_column]

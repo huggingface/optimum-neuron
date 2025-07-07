@@ -17,7 +17,7 @@
 import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Union
 
 import torch
 from transformers import GenerationConfig, WhisperForConditionalGeneration
@@ -71,8 +71,8 @@ class NeuronWhisperEncoder(_NeuronSeq2SeqModelPart):
         self,
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronTracedModel,
-        config: Optional["PretrainedConfig"] = None,
-        neuron_config: Optional[Dict[str, str]] = None,
+        config: "PretrainedConfig" | None = None,
+        neuron_config: dict[str, str | None] = None,
     ):
         super().__init__(model, parent_model, config, neuron_config, "encoder")
         stride = getattr(self.config, "stride", [1, 2])
@@ -82,7 +82,7 @@ class NeuronWhisperEncoder(_NeuronSeq2SeqModelPart):
     def forward(
         self,
         input_features: torch.FloatTensor,
-        decoder_input_ids: Optional[torch.LongTensor] = None,
+        decoder_input_ids: torch.LongTensor | None = None,
         **kwargs,
     ):
         prepare_encoder_decoder_kwargs_for_generation = False
@@ -107,15 +107,15 @@ class NeuronWhisperDecoder(_NeuronSeq2SeqModelPart):
         self,
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronTracedModel,
-        config: Optional["PretrainedConfig"] = None,
-        neuron_config: Optional[Dict[str, str]] = None,
+        config: "PretrainedConfig" | None = None,
+        neuron_config: dict[str, str | None] = None,
     ):
         super().__init__(model, parent_model, config, neuron_config, "decoder")
 
     def forward(
         self,
-        decoder_input_ids: Optional[torch.LongTensor],
-        encoder_hidden_states: Optional[torch.FloatTensor],
+        decoder_input_ids: torch.LongTensor | None,
+        encoder_hidden_states: torch.FloatTensor | None,
         **kwargs,
     ):
         inputs = (
@@ -149,13 +149,13 @@ class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration,
         encoder: torch.jit._script.ScriptModule,
         decoder: torch.jit._script.ScriptModule,
         config: "PretrainedConfig",
-        model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        encoder_file_name: Optional[str] = NEURON_FILE_NAME,
-        decoder_file_name: Optional[str] = NEURON_FILE_NAME,
-        preprocessors: Optional[List] = None,
-        neuron_configs: Optional[Dict[str, "NeuronDefaultConfig"]] = None,
-        configs: Optional[Dict[str, "PretrainedConfig"]] = None,
-        generation_config: Optional[GenerationConfig] = None,
+        model_save_dir: str | Path | TemporaryDirectory | None = None,
+        encoder_file_name: str | None = NEURON_FILE_NAME,
+        decoder_file_name: str | None = NEURON_FILE_NAME,
+        preprocessors: List | None = None,
+        neuron_configs: dict[str, "NeuronDefaultConfig" | None] = None,
+        configs: dict[str, "PretrainedConfig" | None] = None,
+        generation_config: GenerationConfig | None = None,
         **kwargs,
     ):
         super().__init__(
@@ -183,10 +183,10 @@ class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration,
     def _update_model_kwargs_for_generation(
         self,
         outputs: ModelOutput,
-        model_kwargs: Dict[str, Any],
+        model_kwargs: dict[str, Any],
         is_encoder_decoder: bool = False,
         num_new_tokens: int = 1,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         # Override "use_cache" to False, since whisper with cache is not yet supported for neuron.
         model_kwargs["use_cache"] = False
 
@@ -199,11 +199,11 @@ class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration,
     @add_start_docstrings_to_model_forward(NEURON_AUDIO_SEQ2SEQ_INPUTS_DOCSTRING)
     def forward(
         self,
-        input_features: Optional[torch.FloatTensor] = None,
-        decoder_input_ids: Optional[torch.LongTensor] = None,
-        encoder_outputs: Optional[Tuple[torch.FloatTensor]] = None,
+        input_features: torch.FloatTensor | None = None,
+        decoder_input_ids: torch.LongTensor | None = None,
+        encoder_outputs: tuple[torch.FloatTensor | None] = None,
         **kwargs,
-    ) -> Union[Tuple[torch.Tensor], Seq2SeqLMOutput]:
+    ) -> Union[tuple[torch.Tensor], Seq2SeqLMOutput]:
         if encoder_outputs is None:
             lm_logits, encoder_last_hidden_state = self.encoder(
                 input_features=input_features, decoder_input_ids=decoder_input_ids

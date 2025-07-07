@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/models/config.py
-from typing import List, Optional, Union
 
 import torch
 
@@ -56,40 +55,40 @@ class NxDNeuronConfig(NeuronConfig):
         self,
         checkpoint_id: str = None,
         checkpoint_revision: str = None,
-        batch_size: Optional[int] = 1,
-        max_batch_size: Optional[int] = None,
-        continuous_batching: Optional[bool] = False,
-        speculation_length: Optional[int] = 0,
-        sequence_length: Optional[int] = 128,
-        tp_degree: Optional[int] = 1,
-        ep_degree: Optional[int] = 1,
-        pp_degree: Optional[int] = 1,
-        torch_dtype: Optional[Union[str, torch.dtype]] = torch.bfloat16,
-        rpl_reduce_dtype: Optional[Union[str, torch.dtype]] = None,
-        n_active_tokens: Optional[int] = None,
-        max_context_length: Optional[int] = None,
-        output_logits: Optional[bool] = False,
-        padding_side: Optional[str] = "right",
-        fused_qkv: Optional[bool] = False,
-        vocab_parallel: Optional[bool] = False,
-        sequence_parallel_enabled: Optional[bool] = False,
-        is_chunked_prefill: Optional[bool] = False,
-        flash_decoding_enabled: Optional[bool] = False,
-        async_mode: Optional[bool] = False,
-        qk_layernorm: Optional[bool] = False,
-        attn_kernel_enabled: Optional[bool] = False,
-        qkv_kernel_enabled: Optional[bool] = False,
-        mlp_kernel_enabled: Optional[bool] = False,
-        mlp_kernel_fuse_residual_add: Optional[bool] = False,
-        enable_bucketing: Optional[bool] = False,
-        target: Optional[str] = None,  # Set to "trn2" for trn2
-        logical_nc_config: Optional[int] = 1,
-        cc_pipeline_tiling_factor: Optional[int] = 2,
-        num_cores_per_group: Optional[int] = 1,
-        on_device_sampling: Optional[bool] = False,
-        max_topk: Optional[int] = 256,
-        start_rank_id: Optional[int] = 0,
-        local_ranks_size: Optional[int] = None,
+        batch_size: int | None = 1,
+        max_batch_size: int | None = None,
+        continuous_batching: bool | None = False,
+        speculation_length: int | None = 0,
+        sequence_length: int | None = 128,
+        tp_degree: int | None = 1,
+        ep_degree: int | None = 1,
+        pp_degree: int | None = 1,
+        torch_dtype: str | torch.dtype | None = torch.bfloat16,
+        rpl_reduce_dtype: str | torch.dtype | None = None,
+        n_active_tokens: int | None = None,
+        max_context_length: int | None = None,
+        output_logits: bool | None = False,
+        padding_side: str | None = "right",
+        fused_qkv: bool | None = False,
+        vocab_parallel: bool | None = False,
+        sequence_parallel_enabled: bool | None = False,
+        is_chunked_prefill: bool | None = False,
+        flash_decoding_enabled: bool | None = False,
+        async_mode: bool | None = False,
+        qk_layernorm: bool | None = False,
+        attn_kernel_enabled: bool | None = False,
+        qkv_kernel_enabled: bool | None = False,
+        mlp_kernel_enabled: bool | None = False,
+        mlp_kernel_fuse_residual_add: bool | None = False,
+        enable_bucketing: bool | None = False,
+        target: str | None = None,  # Set to "trn2" for trn2
+        logical_nc_config: int | None = 1,
+        cc_pipeline_tiling_factor: int | None = 2,
+        num_cores_per_group: int | None = 1,
+        on_device_sampling: bool | None = False,
+        max_topk: int | None = 256,
+        start_rank_id: int | None = 0,
+        local_ranks_size: int | None = None,
         capacity_factor: float = None,
         glu_mlp: bool = True,
     ) -> None:
@@ -214,7 +213,7 @@ class NxDNeuronConfig(NeuronConfig):
         return self.tp_degree * self.pp_degree * self.ep_degree
 
     @property
-    def weights_to_skip_layout_optimization(self) -> List[str]:
+    def weights_to_skip_layout_optimization(self) -> list[str]:
         """
         List of weights to skip layout optimization.
 

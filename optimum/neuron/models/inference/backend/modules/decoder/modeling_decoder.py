@@ -17,7 +17,6 @@ import logging
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import List, Optional, Tuple, Union
 
 import neuronx_distributed as nxd
 import torch
@@ -189,8 +188,8 @@ class NxDDecoderModel(nn.Module):
         sampling_params,
         scatter_index=None,
         # In llava context encoding model, input_embeds is precomputed
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        kv_cache: Optional[torch.Tensor] = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+        kv_cache: torch.Tensor | None = None,
     ):
         is_for_context_encoding = self._is_context_encoding(input_ids)
         is_for_speculation = self._is_for_speculation(input_ids)
@@ -313,12 +312,12 @@ class NxDDecoderModel(nn.Module):
     def get_model_output(
         self,
         input_ids: torch.LongTensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[List[torch.FloatTensor]] = None,
-        active_mask: Optional[List[torch.FloatTensor]] = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_values: list[torch.FloatTensor | None] = None,
+        active_mask: list[torch.FloatTensor | None] = None,
         # In llava context encoding model, input_embeds is precomputed
-        inputs_embeds: Optional[torch.FloatTensor] = None,
+        inputs_embeds: torch.FloatTensor | None = None,
     ):
         batch_size, seq_length = input_ids.shape[:2]
 
@@ -539,14 +538,14 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     def forward(
         self,
         input_ids: torch.LongTensor,
-        position_ids: Optional[torch.LongTensor],
-        seq_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        sampling_params: Optional[torch.FloatTensor] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[Tuple, CausalLMOutputWithPast]:
+        position_ids: torch.LongTensor | None,
+        seq_ids: torch.LongTensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        sampling_params: torch.FloatTensor | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+    ) -> Tuple | CausalLMOutputWithPast:
         if self.async_mode:
             # derive future cpu inputs from current cpu inputs
             if position_ids.shape[1] == input_ids.shape[1]:
@@ -736,7 +735,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         # context encoding model.
         self.kv_cache_populated = False
 
-    def get_required_kwargs(self) -> List[str]:
+    def get_required_kwargs(self) -> list[str]:
         """The list of required kwargs to the model's forward"""
         return []
 
@@ -765,15 +764,15 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     @classmethod
     def _from_pretrained(
         cls,
-        model_id: Union[str, "Path"],
+        model_id: str | "Path",
         config: "PretrainedConfig",
-        revision: Optional[str] = None,
-        token: Optional[Union[bool, str]] = None,
-        cache_dir: Optional[str] = None,
-        force_download: Optional[bool] = False,
-        subfolder: Optional[str] = "",
-        local_files_only: Optional[bool] = False,
-        trust_remote_code: Optional[bool] = False,
+        revision: str | None = None,
+        token: bool | str | None = None,
+        cache_dir: str | None = None,
+        force_download: bool | None = False,
+        subfolder: str | None = "",
+        local_files_only: bool | None = False,
+        trust_remote_code: bool | None = False,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         if len(kwargs) > 0:
@@ -821,15 +820,15 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     def export(
         cls,
         model_id: str,
-        config: Union["PretrainedConfig", None],
+        config: "PretrainedConfig" | None,
         neuron_config: "NxDNeuronConfig",
-        token: Optional[Union[bool, str]] = None,
-        revision: Optional[str] = None,
-        cache_dir: Optional[str] = None,
-        force_download: Optional[bool] = False,
-        subfolder: Optional[str] = "",
-        local_files_only: Optional[bool] = False,
-        trust_remote_code: Optional[bool] = False,
+        token: bool | str | None = None,
+        revision: str | None = None,
+        cache_dir: str | None = None,
+        force_download: bool | None = False,
+        subfolder: str | None = "",
+        local_files_only: bool | None = False,
+        trust_remote_code: bool | None = False,
         load_weights: bool = True,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
@@ -887,7 +886,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             )
         return model
 
-    def _save_pretrained(self, save_directory: Union[str, Path]):
+    def _save_pretrained(self, save_directory: str | Path):
         model_name_or_path = getattr(self.config, "_name_or_path")
         # If the model was exported from a local path, we need to save the checkpoint (not that we also shard it)
         weight_path = model_name_or_path if os.path.isdir(model_name_or_path) else None
@@ -897,10 +896,10 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         self,
         save_directory: str,
         repository_id: str,
-        private: Optional[bool] = None,
-        revision: Optional[str] = None,
-        token: Union[bool, str] = True,
-        endpoint: Optional[str] = None,
+        private: bool | None = None,
+        revision: str | None = None,
+        token: bool | str = True,
+        endpoint: str | None = None,
     ) -> str:
         api = HfApi(endpoint=endpoint)
 

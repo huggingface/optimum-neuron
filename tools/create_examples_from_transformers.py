@@ -20,7 +20,7 @@ import subprocess
 from argparse import ArgumentParser
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable
 
 from git import Repo
 
@@ -74,10 +74,10 @@ AWS_CODE = {
 
 
 def download_examples_from_transformers(
-    example_names: List[str],
-    dest_dir: Union[str, Path],
-    predicate: Optional[Callable[[Path], bool]] = None,
-    version: Optional[str] = None,
+    example_names: list[str],
+    dest_dir: str | Path,
+    predicate: Callable[[Path | None, bool]] = None,
+    version: str | None = None,
 ):
     if isinstance(dest_dir, str):
         dest_dir = Path(dest_dir)
@@ -116,7 +116,7 @@ def keep_only_examples_with_trainer_and_requirements_predicate(file_path: Path) 
     return is_python_or_text and is_supported and (not_a_no_trainer_script or is_requirements)
 
 
-def remove_import(pattern: re.Pattern, file_content: str) -> Tuple[str, str, int]:
+def remove_import(pattern: re.Pattern, file_content: str) -> tuple[str, str, int]:
     match_ = re.search(pattern, file_content)
     if match_ is None:
         raise ValueError(f"Could not find a match for pattern {pattern}.")

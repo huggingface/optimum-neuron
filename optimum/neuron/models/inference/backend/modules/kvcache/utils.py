@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/modules/kvcache/utils.py
-from typing import List
 
 import torch
 from torch_neuronx.xla_impl.ops import xla_hlo_call
@@ -28,7 +27,7 @@ def fill_prefix(tensor, update):
     return dtype[shape].DynamicUpdateSlice(tensor, update, *start_indices)
 
 
-def dynamic_update_slice(tensor: torch.Tensor, update: torch.Tensor, start_indices: List[torch.Tensor]):
+def dynamic_update_slice(tensor: torch.Tensor, update: torch.Tensor, start_indices: list[torch.Tensor]):
     """
     Directly invoke DynamicUpdateSlice XLA op
     https://openxla.org/xla/operation_semantics#dynamicupdateslice

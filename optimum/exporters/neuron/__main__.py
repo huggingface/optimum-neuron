@@ -23,7 +23,7 @@ os.environ["TORCHDYNAMO_DISABLE"] = "1"  # Always turn off torchdynamo as it's i
 from argparse import ArgumentParser
 from dataclasses import fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Union
 
 import torch
 from requests.exceptions import ConnectionError as RequestsConnectionError
@@ -96,7 +96,7 @@ logger = logging.get_logger()
 logger.setLevel(logging.INFO)
 
 
-def infer_compiler_kwargs(args: argparse.Namespace) -> Dict[str, Any]:
+def infer_compiler_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     # infer compiler kwargs
     auto_cast = None if args.auto_cast == "none" else args.auto_cast
     auto_cast_type = None if auto_cast is None else args.auto_cast_type
@@ -124,7 +124,7 @@ def infer_task(model_name_or_path: str) -> str:
 
 
 # This function is not applicable for diffusers / sentence transformers models
-def get_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int]:
+def get_input_shapes(task: str, args: argparse.Namespace) -> dict[str, int]:
     neuron_config_constructor = get_neuron_config_class(task, args.model)
     input_args = neuron_config_constructor.func.get_input_args_for_task(task)
     return {name: getattr(args, name) for name in input_args}
@@ -146,7 +146,7 @@ def get_neuron_config_class(task: str, model_id: str) -> NeuronExportConfig:
     return neuron_config_constructor
 
 
-def normalize_sentence_transformers_input_shapes(args: argparse.Namespace) -> Dict[str, int]:
+def normalize_sentence_transformers_input_shapes(args: argparse.Namespace) -> dict[str, int]:
     args = vars(args) if isinstance(args, argparse.Namespace) else args
     if "clip" in args.get("model", "").lower():
         mandatory_axes = {"text_batch_size", "image_batch_size", "sequence_length", "num_channels", "width", "height"}
@@ -161,7 +161,7 @@ def normalize_sentence_transformers_input_shapes(args: argparse.Namespace) -> Di
     return mandatory_shapes
 
 
-def customize_optional_outputs(args: argparse.Namespace) -> Dict[str, bool]:
+def customize_optional_outputs(args: argparse.Namespace) -> dict[str, bool]:
     """
     Customize optional outputs of the traced model, eg. if `output_attentions=True`, the attentions tensors will be traced.
     """
@@ -173,7 +173,7 @@ def customize_optional_outputs(args: argparse.Namespace) -> Dict[str, bool]:
     return customized_outputs
 
 
-def parse_optlevel(args: argparse.Namespace) -> Dict[str, bool]:
+def parse_optlevel(args: argparse.Namespace) -> dict[str, bool]:
     """
     (NEURONX ONLY) Parse the level of optimization the compiler should perform. If not specified apply `O2`(the best balance between model performance and compile time).
     """
@@ -193,7 +193,7 @@ def parse_optlevel(args: argparse.Namespace) -> Dict[str, bool]:
 
 def normalize_stable_diffusion_input_shapes(
     args: argparse.Namespace,
-) -> Dict[str, Dict[str, int]]:
+) -> dict[str, Dict[str, int]]:
     args = vars(args) if isinstance(args, argparse.Namespace) else args
     mandatory_axes = set(getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args"))
     mandatory_axes = mandatory_axes - {
@@ -216,8 +216,8 @@ def normalize_stable_diffusion_input_shapes(
 
 
 def infer_stable_diffusion_shapes_from_diffusers(
-    input_shapes: Dict[str, Dict[str, int]],
-    model: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
+    input_shapes: dict[str, Dict[str, int]],
+    model: "StableDiffusionPipeline" | "StableDiffusionXLPipeline",
     has_controlnets: bool,
 ):
     if model.tokenizer is not None:
@@ -304,8 +304,8 @@ def infer_stable_diffusion_shapes_from_diffusers(
 
 
 def get_submodels_and_neuron_configs(
-    model: Union["PreTrainedModel", "DiffusionPipeline"],
-    input_shapes: Dict[str, int],
+    model: "PreTrainedModel" | "DiffusionPipeline",
+    input_shapes: dict[str, int],
     task: str,
     output: Path,
     library_name: str,
@@ -313,12 +313,12 @@ def get_submodels_and_neuron_configs(
     subfolder: str = "",
     trust_remote_code: bool = False,
     dynamic_batch_size: bool = False,
-    model_name_or_path: Optional[Union[str, Path]] = None,
-    submodels: Optional[Dict[str, Union[Path, str]]] = None,
+    model_name_or_path: str | Path | None = None,
+    submodels: dict[str, Path | str | None] = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
-    controlnet_ids: Optional[Union[str, List[str]]] = None,
-    lora_args: Optional[LoRAAdapterArguments] = None,
+    controlnet_ids: Union[str, list[str | None]] = None,
+    lora_args: LoRAAdapterArguments | None = None,
 ):
     is_encoder_decoder = (
         getattr(model.config, "is_encoder_decoder", False) if isinstance(model.config, PretrainedConfig) else False
@@ -407,14 +407,14 @@ def _reorder_models_and_neuron_configs(models_and_neuron_configs):
 
 
 def _get_submodels_and_neuron_configs_for_stable_diffusion(
-    model: Union["PreTrainedModel", "DiffusionPipeline"],
-    input_shapes: Dict[str, int],
+    model: "PreTrainedModel" | "DiffusionPipeline",
+    input_shapes: dict[str, int],
     output: Path,
     dynamic_batch_size: bool = False,
-    submodels: Optional[Dict[str, Union[Path, str]]] = None,
+    submodels: dict[str, Path | str | None] = None,
     output_hidden_states: bool = False,
-    controlnet_ids: Optional[Union[str, List[str]]] = None,
-    lora_args: Optional[LoRAAdapterArguments] = None,
+    controlnet_ids: Union[str, list[str | None]] = None,
+    lora_args: LoRAAdapterArguments | None = None,
 ):
     check_compiler_compatibility_for_stable_diffusion()
     model = replace_stable_diffusion_submodels(model, submodels)
@@ -490,13 +490,13 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
 
 def _get_submodels_and_neuron_configs_for_encoder_decoder(
     model: "PreTrainedModel",
-    input_shapes: Dict[str, int],
+    input_shapes: dict[str, int],
     tensor_parallel_size: int,
     task: str,
     output: Path,
-    preprocessors: Optional[List] = None,
+    preprocessors: List | None = None,
     dynamic_batch_size: bool = False,
-    model_name_or_path: Optional[Union[str, Path]] = None,
+    model_name_or_path: str | Path | None = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
 ):
@@ -530,23 +530,23 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
 def load_models_and_neuron_configs(
     model_name_or_path: str,
     output: Path,
-    model: Optional[Union["PreTrainedModel", "ModelMixin"]],
+    model: "PreTrainedModel" | "ModelMixin" | None,
     task: str,
     dynamic_batch_size: bool,
-    cache_dir: Optional[str],
+    cache_dir: str | None,
     trust_remote_code: bool,
     subfolder: str,
     revision: str,
     library_name: str,
     force_download: bool,
     local_files_only: bool,
-    token: Optional[Union[bool, str]],
-    submodels: Optional[Dict[str, Union[Path, str]]],
-    torch_dtype: Optional[Union[str, torch.dtype]] = None,
+    token: bool | str | None,
+    submodels: dict[str, Path | str | None],
+    torch_dtype: str | torch.dtype | None = None,
     tensor_parallel_size: int = 1,
-    controlnet_ids: Optional[Union[str, List[str]]] = None,
-    lora_args: Optional[LoRAAdapterArguments] = None,
-    ip_adapter_args: Optional[IPAdapterArguments] = None,
+    controlnet_ids: Union[str, list[str | None]] = None,
+    lora_args: LoRAAdapterArguments | None = None,
+    ip_adapter_args: IPAdapterArguments | None = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     **input_shapes,
@@ -599,17 +599,17 @@ def load_models_and_neuron_configs(
 
 def main_export(
     model_name_or_path: str,
-    output: Union[str, Path],
-    compiler_kwargs: Dict[str, Any],
-    torch_dtype: Optional[Union[str, torch.dtype]] = None,
+    output: str | Path,
+    compiler_kwargs: dict[str, Any],
+    torch_dtype: str | torch.dtype | None = None,
     tensor_parallel_size: int = 1,
-    model: Optional[Union["PreTrainedModel", "ModelMixin"]] = None,
+    model: "PreTrainedModel" | "ModelMixin" | None = None,
     task: str = "auto",
     dynamic_batch_size: bool = False,
-    atol: Optional[float] = None,
-    cache_dir: Optional[str] = None,
-    disable_neuron_cache: Optional[bool] = False,
-    compiler_workdir: Optional[Union[str, Path]] = None,
+    atol: float | None = None,
+    cache_dir: str | None = None,
+    disable_neuron_cache: bool | None = False,
+    compiler_workdir: str | Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
     trust_remote_code: bool = False,
@@ -617,15 +617,15 @@ def main_export(
     revision: str = "main",
     force_download: bool = False,
     local_files_only: bool = False,
-    token: Optional[Union[bool, str]] = None,
+    token: bool | str | None = None,
     do_validation: bool = True,
-    submodels: Optional[Dict[str, Union[Path, str]]] = None,
+    submodels: dict[str, Path | str | None] = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
-    library_name: Optional[str] = None,
-    controlnet_ids: Optional[Union[str, List[str]]] = None,
-    lora_args: Optional[LoRAAdapterArguments] = None,
-    ip_adapter_args: Optional[IPAdapterArguments] = None,
+    library_name: str | None = None,
+    controlnet_ids: Union[str, list[str | None]] = None,
+    lora_args: LoRAAdapterArguments | None = None,
+    ip_adapter_args: IPAdapterArguments | None = None,
     **input_shapes,
 ):
     output = Path(output)
@@ -717,9 +717,9 @@ def main_export(
 
 def maybe_export_from_neuron_model_class(
     model: str,
-    output: Union[str, Path],
+    output: str | Path,
     task: str = "auto",
-    cache_dir: Optional[str] = None,
+    cache_dir: str | None = None,
     subfolder: str = "",
     trust_remote_code: bool = False,
     **kwargs,

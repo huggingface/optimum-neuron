@@ -16,7 +16,7 @@
 import copy
 import json
 from tempfile import TemporaryDirectory
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Union
 
 from huggingface_hub import HfApi
 from transformers import PretrainedConfig
@@ -28,7 +28,7 @@ NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names", "model_type"]
 
 
 def _exclude_white_list_from_config(
-    config: Dict, white_list: Optional[List] = None, neuron_white_list: Optional[List] = None
+    config: Dict, white_list: List | None = None, neuron_white_list: List | None = None
 ):
     if white_list is None:
         white_list = CACHE_WHITE_LIST
@@ -47,9 +47,9 @@ def _exclude_white_list_from_config(
 
 
 def _clean_configs(
-    configs: Dict[str, Union[PretrainedConfig, Dict[str, Any]]],
-    white_list: Optional[List] = None,
-    neuron_white_list: Optional[List] = None,
+    configs: dict[str, Union[PretrainedConfig, Dict[str, Any]]],
+    white_list: List | None = None,
+    neuron_white_list: List | None = None,
 ):
     """Only applied on traced TorchScript models."""
     clean_configs = {}
@@ -97,12 +97,12 @@ class MultiModelCacheEntry(ModelCacheEntry):
             The model id, used as a key for the cache entry.
         model_type (`str`):
             The model type, also used as a key for the cache entry.
-        configs (`Dict[str, Dict[str, Any]]`):
+        configs (`dict[str, Dict[str, Any]]`):
             The configurations for the multi models pipeline.
 
     """
 
-    def __init__(self, model_id: str, configs: Dict[str, Union[PretrainedConfig, Dict[str, Any]]]):
+    def __init__(self, model_id: str, configs: dict[str, Union[PretrainedConfig, Dict[str, Any]]]):
         self._configs = _clean_configs(configs)
         if "unet" in self._configs:
             model_type = "stable-diffusion"
@@ -118,15 +118,15 @@ class MultiModelCacheEntry(ModelCacheEntry):
 
     # ModelCacheEntry API implementation
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return self._configs
 
     @classmethod
-    def from_dict(cls, model_id: str, configs: Dict[str, Any]) -> "MultiModelCacheEntry":
+    def from_dict(cls, model_id: str, configs: dict[str, Any]) -> "MultiModelCacheEntry":
         return cls(model_id=model_id, configs=configs)
 
     @property
-    def neuron_config(self) -> Dict[str, Any]:
+    def neuron_config(self) -> dict[str, Any]:
         # FIXME: Return neuron config of one of the models
         if self.model_type == "stable-diffusion":
             config = self._configs["unet"]
@@ -149,7 +149,7 @@ class MultiModelCacheEntry(ModelCacheEntry):
 
             # We only verify that one of the configs contains the other
             # This is because the configs are stripped down when serialized
-            def contains(container: Dict[str, Any], containee: Dict[str, Any]):
+            def contains(container: dict[str, Any], containee: dict[str, Any]):
                 for name, value in containee.items():
                     if name not in container:
                         return False

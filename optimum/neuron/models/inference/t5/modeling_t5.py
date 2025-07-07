@@ -15,8 +15,6 @@
 # Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/models/llama/modeling_llama.py
 """PyTorch T5 model for NXD inference."""
 
-from typing import Optional
-
 import torch
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import (
@@ -87,7 +85,7 @@ class NeuronT5Attention(T5Attention):
         self,
         config: T5Config,
         has_relative_attention_bias=False,
-        layer_idx: Optional[int] = None,
+        layer_idx: int | None = None,
     ):
         super().__init__(config, has_relative_attention_bias, layer_idx)
         # Per attention head and per partition values
@@ -267,7 +265,7 @@ class NeuronT5Attention(T5Attention):
 
 
 class NeuronT5LayerSelfAttention(T5LayerSelfAttention):
-    def __init__(self, config, has_relative_attention_bias=False, layer_idx: Optional[int] = None):
+    def __init__(self, config, has_relative_attention_bias=False, layer_idx: int | None = None):
         super().__init__(config, has_relative_attention_bias=False, layer_idx=layer_idx)
         self.SelfAttention = NeuronT5Attention(
             config,
@@ -279,7 +277,7 @@ class NeuronT5LayerSelfAttention(T5LayerSelfAttention):
 
 
 class NeuronT5LayerCrossAttention(T5LayerCrossAttention):
-    def __init__(self, config, layer_idx: Optional[int] = None):
+    def __init__(self, config, layer_idx: int | None = None):
         super().__init__(config)
         self.EncDecAttention = NeuronT5Attention(config, has_relative_attention_bias=False, layer_idx=layer_idx)
         self.layer_norm = T5LayerNorm(config.d_model, eps=config.layer_norm_epsilon)

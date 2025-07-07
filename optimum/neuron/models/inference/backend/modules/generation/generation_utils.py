@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import copy
-from typing import Any, Dict, Optional, Union
+from typing import Any
 
 import torch
 from transformers import GenerationConfig
@@ -50,8 +50,8 @@ class NxDGenerationMixin(GenerationMixin):
     def generate(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        generation_config: Optional["GenerationConfig"] = None,
+        attention_mask: torch.Tensor | None = None,
+        generation_config: "GenerationConfig" | None = None,
         **kwargs,
     ):
         # Sanity check
@@ -77,9 +77,9 @@ class NxDGenerationMixin(GenerationMixin):
         logits_processor: LogitsProcessorList,
         stopping_criteria: StoppingCriteriaList,
         generation_config: GenerationConfig,
-        logits_warper: Optional[LogitsProcessorList] = None,
+        logits_warper: LogitsProcessorList | None = None,
         **model_kwargs,
-    ) -> Union[SampleDecoderOnlyOutput, torch.LongTensor]:
+    ) -> SampleDecoderOnlyOutput | torch.LongTensor:
         r"""
         We override the GenerationMixin sample function (_sample for transformers>=4.39.0) to add support for right side padding.
         """
@@ -243,9 +243,9 @@ class NxDGenerationMixin(GenerationMixin):
     def _update_model_kwargs_for_generation(
         self,
         outputs: ModelOutput,
-        model_kwargs: Dict[str, Any],
+        model_kwargs: dict[str, Any],
         is_for_token_generation: bool,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if getattr(outputs, "state", None) is not None:
             model_kwargs["state"] = outputs.state
 

@@ -18,7 +18,6 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, Union
 
 import torch
 from huggingface_hub import HfApi
@@ -63,7 +62,7 @@ NEURON_CAUSALLM_MODEL_GENERATE_DOCSTRING = r"""
             priority: 1) from the `generation_config.json` model file, if it exists; 2) from the model
             configuration. Please note that unspecified parameters will inherit [`~transformers.generation.GenerationConfig`]'s
             default values, whose documentation should be checked to parameterize generation.
-        stopping_criteria (`Optional[transformers.generation.StoppingCriteriaList], defaults to `None`):
+        stopping_criteria (`transformers.generation.StoppingCriteriaList | None, defaults to `None`):
             Custom stopping criteria that complement the default stopping criteria built from arguments and a
             generation config.
 
@@ -109,14 +108,14 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
     @classmethod
     def get_neuron_config(
         cls,
-        model_name_or_path: Union[str, Path],
+        model_name_or_path: str | Path,
         config: "PretrainedConfig",
-        token: Optional[Union[bool, str]] = None,
-        revision: Optional[str] = None,
-        batch_size: Optional[int] = None,
-        sequence_length: Optional[int] = None,
-        tensor_parallel_size: Optional[int] = None,
-        auto_cast_type: Optional[str] = None,
+        token: bool | str | None = None,
+        revision: str | None = None,
+        batch_size: int | None = None,
+        sequence_length: int | None = None,
+        tensor_parallel_size: int | None = None,
+        auto_cast_type: str | None = None,
     ):
         """
         Get the Neuron configuration for the target model class.
@@ -200,13 +199,13 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         cls,
         model_id: str,
         config: "PretrainedConfig",
-        token: Optional[Union[bool, str]] = None,
-        revision: Optional[str] = None,
-        batch_size: Optional[int] = None,
-        sequence_length: Optional[int] = None,
-        num_cores: Optional[int] = None,
-        auto_cast_type: Optional[str] = "bf16",
-        task: Optional[str] = "text-generation",
+        token: bool | str | None = None,
+        revision: str | None = None,
+        batch_size: int | None = None,
+        sequence_length: int | None = None,
+        num_cores: int | None = None,
+        auto_cast_type: str | None = "bf16",
+        task: str | None = "text-generation",
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         """Implementation of the `optimum.OptimizedModel._export` method.
@@ -270,7 +269,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
     @classmethod
     def _from_pretrained(
         cls,
-        model_id: Union[str, "Path"],
+        model_id: str | "Path",
         config: "PretrainedConfig",
         **kwargs,
     ) -> "NeuronModelForCausalLM":
@@ -289,9 +288,9 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
     def generate(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        generation_config: Optional["GenerationConfig"] = None,
-        stopping_criteria: Optional["StoppingCriteriaList"] = None,
+        attention_mask: torch.Tensor | None = None,
+        generation_config: "GenerationConfig" | None = None,
+        stopping_criteria: "StoppingCriteriaList" | None = None,
         **kwargs,
     ) -> torch.LongTensor:
         raise NotImplementedError
@@ -315,9 +314,9 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         model_id: str,
         config: "PretrainedConfig",
         neuron_config: "NeuronConfig",
-        token: Optional[Union[bool, str]] = None,
-        revision: Optional[str] = None,
-        load_weights: Optional[bool] = True,
+        token: bool | str | None = None,
+        revision: str | None = None,
+        load_weights: bool | None = True,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         """Export the model to Neuron format.

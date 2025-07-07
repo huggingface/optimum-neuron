@@ -25,7 +25,7 @@ from collections import OrderedDict
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Literal, Union
 
 import torch
 from huggingface_hub import snapshot_download
@@ -143,77 +143,77 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
     def __init__(
         self,
-        config: Dict[str, Any],
-        configs: Dict[str, "PretrainedConfig"],
-        neuron_configs: Dict[str, "NeuronDefaultConfig"],
+        config: dict[str, Any],
+        configs: dict[str, "PretrainedConfig"],
+        neuron_configs: dict[str, "NeuronDefaultConfig"],
         data_parallel_mode: Literal["none", "unet", "transformer", "all"],
-        scheduler: Optional[SchedulerMixin],
-        vae_decoder: Union[torch.jit._script.ScriptModule, "NeuronModelVaeDecoder"],
-        text_encoder: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelTextEncoder"]] = None,
-        text_encoder_2: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelTextEncoder"]] = None,
-        unet: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelUnet"]] = None,
-        transformer: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelTransformer"]] = None,
-        vae_encoder: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelVaeEncoder"]] = None,
-        image_encoder: Optional[torch.jit._script.ScriptModule] = None,
-        safety_checker: Optional[torch.jit._script.ScriptModule] = None,
-        tokenizer: Optional[Union[CLIPTokenizer, T5Tokenizer]] = None,
-        tokenizer_2: Optional[CLIPTokenizer] = None,
-        feature_extractor: Optional[CLIPFeatureExtractor] = None,
-        controlnet: Optional[
-            Union[
-                torch.jit._script.ScriptModule,
-                List[torch.jit._script.ScriptModule],
+        scheduler: SchedulerMixin | None,
+        vae_decoder: torch.jit._script.ScriptModule | "NeuronModelVaeDecoder",
+        text_encoder: torch.jit._script.ScriptModule | "NeuronModelTextEncoder" | None = None,
+        text_encoder_2: torch.jit._script.ScriptModule | "NeuronModelTextEncoder" | None = None,
+        unet: torch.jit._script.ScriptModule | "NeuronModelUnet" | None = None,
+        transformer: torch.jit._script.ScriptModule | "NeuronModelTransformer" | None = None,
+        vae_encoder: torch.jit._script.ScriptModule | "NeuronModelVaeEncoder" | None = None,
+        image_encoder: torch.jit._script.ScriptModule | None = None,
+        safety_checker: torch.jit._script.ScriptModule | None = None,
+        tokenizer: CLIPTokenizer | T5Tokenizer | None = None,
+        tokenizer_2: CLIPTokenizer | None = None,
+        feature_extractor: CLIPFeatureExtractor | None = None,
+        controlnet: Union[
+            torch.jit._script.ScriptModule,
+            list[
+                torch.jit._script.ScriptModule | None,
                 "NeuronControlNetModel",
                 "NeuronMultiControlNetModel",
-            ]
+            ],
         ] = None,
         # stable diffusion xl specific arguments
         requires_aesthetics_score: bool = False,
         force_zeros_for_empty_prompt: bool = True,
-        add_watermarker: Optional[bool] = None,
-        model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        model_and_config_save_paths: Optional[Dict[str, Tuple[str, Path]]] = None,
+        add_watermarker: bool | None = None,
+        model_save_dir: str | Path | TemporaryDirectory | None = None,
+        model_and_config_save_paths: dict[str, tuple[str, Path | None]] = None,
     ):
         """
         Args:
-            config (`Dict[str, Any]`):
+            config (`dict[str, Any]`):
                 A config dictionary from which the model components will be instantiated. Make sure to only load
                 configuration files of compatible classes.
-            configs (Dict[str, "PretrainedConfig"], defaults to `None`):
+            configs (dict[str, "PretrainedConfig"], defaults to `None`):
                 A dictionary configurations for components of the pipeline.
-            neuron_configs (Dict[str, "NeuronDefaultConfig"], defaults to `None`):
+            neuron_configs (dict[str, "NeuronDefaultConfig"], defaults to `None`):
                 A list of Neuron configurations related to the compilation.
             data_parallel_mode (`Literal["none", "unet", "all"]`):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
                 load unet into both cores of each device), "all"(load the whole pipeline into both cores).
-            scheduler (`Optional[SchedulerMixin]`):
+            scheduler (`SchedulerMixin | None`):
                 A scheduler to be used in combination with the U-NET component to denoise the encoded image latents.
-            vae_decoder (`Union[torch.jit._script.ScriptModule, "NeuronModelVaeDecoder"]`):
+            vae_decoder (`torch.jit._script.ScriptModule | "NeuronModelVaeDecoder"`):
                 The Neuron TorchScript module associated to the VAE decoder.
-            text_encoder (`Optional[Union[torch.jit._script.ScriptModule, "NeuronModelTextEncoder"]]`, defaults to `None`):
+            text_encoder (`torch.jit._script.ScriptModule | "NeuronModelTextEncoder" | None`, defaults to `None`):
                 The Neuron TorchScript module associated to the text encoder.
-            text_encoder_2 (`Optional[Union[torch.jit._script.ScriptModule, "NeuronModelTextEncoder"]]`, defaults to `None`):
+            text_encoder_2 (`torch.jit._script.ScriptModule | "NeuronModelTextEncoder" | None`, defaults to `None`):
                 The Neuron TorchScript module associated to the second frozen text encoder. Stable Diffusion XL uses the text and pool portion of [CLIP](https://huggingface.co/docs/transformers/model_doc/clip#transformers.CLIPTextModelWithProjection), specifically the [laion/CLIP-ViT-bigG-14-laion2B-39B-b160k](https://huggingface.co/laion/CLIP-ViT-bigG-14-laion2B-39B-b160k) variant.
-            unet (`Optional[Union[torch.jit._script.ScriptModule, "NeuronModelUnet"]]`, defaults to `None`):
+            unet (`torch.jit._script.ScriptModule | "NeuronModelUnet" | None`, defaults to `None`):
                 The Neuron TorchScript module associated to the U-NET.
-            transformer (`Optional[Union[torch.jit._script.ScriptModule, "NeuronModelTransformer"]]`, defaults to `None`):
+            transformer (`torch.jit._script.ScriptModule | "NeuronModelTransformer" | None`, defaults to `None`):
                 The Neuron TorchScript module associated to the diffuser transformer.
-            vae_encoder (`Optional[Union[torch.jit._script.ScriptModule, "NeuronModelVaeEncoder"]]`, defaults to `None`):
+            vae_encoder (`torch.jit._script.ScriptModule | "NeuronModelVaeEncoder" | None`, defaults to `None`):
                 The Neuron TorchScript module associated to the VAE encoder.
-            image_encoder (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
+            image_encoder (`torch.jit._script.ScriptModule | None`, defaults to `None`):
                 The Neuron TorchScript module associated to the frozen CLIP image-encoder.
-            safety_checker (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
+            safety_checker (`torch.jit._script.ScriptModule | None`, defaults to `None`):
                 The Neuron TorchScript module associated to the Classification module that estimates whether generated images could be considered offensive or harmful.
-            tokenizer (`Optional[Union[CLIPTokenizer, T5Tokenizer]]`, defaults to `None`):
+            tokenizer (`CLIPTokenizer | T5Tokenizer | None`, defaults to `None`):
                 Tokenizer of class
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer) for stable diffusion models,
                 or tokenizer of class [T5Tokenizer](https://huggingface.co/docs/transformers/model_doc/t5#transformers.T5Tokenizer) for diffusion transformers.
-            tokenizer_2 (`Optional[CLIPTokenizer]`, defaults to `None`):
+            tokenizer_2 (`CLIPTokenizer | None`, defaults to `None`):
                 Second tokenizer of class
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
-            feature_extractor (`Optional[CLIPFeatureExtractor]`, defaults to `None`):
+            feature_extractor (`CLIPFeatureExtractor | None`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
-            controlnet (`Optional[Union[torch.jit._script.ScriptModule, List[torch.jit._script.ScriptModule], "NeuronControlNetModel", "NeuronMultiControlNetModel"]]`, defaults to `None`):
+            controlnet (`Union[torch.jit._script.ScriptModule, list[torch.jit._script.ScriptModule | None, "NeuronControlNetModel", "NeuronMultiControlNetModel"]]`, defaults to `None`):
                 The Neuron TorchScript module(s) associated to the ControlNet(s).
             requires_aesthetics_score (`bool`, defaults to `False`):
                 Whether the `unet` requires an `aesthetic_score` condition to be passed during inference. Also see the
@@ -221,13 +221,13 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             force_zeros_for_empty_prompt (`bool`, defaults to `True`):
                 Whether the negative prompt embeddings shall be forced to always be set to 0. Also see the config of
                 `stabilityai/stable-diffusion-xl-base-1-0`.
-            add_watermarker (`Optional[bool]`, defaults to `None`):
+            add_watermarker (`bool | None`, defaults to `None`):
                 Whether to use the [invisible_watermark library](https://github.com/ShieldMnt/invisible-watermark/) to
                 watermark output images. If not defined, it will default to True if the package is installed, otherwise no
                 watermarker will be used.
-            model_save_dir (`Optional[Union[str, Path, TemporaryDirectory]]`, defaults to `None`):
+            model_save_dir (`str | Path | TemporaryDirectory | None`, defaults to `None`):
                 The directory under which the exported Neuron models were saved.
-            model_and_config_save_paths (`Optional[Dict[str, Tuple[str, Path]]]`, defaults to `None`):
+            model_and_config_save_paths (`dict[str, tuple[str, Path | None]]`, defaults to `None`):
                 The paths where exported Neuron models were saved.
         """
 
@@ -403,15 +403,15 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
     @staticmethod
     @requires_torch_neuronx
     def load_model(
-        data_parallel_mode: Optional[Literal["none", "unet", "transformer", "all"]],
-        text_encoder_path: Optional[Union[str, Path]] = None,
-        text_encoder_2_path: Optional[Union[str, Path]] = None,
-        image_encoder_path: Optional[Union[str, Path]] = None,
-        unet_path: Optional[Union[str, Path]] = None,
-        transformer_path: Optional[Union[str, Path]] = None,
-        vae_encoder_path: Optional[Union[str, Path]] = None,
-        vae_decoder_path: Optional[Union[str, Path]] = None,
-        controlnet_paths: Optional[List[Path]] = None,
+        data_parallel_mode: Literal["none", "unet", "transformer", "all" | None],
+        text_encoder_path: str | Path | None = None,
+        text_encoder_2_path: str | Path | None = None,
+        image_encoder_path: str | Path | None = None,
+        unet_path: str | Path | None = None,
+        transformer_path: str | Path | None = None,
+        vae_encoder_path: str | Path | None = None,
+        vae_decoder_path: str | Path | None = None,
+        controlnet_paths: list[Path | None] = None,
         dynamic_batch_size: bool = False,
         to_neuron: bool = False,
     ):
@@ -420,24 +420,24 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         one or multiple [NeuronCore](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/neuroncores-arch.html).
 
         Args:
-            data_parallel_mode (`Optional[Literal["none", "unet", "all"]]`):
+            data_parallel_mode (`Literal["none", "unet", "all" | None]`):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
                 load unet into both cores of each device), "all"(load the whole pipeline into both cores).
-            text_encoder_path (`Union[str, Path]`, defaults to `None`):
+            text_encoder_path (`str | Path`, defaults to `None`):
                 Path of the compiled text encoder.
-            text_encoder_2_path (`Optional[Union[str, Path]]`, defaults to `None`):
+            text_encoder_2_path (`str | Path | None`, defaults to `None`):
                 Path of the compiled second frozen text encoder. SDXL only.
-            image_encoder_path (`Optional[Union[str, Path]]`, defaults to `None`):
+            image_encoder_path (`str | Path | None`, defaults to `None`):
                 Path of the compiled image encoder.
-            unet_path (`Optional[Union[str, Path]]`, defaults to `None`):
+            unet_path (`str | Path | None`, defaults to `None`):
                 Path of the compiled U-NET.
-            transformer_path (`Optional[Union[str, Path]]`, defaults to `None`):
+            transformer_path (`str | Path | None`, defaults to `None`):
                 Path of the compiled diffusion transformer.
-            vae_encoder_path (`Optional[Union[str, Path]]`, defaults to `None`):
+            vae_encoder_path (`str | Path | None`, defaults to `None`):
                 Path of the compiled VAE encoder. It is optional, only used for tasks taking images as input.
-            vae_decoder_path (`Optional[Union[str, Path]]`, defaults to `None`):
+            vae_decoder_path (`str | Path | None`, defaults to `None`):
                 Path of the compiled VAE decoder.
-            controlnet_paths (`Optional[List[Path]]`, defaults to `None`):
+            controlnet_paths (`list[Path | None]`, defaults to `None`):
                 Path of the compiled controlnets.
             dynamic_batch_size (`bool`, defaults to `False`):
                 Whether enable dynamic batch size for neuron compiled model. If `True`, the input batch size can be a multiple of the batch size during the compilation.
@@ -533,7 +533,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         return submodels
 
-    def replace_weights(self, weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]] = None):
+    def replace_weights(self, weights: Union[dict[str, torch.Tensor | None, torch.nn.Module]] = None):
         check_if_weights_replacable(self.configs, weights)
         model_names = [
             "text_encoder",
@@ -570,7 +570,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
     def _save_pretrained(
         self,
-        save_directory: Union[str, Path],
+        save_directory: str | Path,
         text_encoder_file_name: str = NEURON_FILE_NAME,
         text_encoder_2_file_name: str = NEURON_FILE_NAME,
         unet_file_name: str = NEURON_FILE_NAME,
@@ -680,23 +680,23 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
     @requires_torch_neuronx
     def _from_pretrained(
         cls,
-        model_id: Union[str, Path],
-        config: Dict[str, Any],
-        token: Optional[Union[bool, str]] = None,
-        revision: Optional[str] = None,
+        model_id: str | Path,
+        config: dict[str, Any],
+        token: bool | str | None = None,
+        revision: str | None = None,
         force_download: bool = False,
-        cache_dir: Optional[str] = None,
-        text_encoder_file_name: Optional[str] = NEURON_FILE_NAME,
-        text_encoder_2_file_name: Optional[str] = NEURON_FILE_NAME,
-        unet_file_name: Optional[str] = NEURON_FILE_NAME,
-        transformer_file_name: Optional[str] = NEURON_FILE_NAME,
-        vae_encoder_file_name: Optional[str] = NEURON_FILE_NAME,
-        vae_decoder_file_name: Optional[str] = NEURON_FILE_NAME,
-        controlnet_file_name: Optional[str] = NEURON_FILE_NAME,
-        image_encoder_file_name: Optional[str] = NEURON_FILE_NAME,
+        cache_dir: str | None = None,
+        text_encoder_file_name: str | None = NEURON_FILE_NAME,
+        text_encoder_2_file_name: str | None = NEURON_FILE_NAME,
+        unet_file_name: str | None = NEURON_FILE_NAME,
+        transformer_file_name: str | None = NEURON_FILE_NAME,
+        vae_encoder_file_name: str | None = NEURON_FILE_NAME,
+        vae_decoder_file_name: str | None = NEURON_FILE_NAME,
+        controlnet_file_name: str | None = NEURON_FILE_NAME,
+        image_encoder_file_name: str | None = NEURON_FILE_NAME,
         local_files_only: bool = False,
-        model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        data_parallel_mode: Optional[Literal["none", "unet", "transformer", "all"]] = None,
+        model_save_dir: str | Path | TemporaryDirectory | None = None,
+        data_parallel_mode: Literal["none", "unet", "transformer", "all" | None] = None,
         **kwargs,  # To share kwargs only available for `_from_transformers`
     ):
         model_id = str(model_id)
@@ -859,49 +859,49 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
     @requires_torch_neuronx
     def _export(
         cls,
-        model_id: Union[str, Path],
-        config: Dict[str, Any],
-        torch_dtype: Optional[Union[str, torch.dtype]] = None,
-        unet_id: Optional[Union[str, Path]] = None,
-        token: Optional[Union[bool, str]] = None,
+        model_id: str | Path,
+        config: dict[str, Any],
+        torch_dtype: str | torch.dtype | None = None,
+        unet_id: str | Path | None = None,
+        token: bool | str | None = None,
         revision: str = "main",
         force_download: bool = True,
-        cache_dir: Optional[str] = None,
-        compiler_workdir: Optional[str] = None,
-        tensor_parallel_size: Optional[int] = 1,
+        cache_dir: str | None = None,
+        compiler_workdir: str | None = None,
+        tensor_parallel_size: int | None = 1,
         disable_neuron_cache: bool = False,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
-        task: Optional[str] = None,
-        auto_cast: Optional[str] = "matmul",
-        auto_cast_type: Optional[str] = "bf16",
+        task: str | None = None,
+        auto_cast: str | None = "matmul",
+        auto_cast_type: str | None = "bf16",
         dynamic_batch_size: bool = False,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
-        data_parallel_mode: Optional[Literal["none", "unet", "transformer", "all"]] = None,
-        controlnet_ids: Optional[Union[str, List[str]]] = None,
+        data_parallel_mode: Literal["none", "unet", "transformer", "all" | None] = None,
+        controlnet_ids: Union[str, list[str | None]] = None,
         **kwargs,
     ) -> "NeuronDiffusionPipelineBase":
         """
         Args:
-            model_id (`Union[str, Path]`):
+            model_id (`str | Path`):
                 Can be either:
                 - A string, the *model id* of a pretrained model hosted inside a model repo on huggingface.co.
                     Valid model ids can be located at the root-level, like `bert-base-uncased`, or namespaced under a
                     user or organization name, like `dbmdz/bert-base-german-cased`.
                 - A path to a *directory* containing a model saved using [`~OptimizedModel.save_pretrained`],
                     e.g., `./my_model_directory/`.
-            config (`Dict[str, Any]`):
+            config (`dict[str, Any]`):
                 A config dictionary from which the model components will be instantiated. Make sure to only load
                 configuration files of compatible classes.
-            torch_dtype (`Optional[Union[str, torch.dtype]]`, defaults to `None`):
+            torch_dtype (`str | torch.dtype | None`, defaults to `None`):
                 Override the default `torch.dtype` and load the model under this dtype. If `auto` is passed, the dtype will be automatically derived from the model's weights.
-            unet_id (`Optional[Union[str, Path]]`, defaults to `None`):
+            unet_id (`str | Path | None`, defaults to `None`):
                 A string or a path point to the U-NET model to replace the one in the original pipeline.
-            token (`Optional[Union[bool, str]]`, defaults to `None`):
+            token (`bool | str | None`, defaults to `None`):
                 The token to use as HTTP bearer authorization for remote files. If `True`, will use the token generated
                 when running `huggingface-cli login` (stored in `huggingface_hub.constants.HF_TOKEN_PATH`).
             revision (`str`, defaults to `"main"`):
@@ -909,10 +909,10 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             force_download (`bool`, defaults to `True`):
                 Whether or not to force the (re-)download of the model weights and configuration files, overriding the
                 cached versions if they exist.
-            cache_dir (`Optional[str]`, defaults to `None`):
+            cache_dir (`str | None`, defaults to `None`):
                 Path to a directory in which a downloaded pretrained model configuration should be cached if the
                 standard cache should not be used.
-            compiler_workdir (`Optional[str]`, defaults to `None`):
+            compiler_workdir (`str | None`, defaults to `None`):
                 Path to a directory in which the neuron compiler will store all intermediary files during the compilation(neff, weight, hlo graph...).
             disable_neuron_cache (`bool`, defaults to `False`):
                 Whether to disable automatic caching of compiled models. If set to True, will not load neuron cache nor cache the compiled artifacts.
@@ -932,37 +932,37 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 Whether or not to allow for custom code defined on the Hub in their own modeling. This option should only be set
                 to `True` for repositories you trust and in which you have read the code, as it will execute code present on
                 the Hub on your local machine.
-            task (`Optional[str]`, defaults to `None`):
+            task (`str | None`, defaults to `None`):
                 The task to export the model for. If not specified, the task will be auto-inferred based on the model.
-            auto_cast (`Optional[str]`, defaults to `"matmul"`):
+            auto_cast (`str | None`, defaults to `"matmul"`):
                 Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmul"` or `"all"`.
-            auto_cast_type (`Optional[str]`, defaults to `"bf16"`):
+            auto_cast_type (`str | None`, defaults to `"bf16"`):
                 The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
             dynamic_batch_size (`bool`, defaults to `False`):
                 Whether to enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can be a multiple of the
                 batch size during the compilation, but it comes with a potential tradeoff in terms of latency.
             output_hidden_states (`bool`, defaults to `False`):
                 Whether or not for the traced text encoders to return the hidden states of all layers.
-            data_parallel_mode (`Optional[Literal["none", "unet", "transformer", "all"]]`, defaults to `None`):
+            data_parallel_mode (`Literal["none", "unet", "transformer", "all" | None]`, defaults to `None`):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
                 load unet into both cores of each device), "all"(load the whole pipeline into both cores).
-            lora_model_ids (`Optional[Union[str, List[str]]]`, defaults to `None`):
+            lora_model_ids (`Union[str, list[str | None]]`, defaults to `None`):
                 Lora model local paths or repo ids (eg. `ostris/super-cereal-sdxl-lora`) on the Hugginface Hub.
-            lora_weight_names (`Optional[Union[str, List[str]]]`, defaults to `None`):
+            lora_weight_names (`Union[str, list[str | None]]`, defaults to `None`):
                 Lora weights file names.
-            lora_adapter_names (`Optional[Union[str, List[str]]]`, defaults to `None`):
+            lora_adapter_names (`Union[str, list[str | None]]`, defaults to `None`):
                 Adapter names to be used for referencing the loaded adapter models.
-            lora_scales (`Optional[List[float]]`, defaults to `None`):
+            lora_scales (`list[float | None]`, defaults to `None`):
                 Lora adapters scaling factors.
-            controlnet_ids (`Optional[Union[str, List[str]]]`, defaults to `None`):
+            controlnet_ids (`Union[str, list[str | None]]`, defaults to `None`):
                 List of ControlNet model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`)."
-            ip_adapter_ids (`Optional[Union[str, List[str]]]`, defaults to `None`):
+            ip_adapter_ids (`Union[str, list[str | None]]`, defaults to `None`):
                 Model ids (eg. `h94/IP-Adapter`) of IP-Adapter models hosted on the Hub or paths to local directories containing the IP-Adapter weights.
-            ip_adapter_subfolders (`Optional[Union[str, List[str]]]`, defaults to `None`):
+            ip_adapter_subfolders (`Union[str, list[str | None]]`, defaults to `None`):
                 The subfolder location of a model file within a larger model repository on the Hub or locally. If a list is passed, it should have the same length as `ip_adapter_weight_names`.
-            ip_adapter_weight_names (`Optional[Union[str, List[str]]]`, defaults to `None`):
+            ip_adapter_weight_names (`Union[str, list[str | None]]`, defaults to `None`):
                 The name of the weight file to load. If a list is passed, it should have the same length as `ip_adapter_subfolders`.
-            ip_adapter_scales (`Optional[Union[float, List[float]]]`, defaults to `None`):
+            ip_adapter_scales (`Union[float, list[float | None]]`, defaults to `None`):
                 Scaling factors for the IP-Adapters.
         """
         # Parse kwargs to their dataclass
@@ -1118,14 +1118,14 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         )
 
     @classmethod
-    def _load_config(cls, config_name_or_path: Union[str, os.PathLike], **kwargs):
+    def _load_config(cls, config_name_or_path: str | os.PathLike, **kwargs):
         return cls.load_config(config_name_or_path, **kwargs)
 
     def _save_config(self, save_directory):
         self.save_config(save_directory)
 
     @property
-    def components(self) -> Dict[str, Any]:
+    def components(self) -> dict[str, Any]:
         components = {
             "vae_encoder": self.vae_encoder,
             "vae_decoder": self.vae_decoder,
@@ -1186,10 +1186,10 @@ class _NeuronDiffusionModelPart:
         self,
         model: torch.jit._script.ScriptModule,
         parent_pipeline: NeuronDiffusionPipelineBase,
-        config: Optional[Union[DiffusersPretrainedConfig, PretrainedConfig]] = None,
-        neuron_config: Optional["NeuronDefaultConfig"] = None,
+        config: DiffusersPretrainedConfig | PretrainedConfig | None = None,
+        neuron_config: "NeuronDefaultConfig" | None = None,
         model_type: str = "unet",
-        device: Optional[int] = None,
+        device: int | None = None,
     ):
         self.model = model
         self.parent_pipeline = parent_pipeline
@@ -1218,17 +1218,17 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
         self,
         model: torch.jit._script.ScriptModule,
         parent_pipeline: NeuronDiffusionPipelineBase,
-        config: Optional[DiffusersPretrainedConfig] = None,
-        neuron_config: Optional[Dict[str, str]] = None,
+        config: DiffusersPretrainedConfig | None = None,
+        neuron_config: dict[str, str | None] = None,
     ):
         super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_TEXT_ENCODER_NAME)
 
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = True,
+        attention_mask: torch.Tensor | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = True,
     ):
         if output_hidden_states:
             assert (
@@ -1259,18 +1259,18 @@ class NeuronModelImageEncoder(_NeuronDiffusionModelPart):
         self,
         model: torch.jit._script.ScriptModule,
         parent_pipeline: NeuronDiffusionPipelineBase,
-        config: Optional[DiffusersPretrainedConfig] = None,
-        neuron_config: Optional[Dict[str, str]] = None,
+        config: DiffusersPretrainedConfig | None = None,
+        neuron_config: dict[str, str | None] = None,
     ):
         super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_IMAGE_ENCODER_NAME)
 
     def forward(
         self,
         pixel_values: torch.FloatTensor,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
         interpolate_pos_encoding: bool = False,
-        return_dict: Optional[bool] = True,
+        return_dict: bool | None = True,
     ):
         inputs = (pixel_values,)
 
@@ -1295,8 +1295,8 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
         self,
         model: torch.jit._script.ScriptModule,
         parent_pipeline: NeuronDiffusionPipelineBase,
-        config: Optional[DiffusersPretrainedConfig] = None,
-        neuron_config: Optional[Dict[str, str]] = None,
+        config: DiffusersPretrainedConfig | None = None,
+        neuron_config: dict[str, str | None] = None,
     ):
         super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_UNET_NAME)
         if hasattr(self.model, "device"):
@@ -1307,11 +1307,11 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
         sample: torch.Tensor,
         timestep: torch.Tensor,
         encoder_hidden_states: torch.Tensor,
-        added_cond_kwargs: Optional[Dict[str, torch.Tensor]] = None,
-        down_block_additional_residuals: Optional[Tuple[torch.Tensor]] = None,
-        mid_block_additional_residual: Optional[torch.Tensor] = None,
-        timestep_cond: Optional[torch.Tensor] = None,
-        cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+        added_cond_kwargs: dict[str, torch.Tensor | None] = None,
+        down_block_additional_residuals: tuple[torch.Tensor | None] = None,
+        mid_block_additional_residual: torch.Tensor | None = None,
+        timestep_cond: torch.Tensor | None = None,
+        cross_attention_kwargs: dict[str, Any | None] = None,
         return_dict: bool = True,
     ):
         if cross_attention_kwargs is not None:
@@ -1347,20 +1347,20 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
         self,
         model: torch.jit._script.ScriptModule,
         parent_pipeline: NeuronDiffusionPipelineBase,
-        config: Optional[DiffusersPretrainedConfig] = None,
-        neuron_config: Optional[Dict[str, str]] = None,
+        config: DiffusersPretrainedConfig | None = None,
+        neuron_config: dict[str, str | None] = None,
     ):
         super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_TRANSFORMER_NAME)
 
     def forward(
         self,
         hidden_states: torch.Tensor,
-        encoder_hidden_states: Optional[torch.Tensor] = None,
-        timestep: Optional[torch.LongTensor] = None,
-        added_cond_kwargs: Dict[str, torch.Tensor] = None,
-        cross_attention_kwargs: Dict[str, Any] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        encoder_attention_mask: Optional[torch.Tensor] = None,
+        encoder_hidden_states: torch.Tensor | None = None,
+        timestep: torch.LongTensor | None = None,
+        added_cond_kwargs: dict[str, torch.Tensor] = None,
+        cross_attention_kwargs: dict[str, Any] = None,
+        attention_mask: torch.Tensor | None = None,
+        encoder_attention_mask: torch.Tensor | None = None,
         return_dict: bool = True,
     ):
         inputs = (hidden_states, encoder_hidden_states, timestep, encoder_attention_mask)
@@ -1375,8 +1375,8 @@ class NeuronModelVaeEncoder(_NeuronDiffusionModelPart):
         self,
         model: torch.jit._script.ScriptModule,
         parent_pipeline: NeuronDiffusionPipelineBase,
-        config: Optional[DiffusersPretrainedConfig] = None,
-        neuron_config: Optional[Dict[str, str]] = None,
+        config: DiffusersPretrainedConfig | None = None,
+        neuron_config: dict[str, str | None] = None,
     ):
         super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_VAE_ENCODER_NAME)
 
@@ -1398,16 +1398,16 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
         self,
         model: torch.jit._script.ScriptModule,
         parent_pipeline: NeuronDiffusionPipelineBase,
-        config: Optional[DiffusersPretrainedConfig] = None,
-        neuron_config: Optional[Dict[str, str]] = None,
+        config: DiffusersPretrainedConfig | None = None,
+        neuron_config: dict[str, str | None] = None,
     ):
         super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_VAE_DECODER_NAME)
 
     def forward(
         self,
         latent_sample: torch.Tensor,
-        image: Optional[torch.Tensor] = None,
-        mask: Optional[torch.Tensor] = None,
+        image: torch.Tensor | None = None,
+        mask: torch.Tensor | None = None,
         return_dict: bool = True,
         generator=None,
     ):
@@ -1427,7 +1427,7 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
 class NeuronModelVae(_NeuronDiffusionModelPart):
     def __init__(
         self,
-        encoder: Optional[NeuronModelVaeEncoder],
+        encoder: NeuronModelVaeEncoder | None,
         decoder: NeuronModelVaeDecoder,
     ):
         self.encoder = encoder
@@ -1455,22 +1455,22 @@ class NeuronControlNetModel(_NeuronDiffusionModelPart):
         self,
         model: torch.jit._script.ScriptModule,
         parent_pipeline: NeuronDiffusionPipelineBase,
-        config: Optional[DiffusersPretrainedConfig] = None,
-        neuron_config: Optional[Dict[str, str]] = None,
+        config: DiffusersPretrainedConfig | None = None,
+        neuron_config: dict[str, str | None] = None,
     ):
         super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_CONTROLNET_NAME)
 
     def forward(
         self,
         sample: torch.Tensor,
-        timestep: Union[torch.Tensor, float, int],
+        timestep: torch.Tensor | float | int,
         encoder_hidden_states: torch.Tensor,
         controlnet_cond: torch.Tensor,
         conditioning_scale: float = 1.0,
         guess_mode: bool = False,
-        added_cond_kwargs: Optional[Dict] = None,
+        added_cond_kwargs: Dict | None = None,
         return_dict: bool = True,
-    ) -> Union["ControlNetOutput", Tuple[Tuple[torch.Tensor, ...], torch.Tensor]]:
+    ) -> Union["ControlNetOutput", tuple[Tuple[torch.Tensor, ...], torch.Tensor]]:
         timestep = timestep.expand((sample.shape[0],)).to(torch.long)
         inputs = (sample, timestep, encoder_hidden_states, controlnet_cond, conditioning_scale)
         if added_cond_kwargs:
@@ -1503,10 +1503,10 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
 
     def __init__(
         self,
-        models: List[torch.jit._script.ScriptModule],
+        models: list[torch.jit._script.ScriptModule],
         parent_pipeline: NeuronTracedModel,
-        config: Optional[DiffusersPretrainedConfig] = None,
-        neuron_config: Optional[Dict[str, str]] = None,
+        config: DiffusersPretrainedConfig | None = None,
+        neuron_config: dict[str, str | None] = None,
     ):
         self.nets = models
         self.parent_pipeline = parent_pipeline
@@ -1518,13 +1518,13 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
     def forward(
         self,
         sample: torch.Tensor,
-        timestep: Union[torch.Tensor, float, int],
+        timestep: torch.Tensor | float | int,
         encoder_hidden_states: torch.Tensor,
         controlnet_cond: torch.Tensor,
-        conditioning_scale: List[float],
+        conditioning_scale: list[float],
         guess_mode: bool = False,
         return_dict: bool = True,
-    ) -> Union["ControlNetOutput", Tuple[Tuple[torch.Tensor, ...], torch.Tensor]]:
+    ) -> Union["ControlNetOutput", tuple[Tuple[torch.Tensor, ...], torch.Tensor]]:
         if guess_mode:
             logger.info(
                 "Guess mode is not yet supported. File us an issue on: https://github.com/huggingface/optimum-neuron/issues."
