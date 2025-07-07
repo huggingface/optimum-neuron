@@ -45,9 +45,9 @@ from neuronx_distributed.parallel_layers.parallel_state import (
     get_pipeline_model_parallel_size,
     get_tensor_model_parallel_size,
 )
-    from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
-    from neuronx_distributed.pipeline import NxDPPModel
-    from neuronx_distributed.utils.model_utils import move_model_to_device
+from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
+from neuronx_distributed.pipeline import NxDPPModel
+from neuronx_distributed.utils.model_utils import move_model_to_device
 
 
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"

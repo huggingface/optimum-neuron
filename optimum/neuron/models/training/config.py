@@ -3,12 +3,10 @@ from pathlib import Path
 from typing import Optional, Union
 
 import torch
+from neuronx_distributed.parallel_layers import parallel_state
 
 from ...configuration_utils import NeuronConfig, register_neuron_config
 from ...utils.torch_xla_and_neuronx_initialization import init_process_group
-
-
-from neuronx_distributed.parallel_layers import parallel_state
 
 
 @dataclass

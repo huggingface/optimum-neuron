@@ -17,6 +17,11 @@ from pathlib import Path
 
 import pytest
 from datasets import load_dataset
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_data_parallel_rank,
+    get_pipeline_model_parallel_rank,
+    get_tensor_model_parallel_rank,
+)
 from transformers import AutoTokenizer, LlamaForCausalLM
 
 from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer, NeuronTrainer, NeuronTrainingArguments
@@ -31,13 +36,6 @@ from .utils import (
     MODEL_NAME,
     create_dummy_causal_lm_dataset,
     default_data_collator_for_causal_lm,
-)
-
-
-from neuronx_distributed.parallel_layers.parallel_state import (
-    get_data_parallel_rank,
-    get_pipeline_model_parallel_rank,
-    get_tensor_model_parallel_rank,
 )
 
 

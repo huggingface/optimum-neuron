@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Type, Union
 import torch
 import transformers
 from accelerate import skip_first_batches as accelerate_skip_first_batches
+from neuronx_distributed.pipeline import NxDPPModel
 from transformers import GenerationMixin
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
@@ -27,9 +28,6 @@ from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
 from .patching import replace_class_in_inheritance_hierarchy
 from .require_utils import requires_neuronx_distributed, requires_torch_xla
-
-
-from neuronx_distributed.pipeline import NxDPPModel
 
 
 if TYPE_CHECKING:

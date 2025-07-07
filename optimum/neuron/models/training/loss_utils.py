@@ -17,9 +17,6 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-
-
-
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_tensor_model_parallel_group,
     get_tensor_model_parallel_rank,

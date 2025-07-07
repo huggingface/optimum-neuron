@@ -1,5 +1,6 @@
 import pytest
 import torch
+from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
 from torch import nn
 from transformers import AutoConfig, set_seed
 
@@ -10,9 +11,6 @@ from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from ..distributed_utils import distributed_test
 from .utils import assert_close
-
-
-from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
 
 
 if is_torch_xla_available():

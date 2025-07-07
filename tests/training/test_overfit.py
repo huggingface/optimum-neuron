@@ -22,6 +22,11 @@ from typing import Type
 import datasets
 import pytest
 import torch
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_data_parallel_size,
+    get_pipeline_model_parallel_size,
+    get_tensor_model_parallel_size,
+)
 from peft import LoraConfig
 from transformers import AutoTokenizer, PreTrainedModel, TrainerCallback
 
@@ -33,13 +38,6 @@ from optimum.neuron.utils.training_utils import is_main_worker_for_metrics
 from optimum.neuron.version import __sdk_version__ as sdk_version
 
 from ..distributed_utils import EarlyExit, distributed_test
-
-
-from neuronx_distributed.parallel_layers.parallel_state import (
-    get_data_parallel_size,
-    get_pipeline_model_parallel_size,
-    get_tensor_model_parallel_size,
-)
 
 
 def get_model_class_from_name(model_class_name: str, use_custom_modeling: bool) -> Type[PreTrainedModel]:

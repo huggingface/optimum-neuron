@@ -20,6 +20,7 @@ from typing import Optional, Tuple, Union
 import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
 import torch
 import torch.utils.checkpoint
+from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
 from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,

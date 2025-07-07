@@ -29,11 +29,9 @@ from typing import Callable, Dict, Literal, Optional, Type, Union
 import neuronx_distributed
 import torch
 import torch_xla.core.xla_model as xm
-import transformers
-import torch_xla.core.xla_model as xm
 import torch_xla.runtime as xr
-from torch_xla.utils.checkpoint import checkpoint
-import neuronx_distributed
+import transformers
+from accelerate.utils import find_tied_parameters
 from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
 from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
 from neuronx_distributed.parallel_layers.layers import (
@@ -52,29 +50,9 @@ from neuronx_distributed.parallel_layers.utils import (
     get_local_world_size,
     move_model_to_device,
 )
-from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
-from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
-from neuronx_distributed.parallel_layers.layers import (
-    BaseParallelLinear,
-    ColumnParallelLinear,
-    ParallelEmbedding,
-)
-from neuronx_distributed.parallel_layers.parallel_state import (
-    get_data_parallel_rank,
-    get_pipeline_model_parallel_rank,
-    get_pipeline_model_parallel_size,
-    get_tensor_model_parallel_rank,
-    get_tensor_model_parallel_size,
-)
-from neuronx_distributed.parallel_layers.utils import (
-    get_local_world_size,
-    move_model_to_device,
-)
+from safetensors import safe_open
 from torch import nn
 from torch_xla.utils.checkpoint import checkpoint
-
-
-from safetensors import safe_open
 from transformers import PretrainedConfig
 from transformers.modeling_utils import (
     SpecificPreTrainedModelType,
@@ -110,7 +88,6 @@ from transformers.utils import (
     logging,
 )
 from transformers.utils.hub import get_checkpoint_shard_files
-from accelerate.utils import find_tied_parameters
 
 from ...utils.misc import is_main_worker, is_precompilation
 from .config import TrainingNeuronConfig

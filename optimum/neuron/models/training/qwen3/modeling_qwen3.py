@@ -18,6 +18,9 @@ from functools import partial
 from typing import Optional, Tuple
 
 import torch
+from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
+from neuronx_distributed.parallel_layers.layers import ParallelEmbedding
+from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 from torch import nn
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.models.qwen3.configuration_qwen3 import Qwen3Config
@@ -38,10 +41,6 @@ from ..llama.modeling_llama import (
 )
 from ..pipeline_utils import dynamic_torch_fx_wrap
 
-
-from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
-from neuronx_distributed.parallel_layers.layers import ParallelEmbedding
-from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
 logger = logging.get_logger(__name__)
 
