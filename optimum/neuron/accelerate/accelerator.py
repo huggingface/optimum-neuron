@@ -68,9 +68,8 @@ if TYPE_CHECKING:
 
 import torch_xla.core.xla_model as xm
 import torch_xla.runtime as xr
-from torch_xla.distributed.parallel_loader import MpDeviceLoader
-
 from neuronx_distributed.utils.model_utils import move_model_to_device
+from torch_xla.distributed.parallel_loader import MpDeviceLoader
 
 
 logger = logging.get_logger(__name__)
@@ -211,7 +210,6 @@ class NeuronAccelerator(Accelerator):
                 data_loader = MpDeviceLoader(data_loader, self.device)
         return data_loader
 
-    @requires_neuronx_distributed
     def _prepare_optimizer_for_zero_1(self, optimizer: torch.optim.Optimizer, device_placement=None):
         mixed_precision_to_dtype = {
             "no": torch.float32,
@@ -282,8 +280,6 @@ class NeuronAccelerator(Accelerator):
 
         return model
 
-    @requires_torch_xla
-    @requires_neuronx_distributed
     def prepare_model(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):

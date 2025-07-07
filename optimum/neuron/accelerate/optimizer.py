@@ -16,21 +16,19 @@
 
 from typing import Optional
 
+import accelerate
 import torch
+import torch_xla.core.xla_model as xm
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.utils import DistributedType
+from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
 
 from .utils.dataclasses import NeuronDistributedType
 
 
-import accelerate
-import torch_xla.core.xla_model as xm
-    from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
-
-    accelerate.optimizer.xm = xm
+accelerate.optimizer.xm = xm
 
 
-@requires_neuronx_distributed
 def allreduce_sequence_parallel_gradients(optimizer):
     """
     All-reduce layernorm parameters across model parallel nodes when sequence parallelism is used.
@@ -78,7 +76,6 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
     def prepare_clip_grad_norm(self, parameters, max_norm, norm_type=2):
         self.clip_grad_norm_to_perform = {"parameters": parameters, "max_norm": max_norm, "norm_type": norm_type}
 
-    @requires_neuronx_distributed
     def step(self, closure=None):
         from neuronx_distributed import parallel_layers
         from neuronx_distributed.parallel_layers.grads import bucket_allreduce_gradients

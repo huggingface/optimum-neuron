@@ -22,11 +22,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
-
-from ..utils.misc import args_and_kwargs_to_kwargs_only
-
-
 import torch_xla.core.xla_model as xm
+from neuronx_distributed.parallel_layers import parallel_state
 from transformers import GenerationMixin
 from transformers.generation.beam_search import BeamScorer, BeamSearchScorer
 from transformers.generation.configuration_utils import GenerationConfig
@@ -50,11 +47,10 @@ from transformers.generation.utils import (
 )
 from transformers.utils import ModelOutput, logging
 
+from ..utils.misc import args_and_kwargs_to_kwargs_only
+
 
 logger = logging.get_logger(__name__)
-
-
-from neuronx_distributed.parallel_layers import parallel_state
 
 
 def _move_dict_args_to_device(kwargs: Dict[str, Any], device: str = "cpu") -> Dict[str, Any]:

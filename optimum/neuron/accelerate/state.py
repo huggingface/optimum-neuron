@@ -18,6 +18,8 @@ import os
 from typing import Optional, Union
 
 import torch
+import torch_xla.core.xla_model as xm
+import torch_xla.runtime as xr
 from accelerate.state import AcceleratorState, PartialState, ThreadLocalSharedDict
 from accelerate.utils import (
     DistributedType,
@@ -29,6 +31,7 @@ from accelerate.utils import (
     parse_flag_from_env,
 )
 from accelerate.utils.dataclasses import SageMakerDistributedType
+from neuronx_distributed.parallel_layers import parallel_state
 
 from ...utils import logging
 from ..models.neuron_config import TrainingNeuronConfig
@@ -39,12 +42,6 @@ from ..utils.torch_xla_and_neuronx_initialization import (
 )
 from .utils import NeuronDistributedType
 from .utils.dataclasses import AutocastBackend
-
-
-import torch_xla.core.xla_model as xm
-import torch_xla.runtime as xr
-
-from neuronx_distributed.parallel_layers import parallel_state
 
 
 logger = logging.get_logger()

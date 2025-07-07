@@ -31,8 +31,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import datasets
 import numpy as np
 import torch
+import torch_xla.core.xla_model as xm
+import torch_xla.debug.metrics as met
+import torch_xla.runtime as xr
 from accelerate import __version__ as accelerate_version
 from accelerate.utils import AutocastKwargs, DataLoaderConfiguration
+from neuronx_distributed.pipeline import NxDPPModel
 from packaging import version
 from torch import nn
 from torch.utils.data import Dataset
@@ -112,13 +116,6 @@ from .utils.training_utils import (
 )
 from .utils.trl_utils import NeuronSFTConfig
 
-
-import torch_xla.core.xla_model as xm
-import torch_xla.debug.metrics as met
-import torch_xla.runtime as xr
-
-
-from neuronx_distributed.pipeline import NxDPPModel
 
 if is_sagemaker_mp_enabled():
     from smdistributed.modelparallel import __version__ as SMP_VERSION
@@ -468,7 +465,6 @@ class _TrainerForNeuron:
             loss = super().training_step(model, inputs, num_items_in_batch=num_items_in_batch)
         return loss
 
-    @requires_neuronx_distributed
     def prediction_step(
         self,
         model: torch.nn.Module,
@@ -693,7 +689,6 @@ class _TrainerForNeuron:
         else:
             return super()._load_optimizer_and_scheduler(checkpoint)
 
-    @requires_neuronx_distributed
     def _inner_training_loop(
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
     ):
@@ -1012,10 +1007,7 @@ class _TrainerForNeuron:
                     with context():
                         tr_loss_step = self.training_step(model, inputs, num_items_in_batch)
 
-                    if (
-                        args.logging_nan_inf_filter
-                        and (torch.isnan(tr_loss_step) or torch.isinf(tr_loss_step))
-                    ):
+                    if args.logging_nan_inf_filter and (torch.isnan(tr_loss_step) or torch.isinf(tr_loss_step)):
                         # if loss is nan or inf simply add the average of previous logged losses
                         tr_loss += tr_loss / (1 + self.state.global_step - self._globalstep_last_logged)
                     else:
@@ -1156,7 +1148,6 @@ class _TrainerForNeuron:
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
 
-    @requires_neuronx_distributed
     def evaluation_loop(
         self,
         dataloader: torch.utils.data.DataLoader,
