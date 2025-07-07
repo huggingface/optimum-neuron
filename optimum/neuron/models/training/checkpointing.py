@@ -55,7 +55,7 @@ def xser_load_on_cpu(path: str):
     import torch_xla.core.xla_model as xm
     import torch_xla.utils.serialization as xser
 
-    ref_data = torch.load(path)
+    ref_data = torch.load(path, weights_only=False)
 
     def convert_fn(tensors):
         rewritten_tensors = []

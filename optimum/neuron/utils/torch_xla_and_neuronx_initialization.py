@@ -39,7 +39,7 @@ def init_process_group():
         import torch_xla.distributed.xla_backend as xbn
 
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
-            torch.distributed.init_process_group(backend="xla", init_method="xla://")
+            torch.distributed.init_process_group(backend="xla")
             if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
                 raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
 
