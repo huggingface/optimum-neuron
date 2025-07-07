@@ -40,10 +40,9 @@ from ..llama.modeling_llama import (
 from ..pipeline_utils import dynamic_torch_fx_wrap
 
 
-if is_neuronx_distributed_available():
-    from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
-    from neuronx_distributed.parallel_layers.layers import ParallelEmbedding
-    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
+from neuronx_distributed.parallel_layers.layers import ParallelEmbedding
+from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
 logger = logging.get_logger(__name__)
 
