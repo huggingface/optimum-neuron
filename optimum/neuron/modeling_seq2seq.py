@@ -44,7 +44,6 @@ from .utils import (
     ENCODER_NAME,
     NEURON_FILE_NAME,
     is_neuronx_available,
-    is_neuronx_distributed_available,
 )
 from .utils.doc import (
     _TOKENIZER_FOR_DOC,

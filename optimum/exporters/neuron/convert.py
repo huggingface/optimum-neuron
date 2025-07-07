@@ -33,7 +33,6 @@ from ...neuron.utils import (
     convert_neuronx_compiler_args_to_neuron,
     is_neuron_available,
     is_neuronx_available,
-    is_neuronx_distributed_available,
     store_compilation_config,
 )
 from ...neuron.utils.cache_utils import get_model_name_or_path

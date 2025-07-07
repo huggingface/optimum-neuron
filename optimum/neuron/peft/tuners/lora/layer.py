@@ -19,7 +19,7 @@ from typing import Any, Union
 import torch
 from torch import nn
 
-from ....utils.import_utils import is_neuronx_distributed_available, is_peft_available
+from ....utils.import_utils import is_peft_available
 
 
 if is_peft_available():

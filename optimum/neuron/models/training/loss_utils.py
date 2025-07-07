@@ -18,7 +18,6 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-from ...utils import is_neuronx_distributed_available
 
 
 from neuronx_distributed.parallel_layers.parallel_state import (

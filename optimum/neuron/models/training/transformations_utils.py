@@ -28,7 +28,7 @@ import torch
 
 from optimum.utils import logging
 
-from ...utils.import_utils import is_neuronx_distributed_available, is_peft_available
+from ...utils.import_utils import is_peft_available
 
 
 from neuronx_distributed.parallel_layers.layers import create_local_weight

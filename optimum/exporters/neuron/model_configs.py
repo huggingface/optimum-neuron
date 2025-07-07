@@ -43,7 +43,6 @@ from ...neuron.utils import (
     DummyIPAdapterInputGenerator,
     DummyMaskedPosGenerator,
     WhisperDummyTextInputGenerator,
-    is_neuronx_distributed_available,
     saved_model_in_temporary_directory,
 )
 from .config import (

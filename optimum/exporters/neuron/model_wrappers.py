@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, List, Optional
 import torch
 from transformers.models.t5.modeling_t5 import T5LayerCrossAttention
 
-from ...neuron.utils import is_neuronx_available, is_neuronx_distributed_available
+from ...neuron.utils import is_neuronx_available
 
 
 if is_neuronx_available():

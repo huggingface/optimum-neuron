@@ -25,7 +25,6 @@ from transformers.utils.logging import set_verbosity as set_verbosity_transforme
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
-from . import is_neuronx_distributed_available
 from .patching import replace_class_in_inheritance_hierarchy
 from .require_utils import requires_neuronx_distributed, requires_torch_xla
 

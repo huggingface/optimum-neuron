@@ -17,7 +17,6 @@
 import torch
 from accelerate.utils.operations import recursively_apply
 
-from ...utils import is_neuronx_distributed_available
 from ...utils.require_utils import requires_torch_xla
 
 
