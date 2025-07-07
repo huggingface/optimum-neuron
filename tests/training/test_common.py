@@ -27,18 +27,14 @@ from optimum.neuron.models.training.checkpointing import consolidate_model_paral
 from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.models.training.pipeline_utils import create_nxdpp_model
 from optimum.neuron.peft import NeuronPeftModelForCausalLM
-from optimum.neuron.utils.import_utils import (
-    is_torch_xla_available,
-)
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from ..distributed_utils import distributed_test
 from .utils import create_accelerator, get_model_inputs
 
 
-if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
-    import torch_xla.runtime as xr
+import torch_xla.core.xla_model as xm
+import torch_xla.runtime as xr
 
 from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
 from neuronx_distributed.parallel_layers.parallel_state import (

@@ -32,7 +32,6 @@ from optimum.neuron.models.training.llama.modeling_llama import LlamaForCausalLM
 from optimum.neuron.models.training.transformations_utils import GQAQKVColumnParallelLinearSpec
 from optimum.neuron.utils.import_utils import (
     is_neuronx_available,
-    is_torch_xla_available,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
@@ -40,8 +39,7 @@ from ..distributed_utils import distributed_test, run_distributed_test
 from .utils import SEED, StaticSeedPatcher, create_accelerator, get_model_inputs
 
 
-if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
+import torch_xla.core.xla_model as xm
 
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_kv_shared_group,
@@ -53,9 +51,6 @@ from neuronx_distributed.parallel_layers.parallel_state import (
 from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
 from neuronx_distributed.utils.model_utils import move_model_to_device
 
-
-if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
 
 if is_neuronx_available():
     from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size

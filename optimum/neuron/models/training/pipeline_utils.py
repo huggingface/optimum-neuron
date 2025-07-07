@@ -25,15 +25,10 @@ import torch
 from torch import nn
 from transformers.utils.fx import HFTracer, create_wrapper
 
-from ...utils.import_utils import is_torch_xla_available
 from .transformations_utils import get_tensor_model_parallel_attributes
 
 
-if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
-else:
-    # This is a placeholder for doc building.
-    xm = None
+import torch_xla.core.xla_model as xm
 
 
 from neuronx_distributed.parallel_layers.parallel_state import (
