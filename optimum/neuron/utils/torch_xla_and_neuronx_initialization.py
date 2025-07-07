@@ -24,7 +24,6 @@ from optimum.utils import logging
 
 from ..cache.training import patch_neuron_cc_wrapper
 from .misc import is_main_worker
-from .require_utils import requires_torch_xla
 
 
 if TYPE_CHECKING:
@@ -33,7 +32,6 @@ if TYPE_CHECKING:
 logger = logging.get_logger()
 
 
-@requires_torch_xla
 def init_process_group():
     if os.environ.get("TORCHELASTIC_RUN_ID"):
         import torch_xla.distributed.xla_backend as xbn

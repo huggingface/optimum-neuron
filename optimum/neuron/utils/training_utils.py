@@ -27,14 +27,12 @@ from transformers.utils.logging import set_verbosity as set_verbosity_transforme
 from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
 from .patching import replace_class_in_inheritance_hierarchy
-from .require_utils import requires_neuronx_distributed, requires_torch_xla
 
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
 
-@requires_torch_xla
 def is_topology_supported() -> bool:
     import torch_xla.runtime as xr
 
@@ -75,7 +73,6 @@ def patch_transformers_for_neuron_sdk():
     transformers.utils.logging.set_verbosity = set_verbosity
 
 
-@requires_torch_xla
 def skip_first_batches(dataloader, num_batches=0):
     """
     Wrapper around `accelerate.data_loader.skip_first_batches` to handle `pl.ParallelLoader` when using
@@ -90,7 +87,6 @@ def skip_first_batches(dataloader, num_batches=0):
     return dataloader
 
 
-@requires_neuronx_distributed
 def _get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"]):
     """Counts the number of parameters of the model."""
     import torch_xla.core.xla_model as xm
@@ -160,7 +156,6 @@ def _get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"]):
     return trainable_param_count, all_param_count
 
 
-@requires_neuronx_distributed
 def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable_only: bool = False) -> int:
     trainable_param_count, all_param_count = _get_model_param_count(model)
     if trainable_only:
@@ -170,7 +165,6 @@ def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable
     return output
 
 
-@requires_neuronx_distributed
 def is_main_worker_for_metrics() -> bool:
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_data_parallel_rank,

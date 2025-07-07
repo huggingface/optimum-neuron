@@ -25,7 +25,6 @@ import torch
 from ....utils import logging
 from ...utils import is_torch_neuronx_available, is_torch_xla_available, patch_everywhere
 from ...utils.patching import Patcher
-from ...utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 
 
 logger = logging.get_logger(__name__)
@@ -70,8 +69,6 @@ def patch_accelerate_is_torch_xla_available():
 _ORIG_TORCH_FINFO = torch.finfo
 
 
-@requires_neuronx_distributed
-@requires_safetensors
 def torch_xla_safe_save_file(
     tensors: Dict[str, torch.Tensor],
     filename: Union[str, "os.PathLike"],
@@ -92,7 +89,6 @@ def torch_xla_safe_save_file(
         save_file(cpu_data, filename, metadata=metadata)
 
 
-@requires_neuronx_distributed
 def create_patched_save_pretrained(orig_save_pretrained_function: Callable[["PreTrainedModel"], None]):
     """
     Creates a wrapper around the `transformers.modeling_utils.PreTrainedModel.save_pretrained` method.
@@ -136,7 +132,6 @@ def create_patched_save_pretrained(orig_save_pretrained_function: Callable[["Pre
 
 # TODO: @michaelbenayoun
 # Needs to make it work in the general case or be deleted and only use `apply_activation_checkpointing`.
-@requires_torch_xla
 def patched_gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=None):
     from torch_xla.utils.checkpoint import checkpoint
 
@@ -169,7 +164,6 @@ def patched_gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=No
         self.enable_input_require_grads()
 
 
-@requires_neuronx_distributed
 def apply_activation_checkpointing(model: Union["PreTrainedModel", "NxDPPModel", "NeuronPeftModel"]):
     from neuronx_distributed.pipeline import NxDPPModel
     from neuronx_distributed.utils.activation_checkpoint import (
