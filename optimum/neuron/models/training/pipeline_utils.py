@@ -36,29 +36,11 @@ else:
     xm = None
 
 
-if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_pipeline_model_parallel_size,
-    )
-    from neuronx_distributed.pipeline import NxDPPModel
-    from neuronx_distributed.pipeline.trace import HFTracerWrapper, NxDTracer
-
-else:
-
-    def get_pipeline_model_parallel_size():
-        return 0
-
-    class NxDPPModel:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class HFTracerWrapper:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class NxDTracer:
-        def __init__(self, *args, **kwargs):
-            pass
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_pipeline_model_parallel_size,
+)
+from neuronx_distributed.pipeline import NxDPPModel
+from neuronx_distributed.pipeline.trace import HFTracerWrapper, NxDTracer
 
 
 class OptimumNeuronFXTracer(HFTracerWrapper):
