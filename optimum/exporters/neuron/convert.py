@@ -67,8 +67,7 @@ if is_diffusers_available():
 if is_sentence_transformers_available():
     from sentence_transformers import SentenceTransformer
 
-if is_neuronx_distributed_available():
-    import neuronx_distributed
+import neuronx_distributed
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
