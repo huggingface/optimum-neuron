@@ -28,7 +28,6 @@ from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.models.training.pipeline_utils import create_nxdpp_model
 from optimum.neuron.peft import NeuronPeftModelForCausalLM
 from optimum.neuron.utils.import_utils import (
-    is_neuronx_distributed_available,
     is_torch_xla_available,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
@@ -41,12 +40,11 @@ if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
     import torch_xla.runtime as xr
 
-if is_neuronx_distributed_available():
-    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_pipeline_model_parallel_size,
-        get_tensor_model_parallel_size,
-    )
+from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_pipeline_model_parallel_size,
+    get_tensor_model_parallel_size,
+)
     from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
     from neuronx_distributed.pipeline import NxDPPModel
     from neuronx_distributed.utils.model_utils import move_model_to_device
