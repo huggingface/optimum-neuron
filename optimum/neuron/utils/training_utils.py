@@ -30,8 +30,7 @@ from .patching import replace_class_in_inheritance_hierarchy
 from .require_utils import requires_neuronx_distributed, requires_torch_xla
 
 
-if is_neuronx_distributed_available():
-    from neuronx_distributed.pipeline import NxDPPModel
+from neuronx_distributed.pipeline import NxDPPModel
 
 
 if TYPE_CHECKING:
