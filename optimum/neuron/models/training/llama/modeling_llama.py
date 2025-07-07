@@ -33,7 +33,6 @@ from transformers.processing_utils import Unpack
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from transformers.utils import LossKwargs, can_return_tuple, logging
 
-from ....utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..config import TrainingNeuronConfig
 from ..loss_utils import ForCausalLMLoss
 from ..modeling_utils import NeuronModelMixin
@@ -46,19 +45,17 @@ from ..transformations_utils import (
 )
 
 
-if is_torch_xla_available():
-    from torch_xla.utils.checkpoint import checkpoint
+from torch_xla.utils.checkpoint import checkpoint
 
-if is_neuronx_distributed_available():
-    import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
-    from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
-    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
-    from neuronx_distributed.parallel_layers.layers import (
-        ColumnParallelLinear,
-        ParallelEmbedding,
-        RowParallelLinear,
-    )
-    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
+from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
+from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
+from neuronx_distributed.parallel_layers.layers import (
+    ColumnParallelLinear,
+    ParallelEmbedding,
+    RowParallelLinear,
+)
+from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
 
 logger = logging.get_logger(__name__)
