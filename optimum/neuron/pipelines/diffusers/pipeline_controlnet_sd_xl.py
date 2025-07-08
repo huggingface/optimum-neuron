@@ -76,28 +76,27 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(NeuronStableDiffusionXLPipe
     ):
         r"""
         The call function to the pipeline for generation.
-
         Args:
-            prompt (`str | list[str | None]`, defaults to `None`):
+            prompt (`str | list[str]`, defaults to `None`):
                 The prompt or prompts to guide image generation. If not defined, you need to pass `prompt_embeds`.
-            prompt_2 (`str | list[str | None]`, defaults to `None`):
+            prompt_2 (`str | list[str]`, defaults to `None`):
                 The prompt or prompts to be sent to `tokenizer_2` and `text_encoder_2`. If not defined, `prompt` is
                 used in both text-encoders.
-            image (`"PipelineImageInput" | None`, defaults to `None`):
+            image (`PipelineImageInput | None`, defaults to `None`):
                 The ControlNet input condition to provide guidance to the `unet` for generation. If the type is
                 specified as `torch.Tensor`, it is passed to ControlNet as is. `PIL.Image.Image` can also be accepted
-                as an image. The dimensions of the output image defaults to `image`'s dimensions. If height and/or
+                as an image. The dimensions of the output image default to `image`'s dimensions. If height and/or
                 width are passed, `image` is resized accordingly. If multiple ControlNets are specified in `init`,
                 images must be passed as a list such that each element of the list can be correctly batched for input
                 to a single ControlNet.
             num_inference_steps (`int`, defaults to 50):
                 The number of denoising steps. More denoising steps usually lead to a higher quality image at the
                 expense of slower inference.
-            timesteps (`list[int | None]`, defaults to `None`):
+            timesteps (`list[int] | None`, defaults to `None`):
                 Custom timesteps to use for the denoising process with schedulers which support a `timesteps` argument
-                in their `set_timesteps` method. If not defined, the default behavior when `num_inference_steps` is
-                passed will be used. Must be in descending order.
-            sigmas (`list[int | None]`, defaults to `None`):
+                in their `set_timesteps` method. If not defined, the default behavior when `num_inference_steps` is passed
+                will be used. Must be in descending order.
+            sigmas (`list[float] | None`, defaults to `None`):
                 Custom sigmas to use for the denoising process with schedulers which support a `sigmas` argument in
                 their `set_timesteps` method. If not defined, the default behavior when `num_inference_steps` is passed
                 will be used.
@@ -111,10 +110,10 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(NeuronStableDiffusionXLPipe
             guidance_scale (`float`, defaults to 5.0):
                 A higher guidance scale value encourages the model to generate images closely linked to the text
                 `prompt` at the expense of lower image quality. Guidance scale is enabled when `guidance_scale > 1`.
-            negative_prompt (`str | list[str | None]`, defaults to `None`):
+            negative_prompt (`str | list[str] | None`, defaults to `None`):
                 The prompt or prompts to guide what to not include in image generation. If not defined, you need to
                 pass `negative_prompt_embeds` instead. Ignored when not using guidance (`guidance_scale < 1`).
-            negative_prompt_2 (`str | list[str | None]`, defaults to `None`):
+            negative_prompt_2 (`str | list[str] | None`, defaults to `None`):
                 The prompt or prompts to guide what to not include in image generation. This is sent to `tokenizer_2`
                 and `text_encoder_2`. If not defined, `negative_prompt` is used in both text-encoders.
             num_images_per_prompt (`int`, defaults to 1):
@@ -122,7 +121,7 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(NeuronStableDiffusionXLPipe
             eta (`float`, defaults to 0.0):
                 Corresponds to parameter eta (η) from the [DDIM](https://arxiv.org/abs/2010.02502) paper. Only applies
                 to the [`diffusers.schedulers.DDIMScheduler`], and is ignored in other schedulers.
-            generator (`torch.Generator | list[torch.Generator | None]`, defaults to `None`):
+            generator (`torch.Generator | list[torch.Generator] | None`, defaults to `None`):
                 A [`torch.Generator`](https://pytorch.org/docs/stable/generated/torch.Generator.html) to make
                 generation deterministic.
             latents (`torch.Tensor | None`, defaults to `None`):
@@ -142,9 +141,10 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(NeuronStableDiffusionXLPipe
                 Pre-generated negative pooled text embeddings. Can be used to easily tweak text inputs (prompt
                 weighting). If not provided, pooled `negative_prompt_embeds` are generated from `negative_prompt` input
                 argument.
-            ip_adapter_image: (`PipelineImageInput | None`, defaults to `None`): Optional image input to work with IP Adapters.
-            ip_adapter_image_embeds (`list[torch.Tensor | None]`, defaults to `None`):
-                Pre-generated image embeddings for IP-Adapter. It should be a list of length same as number of
+            ip_adapter_image (`PipelineImageInput | None`, defaults to `None`):
+                Optional image input to work with IP Adapters.
+            ip_adapter_image_embeds (`list[torch.Tensor] | None`, defaults to `None`):
+                Pre-generated image embeddings for IP-Adapter. It should be a list of length the same as the number of
                 IP-adapters. Each element should be a tensor of shape `(batch_size, num_images, emb_dim)`. It should
                 contain the negative image embedding if `do_classifier_free_guidance` is set to `True`. If not
                 provided, embeddings are computed from the `ip_adapter_image` input argument.
@@ -153,7 +153,7 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(NeuronStableDiffusionXLPipe
             return_dict (`bool`, defaults to `True`):
                 Whether or not to return a [`~pipelines.stable_diffusion.StableDiffusionPipelineOutput`] instead of a
                 plain tuple.
-            cross_attention_kwargs (`dict[str, Any | None]`, defaults to `None`):
+            cross_attention_kwargs (`dict[str, Any] | None`, defaults to `None`):
                 A kwargs dictionary that if specified is passed along to the [`AttentionProcessor`] as defined in
                 [`self.processor`](https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/attention_processor.py).
             controlnet_conditioning_scale (`float | list[float]`, defaults to 1.0):
@@ -167,8 +167,8 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(NeuronStableDiffusionXLPipe
                 The percentage of total steps at which the ControlNet starts applying.
             control_guidance_end (`float | list[float]`, defaults to 1.0):
                 The percentage of total steps at which the ControlNet stops applying.
-            original_size (`tuple[int, int | None]`, defaults to (1024, 1024)):
-                If `original_size` is not the same as `target_size` the image will appear to be down- or upsampled.
+            original_size (`tuple[int, int] | None`, defaults to (1024, 1024)):
+                If `original_size` is not the same as `target_size`, the image will appear to be down- or upsampled.
                 `original_size` defaults to `(height, width)` if not specified. Part of SDXL's micro-conditioning as
                 explained in section 2.2 of
                 [https://huggingface.co/papers/2307.01952](https://huggingface.co/papers/2307.01952).
@@ -177,11 +177,11 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(NeuronStableDiffusionXLPipe
                 `crops_coords_top_left` downwards. Favorable, well-centered images are usually achieved by setting
                 `crops_coords_top_left` to (0, 0). Part of SDXL's micro-conditioning as explained in section 2.2 of
                 [https://huggingface.co/papers/2307.01952](https://huggingface.co/papers/2307.01952).
-            target_size (`tuple[int, int | None]`, defaults to `None`):
+            target_size (`tuple[int, int] | None`, defaults to `None`):
                 For most cases, `target_size` should be set to the desired height and width of the generated image. If
-                not specified it will default to `(height, width)`. Part of SDXL's micro-conditioning as explained in
+                not specified, it will default to `(height, width)`. Part of SDXL's micro-conditioning as explained in
                 section 2.2 of [https://huggingface.co/papers/2307.01952](https://huggingface.co/papers/2307.01952).
-            negative_original_size (`tuple[int, int | None]`, defaults to `None`):
+            negative_original_size (`tuple[int, int] | None`, defaults to `None`):
                 To negatively condition the generation process based on a specific image resolution. Part of SDXL's
                 micro-conditioning as explained in section 2.2 of
                 [https://huggingface.co/papers/2307.01952](https://huggingface.co/papers/2307.01952). For more
@@ -191,24 +191,23 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(NeuronStableDiffusionXLPipe
                 micro-conditioning as explained in section 2.2 of
                 [https://huggingface.co/papers/2307.01952](https://huggingface.co/papers/2307.01952). For more
                 information, refer to this issue thread: https://github.com/huggingface/diffusers/issues/4208.
-            negative_target_size (`tuple[int, int | None]`, defaults to `None`):
-                To negatively condition the generation process based on a target image resolution. It should be as same
+            negative_target_size (`tuple[int, int] | None`, defaults to `None`):
+                To negatively condition the generation process based on a target image resolution. It should be the same
                 as the `target_size` for most cases. Part of SDXL's micro-conditioning as explained in section 2.2 of
                 [https://huggingface.co/papers/2307.01952](https://huggingface.co/papers/2307.01952). For more
                 information, refer to this issue thread: https://github.com/huggingface/diffusers/issues/4208.
             clip_skip (`int | None`, defaults to `None`):
                 Number of layers to be skipped from CLIP while computing the prompt embeddings. A value of 1 means that
                 the output of the pre-final layer will be used for computing the prompt embeddings.
-            callback_on_step_end (`Callable[[int, int, dict | None, None, PipelineCallback, MultiPipelineCallbacks]]`, defaults to `None`):
+            callback_on_step_end (`Callable[[int, int, dict]] | PipelineCallback | MultiPipelineCallbacks | None`, defaults to `None`):
                 A function or a subclass of `PipelineCallback` or `MultiPipelineCallbacks` that is called at the end of
-                each denoising step during the inference. with the following arguments: `callback_on_step_end(self:
+                each denoising step during the inference with the following arguments: `callback_on_step_end(self:
                 DiffusionPipeline, step: int, timestep: int, callback_kwargs: dict)`. `callback_kwargs` will include a
                 list of all tensors as specified by `callback_on_step_end_tensor_inputs`.
             callback_on_step_end_tensor_inputs (`list[str]`, defaults to `["latents"]`):
                 The list of tensor inputs for the `callback_on_step_end` function. The tensors specified in the list
                 will be passed as `callback_kwargs` argument. You will only be able to include variables listed in the
                 `._callback_tensor_inputs` attribute of your pipeline class.
-
         Examples:
 
         Returns:
