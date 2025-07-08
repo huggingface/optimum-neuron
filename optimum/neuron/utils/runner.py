@@ -404,7 +404,7 @@ class ExampleRunner:
         num_cores: int,
         precision: str | Precision,
         train_batch_size: int,
-        sequence_length: Union[int, tuple[int, int | None, list[int]]] = None,
+        sequence_length: int | tuple[int, int | None, list[int]] = None,
         do_eval: bool = False,
         eval_batch_size: int | None = None,
         gradient_accumulation_steps: int = 1,

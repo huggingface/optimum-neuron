@@ -152,7 +152,7 @@ class NeuronMixtralDecoderLayer(nn.Module):
         position_ids: torch.LongTensor | None = None,
         past_key_value: tuple[torch.Tensor | None] = None,
         **kwargs,
-    ) -> tuple[torch.FloatTensor, Tuple[torch.FloatTensor, torch.FloatTensor | None]]:
+    ) -> tuple[torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor | None]]:
         """
         Args:
             hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, embed_dim)`

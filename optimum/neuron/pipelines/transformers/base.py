@@ -135,7 +135,7 @@ NEURONX_SUPPORTED_TASKS = {
 }
 
 
-def check_model_type(self, supported_models: Union[list[str], dict]):
+def check_model_type(self, supported_models: list[str, dict]):
     """
     Dummy function to avoid the error logs raised by https://github.com/huggingface/transformers/blob/v4.45.2/src/transformers/pipelines/base.py#L1091
     """

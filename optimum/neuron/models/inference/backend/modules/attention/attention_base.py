@@ -379,7 +379,7 @@ class NeuronAttentionBase(nn.Module):
         cos_cache: torch.Tensor | None = None,
         sin_cache: torch.Tensor | None = None,
         rmsnorm=None,
-    ) -> tuple[Tensor, Tuple[Tensor, Tensor | None]]:
+    ) -> tuple[Tensor, tuple[Tensor, Tensor | None]]:
         """Implements each layer's forward pass for the attention block."""
         bsz, q_len, _ = hidden_states.size()
         if self.sequence_parallel_enabled:

@@ -37,7 +37,7 @@ class SingleModelCacheEntry(ModelCacheEntry):
         self,
         model_id: str,
         task: str,
-        config: Union[PretrainedConfig, dict[str, Any]],
+        config: PretrainedConfig | dict[str, Any],
         neuron_config: NeuronConfig | None = None,
     ):
         config = copy.deepcopy(config)

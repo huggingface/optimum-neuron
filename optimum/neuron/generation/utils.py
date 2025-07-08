@@ -907,7 +907,7 @@ class NeuronGenerationMixin(GenerationMixin):
         stopping_criteria: StoppingCriteriaList | None = None,
         max_length: int | None = None,
         pad_token_id: int | None = None,
-        eos_token_id: Union[int, list[int | None]] = None,
+        eos_token_id: int | list[int | None] = None,
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
         output_scores: bool | None = None,
@@ -945,7 +945,7 @@ class NeuronGenerationMixin(GenerationMixin):
                 tokens. The maximum length of the sequence to be generated.
             pad_token_id (`int`, *optional*):
                 The id of the *padding* token.
-            eos_token_id (`Union[int, list[int]]`, *optional*):
+            eos_token_id (`int | list[int]`, *optional*):
                 The id of the *end-of-sequence* token. Optionally, use a list to set multiple *end-of-sequence* tokens.
             output_attentions (`bool`, *optional*, defaults to `False`):
                 Whether or not to return the attentions tensors of all attention layers. See `attentions` under
@@ -1231,7 +1231,7 @@ class NeuronGenerationMixin(GenerationMixin):
         stopping_criteria: StoppingCriteriaList | None = None,
         max_length: int | None = None,
         pad_token_id: int | None = None,
-        eos_token_id: Union[int, list[int | None]] = None,
+        eos_token_id: int | list[int | None] = None,
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
         output_scores: bool | None = None,
@@ -1270,7 +1270,7 @@ class NeuronGenerationMixin(GenerationMixin):
                 tokens. The maximum length of the sequence to be generated.
             pad_token_id (`int`, *optional*):
                 The id of the *padding* token.
-            eos_token_id (`Union[int, list[int]]`, *optional*):
+            eos_token_id (`int | list[int]`, *optional*):
                 The id of the *end-of-sequence* token. Optionally, use a list to set multiple *end-of-sequence* tokens.
             output_attentions (`bool`, *optional*, defaults to `False`):
                 Whether or not to return the attentions tensors of all attention layers. See `attentions` under

@@ -127,7 +127,7 @@ def get_diffusion_models_for_export(
     lora_args: LoRAAdapterArguments,
     dynamic_batch_size: bool | None = False,
     output_hidden_states: bool = False,
-    controlnet_ids: Union[str, list[str | None]] = None,
+    controlnet_ids: str | list[str | None] = None,
     controlnet_input_shapes: dict[str, Any | None] = None,
     image_encoder_input_shapes: dict[str, Any | None] = None,
 ) -> dict[str, tuple["PreTrainedModel" | "ModelMixin", "NeuronDefaultConfig"]]:
@@ -156,7 +156,7 @@ def get_diffusion_models_for_export(
             Whether the Neuron compiled model supports dynamic batch size.
         output_hidden_states (`bool`, defaults to `False`):
             Whether or not for the traced text encoders to return the hidden states of all layers.
-        controlnet_ids (`Union[str, list[str | None]]`, defaults to `None`):
+        controlnet_ids (`str | list[str | None]`, defaults to `None`):
             Model ID of one or multiple ControlNets providing additional conditioning to the `unet` during the denoising process. If you set multiple
             ControlNets as a list, the outputs from each ControlNet are added together to create one combined additional conditioning.
         controlnet_input_shapes (`dict[str, Any | None]`, defaults to `None`):
@@ -370,7 +370,7 @@ def _load_lora_weights_to_pipeline(pipeline: "DiffusionPipeline", lora_args: LoR
     return pipeline
 
 
-def load_controlnets(controlnet_ids: Union[str, list[str | None]] = None):
+def load_controlnets(controlnet_ids: str | list[str | None] = None):
     contronets = []
     if controlnet_ids:
         if isinstance(controlnet_ids, str):
@@ -385,7 +385,7 @@ def get_submodels_for_export_diffusion(
     pipeline: "DiffusionPipeline",
     lora_args: LoRAAdapterArguments,
     output_hidden_states: bool = False,
-    controlnet_ids: Union[str, list[str | None]] = None,
+    controlnet_ids: str | list[str | None] = None,
 ) -> dict[str, "PreTrainedModel" | "ModelMixin"]:
     """
     Returns the components of a Stable Diffusion model.

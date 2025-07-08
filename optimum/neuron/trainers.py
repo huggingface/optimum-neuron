@@ -1405,7 +1405,7 @@ class _TrainerForNeuron:
 
     def evaluate(
         self,
-        eval_dataset: Union[Dataset, dict[str, Dataset | None]] = None,
+        eval_dataset: Dataset | dict[str, Dataset | None] = None,
         ignore_keys: list[str | None] = None,
         metric_key_prefix: str = "eval",
     ) -> dict[str, float]:
@@ -1471,7 +1471,7 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
         args: SFTConfig | None = None,
         data_collator: DataCollator | None = None,  # type: ignore
         train_dataset: Dataset | None = None,
-        eval_dataset: Union[Dataset, dict[str, Dataset | None]] = None,
+        eval_dataset: Dataset | dict[str, Dataset | None] = None,
         tokenizer: PreTrainedTokenizerBase | None = None,
         model_init: Callable[[], PreTrainedModel] | None = None,
         compute_metrics: Callable[[EvalPrediction | None, Dict]] = None,
@@ -1818,7 +1818,7 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
         args: ORPOConfig | None = None,
         data_collator: DataCollator | None = None,
         train_dataset: Dataset | None = None,
-        eval_dataset: Union[Dataset, dict[str, Dataset | None]] = None,
+        eval_dataset: Dataset | dict[str, Dataset | None] = None,
         tokenizer: PreTrainedTokenizerBase | None = None,
         model_init: Callable[[], PreTrainedModel] | None = None,
         callbacks: list[TrainerCallback | None] = None,

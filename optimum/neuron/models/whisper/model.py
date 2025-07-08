@@ -203,7 +203,7 @@ class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration,
         decoder_input_ids: torch.LongTensor | None = None,
         encoder_outputs: tuple[torch.FloatTensor | None] = None,
         **kwargs,
-    ) -> Union[tuple[torch.Tensor], Seq2SeqLMOutput]:
+    ) -> tuple[torch.Tensor, Seq2SeqLMOutput]:
         if encoder_outputs is None:
             lm_logits, encoder_last_hidden_state = self.encoder(
                 input_features=input_features, decoder_input_ids=decoder_input_ids

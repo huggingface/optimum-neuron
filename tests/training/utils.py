@@ -62,7 +62,7 @@ def get_random_string(length) -> str:
     return "".join(random.choice(letters) for _ in range(length))
 
 
-def create_dummy_dataset(input_specs: dict[str, tuple[Tuple[int, ...], torch.dtype]], num_examples: int) -> Dataset:
+def create_dummy_dataset(input_specs: dict[str, tuple[tuple[int, ...], torch.dtype]], num_examples: int) -> Dataset:
     def gen():
         for _ in range(num_examples):
             yield {name: torch.rand(shape) for name, shape in input_specs.items()}

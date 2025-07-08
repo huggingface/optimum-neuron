@@ -52,7 +52,7 @@ class FusedLogitsWarper:
             raise ValueError("Multinomial sampling requires at least top-k or top-p to be specified.")
         return cls(generation_config.temperature, generation_config.top_k, generation_config.top_p)
 
-    def __call__(self, logits: torch.FloatTensor) -> Tuple[torch.FloatTensor, torch.LongTensor]:
+    def __call__(self, logits: torch.FloatTensor) -> tuple[torch.FloatTensor, torch.LongTensor]:
         if self.temperature != 1.0:
             logits = logits / self.temperature
 

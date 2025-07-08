@@ -159,13 +159,10 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         tokenizer: CLIPTokenizer | T5Tokenizer | None = None,
         tokenizer_2: CLIPTokenizer | None = None,
         feature_extractor: CLIPFeatureExtractor | None = None,
-        controlnet: Union[
-            torch.jit._script.ScriptModule,
-            list[
+        controlnet: torch.jit._script.ScriptModule | list[
                 torch.jit._script.ScriptModule | None,
                 "NeuronControlNetModel",
-                "NeuronMultiControlNetModel",
-            ],
+                "NeuronMultiControlNetModel",,
         ] = None,
         # stable diffusion xl specific arguments
         requires_aesthetics_score: bool = False,
@@ -213,7 +210,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
             feature_extractor (`CLIPFeatureExtractor | None`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
-            controlnet (`Union[torch.jit._script.ScriptModule, list[torch.jit._script.ScriptModule | None, "NeuronControlNetModel", "NeuronMultiControlNetModel"]]`, defaults to `None`):
+            controlnet (`torch.jit._script.ScriptModule | list[torch.jit._script.ScriptModule | None, "NeuronControlNetModel", "NeuronMultiControlNetModel"]`, defaults to `None`):
                 The Neuron TorchScript module(s) associated to the ControlNet(s).
             requires_aesthetics_score (`bool`, defaults to `False`):
                 Whether the `unet` requires an `aesthetic_score` condition to be passed during inference. Also see the
@@ -533,7 +530,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         return submodels
 
-    def replace_weights(self, weights: Union[dict[str, torch.Tensor | None, torch.nn.Module]] = None):
+    def replace_weights(self, weights: dict[str, torch.Tensor | None, torch.nn.Module] = None):
         check_if_weights_replacable(self.configs, weights)
         model_names = [
             "text_encoder",
@@ -882,7 +879,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         output_attentions: bool = False,
         output_hidden_states: bool = False,
         data_parallel_mode: Literal["none", "unet", "transformer", "all" | None] = None,
-        controlnet_ids: Union[str, list[str | None]] = None,
+        controlnet_ids: str | list[str | None] = None,
         **kwargs,
     ) -> "NeuronDiffusionPipelineBase":
         """
@@ -946,23 +943,23 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             data_parallel_mode (`Literal["none", "unet", "transformer", "all" | None]`, defaults to `None`):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
                 load unet into both cores of each device), "all"(load the whole pipeline into both cores).
-            lora_model_ids (`Union[str, list[str | None]]`, defaults to `None`):
+            lora_model_ids (`str | list[str | None]`, defaults to `None`):
                 Lora model local paths or repo ids (eg. `ostris/super-cereal-sdxl-lora`) on the Hugginface Hub.
-            lora_weight_names (`Union[str, list[str | None]]`, defaults to `None`):
+            lora_weight_names (`str | list[str | None]`, defaults to `None`):
                 Lora weights file names.
-            lora_adapter_names (`Union[str, list[str | None]]`, defaults to `None`):
+            lora_adapter_names (`str | list[str | None]`, defaults to `None`):
                 Adapter names to be used for referencing the loaded adapter models.
             lora_scales (`list[float | None]`, defaults to `None`):
                 Lora adapters scaling factors.
-            controlnet_ids (`Union[str, list[str | None]]`, defaults to `None`):
+            controlnet_ids (`str | list[str | None]`, defaults to `None`):
                 List of ControlNet model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`)."
-            ip_adapter_ids (`Union[str, list[str | None]]`, defaults to `None`):
+            ip_adapter_ids (`str | list[str | None]`, defaults to `None`):
                 Model ids (eg. `h94/IP-Adapter`) of IP-Adapter models hosted on the Hub or paths to local directories containing the IP-Adapter weights.
-            ip_adapter_subfolders (`Union[str, list[str | None]]`, defaults to `None`):
+            ip_adapter_subfolders (`str | list[str | None]`, defaults to `None`):
                 The subfolder location of a model file within a larger model repository on the Hub or locally. If a list is passed, it should have the same length as `ip_adapter_weight_names`.
-            ip_adapter_weight_names (`Union[str, list[str | None]]`, defaults to `None`):
+            ip_adapter_weight_names (`str | list[str | None]`, defaults to `None`):
                 The name of the weight file to load. If a list is passed, it should have the same length as `ip_adapter_subfolders`.
-            ip_adapter_scales (`Union[float, list[float | None]]`, defaults to `None`):
+            ip_adapter_scales (`float | list[float | None]`, defaults to `None`):
                 Scaling factors for the IP-Adapters.
         """
         # Parse kwargs to their dataclass
@@ -1470,7 +1467,7 @@ class NeuronControlNetModel(_NeuronDiffusionModelPart):
         guess_mode: bool = False,
         added_cond_kwargs: Dict | None = None,
         return_dict: bool = True,
-    ) -> Union["ControlNetOutput", tuple[Tuple[torch.Tensor, ...], torch.Tensor]]:
+    ) -> "ControlNetOutput" | tuple[tuple[torch.Tensor, ..., torch.Tensor]]:
         timestep = timestep.expand((sample.shape[0],)).to(torch.long)
         inputs = (sample, timestep, encoder_hidden_states, controlnet_cond, conditioning_scale)
         if added_cond_kwargs:
@@ -1524,7 +1521,7 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
         conditioning_scale: list[float],
         guess_mode: bool = False,
         return_dict: bool = True,
-    ) -> Union["ControlNetOutput", tuple[Tuple[torch.Tensor, ...], torch.Tensor]]:
+    ) -> "ControlNetOutput" | tuple[tuple[torch.Tensor, ..., torch.Tensor]]:
         if guess_mode:
             logger.info(
                 "Guess mode is not yet supported. File us an issue on: https://github.com/huggingface/optimum-neuron/issues."

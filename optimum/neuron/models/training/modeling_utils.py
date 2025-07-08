@@ -197,7 +197,7 @@ class NeuronModelMixin:
         cls,
         config,
         torch_dtype: torch.dtype | None = None,
-        device_map: Union[str, dict[str, int | None]] = None,
+        device_map: str | dict[str, int | None] = None,
         check_device_map: bool = True,
         hard_check_only: bool = False,
     ) -> PretrainedConfig:
@@ -251,7 +251,7 @@ class NeuronModelMixin:
         config,
         use_flash_attention_2: bool = False,
         torch_dtype: torch.dtype | None = None,
-        device_map: Union[str, dict[str, int | None]] = None,
+        device_map: str | dict[str, int | None] = None,
         check_device_map: bool = True,
     ):
         """
@@ -1458,7 +1458,7 @@ class NeuronModelMixin:
     def save_pretrained(
         self,
         save_directory: str | os.PathLike,
-        is_main_process: Union[bool, Literal["auto"]] = "auto",
+        is_main_process: bool | Literal["auto"] = "auto",
         state_dict: dict | None = None,
         save_function: Callable = torch.save,
         push_to_hub: bool = False,

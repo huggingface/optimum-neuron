@@ -243,7 +243,7 @@ class ModelWeightTransformationSpecs:
     """
 
     module_fully_qualified_name: str | None = None
-    specs: Union[ModelWeightTransformationSpec, list[ModelWeightTransformationSpec]] = field(default_factory=list)
+    specs: ModelWeightTransformationSpec | list[ModelWeightTransformationSpec] = field(default_factory=list)
 
     def to_metadata(self, parameters_for_current_stage: set[str | None] = None) -> dict[str, Any]:
         if self.module_fully_qualified_name is None:
@@ -372,7 +372,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
     fused_linear_name: str
     linear_names: list[str]
     bias: bool
-    fuse_axis: Union[Literal[0], Literal[1], Literal["column"], Literal["row"]]
+    fuse_axis: Literal[0, Literal[1], Literal["column"], Literal["row"]]
     original_dims: list[int]
     tp_size: int = field(default_factory=get_tensor_model_parallel_size)
 
@@ -870,7 +870,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
         num_attention_heads: int,
         num_key_value_heads: int,
         kv_size_multiplier: int,
-        query_or_output_proj: Union[Literal["query"], Literal["output"]],
+        query_or_output_proj: Literal["query", Literal["output"]],
     ) -> torch.Tensor:
         """
         Creates the local version of the query or output projections weight for the given TP rank.
@@ -908,7 +908,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
         num_attention_heads: int,
         num_key_value_heads: int,
         kv_size_multiplier: int,
-        query_or_output: Union[Literal["query"], Literal["output"]],
+        query_or_output: Literal["query", Literal["output"]],
     ):
         assert query_or_output in ["query", "output"]
         assert full_weight.device == torch.device("cpu")
@@ -1466,8 +1466,8 @@ def specialize_transformation_specs_for_model(model: torch.nn.Module):
 
 
 def adapt_peft_config_for_model(
-    model: torch.nn.Module, peft_config: Union[PeftConfig, dict[str, PeftConfig]], inplace: bool = False
-) -> Union[PeftConfig, dict[str, PeftConfig]]:
+    model: torch.nn.Module, peft_config: PeftConfig | dict[str, PeftConfig], inplace: bool = False
+) -> PeftConfig | dict[str, PeftConfig]:
     adapted_peft_config = copy.deepcopy(peft_config) if not inplace else peft_config
     for _, mod in model.named_modules():
         if not isinstance(mod, CustomModule):

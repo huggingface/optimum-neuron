@@ -45,7 +45,7 @@ class NeuronExportConfig(ExportConfig):
 
     Class attributes:
 
-    - INPUT_ARGS (`tuple[Union[str, Tuple[Union[str, Tuple[str]]]]]`) -- A tuple where each element is either:
+    - INPUT_ARGS (`tuple[str | tuple[str | tuple[str]]]`) -- A tuple where each element is either:
         - An argument  name, for instance "batch_size" or "sequence_length", that indicates that the argument can
         be passed to export the model,
         - Or a tuple containing two elements:
@@ -87,9 +87,9 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
     normalize the model config.
     - DUMMY_INPUT_GENERATOR_CLASSES (`tuple[Type]`) -- A tuple of classes derived from
     [`~optimum.utils.DummyInputGenerator`] specifying how to create dummy inputs.
-    - ATOL_FOR_VALIDATION (`Union[float, dict[str, float]]`) -- A float or a dictionary mapping task names to float,
+    - ATOL_FOR_VALIDATION (`float | dict[str, float]`) -- A float or a dictionary mapping task names to float,
     where the float values represent the absolute tolerance value to use during model conversion validation.
-    - INPUT_ARGS (`tuple[Union[str, Tuple[Union[str, Tuple[str]]]]]`) -- A tuple where each element is either:
+    - INPUT_ARGS (`tuple[str | tuple[str | tuple[str]]]`) -- A tuple where each element is either:
         - An argument  name, for instance "batch_size" or "sequence_length", that indicates that the argument MUST
         be passed to export the model,
         - Or a tuple containing two elements:
@@ -118,7 +118,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
 
     NORMALIZED_CONFIG_CLASS = None
     DUMMY_INPUT_GENERATOR_CLASSES = ()
-    ATOL_FOR_VALIDATION: Union[float, dict[str, float]] = 1e-5
+    ATOL_FOR_VALIDATION: float | dict[str, float] = 1e-5
     MODEL_TYPE = None
     CUSTOM_MODEL_WRAPPER = None
 
@@ -305,13 +305,13 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
 
     def generate_dummy_inputs(
         self, return_tuple: bool = False, **kwargs
-    ) -> Union[dict[str, torch.Tensor], tuple[torch.Tensor]]:
+    ) -> dict[str, torch.Tensor, tuple[torch.Tensor]]:
         """
         Generates dummy inputs that the exported model should be able to process.
         This method is actually used to determine the input specs and their static shapes that are needed for the export.
 
         Returns:
-            `Union[dict[str, torch.Tensor], tuple[torch.Tensor]]`: A dictionary mapping input names to dummy tensors or a tuple with dummy tensors.
+            `dict[str, torch.Tensor, tuple[torch.Tensor]]`: A dictionary mapping input names to dummy tensors or a tuple with dummy tensors.
         """
         dummy_inputs_generators = self._create_dummy_input_generator_classes(**kwargs)
         dummy_inputs = {}

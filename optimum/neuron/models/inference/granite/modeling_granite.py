@@ -70,7 +70,7 @@ class NeuronGraniteDecoderLayer(nn.Module):
         position_ids: torch.LongTensor | None = None,
         past_key_value: tuple[torch.Tensor | None] = None,
         **kwargs,
-    ) -> tuple[torch.FloatTensor, Tuple[torch.FloatTensor, torch.FloatTensor | None]]:
+    ) -> tuple[torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor | None]]:
         residual = hidden_states
 
         # RMSNorm (fused with QKV kernel when SP is disabled)

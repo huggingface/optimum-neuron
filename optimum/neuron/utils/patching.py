@@ -164,13 +164,13 @@ class ModelPatcher(BasePatcher):
 
 
 def patch_within_function(
-    patching_specs: Union[list[tuple[str, Any]], tuple[str, Any]], ignore_missing_attributes: bool = False
+    patching_specs: list[tuple[str, Any], tuple[str, Any]], ignore_missing_attributes: bool = False
 ):
     """
     Decorator that patches attributes of a module during the lifetime of the decorated function.
 
     Args:
-        patching_specs (`Union[list[tuple[str, Any]], tuple[str, Any]]`):
+        patching_specs (`list[tuple[str, Any], tuple[str, Any]]`):
             The specifications of what to patch.
         ignore_missing_attributes (`bool`, defaults to `False`):
             Whether or not the patch should fail if the attribute to patch does not exist.

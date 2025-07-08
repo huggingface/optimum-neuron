@@ -317,7 +317,7 @@ def get_submodels_and_neuron_configs(
     submodels: dict[str, Path | str | None] = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
-    controlnet_ids: Union[str, list[str | None]] = None,
+    controlnet_ids: str | list[str | None] = None,
     lora_args: LoRAAdapterArguments | None = None,
 ):
     is_encoder_decoder = (
@@ -413,7 +413,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     dynamic_batch_size: bool = False,
     submodels: dict[str, Path | str | None] = None,
     output_hidden_states: bool = False,
-    controlnet_ids: Union[str, list[str | None]] = None,
+    controlnet_ids: str | list[str | None] = None,
     lora_args: LoRAAdapterArguments | None = None,
 ):
     check_compiler_compatibility_for_stable_diffusion()
@@ -544,7 +544,7 @@ def load_models_and_neuron_configs(
     submodels: dict[str, Path | str | None],
     torch_dtype: str | torch.dtype | None = None,
     tensor_parallel_size: int = 1,
-    controlnet_ids: Union[str, list[str | None]] = None,
+    controlnet_ids: str | list[str | None] = None,
     lora_args: LoRAAdapterArguments | None = None,
     ip_adapter_args: IPAdapterArguments | None = None,
     output_attentions: bool = False,
@@ -623,7 +623,7 @@ def main_export(
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     library_name: str | None = None,
-    controlnet_ids: Union[str, list[str | None]] = None,
+    controlnet_ids: str | list[str | None] = None,
     lora_args: LoRAAdapterArguments | None = None,
     ip_adapter_args: IPAdapterArguments | None = None,
     **input_shapes,

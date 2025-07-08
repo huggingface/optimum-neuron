@@ -461,12 +461,12 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         attention_mask: torch.FloatTensor | None = None,
         decoder_input_ids: torch.LongTensor | None = None,
         decoder_attention_mask: torch.BoolTensor | None = None,
-        encoder_outputs: tuple[Tuple[torch.Tensor | None]] = None,
+        encoder_outputs: tuple[tuple[torch.Tensor | None]] = None,
         beam_scores: torch.FloatTensor | None = None,
         return_dict: bool = False,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
-    ) -> Union[tuple[torch.FloatTensor], ModelOutput]:
+    ) -> tuple[torch.FloatTensor, ModelOutput]:
         hidden_states = encoder_outputs["last_hidden_state"]
 
         if not hasattr(self, "beam_idx"):
