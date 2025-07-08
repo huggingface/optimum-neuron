@@ -72,7 +72,7 @@ class NeuronWhisperEncoder(_NeuronSeq2SeqModelPart):
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronTracedModel,
         config: "PretrainedConfig | None" = None,
-        neuron_config: dict[str, str | None] = None,
+        neuron_config: dict[str, str] | None = None,
     ):
         super().__init__(model, parent_model, config, neuron_config, "encoder")
         stride = getattr(self.config, "stride", [1, 2])
@@ -108,7 +108,7 @@ class NeuronWhisperDecoder(_NeuronSeq2SeqModelPart):
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronTracedModel,
         config: "PretrainedConfig | None" = None,
-        neuron_config: dict[str, str | None] = None,
+        neuron_config: dict[str, str] | None = None,
     ):
         super().__init__(model, parent_model, config, neuron_config, "decoder")
 
@@ -153,8 +153,8 @@ class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration,
         encoder_file_name: str | None = NEURON_FILE_NAME,
         decoder_file_name: str | None = NEURON_FILE_NAME,
         preprocessors: list | None = None,
-        neuron_configs: dict[str, "NeuronDefaultConfig" | None] = None,
-        configs: dict[str, "PretrainedConfig" | None] = None,
+        neuron_configs: dict[str, "NeuronDefaultConfig"] | None = None,
+        configs: dict[str, "PretrainedConfig"] | None = None,
         generation_config: GenerationConfig | None = None,
         **kwargs,
     ):
@@ -201,9 +201,9 @@ class NeuronWhisperForConditionalGeneration(NeuronModelForConditionalGeneration,
         self,
         input_features: torch.FloatTensor | None = None,
         decoder_input_ids: torch.LongTensor | None = None,
-        encoder_outputs: tuple[torch.FloatTensor | None] = None,
+        encoder_outputs: tuple[torch.FloatTensor] | None = None,
         **kwargs,
-    ) -> tuple[torch.Tensor, Seq2SeqLMOutput]:
+    ) -> tuple[torch.Tensor] | Seq2SeqLMOutput:
         if encoder_outputs is None:
             lm_logits, encoder_last_hidden_state = self.encoder(
                 input_features=input_features, decoder_input_ids=decoder_input_ids

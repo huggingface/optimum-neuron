@@ -245,7 +245,7 @@ class ModelWeightTransformationSpecs:
     module_fully_qualified_name: str | None = None
     specs: ModelWeightTransformationSpec | list[ModelWeightTransformationSpec] = field(default_factory=list)
 
-    def to_metadata(self, parameters_for_current_stage: set[str | None] = None) -> dict[str, Any]:
+    def to_metadata(self, parameters_for_current_stage: set[str] | None = None) -> dict[str, Any]:
         if self.module_fully_qualified_name is None:
             raise ValueError("`module_fully_qualified_name` must be set to serialize the specs")
         serialized_specs = []
@@ -372,7 +372,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
     fused_linear_name: str
     linear_names: list[str]
     bias: bool
-    fuse_axis: Literal[0, Literal[1], Literal["column"], Literal["row"]]
+    fuse_axis: Literal[0] | Literal[1] | Literal["column"] | Literal["row"]
     original_dims: list[int]
     tp_size: int = field(default_factory=get_tensor_model_parallel_size)
 
@@ -870,7 +870,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
         num_attention_heads: int,
         num_key_value_heads: int,
         kv_size_multiplier: int,
-        query_or_output_proj: Literal["query", Literal["output"]],
+        query_or_output_proj: Literal["query"] | Literal["output"],
     ) -> torch.Tensor:
         """
         Creates the local version of the query or output projections weight for the given TP rank.

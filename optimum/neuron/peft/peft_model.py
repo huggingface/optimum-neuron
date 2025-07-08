@@ -125,7 +125,7 @@ class NeuronPeftModel(PeftModel):
         self,
         save_directory: str,
         safe_serialization: bool = False,
-        selected_adapters: list[str | None] = None,
+        selected_adapters: list[str] | None = None,
         save_embedding_layers: str | bool = "auto",
         is_main_process: bool = True,
         path_initial_model_for_weight_conversion: str | None = None,
@@ -443,7 +443,7 @@ class NeuronPeftModel(PeftModel):
                 adapter_name=adapter_name, autocast_adapter_dtype=autocast_adapter_dtype
             )
 
-        # set model in evaluation mode to deactivate Dropout modules by default
+        # Set model in evaluation mode to deactivate Dropout modules by default
         if not is_trainable:
             self.eval()
         return load_result

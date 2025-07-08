@@ -32,30 +32,30 @@ logger = logging.getLogger(__name__)
 class NeuronStableDiffusionControlNetPipelineMixin:
     def __call__(
         self,
-        prompt: str | list[str] = None,
+        prompt: str | list[str] | None = None,
         image: PipelineImageInput = None,
         num_inference_steps: int = 50,
-        timesteps: list[int | None] = None,
-        sigmas: list[float | None] = None,
+        timesteps: list[int] | None = None,
+        sigmas: list[float] | None = None,
         guidance_scale: float = 7.5,
-        negative_prompt: str | list[str | None] = None,
+        negative_prompt: str | list[str] | None = None,
         num_images_per_prompt: int | None = 1,
         eta: float = 0.0,
-        generator: torch.Generator | list[torch.Generator | None] = None,
+        generator: torch.Generator | list[torch.Generator] | None = None,
         latents: torch.Tensor | None = None,
         prompt_embeds: torch.Tensor | None = None,
         negative_prompt_embeds: torch.Tensor | None = None,
         ip_adapter_image: PipelineImageInput | None = None,
-        ip_adapter_image_embeds: list[torch.Tensor | None] = None,
+        ip_adapter_image_embeds: list[torch.Tensor] | None = None,
         output_type: str = "pil",
         return_dict: bool = True,
-        cross_attention_kwargs: dict[str, Any | None] = None,
+        cross_attention_kwargs: dict[str, Any] | None = None,
         controlnet_conditioning_scale: float | list[float] = 1.0,
         guess_mode: bool = False,
         control_guidance_start: float | list[float] = 0.0,
         control_guidance_end: float | list[float] = 1.0,
         clip_skip: int | None = None,
-        callback_on_step_end: Callable[[int, int, dict | None, None, PipelineCallback, MultiPipelineCallbacks]] = None,
+        callback_on_step_end: Callable[[int, int, dict]] | PipelineCallback | MultiPipelineCallbacks | None = None,
         callback_on_step_end_tensor_inputs: list[str] = ["latents"],
         **kwargs,
     ):
@@ -63,7 +63,7 @@ class NeuronStableDiffusionControlNetPipelineMixin:
         The call function to the pipeline for generation.
 
         Args:
-            prompt (`str | list[str | None]`, defaults to `None`):
+            prompt (`str | list[str] | None`, defaults to `None`):
                 The prompt or prompts to guide image generation. If not defined, you need to pass `prompt_embeds`.
             image (`"PipelineImageInput" | None`, defaults to `None`):
                 The ControlNet input condition to provide guidance to the `unet` for generation. If the type is
@@ -77,18 +77,18 @@ class NeuronStableDiffusionControlNetPipelineMixin:
             num_inference_steps (`int`, defaults to 50):
                 The number of denoising steps. More denoising steps usually lead to a higher quality image at the
                 expense of slower inference.
-            timesteps (`list[int | None]`, defaults to `None`):
+            timesteps (`list[int] | None`, defaults to `None`):
                 Custom timesteps to use for the denoising process with schedulers which support a `timesteps` argument
                 in their `set_timesteps` method. If not defined, the default behavior when `num_inference_steps` is
                 passed will be used. Must be in descending order.
-            sigmas (`list[int | None]`, defaults to `None`):
+            sigmas (`list[int] | None`, defaults to `None`):
                 Custom sigmas to use for the denoising process with schedulers which support a `sigmas` argument in
                 their `set_timesteps` method. If not defined, the default behavior when `num_inference_steps` is passed
                 will be used.
             guidance_scale (`float`, defaults to 7.5):
                 A higher guidance scale value encourages the model to generate images closely linked to the text
                 `prompt` at the expense of lower image quality. Guidance scale is enabled when `guidance_scale > 1`.
-            negative_prompt (`str | list[str | None]`, defaults to `None`):
+            negative_prompt (`str | list[str] | None`, defaults to `None`):
                 The prompt or prompts to guide what to not include in image generation. If not defined, you need to
                 pass `negative_prompt_embeds` instead. Ignored when not using guidance (`guidance_scale < 1`).
             num_images_per_prompt (`int`, defaults to 1):
@@ -97,7 +97,7 @@ class NeuronStableDiffusionControlNetPipelineMixin:
             eta (`float`, defaults to 0.0):
                 Corresponds to parameter eta (η) from the [DDIM](https://arxiv.org/abs/2010.02502) paper. Only applies
                 to the [`diffusers.schedulers.DDIMScheduler`], and is ignored in other schedulers.
-            generator (`torch.Generator | list[torch.Generator | None]`, defaults to `None`):
+            generator (`torch.Generator | list[torch.Generator] | None`, defaults to `None`):
                 A [`torch.Generator`](https://pytorch.org/docs/stable/generated/torch.Generator.html) to make
                 generation deterministic.
             latents (`torch.Tensor | None`, defaults to `None`):
@@ -111,7 +111,7 @@ class NeuronStableDiffusionControlNetPipelineMixin:
                 Pre-generated negative text embeddings. Can be used to easily tweak text inputs (prompt weighting). If
                 not provided, `negative_prompt_embeds` are generated from the `negative_prompt` input argument.
             ip_adapter_image: (`PipelineImageInput | None`, defaults to `None`): Optional image input to work with IP Adapters.
-            ip_adapter_image_embeds (`list[torch.Tensor | None]`, defaults to `None`):
+            ip_adapter_image_embeds (`list[torch.Tensor] | None`, defaults to `None`):
                 Pre-generated image embeddings for IP-Adapter. It should be a list of length same as number of
                 IP-adapters. Each element should be a tensor of shape `(batch_size, num_images, emb_dim)`. It should
                 contain the negative image embedding if `do_classifier_free_guidance` is set to `True`. If not
@@ -121,7 +121,7 @@ class NeuronStableDiffusionControlNetPipelineMixin:
             return_dict (`bool`, defaults to `True`):
                 Whether or not to return a [`diffusers.pipelines.stable_diffusion.StableDiffusionPipelineOutput`] instead of a
                 plain tuple.
-            cross_attention_kwargs (`dict[str, Any | None]`, defaults to `None`):
+            cross_attention_kwargs (`dict[str, Any] | None`, defaults to `None`):
                 A kwargs dictionary that if specified is passed along to the [`AttentionProcessor`] as defined in
                 [`self.processor`](https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/attention_processor.py).
             controlnet_conditioning_scale (`float | list[float]`, defaults to 1.0):
@@ -138,7 +138,7 @@ class NeuronStableDiffusionControlNetPipelineMixin:
             clip_skip (`int | None`, defaults to `None`):
                 Number of layers to be skipped from CLIP while computing the prompt embeddings. A value of 1 means that
                 the output of the pre-final layer will be used for computing the prompt embeddings.
-            callback_on_step_end (`Callable[[int, int, dict | None, None, PipelineCallback, MultiPipelineCallbacks]]`, defaults to `None`):
+            callback_on_step_end (`Callable[[int, int, dict]] | PipelineCallback | MultiPipelineCallbacks | None`, defaults to `None`):
                 A function or a subclass of `PipelineCallback` or `MultiPipelineCallbacks` that is called at the end of
                 each denoising step during the inference. with the following arguments: `callback_on_step_end(self:
                 DiffusionPipeline, step: int, timestep: int, callback_kwargs: dict)`. `callback_kwargs` will include a

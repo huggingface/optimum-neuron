@@ -71,7 +71,7 @@ def neff_cache(cache_dir: str | None = None):
     def generate_neff_with_cache(
         hlo_artifacts: HloArtifacts,
         compiler_workdir: str | pathlib.Path | None = None,
-        compiler_args: list[str | None, str] = None,
+        compiler_args: list[str] | str | None = None,
         inline_weights_to_neff: bool = True,
     ):
         """

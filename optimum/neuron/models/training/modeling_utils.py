@@ -164,8 +164,8 @@ def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):
 class NeuronModelMixin:
     SUPPORTS_PIPELINE_PARALLELISM: bool = False
     PIPELINE_TRANSFORMER_LAYER_CLS: Type | None = None
-    PIPELINE_INPUT_NAMES: list[str | None] = None
-    PIPELINE_LEAF_MODULE_CLASSE_NAMES: list[str | None] = None
+    PIPELINE_INPUT_NAMES: list[str] | None = None
+    PIPELINE_LEAF_MODULE_CLASSE_NAMES: list[str] | None = None
 
     @classmethod
     def supports_pipeline_parallelism(cls) -> bool:
@@ -197,7 +197,7 @@ class NeuronModelMixin:
         cls,
         config,
         torch_dtype: torch.dtype | None = None,
-        device_map: str | dict[str, int | None] = None,
+        device_map: str | dict[str, int] | None = None,
         check_device_map: bool = True,
         hard_check_only: bool = False,
     ) -> PretrainedConfig:
@@ -251,7 +251,7 @@ class NeuronModelMixin:
         config,
         use_flash_attention_2: bool = False,
         torch_dtype: torch.dtype | None = None,
-        device_map: str | dict[str, int | None] = None,
+        device_map: str | dict[str, int] | None = None,
         check_device_map: bool = True,
     ):
         """
@@ -1255,7 +1255,7 @@ class NeuronModelMixin:
         # We do not load the state_dict (when not sharded) here as it is done in the original implementation.
         # We do it only in `cls._load_state_dict`.
 
-        # set dtype to instantiate the model under:
+        # Set dtype to instantiate the model under:
         # 1. If torch_dtype is not None, we use that dtype
         # 2. If torch_dtype is "auto", we auto-detect dtype from the loaded state_dict, by checking its first
         #    weights entry that is of a floating type - we assume all floating dtype weights are of the same dtype
@@ -1427,7 +1427,7 @@ class NeuronModelMixin:
         # make sure token embedding weights are still tied if needed
         model.tie_weights()
 
-        # set model in evaluation mode to deactivate DropOut modules by default
+        # Set model in evaluation mode to deactivate DropOut modules by default
         model.eval()
 
         if should_soft_tie:

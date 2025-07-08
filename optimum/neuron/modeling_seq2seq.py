@@ -107,7 +107,7 @@ class NeuronEncoder(_NeuronSeq2SeqModelPart):
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronTracedModel,
         config: "PretrainedConfig | None" = None,
-        neuron_config: dict[str, str | None] = None,
+        neuron_config: dict[str, str] | None = None,
     ):
         super().__init__(model, parent_model, config, neuron_config, "encoder")
 
@@ -170,8 +170,8 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         encoder_file_name: str | None = NEURON_FILE_NAME,
         decoder_file_name: str | None = NEURON_FILE_NAME,
         preprocessors: list | None = None,
-        neuron_configs: dict[str, "NeuronDefaultConfig" | None] = None,
-        configs: dict[str, "PretrainedConfig" | None] = None,
+        neuron_configs: dict[str, "NeuronDefaultConfig"] | None = None,
+        configs: dict[str, "PretrainedConfig"] | None = None,
         generation_config: GenerationConfig | None = None,
         **kwargs,
     ):
@@ -461,7 +461,7 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         attention_mask: torch.FloatTensor | None = None,
         decoder_input_ids: torch.LongTensor | None = None,
         decoder_attention_mask: torch.BoolTensor | None = None,
-        encoder_outputs: tuple[tuple[torch.Tensor | None]] = None,
+        encoder_outputs: tuple[tuple[torch.Tensor]] | None = None,
         beam_scores: torch.FloatTensor | None = None,
         return_dict: bool = False,
         output_attentions: bool = False,
@@ -516,7 +516,7 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         generation_config: GenerationConfig | None = None,
         logits_processor: LogitsProcessorList | None = None,
         stopping_criteria: StoppingCriteriaList | None = None,
-        prefix_allowed_tokens_fn: Callable[[int, torch.Tensor | None, list[int]]] = None,
+        prefix_allowed_tokens_fn: Callable[[int, torch.Tensor, list[int]]] | None = None,
         assistant_model: "PreTrainedModel | None" = None,
         num_return_sequences: int = 1,
         **kwargs,

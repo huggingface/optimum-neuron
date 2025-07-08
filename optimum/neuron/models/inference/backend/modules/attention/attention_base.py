@@ -374,12 +374,12 @@ class NeuronAttentionBase(nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
         position_ids: torch.LongTensor | None = None,
-        past_key_value: tuple[torch.Tensor | None] = None,
+        past_key_value: tuple[torch.Tensor] | None = None,
         active_mask: torch.LongTensor | None = None,
         cos_cache: torch.Tensor | None = None,
         sin_cache: torch.Tensor | None = None,
         rmsnorm=None,
-    ) -> tuple[Tensor, tuple[Tensor, Tensor | None]]:
+    ) -> tuple[Tensor, tuple[Tensor, Tensor] | None]:
         """Implements each layer's forward pass for the attention block."""
         bsz, q_len, _ = hidden_states.size()
         if self.sequence_parallel_enabled:

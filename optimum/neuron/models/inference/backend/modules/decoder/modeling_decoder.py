@@ -314,8 +314,8 @@ class NxDDecoderModel(nn.Module):
         input_ids: torch.LongTensor = None,
         attention_mask: torch.Tensor | None = None,
         position_ids: torch.LongTensor | None = None,
-        past_key_values: list[torch.FloatTensor | None] = None,
-        active_mask: list[torch.FloatTensor | None] = None,
+        past_key_values: list[torch.FloatTensor] | None = None,
+        active_mask: list[torch.FloatTensor] | None = None,
         # In llava context encoding model, input_embeds is precomputed
         inputs_embeds: torch.FloatTensor | None = None,
     ):

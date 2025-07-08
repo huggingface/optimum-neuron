@@ -591,11 +591,11 @@ class NeuronTracedModel(NeuronModel):
 
         Args:
             outputs (`list[torch.Tensor]`):
-                list of torch tensors which are inference output.
+                List of torch tensors which are inference output.
             dims (`list[int]`):
-                list of dimensions in which we slice a tensor.
+                List of dimensions in which we slice a tensor.
             indices (`list[int]`):
-                list of indices in which we slice a tensor along an axis.
+                List of indices in which we slice a tensor along an axis.
             padding_side (`Literal["right", "left"]`, defaults to "right"):
                 The side on which the padding has been applied.
         """
