@@ -542,7 +542,7 @@ class NeuronGenerationMixin(GenerationMixin):
         generation_config: GenerationConfig | None = None,
         logits_processor: LogitsProcessorList | None = None,
         stopping_criteria: StoppingCriteriaList | None = None,
-        prefix_allowed_tokens_fn: Callable[[int, torch.Tensor | None, list[int]]] = None,
+        prefix_allowed_tokens_fn: Callable[[int, torch.Tensor], list[int]] | None = None,
         synced_gpus: bool | None = None,
         is_traced_inference: bool = False,
         **kwargs,
