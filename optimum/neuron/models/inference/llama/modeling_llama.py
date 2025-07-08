@@ -18,7 +18,7 @@
 import gc
 import logging
 import math
-from typing import Tuple, Type
+from typing import Type
 
 import torch
 from neuronx_distributed.parallel_layers.layers import (

@@ -14,10 +14,9 @@
 # limitations under the License.
 """Custom AcceleratedOptimizer for Neuron."""
 
+import accelerate
 import torch
 import torch_xla.core.xla_model as xm
-
-import accelerate
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.utils import DistributedType
 from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
