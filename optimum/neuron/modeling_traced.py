@@ -20,7 +20,7 @@ import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Type, Literal
 
 import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download
@@ -520,7 +520,7 @@ class NeuronTracedModel(NeuronModel):
         Pads input tensors if they are not in valid shape.
 
         Args:
-            inputs (`Dict[str, "torch.Tensor"]`):
+            inputs (`dict[str, "torch.Tensor"]`):
                 Dictionary of input torch tensors.
             padding_side (`Literal["right", "left"]`, defaults to "right"):
                 The side on which to apply the padding.
@@ -590,11 +590,11 @@ class NeuronTracedModel(NeuronModel):
         Removes padding from output tensors.
 
         Args:
-            outputs (`List[torch.Tensor]`):
+            outputs (`list[torch.Tensor]`):
                 List of torch tensors which are inference output.
-            dims (`List[int]`):
+            dims (`list[int]`):
                 List of dimensions in which we slice a tensor.
-            indices (`List[int]`):
+            indices (`list[int]`):
                 List of indices in which we slice a tensor along an axis.
             padding_side (`Literal["right", "left"]`, defaults to "right"):
                 The side on which the padding has been applied.
