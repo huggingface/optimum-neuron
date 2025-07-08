@@ -96,7 +96,7 @@ if is_diffusers_available():
     from diffusers.image_processor import PixArtImageProcessor, VaeImageProcessor
     from diffusers.models.autoencoders.vae import DecoderOutput, DiagonalGaussianDistribution
     from diffusers.models.controlnet import ControlNetOutput
-    from diffusers.models.embeddings import ImageProjection, IPAdapterFullImageProjection
+    from diffusers.models.embeddings import ImageProjection, IPAdapterFullImageProjection, FluxPosEmbed
     from diffusers.models.modeling_outputs import AutoencoderKLOutput
     from diffusers.pipelines.controlnet import MultiControlNetModel
     from diffusers.pipelines.pipeline_utils import DiffusionPipeline
@@ -838,8 +838,6 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             to_neuron=not inline_weights_to_neff,
             neuron_configs=neuron_configs,
         )
-        import pdb
-        pdb.set_trace()
 
         if model_save_dir is None:
             model_save_dir = new_model_save_dir
@@ -1190,7 +1188,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             kwargs["image"] = self.image_processor.preprocess(kwargs["image"], height=height, width=width)
         # Override default `max_sequence_length`, eg. pixart
         if "max_sequence_length" in inspect.signature(self.auto_model_class.__call__).parameters:
-            kwargs["max_sequence_length"] = self.text_encoder.config.neuron.get("static_sequence_length", None)
+            encoder = self.text_encoder_2 or self.text_encoder
+            kwargs["max_sequence_length"] = encoder.config.neuron.get("static_sequence_length", None)
         return self.auto_model_class.__call__(self, height=height, width=width, *args, **kwargs)
 
 
@@ -1229,7 +1228,6 @@ class _NeuronDiffusionModelPart:
     def to(self, *args, **kwargs):
         pass
 
-
 class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
     def __init__(
         self,
@@ -1260,8 +1258,10 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
             inputs += (attention_mask,)
 
         outputs = self.model(*inputs)
+        if self.config.model_type=="t5":
+            return [outputs["last_hidden_state"].to(self.config.torch_dtype)]
 
-        if return_dict:
+        if return_dict and not isinstance(outputs, Dict):
             outputs = ModelOutput(dict(zip(self.neuron_config.outputs, outputs)))
 
         return outputs
@@ -1368,22 +1368,39 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
         neuron_config: Optional[Dict[str, str]] = None,
     ):
         super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_TRANSFORMER_NAME)
+        self.pos_embed = FluxPosEmbed(
+            theta=10000, axes_dim=self.config.axes_dims_rope
+        )
 
     def forward(
         self,
         hidden_states: torch.Tensor,
         encoder_hidden_states: Optional[torch.Tensor] = None,
+        pooled_projections: torch.Tensor = None,
         timestep: Optional[torch.LongTensor] = None,
+        img_ids: torch.Tensor = None,
+        txt_ids: torch.Tensor = None,
+        guidance: torch.Tensor = None,
+        joint_attention_kwargs: Optional[Dict[str, Any]] = None,
         added_cond_kwargs: Dict[str, torch.Tensor] = None,
         cross_attention_kwargs: Dict[str, Any] = None,
         attention_mask: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
         return_dict: bool = True,
     ):
-        inputs = (hidden_states, encoder_hidden_states, timestep, encoder_attention_mask)
+        if self.neuron_config.MODEL_TYPE=="flux-transformer-2d":
+            ids = torch.cat((txt_ids, img_ids), dim=0)
+            image_rotary_emb = torch.stack(self.pos_embed(ids), dim=2).to(hidden_states.dtype)
+            guidance = guidance.to(hidden_states.dtype)
+            inputs = (hidden_states, encoder_hidden_states, pooled_projections, timestep, guidance, image_rotary_emb)
+        elif self.neuron_config.MODEL_TYPE=="pixart-transformer-2d":
+            inputs = (hidden_states, encoder_hidden_states, timestep, encoder_attention_mask)
+        
         outputs = self.model(*inputs)
         if return_dict:
             outputs = ModelOutput(dict(zip(self.neuron_config.outputs, outputs)))
+        if isinstance(outputs, torch.Tensor):
+            outputs = (outputs, )
         return outputs
 
 

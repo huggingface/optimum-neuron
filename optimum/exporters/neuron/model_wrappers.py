@@ -247,6 +247,8 @@ class T5EncoderWrapper(torch.nn.Module):
             block.layer[0].SelfAttention = self.shard_self_attention(selfAttention, self.tensor_parallel_size)
             block.layer[0].layer_norm = f32Wrapper(layer_norm_0)
             block.layer[1].layer_norm = f32Wrapper(layer_norm_1)
+        final_layer_norm = model.encoder.final_layer_norm.to(torch.float32)
+        model.encoder.final_layer_norm = f32Wrapper(final_layer_norm)
 
         return model
 
@@ -320,8 +322,8 @@ class T5EncoderWrapper(torch.nn.Module):
         del orig_out
         return selfAttention
 
-    def forward(self, input_ids, attention_mask):
-        return self.model(input_ids, attention_mask=attention_mask)
+    def forward(self, input_ids):
+        return self.model(input_ids, output_hidden_states=False)
 
 
 # Adapted from https://awsdocs-neuron.readthedocs-hosted.com/en/latest/src/examples/pytorch/torch-neuronx/t5-inference-tutorial.html

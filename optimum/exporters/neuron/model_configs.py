@@ -1030,7 +1030,12 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
     CUSTOM_MODEL_WRAPPER = T5EncoderWrapper
     INPUT_ARGS = ("batch_size", "sequence_length")
     MODEL_TYPE = "t5-encoder"
+    LIBRARY_NAME = "diffusers"
 
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_ids"]
+    
     @property
     def outputs(self) -> List[str]:
         return ["last_hidden_state"]

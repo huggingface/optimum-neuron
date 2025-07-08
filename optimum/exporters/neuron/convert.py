@@ -14,6 +14,7 @@
 # limitations under the License.
 """Neuron compiled model check and export functions."""
 
+import os
 import copy
 import time
 from collections import OrderedDict
@@ -350,6 +351,10 @@ def export_models(
     failed_models = []
     total_compilation_time = 0
     compile_configs = {}
+    models_and_neuron_configs.pop("text_encoder")
+    models_and_neuron_configs.pop("transformer")
+    models_and_neuron_configs.pop("vae_encoder")
+    models_and_neuron_configs.pop("vae_decoder")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -591,6 +596,7 @@ def prepare_compiler_flags(
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
     optlevel: str = "2",
+    instance_type: str = "trn1",
 ):
     if auto_cast is not None:
         logger.info(f"Using Neuron: --auto-cast {auto_cast}")
@@ -604,6 +610,11 @@ def prepare_compiler_flags(
 
     compiler_args.extend(["--optlevel", optlevel])
     logger.info(f"Using Neuron: --optlevel {optlevel}")
+    
+    if instance_type == "trn2":
+        compiler_args.extend(["--target", "trn2"])
+    elif instance_type == "trn1":
+        compiler_args.extend(["--target", "trn1"])
 
     # `--model-type=transformer`` is now required for all models except those explicitly listed, based on our observations.
     exception_models = {
@@ -619,6 +630,10 @@ def prepare_compiler_flags(
         "wav2vec2",
         "wavlm",
     }
+    # t5 Encoder
+    if config.MODEL_TYPE=="t5-encoder" and config.LIBRARY_NAME=="diffusers":
+        exception_models.add("t5-encoder")
+        compiler_args.extend(["--model-type", "unet-inference"])
     if config.MODEL_TYPE not in exception_models:
         compiler_args.extend(["--model-type", "transformer"])
 
@@ -666,14 +681,16 @@ def trace_neuronx(
             torch.jit.save(neuron_model, output)
         else:
             # Case 2: Using `neuronx_distributed.trace.parallel_model_trace`
-            neuron_model = neuronx_distributed.trace.parallel_model_trace(
-                model,
-                dummy_inputs,
-                compiler_args=compiler_args,
-                inline_weights_to_neff=inline_weights_to_neff,
-                compiler_workdir=compiler_workdir,
-                tp_degree=tensor_parallel_size,
-            )
+            os.environ["LOCAL_WORLD_SIZE"] = str(tensor_parallel_size)
+            with torch.no_grad():
+                neuron_model = neuronx_distributed.trace.parallel_model_trace(
+                    model,
+                    dummy_inputs,
+                    compiler_args=compiler_args,
+                    inline_weights_to_neff=inline_weights_to_neff,
+                    compiler_workdir=compiler_workdir,
+                    tp_degree=tensor_parallel_size,
+                )
             neuronx_distributed.trace.parallel_model_save(neuron_model, output)
     else:
         # Case 3: Using `torch_neuronx.trace`

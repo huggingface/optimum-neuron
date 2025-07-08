@@ -120,6 +120,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
     DUMMY_INPUT_GENERATOR_CLASSES = ()
     ATOL_FOR_VALIDATION: Union[float, Dict[str, float]] = 1e-5
     MODEL_TYPE = None
+    LIBRARY_NAME = "transformers"
     CUSTOM_MODEL_WRAPPER = None
 
     _TASK_TO_COMMON_OUTPUTS = {
