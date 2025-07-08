@@ -22,7 +22,7 @@ from optimum.neuron.utils.training_utils import is_custom_modeling_model
 from ..distributed_utils import distributed_test
 
 
-@pytest.parametrize("from_pretrained", [False, True], ids=["from_config", "from_pretrained"])
+@pytest.mark.parametrize("from_pretrained", [False, True], ids=["from_config", "from_pretrained"])
 @distributed_test(world_size=1)
 def test_auto_model_with_supported_architecture(from_pretrained):
     trn_config = TrainingNeuronConfig()
@@ -47,7 +47,7 @@ def test_auto_model_with_unsupported_architecture():
         AutoModel.from_pretrained("bert-base-uncased", TrainingNeuronConfig())
 
 
-@pytest.parametrize("from_pretrained", [False, True], ids=["from_config", "from_pretrained"])
+@pytest.mark.parametrize("from_pretrained", [False, True], ids=["from_config", "from_pretrained"])
 @distributed_test(world_size=1)
 def test_auto_model_for_causal_lm_with_supported_architecture(from_pretrained):
     trn_config = TrainingNeuronConfig()
