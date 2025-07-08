@@ -98,9 +98,9 @@ def args_and_kwargs_to_kwargs_only(
     Args:
         f (`Callable`):
             The function that is being called.
-        args (`Optional[Tuple[Any, ...]]`, defaults to `None`):
+        args (`tuple[Any, ...] | None`, defaults to `None`):
             The args given to `f`.
-        kwargs (`Optional[Dict[str, Any]]`, defaults to `None`):
+        kwargs (`dict[str, Any] | None`, defaults to `None`):
             The kwargs given to `f`.
         include_default_values (`bool`, defaults to `False`):
             Whether or not the return keyword arguments should contain parameters that were not in `args` and `kwargs`
