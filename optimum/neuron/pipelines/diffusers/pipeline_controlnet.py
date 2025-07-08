@@ -55,7 +55,10 @@ class NeuronStableDiffusionControlNetPipelineMixin:
         control_guidance_start: float | list[float] = 0.0,
         control_guidance_end: float | list[float] = 1.0,
         clip_skip: int | None = None,
-        callback_on_step_end: Callable[[int, int, dict], None] | PipelineCallback | MultiPipelineCallbacks | None = None,
+        callback_on_step_end: Callable[[int, int, dict], None]
+        | PipelineCallback
+        | MultiPipelineCallbacks
+        | None = None,
         callback_on_step_end_tensor_inputs: list[str] = ["latents"],
         **kwargs,
     ):
