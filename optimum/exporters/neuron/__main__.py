@@ -23,7 +23,7 @@ os.environ["TORCHDYNAMO_DISABLE"] = "1"  # Always turn off torchdynamo as it's i
 from argparse import ArgumentParser
 from dataclasses import fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, list
+from typing import TYPE_CHECKING, Any
 
 import torch
 from requests.exceptions import ConnectionError as RequestsConnectionError

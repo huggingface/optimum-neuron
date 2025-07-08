@@ -18,7 +18,7 @@ import copy
 import os
 from collections import OrderedDict
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, list
+from typing import TYPE_CHECKING, Any
 
 import torch
 

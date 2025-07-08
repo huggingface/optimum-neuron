@@ -15,7 +15,7 @@
 """Override some diffusers API for NeuronStableDiffusionControlNetPipeline"""
 
 import logging
-from typing import Any, Callable, dict
+from typing import Any, Callable
 
 import torch
 from diffusers import ControlNetModel
