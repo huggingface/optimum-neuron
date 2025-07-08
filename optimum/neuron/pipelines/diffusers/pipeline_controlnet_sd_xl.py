@@ -70,8 +70,7 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(NeuronStableDiffusionXLPipe
         negative_crops_coords_top_left: tuple[int, int] = (0, 0),
         negative_target_size: tuple[int, int | None] = None,
         clip_skip: int | None = None,
-        callback_on_step_end: Callable[[int, int, Dict | None, None, PipelineCallback, MultiPipelineCallbacks]
-        ] = None,
+        callback_on_step_end: Callable[[int, int, Dict | None, None, PipelineCallback, MultiPipelineCallbacks]] = None,
         callback_on_step_end_tensor_inputs: list[str] = ["latents"],
         **kwargs,
     ):

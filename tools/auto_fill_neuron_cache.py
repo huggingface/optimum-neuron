@@ -183,9 +183,7 @@ def get_testers_for_model_type(model_type: str) -> list["ExampleTesterBase"]:
     return testers
 
 
-def remove_extra_command_line_argument(
-    command_prefix: str, extra_command_line_arguments: list[str | dict[str, str]]
-):
+def remove_extra_command_line_argument(command_prefix: str, extra_command_line_arguments: list[str | dict[str, str]]):
     argument_idx = None
     for idx, cmd_line_argument in enumerate(extra_command_line_arguments):
         if isinstance(cmd_line_argument, dict):

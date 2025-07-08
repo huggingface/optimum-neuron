@@ -159,10 +159,11 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         tokenizer: CLIPTokenizer | T5Tokenizer | None = None,
         tokenizer_2: CLIPTokenizer | None = None,
         feature_extractor: CLIPFeatureExtractor | None = None,
-        controlnet: torch.jit._script.ScriptModule | list[
-                torch.jit._script.ScriptModule | None,
-                "NeuronControlNetModel",
-                "NeuronMultiControlNetModel",
+        controlnet: torch.jit._script.ScriptModule
+        | list[
+            torch.jit._script.ScriptModule | None,
+            "NeuronControlNetModel",
+            "NeuronMultiControlNetModel",
         ] = None,
         # stable diffusion xl specific arguments
         requires_aesthetics_score: bool = False,
