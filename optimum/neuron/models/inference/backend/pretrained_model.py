@@ -17,7 +17,6 @@ import logging
 import os
 from functools import partial
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import List, Optional, Union
 
 import neuronx_distributed.trace.hlo_utils as hlo_utils
@@ -215,11 +214,7 @@ class NxDPreTrainedModel:
                 checkpoint_loader=checkpoint_loader,
                 compiler_args=self.get_compiler_args(self.neuron_config),
             )
-            source_model_key = list(sharder.model_collection.keys())[0]
-            for rank in range(start_rank_id, start_rank_id + local_ranks_size):
-                logger.info(f"Sharding and loading rank {rank}")
-                ckpt = sharder.shard_weights(rank, sharder.model_collection[source_model_key])
-                weights.append(ckpt)
+            weights = sharder.shard_checkpoint()
         start_rank_tensor = torch.tensor([start_rank_id], dtype=torch.int32, device="cpu")
         self._traced_model.nxd_model.initialize(weights, start_rank_tensor)
 
@@ -246,20 +241,16 @@ class NxDPreTrainedModel:
                 logger.info(f"Checkpoint file not found in {model_name_or_path}, trying to load from HuggingFace Hub.")
         if self.neuron_config.checkpoint_id is not None:
             # Fetch weights from the checkpoint
-            checkpoint_dir = TemporaryDirectory()
-            os.chmod(checkpoint_dir.name, 0o775)
-            snapshot_download(
+            checkpoint_path = snapshot_download(
                 repo_id=self.neuron_config.checkpoint_id,
                 revision=self.neuron_config.checkpoint_revision,
                 cache_dir=cache_dir,
                 force_download=force_download,
                 local_files_only=local_files_only,
                 token=token,
-                local_dir=checkpoint_dir.name,
                 allow_patterns=["*.safetensors*"],
             )
-            self._load_weights_from_path(checkpoint_dir.name)
-            checkpoint_dir.cleanup()
+            self._load_weights_from_path(checkpoint_path)
         else:
             raise ValueError(f"Checkpoint file not found under {model_name_or_path}.")
 

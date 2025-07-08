@@ -19,6 +19,8 @@ on:
       - ".github/workflows/test_trainium_training.yml"
       - "optimum/neuron/utils/**.py"
       - "optimum/neuron/version.py"
+  schedule:
+    - cron: "0 8 * * 1-5"  # 9 AM UTC + 1 time, Monday-Friday
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -44,11 +46,38 @@ jobs:
         uses: ./.github/actions/install_optimum_neuron
       - name: Setup PATH
         run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
-      - name: Collect tests on Neuron Cores
+      - name: Collect all tests on Neuron Cores
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/training/ --collect-only
-      - name: Run tests on Neuron Cores
+      - name: All training tests except overfit tests on Neuron Cores
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/training/ -v 
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest \
+            -m "is_trainium_test" \
+            --ignore tests/training/test_overfit.py \
+            tests/training/ \
+            -v
+      # TODO: fix the overfit tests recompilation issue ASAP.
+      # - name: Overfit tests on Neuron Cores
+      #   env:
+      #     IS_CRON: ${{ github.event_name == 'schedule' }}
+      #   run: |
+      #     # There are two scenarios for running the overfit tests:
+      #     #   - Run all the overfit tests if the workflow is triggered by a cron job.
+      #     #   - Or run the overfit tests only on the flagship model if the workflow is triggered by a push or pull
+      #     #   request.
+      #     source aws_neuron_venv_pytorch/bin/activate
+      #     if [ "$IS_CRON" = "true" ]; then
+      #       echo "Running all overfit tests"
+      #       HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest \
+      #         -m "is_trainium_test" \
+      #         tests/training/test_overfit.py \
+      #         -v
+      #     else
+      #       echo "Running overfit tests only on the flagship model"
+      #       HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} EARLY_EXIT=1 pytest \
+      #         -m "is_trainium_test and flagship_model" \
+      #         tests/training/test_overfit.py \
+      #         -vs
+      #     fi

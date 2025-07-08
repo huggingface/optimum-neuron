@@ -3,14 +3,10 @@ from pathlib import Path
 from typing import Optional, Union
 
 import torch
+from neuronx_distributed.parallel_layers import parallel_state
 
 from ...configuration_utils import NeuronConfig, register_neuron_config
-from ...utils import is_neuronx_distributed_available
 from ...utils.torch_xla_and_neuronx_initialization import init_process_group
-
-
-if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers import parallel_state
 
 
 @dataclass
@@ -31,6 +27,7 @@ class TrainingNeuronConfig(NeuronConfig):
     async_save: bool = False
     fuse_qkv: bool = False
     recompute_causal_mask: bool = True
+    transpose_nki_inputs: bool = True
 
     def __post_init__(self):
         if self.tensor_parallel_size < 1:

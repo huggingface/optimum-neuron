@@ -18,7 +18,6 @@
 import gc
 import logging
 import math
-import warnings
 from typing import Optional, Tuple, Type
 
 import torch
@@ -515,14 +514,6 @@ class LlamaNxDModelForCausalLM(NxDModelForCausalLM):
         auto_cast_type: str,
     ):
         continuous_batching = (batch_size > 1) if batch_size else False
-        on_device_sampling = True
-        if continuous_batching and tensor_parallel_size == 2:
-            # Neuron SDK 2.22 bug: the model will crash when continuous_batching is enabled
-            # if the tensor parallel size is 2 and on_device_sampling is enabled.
-            warnings.warn(
-                "Activating continuous batching but disabling on-device sampling because of a neuron runtime bug when tensor parallel size is 2."
-            )
-            on_device_sampling = False
         return NxDNeuronConfig(
             checkpoint_id=checkpoint_id,
             checkpoint_revision=checkpoint_revision,
@@ -530,7 +521,7 @@ class LlamaNxDModelForCausalLM(NxDModelForCausalLM):
             sequence_length=sequence_length,
             tp_degree=tensor_parallel_size,
             torch_dtype=auto_cast_type,
-            on_device_sampling=on_device_sampling,
+            on_device_sampling=True,
             fused_qkv=True,
             continuous_batching=continuous_batching,
         )

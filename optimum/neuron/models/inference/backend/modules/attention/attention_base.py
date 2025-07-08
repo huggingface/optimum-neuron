@@ -99,7 +99,7 @@ class NeuronAttentionBase(nn.Module):
         self.hidden_size = config.hidden_size
         self.num_attention_heads = config.num_attention_heads
         self.num_key_value_heads = config.num_key_value_heads
-        self.head_dim = self.hidden_size // self.num_attention_heads
+        self.head_dim = getattr(config, "head_dim", self.hidden_size // self.num_attention_heads)
         self.max_position_embeddings = config.max_position_embeddings
         self.rope_theta = config.rope_theta
         self.padding_side = neuron_config.padding_side
@@ -113,15 +113,9 @@ class NeuronAttentionBase(nn.Module):
         self.tp_degree = neuron_config.tp_degree
         self.fused_qkv = neuron_config.fused_qkv
         self.clip_qkv = None
-        self.qk_scale = qk_scale
+        self._qk_scale = qk_scale
 
         self.o_proj_layer_name = "o_proj"
-
-        if (self.head_dim * self.num_attention_heads) != self.hidden_size:
-            raise ValueError(
-                f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
-                f" and `num_heads`: {self.num_attention_heads})."
-            )
 
         self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
         self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
@@ -166,8 +160,12 @@ class NeuronAttentionBase(nn.Module):
         self.attn_kernel_enabled = neuron_config.attn_kernel_enabled
         self.logical_nc_config = neuron_config.logical_nc_config
 
+    @property
+    def qk_scale(self):
+        return self._qk_scale or (1.0 / math.sqrt(self.head_dim))
+
     def scaled_qk(self, Q, K, attention_mask):
-        qk_scale = self.qk_scale or (1.0 / math.sqrt(self.head_dim))
+        qk_scale = self.qk_scale
         QK = torch.matmul(Q, K.transpose(2, 3)) * qk_scale
         QK = torch.where(attention_mask, QK, torch.finfo(QK.dtype).min)
         return QK
@@ -229,7 +227,7 @@ class NeuronAttentionBase(nn.Module):
                 .reshape((bsz * self.num_heads, self.head_dim, q_len))
                 .to(self.torch_dtype)
             )
-            Q = Q / math.sqrt(self.head_dim)
+            Q = Q * self.qk_scale
             K_active = (
                 K_active.permute(0, 1, 3, 2).reshape((bsz * self.num_heads, self.head_dim, q_len)).to(self.torch_dtype)
             )
@@ -293,7 +291,7 @@ class NeuronAttentionBase(nn.Module):
         TODO: Throw an exception instead of disabling flash attention if explicitly enabled but not eligible.
               This must consider bucketing to avoid throwing an exception for smaller buckets.
         """
-        if self.qk_scale is not None:
+        if self._qk_scale is not None:
             # If a custom qk_scale is provided, flash attention is not supported.
             return FlashAttentionStrategy.NONE
         if int(self.logical_nc_config) > 1:
@@ -322,13 +320,13 @@ class NeuronAttentionBase(nn.Module):
         n_repeat = Q.shape[1]
         K_active = repeat_kv(K, n_repeat)
         V_active = repeat_kv(V, n_repeat)
-        active_scores = (torch.matmul(Q, K_active.transpose(2, 3)) / math.sqrt(self.head_dim)).to(torch.float32)
+        active_scores = (torch.matmul(Q, K_active.transpose(2, 3)) * self.qk_scale).to(torch.float32)
         active_scores = torch.where(active_mask, active_scores, torch.finfo(active_scores.dtype).min)
 
         # prior attention
         K_prior = repeat_kv(past_key_value[0], n_repeat)
         V_prior = repeat_kv(past_key_value[1], n_repeat)
-        prior_scores = torch.matmul(Q, K_prior.transpose(2, 3)) / math.sqrt(self.head_dim)
+        prior_scores = torch.matmul(Q, K_prior.transpose(2, 3)) * self.qk_scale
         prior_scores = torch.where(attention_mask, prior_scores, torch.finfo(prior_scores.dtype).min)
         prior_scores = prior_scores.to(torch.float32)
 
@@ -351,14 +349,14 @@ class NeuronAttentionBase(nn.Module):
         V_prior = past_key_value[1]
         K_prior = repeat_kv(K_prior, self.num_key_value_groups)
         V_prior = repeat_kv(V_prior, self.num_key_value_groups)
-        prior_scores = torch.matmul(Q, K_prior.transpose(2, 3)) / math.sqrt(self.head_dim)
+        prior_scores = torch.matmul(Q, K_prior.transpose(2, 3)) * self.qk_scale
         prior_scores = torch.where(attention_mask, prior_scores, torch.finfo(prior_scores.dtype).min)
         prior_scores = prior_scores.to(torch.float32)
 
         # ii. active (current/new) KV
         K_active = repeat_kv(K, self.num_key_value_groups)
         V_active = repeat_kv(V, self.num_key_value_groups)
-        active_scores = torch.matmul(Q, K_active.transpose(2, 3)) / math.sqrt(self.head_dim)
+        active_scores = torch.matmul(Q, K_active.transpose(2, 3)) * self.qk_scale
         if is_speculation:
             active_scores = torch.where(active_mask, active_scores, torch.finfo(active_scores.dtype).min)
         active_scores = active_scores.to(torch.float32)

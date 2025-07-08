@@ -14,43 +14,53 @@
 # limitations under the License.
 """Tests checking that `neuronx_distributed` parallel layers are working as expected."""
 
-from functools import partial
-from typing import Literal
-
 import pytest
 import torch
+import torch_xla.core.xla_model as xm
+from neuronx_distributed.parallel_layers.layers import (
+    ColumnParallelLinear,
+    RowParallelLinear,
+    create_local_weight,
+)
+from neuronx_distributed.parallel_layers.utils import (
+    get_tensor_model_parallel_rank,
+    get_tensor_model_parallel_size,
+)
 from torch import nn
 from transformers import set_seed
 
-from optimum.neuron.utils.import_utils import (
-    is_neuronx_distributed_available,
-    is_torch_xla_available,
-)
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from .. import launch_procs
+from ..distributed_utils import distributed_test
 from .utils import assert_close
 
 
-if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers.layers import (
-        ColumnParallelLinear,
-        RowParallelLinear,
-        create_local_weight,
-    )
-    from neuronx_distributed.parallel_layers.utils import (
-        get_tensor_model_parallel_rank,
-        get_tensor_model_parallel_size,
-    )
-
-if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
-
-
-@torch.no_grad()
-def _test_parallel_linear_check(
-    row_or_column: Literal["row", "column"], weights_dtype, inputs_dtype, input_size, output_size
-):
+@is_trainium_test
+@pytest.mark.parametrize(
+    "row_or_column",
+    ["row", "column"],
+    ids=["row_parallel_linear", "column_parallel_linear"],
+)
+@pytest.mark.parametrize(
+    "weights_dtype, inputs_dtype",
+    [
+        (torch.float32, torch.float32),
+        (torch.bfloat16, torch.bfloat16),
+        (torch.bfloat16, torch.float32),
+    ],
+    ids=[
+        "weights=float32-inputs=float32",
+        "weights=bfloat16-inputs=bfloat16",
+        "weights=bfloat16-inputs=float32",
+    ],
+)
+@pytest.mark.parametrize(
+    "input_size, output_size",
+    [(8192, 2048), (400, 300)],
+    ids=["input_size=8192-output_size=2048", "input_size=400-output_size=300"],
+)
+@distributed_test(world_size=2, tp_size=2, pp_size=1)
+def test_parallel_linears(row_or_column, weights_dtype, inputs_dtype, input_size, output_size):
     set_seed(42)
     device = "xla"
 
@@ -113,45 +123,3 @@ def _test_parallel_linear_check(
 
     # Finally we compare that the outputs are the same.
     assert_close(outputs, parallel_outputs, msg="Sharded linear output does not match the unsharded one.")
-
-
-@is_trainium_test
-@pytest.mark.parametrize(
-    "row_or_column",
-    ["row", "column"],
-    ids=["row_parallel_linear", "column_parallel_linear"],
-)
-@pytest.mark.parametrize(
-    "weights_dtype, inputs_dtype",
-    [
-        (torch.float32, torch.float32),
-        (torch.bfloat16, torch.bfloat16),
-        (torch.bfloat16, torch.float32),
-    ],
-    ids=[
-        "weights=float32-inputs=float32",
-        "weights=bfloat16-inputs=bfloat16",
-        "weights=bfloat16-inputs=float32",
-    ],
-)
-@pytest.mark.parametrize(
-    "input_size, output_size",
-    [(8192, 2048), (400, 300)],
-    ids=["input_size=8192-output_size=2048", "input_size=400-output_size=300"],
-)
-def test_parallel_linears(row_or_column, weights_dtype, inputs_dtype, input_size, output_size):
-    run_fn = partial(
-        _test_parallel_linear_check,
-        row_or_column=row_or_column,
-        weights_dtype=weights_dtype,
-        inputs_dtype=inputs_dtype,
-        input_size=input_size,
-        output_size=output_size,
-    )
-
-    launch_procs(
-        run_fn,
-        num_procs=2,
-        tp_size=2,
-        pp_size=1,
-    )

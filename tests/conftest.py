@@ -29,6 +29,7 @@ from optimum.neuron.utils.cache_utils import (
     set_custom_cache_repo_name_in_hf_home,
     set_neuron_cache_path,
 )
+from optimum.neuron.utils.misc import is_precompilation
 
 
 # Not critical, only usable on the sandboxed CI instance.
@@ -168,11 +169,14 @@ def set_cache_for_ci():
 
     # This will synchronizee the cache with the cache repo after every test.
     # This is useful to make the CI faster by avoiding recompilation eveyr time.
-    try:
-        synchronize_hub_cache(cache_repo_id=OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI)
-    except Exception as e:
-        print(f"Warning: Failed to synchronize the cache with the repo {OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI}.")
-        print(f"Error: {e}")
+    if not is_precompilation():
+        try:
+            synchronize_hub_cache(cache_repo_id=OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI, non_blocking=True)
+        except Exception as e:
+            print(
+                f"Warning: Failed to synchronize the cache with the repo {OPTIMUM_INTERNAL_TESTING_CACHE_REPO_FOR_CI}."
+            )
+            print(f"Error: {e}")
 
 
 ### The following part is for running distributed tests.

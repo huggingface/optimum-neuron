@@ -65,37 +65,6 @@ def check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num_
     assert outputs is not None, "Model outputs should not be None"
 
 
-def _test_decoder_export_save_reload(
-    model_cls,
-    is_local: bool,
-    model_id: str,
-    batch_size: int,
-    sequence_length: int,
-    num_cores: int,
-    auto_cast_type: str,
-):
-    export_kwargs = {
-        "batch_size": batch_size,
-        "sequence_length": sequence_length,
-        "num_cores": num_cores,
-        "auto_cast_type": auto_cast_type,
-    }
-    with TemporaryDirectory() as model_path:
-        if is_local:
-            with TemporaryDirectory() as tmpdir:
-                model = AutoModelForCausalLM.from_pretrained(model_id)
-                model.save_pretrained(tmpdir)
-                model = model_cls.from_pretrained(tmpdir, export=True, **export_kwargs)
-                model.save_pretrained(model_path)
-        else:
-            model = model_cls.from_pretrained(model_id, export=True, **export_kwargs)
-            model.save_pretrained(model_path)
-        check_neuron_model(model, **export_kwargs)
-        del model
-        model = model_cls.from_pretrained(model_path)
-        check_neuron_model(model, **export_kwargs)
-
-
 @pytest.mark.parametrize(
     "batch_size, sequence_length, num_cores, auto_cast_type",
     [
@@ -108,14 +77,31 @@ def _test_decoder_export_save_reload(
 @requires_neuronx
 @pytest.mark.parametrize("is_local", [True, False], ids=["local", "from_hub"])
 def test_decoder_export_save_reload(
-    is_local, export_decoder_id, batch_size, sequence_length, num_cores, auto_cast_type
+    is_local: bool,
+    export_decoder_id: str,
+    batch_size: int,
+    sequence_length: int,
+    num_cores: int,
+    auto_cast_type: str,
 ):
-    _test_decoder_export_save_reload(
-        NeuronModelForCausalLM,
-        is_local=is_local,
-        model_id=export_decoder_id,
-        batch_size=batch_size,
-        sequence_length=sequence_length,
-        num_cores=num_cores,
-        auto_cast_type=auto_cast_type,
-    )
+    model_id = export_decoder_id
+    export_kwargs = {
+        "batch_size": batch_size,
+        "sequence_length": sequence_length,
+        "num_cores": num_cores,
+        "auto_cast_type": auto_cast_type,
+    }
+    with TemporaryDirectory() as model_path:
+        if is_local:
+            with TemporaryDirectory() as tmpdir:
+                model = AutoModelForCausalLM.from_pretrained(model_id)
+                model.save_pretrained(tmpdir)
+                model = NeuronModelForCausalLM.from_pretrained(tmpdir, export=True, **export_kwargs)
+                model.save_pretrained(model_path)
+        else:
+            model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, **export_kwargs)
+            model.save_pretrained(model_path)
+        check_neuron_model(model, **export_kwargs)
+        del model
+        model = NeuronModelForCausalLM.from_pretrained(model_path)
+        check_neuron_model(model, **export_kwargs)

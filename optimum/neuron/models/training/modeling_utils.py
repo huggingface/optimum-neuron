@@ -26,11 +26,33 @@ from pathlib import Path
 from threading import Thread
 from typing import Callable, Dict, Literal, Optional, Type, Union
 
+import neuronx_distributed
 import torch
+import torch_xla.core.xla_model as xm
+import torch_xla.runtime as xr
 import transformers
 from accelerate.utils import find_tied_parameters
+from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
+from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
+from neuronx_distributed.parallel_layers.layers import (
+    BaseParallelLinear,
+    ColumnParallelLinear,
+    ParallelEmbedding,
+)
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_data_parallel_rank,
+    get_pipeline_model_parallel_rank,
+    get_pipeline_model_parallel_size,
+    get_tensor_model_parallel_rank,
+    get_tensor_model_parallel_size,
+)
+from neuronx_distributed.parallel_layers.utils import (
+    get_local_world_size,
+    move_model_to_device,
+)
 from safetensors import safe_open
 from torch import nn
+from torch_xla.utils.checkpoint import checkpoint
 from transformers import PretrainedConfig
 from transformers.modeling_utils import (
     SpecificPreTrainedModelType,
@@ -67,7 +89,6 @@ from transformers.utils import (
 )
 from transformers.utils.hub import get_checkpoint_shard_files
 
-from ...utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from ...utils.misc import is_main_worker, is_precompilation
 from .config import TrainingNeuronConfig
 from .pipeline_utils import (
@@ -81,79 +102,6 @@ from .transformations_utils import (
     get_tensor_model_parallel_attributes,
     specialize_transformation_specs_for_model,
 )
-
-
-if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
-    from torch_xla.utils.checkpoint import checkpoint
-else:
-    # This is a placeholder for the checkpoint function for doc building.
-    def checkpoint(*args, **kwargs):
-        pass
-
-
-if is_neuronx_distributed_available():
-    import neuronx_distributed
-    from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
-    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
-    from neuronx_distributed.parallel_layers.layers import (
-        BaseParallelLinear,
-        ColumnParallelLinear,
-        ParallelEmbedding,
-    )
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_data_parallel_rank,
-        get_pipeline_model_parallel_rank,
-        get_pipeline_model_parallel_size,
-        get_tensor_model_parallel_rank,
-        get_tensor_model_parallel_size,
-    )
-    from neuronx_distributed.parallel_layers.utils import (
-        get_local_world_size,
-        move_model_to_device,
-    )
-
-else:
-    # This is a placeholder for the nki_flash_attn_func function for doc building.
-    def nki_flash_attn_func(*args, **kwargs):
-        pass
-
-    class GQAQKVColumnParallelLinear:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class BaseParallelLinear:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class ColumnParallelLinear:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class ParallelEmbedding:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    def get_data_parallel_rank(*args, **kwargs):
-        pass
-
-    def get_pipeline_model_parallel_rank(*args, **kwargs):
-        pass
-
-    def get_pipeline_model_parallel_size(*args, **kwargs):
-        pass
-
-    def get_tensor_model_parallel_rank(*args, **kwargs):
-        pass
-
-    def get_tensor_model_parallel_size(*args, **kwargs):
-        pass
-
-    def get_local_world_size(*args, **kwargs):
-        pass
-
-    def move_model_to_device(*args, **kwargs):
-        pass
 
 
 logger = logging.get_logger(__name__)
@@ -543,14 +491,19 @@ class NeuronModelMixin:
             # id function doesn't work for meta tensor so we need this function
             tied_params = find_tied_parameters(model)
 
+        new_tied_params = []
         for group in tied_params:
             if remove_prefix_from_model:
                 group = [key[len(_prefix) :] if key.startswith(_prefix) else key for key in group]
             elif add_prefix_to_model:
                 group = [".".join([prefix, key]) for key in group]
+            new_tied_params.append(group)
             missing_in_group = [k for k in missing_keys if k in group]
             if len(missing_in_group) > 0 and len(missing_in_group) < len(group):
                 missing_keys = [k for k in missing_keys if k not in missing_in_group]
+
+        # If the model has tied parameters, we make sure they have the same names as in the state dict.
+        tied_params = new_tied_params
 
         # Some models may have keys that are not in the state by design, removing them before needlessly warning
         # the user.
@@ -697,6 +650,11 @@ class NeuronModelMixin:
                 state_dict = load_state_dict(
                     shard_file, is_quantized=False, map_location=None, weights_only=weights_only
                 )
+
+            # Remove "duplicated" parameters that are tied together in the state dict.
+            for group in tied_params:
+                for param_name in group[1:]:
+                    state_dict.pop(param_name, None)
 
             # ** Difference from original _load_state_dict_into_model **
             # We adapt the state dict to the custom model.
@@ -1404,19 +1362,18 @@ class NeuronModelMixin:
             )
 
         # ** Difference from original from_pretrained **
-        # This is due to a Neuron compiler bug, and it should be removed when the bug is fixed.
-        should_fake_tie = config.tie_word_embeddings
-        if should_fake_tie:
-            if get_pipeline_model_parallel_size() > 1:
-                raise NotImplementedError(
-                    "`config.tie_word_embeddings` is set to True, but it produces NaNs with pipeline parallelism due to "
-                    "a compiler bug."
+        # We do not support the `tie_word_embeddings` feature in pipeline parallelism.
+        # Instead when `config.tie_word_embeddings` is set to True, we set it to False and simply clone the data between
+        # the tied weights.
+        should_soft_tie = False
+        if config.get_text_config(decoder=True).tie_word_embeddings and get_pipeline_model_parallel_size() > 1:
+            if xr.local_ordinal() == 0:
+                logger.warning(
+                    "`config.tie_word_embeddings` is set to True, but it is not supported in pipeline parallelism. Setting "
+                    "it to `False`."
                 )
-            logger.warning(
-                "`config.tie_word_embeddings` is set to True, but it produces compiler errors with the current Neuron "
-                "SDK. Setting it to False until resolved. The weights will be copied but not tied."
-            )
-        config.tie_word_embeddings = False
+            config.get_text_config(decoder=True).tie_word_embeddings = False
+            should_soft_tie = True
 
         with ContextManagers(init_contexts):
             # Let's make sure we don't run the init function of buffer modules
@@ -1473,6 +1430,10 @@ class NeuronModelMixin:
         # Set model in evaluation mode to deactivate DropOut modules by default
         model.eval()
 
+        if should_soft_tie:
+            with torch.no_grad():
+                model.get_output_embeddings().weight.data = model.get_input_embeddings().weight.data.clone()
+
         # ** Difference from original from_pretrained **
         # We skip the code about generation since we do not support this.
 
@@ -1481,19 +1442,6 @@ class NeuronModelMixin:
 
         if device_map == "xla":
             move_model_to_device(model, xm.xla_device())
-
-        # ** Difference from original from_pretrained **
-        # Currently tie_word_embeddings leads to a compiler bug.
-        # If weights are initially tied, we still copy the value but we do not tie them.
-        if should_fake_tie:
-            with torch.no_grad():
-                if (
-                    model.get_input_embeddings().weight.device.type == "meta"
-                    or model.get_output_embeddings().weight.device.type == "meta"
-                ):
-                    logger.warning("Either the input or output embeddings are on the meta device, cannot tie them.")
-                else:
-                    model.get_output_embeddings().weight.data.copy_(model.get_input_embeddings().weight)
 
         if output_loading_info:
             if loading_info is None:
@@ -1570,6 +1518,9 @@ class NeuronModelMixin:
             )
 
         model_to_save = self
+
+        # We need to specialize the transformation specs for the model before saving.
+        specialize_transformation_specs_for_model(model_to_save)
 
         # save the string version of dtype to the config, e.g. convert torch.float32 => "float32"
         # we currently don't use this setting automatically, but may start to use with v5
@@ -1651,7 +1602,7 @@ class NeuronModelMixin:
         Override of transformers method to handle ParallelEmbedding layers in tensor parallel scenarios.
         Falls back to the base implementation for regular nn.Embedding layers.
         """
-        if is_neuronx_distributed_available() and isinstance(old_embeddings, ParallelEmbedding):
+        if isinstance(old_embeddings, ParallelEmbedding):
             return self._get_resized_parallel_embeddings(
                 old_embeddings, new_num_tokens, pad_to_multiple_of, mean_resizing
             )
@@ -1670,7 +1621,7 @@ class NeuronModelMixin:
         Override of transformers method to handle ColumnParallelLinear layers in tensor parallel scenarios.
         Falls back to the base implementation for regular nn.Linear layers.
         """
-        if is_neuronx_distributed_available() and isinstance(old_lm_head, ColumnParallelLinear):
+        if isinstance(old_lm_head, ColumnParallelLinear):
             return self._get_resized_parallel_lm_head(old_lm_head, new_num_tokens, transposed, mean_resizing)
         else:
             # Fall back to standard transformers method for regular linear layers

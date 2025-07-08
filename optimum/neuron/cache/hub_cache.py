@@ -20,6 +20,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Optional, Union
 
+import torch_xla.core.xla_model as xm
+import torch_xla.runtime as xr
 from huggingface_hub import HfApi, get_token
 from huggingface_hub.errors import EntryNotFoundError
 from huggingface_hub.hf_api import RepoFile
@@ -187,16 +189,30 @@ class CompileCacheHfProxy(CompileCache):
 
             return folder_exists
 
-    def synchronize(self):
+    def synchronize(self, non_blocking: bool = False):
         if isinstance(self.default_cache, CompileCacheS3):
             raise ValueError("Hugging Face hub compiler cache synchronization is not supported for S3.")
         logger.info(f"Synchronizing {self.repo_id} Hub cache with {self.default_cache.cache_path} local cache")
-        self.api.upload_folder(
-            repo_id=self.repo_id,
-            folder_path=self.default_cache.cache_path,
-            commit_message="Synchronizing local compiler cache.",
-            ignore_patterns="lock",
-        )
+
+        if os.environ.get("TORCHELASTIC_RUN_ID", None) is None:
+            self.api.upload_folder(
+                repo_id=self.repo_id,
+                folder_path=self.default_cache.cache_path,
+                commit_message="Synchronizing local compiler cache.",
+                ignore_patterns="lock",
+                run_as_future=non_blocking,
+            )
+        else:
+            if xr.local_ordinal() == 0:
+                # Only the first process uploads the cache to the Hub
+                self.api.upload_folder(
+                    repo_id=self.repo_id,
+                    folder_path=self.default_cache.cache_path,
+                    commit_message="Synchronizing local compiler cache.",
+                    ignore_patterns="lock",
+                    non_blocking=non_blocking,
+                )
+            xm.rendezvous("synchronize_hub_cache")
         logger.info("Synchronization complete.")
 
     def upload_file(self, cache_path: str, src_path: str):
@@ -292,14 +308,19 @@ def hub_neuronx_cache(
 
 
 @requires_torch_neuronx
-def synchronize_hub_cache(cache_path: Optional[Union[str, Path]] = None, cache_repo_id: Optional[str] = None):
+def synchronize_hub_cache(
+    cache_path: Optional[Union[str, Path]] = None, cache_repo_id: Optional[str] = None, non_blocking: bool = False
+):
     """Synchronize the neuronx compiler cache with the optimum-neuron hub cache.
 
     Args:
         cache_path (`Optional[Union[str, Path]]`, defaults to `None`):
             The path of the folder to use for synchronization.
-        cache_repo_id (`Optional[str]`, default to None):
+        cache_repo_id (`Optional[str]`, defaults to `None`):
             The id of the HuggingFace cache repository, in the form 'org|user/name'.
+        non_blocking (`bool`, defaults to `False`):
+            If `True`, the synchronization will be done in a non-blocking way, i.e. the function will return immediately
+            and the synchronization will be done in the background.
     """
     if cache_path is not None:
         cache_path = Path(cache_path)
@@ -310,7 +331,7 @@ def synchronize_hub_cache(cache_path: Optional[Union[str, Path]] = None, cache_r
     else:
         cache_url = None
     hub_cache_proxy = create_hub_compile_cache_proxy(cache_url=cache_url, cache_repo_id=cache_repo_id)
-    hub_cache_proxy.synchronize()
+    hub_cache_proxy.synchronize(non_blocking=non_blocking)
 
 
 def get_hub_cached_entries(

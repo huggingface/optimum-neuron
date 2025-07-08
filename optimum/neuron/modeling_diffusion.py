@@ -59,8 +59,6 @@ from .utils import (
     DiffusersPretrainedConfig,
     NeuronArgumentParser,
     check_if_weights_replacable,
-    is_neuronx_available,
-    is_neuronx_distributed_available,
     replace_weights,
     store_compilation_config,
 )
@@ -68,14 +66,11 @@ from .utils.require_utils import requires_torch_neuronx
 from .utils.version_utils import get_neuronxcc_version
 
 
-if is_neuronx_available():
-    import torch_neuronx
+import torch_neuronx
 
-    NEURON_COMPILER_TYPE = "neuronx-cc"
-    NEURON_COMPILER_VERSION = get_neuronxcc_version()
-
-if is_neuronx_distributed_available():
-    import neuronx_distributed
+NEURON_COMPILER_TYPE = "neuronx-cc"
+NEURON_COMPILER_VERSION = get_neuronxcc_version()
+import neuronx_distributed
 
 if is_diffusers_available():
     from diffusers import (

@@ -17,9 +17,19 @@
 from functools import partial
 from typing import Optional, Tuple, Union
 
+import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
 import torch
 import torch.utils.checkpoint
+from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
+from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
+from neuronx_distributed.parallel_layers.layers import (
+    ColumnParallelLinear,
+    ParallelEmbedding,
+    RowParallelLinear,
+)
+from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 from torch import nn
+from torch_xla.utils.checkpoint import checkpoint
 from transformers import PreTrainedModel
 from transformers.activations import ACT2FN
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
@@ -33,10 +43,9 @@ from transformers.processing_utils import Unpack
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from transformers.utils import LossKwargs, can_return_tuple, logging
 
-from ....utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..config import TrainingNeuronConfig
 from ..loss_utils import ForCausalLMLoss
-from ..modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
+from ..modeling_utils import NeuronModelMixin
 from ..pipeline_utils import dynamic_torch_fx_wrap
 from ..transformations_utils import (
     CustomModule,
@@ -44,20 +53,6 @@ from ..transformations_utils import (
     GQAQKVColumnParallelLinearSpec,
     ModelWeightTransformationSpecs,
 )
-
-
-if is_torch_xla_available():
-    from torch_xla.utils.checkpoint import checkpoint
-
-if is_neuronx_distributed_available():
-    import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
-    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
-    from neuronx_distributed.parallel_layers.layers import (
-        ColumnParallelLinear,
-        ParallelEmbedding,
-        RowParallelLinear,
-    )
-    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
 
 logger = logging.get_logger(__name__)
@@ -152,37 +147,30 @@ class LlamaRotaryEmbedding(nn.Module):
         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
 
-def rotate_half(x):
-    """Rotates half the hidden dims of the input."""
+def rotate_half(x, flash_attn, transpose):
+    if flash_attn and transpose:
+        x1 = x[:, :, : x.shape[-2] // 2, :]
+        x2 = x[:, :, x.shape[-2] // 2 :, :]
+        return torch.cat((-x2, x1), dim=-2)
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
 
 
-def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
-    """Applies Rotary Position Embedding to the query and key tensors.
-
-    Args:
-        q (`torch.Tensor`): The query tensor.
-        k (`torch.Tensor`): The key tensor.
-        cos (`torch.Tensor`): The cosine part of the rotary embedding.
-        sin (`torch.Tensor`): The sine part of the rotary embedding.
-        position_ids (`torch.Tensor`, *optional*):
-            Deprecated and unused.
-        unsqueeze_dim (`int`, *optional*, defaults to 1):
-            The 'unsqueeze_dim' argument specifies the dimension along which to unsqueeze cos[position_ids] and
-            sin[position_ids] so that they can be properly broadcasted to the dimensions of q and k. For example, note
-            that cos[position_ids] and sin[position_ids] have the shape [batch_size, seq_len, head_dim]. Then, if q and
-            k have the shape [batch_size, heads, seq_len, head_dim], then setting unsqueeze_dim=1 makes
-            cos[position_ids] and sin[position_ids] broadcastable to the shapes of q and k. Similarly, if q and k have
-            the shape [batch_size, seq_len, heads, head_dim], then set unsqueeze_dim=2.
-    Returns:
-        `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
-    """
+def apply_rotary_pos_emb(
+    q, k, cos, sin, position_ids=None, unsqueeze_dim=1, flash_attn=False, transpose_nki_inputs=False
+):
+    if unsqueeze_dim != 1:
+        raise NotImplementedError(
+            f"Unsqueeze dimension {unsqueeze_dim} is not supported. Only unsqueeze_dim=1 is currently implemented."
+        )
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
-    q_embed = (q * cos) + (rotate_half(q) * sin)
-    k_embed = (k * cos) + (rotate_half(k) * sin)
+    if flash_attn and transpose_nki_inputs:
+        cos = cos.permute(0, 1, 3, 2)  # [bs, 1, dim, seq_len]
+        sin = sin.permute(0, 1, 3, 2)  # [bs, 1, dim, seq_len]
+    q_embed = (q * cos) + (rotate_half(q, flash_attn, transpose_nki_inputs) * sin)
+    k_embed = (k * cos) + (rotate_half(k, flash_attn, transpose_nki_inputs) * sin)
     return q_embed, k_embed
 
 
@@ -434,6 +422,41 @@ class LlamaAttention(nn.Module, CustomModule):
         )
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
 
+    @property
+    def use_flash_attention_v2(self):
+        return self.config._attn_implementation == "flash_attention_2"
+
+    @property
+    def use_ring_attention(self):
+        # We do not support ring attention for now, it should be added.
+        return False
+
+    def permute_qkv_for_attn(
+        self, query_states, key_states, value_states, bsz, q_len, num_heads, num_key_value_heads, head_dim
+    ):
+        if self.trn_config.transpose_nki_inputs and self.use_flash_attention_v2 and not self.use_ring_attention:
+            # Expected output shape is (batch size, num heads, head dim, sequence length)
+            if self.trn_config.sequence_parallel_enabled:
+                query_states = query_states.view(q_len, bsz, num_heads, head_dim).permute(1, 2, 3, 0)
+                key_states = key_states.view(q_len, bsz, num_key_value_heads, head_dim).permute(1, 2, 3, 0)
+                value_states = value_states.view(q_len, bsz, num_key_value_heads, head_dim).permute(1, 2, 3, 0)
+            else:
+                query_states = query_states.view(bsz, q_len, num_heads, head_dim).permute(0, 2, 3, 1)
+                key_states = key_states.view(bsz, q_len, num_key_value_heads, head_dim).permute(0, 2, 3, 1)
+                value_states = value_states.view(bsz, q_len, num_key_value_heads, head_dim).permute(0, 2, 3, 1)
+        elif self.trn_config.sequence_parallel_enabled:
+            # Expected output shape is (batch size, num heads, sequence length, head dim)
+            query_states = query_states.view(q_len, bsz, num_heads, head_dim).permute(1, 2, 0, 3)
+            key_states = key_states.view(q_len, bsz, num_key_value_heads, head_dim).permute(1, 2, 0, 3)
+            value_states = value_states.view(q_len, bsz, num_key_value_heads, head_dim).permute(1, 2, 0, 3)
+        else:
+            # Expected output shape is (batch size, num heads, sequence length, head dim)
+            query_states = query_states.view(bsz, q_len, num_heads, head_dim).transpose(1, 2)
+            key_states = key_states.view(bsz, q_len, num_key_value_heads, head_dim).transpose(1, 2)
+            value_states = value_states.view(bsz, q_len, num_key_value_heads, head_dim).transpose(1, 2)
+
+        return query_states, key_states, value_states
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -457,34 +480,32 @@ class LlamaAttention(nn.Module, CustomModule):
             key_states = self.k_proj(hidden_states)
             value_states = self.v_proj(hidden_states)
 
-        if self.trn_config.sequence_parallel_enabled:
-            query_states = query_states.view(q_len, bsz, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
-            key_states = key_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
-            value_states = value_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
-        else:
-            query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-            key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-            value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        query_states, key_states, value_states = self.permute_qkv_for_attn(
+            query_states, key_states, value_states, bsz, q_len, self.num_heads, self.num_key_value_heads, self.head_dim
+        )
 
         cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
-        if self.config._attn_implementation == "flash_attention_2":
-            attention_interface = ALL_ATTENTION_FUNCTIONS["flash_attention_2"]
-            if self.training and self.attention_dropout > 0.0:
-                raise RuntimeError(
-                    "Attention dropout produces NaN with flash_attention_2. Please set it to 0.0 until this bug is "
-                    "resolved by the Neuron SDK."
-                )
-            attn_output = attention_interface(
+        query_states, key_states = apply_rotary_pos_emb(
+            query_states,
+            key_states,
+            cos,
+            sin,
+            flash_attn=self.use_flash_attention_v2,
+            transpose_nki_inputs=self.trn_config.transpose_nki_inputs,
+        )
+        if self.use_flash_attention_v2:
+            attn_output = nki_flash_attn_func(
                 query_states,
                 repeat_kv(key_states, self.num_key_value_groups),
                 repeat_kv(value_states, self.num_key_value_groups),
-                dropout_p=0.0 if not self.training else self.attention_dropout,
+                dropout_p=0.0,  # We never apply dropout in the flash attention path because it produces NaNs.
                 softmax_scale=self.scaling,
                 causal=True,
                 mixed_precision=True,
+                transpose_nki_inputs=self.trn_config.transpose_nki_inputs,
             )
+            attn_output = nn.functional.dropout(attn_output, p=0.0 if not self.training else self.attention_dropout)
             attn_weights = None
         else:
             attn_output, attn_weights = eager_attention_forward(

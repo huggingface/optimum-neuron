@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Dict, Tuple, Union
 import torch
 
 from .import_utils import is_torch_neuronx_available
-from .require_utils import requires_neuronx_distributed
 
 
 if TYPE_CHECKING:
@@ -31,7 +30,6 @@ if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
 
-@requires_neuronx_distributed
 def get_tied_parameters_dict(model: Union["torch.nn.Module", "NxDPPModel"]) -> Dict[str, str]:
     from neuronx_distributed.pipeline import NxDPPModel
 
@@ -61,7 +59,6 @@ def get_parent_module_and_param_name_from_fully_qualified_name(
     return parent_module, param_name
 
 
-@requires_neuronx_distributed
 def tie_parameters(model: Union["torch.nn.Module", "NxDPPModel"], tied_parameters_dict: Dict[str, str]):
     from neuronx_distributed.pipeline import NxDPPModel
 

@@ -43,8 +43,8 @@ from transformers.utils import (
 )
 
 from ...utils import is_diffusers_available, logging
-from .import_utils import is_torch_neuronx_available, is_torch_xla_available
-from .require_utils import requires_safetensors, requires_torch_xla
+from .import_utils import is_torch_neuronx_available
+from .require_utils import requires_safetensors
 
 
 if is_torch_neuronx_available():
@@ -65,7 +65,7 @@ def is_precompilation() -> bool:
 
 
 def is_main_worker(global_main: bool = True) -> bool:
-    if torch.distributed.is_initialized() and is_torch_xla_available():
+    if torch.distributed.is_initialized():
         import torch_xla.core.xla_model as xm
         import torch_xla.runtime as xr
 
@@ -207,7 +207,6 @@ def convert_checkpoint_to_safetensors(
     return safetensors_path
 
 
-@requires_torch_xla
 @functools.wraps(cached_file)
 def distributed_friendly_cached_file(*args, **kwargs):
     import torch_xla.core.xla_model as xm

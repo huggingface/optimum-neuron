@@ -29,12 +29,18 @@ jobs:
         with:
           node-version: '18'
           cache-dependency-path: "kit/package-lock.json"
-      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-
+      - name: Install Neuronx runtime
+        uses: ./.github/actions/install_neuronx_runtime
+      - name: Prepare virtual environment
+        uses: ./.github/actions/prepare_venv
+      - name: Install optimum-neuron
+        uses: ./.github/actions/install_optimum_neuron
+      - name: Setup PATH
+        run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
       - name: Set environment variables
         run: |
           cd optimum
@@ -51,6 +57,7 @@ jobs:
 
       - name: Setup environment
         run: |
+          source aws_neuron_venv_pytorch/bin/activate
           python -m ensurepip --upgrade
           python -m pip install --upgrade setuptools
           python -m pip install ".[quality, tests, diffusers]"
@@ -58,6 +65,7 @@ jobs:
       - name: Make documentation
         shell: bash
         run: |
+          source aws_neuron_venv_pytorch/bin/activate
           doc-builder notebook-to-mdx notebooks/text-classification/fine_tune_bert.ipynb --output_dir docs/source/training_tutorials/
           doc-builder notebook-to-mdx notebooks/text-generation/qwen3-fine-tuning.ipynb --output_dir docs/source/training_tutorials/
           doc-builder notebook-to-mdx notebooks/sagemaker/deploy-llama-3-3-70b.ipynb --output_dir docs/source/inference_tutorials/

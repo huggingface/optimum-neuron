@@ -17,23 +17,17 @@
 import torch
 from accelerate.utils.operations import recursively_apply
 
-from ...utils import is_neuronx_distributed_available
-from ...utils.require_utils import requires_torch_xla
 
-
-@requires_torch_xla
 def _xla_gather(tensor, out_of_graph: bool = False):
     import torch_xla.core.xla_model as xm
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_data_parallel_group,
+        model_parallel_is_initialized,
+    )
 
     groups = None
-    if is_neuronx_distributed_available():
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_data_parallel_group,
-            model_parallel_is_initialized,
-        )
-
-        if model_parallel_is_initialized():
-            groups = get_data_parallel_group(as_list=True)
+    if model_parallel_is_initialized():
+        groups = get_data_parallel_group(as_list=True)
 
     def _xla_gather_one(tensor):
         if tensor.ndim == 0:

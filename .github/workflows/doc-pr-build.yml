@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   build_documentation:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
       PR_NUMBER: ${{ github.event.number }}
@@ -28,20 +28,30 @@ jobs:
         with:
           node-version: '18'
           cache-dependency-path: "kit/package-lock.json"
-
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-
+      - name: Install Neuronx runtime
+        uses: ./.github/actions/install_neuronx_runtime
+      - name: Prepare virtual environment
+        uses: ./.github/actions/prepare_venv
+      - name: Install optimum-neuron
+        uses: ./.github/actions/install_optimum_neuron
+      - name: Setup PATH
+        run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
       - name: Setup environment
         run: |
+          source aws_neuron_venv_pytorch/bin/activate
           pip install --upgrade pip
           pip install ".[quality, tests, diffusers]"
 
       - name: Make documentation
         shell: bash
         run: |
+          # Set the target to Trainium, it is required for the neuron libraries to work properly on CPU. 
+          export NEURON_PLATFORM_TARGET_OVERRIDE="trn1"
+          source aws_neuron_venv_pytorch/bin/activate
           doc-builder notebook-to-mdx notebooks/sagemaker/deploy-llama-3-3-70b.ipynb --output_dir docs/source/inference_tutorials/
           doc-builder notebook-to-mdx notebooks/text-classification/fine_tune_bert.ipynb --output_dir docs/source/training_tutorials/
           doc-builder notebook-to-mdx notebooks/text-generation/qwen3-fine-tuning.ipynb --output_dir docs/source/training_tutorials/

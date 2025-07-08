@@ -18,11 +18,14 @@ INSTALL_REQUIRES = [
     "huggingface_hub >= 0.29.0",
     "numpy>=1.22.2, <=1.25.2",
     "protobuf>=3.20.3, <4",
+    "neuronx_distributed==0.13.14393",
 ]
 
 TESTS_REQUIRE = [
     "pytest <= 8.0.0",
     "pytest-rerunfailures",
+    "cloudpickle",
+    "pytest-timeout",
     "psutil",
     "parameterized",
     "GitPython",
@@ -55,8 +58,6 @@ TRAINING_REQUIRES = [
     "trl == 0.11.4",
     "peft == 0.15.2",
     "evaluate == 0.4.3",
-    "neuronx_distributed==0.10.1",
-    "accelerate == 0.29.2",
 ]
 
 EXTRAS_REQUIRE = {
@@ -74,12 +75,11 @@ EXTRAS_REQUIRE = {
     ],
     "neuronx": [
         "wheel",
-        "neuronx-cc==2.17.194.0",
-        "torch-neuronx==2.5.1.2.6.0",
-        "torch==2.5.1.*",
-        "torchvision==0.20.*",
-        "neuronx_distributed==0.11.0",
-        "libneuronxla==2.2.1630.0",
+        "neuronx-cc==2.19.8089.0",
+        "torch-neuronx==2.7.0.2.8.6734+ac864f72",
+        "torch==2.7.0.*",
+        "torchvision==0.22.*",
+        "libneuronxla==2.2.4410.0",
         "accelerate == 1.3.0",
     ],
     "diffusers": ["diffusers>=0.28.0, <=0.30.3", "peft==0.15.2"],

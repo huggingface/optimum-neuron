@@ -23,6 +23,8 @@ from typing import List
 
 import torch
 from safetensors.torch import load_file
+import neuronx_distributed
+from neuronx_distributed.trace.model_builder import BaseModelInstance
 
 from optimum.exporters.tasks import TasksManager
 from optimum.neuron.utils import (
@@ -35,7 +37,6 @@ from optimum.neuron.utils import (
     DummyMaskedPosGenerator,
     WhisperDummyTextInputGenerator,
     get_checkpoint_shard_files,
-    is_neuronx_distributed_available,
     saved_model_in_temporary_directory,
 )
 from optimum.utils import (
@@ -79,11 +80,6 @@ from .model_wrappers import (
     WhisperDecoderWrapper,
     WhisperEncoderWrapper,
 )
-
-
-if is_neuronx_distributed_available():
-    import neuronx_distributed
-    from neuronx_distributed.trace.model_builder import BaseModelInstance
 
 if is_diffusers_available():
     from diffusers.models.autoencoders.vae import Decoder as VaeDecoder

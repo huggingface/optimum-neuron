@@ -33,7 +33,6 @@ from optimum.neuron.utils import (
     convert_neuronx_compiler_args_to_neuron,
     is_neuron_available,
     is_neuronx_available,
-    is_neuronx_distributed_available,
     store_compilation_config,
 )
 
@@ -69,9 +68,9 @@ if is_diffusers_available():
 if is_sentence_transformers_available():
     from sentence_transformers import SentenceTransformer
 
-if is_neuronx_distributed_available():
-    import neuronx_distributed
-    from neuronx_distributed.trace.model_builder import BaseModelInstance, ModelBuilder
+import neuronx_distributed
+from neuronx_distributed.trace.model_builder import BaseModelInstance, ModelBuilder
+
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 

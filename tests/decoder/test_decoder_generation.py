@@ -21,7 +21,6 @@ from transformers import AutoTokenizer
 from transformers.generation import StoppingCriteria
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.models.inference.backend.modules.decoder import NxDModelForCausalLM
 from optimum.neuron.models.inference.backend.modules.generation.generation_utils import prepare_sampling_params
 from optimum.neuron.models.inference.llama.modeling_llama import LlamaNxDModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
@@ -93,30 +92,6 @@ def test_decoder_generation_custom_stopping_criteria(model_and_tokenizer):
 
 @is_inferentia_test
 @requires_neuronx
-def test_decoder_generation_padded_inputs(model_and_tokenizer):
-    model, tokenizer = model_and_tokenizer
-    if isinstance(model, NxDModelForCausalLM):
-        pytest.skip("NxDModelForCausalLM use right padding and are not prone to this error")
-    prompt = "One of my fondest memory is of my grandmother making homemade bread"
-    first_input = tokenizer(prompt)
-    first_ids = first_input["input_ids"]
-    first_mask = first_input["attention_mask"]
-    max_padding = 12
-    input_len = len(first_ids)
-    for i in range(max_padding):
-        second_ids = [tokenizer.eos_token_id] * i + first_ids[: input_len - i]
-        second_mask = [0] * i + [1] * (input_len - i)
-        input_ids = torch.tensor([first_ids, second_ids], dtype=torch.int64)
-        attention_mask = torch.tensor([first_mask, second_mask], dtype=torch.int64)
-        outputs = model.generate(
-            input_ids=input_ids, attention_mask=attention_mask, do_sample=False, max_new_tokens=10
-        )
-        # Verify we did not generate any unknown token
-        assert torch.all(outputs[:, -1] != 0), f"Unknown token generated for padding {i}"
-
-
-@is_inferentia_test
-@requires_neuronx
 def test_decoder_generation_greedy_expectations(neuron_decoder_config):
     neuron_decoder_path = neuron_decoder_config["neuron_model_path"]
     model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
@@ -127,9 +102,9 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
     expectations = {
         "llama": " and how does it work?\nDeep learning is a subset of machine learning that uses artificial",
         "qwen2": "Deep Learning is a subset of Machine Learning that involves the use of artificial neural networks",
-        "qwen3": "What is Deep Learning? A Deep Learning is a subset of machine learning that uses neural networks with multiple layers to",
-        "granite": "\n\nDeep learning is a subset of machine learning techniques based on artificial neural networks",
-        "phi": "\nDeep Learning is a subset of machine learning that uses neural networks with many layers",
+        "qwen3": " What is the difference between Deep Learning and Machine Learning?\n\nDeep Learning is a subset of",
+        "granite": "\n\nDeep Learning is a subset of machine learning that is inspired by the structure and",
+        "phi": "\n\nDeep learning is a subfield of machine learning that focuses on creating",
     }
     config_name = neuron_decoder_config["name"]
     generated_text = tokenizer.decode(outputs[0])

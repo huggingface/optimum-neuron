@@ -22,15 +22,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
-
-from optimum.neuron.utils.import_utils import is_torch_xla_available
-
-from ..utils.import_utils import is_neuronx_distributed_available
-from ..utils.misc import args_and_kwargs_to_kwargs_only
-
-
-if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
+import torch_xla.core.xla_model as xm
+from neuronx_distributed.parallel_layers import parallel_state
 from transformers import GenerationMixin
 from transformers.generation.beam_search import BeamScorer, BeamSearchScorer
 from transformers.generation.configuration_utils import GenerationConfig
@@ -54,12 +47,10 @@ from transformers.generation.utils import (
 )
 from transformers.utils import ModelOutput, logging
 
+from ..utils.misc import args_and_kwargs_to_kwargs_only
+
 
 logger = logging.get_logger(__name__)
-
-
-if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers import parallel_state
 
 
 def _move_dict_args_to_device(kwargs: Dict[str, Any], device: str = "cpu") -> Dict[str, Any]:
@@ -204,8 +195,7 @@ def _get_fwd_for_general_sampling(
         outputs = current_fwd(**kwargs)
         # Gather outputs if NxD tensor parallelism is applied and the output logits have not been gathered.
         if (
-            is_neuronx_distributed_available()
-            and parallel_state.model_parallel_is_initialized()
+            parallel_state.model_parallel_is_initialized()
             and parallel_state.get_tensor_model_parallel_size() > 1
             and outputs["logits"].shape[-1] != vocab_size
         ):
