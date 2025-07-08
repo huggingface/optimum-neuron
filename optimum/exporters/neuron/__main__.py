@@ -394,12 +394,19 @@ def _reorder_models_and_neuron_configs(models_and_neuron_configs):
     """
     Reorder to ensure that the export starts with NxD backend in case of TP(otherwise, runtime error).
     """
-    tp_model = next((model_name for model_name, (_, config) in models_and_neuron_configs.items() if getattr(config, "tensor_parallel_size", 1) > 1), None)
+    tp_model = next(
+        (
+            model_name
+            for model_name, (_, config) in models_and_neuron_configs.items()
+            if getattr(config, "tensor_parallel_size", 1) > 1
+        ),
+        None,
+    )
 
     if tp_model:
         models_and_neuron_configs = {
             tp_model: models_and_neuron_configs[tp_model],
-            **{k: v for k, v in models_and_neuron_configs.items() if k != tp_model}
+            **{k: v for k, v in models_and_neuron_configs.items() if k != tp_model},
         }
 
     return models_and_neuron_configs

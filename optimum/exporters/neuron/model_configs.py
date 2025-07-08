@@ -1004,9 +1004,7 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
         input_names: List[str] = None,
         **kwargs,
     ):
-        return super().patch_model_and_prepare_aliases(
-            model=model, input_names=input_names, forward_with_tuple=True
-        )
+        return super().patch_model_and_prepare_aliases(model=model, input_names=input_names, forward_with_tuple=True)
 
 
 class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
@@ -1035,7 +1033,7 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
     @property
     def inputs(self) -> List[str]:
         return ["input_ids"]
-    
+
     @property
     def outputs(self) -> List[str]:
         return ["last_hidden_state"]

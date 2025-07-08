@@ -14,8 +14,8 @@
 # limitations under the License.
 """Neuron compiled model check and export functions."""
 
-import os
 import copy
+import os
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -351,10 +351,6 @@ def export_models(
     failed_models = []
     total_compilation_time = 0
     compile_configs = {}
-    models_and_neuron_configs.pop("text_encoder")
-    models_and_neuron_configs.pop("transformer")
-    models_and_neuron_configs.pop("vae_encoder")
-    models_and_neuron_configs.pop("vae_decoder")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -610,7 +606,7 @@ def prepare_compiler_flags(
 
     compiler_args.extend(["--optlevel", optlevel])
     logger.info(f"Using Neuron: --optlevel {optlevel}")
-    
+
     if instance_type == "trn2":
         compiler_args.extend(["--target", "trn2"])
     elif instance_type == "trn1":
@@ -631,7 +627,7 @@ def prepare_compiler_flags(
         "wavlm",
     }
     # t5 Encoder
-    if config.MODEL_TYPE=="t5-encoder" and config.LIBRARY_NAME=="diffusers":
+    if config.MODEL_TYPE == "t5-encoder" and config.LIBRARY_NAME == "diffusers":
         exception_models.add("t5-encoder")
         compiler_args.extend(["--model-type", "unet-inference"])
     if config.MODEL_TYPE not in exception_models:
@@ -659,7 +655,7 @@ def trace_neuronx(
         # Tensor Parallelism
         if isinstance(model, BaseModelInstance):
             # Case 1: Using `neuronx_distributed.trace.model_builder`
-            #TODO: from optimum.neuron.models.inference.nxd.backend.cache import neff_cache
+            # TODO: from optimum.neuron.models.inference.nxd.backend.cache import neff_cache
             model_builder = ModelBuilder(
                 router=None,
                 debug=False,
