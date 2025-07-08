@@ -26,7 +26,7 @@ import time
 import warnings
 from collections import defaultdict
 from functools import wraps
-from typing import Any, Callable, Dict, List, Union
+from typing import Any, Callable, Dict, List
 
 import datasets
 import numpy as np

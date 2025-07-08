@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 import torch
 from neuronx_distributed.parallel_layers.mappings import (
     gather_from_sequence_parallel_region,
@@ -133,7 +134,7 @@ class GraniteModel(LlamaModel):
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
         **flash_attn_kwargs,
-    ) -> Tuple | BaseModelOutputWithPast:
+    ) -> tuple | BaseModelOutputWithPast:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -256,7 +257,7 @@ class GraniteForCausalLM(LlamaForCausalLM):
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
         **kwargs: Unpack[KwargsForCausalLM],
-    ) -> Tuple | CausalLMOutputWithPast:
+    ) -> tuple | CausalLMOutputWithPast:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states

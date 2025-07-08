@@ -169,7 +169,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         model_save_dir: str | Path | TemporaryDirectory | None = None,
         encoder_file_name: str | None = NEURON_FILE_NAME,
         decoder_file_name: str | None = NEURON_FILE_NAME,
-        preprocessors: List | None = None,
+        preprocessors: list | None = None,
         neuron_configs: dict[str, "NeuronDefaultConfig" | None] = None,
         configs: dict[str, "PretrainedConfig" | None] = None,
         generation_config: GenerationConfig | None = None,

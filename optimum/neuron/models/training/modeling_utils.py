@@ -24,7 +24,7 @@ import warnings
 from dataclasses import asdict
 from pathlib import Path
 from threading import Thread
-from typing import Callable, Type, Literal
+from typing import Callable, Literal, Type
 
 import neuronx_distributed
 import torch

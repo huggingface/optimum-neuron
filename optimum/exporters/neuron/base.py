@@ -17,7 +17,7 @@
 import re
 from abc import ABC, abstractmethod
 from dataclasses import fields, is_dataclass
-from typing import TYPE_CHECKING, Any, List, Union
+from typing import TYPE_CHECKING, Any, List
 
 import torch
 

@@ -545,7 +545,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
-    ) -> Tuple | CausalLMOutputWithPast:
+    ) -> tuple | CausalLMOutputWithPast:
         if self.async_mode:
             # derive future cpu inputs from current cpu inputs
             if position_ids.shape[1] == input_ids.shape[1]:

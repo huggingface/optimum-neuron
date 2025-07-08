@@ -15,7 +15,7 @@
 """Pipelines running different Neuron Accelerators."""
 
 import logging
-from typing import Any, Union
+from typing import Any
 
 from transformers import (
     AudioClassificationPipeline,

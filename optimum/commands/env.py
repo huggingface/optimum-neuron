@@ -34,7 +34,7 @@ class EnvironmentCommand(BaseOptimumCLICommand):
         return "\n".join([f"- {prop}: {val}" for prop, val in d.items()]) + "\n"
 
     @staticmethod
-    def get_pip_pkgs_version(pkg_list: List | None, info: Dict):
+    def get_pip_pkgs_version(pkg_list: list | None, info: dict):
         if pkg_list is not None:
             for pkg in pkg_list:
                 try:

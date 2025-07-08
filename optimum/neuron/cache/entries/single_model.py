@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import copy
-from typing import Any, Union
+from typing import Any
 
 from transformers import AutoConfig, PretrainedConfig
 

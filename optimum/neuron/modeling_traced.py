@@ -20,7 +20,7 @@ import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Type, Literal
+from typing import TYPE_CHECKING, Literal
 
 import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download

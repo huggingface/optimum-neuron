@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Tuple
 
 import torch
 from transformers import GenerationConfig

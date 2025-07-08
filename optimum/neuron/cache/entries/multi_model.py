@@ -16,7 +16,7 @@
 import copy
 import json
 from tempfile import TemporaryDirectory
-from typing import Any, Dict, Union
+from typing import Any
 
 from huggingface_hub import HfApi
 from transformers import PretrainedConfig
@@ -28,7 +28,7 @@ NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names", "model_type"]
 
 
 def _exclude_white_list_from_config(
-    config: Dict, white_list: List | None = None, neuron_white_list: List | None = None
+    config: dict, white_list: list | None = None, neuron_white_list: list | None = None
 ):
     if white_list is None:
         white_list = CACHE_WHITE_LIST
@@ -48,8 +48,8 @@ def _exclude_white_list_from_config(
 
 def _clean_configs(
     configs: dict[str, PretrainedConfig | dict[str, Any]],
-    white_list: List | None = None,
-    neuron_white_list: List | None = None,
+    white_list: list | None = None,
+    neuron_white_list: list | None = None,
 ):
     """Only applied on traced TorchScript models."""
     clean_configs = {}
@@ -67,7 +67,7 @@ def _clean_configs(
     return clean_configs
 
 
-def _prepare_configs_for_matching(configs: Dict, model_type: str):
+def _prepare_configs_for_matching(configs: dict, model_type: str):
     if model_type == "stable-diffusion":
         non_checked_components = [
             "vae",

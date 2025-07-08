@@ -18,7 +18,7 @@ import copy
 import inspect
 import warnings
 from functools import wraps
-from typing import Any, Callable, Union
+from typing import Any, Callable
 
 import torch
 import torch.distributed as dist

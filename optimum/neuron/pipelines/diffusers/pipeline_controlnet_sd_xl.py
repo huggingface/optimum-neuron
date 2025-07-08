@@ -16,7 +16,7 @@
 
 import copy
 import logging
-from typing import Any, Callable, Dict, Union
+from typing import Any, Callable, Dict
 
 import torch
 from diffusers import ControlNetModel

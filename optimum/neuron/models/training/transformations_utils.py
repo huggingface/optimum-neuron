@@ -22,7 +22,7 @@ import re
 import sys
 from abc import abstractmethod
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, Literal, Union
+from typing import Any, Literal
 
 import torch
 from neuronx_distributed.parallel_layers.layers import create_local_weight

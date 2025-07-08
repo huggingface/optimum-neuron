@@ -25,7 +25,7 @@ from collections import OrderedDict
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Literal, Union
+from typing import TYPE_CHECKING, Any, Literal
 
 import torch
 from huggingface_hub import snapshot_download
@@ -162,7 +162,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         controlnet: torch.jit._script.ScriptModule | list[
                 torch.jit._script.ScriptModule | None,
                 "NeuronControlNetModel",
-                "NeuronMultiControlNetModel",,
+                "NeuronMultiControlNetModel",
         ] = None,
         # stable diffusion xl specific arguments
         requires_aesthetics_score: bool = False,
@@ -548,7 +548,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 model = replace_weights(model.model, weight)
 
     @staticmethod
-    def set_default_dp_mode(configs: Dict):
+    def set_default_dp_mode(configs: dict):
         if "unet" in configs:
             unet_config = configs["unet"]
             if NeuronDiffusionPipelineBase.is_lcm(unet_config) is True:
@@ -1326,7 +1326,7 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
             optional_inputs_names = ["text_embeds", "time_ids", "image_embeds"]
             for optional_input_name in optional_inputs_names:
                 optional_input = added_cond_kwargs.get(optional_input_name, None)
-                if isinstance(optional_input, List):
+                if isinstance(optional_input, list):
                     optional_input = (
                         torch.stack(optional_input, dim=0) if len(optional_input) > 1 else optional_input[0]
                     )
@@ -1465,7 +1465,7 @@ class NeuronControlNetModel(_NeuronDiffusionModelPart):
         controlnet_cond: torch.Tensor,
         conditioning_scale: float = 1.0,
         guess_mode: bool = False,
-        added_cond_kwargs: Dict | None = None,
+        added_cond_kwargs: dict | None = None,
         return_dict: bool = True,
     ) -> "ControlNetOutput" | tuple[tuple[torch.Tensor, ..., torch.Tensor]]:
         timestep = timestep.expand((sample.shape[0],)).to(torch.long)

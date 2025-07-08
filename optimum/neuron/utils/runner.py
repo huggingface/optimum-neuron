@@ -23,7 +23,7 @@ from enum import Enum
 from pathlib import Path
 from subprocess import PIPE
 from tempfile import TemporaryDirectory
-from typing import Any, Union
+from typing import Any
 
 import requests
 from huggingface_hub import (
