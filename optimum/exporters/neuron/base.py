@@ -17,7 +17,7 @@
 import re
 from abc import ABC, abstractmethod
 from dataclasses import fields, is_dataclass
-from typing import TYPE_CHECKING, Any, list
+from typing import TYPE_CHECKING, Any
 
 import torch
 
@@ -272,12 +272,12 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         return [cls_(self.task, self._normalized_config, **self._axes) for cls_ in self.DUMMY_INPUT_GENERATOR_CLASSES]
 
     @property
-    def values_override(self) -> dict[str, Any | None]:
+    def values_override(self) -> dict[str, Any] | None:
         """
         Dictionary of keys to override in the model's config before exporting.
 
         Returns:
-            `dict[str, Any | None]`: A dictionary specifying the configuration items to override.
+            `dict[str, Any] | None`: A dictionary specifying the configuration items to override.
         """
 
         return None
@@ -286,7 +286,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
     @abstractmethod
     def inputs(self) -> list[str]:
         """
-        list containing the names of the inputs the exported model should take.
+        List containing the names of the inputs the exported model should take.
 
         Returns:
             `list[str]`: A list of input names.
@@ -296,7 +296,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
     @property
     def outputs(self) -> list[str]:
         """
-        list containing the names of the outputs the exported model should have.
+        List containing the names of the outputs the exported model should have.
 
         Returns:
             `list[str]`: A list of output names.
@@ -305,13 +305,13 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
 
     def generate_dummy_inputs(
         self, return_tuple: bool = False, **kwargs
-    ) -> dict[str, torch.Tensor, tuple[torch.Tensor]]:
+    ) -> dict[str, torch.Tensor] | tuple[torch.Tensor]:
         """
         Generates dummy inputs that the exported model should be able to process.
         This method is actually used to determine the input specs and their static shapes that are needed for the export.
 
         Returns:
-            `dict[str, torch.Tensor, tuple[torch.Tensor]]`: A dictionary mapping input names to dummy tensors or a tuple with dummy tensors.
+            `dict[str, torch.Tensor] | tuple[torch.Tensor]`: A dictionary mapping input names to dummy tensors or a tuple with dummy tensors.
         """
         dummy_inputs_generators = self._create_dummy_input_generator_classes(**kwargs)
         dummy_inputs = {}
@@ -383,9 +383,9 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
     def patch_model_for_export(
         self,
         model: "PreTrainedModel",
-        dummy_inputs: dict[str, torch.Tensor | None] = None,
+        dummy_inputs: dict[str, torch.Tensor] | None = None,
         forward_with_tuple: bool = False,
-        eligible_outputs: list[str | int | None] = None,
+        eligible_outputs: list[str | int] | None = None,
         device: str | None = None,
     ):
         """

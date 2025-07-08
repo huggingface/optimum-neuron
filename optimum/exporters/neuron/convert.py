@@ -74,12 +74,12 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 def validate_models_outputs(
     models_and_neuron_configs: dict[
-        str, tuple["PreTrainedModel | ModelMixin" | torch.nn.Module, "NeuronDefaultConfig"]
+        str, tuple["PreTrainedModel | ModelMixin | torch.nn.Module", "NeuronDefaultConfig"]
     ],
     neuron_named_outputs: dict[str, list[str]],
     output_dir: Path,
     atol: float | None = None,
-    neuron_files_subpaths: dict[str, str | None] = None,
+    neuron_files_subpaths: dict[str, str] | None = None,
 ):
     """
     Validates the export of several models, by checking that the outputs from both the reference and the exported model match.
@@ -88,13 +88,13 @@ def validate_models_outputs(
     Args:
         models_and_neuron_configs (`dict[str, tuple[`PreTrainedModel` | `ModelMixin` | `torch.nn.Module`, `NeuronDefaultConfig`]]):
             A dictionnary containing the models to export and their corresponding neuron configs.
-        neuron_named_outputs (`list[list[str]]`):
+        neuron_named_outputs (`dict[str, list[str]]`):
             The names of the outputs to check.
         output_dir (`Path`):
             Output directory where the exported Neuron models are stored.
         atol (`float | None`, defaults to `None`):
             The absolute tolerance in terms of outputs difference between the reference and the exported model.
-        neuron_files_subpaths (`list[str | None]`, defaults to `None`):
+        neuron_files_subpaths (`dict[str, str] | None`, defaults to `None`):
             The relative paths from `output_dir` to the Neuron files to do validation on. The order must be the same as the order of submodels
             in the ordered dict `models_and_neuron_configs`. If None, will use the keys from the `models_and_neuron_configs` as names.
 
@@ -153,7 +153,7 @@ def validate_model_outputs(
     Args:
         config ([`~optimum.neuron.exporter.NeuronDefaultConfig`]:
             The configuration used to export the model.
-        reference_model ([`"PreTrainedModel | SentenceTransformer | ModelMixin"`]):
+        reference_model (`"PreTrainedModel | SentenceTransformer | ModelMixin"`):
             The model used for the export.
         neuron_model_path (`Path`):
             The path to the exported model.
@@ -290,7 +290,7 @@ def validate_model_outputs(
 
 def export_models(
     models_and_neuron_configs: dict[
-        str, tuple["PreTrainedModel | ModelMixin" | torch.nn.Module, "NeuronDefaultConfig"]
+        str, tuple["PreTrainedModel | ModelMixin | torch.nn.Module", "NeuronDefaultConfig"]
     ],
     task: str,
     output_dir: Path,
@@ -298,15 +298,15 @@ def export_models(
     compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
-    output_file_names: dict[str, str | None] = None,
-    compiler_kwargs: dict[str, Any | None] = {},
+    output_file_names: dict[str, str] | None = None,
+    compiler_kwargs: dict[str, Any] | None = {},
     model_name_or_path: str | None = None,
 ) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     """
     Exports a Pytorch model with multiple component models to separate files.
 
     Args:
-        models_and_neuron_configs (`dict[str, tuple["PreTrainedModel | ModelMixin" | torch.nn.Module, `NeuronDefaultConfig`]]):
+        models_and_neuron_configs (`dict[str, tuple[PreTrainedModel | ModelMixin | torch.nn.Module, `NeuronDefaultConfig`]]):
             A dictionnary containing the models to export and their corresponding neuron configs.
         task (`str`):
             The task for which the models should be exported.
@@ -323,10 +323,10 @@ def export_models(
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
                 2: provides the best balance between model performance and compile time.
                 3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
-        output_file_names (`list[str | None]`, defaults to `None`):
+        output_file_names (`dict[str, str] | None`, defaults to `None`):
             The names to use for the exported Neuron files. The order must be the same as the order of submodels in the ordered dict `models_and_neuron_configs`.
             If None, will use the keys from `models_and_neuron_configs` as names.
-        compiler_kwargs (`dict[str, Any | None]`, defaults to `None`):
+        compiler_kwargs (`dict[str, Any] | None`, defaults to `None`):
             Arguments to pass to the Neuron(x) compiler for exporting Neuron models.
         model_name_or_path (`str | None`, defaults to `None`):
             Path to pretrained model or model identifier from the Hugging Face Hub.

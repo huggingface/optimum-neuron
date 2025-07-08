@@ -18,6 +18,7 @@ import functools
 import gc
 import inspect
 import itertools
+import os
 from typing import TYPE_CHECKING, Callable
 
 import accelerate
@@ -76,8 +77,8 @@ _ORIG_TORCH_FINFO = torch.finfo
 
 def torch_xla_safe_save_file(
     tensors: dict[str, torch.Tensor],
-    filename: "str | os.PathLike",
-    metadata: dict[str, str | None] = None,
+    filename: str | os.PathLike,
+    metadata: dict[str, str] | None = None,
     master_only: bool = True,
     global_master: bool = False,
 ):

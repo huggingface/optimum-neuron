@@ -159,18 +159,13 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         tokenizer: CLIPTokenizer | T5Tokenizer | None = None,
         tokenizer_2: CLIPTokenizer | None = None,
         feature_extractor: CLIPFeatureExtractor | None = None,
-        controlnet: torch.jit._script.ScriptModule
-        | list[
-            torch.jit._script.ScriptModule | None,
-            "NeuronControlNetModel",
-            "NeuronMultiControlNetModel",
-        ] = None,
+        controlnet: "torch.jit._script.ScriptModule | list[torch.jit._script.ScriptModule]| NeuronControlNetModel | NeuronMultiControlNetModel | None" = None,
         # stable diffusion xl specific arguments
         requires_aesthetics_score: bool = False,
         force_zeros_for_empty_prompt: bool = True,
         add_watermarker: bool | None = None,
         model_save_dir: str | Path | TemporaryDirectory | None = None,
-        model_and_config_save_paths: dict[str, tuple[str, Path | None]] = None,
+        model_and_config_save_paths: dict[str, tuple[str, Path]] | None = None,
     ):
         """
         Args:
@@ -211,7 +206,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
             feature_extractor (`CLIPFeatureExtractor | None`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
-            controlnet (`torch.jit._script.ScriptModule | list[torch.jit._script.ScriptModule | None, "NeuronControlNetModel", "NeuronMultiControlNetModel"]`, defaults to `None`):
+            controlnet (`torch.jit._script.ScriptModule | list[torch.jit._script.ScriptModule | None | "NeuronControlNetModel" | "NeuronMultiControlNetModel"`, defaults to `None`):
                 The Neuron TorchScript module(s) associated to the ControlNet(s).
             requires_aesthetics_score (`bool`, defaults to `False`):
                 Whether the `unet` requires an `aesthetic_score` condition to be passed during inference. Also see the
@@ -225,7 +220,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 watermarker will be used.
             model_save_dir (`str | Path | TemporaryDirectory | None`, defaults to `None`):
                 The directory under which the exported Neuron models were saved.
-            model_and_config_save_paths (`dict[str, tuple[str, Path | None]]`, defaults to `None`):
+            model_and_config_save_paths (`dict[str, tuple[str, Path]] | None`, defaults to `None`):
                 The paths where exported Neuron models were saved.
         """
 
@@ -401,7 +396,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
     @staticmethod
     @requires_torch_neuronx
     def load_model(
-        data_parallel_mode: Literal["none", "unet", "transformer", "all" | None],
+        data_parallel_mode: Literal["none", "unet", "transformer", "all"] | None,
         text_encoder_path: str | Path | None = None,
         text_encoder_2_path: str | Path | None = None,
         image_encoder_path: str | Path | None = None,
@@ -409,7 +404,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         transformer_path: str | Path | None = None,
         vae_encoder_path: str | Path | None = None,
         vae_decoder_path: str | Path | None = None,
-        controlnet_paths: list[Path | None] = None,
+        controlnet_paths: list[Path] | None = None,
         dynamic_batch_size: bool = False,
         to_neuron: bool = False,
     ):
@@ -418,7 +413,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         one or multiple [NeuronCore](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/neuroncores-arch.html).
 
         Args:
-            data_parallel_mode (`Literal["none", "unet", "all" | None]`):
+            data_parallel_mode (`Literal["none", "unet", "all"] | None`):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
                 load unet into both cores of each device), "all"(load the whole pipeline into both cores).
             text_encoder_path (`str | Path`, defaults to `None`):
@@ -435,7 +430,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 Path of the compiled VAE encoder. It is optional, only used for tasks taking images as input.
             vae_decoder_path (`str | Path | None`, defaults to `None`):
                 Path of the compiled VAE decoder.
-            controlnet_paths (`list[Path | None]`, defaults to `None`):
+            controlnet_paths (`list[Path] | None`, defaults to `None`):
                 Path of the compiled controlnets.
             dynamic_batch_size (`bool`, defaults to `False`):
                 Whether enable dynamic batch size for neuron compiled model. If `True`, the input batch size can be a multiple of the batch size during the compilation.
@@ -531,7 +526,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         return submodels
 
-    def replace_weights(self, weights: dict[str, torch.Tensor | None, torch.nn.Module] = None):
+    def replace_weights(self, weights: dict[str, torch.Tensor] | None | torch.nn.Module = None):
         check_if_weights_replacable(self.configs, weights)
         model_names = [
             "text_encoder",
@@ -694,7 +689,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         image_encoder_file_name: str | None = NEURON_FILE_NAME,
         local_files_only: bool = False,
         model_save_dir: str | Path | TemporaryDirectory | None = None,
-        data_parallel_mode: Literal["none", "unet", "transformer", "all" | None] = None,
+        data_parallel_mode: Literal["none", "unet", "transformer", "all"] | None = None,
         **kwargs,  # To share kwargs only available for `_from_transformers`
     ):
         model_id = str(model_id)
@@ -879,8 +874,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         dynamic_batch_size: bool = False,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
-        data_parallel_mode: Literal["none", "unet", "transformer", "all" | None] = None,
-        controlnet_ids: str | list[str | None] = None,
+        data_parallel_mode: Literal["none", "unet", "transformer", "all"] | None = None,
+        controlnet_ids: str | list[str] | None = None,
         **kwargs,
     ) -> "NeuronDiffusionPipelineBase":
         """
@@ -941,26 +936,26 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 batch size during the compilation, but it comes with a potential tradeoff in terms of latency.
             output_hidden_states (`bool`, defaults to `False`):
                 Whether or not for the traced text encoders to return the hidden states of all layers.
-            data_parallel_mode (`Literal["none", "unet", "transformer", "all" | None]`, defaults to `None`):
+            data_parallel_mode (`Literal["none", "unet", "transformer", "all"] | None`, defaults to `None`):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
                 load unet into both cores of each device), "all"(load the whole pipeline into both cores).
-            lora_model_ids (`str | list[str | None]`, defaults to `None`):
+            lora_model_ids (`str | list[str] | None`, defaults to `None`):
                 Lora model local paths or repo ids (eg. `ostris/super-cereal-sdxl-lora`) on the Hugginface Hub.
-            lora_weight_names (`str | list[str | None]`, defaults to `None`):
+            lora_weight_names (`str | list[str] | None`, defaults to `None`):
                 Lora weights file names.
-            lora_adapter_names (`str | list[str | None]`, defaults to `None`):
+            lora_adapter_names (`str | list[str] | None`, defaults to `None`):
                 Adapter names to be used for referencing the loaded adapter models.
-            lora_scales (`list[float | None]`, defaults to `None`):
+            lora_scales (`list[float] | None`, defaults to `None`):
                 Lora adapters scaling factors.
-            controlnet_ids (`str | list[str | None]`, defaults to `None`):
-                list of ControlNet model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`)."
-            ip_adapter_ids (`str | list[str | None]`, defaults to `None`):
+            controlnet_ids (`str | list[str] | None`, defaults to `None`):
+                List of ControlNet model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`)."
+            ip_adapter_ids (`str | list[str] | None`, defaults to `None`):
                 Model ids (eg. `h94/IP-Adapter`) of IP-Adapter models hosted on the Hub or paths to local directories containing the IP-Adapter weights.
             ip_adapter_subfolders (`str | list[str | None]`, defaults to `None`):
                 The subfolder location of a model file within a larger model repository on the Hub or locally. If a list is passed, it should have the same length as `ip_adapter_weight_names`.
-            ip_adapter_weight_names (`str | list[str | None]`, defaults to `None`):
+            ip_adapter_weight_names (`str | list[str] | None`, defaults to `None`):
                 The name of the weight file to load. If a list is passed, it should have the same length as `ip_adapter_subfolders`.
-            ip_adapter_scales (`float | list[float | None]`, defaults to `None`):
+            ip_adapter_scales (`float | list[float] | None`, defaults to `None`):
                 Scaling factors for the IP-Adapters.
         """
         # Parse kwargs to their dataclass
@@ -1217,7 +1212,7 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
         model: torch.jit._script.ScriptModule,
         parent_pipeline: NeuronDiffusionPipelineBase,
         config: DiffusersPretrainedConfig | None = None,
-        neuron_config: dict[str, str | None] = None,
+        neuron_config: dict[str, str] | None = None,
     ):
         super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_TEXT_ENCODER_NAME)
 
@@ -1258,7 +1253,7 @@ class NeuronModelImageEncoder(_NeuronDiffusionModelPart):
         model: torch.jit._script.ScriptModule,
         parent_pipeline: NeuronDiffusionPipelineBase,
         config: DiffusersPretrainedConfig | None = None,
-        neuron_config: dict[str, str | None] = None,
+        neuron_config: dict[str, str] | None = None,
     ):
         super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_IMAGE_ENCODER_NAME)
 
@@ -1294,7 +1289,7 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
         model: torch.jit._script.ScriptModule,
         parent_pipeline: NeuronDiffusionPipelineBase,
         config: DiffusersPretrainedConfig | None = None,
-        neuron_config: dict[str, str | None] = None,
+        neuron_config: dict[str, str] | None = None,
     ):
         super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_UNET_NAME)
         if hasattr(self.model, "device"):
@@ -1305,11 +1300,11 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
         sample: torch.Tensor,
         timestep: torch.Tensor,
         encoder_hidden_states: torch.Tensor,
-        added_cond_kwargs: dict[str, torch.Tensor | None] = None,
-        down_block_additional_residuals: tuple[torch.Tensor | None] = None,
+        added_cond_kwargs: dict[str, torch.Tensor] | None = None,
+        down_block_additional_residuals: tuple[torch.Tensor] | None = None,
         mid_block_additional_residual: torch.Tensor | None = None,
         timestep_cond: torch.Tensor | None = None,
-        cross_attention_kwargs: dict[str, Any | None] = None,
+        cross_attention_kwargs: dict[str, Any] | None = None,
         return_dict: bool = True,
     ):
         if cross_attention_kwargs is not None:
@@ -1346,7 +1341,7 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
         model: torch.jit._script.ScriptModule,
         parent_pipeline: NeuronDiffusionPipelineBase,
         config: DiffusersPretrainedConfig | None = None,
-        neuron_config: dict[str, str | None] = None,
+        neuron_config: dict[str, str] | None = None,
     ):
         super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_TRANSFORMER_NAME)
 
@@ -1355,8 +1350,8 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
         hidden_states: torch.Tensor,
         encoder_hidden_states: torch.Tensor | None = None,
         timestep: torch.LongTensor | None = None,
-        added_cond_kwargs: dict[str, torch.Tensor] = None,
-        cross_attention_kwargs: dict[str, Any] = None,
+        added_cond_kwargs: dict[str, torch.Tensor] | None = None,
+        cross_attention_kwargs: dict[str, Any] | None = None,
         attention_mask: torch.Tensor | None = None,
         encoder_attention_mask: torch.Tensor | None = None,
         return_dict: bool = True,
@@ -1374,7 +1369,7 @@ class NeuronModelVaeEncoder(_NeuronDiffusionModelPart):
         model: torch.jit._script.ScriptModule,
         parent_pipeline: NeuronDiffusionPipelineBase,
         config: DiffusersPretrainedConfig | None = None,
-        neuron_config: dict[str, str | None] = None,
+        neuron_config: dict[str, str] | None = None,
     ):
         super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_VAE_ENCODER_NAME)
 
@@ -1504,7 +1499,7 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
         models: list[torch.jit._script.ScriptModule],
         parent_pipeline: NeuronTracedModel,
         config: DiffusersPretrainedConfig | None = None,
-        neuron_config: dict[str, str | None] = None,
+        neuron_config: dict[str, str] | None = None,
     ):
         self.nets = models
         self.parent_pipeline = parent_pipeline

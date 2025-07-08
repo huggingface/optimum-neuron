@@ -37,12 +37,11 @@ class QuestionAnsweringSeq2SeqTrainer(Seq2SeqTrainer):
         self.eval_examples = eval_examples
         self.post_process_function = post_process_function
 
-    # def evaluate(self, eval_dataset=None, eval_examples=None, ignore_keys=None, metric_key_prefix: str = "eval"):
     def evaluate(
         self,
         eval_dataset: Dataset | None = None,
         eval_examples=None,
-        ignore_keys: list[str | None] = None,
+        ignore_keys: list[str] | None = None,
         metric_key_prefix: str = "eval",
         **gen_kwargs,
     ) -> dict[str, float]:

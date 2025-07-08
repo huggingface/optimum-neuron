@@ -15,8 +15,8 @@
 
 import subprocess
 import sys
+from argparse import ArgumentParser, Namespace, _SubParsersAction
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from ...exporters import TasksManager
 from ...utils import is_diffusers_available
@@ -29,9 +29,6 @@ if is_diffusers_available():
 
     os.environ["NEURON_FUSE_SOFTMAX"] = "1"
     os.environ["NEURON_CUSTOM_SILU"] = "1"
-
-if TYPE_CHECKING:
-    from argparse import ArgumentParser, Namespace, _SubParsersAction
 
 
 def parse_args_neuronx(parser: "ArgumentParser"):
@@ -155,7 +152,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         nargs="*",
         type=str,
         help=(
-            "list of model ids (eg. `ostris/super-cereal-sdxl-lora`) of pretrained lora models hosted on the Hub or paths to local directories containing the lora weights."
+            "List of model ids (eg. `ostris/super-cereal-sdxl-lora`) of pretrained lora models hosted on the Hub or paths to local directories containing the lora weights."
         ),
     )
     optional_group.add_argument(
@@ -163,21 +160,21 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         default=None,
         nargs="*",
         type=str,
-        help="list of lora weights file names.",
+        help="List of lora weights file names.",
     )
     optional_group.add_argument(
         "--lora_adapter_names",
         default=None,
         nargs="*",
         type=str,
-        help="list of the adapter names to be used for referencing the loaded adapter models.",
+        help="List of the adapter names to be used for referencing the loaded adapter models.",
     )
     optional_group.add_argument(
         "--lora_scales",
         default=None,
         nargs="*",
         type=float,
-        help="list of scaling factors for the lora adapters.",
+        help="List of scaling factors for the lora adapters.",
     )
     optional_group.add_argument(
         "--output_attentions",
@@ -191,7 +188,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         default=None,
         nargs="*",
         type=str,
-        help="list of model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`) of ControlNet models.",
+        help="List of model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`) of ControlNet models.",
     )
     ip_adapter_group = parser.add_argument_group("IP adapters")
     ip_adapter_group.add_argument(
@@ -318,11 +315,11 @@ class NeuronxExportCommand(BaseOptimumCLICommand):
 
     def __init__(
         self,
-        subparsers: "_SubParsersAction",
-        args: "Namespace | None" = None,
-        command: "CommandInfo | None" = None,
+        subparsers: _SubParsersAction,
+        args: Namespace | None = None,
+        command: CommandInfo | None = None,
         from_defaults_factory: bool = False,
-        parser: "ArgumentParser | None" = None,
+        parser: ArgumentParser | None = None,
     ):
         super().__init__(
             subparsers, args=args, command=command, from_defaults_factory=from_defaults_factory, parser=parser
@@ -330,7 +327,7 @@ class NeuronxExportCommand(BaseOptimumCLICommand):
         self.args_string = " ".join(sys.argv[3:])
 
     @staticmethod
-    def parse_args(parser: "ArgumentParser"):
+    def parse_args(parser: ArgumentParser):
         return parse_args_neuronx(parser)
 
     def run(self):

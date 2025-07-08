@@ -259,7 +259,7 @@ class GeneralNeuronGenerationMixin(GenerationMixin):
         generation_config.validate()
         self._validate_model_kwargs(model_kwargs.copy())
 
-        # 2. set generation parameters if not already defined
+        # 2. Set generation parameters if not already defined
         if generation_config.pad_token_id is None and generation_config.eos_token_id is not None:
             if model_kwargs.get("attention_mask", None) is None:
                 logger.warning(
@@ -282,7 +282,7 @@ class GeneralNeuronGenerationMixin(GenerationMixin):
             inputs, generation_config.bos_token_id, model_kwargs
         )
 
-        # 4. set Neuron specific generation configurations
+        # 4. Set Neuron specific generation configurations
         original_forward = copy.deepcopy(self.forward)
         try:
             general_forward = _get_fwd_for_general_sampling(
@@ -647,7 +647,7 @@ class NeuronGenerationMixin(GenerationMixin):
         generation_config.validate()
         self._validate_model_kwargs(model_kwargs.copy())
 
-        # 2. set generation parameters if not already defined
+        # 2. Set generation parameters if not already defined
         logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
         stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
 
@@ -907,7 +907,7 @@ class NeuronGenerationMixin(GenerationMixin):
         stopping_criteria: StoppingCriteriaList | None = None,
         max_length: int | None = None,
         pad_token_id: int | None = None,
-        eos_token_id: int | list[int | None] = None,
+        eos_token_id: int | list[int] | None = None,
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
         output_scores: bool | None = None,
@@ -934,10 +934,10 @@ class NeuronGenerationMixin(GenerationMixin):
             input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
                 The sequence used as a prompt for the generation.
             logits_processor (`LogitsProcessorList`, *optional*):
-                An instance of [`LogitsProcessorList`]. list of instances of class derived from [`LogitsProcessor`]
+                An instance of [`LogitsProcessorList`]. List of instances of class derived from [`LogitsProcessor`]
                 used to modify the prediction scores of the language modeling head applied at each generation step.
             stopping_criteria (`StoppingCriteriaList`, *optional*):
-                An instance of [`StoppingCriteriaList`]. list of instances of class derived from [`StoppingCriteria`]
+                An instance of [`StoppingCriteriaList`]. List of instances of class derived from [`StoppingCriteria`]
                 used to tell if the generation loop should stop.
 
             max_length (`int`, *optional*, defaults to 20):
@@ -1260,10 +1260,10 @@ class NeuronGenerationMixin(GenerationMixin):
                 An derived instance of [`BeamScorer`] that defines how beam hypotheses are constructed, stored and
                 sorted during generation. For more information, the documentation of [`BeamScorer`] should be read.
             logits_processor (`LogitsProcessorList`, *optional*):
-                An instance of [`LogitsProcessorList`]. list of instances of class derived from [`LogitsProcessor`]
+                An instance of [`LogitsProcessorList`]. List of instances of class derived from [`LogitsProcessor`]
                 used to modify the prediction scores of the language modeling head applied at each generation step.
             stopping_criteria (`StoppingCriteriaList`, *optional*):
-                An instance of [`StoppingCriteriaList`]. list of instances of class derived from [`StoppingCriteria`]
+                An instance of [`StoppingCriteriaList`]. List of instances of class derived from [`StoppingCriteria`]
                 used to tell if the generation loop should stop.
             max_length (`int`, *optional*, defaults to 20):
                 **DEPRECATED**. Use `logits_processor` or `stopping_criteria` directly to cap the number of generated

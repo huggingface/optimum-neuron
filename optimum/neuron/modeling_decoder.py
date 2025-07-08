@@ -62,7 +62,7 @@ NEURON_CAUSALLM_MODEL_GENERATE_DOCSTRING = r"""
             priority: 1) from the `generation_config.json` model file, if it exists; 2) from the model
             configuration. Please note that unspecified parameters will inherit [`~transformers.generation.GenerationConfig`]'s
             default values, whose documentation should be checked to parameterize generation.
-        stopping_criteria (`transformers.generation.StoppingCriteriaList | None, defaults to `None`):
+        stopping_criteria (`transformers.generation.StoppingCriteriaList | None`, defaults to `None`):
             Custom stopping criteria that complement the default stopping criteria built from arguments and a
             generation config.
 

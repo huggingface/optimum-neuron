@@ -76,7 +76,7 @@ class FusedLogitsWarper:
             cum_probs = sorted_logits.softmax(dim=-1).cumsum(dim=-1)
             keep_mask = cum_probs > (1 - self.top_p)
             keep_mask[:, -1] = True
-            # set rejected logits to -inf so that they are ignored in downstream comparisons
+            # Set rejected logits to -inf so that they are ignored in downstream comparisons
             sorted_logits[~keep_mask] = float("-Inf")
             # Clip the [batch_size, vocab_size] logits tensor to speed-up downstream ops
             keep_by_batch = torch.sum(keep_mask, dim=-1)
