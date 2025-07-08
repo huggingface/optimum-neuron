@@ -55,7 +55,7 @@ class NeuronStableDiffusionControlNetPipelineMixin:
         control_guidance_start: float | list[float] = 0.0,
         control_guidance_end: float | list[float] = 1.0,
         clip_skip: int | None = None,
-        callback_on_step_end: Callable[[int, int, dict]] | PipelineCallback | MultiPipelineCallbacks | None = None,
+        callback_on_step_end: Callable[[int, int, dict], None] | PipelineCallback | MultiPipelineCallbacks | None = None,
         callback_on_step_end_tensor_inputs: list[str] = ["latents"],
         **kwargs,
     ):
@@ -138,7 +138,7 @@ class NeuronStableDiffusionControlNetPipelineMixin:
             clip_skip (`int | None`, defaults to `None`):
                 Number of layers to be skipped from CLIP while computing the prompt embeddings. A value of 1 means that
                 the output of the pre-final layer will be used for computing the prompt embeddings.
-            callback_on_step_end (`Callable[[int, int, dict]] | PipelineCallback | MultiPipelineCallbacks | None`, defaults to `None`):
+            callback_on_step_end (`Callable[[int, int, dict], None] | PipelineCallback | MultiPipelineCallbacks | None`, defaults to `None`):
                 A function or a subclass of `PipelineCallback` or `MultiPipelineCallbacks` that is called at the end of
                 each denoising step during the inference. with the following arguments: `callback_on_step_end(self:
                 DiffusionPipeline, step: int, timestep: int, callback_kwargs: dict)`. `callback_kwargs` will include a

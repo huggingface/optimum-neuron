@@ -390,7 +390,7 @@ class NeuronAccelerator(Accelerator):
 
     def _custom_save_state(
         self,
-        save_model_func: Callable[["Accelerator", "PreTrainedModel", str | Path | None | int, Any]],
+        save_model_func: Callable[["Accelerator", "PreTrainedModel", str | Path | None | int, Any], None],
         save_optimizer_func: Callable[
             ["Accelerator", "torch.optim.Optimizer", "PreTrainedModel", str | Path, int], Any
         ],

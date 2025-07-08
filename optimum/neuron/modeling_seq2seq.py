@@ -516,7 +516,7 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         generation_config: GenerationConfig | None = None,
         logits_processor: LogitsProcessorList | None = None,
         stopping_criteria: StoppingCriteriaList | None = None,
-        prefix_allowed_tokens_fn: Callable[[int, torch.Tensor, list[int]]] | None = None,
+        prefix_allowed_tokens_fn: Callable[[int, torch.Tensor, list[int]], None] | None = None,
         assistant_model: "PreTrainedModel | None" = None,
         num_return_sequences: int = 1,
         **kwargs,
