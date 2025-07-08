@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/modules/flashdecode/utils.py
-from typing import Tuple
+from typing import tuple
 
 import torch
 from neuronx_distributed.parallel_layers.utils import divide
@@ -42,7 +42,7 @@ def calculate_num_cores_per_group(num_attn_heads, num_kv_heads, tp_degree):
 
 def mask_util(
     pos_ids: torch.Tensor, rank_id: torch.Tensor, num_cores_per_group: int, cache_size: int
-) -> (Tuple)[torch.Tensor, torch.Tensor]:
+) -> (tuple)[torch.Tensor, torch.Tensor]:
     """
     @:param pos_ids: 2d [bsz x n_active_tokens] tensor represents position ids for all sequences in a batch
     @:param rank_id: current rank of the device

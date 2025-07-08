@@ -15,7 +15,7 @@
 """Override some diffusers API for NeuronStableDiffusionControlNetPipeline"""
 
 import logging
-from typing import Any, Callable, Dict
+from typing import Any, Callable, dict
 
 import torch
 from diffusers import ControlNetModel
@@ -55,7 +55,7 @@ class NeuronStableDiffusionControlNetPipelineMixin:
         control_guidance_start: float | list[float] = 0.0,
         control_guidance_end: float | list[float] = 1.0,
         clip_skip: int | None = None,
-        callback_on_step_end: Callable[[int, int, Dict | None, None, PipelineCallback, MultiPipelineCallbacks]] = None,
+        callback_on_step_end: Callable[[int, int, dict | None, None, PipelineCallback, MultiPipelineCallbacks]] = None,
         callback_on_step_end_tensor_inputs: list[str] = ["latents"],
         **kwargs,
     ):
@@ -138,10 +138,10 @@ class NeuronStableDiffusionControlNetPipelineMixin:
             clip_skip (`int | None`, defaults to `None`):
                 Number of layers to be skipped from CLIP while computing the prompt embeddings. A value of 1 means that
                 the output of the pre-final layer will be used for computing the prompt embeddings.
-            callback_on_step_end (`Callable[[int, int, Dict | None, None, PipelineCallback, MultiPipelineCallbacks]]`, defaults to `None`):
+            callback_on_step_end (`Callable[[int, int, dict | None, None, PipelineCallback, MultiPipelineCallbacks]]`, defaults to `None`):
                 A function or a subclass of `PipelineCallback` or `MultiPipelineCallbacks` that is called at the end of
                 each denoising step during the inference. with the following arguments: `callback_on_step_end(self:
-                DiffusionPipeline, step: int, timestep: int, callback_kwargs: Dict)`. `callback_kwargs` will include a
+                DiffusionPipeline, step: int, timestep: int, callback_kwargs: dict)`. `callback_kwargs` will include a
                 list of all tensors as specified by `callback_on_step_end_tensor_inputs`.
             callback_on_step_end_tensor_inputs (`list[str]`, defaults to `["latents"]`):
                 The list of tensor inputs for the `callback_on_step_end` function. The tensors specified in the list

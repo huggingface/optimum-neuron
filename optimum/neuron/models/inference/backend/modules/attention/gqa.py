@@ -293,7 +293,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                     # needing to transpose on the device when using QKV kernel
                     self.Wqkv.weight = transpose_parallel_linear_layer(self.Wqkv.weight)
 
-                # Set heads info as weight parameter attributes to be used in weights sharding
+                # set heads info as weight parameter attributes to be used in weights sharding
                 setattr(self.Wqkv.weight, "fused_qkv", True)
                 setattr(self.Wqkv.weight, "num_attention_heads", self.num_attention_heads)
                 setattr(self.Wqkv.weight, "num_key_value_heads", self.num_key_value_heads)

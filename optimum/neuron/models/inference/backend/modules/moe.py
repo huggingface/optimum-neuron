@@ -53,6 +53,6 @@ def initialize_moe_module(
         sequence_parallel_enabled=neuron_config.sequence_parallel_enabled,
         sequence_dimension=1,
     )
-    # Set MoE module in eval mode
+    # set MoE module in eval mode
     moe.eval()
     return moe

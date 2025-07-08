@@ -155,7 +155,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         nargs="*",
         type=str,
         help=(
-            "List of model ids (eg. `ostris/super-cereal-sdxl-lora`) of pretrained lora models hosted on the Hub or paths to local directories containing the lora weights."
+            "list of model ids (eg. `ostris/super-cereal-sdxl-lora`) of pretrained lora models hosted on the Hub or paths to local directories containing the lora weights."
         ),
     )
     optional_group.add_argument(
@@ -163,21 +163,21 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         default=None,
         nargs="*",
         type=str,
-        help="List of lora weights file names.",
+        help="list of lora weights file names.",
     )
     optional_group.add_argument(
         "--lora_adapter_names",
         default=None,
         nargs="*",
         type=str,
-        help="List of the adapter names to be used for referencing the loaded adapter models.",
+        help="list of the adapter names to be used for referencing the loaded adapter models.",
     )
     optional_group.add_argument(
         "--lora_scales",
         default=None,
         nargs="*",
         type=float,
-        help="List of scaling factors for the lora adapters.",
+        help="list of scaling factors for the lora adapters.",
     )
     optional_group.add_argument(
         "--output_attentions",
@@ -191,7 +191,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         default=None,
         nargs="*",
         type=str,
-        help="List of model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`) of ControlNet models.",
+        help="list of model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`) of ControlNet models.",
     )
     ip_adapter_group = parser.add_argument_group("IP adapters")
     ip_adapter_group.add_argument(

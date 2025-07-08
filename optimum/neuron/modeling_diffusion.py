@@ -953,7 +953,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             lora_scales (`list[float | None]`, defaults to `None`):
                 Lora adapters scaling factors.
             controlnet_ids (`str | list[str | None]`, defaults to `None`):
-                List of ControlNet model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`)."
+                list of ControlNet model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`)."
             ip_adapter_ids (`str | list[str | None]`, defaults to `None`):
                 Model ids (eg. `h94/IP-Adapter`) of IP-Adapter models hosted on the Hub or paths to local directories containing the IP-Adapter weights.
             ip_adapter_subfolders (`str | list[str | None]`, defaults to `None`):

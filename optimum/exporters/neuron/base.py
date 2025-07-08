@@ -17,7 +17,7 @@
 import re
 from abc import ABC, abstractmethod
 from dataclasses import fields, is_dataclass
-from typing import TYPE_CHECKING, Any, List
+from typing import TYPE_CHECKING, Any, list
 
 import torch
 
@@ -147,7 +147,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         config: "PretrainedConfig",
         task: str,
         input_shapes: InputShapesArguments,
-        preprocessors: List | None = None,
+        preprocessors: list | None = None,
         compiler_type: str | None = None,
         compiler_version: str | None = None,
         tensor_parallel_size: int = 1,
@@ -286,7 +286,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
     @abstractmethod
     def inputs(self) -> list[str]:
         """
-        List containing the names of the inputs the exported model should take.
+        list containing the names of the inputs the exported model should take.
 
         Returns:
             `list[str]`: A list of input names.
@@ -296,7 +296,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
     @property
     def outputs(self) -> list[str]:
         """
-        List containing the names of the outputs the exported model should have.
+        list containing the names of the outputs the exported model should have.
 
         Returns:
             `list[str]`: A list of output names.

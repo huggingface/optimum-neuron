@@ -216,7 +216,7 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
         ),
         CommandInfo(
             name="set",
-            help="Set the name of the Neuron cache repo to use locally.",
+            help="set the name of the Neuron cache repo to use locally.",
             subcommand_class=SetCustomCacheRepoCommand,
         ),
         CommandInfo(

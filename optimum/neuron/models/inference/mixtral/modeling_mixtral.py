@@ -161,7 +161,7 @@ class NeuronMixtralDecoderLayer(nn.Module):
                 query_sequence_length, key_sequence_length)` if default attention is used.
             position_ids (`torch.FloatTensor`, *optional*):
                 position ids of size `(batch_size, sequence_length)`.
-            past_key_value (`Tuple(torch.FloatTensor)`, *optional*): cached past key and value projection states
+            past_key_value (`tuple(torch.FloatTensor)`, *optional*): cached past key and value projection states
         """
         if "padding_mask" in kwargs:
             warnings.warn(

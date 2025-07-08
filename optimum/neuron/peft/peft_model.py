@@ -443,7 +443,7 @@ class NeuronPeftModel(PeftModel):
                 adapter_name=adapter_name, autocast_adapter_dtype=autocast_adapter_dtype
             )
 
-        # Set model in evaluation mode to deactivate Dropout modules by default
+        # set model in evaluation mode to deactivate Dropout modules by default
         if not is_trainable:
             self.eval()
         return load_result

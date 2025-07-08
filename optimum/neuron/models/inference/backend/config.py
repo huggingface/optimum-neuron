@@ -81,7 +81,7 @@ class NxDNeuronConfig(NeuronConfig):
         mlp_kernel_enabled: bool | None = False,
         mlp_kernel_fuse_residual_add: bool | None = False,
         enable_bucketing: bool | None = False,
-        target: str | None = None,  # Set to "trn2" for trn2
+        target: str | None = None,  # set to "trn2" for trn2
         logical_nc_config: int | None = 1,
         cc_pipeline_tiling_factor: int | None = 2,
         num_cores_per_group: int | None = 1,
@@ -215,7 +215,7 @@ class NxDNeuronConfig(NeuronConfig):
     @property
     def weights_to_skip_layout_optimization(self) -> list[str]:
         """
-        List of weights to skip layout optimization.
+        list of weights to skip layout optimization.
 
         Can be overridden by subclasses to specify weights that should not be optimized.
         """

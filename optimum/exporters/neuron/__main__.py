@@ -23,7 +23,7 @@ os.environ["TORCHDYNAMO_DISABLE"] = "1"  # Always turn off torchdynamo as it's i
 from argparse import ArgumentParser
 from dataclasses import fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, List
+from typing import TYPE_CHECKING, Any, list
 
 import torch
 from requests.exceptions import ConnectionError as RequestsConnectionError
@@ -494,7 +494,7 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
     tensor_parallel_size: int,
     task: str,
     output: Path,
-    preprocessors: List | None = None,
+    preprocessors: list | None = None,
     dynamic_batch_size: bool = False,
     model_name_or_path: str | Path | None = None,
     output_attentions: bool = False,

@@ -26,7 +26,7 @@ import time
 import warnings
 from collections import defaultdict
 from functools import wraps
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, dict, list
 
 import datasets
 import numpy as np
@@ -1321,7 +1321,7 @@ class _TrainerForNeuron:
                         labels if all_labels is None else nested_concat(all_labels, labels, padding_index=-100)
                     )
 
-                # Set back to None to begin a new accumulation
+                # set back to None to begin a new accumulation
                 losses_host, preds_host, inputs_host, labels_host = None, None, None, None
 
         if args.past_index and hasattr(self, "_past"):
@@ -1474,7 +1474,7 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
         eval_dataset: Dataset | dict[str, Dataset | None] = None,
         tokenizer: PreTrainedTokenizerBase | None = None,
         model_init: Callable[[], PreTrainedModel] | None = None,
-        compute_metrics: Callable[[EvalPrediction | None, Dict]] = None,
+        compute_metrics: Callable[[EvalPrediction | None, dict]] = None,
         callbacks: list[TrainerCallback | None] = None,
         optimizers: tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
         preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor | None, torch.Tensor]] = None,
@@ -1824,8 +1824,8 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
         callbacks: list[TrainerCallback | None] = None,
         optimizers: tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
         preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor | None, torch.Tensor]] = None,
-        peft_config: Dict | None = None,
-        compute_metrics: Callable[[EvalLoopOutput | None, Dict]] = None,
+        peft_config: dict | None = None,
+        compute_metrics: Callable[[EvalLoopOutput | None, dict]] = None,
     ):
         if not is_trl_available(required_version=TRL_VERSION):
             raise RuntimeError("Using NeuronORPOTrainer requires the trl library.")
@@ -2031,7 +2031,7 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
             self.model.add_model_tags(self._tag_names)
 
     def concatenated_forward(
-        self, model: nn.Module, batch: dict[str, List | torch.LongTensor]
+        self, model: nn.Module, batch: dict[str, list | torch.LongTensor]
     ) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         concatenated_batch = self.concatenated_inputs(
             batch,

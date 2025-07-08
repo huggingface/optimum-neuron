@@ -152,7 +152,7 @@ def get_pipeline_parameters_for_current_stage(model) -> set[str]:
         model: The model to analyze for pipeline parameter assignment
 
     Returns:
-        Set of parameter names needed for the current pipeline stage
+        set of parameter names needed for the current pipeline stage
     """
     with suppress_logging():
         if get_pipeline_model_parallel_size() <= 1 or not model.supports_pipeline_parallelism():

@@ -308,7 +308,7 @@ class ExampleRunner:
             returncode = p.wait()
             assert returncode == 0
 
-            # Set pip repository pointing to the Neuron repository
+            # set pip repository pointing to the Neuron repository
             cmd_line = (
                 f"{self.pip_name} config set global.extra-index-url https://pip.repos.neuron.amazonaws.com".split()
             )

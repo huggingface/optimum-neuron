@@ -646,7 +646,7 @@ NEURON_AUDIO_SEQ2SEQ_INPUTS_DOCSTRING = r"""
             See [`PreTrainedTokenizer.encode`] and [`PreTrainedTokenizer.__call__`] for details. Since the cache is not yet
             supported for Whisper, it needs to be padded to the `sequence_length` used for the compilation.
         encoder_outputs (`tuple[torch.FloatTensor | None]`):
-            Tuple consists of `last_hidden_state` of shape `(batch_size, sequence_length, hidden_size)`) is a sequence of
+            tuple consists of `last_hidden_state` of shape `(batch_size, sequence_length, hidden_size)`) is a sequence of
             hidden-states at the output of the last layer of the encoder. Used in the cross-attention of the decoder.
 """
 

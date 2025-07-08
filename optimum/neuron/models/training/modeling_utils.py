@@ -1255,7 +1255,7 @@ class NeuronModelMixin:
         # We do not load the state_dict (when not sharded) here as it is done in the original implementation.
         # We do it only in `cls._load_state_dict`.
 
-        # Set dtype to instantiate the model under:
+        # set dtype to instantiate the model under:
         # 1. If torch_dtype is not None, we use that dtype
         # 2. If torch_dtype is "auto", we auto-detect dtype from the loaded state_dict, by checking its first
         #    weights entry that is of a floating type - we assume all floating dtype weights are of the same dtype
@@ -1427,7 +1427,7 @@ class NeuronModelMixin:
         # make sure token embedding weights are still tied if needed
         model.tie_weights()
 
-        # Set model in evaluation mode to deactivate DropOut modules by default
+        # set model in evaluation mode to deactivate DropOut modules by default
         model.eval()
 
         if should_soft_tie:

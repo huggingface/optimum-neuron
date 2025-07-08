@@ -18,7 +18,7 @@ import copy
 import os
 from collections import OrderedDict
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, List
+from typing import TYPE_CHECKING, Any, list
 
 import torch
 
@@ -165,7 +165,7 @@ def get_diffusion_models_for_export(
             Static shapes used for compiling the image encoder.
 
     Returns:
-        `dict[str, tuple[`PreTrainedModel` | `ModelMixin`, `NeuronDefaultConfig`]`: A Dict containing the model and
+        `dict[str, tuple[`PreTrainedModel` | `ModelMixin`, `NeuronDefaultConfig`]`: A dict containing the model and
         Neuron configs for the different components of the model.
     """
     models_for_export = get_submodels_for_export_diffusion(
@@ -551,7 +551,7 @@ def get_encoder_decoder_models_for_export(
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     model_name_or_path: str | Path | None = None,
-    preprocessors: List | None = None,
+    preprocessors: list | None = None,
 ) -> dict[str, tuple["PreTrainedModel", "NeuronDefaultConfig"]]:
     """
     Returns the components of an encoder-decoder model and their subsequent neuron configs.
@@ -578,7 +578,7 @@ def get_encoder_decoder_models_for_export(
             The location from where the model is loaded, this is needed in the case of tensor parallelism, since we need to load the model within the tracing API.
 
     Returns:
-        `dict[str, tuple["PreTrainedModel", "NeuronDefaultConfig"]]`: A Dict containing the model and
+        `dict[str, tuple["PreTrainedModel", "NeuronDefaultConfig"]]`: A dict containing the model and
         Neuron configs for the different components of the model.
     """
     models_for_export = {}
