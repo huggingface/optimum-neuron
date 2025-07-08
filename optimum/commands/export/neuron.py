@@ -16,7 +16,7 @@
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from ...exporters import TasksManager
 from ..base import BaseOptimumCLICommand, CommandInfo
@@ -141,10 +141,10 @@ class NeuronExportCommand(BaseOptimumCLICommand):
     def __init__(
         self,
         subparsers: "_SubParsersAction",
-        args: Optional["Namespace"] = None,
-        command: Optional["CommandInfo"] = None,
+        args: "Namespace" | None = None,
+        command: "CommandInfo" | None = None,
         from_defaults_factory: bool = False,
-        parser: Optional["ArgumentParser"] = None,
+        parser: "ArgumentParser" | None = None,
     ):
         super().__init__(
             subparsers, args=args, command=command, from_defaults_factory=from_defaults_factory, parser=parser

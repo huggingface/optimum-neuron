@@ -13,7 +13,6 @@
 # limitations under the License.
 import platform
 import subprocess
-from typing import Dict, List, Optional
 
 import huggingface_hub
 from pkg_resources import get_distribution
@@ -35,7 +34,7 @@ class EnvironmentCommand(BaseOptimumCLICommand):
         return "\n".join([f"- {prop}: {val}" for prop, val in d.items()]) + "\n"
 
     @staticmethod
-    def get_pip_pkgs_version(pkg_list: Optional[List], info: Dict):
+    def get_pip_pkgs_version(pkg_list: List | None, info: Dict):
         if pkg_list is not None:
             for pkg in pkg_list:
                 try:
