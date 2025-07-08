@@ -21,10 +21,10 @@ from functools import partial
 from pathlib import Path
 from typing import List
 
-import torch
-from safetensors.torch import load_file
 import neuronx_distributed
+import torch
 from neuronx_distributed.trace.model_builder import BaseModelInstance
+from safetensors.torch import load_file
 
 from optimum.exporters.tasks import TasksManager
 from optimum.neuron.utils import (
@@ -80,6 +80,7 @@ from .model_wrappers import (
     WhisperDecoderWrapper,
     WhisperEncoderWrapper,
 )
+
 
 if is_diffusers_available():
     from diffusers.models.autoencoders.vae import Decoder as VaeDecoder

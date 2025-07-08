@@ -26,7 +26,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
 
+import neuronx_distributed
 import torch
+import torch_neuronx
 from huggingface_hub import snapshot_download
 from safetensors.torch import load_file
 from torch.nn import ModuleList
@@ -66,11 +68,8 @@ from .utils.require_utils import requires_torch_neuronx
 from .utils.version_utils import get_neuronxcc_version
 
 
-import torch_neuronx
-
 NEURON_COMPILER_TYPE = "neuronx-cc"
 NEURON_COMPILER_VERSION = get_neuronxcc_version()
-import neuronx_distributed
 
 if is_diffusers_available():
     from diffusers import (

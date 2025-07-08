@@ -56,8 +56,8 @@ from .utils.doc import (
 if TYPE_CHECKING:
     from transformers import PretrainedConfig, PreTrainedModel
 
-import torch_neuronx
 import neuronx_distributed
+import torch_neuronx
 
 
 logger = logging.getLogger(__name__)
