@@ -576,7 +576,7 @@ def replace_weights(
 
 
 def check_if_weights_replacable(
-    config: "PretrainedConfig" | dict[str, "PretrainedConfig"],
+    config: "PretrainedConfig | dict[str, PretrainedConfig]",
     weights: dict[str, torch.Tensor] | torch.nn.Module | None,
 ):
     def _is_weights_neff_separated(config):

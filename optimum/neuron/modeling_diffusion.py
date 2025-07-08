@@ -1468,7 +1468,7 @@ class NeuronControlNetModel(_NeuronDiffusionModelPart):
         guess_mode: bool = False,
         added_cond_kwargs: dict | None = None,
         return_dict: bool = True,
-    ) -> "ControlNetOutput" | tuple[tuple[torch.Tensor, ..., torch.Tensor]]:
+    ) -> "ControlNetOutput | tuple[tuple[torch.Tensor, ...]]":
         timestep = timestep.expand((sample.shape[0],)).to(torch.long)
         inputs = (sample, timestep, encoder_hidden_states, controlnet_cond, conditioning_scale)
         if added_cond_kwargs:
@@ -1522,7 +1522,7 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
         conditioning_scale: list[float],
         guess_mode: bool = False,
         return_dict: bool = True,
-    ) -> "ControlNetOutput" | tuple[tuple[torch.Tensor, ..., torch.Tensor]]:
+    ) -> "ControlNetOutput | tuple[tuple[torch.Tensor, ...]]":
         if guess_mode:
             logger.info(
                 "Guess mode is not yet supported. File us an issue on: https://github.com/huggingface/optimum-neuron/issues."
