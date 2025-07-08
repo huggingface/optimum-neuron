@@ -103,7 +103,7 @@ SEED = 42
 
 def get_models_to_test(
     export_models_dict: Dict,
-    exclude_model_types: list[str | None] = None,
+    exclude_model_types: list[str] | None = None,
     library_name: str = "transformers",
 ):
     models_to_test = []

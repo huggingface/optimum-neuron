@@ -76,7 +76,7 @@ AWS_CODE = {
 def download_examples_from_transformers(
     example_names: list[str],
     dest_dir: str | Path,
-    predicate: Callable[[Path | None, bool]] = None,
+    predicate: Callable[[Path], bool] | None = None,
     version: str | None = None,
 ):
     if isinstance(dest_dir, str):

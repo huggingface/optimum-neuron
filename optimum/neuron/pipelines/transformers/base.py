@@ -157,8 +157,8 @@ def load_pipeline(
     subfolder: str = "",
     token: bool | str | None = None,
     revision: str = "main",
-    compiler_args: dict[str, Any | None] = {},
-    hub_kwargs: dict[str, Any | None] = {},
+    compiler_args: dict[str, Any] | None = {},
+    hub_kwargs: dict[str, Any] | None = {},
     **kwargs,
 ):
     # loads default model
@@ -228,8 +228,8 @@ def pipeline(
     image_processor: str | BaseImageProcessor | None = None,
     use_fast: bool = True,
     export: bool = False,
-    input_shapes: dict[str, int | None] = {},
-    compiler_args: dict[str, int | None] = {},
+    input_shapes: dict[str, int] | None = {},
+    compiler_args: dict[str, int] | None = {},
     token: str | bool | None = None,
     revision: str | None = None,
     trust_remote_code: bool | None = None,

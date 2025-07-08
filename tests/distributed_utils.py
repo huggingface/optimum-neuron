@@ -52,7 +52,7 @@ class EarlyExit(Exception):
 
 
 class PicklableException(Exception):
-    def __init__(self, exc_type: str, exc_value: str, tb_str: str, exception_attributes: dict[str, Any | None] = None):
+    def __init__(self, exc_type: str, exc_value: str, tb_str: str, exception_attributes: dict[str, Any] | None = None):
         self.exc_type_name = exc_type
         self.exc_value = exc_value
         self.tb_str = tb_str

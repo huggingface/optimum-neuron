@@ -470,7 +470,7 @@ class _TrainerForNeuron:
         model: torch.nn.Module,
         inputs: dict[str, torch.Tensor | Any],
         prediction_loss_only: bool,
-        ignore_keys: list[str | None] = None,
+        ignore_keys: list[str] | None = None,
     ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
         from neuronx_distributed.pipeline import NxDPPModel
 
@@ -1153,7 +1153,7 @@ class _TrainerForNeuron:
         dataloader: torch.utils.data.DataLoader,
         description: str,
         prediction_loss_only: bool | None = None,
-        ignore_keys: list[str | None] = None,
+        ignore_keys: list[str] | None = None,
         metric_key_prefix: str = "eval",
     ) -> EvalLoopOutput:
         """
@@ -1321,7 +1321,7 @@ class _TrainerForNeuron:
                         labels if all_labels is None else nested_concat(all_labels, labels, padding_index=-100)
                     )
 
-                # set back to None to begin a new accumulation
+                # Set back to None to begin a new accumulation
                 losses_host, preds_host, inputs_host, labels_host = None, None, None, None
 
         if args.past_index and hasattr(self, "_past"):
@@ -1389,7 +1389,7 @@ class _TrainerForNeuron:
         self,
         resume_from_checkpoint: str | bool | None = None,
         trial=None,  # No type-annotation for this one because it is related to the optuna package.
-        ignore_keys_for_eval: list[str | None] = None,
+        ignore_keys_for_eval: list[str] | None = None,
         **kwargs,
     ):
         with hub_neuronx_cache(cache_dir=get_neuron_cache_path()):
@@ -1405,8 +1405,8 @@ class _TrainerForNeuron:
 
     def evaluate(
         self,
-        eval_dataset: Dataset | dict[str, Dataset | None] = None,
-        ignore_keys: list[str | None] = None,
+        eval_dataset: Dataset | dict[str, Dataset] | None = None,
+        ignore_keys: list[str] | None = None,
         metric_key_prefix: str = "eval",
     ) -> dict[str, float]:
         with hub_neuronx_cache(cache_dir=get_neuron_cache_path()):
@@ -1419,7 +1419,7 @@ class _TrainerForNeuron:
         return result
 
     def predict(
-        self, test_dataset: Dataset, ignore_keys: list[str | None] = None, metric_key_prefix: str = "test"
+        self, test_dataset: Dataset, ignore_keys: list[str] | None = None, metric_key_prefix: str = "test"
     ) -> PredictionOutput:
         with hub_neuronx_cache(cache_dir=get_neuron_cache_path()):
             with self.args.world_size_as_dp_size():
@@ -1471,13 +1471,13 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
         args: SFTConfig | None = None,
         data_collator: DataCollator | None = None,  # type: ignore
         train_dataset: Dataset | None = None,
-        eval_dataset: Dataset | dict[str, Dataset | None] = None,
+        eval_dataset: Dataset | dict[str, Dataset] | None = None,
         tokenizer: PreTrainedTokenizerBase | None = None,
         model_init: Callable[[], PreTrainedModel] | None = None,
-        compute_metrics: Callable[[EvalPrediction | None, dict]] = None,
-        callbacks: list[TrainerCallback | None] = None,
+        compute_metrics: Callable[[EvalPrediction], dict] | None = None,
+        callbacks: list[TrainerCallback] | None = None,
         optimizers: tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
-        preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor | None, torch.Tensor]] = None,
+        preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
         peft_config: "PeftConfig | None" = None,
         formatting_func: Callable | None = None,
     ):
@@ -1818,14 +1818,14 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
         args: ORPOConfig | None = None,
         data_collator: DataCollator | None = None,
         train_dataset: Dataset | None = None,
-        eval_dataset: Dataset | dict[str, Dataset | None] = None,
+        eval_dataset: Dataset | dict[str, Dataset] | None = None,
         tokenizer: PreTrainedTokenizerBase | None = None,
         model_init: Callable[[], PreTrainedModel] | None = None,
-        callbacks: list[TrainerCallback | None] = None,
+        callbacks: list[TrainerCallback] | None = None,
         optimizers: tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
-        preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor | None, torch.Tensor]] = None,
+        preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
         peft_config: dict | None = None,
-        compute_metrics: Callable[[EvalLoopOutput | None, dict]] = None,
+        compute_metrics: Callable[[EvalLoopOutput], dict] | None = None,
     ):
         if not is_trl_available(required_version=TRL_VERSION):
             raise RuntimeError("Using NeuronORPOTrainer requires the trl library.")

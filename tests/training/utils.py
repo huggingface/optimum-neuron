@@ -205,7 +205,7 @@ def get_model(
     from_config: bool = False,
     use_static_seed_patcher: bool = False,
     add_random_noise: bool = False,
-    config_overwrite: dict[str, str | None] = None,
+    config_overwrite: dict[str, str] | None = None,
 ) -> "PreTrainedModel":
     if use_static_seed_patcher:
         seed_patcher = StaticSeedPatcher(SEED)
