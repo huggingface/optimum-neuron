@@ -74,7 +74,7 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 def validate_models_outputs(
     models_and_neuron_configs: dict[
-        str, tuple["PreTrainedModel" | "ModelMixin" | torch.nn.Module, "NeuronDefaultConfig"]
+        str, tuple["PreTrainedModel | ModelMixin" | torch.nn.Module, "NeuronDefaultConfig"]
     ],
     neuron_named_outputs: dict[str, list[str]],
     output_dir: Path,
@@ -153,7 +153,7 @@ def validate_model_outputs(
     Args:
         config ([`~optimum.neuron.exporter.NeuronDefaultConfig`]:
             The configuration used to export the model.
-        reference_model ([`"PreTrainedModel" | "SentenceTransformer" | "ModelMixin"`]):
+        reference_model ([`"PreTrainedModel | SentenceTransformer | ModelMixin"`]):
             The model used for the export.
         neuron_model_path (`Path`):
             The path to the exported model.
@@ -290,7 +290,7 @@ def validate_model_outputs(
 
 def export_models(
     models_and_neuron_configs: dict[
-        str, tuple["PreTrainedModel" | "ModelMixin" | torch.nn.Module, "NeuronDefaultConfig"]
+        str, tuple["PreTrainedModel | ModelMixin" | torch.nn.Module, "NeuronDefaultConfig"]
     ],
     task: str,
     output_dir: Path,
@@ -306,7 +306,7 @@ def export_models(
     Exports a Pytorch model with multiple component models to separate files.
 
     Args:
-        models_and_neuron_configs (`dict[str, tuple["PreTrainedModel" | "ModelMixin" | torch.nn.Module, `NeuronDefaultConfig`]]):
+        models_and_neuron_configs (`dict[str, tuple["PreTrainedModel | ModelMixin" | torch.nn.Module, `NeuronDefaultConfig`]]):
             A dictionnary containing the models to export and their corresponding neuron configs.
         task (`str`):
             The task for which the models should be exported.

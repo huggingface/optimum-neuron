@@ -611,7 +611,7 @@ class DiffusersPretrainedConfig(PretrainedConfig):
 
 
 def get_stable_diffusion_configs(
-    models_for_export: dict[str, "PreTrainedModel" | "ModelMixin"],
+    models_for_export: dict[str, "PreTrainedModel | ModelMixin"],
 ):
     subfolders = ["text_encoder", "text_encoder_2", "unet", "vae"]
     configs = {}

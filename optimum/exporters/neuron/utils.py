@@ -130,7 +130,7 @@ def get_diffusion_models_for_export(
     controlnet_ids: str | list[str | None] = None,
     controlnet_input_shapes: dict[str, Any | None] = None,
     image_encoder_input_shapes: dict[str, Any | None] = None,
-) -> dict[str, tuple["PreTrainedModel" | "ModelMixin", "NeuronDefaultConfig"]]:
+) -> dict[str, tuple["PreTrainedModel | ModelMixin", "NeuronDefaultConfig"]]:
     """
     Returns the components of a Stable Diffusion model and their subsequent neuron configs.
     These components are chosen because they represent the bulk of the compute in the pipeline,
@@ -386,7 +386,7 @@ def get_submodels_for_export_diffusion(
     lora_args: LoRAAdapterArguments,
     output_hidden_states: bool = False,
     controlnet_ids: str | list[str | None] = None,
-) -> dict[str, "PreTrainedModel" | "ModelMixin"]:
+) -> dict[str, "PreTrainedModel | ModelMixin"]:
     """
     Returns the components of a Stable Diffusion model.
     """
