@@ -217,7 +217,7 @@ def normalize_stable_diffusion_input_shapes(
 
 def infer_stable_diffusion_shapes_from_diffusers(
     input_shapes: dict[str, dict[str, int]],
-    model: "StableDiffusionPipeline" | "StableDiffusionXLPipeline",
+    model: "StableDiffusionPipeline | StableDiffusionXLPipeline",
     has_controlnets: bool,
 ):
     if model.tokenizer is not None:
@@ -304,7 +304,7 @@ def infer_stable_diffusion_shapes_from_diffusers(
 
 
 def get_submodels_and_neuron_configs(
-    model: "PreTrainedModel" | "DiffusionPipeline",
+    model: "PreTrainedModel | DiffusionPipeline",
     input_shapes: dict[str, int],
     task: str,
     output: Path,
@@ -407,7 +407,7 @@ def _reorder_models_and_neuron_configs(models_and_neuron_configs):
 
 
 def _get_submodels_and_neuron_configs_for_stable_diffusion(
-    model: "PreTrainedModel" | "DiffusionPipeline",
+    model: "PreTrainedModel | DiffusionPipeline",
     input_shapes: dict[str, int],
     output: Path,
     dynamic_batch_size: bool = False,
@@ -530,7 +530,7 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
 def load_models_and_neuron_configs(
     model_name_or_path: str,
     output: Path,
-    model: "PreTrainedModel" | "ModelMixin" | None,
+    model: "PreTrainedModel | ModelMixin | None",
     task: str,
     dynamic_batch_size: bool,
     cache_dir: str | None,
@@ -603,7 +603,7 @@ def main_export(
     compiler_kwargs: dict[str, Any],
     torch_dtype: str | torch.dtype | None = None,
     tensor_parallel_size: int = 1,
-    model: "PreTrainedModel" | "ModelMixin" | None = None,
+    model: "PreTrainedModel | ModelMixin | None" = None,
     task: str = "auto",
     dynamic_batch_size: bool = False,
     atol: float | None = None,

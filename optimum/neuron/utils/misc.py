@@ -544,7 +544,7 @@ def download_checkpoints_in_cache(
 
 
 def replace_weights(
-    model: torch.jit._script.RecursiveScriptModule | "DataParallel",
+    model: "torch.jit._script.RecursiveScriptModule | DataParallel",
     weights: dict[str, torch.Tensor] | torch.nn.Module,
     prefix: str = "model",
 ):

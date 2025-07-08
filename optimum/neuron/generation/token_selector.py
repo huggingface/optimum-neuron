@@ -69,7 +69,7 @@ class TokenSelector:
         model: GenerationMixin,
         max_seq_length: int,
         stopping_criteria: StoppingCriteriaList | None = None,
-        tokenizer: "PreTrainedTokenizer" | None = None,
+        tokenizer: "PreTrainedTokenizer | None" = None,
         seed: int | None = 0,
     ) -> "TokenSelector":
         r"""Creates the `TokenSelector` for a specific generation configuration.

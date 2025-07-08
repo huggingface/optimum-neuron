@@ -103,7 +103,7 @@ class NeuronCLIPForImageClassification(NeuronTracedModel):
     auto_model_class = AutoModelForImageClassification
 
     @property
-    def dtype(self) -> "torch.dtype" | None:
+    def dtype(self) -> "torch.dtype | None":
         """
         Torch dtype of the inputs to avoid error in transformers on casting a BatchFeature to type None.
         """

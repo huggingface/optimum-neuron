@@ -145,7 +145,7 @@ def check_model_type(self, supported_models: list[str, dict]):
 def load_pipeline(
     model,
     targeted_task,
-    tokenizer: str | PreTrainedTokenizer | "PreTrainedTokenizerFast" | None,
+    tokenizer: "str | PreTrainedTokenizer | PreTrainedTokenizerFast | None",
     feature_extractor: str | PreTrainedFeatureExtractor | None,
     image_processor: str | BaseImageProcessor | None,
     load_tokenizer: bool,

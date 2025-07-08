@@ -51,7 +51,7 @@ class NxDGenerationMixin(GenerationMixin):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
-        generation_config: "GenerationConfig" | None = None,
+        generation_config: "GenerationConfig | None" = None,
         **kwargs,
     ):
         # Sanity check

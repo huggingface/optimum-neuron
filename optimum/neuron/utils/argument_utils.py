@@ -252,7 +252,7 @@ def add_shapes_to_config(config_args, input_shapes: dict[str, Any]):
 
 
 def store_compilation_config(
-    config: "PretrainedConfig" | dict,
+    config: "PretrainedConfig | dict",
     input_shapes: dict[str, int],
     compiler_kwargs: dict[str, Any],
     dynamic_batch_size: bool,

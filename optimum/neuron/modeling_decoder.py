@@ -269,7 +269,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
     @classmethod
     def _from_pretrained(
         cls,
-        model_id: str | "Path",
+        model_id: "str | Path",
         config: "PretrainedConfig",
         **kwargs,
     ) -> "NeuronModelForCausalLM":
@@ -289,8 +289,8 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
-        generation_config: "GenerationConfig" | None = None,
-        stopping_criteria: "StoppingCriteriaList" | None = None,
+        generation_config: "GenerationConfig | None" = None,
+        stopping_criteria: "StoppingCriteriaList | None" = None,
         **kwargs,
     ) -> torch.LongTensor:
         raise NotImplementedError

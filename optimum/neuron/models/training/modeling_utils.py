@@ -1583,7 +1583,7 @@ class NeuronModelMixin:
         new_num_tokens: int | None = None,
         pad_to_multiple_of: int | None = None,
         mean_resizing: bool = False,
-    ) -> nn.Embedding | "ParallelEmbedding":
+    ) -> "nn.Embedding | ParallelEmbedding":
         embeddings = super().resize_token_embeddings(new_num_tokens, pad_to_multiple_of, mean_resizing)
         # The way the vocab size by the main method is wrong when using ParallelEmbedding.
         # So we reset it here.

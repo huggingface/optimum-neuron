@@ -223,7 +223,7 @@ class DummyIPAdapterInputGenerator(DummyInputGenerator):
         task: str,
         normalized_config: NormalizedTextConfig,
         batch_size: int,
-        image_encoder_shapes: "ImageEncoderArguments" | None = None,
+        image_encoder_shapes: "ImageEncoderArguments | None" = None,
         **kwargs,
     ):
         self.task = task

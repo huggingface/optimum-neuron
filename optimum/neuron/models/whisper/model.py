@@ -71,7 +71,7 @@ class NeuronWhisperEncoder(_NeuronSeq2SeqModelPart):
         self,
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronTracedModel,
-        config: "PretrainedConfig" | None = None,
+        config: "PretrainedConfig | None" = None,
         neuron_config: dict[str, str | None] = None,
     ):
         super().__init__(model, parent_model, config, neuron_config, "encoder")
@@ -107,7 +107,7 @@ class NeuronWhisperDecoder(_NeuronSeq2SeqModelPart):
         self,
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronTracedModel,
-        config: "PretrainedConfig" | None = None,
+        config: "PretrainedConfig | None" = None,
         neuron_config: dict[str, str | None] = None,
     ):
         super().__init__(model, parent_model, config, neuron_config, "decoder")

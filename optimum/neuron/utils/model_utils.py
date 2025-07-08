@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
 
-def get_tied_parameters_dict(model: "torch.nn.Module" | "NxDPPModel") -> dict[str, str]:
+def get_tied_parameters_dict(model: "torch.nn.Module | NxDPPModel") -> dict[str, str]:
     from neuronx_distributed.pipeline import NxDPPModel
 
     if isinstance(model, NxDPPModel):
@@ -59,7 +59,7 @@ def get_parent_module_and_param_name_from_fully_qualified_name(
     return parent_module, param_name
 
 
-def tie_parameters(model: "torch.nn.Module" | "NxDPPModel", tied_parameters_dict: dict[str, str]):
+def tie_parameters(model: "torch.nn.Module | NxDPPModel", tied_parameters_dict: dict[str, str]):
     from neuronx_distributed.pipeline import NxDPPModel
 
     if isinstance(model, NxDPPModel):

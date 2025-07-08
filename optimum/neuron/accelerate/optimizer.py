@@ -55,7 +55,7 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
         self,
         optimizer: "torch.optim.Optimizer",
         device_placement: bool = True,
-        scaler: "torch.cuda.amp.GradScaler" | None = None,
+        scaler: "torch.cuda.amp.GradScaler | None" = None,
     ):
         super().__init__(optimizer, device_placement=device_placement, scaler=scaler)
 

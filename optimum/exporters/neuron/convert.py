@@ -142,7 +142,7 @@ def validate_models_outputs(
 
 def validate_model_outputs(
     config: "NeuronDefaultConfig",
-    reference_model: "PreTrainedModel" | "SentenceTransformer" | "ModelMixin",
+    reference_model: "PreTrainedModel | SentenceTransformer | ModelMixin",
     neuron_model_path: Path,
     neuron_named_outputs: list[str],
     atol: float | None = None,
@@ -428,7 +428,7 @@ def export_models(
 
 
 def export(
-    model_or_path: "PreTrainedModel" | str | Path,
+    model_or_path: "PreTrainedModel | str | Path",
     config: "NeuronDefaultConfig",
     output: Path,
     compiler_workdir: Path | None = None,
@@ -469,7 +469,7 @@ def export(
 
 
 def export_neuronx(
-    model_or_path: "PreTrainedModel" | str | Path,
+    model_or_path: "PreTrainedModel | str | Path",
     config: "NeuronDefaultConfig",
     output: Path,
     compiler_workdir: Path | None = None,

@@ -764,7 +764,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     @classmethod
     def _from_pretrained(
         cls,
-        model_id: str | "Path",
+        model_id: "str | Path",
         config: "PretrainedConfig",
         revision: str | None = None,
         token: bool | str | None = None,
@@ -820,7 +820,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     def export(
         cls,
         model_id: str,
-        config: "PretrainedConfig" | None,
+        config: "PretrainedConfig | None",
         neuron_config: "NxDNeuronConfig",
         token: bool | str | None = None,
         revision: str | None = None,

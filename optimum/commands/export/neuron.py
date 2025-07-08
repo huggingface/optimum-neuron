@@ -141,10 +141,10 @@ class NeuronExportCommand(BaseOptimumCLICommand):
     def __init__(
         self,
         subparsers: "_SubParsersAction",
-        args: "Namespace" | None = None,
-        command: "CommandInfo" | None = None,
+        args: "Namespace | None" = None,
+        command: "CommandInfo | None" = None,
         from_defaults_factory: bool = False,
-        parser: "ArgumentParser" | None = None,
+        parser: "ArgumentParser | None" = None,
     ):
         super().__init__(
             subparsers, args=args, command=command, from_defaults_factory=from_defaults_factory, parser=parser

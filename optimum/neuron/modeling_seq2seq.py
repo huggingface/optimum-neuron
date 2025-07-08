@@ -75,8 +75,8 @@ class _NeuronSeq2SeqModelPart:
         self,
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronTracedModel,
-        config: "PretrainedConfig" | None = None,
-        neuron_config: "NeuronDefaultConfig" | None = None,
+        config: "PretrainedConfig | None" = None,
+        neuron_config: "NeuronDefaultConfig | None" = None,
         model_type: str = "encoder",
         device: str | None = None,
     ):
@@ -106,7 +106,7 @@ class NeuronEncoder(_NeuronSeq2SeqModelPart):
         self,
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronTracedModel,
-        config: "PretrainedConfig" | None = None,
+        config: "PretrainedConfig | None" = None,
         neuron_config: dict[str, str | None] = None,
     ):
         super().__init__(model, parent_model, config, neuron_config, "encoder")
@@ -129,7 +129,7 @@ class NeuronDecoder(_NeuronSeq2SeqModelPart):
         self,
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronTracedModel,
-        config: "PretrainedConfig" | None = None,
+        config: "PretrainedConfig | None" = None,
         neuron_config: dict[str, str | None] = None,
     ):
         super().__init__(model, parent_model, config, neuron_config, "decoder")
@@ -517,7 +517,7 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         logits_processor: LogitsProcessorList | None = None,
         stopping_criteria: StoppingCriteriaList | None = None,
         prefix_allowed_tokens_fn: Callable[[int, torch.Tensor | None, list[int]]] = None,
-        assistant_model: "PreTrainedModel" | None = None,
+        assistant_model: "PreTrainedModel | None" = None,
         num_return_sequences: int = 1,
         **kwargs,
     ):

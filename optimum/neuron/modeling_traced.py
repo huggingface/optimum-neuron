@@ -96,7 +96,7 @@ class NeuronTracedModel(NeuronModel):
         model_save_dir: str | Path | TemporaryDirectory | None = None,
         model_file_name: str | None = None,
         preprocessors: list | None = None,
-        neuron_config: "NeuronDefaultConfig" | None = None,
+        neuron_config: "NeuronDefaultConfig | None" = None,
         **kwargs,
     ):
         super().__init__(model, config)
@@ -168,7 +168,7 @@ class NeuronTracedModel(NeuronModel):
         subfolder: str = "",
         local_files_only: bool = False,
         model_save_dir: str | Path | TemporaryDirectory | None = None,
-        neuron_config: "NeuronDefaultConfig" | None = None,
+        neuron_config: "NeuronDefaultConfig | None" = None,
         **kwargs,
     ) -> "NeuronTracedModel":
         model_path = Path(model_id)

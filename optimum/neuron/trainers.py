@@ -1478,7 +1478,7 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
         callbacks: list[TrainerCallback | None] = None,
         optimizers: tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
         preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor | None, torch.Tensor]] = None,
-        peft_config: "PeftConfig" | None = None,
+        peft_config: "PeftConfig | None" = None,
         formatting_func: Callable | None = None,
     ):
         if not is_trl_available(required_version=TRL_VERSION):
