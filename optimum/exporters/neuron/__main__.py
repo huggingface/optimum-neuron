@@ -193,7 +193,7 @@ def parse_optlevel(args: argparse.Namespace) -> dict[str, bool]:
 
 def normalize_stable_diffusion_input_shapes(
     args: argparse.Namespace,
-) -> dict[str, Dict[str, int]]:
+) -> dict[str, dict[str, int]]:
     args = vars(args) if isinstance(args, argparse.Namespace) else args
     mandatory_axes = set(getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args"))
     mandatory_axes = mandatory_axes - {
@@ -216,7 +216,7 @@ def normalize_stable_diffusion_input_shapes(
 
 
 def infer_stable_diffusion_shapes_from_diffusers(
-    input_shapes: dict[str, Dict[str, int]],
+    input_shapes: dict[str, dict[str, int]],
     model: "StableDiffusionPipeline" | "StableDiffusionXLPipeline",
     has_controlnets: bool,
 ):

@@ -192,7 +192,7 @@ class ModelWeightTransformationSpec:
         self,
         module_fully_qualified_name: str,
         sharded_state_dicts: dict[str, list[torch.Tensor]],
-        parameters_metadata: dict[str, Dict[str, Any]],
+        parameters_metadata: dict[str, dict[str, Any]],
     ) -> tuple[dict[str, torch.Tensor], list[str]]:
         pass
 
@@ -201,7 +201,7 @@ class ModelWeightTransformationSpec:
         self,
         module_fully_qualified_name: str,
         sharded_state_dicts: dict[str, list[torch.Tensor]],
-        parameters_metadata: dict[str, Dict[str, Any]],
+        parameters_metadata: dict[str, dict[str, Any]],
     ) -> tuple[dict[str, torch.Tensor], list[str]]:
         pass
 
@@ -209,7 +209,7 @@ class ModelWeightTransformationSpec:
         self,
         module_fully_qualified_name: str,
         sharded_state_dicts: dict[str, list[torch.Tensor]],
-        parameters_metadata: dict[str, Dict[str, Any]],
+        parameters_metadata: dict[str, dict[str, Any]],
     ) -> tuple[dict[str, torch.Tensor], list[str]]:
         """
         Produces the weights associated to this transformation spec from the custom model to match the original
@@ -218,7 +218,7 @@ class ModelWeightTransformationSpec:
         Args:
             sharded_state_dicts (dict[str, list[torch.Tensor]]): The sharded state dicts from the custom modeling
                 implementation.
-            parameters_metadata (dict[str, Dict[str, Any]]): Metadata about the parameters in the original model.
+            parameters_metadata (dict[str, dict[str, Any]]): Metadata about the parameters in the original model.
 
         Returns:
             tuple[dict[str, torch.Tensor], list[str]]: A tuple containing the transformed weights and a list of the
@@ -323,7 +323,7 @@ class ModelWeightTransformationSpecs:
         return orig_state_dict
 
     def to_original_weights(
-        self, sharded_state_dicts: dict[str, list[torch.Tensor]], parameters_metadata: dict[str, Dict[str, Any]]
+        self, sharded_state_dicts: dict[str, list[torch.Tensor]], parameters_metadata: dict[str, dict[str, Any]]
     ) -> tuple[dict[str, torch.Tensor], list[str]]:
         if self.module_fully_qualified_name is None:
             raise ValueError("`module_fully_qualified_name` must be set to adapt the state dict")
@@ -578,7 +578,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
         self,
         module_fully_qualified_name: str,
         sharded_state_dicts: dict[str, list[torch.Tensor]],
-        parameters_metadata: dict[str, Dict[str, Any]],
+        parameters_metadata: dict[str, dict[str, Any]],
     ) -> tuple[dict[str, torch.Tensor], list[str]]:
         # To recreate original weights from the fused weights we need to:
         # 1. Unfuse the sharded weights
@@ -615,7 +615,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
         self,
         module_fully_qualified_name: str,
         sharded_state_dicts: dict[str, list[torch.Tensor]],
-        parameters_metadata: dict[str, Dict[str, Any]],
+        parameters_metadata: dict[str, dict[str, Any]],
     ) -> tuple[dict[str, torch.Tensor], list[str]]:
         # To recreate original weights from the fused weights there are two cases:
         #   - Case 1: the base layer is a ColumnParallelLinear
@@ -1188,7 +1188,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
         self,
         module_fully_qualified_name: str,
         sharded_state_dicts: dict[str, list[torch.Tensor]],
-        parameters_metadata: dict[str, Dict[str, Any]],
+        parameters_metadata: dict[str, dict[str, Any]],
     ) -> tuple[dict[str, torch.Tensor], list[str]]:
         state_dict = {}
         keys_to_remove = []
@@ -1280,7 +1280,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
         self,
         module_fully_qualified_name: str,
         sharded_state_dicts: dict[str, list[torch.Tensor]],
-        parameters_metadata: dict[str, Dict[str, Any]],
+        parameters_metadata: dict[str, dict[str, Any]],
     ) -> tuple[dict[str, torch.Tensor], list[str]]:
         state_dict = {}
         keys_to_remove = []
@@ -1590,7 +1590,7 @@ def adapt_state_dict(
 def to_original_weights(
     transformations_specs: list[ModelWeightTransformationSpecs],
     sharded_state_dicts: dict[str, list[torch.Tensor]],
-    parameters_metadata: dict[str, Dict[str, Any]],
+    parameters_metadata: dict[str, dict[str, Any]],
     **peft_kwargs: Any,
 ) -> dict[str, torch.Tensor]:
     """
@@ -1656,7 +1656,7 @@ def get_tensor_model_parallel_attributes(tensor: torch.Tensor) -> dict[str, Any]
     }
 
 
-def create_parameter_metadata(model) -> dict[str, Dict[str, Any]]:
+def create_parameter_metadata(model) -> dict[str, dict[str, Any]]:
     """
     Creates the metadata to be saved with the model weights to be able to reconstruct the original weights when
     consolidating the sharded state dicts.

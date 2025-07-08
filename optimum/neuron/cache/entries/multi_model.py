@@ -47,7 +47,7 @@ def _exclude_white_list_from_config(
 
 
 def _clean_configs(
-    configs: dict[str, Union[PretrainedConfig, Dict[str, Any]]],
+    configs: dict[str, Union[PretrainedConfig, dict[str, Any]]],
     white_list: List | None = None,
     neuron_white_list: List | None = None,
 ):
@@ -97,12 +97,12 @@ class MultiModelCacheEntry(ModelCacheEntry):
             The model id, used as a key for the cache entry.
         model_type (`str`):
             The model type, also used as a key for the cache entry.
-        configs (`dict[str, Dict[str, Any]]`):
+        configs (`dict[str, dict[str, Any]]`):
             The configurations for the multi models pipeline.
 
     """
 
-    def __init__(self, model_id: str, configs: dict[str, Union[PretrainedConfig, Dict[str, Any]]]):
+    def __init__(self, model_id: str, configs: dict[str, Union[PretrainedConfig, dict[str, Any]]]):
         self._configs = _clean_configs(configs)
         if "unet" in self._configs:
             model_type = "stable-diffusion"

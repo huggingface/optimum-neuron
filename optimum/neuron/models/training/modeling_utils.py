@@ -108,7 +108,7 @@ logger = logging.get_logger(__name__)
 
 MODEL_PARALLEL_SHARDS_DIR_NAME = "shards"
 
-ALL_ATTENTION_FUNCTIONS: dict[str, Dict[str, Callable]] = {
+ALL_ATTENTION_FUNCTIONS: dict[str, dict[str, Callable]] = {
     "flash_attention_2": nki_flash_attn_func,
 }
 
