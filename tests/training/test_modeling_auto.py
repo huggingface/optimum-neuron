@@ -18,12 +18,14 @@ import torch
 
 from optimum.neuron.models.training import AutoModel, AutoModelForCausalLM, TrainingNeuronConfig
 from optimum.neuron.utils.training_utils import is_custom_modeling_model
+from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from ..distributed_utils import distributed_test
 
 
 @pytest.mark.parametrize("from_pretrained", [False, True], ids=["from_config", "from_pretrained"])
 @distributed_test(world_size=1)
+@is_trainium_test
 def test_auto_model_with_supported_architecture(from_pretrained):
     trn_config = TrainingNeuronConfig()
     kwargs = {"torch_dtype": torch.bloat16}
@@ -41,7 +43,7 @@ def test_auto_model_with_supported_architecture(from_pretrained):
         assert is_custom_modeling_model(model), "Model should be a custom Neuron model for training."
         assert next(model.parameters()).dtype is torch.bfloat16, "Model parameters should be in bfloat16 dtype."
 
-
+@is_trainium_test
 def test_auto_model_with_unsupported_architecture():
     with pytest.raises(ValueError, match="Model type bert is not supported for task model in neuron in training mode"):
         AutoModel.from_pretrained("bert-base-uncased", TrainingNeuronConfig())
@@ -49,6 +51,7 @@ def test_auto_model_with_unsupported_architecture():
 
 @pytest.mark.parametrize("from_pretrained", [False, True], ids=["from_config", "from_pretrained"])
 @distributed_test(world_size=1)
+@is_trainium_test
 def test_auto_model_for_causal_lm_with_supported_architecture(from_pretrained):
     trn_config = TrainingNeuronConfig()
     kwargs = {"torch_dtype": torch.bloat16}
@@ -66,6 +69,7 @@ def test_auto_model_for_causal_lm_with_supported_architecture(from_pretrained):
         assert next(model.parameters()).dtype is torch.bfloat16, "Model parameters should be in bfloat16 dtype."
 
 
+@is_trainium_test
 def test_auto_model_for_causal_lm_with_unsupported_architecture():
     with pytest.raises(
         ValueError, match="Model type gpt2 is not supported for task text-generation in neuron in training mode"
