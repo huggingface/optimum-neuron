@@ -20,7 +20,7 @@ import time
 from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 from optimum.neuron.utils.cache_utils import get_num_neuron_cores
 
@@ -184,7 +184,7 @@ def get_testers_for_model_type(model_type: str) -> list["ExampleTesterBase"]:
 
 
 def remove_extra_command_line_argument(
-    command_prefix: str, extra_command_line_arguments: list[Union[str, dict[str, str]]]
+    command_prefix: str, extra_command_line_arguments: list[str | dict[str, str]]
 ):
     argument_idx = None
     for idx, cmd_line_argument in enumerate(extra_command_line_arguments):
