@@ -88,7 +88,7 @@ def validate_models_outputs(
     Args:
         models_and_neuron_configs (`dict[str, tuple[`PreTrainedModel` | `ModelMixin` | `torch.nn.Module`, `NeuronDefaultConfig`]]):
             A dictionnary containing the models to export and their corresponding neuron configs.
-        neuron_named_outputs (`list[List[str]]`):
+        neuron_named_outputs (`list[list[str]]`):
             The names of the outputs to check.
         output_dir (`Path`):
             Output directory where the exported Neuron models are stored.
