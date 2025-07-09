@@ -7,7 +7,7 @@ import torch_xla.core.xla_builder as xb
 
 
 def ls_hlos(root_dir):
-    links = glob.glob(f"{root_dir}/**/*/*.hlo", recursive=True)
+    links = glob.glob(f"{root_dir}/**/*/*.pb", recursive=True)
     return [link for link in links if os.path.isfile(link)]
 
 
