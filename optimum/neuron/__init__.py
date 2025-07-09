@@ -129,7 +129,7 @@ if TYPE_CHECKING:
     from .modeling_traced import NeuronTracedModel
 
     # Modeling
-    from .models.bert import (
+    from .models.inference.bert import (
         NeuronBertForMaskedLM,
         NeuronBertForMultipleChoice,
         NeuronBertForQuestionAnswering,
@@ -137,9 +137,9 @@ if TYPE_CHECKING:
         NeuronBertForTokenClassification,
         NeuronBertModel,
     )
-    from .models.clip import NeuronCLIPForImageClassification, NeuronCLIPModel
-    from .models.whisper import NeuronWhisperForConditionalGeneration
-    from .models.yolos import NeuronYolosForObjectDetection
+    from .models.inference.clip import NeuronCLIPForImageClassification, NeuronCLIPModel
+    from .models.inference.whisper import NeuronWhisperForConditionalGeneration
+    from .models.inference.yolos import NeuronYolosForObjectDetection
     from .pipelines import pipeline
     from .trainers import NeuronORPOTrainer, NeuronSFTTrainer, NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
