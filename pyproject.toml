@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "optimum-neuron"
 dynamic = ["version"]
-description = "Optimum Neuron is the interface between the Hugging Face Transformers and Diffusers libraries and AWS Trainium and Inferentia accelerators. It provides a set of tools enabling easy model loading, training and inference on single and multiple neuron core settings for different downstream tasks."
+description = "Optimum Neuron serves as the bridge between Hugging Face libraries, such as Transformers, Diffusers, and PEFT, and AWS Trainium and Inferentia accelerators. It provides a set of tools enabling easy model loading, training, and inference on both single and multiple Neuron core configurations, across a wide range of downstream tasks."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
@@ -46,7 +46,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://huggingface.co/hardware/aws"
+Homepage = "https://huggingface.co/docs/optimum-neuron/index"
 
 [project.optional-dependencies]
 tests = [
