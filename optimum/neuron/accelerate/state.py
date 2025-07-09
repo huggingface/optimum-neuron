@@ -23,7 +23,7 @@ from accelerate.state import AcceleratorState, PartialState, ThreadLocalSharedDi
 from accelerate.utils import (
     DistributedType,
     DynamoBackend,
-    check_cuda_fp8_capability,
+    check_fp8_capability,
     is_fp8_available,
     is_ipex_available,
     parse_choice_from_env,
@@ -155,7 +155,7 @@ class NeuronAcceleratorState(AcceleratorState):
                     raise ValueError(
                         "Using `fp8` precision requires `transformer_engine` or `MS-AMP` to be installed."
                     )
-                elif torch.cuda.is_available() and not check_cuda_fp8_capability():
+                elif not check_fp8_capability():
                     logger.warning(
                         f"The current device has compute capability of {torch.cuda.get_device_capability()} which is "
                         "insufficient for FP8 mixed precision training (requires a GPU Hopper/Ada Lovelace "
