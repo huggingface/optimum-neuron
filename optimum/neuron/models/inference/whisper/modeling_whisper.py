@@ -24,16 +24,16 @@ from transformers import GenerationConfig, WhisperForConditionalGeneration
 from transformers.modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
 from transformers.utils import ModelOutput
 
-from ....exporters.neuron import (
+from optimum.exporters.neuron import (
     NeuronDefaultConfig,
 )
-from ...modeling_seq2seq import NeuronModelForConditionalGeneration, _NeuronSeq2SeqModelPart
-from ...modeling_traced import NeuronTracedModel
-from ...utils import (
+from optimum.neuron.modeling_seq2seq import NeuronModelForConditionalGeneration, _NeuronSeq2SeqModelPart
+from optimum.neuron.modeling_traced import NeuronTracedModel
+from optimum.neuron.utils import (
     NEURON_FILE_NAME,
     is_neuronx_available,
 )
-from ...utils.doc import (
+from optimum.neuron.utils.doc import (
     NEURON_AUDIO_SEQ2SEQ_INPUTS_DOCSTRING,
     NEURON_SEQ2SEQ_MODEL_START_DOCSTRING,
     add_start_docstrings,
