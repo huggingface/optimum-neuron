@@ -15,7 +15,6 @@
 """Utilities related to the TRL library and support."""
 
 from dataclasses import dataclass
-from typing import Optional
 
 from ..training_args import NeuronTrainingArguments
 from .import_utils import is_trl_available
@@ -44,5 +43,5 @@ class NeuronSFTConfig(NeuronTrainingArguments, SFTConfig):
 @dataclass
 class NeuronORPOConfig(NeuronTrainingArguments, ORPOConfig):
     @property
-    def neuron_cc_flags_model_type(self) -> Optional[str]:
+    def neuron_cc_flags_model_type(self) -> str | None:
         return None

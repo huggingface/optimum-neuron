@@ -18,7 +18,7 @@
 import gc
 import logging
 import math
-from typing import Optional, Tuple, Type
+from typing import Type
 
 import torch
 from neuronx_distributed.parallel_layers.layers import (
@@ -256,9 +256,9 @@ class NeuronLlamaAttention(NeuronAttentionBase):
         self,
         config: LlamaConfig,
         neuron_config: NxDNeuronConfig,
-        qkv_proj_bias: Optional[bool] = False,
-        o_proj_bias: Optional[bool] = False,
-        qk_scale: Optional[float] = None,
+        qkv_proj_bias: bool | None = False,
+        o_proj_bias: bool | None = False,
+        qk_scale: float | None = None,
     ):
         super().__init__(
             config, neuron_config, qkv_proj_bias=qkv_proj_bias, o_proj_bias=o_proj_bias, qk_scale=qk_scale
@@ -384,11 +384,11 @@ class NeuronLlamaDecoderLayer(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_value: tuple[torch.Tensor] | None = None,
         **kwargs,
-    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+    ) -> tuple[torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor] | None]:
         residual = hidden_states
 
         # RMSNorm (fused with QKV kernel when SP is disabled)

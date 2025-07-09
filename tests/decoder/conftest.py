@@ -3,7 +3,6 @@ import logging
 import os
 import sys
 from tempfile import TemporaryDirectory
-from typing import Dict
 
 import huggingface_hub
 import pytest
@@ -81,7 +80,7 @@ def _get_hub_neuron_model_prefix():
     return f"optimum-internal-testing/neuron-testing-{version}-{sdk_version}"
 
 
-def _get_hub_neuron_model_id(config_name: str, model_config: Dict[str, str]):
+def _get_hub_neuron_model_id(config_name: str, model_config: dict[str, str]):
     return f"{_get_hub_neuron_model_prefix()}-{config_name}"
 
 
@@ -94,7 +93,7 @@ def _export_model(model_id, export_kwargs, neuron_model_path):
         raise ValueError(f"Failed to export {model_id}: {e}")
 
 
-def _get_neuron_model_for_config(config_name: str, model_config, neuron_model_path) -> Dict[str, str]:
+def _get_neuron_model_for_config(config_name: str, model_config, neuron_model_path) -> dict[str, str]:
     """Expose a neuron decoder model
 
     The helper first makes sure the following model artifacts are present on the hub:

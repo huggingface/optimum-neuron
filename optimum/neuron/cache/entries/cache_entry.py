@@ -15,7 +15,7 @@
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 from huggingface_hub import HfApi
 
@@ -56,11 +56,11 @@ class ModelCacheEntry:
 
     # ModelCacheEntry API to be implemented by subclasses
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         raise NotImplementedError
 
     @property
-    def neuron_config(self) -> Dict[str, Any]:
+    def neuron_config(self) -> dict[str, Any]:
         raise NotImplementedError
 
     def has_same_arch(self, other: "ModelCacheEntry"):

@@ -19,7 +19,7 @@ import os
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
@@ -76,28 +76,28 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
 def validate_models_outputs(
-    models_and_neuron_configs: Dict[
-        str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronDefaultConfig"]
+    models_and_neuron_configs: dict[
+        str, tuple["PreTrainedModel | ModelMixin | torch.nn.Module", "NeuronDefaultConfig"]
     ],
-    neuron_named_outputs: Dict[str, List[str]],
+    neuron_named_outputs: dict[str, list[str]],
     output_dir: Path,
-    atol: Optional[float] = None,
-    neuron_files_subpaths: Optional[Dict[str, str]] = None,
+    atol: float | None = None,
+    neuron_files_subpaths: dict[str, str] | None = None,
 ):
     """
     Validates the export of several models, by checking that the outputs from both the reference and the exported model match.
     The following method validates the Neuron models exported using the `export_models` method.
 
     Args:
-        models_and_neuron_configs (`Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`, `torch.nn.Module`], `NeuronDefaultConfig`]]):
+        models_and_neuron_configs (`dict[str, tuple[`PreTrainedModel` | `ModelMixin` | `torch.nn.Module`, `NeuronDefaultConfig`]]):
             A dictionnary containing the models to export and their corresponding neuron configs.
-        neuron_named_outputs (`List[List[str]]`):
+        neuron_named_outputs (`dict[str, list[str]]`):
             The names of the outputs to check.
         output_dir (`Path`):
             Output directory where the exported Neuron models are stored.
-        atol (`Optional[float]`, defaults to `None`):
+        atol (`float | None`, defaults to `None`):
             The absolute tolerance in terms of outputs difference between the reference and the exported model.
-        neuron_files_subpaths (`Optional[List[str]]`, defaults to `None`):
+        neuron_files_subpaths (`dict[str, str] | None`, defaults to `None`):
             The relative paths from `output_dir` to the Neuron files to do validation on. The order must be the same as the order of submodels
             in the ordered dict `models_and_neuron_configs`. If None, will use the keys from the `models_and_neuron_configs` as names.
 
@@ -145,10 +145,10 @@ def validate_models_outputs(
 
 def validate_model_outputs(
     config: "NeuronDefaultConfig",
-    reference_model: Union["PreTrainedModel", "SentenceTransformer", "ModelMixin"],
+    reference_model: "PreTrainedModel | SentenceTransformer | ModelMixin",
     neuron_model_path: Path,
-    neuron_named_outputs: List[str],
-    atol: Optional[float] = None,
+    neuron_named_outputs: list[str],
+    atol: float | None = None,
 ):
     """
     Validates the export by checking that the outputs from both the reference and the exported model match.
@@ -156,13 +156,13 @@ def validate_model_outputs(
     Args:
         config ([`~optimum.neuron.exporter.NeuronDefaultConfig`]:
             The configuration used to export the model.
-        reference_model ([`Union["PreTrainedModel", "SentenceTransformer", "ModelMixin"]`]):
+        reference_model (`"PreTrainedModel | SentenceTransformer | ModelMixin"`):
             The model used for the export.
         neuron_model_path (`Path`):
             The path to the exported model.
-        neuron_named_outputs (`List[str]`):
+        neuron_named_outputs (`list[str]`):
             The names of the outputs to check.
-        atol (`Optional[float]`, defaults to `None`):
+        atol (`float | None`, defaults to `None`):
             The absolute tolerance in terms of outputs difference between the reference and the exported model.
 
     Raises:
@@ -292,32 +292,32 @@ def validate_model_outputs(
 
 
 def export_models(
-    models_and_neuron_configs: Dict[
-        str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronDefaultConfig"]
+    models_and_neuron_configs: dict[
+        str, tuple["PreTrainedModel | ModelMixin | torch.nn.Module", "NeuronDefaultConfig"]
     ],
     task: str,
     output_dir: Path,
-    disable_neuron_cache: Optional[bool] = False,
-    compiler_workdir: Optional[Path] = None,
+    disable_neuron_cache: bool | None = False,
+    compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
-    output_file_names: Optional[Dict[str, str]] = None,
-    compiler_kwargs: Optional[Dict[str, Any]] = {},
-    model_name_or_path: Optional[str] = None,
-) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+    output_file_names: dict[str, str] | None = None,
+    compiler_kwargs: dict[str, Any] | None = {},
+    model_name_or_path: str | None = None,
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     """
     Exports a Pytorch model with multiple component models to separate files.
 
     Args:
-        models_and_neuron_configs (`Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], `NeuronDefaultConfig`]]):
+        models_and_neuron_configs (`dict[str, tuple[PreTrainedModel | ModelMixin | torch.nn.Module, `NeuronDefaultConfig`]]):
             A dictionnary containing the models to export and their corresponding neuron configs.
         task (`str`):
             The task for which the models should be exported.
         output_dir (`Path`):
             Output directory to store the exported Neuron models.
-        disable_neuron_cache (`Optional[bool]`, defaults to `False`):
+        disable_neuron_cache (`bool | None`, defaults to `False`):
             Whether to disable automatic caching of AOT compiled models (not applicable for JIT compilation).
-        compiler_workdir (`Optional[Path]`, defaults to `None`):
+        compiler_workdir (`Path | None`, defaults to `None`):
             The directory to store intermediary outputs of the neuron compiler.
         inline_weights_to_neff (`bool`, defaults to `True`):
             Whether to inline the weights to the neff graph. If set to False, weights will be separated from the neff.
@@ -326,15 +326,15 @@ def export_models(
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
                 2: provides the best balance between model performance and compile time.
                 3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
-        output_file_names (`Optional[List[str]]`, defaults to `None`):
+        output_file_names (`dict[str, str] | None`, defaults to `None`):
             The names to use for the exported Neuron files. The order must be the same as the order of submodels in the ordered dict `models_and_neuron_configs`.
             If None, will use the keys from `models_and_neuron_configs` as names.
-        compiler_kwargs (`Optional[Dict[str, Any]]`, defaults to `None`):
+        compiler_kwargs (`dict[str, Any] | None`, defaults to `None`):
             Arguments to pass to the Neuron(x) compiler for exporting Neuron models.
-        model_name_or_path (`Optional[str]`, defaults to `None`):
+        model_name_or_path (`str | None`, defaults to `None`):
             Path to pretrained model or model identifier from the Hugging Face Hub.
     Returns:
-        `Tuple[Dict[str, List[str]], Dict[str, List[str]]]`: A tuple with two dictionaries containing ordered list of the model's inputs, and the named
+        `tuple[dict[str, list[str]], dict[str, list[str]]]`: A tuple with two dictionaries containing ordered list of the model's inputs, and the named
         outputs from the Neuron configuration.
     """
     all_inputs = {}
@@ -431,17 +431,17 @@ def export_models(
 
 
 def export(
-    model_or_path: Union["PreTrainedModel", str, Path],
+    model_or_path: "PreTrainedModel | str | Path",
     config: "NeuronDefaultConfig",
     output: Path,
-    compiler_workdir: Optional[Path] = None,
+    compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
-    auto_cast: Optional[str] = None,
+    auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
     disable_fast_relayout: bool = False,
     disable_fallback: bool = False,
-) -> Tuple[List[str], List[str]]:
+) -> tuple[list[str], list[str]]:
     if is_neuron_available():
         return export_neuron(
             model=model_or_path,
@@ -472,26 +472,26 @@ def export(
 
 
 def export_neuronx(
-    model_or_path: Union["PreTrainedModel", str, Path],
+    model_or_path: "PreTrainedModel | str | Path",
     config: "NeuronDefaultConfig",
     output: Path,
-    compiler_workdir: Optional[Path] = None,
+    compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
-    auto_cast: Optional[str] = None,
+    auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
-) -> Tuple[List[str], List[str]]:
+) -> tuple[list[str], list[str]]:
     """
     Exports a PyTorch model to a serialized TorchScript module compiled by neuronx-cc compiler.
 
     Args:
-        model_or_path (Union["PreTrainedModel", str, Path]):
+        model_or_path ("PreTrainedModel" | str | Path):
             The model to export or its location(case when applying the parallelism as the model needs to be loaded with the tracing).
         config ([`~exporter.NeuronDefaultConfig`]):
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
-        compiler_workdir (`Optional[Path]`, defaults to `None`):
+        compiler_workdir (`Path | None`, defaults to `None`):
             The directory used by neuronx-cc, where you can find intermediary outputs (neff, weight, hlo...).
         inline_weights_to_neff (`bool`, defaults to `True`):
             Whether to inline the weights to the neff graph. If set to False, weights will be separated from the neff.
@@ -500,13 +500,13 @@ def export_neuronx(
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
                 2: provides the best balance between model performance and compile time.
                 3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
-        auto_cast (`Optional[str]`, defaults to `None`):
+        auto_cast (`str | None`, defaults to `None`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`str`, defaults to `"bf16"`):
             The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
 
     Returns:
-        `Tuple[List[str], List[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
+        `tuple[list[str], list[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
         the Neuron configuration.
     """
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -745,13 +745,13 @@ def export_neuron(
     model: "PreTrainedModel",
     config: "NeuronDefaultConfig",
     output: Path,
-    compiler_workdir: Optional[Path] = None,
+    compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
-    auto_cast: Optional[str] = None,
+    auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
     disable_fast_relayout: bool = False,
     disable_fallback: bool = False,
-) -> Tuple[List[str], List[str]]:
+) -> tuple[list[str], list[str]]:
     """
     Exports a PyTorch model to a serialized TorchScript module compiled by neuron-cc compiler.
 
@@ -762,11 +762,11 @@ def export_neuron(
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
-        compiler_workdir (`Optional[Path]`, defaults to `None`):
+        compiler_workdir (`Path | None`, defaults to `None`):
             The directory used by neuron-cc, where you can find intermediary outputs (neff, weight, hlo...).
         inline_weights_to_neff (`bool`, defaults to `True`):
             Whether to inline the weights to the neff graph. If set to False, weights will be separated from the neff.
-        auto_cast (`Optional[str]`, defaults to `None`):
+        auto_cast (`str | None`, defaults to `None`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`str`, defaults to `"bf16"`):
             The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"`, ``"mixed" or `"tf32"`. `"mixed"` is only available when auto_cast is "matmul", it will cast operators that use Neuron Matmult engine to bf16 while using fp16 for matmult-based transpose.
@@ -776,7 +776,7 @@ def export_neuron(
             Whether to disable CPU partitioning to force operations to Neuron. Defaults to `False`, as without fallback, there could be some compilation failures or performance problems.
 
     Returns:
-        `Tuple[List[str], List[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
+        `tuple[list[str], list[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
         the Neuron configuration.
     """
     output.parent.mkdir(parents=True, exist_ok=True)

@@ -15,8 +15,8 @@
 
 import subprocess
 import sys
+from argparse import ArgumentParser, Namespace, _SubParsersAction
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
 
 from ...exporters import TasksManager
 from ...utils import is_diffusers_available
@@ -29,9 +29,6 @@ if is_diffusers_available():
 
     os.environ["NEURON_FUSE_SOFTMAX"] = "1"
     os.environ["NEURON_CUSTOM_SILU"] = "1"
-
-if TYPE_CHECKING:
-    from argparse import ArgumentParser, Namespace, _SubParsersAction
 
 
 def parse_args_neuronx(parser: "ArgumentParser"):
@@ -318,11 +315,11 @@ class NeuronxExportCommand(BaseOptimumCLICommand):
 
     def __init__(
         self,
-        subparsers: "_SubParsersAction",
-        args: Optional["Namespace"] = None,
-        command: Optional["CommandInfo"] = None,
+        subparsers: _SubParsersAction,
+        args: Namespace | None = None,
+        command: CommandInfo | None = None,
         from_defaults_factory: bool = False,
-        parser: Optional["ArgumentParser"] = None,
+        parser: ArgumentParser | None = None,
     ):
         super().__init__(
             subparsers, args=args, command=command, from_defaults_factory=from_defaults_factory, parser=parser
@@ -330,7 +327,7 @@ class NeuronxExportCommand(BaseOptimumCLICommand):
         self.args_string = " ".join(sys.argv[3:])
 
     @staticmethod
-    def parse_args(parser: "ArgumentParser"):
+    def parse_args(parser: ArgumentParser):
         return parse_args_neuronx(parser)
 
     def run(self):

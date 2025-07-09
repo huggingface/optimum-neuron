@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -184,7 +183,7 @@ def parallel_cross_entropy(vocab_parallel_logits, target, ignore_index=-100, red
 
 
 @torch.fx.wrap
-def fixed_cross_entropy(source, target, num_items_in_batch: Optional[int] = None, ignore_index: int = -100, **kwargs):
+def fixed_cross_entropy(source, target, num_items_in_batch: int | None = None, ignore_index: int = -100, **kwargs):
     reduction = "sum" if num_items_in_batch is not None else "mean"
     tp_size = get_tensor_model_parallel_size()
     if tp_size > 1:
@@ -200,7 +199,7 @@ def fixed_cross_entropy(source, target, num_items_in_batch: Optional[int] = None
 
 
 def ForCausalLMLoss(
-    logits, labels, vocab_size: int, num_items_in_batch: Optional[int] = None, ignore_index: int = -100, **kwargs
+    logits, labels, vocab_size: int, num_items_in_batch: int | None = None, ignore_index: int = -100, **kwargs
 ):
     # Upcast to float if we need to compute the loss to avoid potential precision issues
     logits = logits.float()

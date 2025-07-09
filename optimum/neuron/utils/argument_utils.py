@@ -16,7 +16,7 @@
 
 import os
 from dataclasses import asdict, dataclass, fields, is_dataclass
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable
 
 from ...utils import logging
 
@@ -32,10 +32,10 @@ DISABLE_STRICT_MODE = os.environ.get("OPTIMUM_DISABLE_STRICT_MODE", "0")
 
 @dataclass
 class LoRAAdapterArguments:
-    model_ids: Optional[Union[str, List[str]]] = None
-    weight_names: Optional[Union[str, List[str]]] = None
-    adapter_names: Optional[Union[str, List[str]]] = None
-    scales: Optional[Union[float, List[float]]] = None
+    model_ids: str | list[str] | None = None
+    weight_names: str | list[str] | None = None
+    adapter_names: str | list[str] | None = None
+    scales: float | list[float] | None = None
 
     def __post_init__(self):
         if isinstance(self.model_ids, str):
@@ -58,42 +58,42 @@ class LoRAAdapterArguments:
 
 @dataclass
 class IPAdapterArguments:
-    model_id: Optional[Union[str, List[str]]] = None
-    subfolder: Optional[Union[str, List[str]]] = None
-    weight_name: Optional[Union[str, List[str]]] = None
-    scale: Optional[Union[float, List[float]]] = None
+    model_id: str | list[str] | None = None
+    subfolder: str | list[str] | None = None
+    weight_name: str | list[str] | None = None
+    scale: float | list[float] | None = None
 
 
 @dataclass
 class ImageEncoderArguments:
-    sequence_length: Optional[int] = None
-    hidden_size: Optional[int] = None
-    projection_dim: Optional[int] = None
+    sequence_length: int | None = None
+    hidden_size: int | None = None
+    projection_dim: int | None = None
 
 
 @dataclass
 class InputShapesArguments:
-    batch_size: Optional[int] = None
-    text_batch_size: Optional[int] = None
-    image_batch_size: Optional[int] = None
-    sequence_length: Optional[int] = None
-    num_choices: Optional[int] = None
-    width: Optional[int] = None
-    height: Optional[int] = None
-    image_size: Optional[int] = None
-    num_images_per_prompt: Optional[int] = None
-    patch_size: Optional[int] = None
-    num_channels: Optional[int] = None
-    feature_size: Optional[int] = None
-    nb_max_frames: Optional[int] = None
-    audio_sequence_length: Optional[int] = None
-    point_batch_size: Optional[int] = None
-    nb_points_per_image: Optional[int] = None
-    num_beams: Optional[int] = None
-    vae_scale_factor: Optional[int] = None
-    encoder_hidden_size: Optional[int] = None
-    image_encoder_shapes: Optional[ImageEncoderArguments] = None
-    rotary_axes_dim: Optional[int] = None
+    batch_size: int | None = None
+    text_batch_size: int | None = None
+    image_batch_size: int | None = None
+    sequence_length: int | None = None
+    num_choices: int | None = None
+    width: int | None = None
+    height: int | None = None
+    image_size: int | None = None
+    num_images_per_prompt: int | None = None
+    patch_size: int | None = None
+    num_channels: int | None = None
+    feature_size: int | None = None
+    nb_max_frames: int | None = None
+    audio_sequence_length: int | None = None
+    point_batch_size: int | None = None
+    nb_points_per_image: int | None = None
+    num_beams: int | None = None
+    vae_scale_factor: int | None = None
+    encoder_hidden_size: int | None = None
+    image_encoder_shapes: ImageEncoderArguments | None = None
+    rotary_axes_dim: int | None = None
 
 
 class DataclassParser:
@@ -138,8 +138,8 @@ def validate_arg(
     args,
     arg_name: str,
     error_msg: str,
-    validation_function: Optional[Callable[[Any], bool]] = None,
-    expected_value: Optional[Any] = None,
+    validation_function: Callable[[Any], bool] | None = None,
+    expected_value: Any | None = None,
 ):
     """
     Checks that the argument called `arg_name` in `args` has a value matching what is expected for AWS Trainium
@@ -151,9 +151,9 @@ def validate_arg(
             The name of the argument to check.
         error_msg (`str`):
             The error message to show if the argument does not have a proper value.
-        validation_function (`Optional[Callable[[Any], bool]]`, defaults to `None`):
+        validation_function (`Callable[[Any], bool] | None`, defaults to `None`):
             A function taking an argument as input, and returning whether the argument is valid or not.
-        expected_value (`Optional[Any]`, defaults to `None`):
+        expected_value (`Any | None`, defaults to `None`):
             The expected value for the argument:
                 - If the environment variable `OPTIMUM_DISABLE_ARGUMENT_PATCH="0"` and the original argument value
                 invalid, the argument will be set to this value.
@@ -198,7 +198,7 @@ def validate_arg(
 
 
 def convert_neuronx_compiler_args_to_neuron(
-    auto_cast: Optional[str],
+    auto_cast: str | None,
     auto_cast_type: str,
     disable_fast_relayout: bool,
 ):
@@ -240,7 +240,7 @@ def convert_neuronx_compiler_args_to_neuron(
     return compiler_args
 
 
-def add_shapes_to_config(config_args, input_shapes: Dict[str, Any]):
+def add_shapes_to_config(config_args, input_shapes: dict[str, Any]):
     for axis, shape in input_shapes.items():
         if shape is not None:
             if is_dataclass(shape):
@@ -253,24 +253,24 @@ def add_shapes_to_config(config_args, input_shapes: Dict[str, Any]):
 
 
 def store_compilation_config(
-    config: Union["PretrainedConfig", Dict],
-    input_shapes: Dict[str, int],
-    compiler_kwargs: Dict[str, Any],
+    config: "PretrainedConfig | dict",
+    input_shapes: dict[str, int],
+    compiler_kwargs: dict[str, Any],
     dynamic_batch_size: bool,
     compiler_type: str,
     compiler_version: str,
     inline_weights_to_neff: bool,
     optlevel: str,
     tensor_parallel_size: int = 1,
-    model_type: Optional[str] = None,
-    task: Optional[str] = None,
-    input_names: Optional[List[str]] = None,
-    output_names: Optional[List[str]] = None,
+    model_type: str | None = None,
+    task: str | None = None,
+    input_names: list[str] | None = None,
+    output_names: list[str] | None = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     **kwargs,
 ):
-    if isinstance(config, Dict):
+    if isinstance(config, dict):
         update_func = config.__setitem__
     else:
         update_func = config.__setattr__

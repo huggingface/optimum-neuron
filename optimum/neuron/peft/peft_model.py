@@ -18,7 +18,7 @@ import json
 import os
 import warnings
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 import torch
 from transformers import PreTrainedModel
@@ -125,10 +125,10 @@ class NeuronPeftModel(PeftModel):
         self,
         save_directory: str,
         safe_serialization: bool = False,
-        selected_adapters: Optional[list[str]] = None,
-        save_embedding_layers: Union[str, bool] = "auto",
+        selected_adapters: list[str] | None = None,
+        save_embedding_layers: str | bool = "auto",
         is_main_process: bool = True,
-        path_initial_model_for_weight_conversion: Optional[str] = None,
+        path_initial_model_for_weight_conversion: str | None = None,
         **kwargs: Any,
     ) -> None:
         import neuronx_distributed
@@ -289,10 +289,10 @@ class NeuronPeftModel(PeftModel):
     def from_pretrained(
         cls,
         model: torch.nn.Module,
-        model_id: Union[str, os.PathLike],
+        model_id: str | os.PathLike,
         adapter_name: str = "default",
         is_trainable: bool = False,
-        config: Optional[PeftConfig] = None,
+        config: PeftConfig | None = None,
         autocast_adapter_dtype: bool = True,
         **kwargs: Any,
     ) -> PeftModel:
@@ -374,10 +374,10 @@ class NeuronPeftModel(PeftModel):
 
     def load_adapter(
         self,
-        model_id: Union[str, os.PathLike],
+        model_id: str | os.PathLike,
         adapter_name: str,
         is_trainable: bool = False,
-        torch_device: Optional[str] = None,
+        torch_device: str | None = None,
         autocast_adapter_dtype: bool = True,
         **kwargs: Any,
     ):

@@ -14,7 +14,7 @@
 # limitations under the License.
 """Model wrappers for Neuron export."""
 
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 import torch
 from transformers.models.t5.modeling_t5 import T5LayerCrossAttention
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 
 class UnetNeuronWrapper(torch.nn.Module):
-    def __init__(self, model, input_names: List[str], device: Optional[str] = None):
+    def __init__(self, model, input_names: list[str], device: str | None = None):
         super().__init__()
         self.model = model
         self.input_names = input_names
@@ -88,7 +88,7 @@ class UnetNeuronWrapper(torch.nn.Module):
 
 
 class PixartTransformerNeuronWrapper(torch.nn.Module):
-    def __init__(self, model, input_names: List[str], device: str = None):
+    def __init__(self, model, input_names: list[str], device: str = None):
         super().__init__()
         self.model = model
         self.dtype = model.dtype
@@ -161,7 +161,7 @@ class FluxTransformerNeuronWrapper(torch.nn.Module):
 
 
 class ControlNetNeuronWrapper(torch.nn.Module):
-    def __init__(self, model, input_names: List[str], device: str = None):
+    def __init__(self, model, input_names: list[str], device: str = None):
         super().__init__()
         self.model = model
         self.input_names = input_names
@@ -210,7 +210,7 @@ class T5EncoderWrapper(torch.nn.Module):
         self,
         model: "PreTrainedModel",
         sequence_length: int,
-        batch_size: Optional[int] = None,
+        batch_size:  int | None = None,
         device: str = "xla",
         tensor_parallel_size: int = 1,
     ):
@@ -333,8 +333,8 @@ class T5EncoderForSeq2SeqLMWrapper(torch.nn.Module):
     def __init__(
         self,
         model: "PreTrainedModel",
-        sequence_length: Optional[int] = None,
-        batch_size: Optional[int] = None,
+        sequence_length: int | None = None,
+        batch_size: int | None = None,
         num_beams: int = 1,
         device: str = "xla",
         tensor_parallel_size: int = 1,
@@ -704,7 +704,7 @@ class T5DecoderWrapper(torch.nn.Module):
 
 
 class SentenceTransformersTransformerNeuronWrapper(torch.nn.Module):
-    def __init__(self, model, input_names: List[str], device: str = None):
+    def __init__(self, model, input_names: list[str], device: str = None):
         super().__init__()
         self.model = model
         self.input_names = input_names
@@ -720,7 +720,7 @@ class CLIPVisionWithProjectionNeuronWrapper(torch.nn.Module):
     def __init__(
         self,
         model,
-        input_names: List[str],
+        input_names: list[str],
         output_hidden_states: bool = True,
         device: str = None,
     ):
@@ -745,7 +745,7 @@ class CLIPVisionWithProjectionNeuronWrapper(torch.nn.Module):
 
 
 class SentenceTransformersCLIPNeuronWrapper(torch.nn.Module):
-    def __init__(self, model, input_names: List[str], device: str = None):
+    def __init__(self, model, input_names: list[str], device: str = None):
         super().__init__()
         self.model = model
         self.input_names = input_names
@@ -850,7 +850,7 @@ class WhisperDecoderWrapper(torch.nn.Module):
 
 
 class NoCacheModelWrapper(torch.nn.Module):
-    def __init__(self, model: "PreTrainedModel", input_names: List[str]):
+    def __init__(self, model: "PreTrainedModel", input_names: list[str]):
         super().__init__()
         self.model = model
         self.input_names = input_names

@@ -26,7 +26,7 @@ import time
 import warnings
 from collections import defaultdict
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable
 
 import datasets
 import numpy as np
@@ -341,7 +341,7 @@ class _TrainerForNeuron:
             self.accelerator.patch_model_for_neuron(model), training=training, dataloader=dataloader
         )
 
-    def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
+    def _get_train_sampler(self) -> torch.utils.data.Sampler | None:
         if self.mp_enabled:
             if self.train_dataset is None or not has_length(self.train_dataset):
                 return None
@@ -352,7 +352,7 @@ class _TrainerForNeuron:
             return torch.utils.data.RandomSampler(self.train_dataset)
         return super()._get_train_sampler()
 
-    def _get_eval_sampler(self, eval_dataset: torch.utils.data.Dataset) -> Optional[torch.utils.data.Sampler]:
+    def _get_eval_sampler(self, eval_dataset: torch.utils.data.Dataset) -> torch.utils.data.Sampler | None:
         return torch.utils.data.SequentialSampler(eval_dataset)
 
     def get_num_trainable_parameters(self):
@@ -406,14 +406,14 @@ class _TrainerForNeuron:
 
         return self.optimizer
 
-    def _prepare_input(self, data: Union[torch.Tensor, Any]) -> Union[torch.Tensor, Any]:
+    def _prepare_input(self, data: torch.Tensor | Any) -> torch.Tensor | Any:
         # When pipeline parallelism is enabled, we should not put any tensor on device.
         # It is handled by the NxDPPModel class.
         if self.args.trn_config.pipeline_parallel_size > 1:
             return data
         return super()._prepare_input(data)
 
-    def _prepare_inputs(self, inputs: Dict[str, Union[torch.Tensor, Any]]) -> Dict[str, Union[torch.Tensor, Any]]:
+    def _prepare_inputs(self, inputs: dict[str, torch.Tensor | Any]) -> dict[str, torch.Tensor | Any]:
         inputs = super()._prepare_inputs(inputs)
         return inputs
 
@@ -429,7 +429,7 @@ class _TrainerForNeuron:
             )
         return loss
 
-    def autocast_smart_context_manager(self, cache_enabled: Optional[bool] = True):
+    def autocast_smart_context_manager(self, cache_enabled: bool | None = True):
         """
         A helper wrapper that creates an appropriate context manager for `autocast` while feeding it the desired
         arguments, depending on the situation.
@@ -441,7 +441,7 @@ class _TrainerForNeuron:
         return self.accelerator.autocast(autocast_handler=autocast_handler)
 
     def training_step(
-        self, model: torch.nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], num_items_in_batch=None
+        self, model: torch.nn.Module, inputs: dict[str, torch.Tensor | Any], num_items_in_batch=None
     ) -> torch.Tensor:
         from neuronx_distributed.pipeline import NxDPPModel
 
@@ -468,10 +468,10 @@ class _TrainerForNeuron:
     def prediction_step(
         self,
         model: torch.nn.Module,
-        inputs: Dict[str, Union[torch.Tensor, Any]],
+        inputs: dict[str, torch.Tensor | Any],
         prediction_loss_only: bool,
-        ignore_keys: Optional[List[str]] = None,
-    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+        ignore_keys: list[str] | None = None,
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
         from neuronx_distributed.pipeline import NxDPPModel
 
         if isinstance(model, NxDPPModel):
@@ -517,7 +517,7 @@ class _TrainerForNeuron:
                     # second time because at this point we will have:
                     # self.state.global_step = self._globalstep_last_logged
                     if is_main_worker_for_metrics() and self.state.global_step > self._globalstep_last_logged:
-                        logs: Dict[str, float] = {}
+                        logs: dict[str, float] = {}
                         tr_loss_scalar = reduced_tr_loss.to("cpu").item()
 
                         logs["loss"] = round(
@@ -556,7 +556,7 @@ class _TrainerForNeuron:
 
             xm.add_step_closure(save_closure, (self, model, trial))
 
-    def _save_xla(self, output_dir: Optional[str] = None):
+    def _save_xla(self, output_dir: str | None = None):
         output_dir = output_dir if output_dir is not None else self.args.output_dir
         if is_main_worker():
             logger.info(f"Saving model checkpoint to {output_dir}")
@@ -604,7 +604,7 @@ class _TrainerForNeuron:
         if self.tokenizer is not None and self.args.should_save:
             self.tokenizer.save_pretrained(output_dir)
 
-    def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
+    def save_model(self, output_dir: str | None = None, _internal_call: bool = False):
         if not is_precompilation():  # Avoid unnecessary model saving during precompilation
             with patch_neuron_cc_wrapper():
                 with hub_neuronx_cache(cache_dir=get_neuron_cache_path()):
@@ -888,7 +888,7 @@ class _TrainerForNeuron:
         self._globalstep_last_logged = self.state.global_step
 
         self.optimizer.zero_grad()
-        grad_norm: Optional[float] = None
+        grad_norm: float | None = None
         self.control = self.callback_handler.on_train_begin(args, self.state, self.control)
 
         # Mark step before training to materialize any tensor before creating the training graph.
@@ -1152,8 +1152,8 @@ class _TrainerForNeuron:
         self,
         dataloader: torch.utils.data.DataLoader,
         description: str,
-        prediction_loss_only: Optional[bool] = None,
-        ignore_keys: Optional[List[str]] = None,
+        prediction_loss_only: bool | None = None,
+        ignore_keys: list[str] | None = None,
         metric_key_prefix: str = "eval",
     ) -> EvalLoopOutput:
         """
@@ -1387,9 +1387,9 @@ class _TrainerForNeuron:
 
     def train(
         self,
-        resume_from_checkpoint: Optional[Union[str, bool]] = None,
+        resume_from_checkpoint: str | bool | None = None,
         trial=None,  # No type-annotation for this one because it is related to the optuna package.
-        ignore_keys_for_eval: Optional[List[str]] = None,
+        ignore_keys_for_eval: list[str] | None = None,
         **kwargs,
     ):
         with hub_neuronx_cache(cache_dir=get_neuron_cache_path()):
@@ -1405,10 +1405,10 @@ class _TrainerForNeuron:
 
     def evaluate(
         self,
-        eval_dataset: Optional[Union[Dataset, Dict[str, Dataset]]] = None,
-        ignore_keys: Optional[List[str]] = None,
+        eval_dataset: Dataset | dict[str, Dataset] | None = None,
+        ignore_keys: list[str] | None = None,
         metric_key_prefix: str = "eval",
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         with hub_neuronx_cache(cache_dir=get_neuron_cache_path()):
             with self.args.world_size_as_dp_size():
                 result = super().evaluate(
@@ -1419,7 +1419,7 @@ class _TrainerForNeuron:
         return result
 
     def predict(
-        self, test_dataset: Dataset, ignore_keys: Optional[List[str]] = None, metric_key_prefix: str = "test"
+        self, test_dataset: Dataset, ignore_keys: list[str] | None = None, metric_key_prefix: str = "test"
     ) -> PredictionOutput:
         with hub_neuronx_cache(cache_dir=get_neuron_cache_path()):
             with self.args.world_size_as_dp_size():
@@ -1467,19 +1467,19 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
 
     def __init__(
         self,
-        model: Optional[Union[PreTrainedModel, torch.nn.Module, str]] = None,
-        args: Optional[SFTConfig] = None,
-        data_collator: Optional[DataCollator] = None,  # type: ignore
-        train_dataset: Optional[Dataset] = None,
-        eval_dataset: Optional[Union[Dataset, Dict[str, Dataset]]] = None,
-        tokenizer: Optional[PreTrainedTokenizerBase] = None,
-        model_init: Optional[Callable[[], PreTrainedModel]] = None,
-        compute_metrics: Optional[Callable[[EvalPrediction], Dict]] = None,
-        callbacks: Optional[List[TrainerCallback]] = None,
-        optimizers: Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
-        preprocess_logits_for_metrics: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
-        peft_config: Optional["PeftConfig"] = None,
-        formatting_func: Optional[Callable] = None,
+        model: PreTrainedModel | torch.nn.Module | str | None = None,
+        args: SFTConfig | None = None,
+        data_collator: DataCollator | None = None,  # type: ignore
+        train_dataset: Dataset | None = None,
+        eval_dataset: Dataset | dict[str, Dataset] | None = None,
+        tokenizer: PreTrainedTokenizerBase | None = None,
+        model_init: Callable[[], PreTrainedModel] | None = None,
+        compute_metrics: Callable[[EvalPrediction], dict] | None = None,
+        callbacks: list[TrainerCallback] | None = None,
+        optimizers: tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
+        preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+        peft_config: "PeftConfig | None" = None,
+        formatting_func: Callable | None = None,
     ):
         if not is_trl_available(required_version=TRL_VERSION):
             raise RuntimeError("Using NeuronSFTTrainer requires the trl library.")
@@ -1814,18 +1814,18 @@ class _ORPOTrainerInit(ORPOTrainer):
 class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
     def __init__(
         self,
-        model: Optional[Union[PreTrainedModel, nn.Module, str]] = None,
-        args: Optional[ORPOConfig] = None,
-        data_collator: Optional[DataCollator] = None,
-        train_dataset: Optional[Dataset] = None,
-        eval_dataset: Optional[Union[Dataset, Dict[str, Dataset]]] = None,
-        tokenizer: Optional[PreTrainedTokenizerBase] = None,
-        model_init: Optional[Callable[[], PreTrainedModel]] = None,
-        callbacks: Optional[List[TrainerCallback]] = None,
-        optimizers: Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
-        preprocess_logits_for_metrics: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
-        peft_config: Optional[Dict] = None,
-        compute_metrics: Optional[Callable[[EvalLoopOutput], Dict]] = None,
+        model: PreTrainedModel | nn.Module | str | None = None,
+        args: ORPOConfig | None = None,
+        data_collator: DataCollator | None = None,
+        train_dataset: Dataset | None = None,
+        eval_dataset: Dataset | dict[str, Dataset] | None = None,
+        tokenizer: PreTrainedTokenizerBase | None = None,
+        model_init: Callable[[], PreTrainedModel] | None = None,
+        callbacks: list[TrainerCallback] | None = None,
+        optimizers: tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
+        preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+        peft_config: dict | None = None,
+        compute_metrics: Callable[[EvalLoopOutput], dict] | None = None,
     ):
         if not is_trl_available(required_version=TRL_VERSION):
             raise RuntimeError("Using NeuronORPOTrainer requires the trl library.")
@@ -2031,8 +2031,8 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
             self.model.add_model_tags(self._tag_names)
 
     def concatenated_forward(
-        self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]
-    ) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+        self, model: nn.Module, batch: dict[str, list | torch.LongTensor]
+    ) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         concatenated_batch = self.concatenated_inputs(
             batch,
             is_encoder_decoder=self.is_encoder_decoder,
@@ -2112,7 +2112,7 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
         self,
         policy_chosen_logps: torch.FloatTensor,
         policy_rejected_logps: torch.FloatTensor,
-    ) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+    ) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         # Neuron-specific change compared to the original implementation in `trl`, the original implementation is:
         #
         # Derived from Eqs. (4) and (7) from https://huggingface.co/papers/2403.07691 by using log identities and exp(log(P(y|x)) = P(y|x)

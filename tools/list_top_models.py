@@ -1,5 +1,4 @@
 import argparse
-from typing import Optional
 
 from huggingface_hub import HfApi
 
@@ -11,10 +10,10 @@ class ModelStats(HfApi):
 
     def __init__(
         self,
-        limit: Optional[int] = 20,
-        sort: Optional[Sort] = Sort.TRENDING,
-        model_name: Optional[str] = None,
-        task: Optional[str] = None,
+        limit: int | None = 20,
+        sort: Sort | None = Sort.TRENDING,
+        model_name: str | None = None,
+        task: str | None = None,
     ):
         super().__init__()
         self.models = list(self.list_models(filter=model_name, task=task, limit=limit, sort=sort, full=True))

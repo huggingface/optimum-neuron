@@ -14,7 +14,6 @@
 # limitations under the License.
 # Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/modules/autobucketing.py
 from math import log2
-from typing import List
 
 import torch
 
@@ -35,7 +34,7 @@ def generate_buckets(min_length: int, max_length: int):
 
 @torch.jit.script
 def generation_model_bk(
-    tensors: List[torch.Tensor], buckets: torch.Tensor, padding_side: str, speculation_length: int
+    tensors: list[torch.Tensor], buckets: torch.Tensor, padding_side: str, speculation_length: int
 ):
     """
     The Bucket Kernel for Token Generation Models.
@@ -81,7 +80,7 @@ def get_generation_model_bk():
 
 
 @torch.jit.script
-def context_encoder_bk(tensors: List[torch.Tensor], buckets, padding_side: str, pad_token: int):
+def context_encoder_bk(tensors: list[torch.Tensor], buckets, padding_side: str, pad_token: int):
     """
     The Bucket Kernel for Context Encoding Models.
 

@@ -18,7 +18,8 @@ import functools
 import gc
 import inspect
 import itertools
-from typing import TYPE_CHECKING, Callable, Dict, Optional, Union
+import os
+from typing import TYPE_CHECKING, Callable
 
 import accelerate
 import torch
@@ -75,9 +76,9 @@ _ORIG_TORCH_FINFO = torch.finfo
 
 
 def torch_xla_safe_save_file(
-    tensors: Dict[str, torch.Tensor],
-    filename: Union[str, "os.PathLike"],
-    metadata: Optional[Dict[str, str]] = None,
+    tensors: dict[str, torch.Tensor],
+    filename: str | os.PathLike,
+    metadata: dict[str, str] | None = None,
     master_only: bool = True,
     global_master: bool = False,
 ):
@@ -158,7 +159,7 @@ def patched_gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=No
         self.enable_input_require_grads()
 
 
-def apply_activation_checkpointing(model: Union["PreTrainedModel", "NxDPPModel", "NeuronPeftModel"]):
+def apply_activation_checkpointing(model: "PreTrainedModel | NxDPPModel | NeuronPeftModel"):
     from neuronx_distributed.pipeline import NxDPPModel
     from neuronx_distributed.utils.activation_checkpoint import (
         apply_activation_checkpointing as nxd_apply_activation_checkpointing,

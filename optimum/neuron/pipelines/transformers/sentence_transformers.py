@@ -1,5 +1,3 @@
-from typing import Dict
-
 from transformers.pipelines.base import GenericTensor, Pipeline
 
 from optimum.utils import is_sentence_transformers_available
@@ -56,7 +54,7 @@ class FeatureExtractionPipeline(Pipeline):
 
         return preprocess_params, {}, postprocess_params
 
-    def preprocess(self, inputs, **tokenize_kwargs) -> Dict[str, GenericTensor]:
+    def preprocess(self, inputs, **tokenize_kwargs) -> dict[str, GenericTensor]:
         model_inputs = self.tokenizer(inputs, return_tensors=self.framework, **tokenize_kwargs)
         return model_inputs
 
@@ -82,7 +80,7 @@ class FeatureExtractionPipeline(Pipeline):
         Extract the features of the input(s).
 
         Args:
-            args (`str` or `List[str]`): One or several texts (or one list of texts) to get the features of.
+            args (`str` or `list[str]`): One or several texts (or one list of texts) to get the features of.
 
         Return:
             A nested list of `float`: The features computed by the model.

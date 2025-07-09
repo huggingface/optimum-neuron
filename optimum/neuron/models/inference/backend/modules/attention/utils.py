@@ -14,7 +14,7 @@
 # limitations under the License.
 # Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/modules/attention/utils.py
 import math
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import torch
 import torch_xla.core.xla_model as xm
@@ -31,7 +31,7 @@ torch.manual_seed(0)
 weight_cache = {}
 
 
-def _get_weight_from_state_dict(prefix: str, state_dict: Dict[str, Any]) -> torch.Tensor:
+def _get_weight_from_state_dict(prefix: str, state_dict: dict[str, Any]) -> torch.Tensor:
     if prefix in weight_cache:
         return weight_cache[prefix]
 
@@ -44,7 +44,7 @@ def _get_weight_from_state_dict(prefix: str, state_dict: Dict[str, Any]) -> torc
         raise RuntimeError(f"Cannot find {(prefix + 'weight')} in the state_dict")
 
 
-def _set_weight_to_state_dict(prefix: str, tensor: torch.Tensor, state_dict: Dict[str, Any]) -> None:
+def _set_weight_to_state_dict(prefix: str, tensor: torch.Tensor, state_dict: dict[str, Any]) -> None:
     if (prefix + "weight") in state_dict:
         state_dict[prefix + "weight"] = tensor.t()
     else:
@@ -149,7 +149,7 @@ def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0, use_scaled:
     return freqs
 
 
-def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1) -> Tuple[Tensor, Tensor]:
+def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1) -> tuple[Tensor, Tensor]:
     """Applies Rotary Position Embedding to the query and key tensors."""
 
     cos = cos.unsqueeze(unsqueeze_dim)
@@ -184,7 +184,7 @@ def apply_rotary_polar_compatible(query, key, freqs_cis):
     return query_rot.type_as(query), key_rot.type_as(key)
 
 
-def manual_softmax(prior_scores, active_scores, is_speculation) -> Tuple[Tensor, Tensor]:
+def manual_softmax(prior_scores, active_scores, is_speculation) -> tuple[Tensor, Tensor]:
     """
     simple softmax computation: denominator is the sum of exp over all vocab and only need compute numerator (exp)
     """
@@ -203,7 +203,7 @@ def manual_softmax(prior_scores, active_scores, is_speculation) -> Tuple[Tensor,
     return softmax_prior, softmax_active
 
 
-def distributed_softmax(prior_scores, active_scores) -> Tuple[Tensor, Tensor]:
+def distributed_softmax(prior_scores, active_scores) -> tuple[Tensor, Tensor]:
     """
     compute partial softmax and then gather and correct final softmax.
     """

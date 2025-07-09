@@ -15,7 +15,7 @@
 """NeuronModelForXXX classes for inference on neuron devices using the same API as Transformers."""
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import torch
 from transformers import (
@@ -108,7 +108,7 @@ class NeuronModelForFeatureExtraction(NeuronTracedModel):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        token_type_ids: Optional[torch.Tensor] = None,
+        token_type_ids: torch.Tensor | None = None,
         **kwargs,
     ):
         neuron_inputs = {
@@ -166,8 +166,8 @@ class NeuronModelForSentenceTransformers(NeuronTracedModel):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        pixel_values: Optional[torch.Tensor] = None,
-        token_type_ids: Optional[torch.Tensor] = None,
+        pixel_values: torch.Tensor | None = None,
+        token_type_ids: torch.Tensor | None = None,
         **kwargs,
     ):
         model_type = self.config.neuron["model_type"]
@@ -226,7 +226,7 @@ class NeuronModelForMaskedLM(NeuronTracedModel):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        token_type_ids: Optional[torch.Tensor] = None,
+        token_type_ids: torch.Tensor | None = None,
         **kwargs,
     ):
         neuron_inputs = {
@@ -272,7 +272,7 @@ class NeuronModelForQuestionAnswering(NeuronTracedModel):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        token_type_ids: Optional[torch.Tensor] = None,
+        token_type_ids: torch.Tensor | None = None,
         **kwargs,
     ):
         neuron_inputs = {
@@ -320,7 +320,7 @@ class NeuronModelForSequenceClassification(NeuronTracedModel):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        token_type_ids: Optional[torch.Tensor] = None,
+        token_type_ids: torch.Tensor | None = None,
         **kwargs,
     ):
         neuron_inputs = {
@@ -367,7 +367,7 @@ class NeuronModelForTokenClassification(NeuronTracedModel):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        token_type_ids: Optional[torch.Tensor] = None,
+        token_type_ids: torch.Tensor | None = None,
         **kwargs,
     ):
         neuron_inputs = {
@@ -415,7 +415,7 @@ class NeuronModelForMultipleChoice(NeuronTracedModel):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        token_type_ids: Optional[torch.Tensor] = None,
+        token_type_ids: torch.Tensor | None = None,
         **kwargs,
     ):
         neuron_inputs = {
@@ -451,7 +451,7 @@ class NeuronModelForImageClassification(NeuronTracedModel):
     auto_model_class = AutoModelForImageClassification
 
     @property
-    def dtype(self) -> Optional["torch.dtype"]:
+    def dtype(self) -> "torch.dtype | None":
         """
         Torch dtype of the inputs to avoid error in transformers on casting a BatchFeature to type None.
         """
@@ -498,7 +498,7 @@ class NeuronModelForSemanticSegmentation(NeuronTracedModel):
     auto_model_class = AutoModelForSemanticSegmentation
 
     @property
-    def dtype(self) -> Optional["torch.dtype"]:
+    def dtype(self) -> "torch.dtype | None":
         """
         Torch dtype of the inputs to avoid error in transformers on casting a BatchFeature to type None.
         """
@@ -545,7 +545,7 @@ class NeuronModelForObjectDetection(NeuronTracedModel):
     auto_model_class = AutoModelForObjectDetection
 
     @property
-    def dtype(self) -> Optional["torch.dtype"]:
+    def dtype(self) -> "torch.dtype | None":
         """
         Torch dtype of the inputs to avoid error in transformers on casting a BatchFeature to type None.
         """

@@ -15,7 +15,6 @@
 import os
 import re
 from pathlib import Path
-from typing import List, Optional, Union
 from uuid import uuid4
 
 from huggingface_hub import (
@@ -62,8 +61,8 @@ if _DISABLE_IS_PRIVATE_REPO_CHECK:
 
 
 def load_custom_cache_repo_name_from_hf_home(
-    hf_home_cache_repo_file: Union[str, Path] = HF_HOME_CACHE_REPO_FILE,
-) -> Optional[str]:
+    hf_home_cache_repo_file: str | Path = HF_HOME_CACHE_REPO_FILE,
+) -> str | None:
     if Path(hf_home_cache_repo_file).exists():
         with open(hf_home_cache_repo_file, "r") as fp:
             repo_id = fp.read()
@@ -72,7 +71,7 @@ def load_custom_cache_repo_name_from_hf_home(
 
 
 def set_custom_cache_repo_name_in_hf_home(
-    repo_id: str, hf_home: str = HF_HOME, check_repo: bool = True, api: Optional[HfApi] = None
+    repo_id: str, hf_home: str = HF_HOME, check_repo: bool = True, api: HfApi | None = None
 ):
     hf_home_cache_repo_file = f"{hf_home}/{CACHE_REPO_FILENAME}"
     if api is None:
@@ -163,7 +162,7 @@ def has_write_access_to_repo(repo_id: str) -> bool:
     return has_access
 
 
-def get_hf_hub_cache_repos(log_warnings: bool = False) -> List[str]:
+def get_hf_hub_cache_repos(log_warnings: bool = False) -> list[str]:
     """
     Retrieves the name of the Hugging Face Hub model repo to use as remote cache.
     Priority:
@@ -206,7 +205,7 @@ def get_hf_hub_cache_repo(log_warnings: bool = False) -> str:
     return get_hf_hub_cache_repos(log_warnings=log_warnings)[0]
 
 
-def get_neuron_cache_path() -> Optional[Path]:
+def get_neuron_cache_path() -> Path | None:
     # NEURON_CC_FLAGS is the environment variable read by the neuron compiler.
     # Among other things, this is where the cache directory is specified.
     neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
@@ -222,7 +221,7 @@ def get_neuron_cache_path() -> Optional[Path]:
         return path
 
 
-def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: bool = False):
+def set_neuron_cache_path(neuron_cache_path: str | Path, ignore_no_cache: bool = False):
     # NEURON_CC_FLAGS is the environment variable read by the neuron compiler.
     # Among other things, this is where the cache directory is specified.
     neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
@@ -259,7 +258,7 @@ def get_num_neuron_cores_used() -> int:
     return int(os.environ.get("WORLD_SIZE", "1"))
 
 
-def list_files_in_neuron_cache(neuron_cache_path: Union[str, Path], only_relevant_files: bool = False) -> List[Path]:
+def list_files_in_neuron_cache(neuron_cache_path: str | Path, only_relevant_files: bool = False) -> list[Path]:
     if isinstance(neuron_cache_path, str):
         neuron_cache_path = Path(neuron_cache_path)
     files = [path for path in neuron_cache_path.glob("**/*") if path.is_file()]
@@ -268,7 +267,7 @@ def list_files_in_neuron_cache(neuron_cache_path: Union[str, Path], only_relevan
     return files
 
 
-def get_model_name_or_path(config: "PretrainedConfig") -> Optional[str]:
+def get_model_name_or_path(config: "PretrainedConfig") -> str | None:
     attribute_names_to_try = ["_model_name_or_path", "_name_or_path"]
     model_name_or_path = None
     for name in attribute_names_to_try:

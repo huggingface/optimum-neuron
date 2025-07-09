@@ -18,7 +18,6 @@ import os
 import sys
 import warnings
 from dataclasses import dataclass, field
-from typing import Optional
 
 import evaluate
 import numpy as np
@@ -79,21 +78,21 @@ class DataTrainingArguments:
     them on the command line.
     """
 
-    dataset_name: Optional[str] = field(
+    dataset_name: str | None = field(
         default=None,
         metadata={
             "help": "Name of a dataset from the hub (could be your own, possibly private dataset hosted on the hub)."
         },
     )
-    dataset_config_name: Optional[str] = field(
+    dataset_config_name: str | None = field(
         default=None, metadata={"help": "The configuration name of the dataset to use (via the datasets library)."}
     )
-    train_dir: Optional[str] = field(default=None, metadata={"help": "A folder containing the training data."})
-    validation_dir: Optional[str] = field(default=None, metadata={"help": "A folder containing the validation data."})
-    train_val_split: Optional[float] = field(
+    train_dir: str | None = field(default=None, metadata={"help": "A folder containing the training data."})
+    validation_dir: str | None = field(default=None, metadata={"help": "A folder containing the validation data."})
+    train_val_split: float | None = field(
         default=0.15, metadata={"help": "Percent to split off of train for validation."}
     )
-    max_train_samples: Optional[int] = field(
+    max_train_samples: int | None = field(
         default=None,
         metadata={
             "help": (
@@ -102,7 +101,7 @@ class DataTrainingArguments:
             )
         },
     )
-    max_eval_samples: Optional[int] = field(
+    max_eval_samples: int | None = field(
         default=None,
         metadata={
             "help": (
@@ -129,14 +128,14 @@ class ModelArguments:
         default="google/vit-base-patch16-224-in21k",
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"},
     )
-    model_type: Optional[str] = field(
+    model_type: str | None = field(
         default=None,
         metadata={"help": "If training from scratch, pass a model type from the list: " + ", ".join(MODEL_TYPES)},
     )
-    config_name: Optional[str] = field(
+    config_name: str | None = field(
         default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
     )
-    cache_dir: Optional[str] = field(
+    cache_dir: str | None = field(
         default=None, metadata={"help": "Where do you want to store the pretrained models downloaded from s3"}
     )
     model_revision: str = field(

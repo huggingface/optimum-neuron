@@ -1,6 +1,6 @@
 import copy
 import logging
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 import torch
 from transformers.generation import (
@@ -47,10 +47,10 @@ class TokenSelector:
         mode: GenerationMode,
         logits_processor: LogitsProcessorList,
         stopping_criteria: StoppingCriteriaList,
-        eos_token_ids: List[int],
+        eos_token_ids: list[int],
         pad_token_id: int,
-        logits_warper: Optional[LogitsProcessorList] = None,
-        seed: Optional[int] = 0,
+        logits_warper: LogitsProcessorList | None = None,
+        seed: int | None = 0,
     ):
         self.mode = mode
         self.logits_processor = logits_processor
@@ -68,9 +68,9 @@ class TokenSelector:
         generation_config: GenerationConfig,
         model: GenerationMixin,
         max_seq_length: int,
-        stopping_criteria: Optional[StoppingCriteriaList] = None,
-        tokenizer: Optional["PreTrainedTokenizer"] = None,
-        seed: Optional[int] = 0,
+        stopping_criteria: StoppingCriteriaList | None = None,
+        tokenizer: "PreTrainedTokenizer | None" = None,
+        seed: int | None = 0,
     ) -> "TokenSelector":
         r"""Creates the `TokenSelector` for a specific generation configuration.
 
@@ -83,12 +83,12 @@ class TokenSelector:
                 The model provides the internal helpers allowing to select the logits processors and stopping criterias.
             max_seq_length (`int`):
                 The maximum number of input + generated tokens for this model. It depends on the model compilation parameters.
-            stopping_criteria (`Optional[transformers.generation.StoppingCriteriaList], defaults to `None`):
+            stopping_criteria (`transformers.generation.StoppingCriteriaList | None, defaults to `None`):
                 Custom stopping criteria that complement the default stopping criteria built from arguments and a
                 generation config
-            tokenizer (`Optional[transformers.PreTrainedTokenizer]`, default to `None`):
+            tokenizer (`transformers.PreTrainedTokenizer | None`, default to `None`):
                 A tokenizer used when stop strings are passed to generate.
-            seed(`Optional[int]`):
+            seed(`int | None`):
                 The optional seed for sampling. Defaults to zero.
         Return:
             `torch.LongTensor`: A `torch.LongTensor` containing the selected tokens.

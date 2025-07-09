@@ -14,7 +14,7 @@
 # limitations under the License.
 """Dummy input generation classes."""
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import torch
 
@@ -139,12 +139,12 @@ class DummyControNetInputGenerator(DummyInputGenerator):
         task: str,
         normalized_config: NormalizedTextConfig,
         batch_size: int,
-        sequence_length: Optional[int] = None,
-        num_channels: Optional[int] = None,
-        height: Optional[int] = None,
-        width: Optional[int] = None,
-        vae_scale_factor: Optional[int] = None,
-        encoder_hidden_size: Optional[int] = None,
+        sequence_length: int | None = None,
+        num_channels: int | None = None,
+        height: int | None = None,
+        width: int | None = None,
+        vae_scale_factor: int | None = None,
+        encoder_hidden_size: int | None = None,
         **kwargs,
     ):
         self.task = task
@@ -223,7 +223,7 @@ class DummyIPAdapterInputGenerator(DummyInputGenerator):
         task: str,
         normalized_config: NormalizedTextConfig,
         batch_size: int,
-        image_encoder_shapes: Optional["ImageEncoderArguments"] = None,
+        image_encoder_shapes: "ImageEncoderArguments | None" = None,
         **kwargs,
     ):
         self.task = task

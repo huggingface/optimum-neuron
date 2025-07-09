@@ -17,7 +17,6 @@ import logging
 import math
 import warnings
 from enum import Enum
-from typing import Optional, Tuple
 
 import torch
 from torch import Tensor, nn
@@ -76,10 +75,10 @@ class NeuronAttentionBase(nn.Module):
         self,
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
-        tensor_model_parallel_group: Optional[ProcessGroup] = None,
+        tensor_model_parallel_group: ProcessGroup | None = None,
         qkv_proj_bias: bool = False,
         o_proj_bias: bool = False,
-        qk_scale: Optional[float] = None,
+        qk_scale: float | None = None,
     ):
         if not parallel_state.model_parallel_is_initialized():
             raise ValueError(
@@ -373,14 +372,14 @@ class NeuronAttentionBase(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Tuple[torch.Tensor]] = None,
-        active_mask: Optional[torch.LongTensor] = None,
-        cos_cache: Optional[torch.Tensor] = None,
-        sin_cache: Optional[torch.Tensor] = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_value: tuple[torch.Tensor] | None = None,
+        active_mask: torch.LongTensor | None = None,
+        cos_cache: torch.Tensor | None = None,
+        sin_cache: torch.Tensor | None = None,
         rmsnorm=None,
-    ) -> Tuple[Tensor, Optional[Tuple[Tensor, Tensor]]]:
+    ) -> tuple[Tensor, tuple[Tensor, Tensor] | None]:
         """Implements each layer's forward pass for the attention block."""
         bsz, q_len, _ = hidden_states.size()
         if self.sequence_parallel_enabled:
@@ -448,6 +447,6 @@ class NeuronAttentionBase(nn.Module):
         # Z = Z.Wo
         attn_output = self.o_proj(attn_output)
 
-        past_key_value: Tuple[Tensor, Tensor] = (K, V)
+        past_key_value: tuple[Tensor, Tensor] = (K, V)
 
         return attn_output, past_key_value, cos_cache, sin_cache

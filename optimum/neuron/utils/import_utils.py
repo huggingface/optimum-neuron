@@ -15,7 +15,6 @@
 """Import utilities."""
 
 import importlib.util
-from typing import Optional
 
 from packaging import version
 
@@ -32,7 +31,7 @@ def is_neuronx_available() -> bool:
     return importlib.util.find_spec("torch_neuronx") is not None
 
 
-def is_accelerate_available(min_version: Optional[str] = MIN_ACCELERATE_VERSION) -> bool:
+def is_accelerate_available(min_version: str | None = MIN_ACCELERATE_VERSION) -> bool:
     _accelerate_available = importlib.util.find_spec("accelerate") is not None
     if min_version is not None:
         if _accelerate_available:
@@ -49,7 +48,7 @@ def is_torch_neuronx_available() -> bool:
     return importlib.util.find_spec("torch_neuronx") is not None
 
 
-def is_trl_available(required_version: Optional[str] = None) -> bool:
+def is_trl_available(required_version: str | None = None) -> bool:
     trl_available = importlib.util.find_spec("trl") is not None
     if trl_available:
         import trl
@@ -64,7 +63,7 @@ def is_trl_available(required_version: Optional[str] = None) -> bool:
     return False
 
 
-def is_peft_available(min_version: Optional[str] = MIN_PEFT_VERSION) -> bool:
+def is_peft_available(min_version: str | None = MIN_PEFT_VERSION) -> bool:
     _peft_available = importlib.util.find_spec("peft") is not None
     if min_version is not None:
         if _peft_available:

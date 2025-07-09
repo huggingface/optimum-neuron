@@ -14,7 +14,6 @@
 # limitations under the License.
 import logging
 import os
-from typing import List
 
 import torch
 import torch.nn.functional as F
@@ -37,7 +36,7 @@ SPECULATION_MODEL_TAG = "speculation_model"
 
 
 def get_bucket_model_config_from_tag(
-    tag, config: PretrainedConfig, neuron_config: NxDNeuronConfig, buckets: List[int]
+    tag, config: PretrainedConfig, neuron_config: NxDNeuronConfig, buckets: list[int]
 ):
     bucket_degree = len(buckets)
     if bucket_degree == 1:
@@ -81,7 +80,7 @@ class NxDDecoderWrapper(NxDModelWrapper):
         self,
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
-        buckets: List[int],
+        buckets: list[int],
         bucket_n_active_tokens: bool,
         model_cls,
         tag="",
@@ -287,7 +286,7 @@ class NxDDecoderWrapper(NxDModelWrapper):
 
 class DecoderModelInstance(BaseModelInstance):
     def __init__(
-        self, model_cls, config: PretrainedConfig, neuron_config: NxDNeuronConfig, buckets: List[int], **kwargs
+        self, model_cls, config: PretrainedConfig, neuron_config: NxDNeuronConfig, buckets: list[int], **kwargs
     ):
         self.model_cls = model_cls
         self.module = None

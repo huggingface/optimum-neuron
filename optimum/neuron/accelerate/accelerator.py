@@ -22,7 +22,7 @@ import sys
 import warnings
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable
 
 import torch
 from accelerate import Accelerator
@@ -79,9 +79,9 @@ class NeuronAccelerator(Accelerator):
     def __init__(
         self,
         *args,
-        trn_config: Optional[TrainingNeuronConfig] = None,
+        trn_config: TrainingNeuronConfig | None = None,
         zero_1: bool = False,
-        autocast_backend: Union[str, AutocastBackend] = "xla",
+        autocast_backend: str | AutocastBackend = "xla",
         **kwargs,
     ):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
@@ -184,7 +184,7 @@ class NeuronAccelerator(Accelerator):
         return distributed_dataloader
 
     def prepare_data_loader(
-        self, data_loader: DataLoader, device_placement: Optional[bool] = None, use_mp_device_loader: bool = False
+        self, data_loader: DataLoader, device_placement: bool | None = None, use_mp_device_loader: bool = False
     ):
         force_drop_last = False
         if self.state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
@@ -245,7 +245,7 @@ class NeuronAccelerator(Accelerator):
         return zero_1_optimizer
 
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
-    def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement: Optional[bool] = None):
+    def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement: bool | None = None):
         if self.zero_1:
             optimizer = self._prepare_optimizer_for_zero_1(optimizer, device_placement=device_placement)
         return super().prepare_optimizer(optimizer, device_placement=device_placement)
@@ -281,7 +281,7 @@ class NeuronAccelerator(Accelerator):
         return model
 
     def prepare_model(
-        self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
+        self, model: torch.nn.Module, device_placement: bool | None = None, evaluation_mode: bool = False
     ):
         # If the model was already prepared, we skip.
         if model in self._models:
@@ -349,7 +349,7 @@ class NeuronAccelerator(Accelerator):
             loss.backward(**kwargs)
 
     @contextlib.contextmanager
-    def autocast(self, cache_enabled: bool = False, autocast_handler: Optional[AutocastKwargs] = None):
+    def autocast(self, cache_enabled: bool = False, autocast_handler: AutocastKwargs | None = None):
         if cache_enabled:
             warnings.warn(
                 "Passing `cache_enabled=True` to `accelerator.autocast` is deprecated and will be removed in v0.23.0. "
@@ -390,11 +390,11 @@ class NeuronAccelerator(Accelerator):
 
     def _custom_save_state(
         self,
-        save_model_func: Optional[Callable[["Accelerator", "PreTrainedModel", Union[str, Path], int], Any]],
+        save_model_func: Callable[["Accelerator", "PreTrainedModel", str | Path | None | int, Any], None],
         save_optimizer_func: Callable[
-            ["Accelerator", "torch.optim.Optimizer", "PreTrainedModel", Union[str, Path], int], Any
+            ["Accelerator", "torch.optim.Optimizer", "PreTrainedModel", str | Path, int], Any
         ],
-        output_dir: Optional[str] = None,
+        output_dir: str | None = None,
         safe_serialization: bool = True,
         **save_model_func_kwargs: Any,
     ) -> str:
@@ -475,7 +475,7 @@ class NeuronAccelerator(Accelerator):
         self.project_configuration.iteration += 1
         return save_location
 
-    def save_state_for_mp(self, output_dir: Optional[str] = None, **save_model_func_kwargs):
+    def save_state_for_mp(self, output_dir: str | None = None, **save_model_func_kwargs):
         # The model is saved at the same time as the optimizer.
         save_model_func = None
 
@@ -494,7 +494,7 @@ class NeuronAccelerator(Accelerator):
         )
 
     def save_state(
-        self, output_dir: Optional[str] = None, safe_serialization: bool = True, **save_model_func_kwargs
+        self, output_dir: str | None = None, safe_serialization: bool = True, **save_model_func_kwargs
     ) -> str:
         if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             return self.save_state_for_mp(output_dir=output_dir, **save_model_func_kwargs)

@@ -15,7 +15,6 @@
 """BERT model on Neuron devices."""
 
 import logging
-from typing import Optional
 
 import torch
 from transformers import (
@@ -75,7 +74,7 @@ class NeuronBertModel(NeuronTracedModel):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        token_type_ids: Optional[torch.Tensor] = None,
+        token_type_ids: torch.Tensor | None = None,
         **kwargs,
     ):
         neuron_inputs = {
@@ -123,7 +122,7 @@ class NeuronBertForMaskedLM(NeuronTracedModel):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        token_type_ids: Optional[torch.Tensor] = None,
+        token_type_ids: torch.Tensor | None = None,
         **kwargs,
     ):
         neuron_inputs = {
@@ -166,7 +165,7 @@ class NeuronBertForQuestionAnswering(NeuronTracedModel):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        token_type_ids: Optional[torch.Tensor] = None,
+        token_type_ids: torch.Tensor | None = None,
         **kwargs,
     ):
         neuron_inputs = {
@@ -210,7 +209,7 @@ class NeuronBertForSequenceClassification(NeuronTracedModel):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        token_type_ids: Optional[torch.Tensor] = None,
+        token_type_ids: torch.Tensor | None = None,
         **kwargs,
     ):
         neuron_inputs = {
@@ -253,7 +252,7 @@ class NeuronBertForTokenClassification(NeuronTracedModel):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        token_type_ids: Optional[torch.Tensor] = None,
+        token_type_ids: torch.Tensor | None = None,
         **kwargs,
     ):
         neuron_inputs = {
@@ -297,7 +296,7 @@ class NeuronBertForMultipleChoice(NeuronTracedModel):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        token_type_ids: Optional[torch.Tensor] = None,
+        token_type_ids: torch.Tensor | None = None,
         **kwargs,
     ):
         neuron_inputs = {

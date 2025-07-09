@@ -24,7 +24,7 @@ import warnings
 from dataclasses import asdict
 from pathlib import Path
 from threading import Thread
-from typing import Callable, Dict, Literal, Optional, Type, Union
+from typing import Callable, Literal, Type
 
 import neuronx_distributed
 import torch
@@ -108,7 +108,7 @@ logger = logging.get_logger(__name__)
 
 MODEL_PARALLEL_SHARDS_DIR_NAME = "shards"
 
-ALL_ATTENTION_FUNCTIONS: Dict[str, Dict[str, Callable]] = {
+ALL_ATTENTION_FUNCTIONS: dict[str, dict[str, Callable]] = {
     "flash_attention_2": nki_flash_attn_func,
 }
 
@@ -163,9 +163,9 @@ def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):
 
 class NeuronModelMixin:
     SUPPORTS_PIPELINE_PARALLELISM: bool = False
-    PIPELINE_TRANSFORMER_LAYER_CLS: Optional[Type] = None
-    PIPELINE_INPUT_NAMES: Optional[list[str]] = None
-    PIPELINE_LEAF_MODULE_CLASSE_NAMES: Optional[list[str]] = None
+    PIPELINE_TRANSFORMER_LAYER_CLS: Type | None = None
+    PIPELINE_INPUT_NAMES: list[str] | None = None
+    PIPELINE_LEAF_MODULE_CLASSE_NAMES: list[str] | None = None
 
     @classmethod
     def supports_pipeline_parallelism(cls) -> bool:
@@ -196,8 +196,8 @@ class NeuronModelMixin:
     def _check_and_enable_flash_attn_2(
         cls,
         config,
-        torch_dtype: Optional[torch.dtype] = None,
-        device_map: Optional[Union[str, Dict[str, int]]] = None,
+        torch_dtype: torch.dtype | None = None,
+        device_map: str | dict[str, int] | None = None,
         check_device_map: bool = True,
         hard_check_only: bool = False,
     ) -> PretrainedConfig:
@@ -250,8 +250,8 @@ class NeuronModelMixin:
         cls,
         config,
         use_flash_attention_2: bool = False,
-        torch_dtype: Optional[torch.dtype] = None,
-        device_map: Optional[Union[str, Dict[str, int]]] = None,
+        torch_dtype: torch.dtype | None = None,
+        device_map: str | dict[str, int] | None = None,
         check_device_map: bool = True,
     ):
         """
@@ -761,17 +761,17 @@ class NeuronModelMixin:
     @classmethod
     def from_pretrained(
         cls: Type[SpecificPreTrainedModelType],
-        pretrained_model_name_or_path: Optional[Union[str, os.PathLike]],
+        pretrained_model_name_or_path: str | os.PathLike | None,
         trn_config: TrainingNeuronConfig,
         *model_args,
-        config: Optional[Union[PretrainedConfig, str, os.PathLike]] = None,
-        cache_dir: Optional[Union[str, os.PathLike]] = None,
+        config: PretrainedConfig | str | os.PathLike | None = None,
+        cache_dir: str | os.PathLike | None = None,
         ignore_mismatched_sizes: bool = False,
         force_download: bool = False,
         local_files_only: bool = False,
-        token: Optional[Union[str, bool]] = None,
+        token: str | bool | None = None,
         revision: str = "main",
-        use_safetensors: Optional[bool] = None,
+        use_safetensors: bool | None = None,
         weights_only: bool = True,
         **kwargs,
     ) -> SpecificPreTrainedModelType:
@@ -1457,17 +1457,17 @@ class NeuronModelMixin:
 
     def save_pretrained(
         self,
-        save_directory: Union[str, os.PathLike],
-        is_main_process: Union[bool, Literal["auto"]] = "auto",
-        state_dict: Optional[dict] = None,
+        save_directory: str | os.PathLike,
+        is_main_process: bool | Literal["auto"] = "auto",
+        state_dict: dict | None = None,
         save_function: Callable = torch.save,
         push_to_hub: bool = False,
-        max_shard_size: Union[int, str] = "5GB",
+        max_shard_size: int | str = "5GB",
         safe_serialization: bool = False,
-        variant: Optional[str] = None,
-        token: Optional[Union[str, bool]] = None,
+        variant: str | None = None,
+        token: str | bool | None = None,
         save_peft_format: bool = True,
-        optimizer: Optional[torch.optim.Optimizer] = None,
+        optimizer: torch.optim.Optimizer | None = None,
         **kwargs,
     ):
         if is_precompilation():
@@ -1580,10 +1580,10 @@ class NeuronModelMixin:
 
     def resize_token_embeddings(
         self,
-        new_num_tokens: Optional[int] = None,
-        pad_to_multiple_of: Optional[int] = None,
+        new_num_tokens: int | None = None,
+        pad_to_multiple_of: int | None = None,
         mean_resizing: bool = False,
-    ) -> Union[nn.Embedding, "ParallelEmbedding"]:
+    ) -> "nn.Embedding | ParallelEmbedding":
         embeddings = super().resize_token_embeddings(new_num_tokens, pad_to_multiple_of, mean_resizing)
         # The way the vocab size by the main method is wrong when using ParallelEmbedding.
         # So we reset it here.
@@ -1593,9 +1593,9 @@ class NeuronModelMixin:
 
     def _get_resized_embeddings(
         self,
-        old_embeddings: Union[nn.Embedding, ParallelEmbedding],
-        new_num_tokens: Optional[int] = None,
-        pad_to_multiple_of: Optional[int] = None,
+        old_embeddings: nn.Embedding | ParallelEmbedding,
+        new_num_tokens: int | None = None,
+        pad_to_multiple_of: int | None = None,
         mean_resizing: bool = False,
     ):
         """
@@ -1612,8 +1612,8 @@ class NeuronModelMixin:
 
     def _get_resized_lm_head(
         self,
-        old_lm_head: Union[nn.Linear, ColumnParallelLinear],
-        new_num_tokens: Optional[int] = None,
+        old_lm_head: nn.Linear | ColumnParallelLinear,
+        new_num_tokens: int | None = None,
         transposed: bool = False,
         mean_resizing: bool = False,
     ):
@@ -1630,8 +1630,8 @@ class NeuronModelMixin:
     def _get_resized_parallel_embeddings(
         self,
         old_embeddings: ParallelEmbedding,
-        new_num_tokens: Optional[int] = None,
-        pad_to_multiple_of: Optional[int] = None,
+        new_num_tokens: int | None = None,
+        pad_to_multiple_of: int | None = None,
         mean_resizing: bool = False,
     ) -> ParallelEmbedding:
         """
@@ -1719,8 +1719,8 @@ class NeuronModelMixin:
     def _get_resized_parallel_lm_head(
         self,
         old_lm_head: ColumnParallelLinear,
-        new_num_tokens: Optional[int] = None,
-        transposed: Optional[bool] = False,
+        new_num_tokens: int | None = None,
+        transposed: bool | None = False,
         mean_resizing: bool = False,
     ) -> ColumnParallelLinear:
         """
