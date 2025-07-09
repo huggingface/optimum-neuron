@@ -77,7 +77,7 @@ _import_structure = {
 }
 
 # Model structures
-_import_structure["models.bert"] = [
+_import_structure["models.inference.bert"] = [
     "NeuronBertModel",
     "NeuronBertForMaskedLM",
     "NeuronBertForQuestionAnswering",
@@ -85,9 +85,9 @@ _import_structure["models.bert"] = [
     "NeuronBertForTokenClassification",
     "NeuronBertForMultipleChoice",
 ]
-_import_structure["models.clip"] = ["NeuronCLIPModel", "NeuronCLIPForImageClassification"]
-_import_structure["models.whisper"] = ["NeuronWhisperForConditionalGeneration"]
-_import_structure["models.yolos"] = ["NeuronYolosForObjectDetection"]
+_import_structure["models.inference.clip"] = ["NeuronCLIPModel", "NeuronCLIPForImageClassification"]
+_import_structure["models.inference.whisper"] = ["NeuronWhisperForConditionalGeneration"]
+_import_structure["models.inference.yolos"] = ["NeuronYolosForObjectDetection"]
 
 if TYPE_CHECKING:
     from .accelerate import NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
