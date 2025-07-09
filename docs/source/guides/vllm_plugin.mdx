@@ -1,0 +1,81 @@
+# optimum-neuron plugin for vLLM
+
+The `optimum-neuron` package includes a [vLLM](https://docs.vllm.ai/en/latest/) plugin
+that registers an 'optimum-neuron' vLLM platform specifically designed to ease the deployment
+ of models hosted on the Hugging Face hub to AWS Trainium and Inferentia.
+
+This platform supports two modes of operation:
+- it can be used for the inference of pre-exported Neuron models directly from the hub,
+- but it allows also the simplified deployment of vanilla models directly without recompilation using [cached artifacts](#hugging-face-neuron-cache).
+
+Notes
+- only a relevant subset of all possible configurations for a given model are cached,
+- you can use the `optimum-cli` to get all [cached configurations](https://huggingface.co/docs/optimum-neuron/guides/cache_system#neuron-model-cache-lookup-inferentia-only) for each model.
+- to deploy vanilla Hugging Face hub models that are not cached on the Hugging Face hub, it
+is still possible to use the default `neuron` platform from the vLLM package.
+
+## Setup
+
+The easiest way to use the `optimum-neuron` vLLM platform is to launch an Amazon ec2 instance using
+ the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2).
+
+Note: Trn2 instances are not supported by the `optimum-neuron` platform yet.
+
+- After launching the instance, follow the instructions in [Connect to your instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AccessingInstancesLinux.html) to connect to the instance
+- Once inside your instance, activate the pre-installed `optimum-neuron` virtual environment by running
+
+```console
+source /opt/aws_neuronx_venv_pytorch_2_7/bin/activate
+```
+
+## Offline inference example
+
+The easiest way to test a model is to use the python API:
+
+```python
+from vllm import LLM, SamplingParams
+
+prompts = [
+    "Hello, my name is",
+    "The president of the United States is",
+    "The capital of France is",
+    "The future of AI is",
+]
+sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
+
+llm = LLM(model="unsloth/Llama-3.2-1B-Instruct",
+          max_num_seqs=4,
+          max_model_len=4096,
+          tensor_parallel_size=2,
+          device="neuron")
+
+outputs = llm.generate(prompts, sampling_params)
+
+for output in outputs:
+    prompt = output.prompt
+    generated_text = output.outputs[0].text
+    print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
+```
+
+## Online inference example
+
+You can also launch an Open AI compatible inference server.
+
+```console
+python -m vllm.entrypoints.openai.api_server \
+    --model="unsloth/Llama-3.2-1B-Instruct" \
+    --max-num-seqs=4 \
+    --max-model-len=4096 \
+    --tensor-parallel-size=2 \
+    --port=8080 \
+    --device "neuron"
+```
+
+Use the following command to test the model:
+
+```console
+curl 127.0.0.1:8080/v1/completions \
+    -H 'Content-Type: application/json' \
+    -X POST \
+    -d '{"prompt":"One of my fondest memory is", "temperature": 0.8, "max_tokens":128}'
+```
