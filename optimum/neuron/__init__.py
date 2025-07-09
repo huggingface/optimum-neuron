@@ -66,7 +66,6 @@ _import_structure = {
         "NeuronModelForSeq2SeqLM",
     ],
     "models": [],
-    "models.training": ["AutoModel", "AutoModelForCausalLM"],
     "accelerate": [
         "NeuronAccelerator",
         "NeuronAcceleratorState",
@@ -137,7 +136,6 @@ if TYPE_CHECKING:
         NeuronBertModel,
     )
     from .models.clip import NeuronCLIPForImageClassification, NeuronCLIPModel
-    from .models.training import AutoModel, AutoModelForCausalLM
     from .models.whisper import NeuronWhisperForConditionalGeneration
     from .models.yolos import NeuronYolosForObjectDetection
     from .pipelines import pipeline

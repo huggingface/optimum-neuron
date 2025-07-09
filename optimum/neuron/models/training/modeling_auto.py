@@ -21,9 +21,9 @@ from ..auto_model import get_neuron_model_class
 from .config import TrainingNeuronConfig
 
 
-class _BaseAutoModelClass:
+class _BaseNeuronModelClass:
     """
-    Base auto model class for training with Neuron custom implementations.
+    Base neuron auto model class for training with Neuron custom implementations.
 
     This class provides a unified interface to load custom Neuron training models
     similar to transformers.AutoModel but specifically for training with Neuron devices.
@@ -47,9 +47,9 @@ class _BaseAutoModelClass:
         return neuron_model_class(config, trn_config)
 
 
-class AutoModel(_BaseAutoModelClass):
+class NeuronModel(_BaseNeuronModelClass):
     _task_name = "model"
 
 
-class AutoModelForCausalLM(_BaseAutoModelClass):
+class NeuronModelForCausalLM(_BaseNeuronModelClass):
     _task_name = "text-generation"
