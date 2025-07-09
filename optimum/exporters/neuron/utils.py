@@ -18,7 +18,7 @@ import copy
 import os
 from collections import OrderedDict
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any
 
 import torch
 
@@ -77,14 +77,14 @@ if TYPE_CHECKING:
 
 
 def build_stable_diffusion_components_mandatory_shapes(
-    batch_size: Optional[int] = None,
-    sequence_length: Optional[int] = None,
-    unet_or_transformer_num_channels: Optional[int] = None,
-    vae_encoder_num_channels: Optional[int] = None,
-    vae_decoder_num_channels: Optional[int] = None,
-    height: Optional[int] = None,
-    width: Optional[int] = None,
-    num_images_per_prompt: Optional[int] = 1,
+    batch_size: int | None = None,
+    sequence_length: int | None = None,
+    unet_or_transformer_num_channels: int | None = None,
+    vae_encoder_num_channels: int | None = None,
+    vae_decoder_num_channels: int | None = None,
+    height: int | None = None,
+    width: int | None = None,
+    num_images_per_prompt: int | None = 1,
 ):
     text_encoder_input_shapes = {"batch_size": batch_size, "sequence_length": sequence_length}
     vae_encoder_input_shapes = {
@@ -119,18 +119,18 @@ def build_stable_diffusion_components_mandatory_shapes(
 
 def get_diffusion_models_for_export(
     pipeline: "DiffusionPipeline",
-    text_encoder_input_shapes: Dict[str, Any],
-    unet_input_shapes: Dict[str, Any],
-    transformer_input_shapes: Dict[str, Any],
-    vae_encoder_input_shapes: Dict[str, Any],
-    vae_decoder_input_shapes: Dict[str, Any],
+    text_encoder_input_shapes: dict[str, Any],
+    unet_input_shapes: dict[str, Any],
+    transformer_input_shapes: dict[str, Any],
+    vae_encoder_input_shapes: dict[str, Any],
+    vae_decoder_input_shapes: dict[str, Any],
     lora_args: LoRAAdapterArguments,
-    dynamic_batch_size: Optional[bool] = False,
+    dynamic_batch_size: bool | None = False,
     output_hidden_states: bool = False,
-    controlnet_ids: Optional[Union[str, List[str]]] = None,
-    controlnet_input_shapes: Optional[Dict[str, Any]] = None,
-    image_encoder_input_shapes: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronDefaultConfig"]]:
+    controlnet_ids: str | list[str] | None = None,
+    controlnet_input_shapes: dict[str, Any] | None = None,
+    image_encoder_input_shapes: dict[str, Any] | None = None,
+) -> dict[str, tuple["PreTrainedModel | ModelMixin", "NeuronDefaultConfig"]]:
     """
     Returns the components of a Stable Diffusion model and their subsequent neuron configs.
     These components are chosen because they represent the bulk of the compute in the pipeline,
@@ -140,15 +140,15 @@ def get_diffusion_models_for_export(
     Args:
         pipeline ([`"DiffusionPipeline"`]):
             The model to export.
-        text_encoder_input_shapes (`Dict[str, Any]`):
+        text_encoder_input_shapes (`dict[str, Any]`):
             Static shapes used for compiling text encoder.
-        unet_input_shapes (`Dict[str, Any]`):
+        unet_input_shapes (`dict[str, Any]`):
             Static shapes used for compiling unet.
-        transformer_input_shapes (`Dict[str, Any]`):
+        transformer_input_shapes (`dict[str, Any]`):
             Static shapes used for compiling diffusion transformer.
-        vae_encoder_input_shapes (`Dict[str, Any]`):
+        vae_encoder_input_shapes (`dict[str, Any]`):
             Static shapes used for compiling vae encoder.
-        vae_decoder_input_shapes (`Dict[str, Any]`):
+        vae_decoder_input_shapes (`dict[str, Any]`):
             Static shapes used for compiling vae decoder.
         lora_args (`LoRAAdapterArguments`):
             Arguments for fetching the lora adapters, including `model_ids`, `weight_names`, `adapter_names` and `scales`.
@@ -156,16 +156,16 @@ def get_diffusion_models_for_export(
             Whether the Neuron compiled model supports dynamic batch size.
         output_hidden_states (`bool`, defaults to `False`):
             Whether or not for the traced text encoders to return the hidden states of all layers.
-        controlnet_ids (`Optional[Union[str, List[str]]]`, defaults to `None`):
+        controlnet_ids (`str | list[str] | None`, defaults to `None`):
             Model ID of one or multiple ControlNets providing additional conditioning to the `unet` during the denoising process. If you set multiple
             ControlNets as a list, the outputs from each ControlNet are added together to create one combined additional conditioning.
-        controlnet_input_shapes (`Optional[Dict[str, Any]]`, defaults to `None`):
+        controlnet_input_shapes (`dict[str, Any] | None`, defaults to `None`):
             Static shapes used for compiling ControlNets.
-        image_encoder_input_shapes (`Optional[Dict[str, Any]]`, defaults to `None`):
+        image_encoder_input_shapes (`dict[str, Any] | None`, defaults to `None`):
             Static shapes used for compiling the image encoder.
 
     Returns:
-        `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronDefaultConfig`]`: A Dict containing the model and
+        `dict[str, tuple[`PreTrainedModel` | `ModelMixin`, `NeuronDefaultConfig`]`: A dict containing the model and
         Neuron configs for the different components of the model.
     """
     models_for_export = get_submodels_for_export_diffusion(
@@ -345,7 +345,7 @@ def get_diffusion_models_for_export(
     return models_for_export
 
 
-def _load_lora_weights_to_pipeline(pipeline: "DiffusionPipeline", lora_args: Optional[LoRAAdapterArguments]):
+def _load_lora_weights_to_pipeline(pipeline: "DiffusionPipeline", lora_args: LoRAAdapterArguments | None):
     if lora_args is None:
         lora_args = LoRAAdapterArguments()
     if lora_args.model_ids and lora_args.weight_names:
@@ -370,7 +370,7 @@ def _load_lora_weights_to_pipeline(pipeline: "DiffusionPipeline", lora_args: Opt
     return pipeline
 
 
-def load_controlnets(controlnet_ids: Optional[Union[str, List[str]]] = None):
+def load_controlnets(controlnet_ids: str | list[str] | None = None):
     contronets = []
     if controlnet_ids:
         if isinstance(controlnet_ids, str):
@@ -385,8 +385,8 @@ def get_submodels_for_export_diffusion(
     pipeline: "DiffusionPipeline",
     lora_args: LoRAAdapterArguments,
     output_hidden_states: bool = False,
-    controlnet_ids: Optional[Union[str, List[str]]] = None,
-) -> Dict[str, Union["PreTrainedModel", "ModelMixin"]]:
+    controlnet_ids: str | list[str] | None = None,
+) -> dict[str, "PreTrainedModel | ModelMixin"]:
     """
     Returns the components of a Stable Diffusion model.
     """
@@ -546,13 +546,13 @@ def get_encoder_decoder_models_for_export(
     model: "PreTrainedModel",
     task: str,
     tensor_parallel_size: int,
-    input_shapes: Dict[str, int],
-    dynamic_batch_size: Optional[bool] = False,
+    input_shapes: dict[str, int],
+    dynamic_batch_size: bool | None = False,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
-    model_name_or_path: Optional[Union[str, Path]] = None,
-    preprocessors: Optional[List] = None,
-) -> Dict[str, Tuple["PreTrainedModel", "NeuronDefaultConfig"]]:
+    model_name_or_path: str | Path | None = None,
+    preprocessors: list | None = None,
+) -> dict[str, tuple["PreTrainedModel", "NeuronDefaultConfig"]]:
     """
     Returns the components of an encoder-decoder model and their subsequent neuron configs.
     The encoder includes the compute of encoder hidden states and the initialization of KV
@@ -566,7 +566,7 @@ def get_encoder_decoder_models_for_export(
             The task to export the model for. If not specified, the task will be auto-inferred based on the model.
         tensor_parallel_size (`int`):
             Tensor parallelism size, the number of Neuron cores on which to shard the model.
-        input_shapes (`Dict[str, int]`):
+        input_shapes (`dict[str, int]`):
             Static shapes used for compiling the encoder and the decoder.
         dynamic_batch_size (`bool`, defaults to `False`):
             Whether the Neuron compiled model supports dynamic batch size.
@@ -574,11 +574,11 @@ def get_encoder_decoder_models_for_export(
             Whether or not for the traced model to return the attentions tensors of all attention layers.
         output_hidden_states (`bool`, defaults to `False`):
             Whether or not for the traced model to return the hidden states of all layers.
-        model_name_or_path (`Optional[Union[str, Path]]`, defaults to `None`):
+        model_name_or_path (`str | Path | None`, defaults to `None`):
             The location from where the model is loaded, this is needed in the case of tensor parallelism, since we need to load the model within the tracing API.
 
     Returns:
-        `Dict[str, Tuple["PreTrainedModel", "NeuronDefaultConfig"]]`: A Dict containing the model and
+        `dict[str, tuple["PreTrainedModel", "NeuronDefaultConfig"]]`: A dict containing the model and
         Neuron configs for the different components of the model.
     """
     models_for_export = {}

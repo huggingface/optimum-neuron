@@ -22,7 +22,7 @@ import re
 import sys
 from abc import abstractmethod
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Literal
 
 import torch
 from neuronx_distributed.parallel_layers.layers import create_local_weight
@@ -56,7 +56,7 @@ def create_local_weight_with_padding(
     full_weight: torch.Tensor,
     partition_dim: int,
     stride: int,
-    out_weight: Optional[torch.Tensor] = None,
+    out_weight: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """
     Shards a tensor along a given axis and return a slice corresponding to the rank.
@@ -96,7 +96,7 @@ class ModelWeightTransformationSpec:
     """
 
     @property
-    def peft_type(self) -> Optional[str]:
+    def peft_type(self) -> str | None:
         if not hasattr(self, "_peft_type"):
             self._peft_type = None
         return self._peft_type
@@ -113,7 +113,7 @@ class ModelWeightTransformationSpec:
         pass
 
     @abstractmethod
-    def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
+    def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> str | None:
         """
         Guesses the PEFT type of the module associated to the spec.
         """
@@ -137,32 +137,32 @@ class ModelWeightTransformationSpec:
     def _adapt_state_dict(
         self,
         module_fully_qualified_name: str,
-        named_parameters: Dict[str, torch.nn.Parameter],
-        orig_state_dict: Dict[str, torch.Tensor],
-        upstanding_sharded_params: Dict[str, torch.Tensor],
+        named_parameters: dict[str, torch.nn.Parameter],
+        orig_state_dict: dict[str, torch.Tensor],
+        upstanding_sharded_params: dict[str, torch.Tensor],
         inplace: bool = False,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         pass
 
     @abstractmethod
     def _lora_adapt_state_dict(
         self,
         module_fully_qualified_name: str,
-        named_parameters: Dict[str, torch.nn.Parameter],
-        orig_state_dict: Dict[str, torch.Tensor],
-        upstanding_sharded_params: Dict[str, torch.Tensor],
+        named_parameters: dict[str, torch.nn.Parameter],
+        orig_state_dict: dict[str, torch.Tensor],
+        upstanding_sharded_params: dict[str, torch.Tensor],
         inplace: bool = False,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         pass
 
     def adapt_state_dict(
         self,
         module_fully_qualified_name: str,
-        named_parameters: Dict[str, torch.nn.Parameter],
-        orig_state_dict: Dict[str, torch.Tensor],
-        upstanding_sharded_params: Dict[str, torch.Tensor],
+        named_parameters: dict[str, torch.nn.Parameter],
+        orig_state_dict: dict[str, torch.Tensor],
+        upstanding_sharded_params: dict[str, torch.Tensor],
         inplace: bool = False,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         """
         Transforms the state dict from the original Transformers model to match the custom modeling implementation.
         """
@@ -191,37 +191,37 @@ class ModelWeightTransformationSpec:
     def _to_original_weights(
         self,
         module_fully_qualified_name: str,
-        sharded_state_dicts: Dict[str, list[torch.Tensor]],
-        parameters_metadata: Dict[str, Dict[str, Any]],
-    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
+        sharded_state_dicts: dict[str, list[torch.Tensor]],
+        parameters_metadata: dict[str, dict[str, Any]],
+    ) -> tuple[dict[str, torch.Tensor], list[str]]:
         pass
 
     @abstractmethod
     def _lora_to_original_weights(
         self,
         module_fully_qualified_name: str,
-        sharded_state_dicts: Dict[str, list[torch.Tensor]],
-        parameters_metadata: Dict[str, Dict[str, Any]],
-    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
+        sharded_state_dicts: dict[str, list[torch.Tensor]],
+        parameters_metadata: dict[str, dict[str, Any]],
+    ) -> tuple[dict[str, torch.Tensor], list[str]]:
         pass
 
     def to_original_weights(
         self,
         module_fully_qualified_name: str,
-        sharded_state_dicts: Dict[str, list[torch.Tensor]],
-        parameters_metadata: Dict[str, Dict[str, Any]],
-    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
+        sharded_state_dicts: dict[str, list[torch.Tensor]],
+        parameters_metadata: dict[str, dict[str, Any]],
+    ) -> tuple[dict[str, torch.Tensor], list[str]]:
         """
         Produces the weights associated to this transformation spec from the custom model to match the original
         Transformers weights.
 
         Args:
-            sharded_state_dicts (Dict[str, list[torch.Tensor]]): The sharded state dicts from the custom modeling
+            sharded_state_dicts (dict[str, list[torch.Tensor]]): The sharded state dicts from the custom modeling
                 implementation.
-            parameters_metadata (Dict[str, Dict[str, Any]]): Metadata about the parameters in the original model.
+            parameters_metadata (dict[str, dict[str, Any]]): Metadata about the parameters in the original model.
 
         Returns:
-            tuple[Dict[str, torch.Tensor], list[str]]: A tuple containing the transformed weights and a list of the
+            tuple[dict[str, torch.Tensor], list[str]]: A tuple containing the transformed weights and a list of the
             names of the parameters to remove from the final state dict.
         """
         if self.peft_type is None:
@@ -242,10 +242,10 @@ class ModelWeightTransformationSpecs:
     Defines a list of transformation specs for a given module of the model.
     """
 
-    module_fully_qualified_name: Optional[str] = None
-    specs: Union[ModelWeightTransformationSpec, list[ModelWeightTransformationSpec]] = field(default_factory=list)
+    module_fully_qualified_name: str | None = None
+    specs: ModelWeightTransformationSpec | list[ModelWeightTransformationSpec] = field(default_factory=list)
 
-    def to_metadata(self, parameters_for_current_stage: Optional[set[str]] = None) -> Dict[str, Any]:
+    def to_metadata(self, parameters_for_current_stage: set[str] | None = None) -> dict[str, Any]:
         if self.module_fully_qualified_name is None:
             raise ValueError("`module_fully_qualified_name` must be set to serialize the specs")
         serialized_specs = []
@@ -263,7 +263,7 @@ class ModelWeightTransformationSpecs:
         }
 
     @classmethod
-    def from_metadata(cls, specs_metadata: Dict[str, Any]):
+    def from_metadata(cls, specs_metadata: dict[str, Any]):
         specs = cls(module_fully_qualified_name=specs_metadata["module_fully_qualified_name"])
         for spec_metadata in specs_metadata["specs"]:
             cls_name, metadata = spec_metadata
@@ -298,9 +298,9 @@ class ModelWeightTransformationSpecs:
 
     def adapt_state_dict(
         self,
-        named_parameters: Dict[str, torch.nn.Parameter],
-        orig_state_dict: Dict[str, torch.Tensor],
-        upstanding_sharded_params: Dict[str, torch.Tensor],
+        named_parameters: dict[str, torch.nn.Parameter],
+        orig_state_dict: dict[str, torch.Tensor],
+        upstanding_sharded_params: dict[str, torch.Tensor],
         parameters_for_current_stage: set[str],
         inplace: bool = False,
     ):
@@ -323,8 +323,8 @@ class ModelWeightTransformationSpecs:
         return orig_state_dict
 
     def to_original_weights(
-        self, sharded_state_dicts: Dict[str, list[torch.Tensor]], parameters_metadata: Dict[str, Dict[str, Any]]
-    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
+        self, sharded_state_dicts: dict[str, list[torch.Tensor]], parameters_metadata: dict[str, dict[str, Any]]
+    ) -> tuple[dict[str, torch.Tensor], list[str]]:
         if self.module_fully_qualified_name is None:
             raise ValueError("`module_fully_qualified_name` must be set to adapt the state dict")
         original_weights = {}
@@ -372,7 +372,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
     fused_linear_name: str
     linear_names: list[str]
     bias: bool
-    fuse_axis: Union[Literal[0], Literal[1], Literal["column"], Literal["row"]]
+    fuse_axis: Literal[0] | Literal[1] | Literal["column"] | Literal["row"]
     original_dims: list[int]
     tp_size: int = field(default_factory=get_tensor_model_parallel_size)
 
@@ -404,7 +404,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
 
         return fused_names | original_names | lora_param_names
 
-    def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
+    def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> str | None:
         # Importing here to avoid circular imports
         from ...peft.tuners.lora.layer import ParallelLinear
 
@@ -456,11 +456,11 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
     def _adapt_state_dict(
         self,
         module_fully_qualified_name: str,
-        named_parameters: Dict[str, torch.nn.Parameter],
-        orig_state_dict: Dict[str, torch.Tensor],
-        upstanding_sharded_params: Dict[str, torch.Tensor],
+        named_parameters: dict[str, torch.nn.Parameter],
+        orig_state_dict: dict[str, torch.Tensor],
+        upstanding_sharded_params: dict[str, torch.Tensor],
         inplace: bool = False,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         tp_size = get_tensor_model_parallel_size()
         tp_rank = get_tensor_model_parallel_rank()
 
@@ -503,11 +503,11 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
     def _lora_adapt_state_dict(
         self,
         module_fully_qualified_name: str,
-        named_parameters: Dict[str, torch.nn.Parameter],
-        orig_state_dict: Dict[str, torch.Tensor],
-        upstanding_sharded_params: Dict[str, torch.Tensor],
+        named_parameters: dict[str, torch.nn.Parameter],
+        orig_state_dict: dict[str, torch.Tensor],
+        upstanding_sharded_params: dict[str, torch.Tensor],
         inplace: bool = False,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         tp_size = get_tensor_model_parallel_size()
         tp_rank = get_tensor_model_parallel_rank()
 
@@ -577,9 +577,9 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
     def _to_original_weights(
         self,
         module_fully_qualified_name: str,
-        sharded_state_dicts: Dict[str, list[torch.Tensor]],
-        parameters_metadata: Dict[str, Dict[str, Any]],
-    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
+        sharded_state_dicts: dict[str, list[torch.Tensor]],
+        parameters_metadata: dict[str, dict[str, Any]],
+    ) -> tuple[dict[str, torch.Tensor], list[str]]:
         # To recreate original weights from the fused weights we need to:
         # 1. Unfuse the sharded weights
         # 2. Concat each unsharded local weight across the partion_dim if TP is enabled
@@ -614,9 +614,9 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
     def _lora_to_original_weights(
         self,
         module_fully_qualified_name: str,
-        sharded_state_dicts: Dict[str, list[torch.Tensor]],
-        parameters_metadata: Dict[str, Dict[str, Any]],
-    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
+        sharded_state_dicts: dict[str, list[torch.Tensor]],
+        parameters_metadata: dict[str, dict[str, Any]],
+    ) -> tuple[dict[str, torch.Tensor], list[str]]:
         # To recreate original weights from the fused weights there are two cases:
         #   - Case 1: the base layer is a ColumnParallelLinear
         #   Steps:
@@ -870,7 +870,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
         num_attention_heads: int,
         num_key_value_heads: int,
         kv_size_multiplier: int,
-        query_or_output_proj: Union[Literal["query"], Literal["output"]],
+        query_or_output_proj: Literal["query"] | Literal["output"],
     ) -> torch.Tensor:
         """
         Creates the local version of the query or output projections weight for the given TP rank.
@@ -908,7 +908,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
         num_attention_heads: int,
         num_key_value_heads: int,
         kv_size_multiplier: int,
-        query_or_output: Union[Literal["query"], Literal["output"]],
+        query_or_output: Literal["query", Literal["output"]],
     ):
         assert query_or_output in ["query", "output"]
         assert full_weight.device == torch.device("cpu")
@@ -936,7 +936,7 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
 
         return full_weight
 
-    def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> Optional[str]:
+    def guess_peft_type(self, model: torch.nn.Module, module_fully_qualified_name: str) -> str | None:
         # Importing here to avoid circular imports
         from ...peft.tuners.lora.layer import GQAQKVColumnParallelLinear
 
@@ -991,11 +991,11 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
     def _adapt_state_dict(
         self,
         module_fully_qualified_name: str,
-        named_parameters: Dict[str, torch.nn.Parameter],
-        orig_state_dict: Dict[str, torch.Tensor],
-        upstanding_sharded_params: Dict[str, torch.Tensor],
+        named_parameters: dict[str, torch.nn.Parameter],
+        orig_state_dict: dict[str, torch.Tensor],
+        upstanding_sharded_params: dict[str, torch.Tensor],
         inplace: bool = False,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         if inplace:
             state_dict = orig_state_dict
         else:
@@ -1072,11 +1072,11 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
     def _lora_adapt_state_dict(
         self,
         module_fully_qualified_name: str,
-        named_parameters: Dict[str, torch.nn.Parameter],
-        orig_state_dict: Dict[str, torch.Tensor],
-        upstanding_sharded_params: Dict[str, torch.Tensor],
+        named_parameters: dict[str, torch.nn.Parameter],
+        orig_state_dict: dict[str, torch.Tensor],
+        upstanding_sharded_params: dict[str, torch.Tensor],
         inplace: bool = False,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         if inplace:
             state_dict = orig_state_dict
         else:
@@ -1187,9 +1187,9 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
     def _to_original_weights(
         self,
         module_fully_qualified_name: str,
-        sharded_state_dicts: Dict[str, list[torch.Tensor]],
-        parameters_metadata: Dict[str, Dict[str, Any]],
-    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
+        sharded_state_dicts: dict[str, list[torch.Tensor]],
+        parameters_metadata: dict[str, dict[str, Any]],
+    ) -> tuple[dict[str, torch.Tensor], list[str]]:
         state_dict = {}
         keys_to_remove = []
         param_names = ["weight", "bias"] if self.bias else ["weight"]
@@ -1279,9 +1279,9 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
     def _lora_to_original_weights(
         self,
         module_fully_qualified_name: str,
-        sharded_state_dicts: Dict[str, list[torch.Tensor]],
-        parameters_metadata: Dict[str, Dict[str, Any]],
-    ) -> tuple[Dict[str, torch.Tensor], list[str]]:
+        sharded_state_dicts: dict[str, list[torch.Tensor]],
+        parameters_metadata: dict[str, dict[str, Any]],
+    ) -> tuple[dict[str, torch.Tensor], list[str]]:
         state_dict = {}
         keys_to_remove = []
         param_names = ["weight", "bias"] if self.bias else ["weight"]
@@ -1466,8 +1466,8 @@ def specialize_transformation_specs_for_model(model: torch.nn.Module):
 
 
 def adapt_peft_config_for_model(
-    model: torch.nn.Module, peft_config: Union[PeftConfig, dict[str, PeftConfig]], inplace: bool = False
-) -> Union[PeftConfig, dict[str, PeftConfig]]:
+    model: torch.nn.Module, peft_config: PeftConfig | dict[str, PeftConfig], inplace: bool = False
+) -> PeftConfig | dict[str, PeftConfig]:
     adapted_peft_config = copy.deepcopy(peft_config) if not inplace else peft_config
     for _, mod in model.named_modules():
         if not isinstance(mod, CustomModule):
@@ -1507,7 +1507,7 @@ def is_base_layer(name: str) -> bool:
     return "base_layer" in name
 
 
-def get_adapter_name(parameter_fully_qualified_name: str) -> Optional[str]:
+def get_adapter_name(parameter_fully_qualified_name: str) -> str | None:
     match = re.match(LORA_PATTERN, parameter_fully_qualified_name)
     if match:
         return match.group("adapter_name")
@@ -1516,11 +1516,11 @@ def get_adapter_name(parameter_fully_qualified_name: str) -> Optional[str]:
 
 def adapt_state_dict(
     model: torch.nn.Module,
-    state_dict: Dict[str, torch.Tensor],
-    upstanding_sharded_params: Dict[str, torch.Tensor],
+    state_dict: dict[str, torch.Tensor],
+    upstanding_sharded_params: dict[str, torch.Tensor],
     inplace: bool = False,
     **peft_kwargs: Any,
-) -> Dict[str, torch.Tensor]:
+) -> dict[str, torch.Tensor]:
     """
     Transforms the state dict from the original Transformers model to match the custom modeling implementation.
     """
@@ -1589,10 +1589,10 @@ def adapt_state_dict(
 
 def to_original_weights(
     transformations_specs: list[ModelWeightTransformationSpecs],
-    sharded_state_dicts: Dict[str, list[torch.Tensor]],
-    parameters_metadata: Dict[str, Dict[str, Any]],
+    sharded_state_dicts: dict[str, list[torch.Tensor]],
+    parameters_metadata: dict[str, dict[str, Any]],
     **peft_kwargs: Any,
-) -> Dict[str, torch.Tensor]:
+) -> dict[str, torch.Tensor]:
     """
     Consolidates the sharded state dicts produced by saving the custom model into a single state dict that matches the
     original Transformers model weights.
@@ -1642,7 +1642,7 @@ def to_original_weights(
     return consolidated_state_dict
 
 
-def get_tensor_model_parallel_attributes(tensor: torch.Tensor) -> Dict[str, Any]:
+def get_tensor_model_parallel_attributes(tensor: torch.Tensor) -> dict[str, Any]:
     """
     Returns the tensor model parallel attributes of a tensor.
     """
@@ -1656,7 +1656,7 @@ def get_tensor_model_parallel_attributes(tensor: torch.Tensor) -> Dict[str, Any]
     }
 
 
-def create_parameter_metadata(model) -> Dict[str, Dict[str, Any]]:
+def create_parameter_metadata(model) -> dict[str, dict[str, Any]]:
     """
     Creates the metadata to be saved with the model weights to be able to reconstruct the original weights when
     consolidating the sharded state dicts.

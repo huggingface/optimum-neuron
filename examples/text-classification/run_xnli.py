@@ -23,7 +23,6 @@ import random
 import sys
 import warnings
 from dataclasses import dataclass, field
-from typing import Optional
 
 import datasets
 import evaluate
@@ -66,7 +65,7 @@ class DataTrainingArguments:
     the command line.
     """
 
-    max_seq_length: Optional[int] = field(
+    max_seq_length: int | None = field(
         default=128,
         metadata={
             "help": (
@@ -87,7 +86,7 @@ class DataTrainingArguments:
             )
         },
     )
-    max_train_samples: Optional[int] = field(
+    max_train_samples: int | None = field(
         default=None,
         metadata={
             "help": (
@@ -96,7 +95,7 @@ class DataTrainingArguments:
             )
         },
     )
-    max_eval_samples: Optional[int] = field(
+    max_eval_samples: int | None = field(
         default=None,
         metadata={
             "help": (
@@ -105,7 +104,7 @@ class DataTrainingArguments:
             )
         },
     )
-    max_predict_samples: Optional[int] = field(
+    max_predict_samples: int | None = field(
         default=None,
         metadata={
             "help": (
@@ -128,20 +127,20 @@ class ModelArguments:
     language: str = field(
         default=None, metadata={"help": "Evaluation language. Also train language if `train_language` is set to None."}
     )
-    train_language: Optional[str] = field(
+    train_language: str | None = field(
         default=None, metadata={"help": "Train language if it is different from the evaluation language."}
     )
-    config_name: Optional[str] = field(
+    config_name: str | None = field(
         default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
     )
-    tokenizer_name: Optional[str] = field(
+    tokenizer_name: str | None = field(
         default=None, metadata={"help": "Pretrained tokenizer name or path if not the same as model_name"}
     )
-    cache_dir: Optional[str] = field(
+    cache_dir: str | None = field(
         default=None,
         metadata={"help": "Where do you want to store the pretrained models downloaded from huggingface.co"},
     )
-    do_lower_case: Optional[bool] = field(
+    do_lower_case: bool | None = field(
         default=False,
         metadata={"help": "arg to indicate if tokenizer should do lower case in AutoTokenizer.from_pretrained()"},
     )

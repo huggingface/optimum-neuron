@@ -15,7 +15,7 @@
 
 import os
 import random
-from typing import Dict, List, Optional
+from typing import Dict
 
 from optimum.exporters.tasks import TasksManager
 from optimum.neuron.utils import InputShapesArguments
@@ -103,7 +103,7 @@ SEED = 42
 
 def get_models_to_test(
     export_models_dict: Dict,
-    exclude_model_types: Optional[List[str]] = None,
+    exclude_model_types: list[str] | None = None,
     library_name: str = "transformers",
 ):
     models_to_test = []

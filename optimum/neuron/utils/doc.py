@@ -566,12 +566,12 @@ NEURON_TEXT_INPUTS_DOCSTRING = r"""
             See [`PreTrainedTokenizer.encode`](https://huggingface.co/docs/transformers/main_classes/tokenizer#transformers.PreTrainedTokenizerBase.encode) and
             [`PreTrainedTokenizer.__call__`](https://huggingface.co/docs/transformers/main_classes/tokenizer#transformers.PreTrainedTokenizerBase.__call__) for details.
             [What are input IDs?](https://huggingface.co/docs/transformers/glossary#input-ids)
-        attention_mask (`Union[torch.Tensor, None]` of shape `({0})`, defaults to `None`):
+        attention_mask (`torch.Tensor | None` of shape `({0})`, defaults to `None`):
             Mask to avoid performing attention on padding token indices. Mask values selected in `[0, 1]`:
             - 1 for tokens that are **not masked**,
             - 0 for tokens that are **masked**.
             [What are attention masks?](https://huggingface.co/docs/transformers/glossary#attention-mask)
-        token_type_ids (`Union[torch.Tensor, None]` of shape `({0})`, defaults to `None`):
+        token_type_ids (`torch.Tensor | None` of shape `({0})`, defaults to `None`):
             Segment token indices to indicate first and second portions of the inputs. Indices are selected in `[0, 1]`:
             - 1 for tokens that are **sentence A**,
             - 0 for tokens that are **sentence B**.
@@ -580,7 +580,7 @@ NEURON_TEXT_INPUTS_DOCSTRING = r"""
 
 NEURON_IMAGE_INPUTS_DOCSTRING = r"""
     Args:
-        pixel_values (`Union[torch.Tensor, None]` of shape `({0})`, defaults to `None`):
+        pixel_values (`torch.Tensor | None` of shape `({0})`, defaults to `None`):
             Pixel values corresponding to the images in the current batch.
             Pixel values can be obtained from encoded images using [`AutoImageProcessor`](https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoImageProcessor).
 """
@@ -600,12 +600,12 @@ NEURON_TEXT_IMAGE_INPUTS_DOCSTRING = r"""
             See [`PreTrainedTokenizer.encode`](https://huggingface.co/docs/transformers/main_classes/tokenizer#transformers.PreTrainedTokenizerBase.encode) and
             [`PreTrainedTokenizer.__call__`](https://huggingface.co/docs/transformers/main_classes/tokenizer#transformers.PreTrainedTokenizerBase.__call__) for details.
             [What are input IDs?](https://huggingface.co/docs/transformers/glossary#input-ids)
-        attention_mask (`Union[torch.Tensor, None]` of shape `(batch_size, sequence_length)`):
+        attention_mask (`torch.Tensor | None` of shape `(batch_size, sequence_length)`):
             Mask to avoid performing attention on padding token indices. Mask values selected in `[0, 1]`:
             - 1 for tokens that are **not masked**,
             - 0 for tokens that are **masked**.
             [What are attention masks?](https://huggingface.co/docs/transformers/glossary#attention-mask)
-        pixel_values (`Union[torch.Tensor, None]` of shape `(batch_size, num_channels, height, width)`):
+        pixel_values (`torch.Tensor | None` of shape `(batch_size, num_channels, height, width)`):
             Pixel values corresponding to the images in the current batch.
             Pixel values can be obtained from encoded images using [`AutoImageProcessor`](https://huggingface.co/docs/transformers/en/model_doc/auto#transformers.AutoImageProcessor).
 """
@@ -626,7 +626,7 @@ NEURON_SEQ2SEQ_INPUTS_DOCSTRING = r"""
             See [`PreTrainedTokenizer.encode`](https://huggingface.co/docs/transformers/main_classes/tokenizer#transformers.PreTrainedTokenizerBase.encode) and
             [`PreTrainedTokenizer.__call__`](https://huggingface.co/docs/transformers/main_classes/tokenizer#transformers.PreTrainedTokenizerBase.__call__) for details.
             [What are input IDs?](https://huggingface.co/docs/transformers/glossary#input-ids)
-        attention_mask (`Union[torch.Tensor, None]` of shape `({0})`, defaults to `None`):
+        attention_mask (`torch.Tensor | None` of shape `({0})`, defaults to `None`):
             Mask to avoid performing attention on padding token indices. Mask values selected in `[0, 1]`:
             - 1 for tokens that are **not masked**,
             - 0 for tokens that are **masked**.
@@ -635,17 +635,17 @@ NEURON_SEQ2SEQ_INPUTS_DOCSTRING = r"""
 
 NEURON_AUDIO_SEQ2SEQ_INPUTS_DOCSTRING = r"""
     Args:
-        input_features (`Optional[torch.FloatTensor]` of shape `(batch_size, feature_size, sequence_length)`):
+        input_features (`torch.FloatTensor | None` of shape `(batch_size, feature_size, sequence_length)`):
             Float values mel features extracted from the raw speech waveform. Raw speech waveform can be obtained by
-            loading a `.flac` or `.wav` audio file into an array of type `List[float]` or a `numpy.ndarray`, *e.g.* via
+            loading a `.flac` or `.wav` audio file into an array of type `list[float]` or a `numpy.ndarray`, *e.g.* via
             the soundfile library (`pip install soundfile`). To prepare the array into `input_features`, the
             [`AutoFeatureExtractor`] should be used for extracting the mel features, padding and conversion into a
             tensor of type `torch.FloatTensor`. See [`~WhisperFeatureExtractor.__call__`]
-        decoder_input_ids (`Optional[torch.LongTensor]` of shape `(batch_size, max_sequence_length)`):
+        decoder_input_ids (`torch.LongTensor | None` of shape `(batch_size, max_sequence_length)`):
             Indices of decoder input sequence tokens in the vocabulary. Indices can be obtained using [`WhisperTokenizer`].
             See [`PreTrainedTokenizer.encode`] and [`PreTrainedTokenizer.__call__`] for details. Since the cache is not yet
             supported for Whisper, it needs to be padded to the `sequence_length` used for the compilation.
-        encoder_outputs (`Optional[Tuple[torch.FloatTensor]]`):
+        encoder_outputs (`tuple[torch.FloatTensor | None]`):
             Tuple consists of `last_hidden_state` of shape `(batch_size, sequence_length, hidden_size)`) is a sequence of
             hidden-states at the output of the last layer of the encoder. Used in the cross-attention of the decoder.
 """

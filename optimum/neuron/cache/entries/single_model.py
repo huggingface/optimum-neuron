@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import copy
-from typing import Any, Dict, Optional, Union
+from typing import Any
 
 from transformers import AutoConfig, PretrainedConfig
 
@@ -37,8 +37,8 @@ class SingleModelCacheEntry(ModelCacheEntry):
         self,
         model_id: str,
         task: str,
-        config: Union[PretrainedConfig, Dict[str, Any]],
-        neuron_config: Optional[NeuronConfig] = None,
+        config: PretrainedConfig | dict[str, Any],
+        neuron_config: NeuronConfig | None = None,
     ):
         config = copy.deepcopy(config)
         # Remove keys set to default values
@@ -54,18 +54,18 @@ class SingleModelCacheEntry(ModelCacheEntry):
 
     # ModelCacheEntry API implementation
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         # Add neuron config when serializing
         config = copy.deepcopy(self._config)
         config["neuron"] = self._neuron_config
         return config
 
     @classmethod
-    def from_dict(cls, model_id: str, task: str, config: Dict[str, Any]) -> "SingleModelCacheEntry":
+    def from_dict(cls, model_id: str, task: str, config: dict[str, Any]) -> "SingleModelCacheEntry":
         return cls(model_id=model_id, task=task, config=config)
 
     @property
-    def neuron_config(self) -> Dict[str, Any]:
+    def neuron_config(self) -> dict[str, Any]:
         return self._neuron_config
 
     def has_same_arch(self, other: "SingleModelCacheEntry"):

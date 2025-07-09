@@ -19,7 +19,7 @@ Utilities for Pipeline Parallelism model setup and parameter management.
 import contextlib
 import functools
 import logging as python_logging
-from typing import Iterable
+from collections.abc import Iterable
 
 import torch
 from neuronx_distributed.parallel_layers.parallel_state import (

@@ -14,7 +14,7 @@
 # limitations under the License.
 """Defines the command line related to dealing with the Neuron cache repo."""
 
-from typing import TYPE_CHECKING
+from argparse import ArgumentParser
 
 from ...neuron.cache import get_hub_cached_entries, synchronize_hub_cache
 from ...neuron.utils.cache_utils import (
@@ -29,16 +29,12 @@ from ...utils import logging
 from ..base import BaseOptimumCLICommand, CommandInfo
 
 
-if TYPE_CHECKING:
-    from argparse import ArgumentParser
-
-
 logger = logging.get_logger()
 
 
 class CreateCustomCacheRepoCommand(BaseOptimumCLICommand):
     @staticmethod
-    def parse_args(parser: "ArgumentParser"):
+    def parse_args(parser: ArgumentParser):
         parser.add_argument(
             "-n",
             "--name",

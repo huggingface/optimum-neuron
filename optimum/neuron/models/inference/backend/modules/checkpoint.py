@@ -15,7 +15,7 @@
 # Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/modules/checkpoint.py
 import json
 import os
-from typing import Callable, Dict, List
+from typing import Callable
 
 import torch
 from huggingface_hub import split_torch_state_dict_into_shards
@@ -33,7 +33,7 @@ def _is_using_pt2() -> bool:
     return pt_version.startswith("2.")
 
 
-def load_state_dict(state_dict_dir: str) -> Dict[str, torch.Tensor]:
+def load_state_dict(state_dict_dir: str) -> dict[str, torch.Tensor]:
     """
     Load state_dict from the given dir where its model weight files are in one of the
     following HF-compatbile formats:
@@ -68,12 +68,12 @@ def load_state_dict(state_dict_dir: str) -> Dict[str, torch.Tensor]:
     return state_dict
 
 
-def load_safetensors(state_dict_dir: str) -> Dict[str, torch.Tensor]:
+def load_safetensors(state_dict_dir: str) -> dict[str, torch.Tensor]:
     filename = os.path.join(state_dict_dir, _SAFETENSORS_MODEL_FILENAME)
     return load_file(filename)
 
 
-def _load_from_files(filenames: List[str], state_dict_dir: str, load_func: Callable) -> Dict[str, torch.Tensor]:
+def _load_from_files(filenames: list[str], state_dict_dir: str, load_func: Callable) -> dict[str, torch.Tensor]:
     """
     Load from multiple files, using the provided load_func.
 
@@ -101,7 +101,7 @@ def _load_from_files(filenames: List[str], state_dict_dir: str, load_func: Calla
     return state_dict
 
 
-def load_safetensors_sharded(state_dict_dir: str) -> Dict[str, torch.Tensor]:
+def load_safetensors_sharded(state_dict_dir: str) -> dict[str, torch.Tensor]:
     index_path = os.path.join(state_dict_dir, _SAFETENSORS_MODEL_INDEX_FILENAME_JSON)
     with open(index_path, "r") as f:
         key_to_filename = json.load(f)["weight_map"]
@@ -114,7 +114,7 @@ def load_safetensors_sharded(state_dict_dir: str) -> Dict[str, torch.Tensor]:
     return state_dict
 
 
-def _torch_load(file_path: str) -> Dict[str, torch.Tensor]:
+def _torch_load(file_path: str) -> dict[str, torch.Tensor]:
     """
     Load torch bin pt file.
 
@@ -128,12 +128,12 @@ def _torch_load(file_path: str) -> Dict[str, torch.Tensor]:
     return pt_file
 
 
-def load_pytorch_model_bin(state_dict_dir: str) -> Dict[str, torch.Tensor]:
+def load_pytorch_model_bin(state_dict_dir: str) -> dict[str, torch.Tensor]:
     state_dict_path = os.path.join(state_dict_dir, _PYTORCH_MODEL_BIN_FILENAME)
     return _torch_load(state_dict_path)
 
 
-def load_pytorch_model_bin_sharded(state_dict_dir: str) -> Dict[str, torch.Tensor]:
+def load_pytorch_model_bin_sharded(state_dict_dir: str) -> dict[str, torch.Tensor]:
     index = os.path.join(state_dict_dir, _PYTORCH_MODEL_BIN_INDEX_FILENAME_JSON)
     with open(index, "r") as f:
         key_to_filename = json.load(f)["weight_map"]

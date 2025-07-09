@@ -18,7 +18,6 @@ A subclass of `Trainer` specific to Question-Answering tasks
 
 import math
 import time
-from typing import Dict, List, Optional
 
 from torch.utils.data import Dataset
 from transformers import is_torch_tpu_available
@@ -38,15 +37,14 @@ class QuestionAnsweringSeq2SeqTrainer(Seq2SeqTrainer):
         self.eval_examples = eval_examples
         self.post_process_function = post_process_function
 
-    # def evaluate(self, eval_dataset=None, eval_examples=None, ignore_keys=None, metric_key_prefix: str = "eval"):
     def evaluate(
         self,
-        eval_dataset: Optional[Dataset] = None,
+        eval_dataset: Dataset | None = None,
         eval_examples=None,
-        ignore_keys: Optional[List[str]] = None,
+        ignore_keys: list[str] | None = None,
         metric_key_prefix: str = "eval",
         **gen_kwargs,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         gen_kwargs = gen_kwargs.copy()
 
         # Use legacy argument setting if a) the option is not explicitly passed; and b) the argument is set in the

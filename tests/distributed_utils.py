@@ -20,7 +20,7 @@ import os
 import socket
 import time
 import traceback
-from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
+from typing import Any, Callable, TypeVar
 
 import cloudpickle
 import neuronx_distributed
@@ -52,9 +52,7 @@ class EarlyExit(Exception):
 
 
 class PicklableException(Exception):
-    def __init__(
-        self, exc_type: str, exc_value: str, tb_str: str, exception_attributes: Optional[Dict[str, Any]] = None
-    ):
+    def __init__(self, exc_type: str, exc_value: str, tb_str: str, exception_attributes: dict[str, Any] | None = None):
         self.exc_type_name = exc_type
         self.exc_value = exc_value
         self.tb_str = tb_str
@@ -102,7 +100,7 @@ def _termintate_executor_processes(
 
 def run_multiprocess(
     fn: Callable[..., R], *args, start_method: str = "spawn", timeout: int = TEST_TIMEOUT, **kwargs
-) -> Dict[int, R]:
+) -> dict[int, R]:
     """
     Runs `fn` on all devices available to PjRt.
     Spawns one process per physical device (e.g. Neuron device).
@@ -188,8 +186,8 @@ def get_free_port():
 
 def _distributed_worker(
     func_bytes: Callable,
-    func_args: Tuple[Any, ...],
-    func_kwargs: Dict[str, Any],
+    func_args: tuple[Any, ...],
+    func_kwargs: dict[str, Any],
     master_port: str,
     world_size: int,
     tp_size: int,
@@ -234,7 +232,7 @@ def _distributed_worker(
 
 
 def distributed_test(
-    world_size: Optional[int] = None, tp_size: Optional[int] = None, pp_size: Optional[int] = None, timeout: int = 600
+    world_size: int | None = None, tp_size: int | None = None, pp_size: int | None = None, timeout: int = 600
 ):
     """
     Decorator to run a test function in a distributed setting.

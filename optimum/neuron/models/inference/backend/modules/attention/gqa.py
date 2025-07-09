@@ -15,7 +15,6 @@
 # Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/modules/attention/gqa.py
 import enum
 import logging
-from typing import Optional, Tuple
 
 import torch
 from neuronx_distributed.parallel_layers import parallel_state
@@ -65,7 +64,7 @@ class GQA(enum.Enum):
 
 
 def determine_sharding_strategy(
-    tp_degree: int, source_key_value_heads: int, desired_sharding_strategy: Optional[GQA] = None
+    tp_degree: int, source_key_value_heads: int, desired_sharding_strategy: GQA | None = None
 ) -> GQA:
     sharding_strategy = desired_sharding_strategy if desired_sharding_strategy else GQA.REPLICATE_TO_TP_DEGREE
 
@@ -77,7 +76,7 @@ def determine_sharding_strategy(
 
 def get_shardable_head_counts(
     tp_degree: int, num_attention_heads: int, num_key_value_heads: int, sharding_strategy: GQA
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     # Pad attention heads
     updated_num_attention_heads = num_attention_heads + get_number_of_extra_heads(num_attention_heads, tp_degree)
 
@@ -168,8 +167,8 @@ class BaseGroupQueryAttention(nn.Module):
         tp_degree: int = 1,
         dtype: torch.dtype = torch.float32,
         bias: bool = False,
-        desired_sharding_strategy: Optional[GQA] = None,
-        tensor_model_parallel_group: Optional[ProcessGroup] = None,
+        desired_sharding_strategy: GQA | None = None,
+        tensor_model_parallel_group: ProcessGroup | None = None,
     ):
         super().__init__()
 
@@ -242,13 +241,13 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         tp_degree: int = 1,
         dtype: torch.dtype = torch.float32,
         bias: bool = False,
-        desired_sharding_strategy: Optional[GQA] = None,
+        desired_sharding_strategy: GQA | None = None,
         gather_output: bool = True,
         fused_qkv: bool = False,
-        clip_qkv: Optional[float] = None,
+        clip_qkv: float | None = None,
         sequence_parallel_enabled: bool = False,
-        sequence_dimension: Optional[int] = None,
-        tensor_model_parallel_group: Optional[ProcessGroup] = None,
+        sequence_dimension: int | None = None,
+        tensor_model_parallel_group: ProcessGroup | None = None,
         rms_norm_eps: float = None,
         qkv_kernel_enabled: bool = False,
         logical_nc_config: int = 1,
@@ -443,14 +442,14 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
 
     def get_weight(
         self, prefix: str, layer: torch.nn.Module, layer_name, model_state_dict: dict
-    ) -> Tuple[torch.Tensor]:
+    ) -> tuple[torch.Tensor]:
         if hasattr(layer, "get_weight_from_state_dict"):
             return layer.get_weight_from_state_dict(prefix=f"{prefix}.{layer_name}.", state_dict=model_state_dict)
         return model_state_dict[f"{prefix}.{layer_name}.weight"]
 
     def get_bias(
         self, prefix: str, layer: torch.nn.Module, layer_name: str, model_state_dict: dict
-    ) -> Tuple[torch.Tensor]:
+    ) -> tuple[torch.Tensor]:
         if hasattr(layer, "get_bias_from_state_dict"):
             return layer.get_bias_from_state_dict(prefix=f"{prefix}.{layer_name}.", state_dict=model_state_dict)
         return model_state_dict.get(f"{prefix}.{layer_name}.bias")
@@ -462,7 +461,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         layer: torch.nn.Module,
         layer_name,
         model_state_dict: dict,
-    ) -> Tuple[torch.Tensor]:
+    ) -> tuple[torch.Tensor]:
         # TODO: set weight to state dict support is pending.
         model_state_dict[f"{prefix}.{layer_name}.weight"] = tensor
 
@@ -473,7 +472,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         layer: torch.nn.Module,
         layer_name: str,
         model_state_dict: dict,
-    ) -> Tuple[torch.Tensor]:
+    ) -> tuple[torch.Tensor]:
         if hasattr(layer, "set_bias_to_state_dict"):
             layer.set_bias_to_state_dict(prefix=f"{prefix}.{layer_name}.", tensor=tensor, state_dict=model_state_dict)
         else:
@@ -724,12 +723,12 @@ class GroupQueryAttention_O(BaseGroupQueryAttention):
         tp_degree: int = 1,
         dtype: torch.dtype = torch.float32,
         bias: bool = False,
-        desired_sharding_strategy: Optional[GQA] = None,
+        desired_sharding_strategy: GQA | None = None,
         input_is_parallel: bool = False,
         layer_name: str = "o_proj",
         sequence_parallel_enabled: bool = False,
-        sequence_dimension: Optional[int] = None,
-        tensor_model_parallel_group: Optional[ProcessGroup] = None,
+        sequence_dimension: int | None = None,
+        tensor_model_parallel_group: ProcessGroup | None = None,
         rpl_reduce_dtype: torch.dtype = None,
     ):
         super().__init__(

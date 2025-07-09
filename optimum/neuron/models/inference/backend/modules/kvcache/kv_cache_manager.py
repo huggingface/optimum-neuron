@@ -14,7 +14,6 @@
 # limitations under the License.
 # Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/modules/kvcache/kv_cache_manager.py
 import logging
-from typing import List
 
 import torch
 from neuronx_distributed.parallel_layers import utils
@@ -167,7 +166,7 @@ class KVCacheManager(nn.Module):
         is_for_context_encoding: bool,
         seq_ids: Tensor,
         position_ids: Tensor,
-        new_key_values: List[Tensor],
+        new_key_values: list[Tensor],
         seq_len: int,
         scatter_index=None,
         active_mask=None,

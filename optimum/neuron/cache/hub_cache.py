@@ -18,7 +18,6 @@ import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Optional, Union
 
 import torch_xla.core.xla_model as xm
 import torch_xla.runtime as xr
@@ -77,9 +76,9 @@ class CompileCacheHfProxy(CompileCache):
             The id of the Hugging Face cache repository, in the form 'org|user/name'.
         default_cache (`CompileCache`):
             The default neuron compiler cache (can be either a local file or S3 cache).
-        endpoint (`Optional[str]`, defaults to None):
+        endpoint (`str | None`, defaults to None):
             The HuggingFaceHub endpoint: only required for unit tests to switch to the staging Hub.
-        token (`Optional[str]`, defaults to None):
+        token (`str | None`, defaults to None):
             The HuggingFace token to use to fetch/push artifacts. If not specified it will correspond
             to the current user token.
     """
@@ -87,7 +86,7 @@ class CompileCacheHfProxy(CompileCache):
     cache_type = "hf"
 
     def __init__(
-        self, repo_id: str, default_cache: CompileCache, endpoint: Optional[str] = None, token: Optional[str] = None
+        self, repo_id: str, default_cache: CompileCache, endpoint: str | None = None, token: str | None = None
     ):
         # Initialize the proxy cache as expected by the parent class
         super().__init__(default_cache.cache_url)
@@ -240,8 +239,8 @@ class CompileCacheHfProxy(CompileCache):
 
 
 def create_hub_compile_cache_proxy(
-    cache_url: Optional[CacheUrl] = None,
-    cache_repo_id: Optional[str] = None,
+    cache_url: CacheUrl | None = None,
+    cache_repo_id: str | None = None,
 ):
     if cache_url is None:
         cache_url = CacheUrl.get_cache_url()
@@ -260,19 +259,19 @@ REGISTRY_FOLDER = f"0_REGISTRY/{__version__}"
 @requires_torch_neuronx
 @contextmanager
 def hub_neuronx_cache(
-    entry: Optional[ModelCacheEntry] = None,
-    cache_repo_id: Optional[str] = None,
-    cache_dir: Optional[Union[str, Path]] = None,
+    entry: ModelCacheEntry | None = None,
+    cache_repo_id: str | None = None,
+    cache_dir: str | Path | None = None,
 ):
     """A context manager to activate the Hugging Face Hub proxy compiler cache.
 
     Args:
-        entry (`Optional[ModelCacheEntry]`, defaults to `None`):
+        entry (`ModelCacheEntry | None`, defaults to `None`):
             An optional dataclass containing metadata associated with the model corresponding
             to the cache session. Will create a dedicated entry in the cache registry.
-        cache_repo_id (`Optional[str]`, defaults to `None`):
+        cache_repo_id (`str | None`, defaults to `None`):
             The id of the cache repo to use to fetch the precompiled files.
-        cache_dir (`Optional[Union[str, Path]]`, defaults to `None`):
+        cache_dir (`str | Path | None`, defaults to `None`):
             The directory that is used as local cache directory.
     """
 
@@ -309,14 +308,14 @@ def hub_neuronx_cache(
 
 @requires_torch_neuronx
 def synchronize_hub_cache(
-    cache_path: Optional[Union[str, Path]] = None, cache_repo_id: Optional[str] = None, non_blocking: bool = False
+    cache_path: str | Path | None = None, cache_repo_id: str | None = None, non_blocking: bool = False
 ):
     """Synchronize the neuronx compiler cache with the optimum-neuron hub cache.
 
     Args:
-        cache_path (`Optional[Union[str, Path]]`, defaults to `None`):
+        cache_path (`str | Path | None`, defaults to `None`):
             The path of the folder to use for synchronization.
-        cache_repo_id (`Optional[str]`, defaults to `None`):
+        cache_repo_id (`str | None`, defaults to `None`):
             The id of the HuggingFace cache repository, in the form 'org|user/name'.
         non_blocking (`bool`, defaults to `False`):
             If `True`, the synchronization will be done in a non-blocking way, i.e. the function will return immediately
@@ -336,8 +335,8 @@ def synchronize_hub_cache(
 
 def get_hub_cached_entries(
     model_id: str,
-    task: Optional[str] = None,
-    cache_repo_id: Optional[str] = None,
+    task: str | None = None,
+    cache_repo_id: str | None = None,
 ):
     if task is None:
         # Infer task from model_id
@@ -364,11 +363,11 @@ def get_hub_cached_entries(
     return model_entries
 
 
-def get_hub_cached_models(cache_repo_id: Optional[str] = None):
+def get_hub_cached_models(cache_repo_id: str | None = None):
     """Get the list of cached models for the specified mode for the current version
 
     Args:
-        cache_repo_id (`Optional[str]`): the path to a cache repo id if different from the default one.
+        cache_repo_id (`str | None`): the path to a cache repo id if different from the default one.
     Returns:
         A set of (model_arch, model_org, model_id)
     """

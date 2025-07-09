@@ -18,7 +18,6 @@ import shutil
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Optional, Union
 
 
 logger = logging.getLogger(__name__)
@@ -28,7 +27,7 @@ DEFAULT_PATH_FOR_NEURON_CC_WRAPPER = Path(__file__).parent.as_posix()
 
 @contextmanager
 def patch_neuron_cc_wrapper(
-    directory: Optional[Union[str, Path]] = DEFAULT_PATH_FOR_NEURON_CC_WRAPPER, restore_path: bool = True
+    directory: str | Path | None = DEFAULT_PATH_FOR_NEURON_CC_WRAPPER, restore_path: bool = True
 ):
     """
     Patches the `neuron_cc_wrapper` file to force it use our own version of it which essentially makes sure that it

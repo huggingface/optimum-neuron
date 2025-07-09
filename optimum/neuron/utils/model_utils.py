@@ -17,7 +17,7 @@
 import contextlib
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Dict, Tuple, Union
+from typing import TYPE_CHECKING
 
 import torch
 
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
 
-def get_tied_parameters_dict(model: Union["torch.nn.Module", "NxDPPModel"]) -> Dict[str, str]:
+def get_tied_parameters_dict(model: "torch.nn.Module | NxDPPModel") -> dict[str, str]:
     from neuronx_distributed.pipeline import NxDPPModel
 
     if isinstance(model, NxDPPModel):
@@ -52,14 +52,14 @@ def get_tied_parameters_dict(model: Union["torch.nn.Module", "NxDPPModel"]) -> D
 
 def get_parent_module_and_param_name_from_fully_qualified_name(
     module: "torch.nn.Module", fully_qualified_name: str
-) -> Tuple["torch.nn.Module", str]:
+) -> tuple["torch.nn.Module", str]:
     fully_qualified_name = fully_qualified_name.rsplit(".", maxsplit=1)
     parent_module = module if len(fully_qualified_name) == 1 else module.get_submodule(fully_qualified_name[0])
     param_name = fully_qualified_name[0] if len(fully_qualified_name) == 1 else fully_qualified_name[1]
     return parent_module, param_name
 
 
-def tie_parameters(model: Union["torch.nn.Module", "NxDPPModel"], tied_parameters_dict: Dict[str, str]):
+def tie_parameters(model: "torch.nn.Module | NxDPPModel", tied_parameters_dict: dict[str, str]):
     from neuronx_distributed.pipeline import NxDPPModel
 
     if isinstance(model, NxDPPModel):

@@ -21,7 +21,7 @@ import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable
 
 import torch
 from huggingface_hub import snapshot_download
@@ -75,10 +75,10 @@ class _NeuronSeq2SeqModelPart:
         self,
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronTracedModel,
-        config: Optional["PretrainedConfig"] = None,
-        neuron_config: Optional["NeuronDefaultConfig"] = None,
+        config: "PretrainedConfig | None" = None,
+        neuron_config: "NeuronDefaultConfig | None" = None,
         model_type: str = "encoder",
-        device: Optional[str] = None,
+        device: str | None = None,
     ):
         self.model = model
         self.parent_model = parent_model
@@ -106,8 +106,8 @@ class NeuronEncoder(_NeuronSeq2SeqModelPart):
         self,
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronTracedModel,
-        config: Optional["PretrainedConfig"] = None,
-        neuron_config: Optional[Dict[str, str]] = None,
+        config: "PretrainedConfig | None" = None,
+        neuron_config: dict[str, str] | None = None,
     ):
         super().__init__(model, parent_model, config, neuron_config, "encoder")
 
@@ -129,8 +129,8 @@ class NeuronDecoder(_NeuronSeq2SeqModelPart):
         self,
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronTracedModel,
-        config: Optional["PretrainedConfig"] = None,
-        neuron_config: Optional[Dict[str, str]] = None,
+        config: "PretrainedConfig | None" = None,
+        neuron_config: dict[str, str | None] = None,
     ):
         super().__init__(model, parent_model, config, neuron_config, "decoder")
 
@@ -166,13 +166,13 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         encoder: torch.jit._script.ScriptModule,
         decoder: torch.jit._script.ScriptModule,
         config: "PretrainedConfig",
-        model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        encoder_file_name: Optional[str] = NEURON_FILE_NAME,
-        decoder_file_name: Optional[str] = NEURON_FILE_NAME,
-        preprocessors: Optional[List] = None,
-        neuron_configs: Optional[Dict[str, "NeuronDefaultConfig"]] = None,
-        configs: Optional[Dict[str, "PretrainedConfig"]] = None,
-        generation_config: Optional[GenerationConfig] = None,
+        model_save_dir: str | Path | TemporaryDirectory | None = None,
+        encoder_file_name: str | None = NEURON_FILE_NAME,
+        decoder_file_name: str | None = NEURON_FILE_NAME,
+        preprocessors: list | None = None,
+        neuron_configs: dict[str, "NeuronDefaultConfig"] | None = None,
+        configs: dict[str, "PretrainedConfig"] | None = None,
+        generation_config: GenerationConfig | None = None,
         **kwargs,
     ):
         self.config = config
@@ -205,13 +205,13 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         self.generation_config = generation_config
         self.tensor_parallel_size = self.neuron_configs[DECODER_NAME].tensor_parallel_size
 
-    def _save_pretrained(self, save_directory: Union[str, Path]):
+    def _save_pretrained(self, save_directory: str | Path):
         """
         Saves a model and its configuration file to a directory, so that it can be re-loaded using the
         [`~optimum.neuron.modeling_traced.NeuronTracedModel.from_pretrained`] class method.
 
         Args:
-            save_directory (`Union[str, Path]`):
+            save_directory (`str | Path`):
                 Directory where to save the model file.
         """
         shutil.copytree(self.model_save_dir, save_directory, dirs_exist_ok=True)
@@ -219,8 +219,8 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
 
     @staticmethod
     def load_model(
-        encoder_path: Union[str, Path],
-        decoder_path: Union[str, Path],
+        encoder_path: str | Path,
+        decoder_path: str | Path,
         tensor_parallel_size: int,
     ):
         if tensor_parallel_size == 1:
@@ -239,17 +239,17 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
     @classmethod
     def _from_pretrained(
         cls,
-        model_id: Union[str, Path],
+        model_id: str | Path,
         config: "PretrainedConfig",
-        token: Optional[Union[bool, str]] = None,
-        revision: Optional[str] = None,
+        token: bool | str | None = None,
+        revision: str | None = None,
         force_download: bool = False,
-        cache_dir: Optional[str] = None,
-        encoder_file_name: Optional[str] = NEURON_FILE_NAME,
-        decoder_file_name: Optional[str] = NEURON_FILE_NAME,
+        cache_dir: str | None = None,
+        encoder_file_name: str | None = NEURON_FILE_NAME,
+        decoder_file_name: str | None = NEURON_FILE_NAME,
         subfolder: str = "",
         local_files_only: bool = False,
-        model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
+        model_save_dir: str | Path | TemporaryDirectory | None = None,
         **kwargs,
     ):
         model_id = str(model_id)
@@ -334,21 +334,21 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         cls,
         model_id: str,
         config: "PretrainedConfig",
-        token: Optional[Union[bool, str]] = None,
+        token: bool | str | None = None,
         revision: str = "main",
         force_download: bool = True,
-        cache_dir: Optional[str] = None,
-        compiler_workdir: Optional[str] = None,
-        tensor_parallel_size: Optional[int] = 1,
+        cache_dir: str | None = None,
+        compiler_workdir: str | None = None,
+        tensor_parallel_size: int | None = 1,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
-        task: Optional[str] = None,
-        auto_cast: Optional[str] = "matmul",
-        auto_cast_type: Optional[str] = "bf16",
-        disable_fast_relayout: Optional[bool] = False,
+        task: str | None = None,
+        auto_cast: str | None = "matmul",
+        auto_cast_type: str | None = "bf16",
+        disable_fast_relayout: bool | None = False,
         disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
         output_attentions: bool = False,
@@ -458,15 +458,15 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
     )
     def forward(
         self,
-        attention_mask: Optional[torch.FloatTensor] = None,
-        decoder_input_ids: Optional[torch.LongTensor] = None,
-        decoder_attention_mask: Optional[torch.BoolTensor] = None,
-        encoder_outputs: Optional[Tuple[Tuple[torch.Tensor]]] = None,
-        beam_scores: Optional[torch.FloatTensor] = None,
+        attention_mask: torch.FloatTensor | None = None,
+        decoder_input_ids: torch.LongTensor | None = None,
+        decoder_attention_mask: torch.BoolTensor | None = None,
+        encoder_outputs: tuple[tuple[torch.Tensor]] | None = None,
+        beam_scores: torch.FloatTensor | None = None,
         return_dict: bool = False,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
-    ) -> Union[Tuple[torch.FloatTensor], ModelOutput]:
+    ) -> tuple[torch.FloatTensor, ModelOutput]:
         hidden_states = encoder_outputs["last_hidden_state"]
 
         if not hasattr(self, "beam_idx"):
@@ -512,12 +512,12 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
     def generate(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        generation_config: Optional[GenerationConfig] = None,
-        logits_processor: Optional[LogitsProcessorList] = None,
-        stopping_criteria: Optional[StoppingCriteriaList] = None,
-        prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
-        assistant_model: Optional["PreTrainedModel"] = None,
+        attention_mask: torch.Tensor | None = None,
+        generation_config: GenerationConfig | None = None,
+        logits_processor: LogitsProcessorList | None = None,
+        stopping_criteria: StoppingCriteriaList | None = None,
+        prefix_allowed_tokens_fn: Callable[[int, torch.Tensor, list[int]], None] | None = None,
+        assistant_model: "PreTrainedModel | None" = None,
         num_return_sequences: int = 1,
         **kwargs,
     ):
@@ -586,16 +586,16 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
 
     def _update_model_kwargs_for_xla_generation(
         self,
-        model_kwargs: Dict[str, Any],
+        model_kwargs: dict[str, Any],
         batch_size: int,
         is_encoder_decoder: bool = False,
         # Leave following kwargs for compatibility, will not have any effect.
         outputs: "ModelOutput" = None,
         standardize_cache_format: bool = False,
-        max_length: Optional[int] = None,
-        seq_length: Optional[int] = None,
+        max_length: int | None = None,
+        seq_length: int | None = None,
         use_cache: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         mask = self._update_attention(model_kwargs, batch_size, is_encoder_decoder)
         # sets the updated variables (mask and past_key_values)
         model_kwargs.update(mask)
@@ -621,7 +621,7 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
             "decoder_attention_mask": decoder_attention_mask,
         }
 
-    def _validate_static_shape(self, input_shapes: List[int], target_shapes: List[int]) -> bool:
+    def _validate_static_shape(self, input_shapes: list[int], target_shapes: list[int]) -> bool:
         """
         Checks if a input needs to be padded.
         """

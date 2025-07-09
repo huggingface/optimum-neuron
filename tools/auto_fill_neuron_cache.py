@@ -20,7 +20,7 @@ import time
 from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Union
+from typing import TYPE_CHECKING
 
 from optimum.neuron.utils.cache_utils import get_num_neuron_cores
 
@@ -174,7 +174,7 @@ ARCHITECTURES_TO_COMMON_PRETRAINED_WEIGHTS = {
 }
 
 
-def get_testers_for_model_type(model_type: str) -> List["ExampleTesterBase"]:
+def get_testers_for_model_type(model_type: str) -> list["ExampleTesterBase"]:
     testers = []
     for task, cls in TESTER_CLASSES.items():
         for attr_name in dir(cls):
@@ -183,9 +183,7 @@ def get_testers_for_model_type(model_type: str) -> List["ExampleTesterBase"]:
     return testers
 
 
-def remove_extra_command_line_argument(
-    command_prefix: str, extra_command_line_arguments: List[Union[str, Dict[str, str]]]
-):
+def remove_extra_command_line_argument(command_prefix: str, extra_command_line_arguments: list[str | dict[str, str]]):
     argument_idx = None
     for idx, cmd_line_argument in enumerate(extra_command_line_arguments):
         if isinstance(cmd_line_argument, dict):
@@ -201,7 +199,7 @@ def remove_extra_command_line_argument(
 def run_auto_fill_cache_for_model_name(
     model_type: str,
     model_name: str,
-    shape_values_for_task: Dict[str, int],
+    shape_values_for_task: dict[str, int],
     tester: "ExampleTesterBase",
     method_name: str,
     neuron_cache: str,

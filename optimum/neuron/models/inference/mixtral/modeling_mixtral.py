@@ -17,7 +17,6 @@
 
 import gc
 import warnings
-from typing import Optional, Tuple, Union
 
 import torch
 
@@ -36,7 +35,7 @@ from ..backend.modules.decoder import NxDDecoderModel, NxDModelForCausalLM
 from ..backend.modules.moe import initialize_moe_module
 
 
-SampleOutput = Union[SampleEncoderDecoderOutput, SampleDecoderOnlyOutput]
+SampleOutput = SampleEncoderDecoderOutput | SampleDecoderOnlyOutput
 
 
 def convert_mixtral_to_neuron_state_dict(neuron_state_dict, config, neuron_config):
@@ -149,11 +148,11 @@ class NeuronMixtralDecoderLayer(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_value: tuple[torch.Tensor] | None = None,
         **kwargs,
-    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+    ) -> tuple[torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor] | None]:
         """
         Args:
             hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, embed_dim)`
@@ -162,7 +161,7 @@ class NeuronMixtralDecoderLayer(nn.Module):
                 query_sequence_length, key_sequence_length)` if default attention is used.
             position_ids (`torch.FloatTensor`, *optional*):
                 position ids of size `(batch_size, sequence_length)`.
-            past_key_value (`Tuple(torch.FloatTensor)`, *optional*): cached past key and value projection states
+            past_key_value (`tuple(torch.FloatTensor)`, *optional*): cached past key and value projection states
         """
         if "padding_mask" in kwargs:
             warnings.warn(

@@ -15,18 +15,14 @@
 
 import subprocess
 import sys
+from argparse import ArgumentParser, Namespace, _SubParsersAction
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
 
 from ...exporters import TasksManager
 from ..base import BaseOptimumCLICommand, CommandInfo
 
 
-if TYPE_CHECKING:
-    from argparse import ArgumentParser, Namespace, _SubParsersAction
-
-
-def parse_args_neuron(parser: "ArgumentParser"):
+def parse_args_neuron(parser: ArgumentParser):
     required_group = parser.add_argument_group("Required arguments")
     required_group.add_argument(
         "-m", "--model", type=str, required=True, help="Model ID on huggingface.co or path on disk to load model from."
@@ -140,11 +136,11 @@ class NeuronExportCommand(BaseOptimumCLICommand):
 
     def __init__(
         self,
-        subparsers: "_SubParsersAction",
-        args: Optional["Namespace"] = None,
-        command: Optional["CommandInfo"] = None,
+        subparsers: _SubParsersAction,
+        args: Namespace | None = None,
+        command: CommandInfo | None = None,
         from_defaults_factory: bool = False,
-        parser: Optional["ArgumentParser"] = None,
+        parser: ArgumentParser | None = None,
     ):
         super().__init__(
             subparsers, args=args, command=command, from_defaults_factory=from_defaults_factory, parser=parser
@@ -152,7 +148,7 @@ class NeuronExportCommand(BaseOptimumCLICommand):
         self.args_string = " ".join(sys.argv[3:])
 
     @staticmethod
-    def parse_args(parser: "ArgumentParser"):
+    def parse_args(parser: ArgumentParser):
         return parse_args_neuron(parser)
 
     def run(self):

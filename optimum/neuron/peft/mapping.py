@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional
 
 from transformers import PreTrainedModel
 
@@ -76,7 +75,7 @@ def get_peft_model(
     adapter_name: str = "default",
     mixed: bool = False,
     autocast_adapter_dtype: bool = True,
-    revision: Optional[str] = None,
+    revision: str | None = None,
     low_cpu_mem_usage: bool = False,
 ) -> PeftModel | PeftMixedModel:
     if peft_config.peft_type not in PEFT_TYPE_TO_TUNER_MAPPING:

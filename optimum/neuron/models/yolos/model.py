@@ -15,7 +15,6 @@
 """YOLOS model on Neuron devices."""
 
 import logging
-from typing import Optional
 
 import torch
 from transformers import AutoModelForObjectDetection
@@ -45,7 +44,7 @@ class NeuronYolosForObjectDetection(NeuronTracedModel):
     auto_model_class = AutoModelForObjectDetection
 
     @property
-    def dtype(self) -> Optional["torch.dtype"]:
+    def dtype(self) -> "torch.dtype | None":
         """
         Torch dtype of the inputs to avoid error in transformers on casting a BatchFeature to type None.
         """

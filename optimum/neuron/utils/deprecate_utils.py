@@ -17,7 +17,7 @@
 import functools
 import inspect
 import warnings
-from typing import Callable, Dict
+from typing import Callable
 
 from packaging import version
 
@@ -37,7 +37,7 @@ def get_transformers_version() -> str:
     return transformers.__version__
 
 
-PACKAGE_NAME_TO_GET_VERSION_FUNCTION: Dict[str, Callable[[], str]] = {
+PACKAGE_NAME_TO_GET_VERSION_FUNCTION: dict[str, Callable[[], str]] = {
     "transformers": get_transformers_version,
     "optimum-neuron": lambda: __version__,
     "neuroncc": get_neuroncc_version,

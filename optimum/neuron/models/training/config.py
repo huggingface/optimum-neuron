@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union
 
 import torch
 from neuronx_distributed.parallel_layers import parallel_state
@@ -15,13 +14,13 @@ class TrainingNeuronConfig(NeuronConfig):
     tensor_parallel_size: int = 1
     parallelize_embeddings: bool = True
     sequence_parallel_enabled: bool = False
-    kv_size_multiplier: Optional[int] = None
+    kv_size_multiplier: int | None = None
     pipeline_parallel_size: int = 1
     virtual_pipeline_parallel_size: int = 1
     pipeline_parallel_num_microbatches: int = 1
     pipeline_parallel_use_zero1_optimizer: bool = False
     gradient_checkpointing: bool = False
-    checkpoint_dir: Optional[Union[str, Path]] = None
+    checkpoint_dir: str | Path | None = None
     num_local_ranks_per_step: int = 8
     use_xser: bool = True
     async_save: bool = False

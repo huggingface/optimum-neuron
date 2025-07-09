@@ -14,18 +14,16 @@
 # limitations under the License.
 """Version utilities."""
 
-from typing import Optional
-
 from packaging import version
 
 from .import_utils import is_neuron_available, is_neuronx_available
 
 
-_neuronxcc_version: Optional[str] = None
-_neuroncc_version: Optional[str] = None
-_torch_xla_version: Optional[str] = None
-_neuronx_distributed_version: Optional[str] = None
-_torch_version: Optional[str] = None
+_neuronxcc_version: str | None = None
+_neuroncc_version: str | None = None
+_torch_xla_version: str | None = None
+_neuronx_distributed_version: str | None = None
+_torch_version: str | None = None
 
 
 def get_neuronxcc_version() -> str:

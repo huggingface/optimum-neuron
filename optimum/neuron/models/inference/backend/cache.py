@@ -20,7 +20,6 @@ import logging
 import os
 import pathlib
 from contextlib import contextmanager
-from typing import List, Optional, Union
 
 from libneuronxla.neuron_cc_cache import CacheUrl
 from torch_neuronx.xla_impl.trace import HloArtifacts, NeffArtifacts, generate_neff, hlo_compile, setup_compiler_dirs
@@ -47,7 +46,7 @@ def get_hash_module(hlo_module, flags):
 
 
 @contextmanager
-def neff_cache(cache_dir: Optional[str] = None):
+def neff_cache(cache_dir: str | None = None):
     """
     Context manager to patch `torch_neuronx.xla_impl.trace.generate_neff`.
 
@@ -71,8 +70,8 @@ def neff_cache(cache_dir: Optional[str] = None):
 
     def generate_neff_with_cache(
         hlo_artifacts: HloArtifacts,
-        compiler_workdir: Optional[Union[str, pathlib.Path]] = None,
-        compiler_args: Optional[Union[List[str], str]] = None,
+        compiler_workdir: str | pathlib.Path | None = None,
+        compiler_args: list[str] | str | None = None,
         inline_weights_to_neff: bool = True,
     ):
         """
@@ -87,7 +86,7 @@ def neff_cache(cache_dir: Optional[str] = None):
                 HLO artifacts containing the HLO module and constant parameter tensors.
             compiler_workdir (`str`, *optional*):
                 Directory to store the compiler workdir. If not provided, a default directory will be used.
-            compiler_args (`List[str]` or `str`, *optional*):
+            compiler_args (`list[str]` or `str`, *optional*):
                 Compiler arguments to be used for compilation. If not provided, a default set of arguments will be used.
             inline_weights_to_neff (`bool`, *optional*):
                 Whether to inline weights to NEFF. Defaults to `True`.

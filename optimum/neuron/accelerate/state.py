@@ -15,7 +15,6 @@
 """Custom PartialState and AcceleratorState for Neuron."""
 
 import os
-from typing import Optional, Union
 
 import torch
 import torch_xla.core.xla_model as xm
@@ -117,14 +116,14 @@ class NeuronAcceleratorState(AcceleratorState):
 
     def __init__(
         self,
-        mixed_precision: Optional[str] = None,
+        mixed_precision: str | None = None,
         cpu: bool = False,
         dynamo_plugin=None,
         deepspeed_plugin=None,
         fsdp_plugin=None,
         megatron_lm_plugin=None,
-        trn_config: Optional[TrainingNeuronConfig] = None,
-        autocast_backend: Optional[Union[str, AutocastBackend]] = None,
+        trn_config: TrainingNeuronConfig | None = None,
+        autocast_backend: str | AutocastBackend | None = None,
         _from_accelerator: bool = False,
         **kwargs,
     ):

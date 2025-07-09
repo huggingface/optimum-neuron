@@ -16,7 +16,7 @@
 
 import copy
 from functools import partial
-from typing import TYPE_CHECKING, Dict, List
+from typing import TYPE_CHECKING
 
 import neuronx_distributed
 import torch
@@ -91,7 +91,7 @@ class BertNeuronConfig(TextEncoderNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["input_ids", "attention_mask", "token_type_ids"]
 
 
@@ -105,7 +105,7 @@ class ConvBertNeuronConfig(BertNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-1  # TODO: why accuracy more off than other arch
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         if self.task == "feature-extraction":
             return ["last_hidden_state"]
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
@@ -114,7 +114,7 @@ class ConvBertNeuronConfig(BertNeuronConfig):
 @register_in_tasks_manager("electra", *COMMON_TEXT_TASKS)
 class ElectraNeuronConfig(BertNeuronConfig):
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         if self.task == "feature-extraction":
             return ["last_hidden_state"]
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
@@ -126,7 +126,7 @@ class EsmNeuronConfig(TextEncoderNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["input_ids", "attention_mask"]
 
 
@@ -145,11 +145,11 @@ class MobileBertNeuronConfig(BertNeuronConfig):
 )
 class ModernBertNeuronConfig(BertNeuronConfig):
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["input_ids", "attention_mask"]
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         if self.task == "feature-extraction":
             return ["last_hidden_state"]
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
@@ -160,7 +160,7 @@ class PhiNeuronConfig(ElectraNeuronConfig):
     CUSTOM_MODEL_WRAPPER = NoCacheModelWrapper
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["input_ids", "attention_mask"]
 
 
@@ -179,11 +179,11 @@ class DistilBertNeuronConfig(BertNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["input_ids", "attention_mask"]
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         if self.task == "feature-extraction":
             return ["last_hidden_state"]
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
@@ -194,7 +194,7 @@ class CamembertNeuronConfig(BertNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["input_ids", "attention_mask"]
 
 
@@ -218,7 +218,7 @@ class XLMRobertaNeuronConfig(CamembertNeuronConfig):
 @register_in_tasks_manager("deberta", *([task for task in COMMON_TEXT_TASKS if task != "multiple-choice"]))
 class DebertaNeuronConfig(ElectraNeuronConfig):
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         common_inputs = super().inputs
         if self._config.type_vocab_size == 0:
             # We remove token type ids.
@@ -242,11 +242,11 @@ class SentenceTransformersTransformerNeuronConfig(TextEncoderNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["input_ids", "attention_mask"]
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         return ["token_embeddings", "sentence_embedding"]
 
 
@@ -262,11 +262,11 @@ class CLIPVisionWithProjectionNeuronConfig(VisionNeuronConfig):
     CUSTOM_MODEL_WRAPPER = CLIPVisionWithProjectionNeuronWrapper
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["pixel_values"]
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         common_outputs = ["image_embeds", "last_hidden_state"]
         if self.output_hidden_states:
             common_outputs.append("hidden_states")
@@ -279,14 +279,14 @@ class CLIPNeuronConfig(TextAndVisionNeuronConfig):
     INPUT_ARGS = ("text_batch_size", "image_batch_size", "sequence_length", "num_channels", "width", "height")
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         if self.task == "image-classification":
             return ["pixel_values"]
         else:
             return ["input_ids", "pixel_values", "attention_mask"]
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         if self.task == "image-classification":
             return ["logits"]
         else:
@@ -299,7 +299,7 @@ class CLIPNeuronConfig(TextAndVisionNeuronConfig):
                 "vision_model_output",
             ]
 
-    def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
+    def _create_dummy_input_generator_classes(self, **kwargs) -> list["DummyInputGenerator"]:
         for name, axis_dim in self._axes.items():
             self._axes[name] = kwargs.pop(name, axis_dim)
 
@@ -328,11 +328,11 @@ class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
     )
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["input_ids"]
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         common_outputs = ["text_embeds", "last_hidden_state"]
 
         if self._normalized_config.output_hidden_states:
@@ -346,7 +346,7 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
     MODEL_TYPE = "clip-text-model"
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         common_outputs = ["last_hidden_state", "pooler_output"]
 
         if self._normalized_config.output_hidden_states:
@@ -365,7 +365,7 @@ class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         return ["text_embeds", "image_embeds"]
 
 
@@ -377,7 +377,7 @@ class ViTNeuronConfig(VisionNeuronConfig):
     INPUT_ARGS = ("batch_size",)  # `num_channels` and `image_size` are inferred from the config
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         common_inputs = ["pixel_values"]
         if self.task == "masked-im":
             common_inputs.append("bool_masked_pos")
@@ -404,7 +404,7 @@ class CvTNeuronConfig(ViTNeuronConfig):
     MODEL_TYPE = "cvt"
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         common_outputs = super().outputs
         if self.task == "feature-extraction":
             return ["last_hidden_state", "cls_token_value"]
@@ -457,7 +457,7 @@ class SwinNeuronConfig(ViTNeuronConfig):
 @register_in_tasks_manager("yolos", *["feature-extraction", "object-detection"])
 class YolosTNeuronConfig(ViTNeuronConfig):
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         common_outputs = super().outputs
         if self.task == "object-detection":
             common_outputs.append("last_hidden_state")
@@ -479,11 +479,11 @@ class Wav2Vec2NeuronConfig(AudioNeuronConfig):
     MODEL_TYPE = "wav2vec2"
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["input_values"]
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         common_outputs = super().outputs
         if self.task == "feature-extraction":
             common_outputs = ["last_hidden_state", "extract_features"]
@@ -506,7 +506,7 @@ class ASTNeuronConfig(AudioNeuronConfig):
     DUMMY_INPUT_GENERATOR_CLASSES = (ASTDummyAudioInputGenerator,)
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["input_values"]
 
 
@@ -522,7 +522,7 @@ class HubertNeuronConfig(Wav2Vec2NeuronConfig):
     MODEL_TYPE = "hubert"
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         common_outputs = super().outputs
         if self.task == "feature-extraction":
             common_outputs = ["last_hidden_state"]
@@ -652,7 +652,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
     )
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         common_inputs = ["sample", "timestep", "encoder_hidden_states"]
 
         # TODO : add text_image, image and image_embeds
@@ -677,7 +677,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
         return common_inputs
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         return ["sample"]
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
@@ -765,12 +765,12 @@ class PixartTransformerNeuronConfig(VisionNeuronConfig):
     )
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         common_inputs = ["sample", "encoder_hidden_states", "timestep", "encoder_attention_mask"]
         return common_inputs
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         return ["out_hidden_states"]
 
 
@@ -805,7 +805,7 @@ class ControlNetNeuronConfig(VisionNeuronConfig):
     )
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         common_inputs = ["sample", "timestep", "encoder_hidden_states", "controlnet_cond", "conditioning_scale"]
 
         if getattr(self._normalized_config, "addition_embed_type", None) == "text_time":
@@ -815,7 +815,7 @@ class ControlNetNeuronConfig(VisionNeuronConfig):
         return common_inputs
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         return ["down_block_res_samples", "mid_block_res_sample"]
 
 
@@ -830,11 +830,11 @@ class VaeEncoderNeuronConfig(VisionNeuronConfig):
     )
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["sample"]
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         return ["latent_parameters"]
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
@@ -857,17 +857,17 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
     )
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["latent_sample"]
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         return ["sample"]
 
     def patch_model_for_export(
         self,
         model: "VaeDecoder",
-        dummy_inputs: Dict[str, torch.Tensor],
+        dummy_inputs: dict[str, torch.Tensor],
         **kwargs,
     ):
         return super().patch_model_for_export(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
@@ -885,7 +885,7 @@ class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
     )
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["input_ids", "attention_mask"]
 
 
@@ -895,7 +895,7 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
     INPUT_ARGS = ("batch_size", "sequence_length")
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         return ["last_hidden_state"]
 
     @property
@@ -913,7 +913,7 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
     MODEL_TYPE = "t5-encoder"
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         common_outputs = (
             [f"present.{idx}.self.key" for idx in range(self._config.num_decoder_layers)]
             + [f"present.{idx}.self.value" for idx in range(self._config.num_decoder_layers)]
@@ -1002,7 +1002,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         common_inputs = [
             "decoder_input_ids",
             "decoder_attention_mask",
@@ -1014,7 +1014,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
         return common_inputs
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         beam_outputs = ["next_token_scores", "next_tokens", "next_indices"] if self.num_beams > 1 else ["next_tokens"]
         common_outputs = (
             beam_outputs
@@ -1050,7 +1050,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
 
         return dummy_inputs
 
-    def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
+    def _create_dummy_input_generator_classes(self, **kwargs) -> list["DummyInputGenerator"]:
         dummy_inputs_generators = super()._create_dummy_input_generator_classes(**kwargs)
         dummy_beam_values_generator = self.DUMMY_INPUT_GENERATOR_CLASSES[-1](
             self.task,
@@ -1157,11 +1157,11 @@ class WhisperEncoderNeuronConfig(AudioNeuronConfig):
     )
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["input_features", "decoder_input_ids"]
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         return ["lm_logits", "encoder_last_hidden_state"]
 
     @property
@@ -1192,11 +1192,11 @@ class WhisperDecoderNeuronConfig(AudioNeuronConfig):
     )
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["decoder_input_ids", "encoder_hidden_states"]
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         return ["lm_logits"]
 
     @property

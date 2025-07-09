@@ -20,7 +20,7 @@ import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Literal
 
 import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download
@@ -93,10 +93,10 @@ class NeuronTracedModel(NeuronModel):
         self,
         model: torch.jit._script.ScriptModule,
         config: "PretrainedConfig",
-        model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        model_file_name: Optional[str] = None,
-        preprocessors: Optional[List] = None,
-        neuron_config: Optional["NeuronDefaultConfig"] = None,
+        model_save_dir: str | Path | TemporaryDirectory | None = None,
+        model_file_name: str | None = None,
+        preprocessors: list | None = None,
+        neuron_config: "NeuronDefaultConfig | None" = None,
         **kwargs,
     ):
         super().__init__(model, config)
@@ -109,15 +109,13 @@ class NeuronTracedModel(NeuronModel):
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
 
     @staticmethod
-    def load_model(
-        path: Union[str, Path], to_neuron: bool = False, device_id: int = 0
-    ) -> torch.jit._script.ScriptModule:
+    def load_model(path: str | Path, to_neuron: bool = False, device_id: int = 0) -> torch.jit._script.ScriptModule:
         """
         Loads a TorchScript module compiled by neuron(x)-cc compiler. It will be first loaded onto CPU and then moved to
         one or multiple [NeuronCore](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/neuroncores-arch.html).
 
         Args:
-            path (`Union[str, Path]`):
+            path (`str | Path`):
                 Path of the compiled model.
             to_neuron (`bool`, defaults to `False`):
                 Whether to move manually the traced model to NeuronCore. It's only needed when `inline_weights_to_neff=False`, otherwise it is loaded automatically to a Neuron device.
@@ -138,18 +136,18 @@ class NeuronTracedModel(NeuronModel):
                     move_trace_to_device(model, device_id)
             return model
 
-    def replace_weights(self, weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]] = None):
+    def replace_weights(self, weights: dict[str, torch.Tensor] | torch.nn.Module | None = None):
         check_if_weights_replacable(self.config, weights)
         if weights is not None:
             replace_weights(self.model, weights)
 
-    def _save_pretrained(self, save_directory: Union[str, Path]):
+    def _save_pretrained(self, save_directory: str | Path):
         """
         Saves a model and its configuration file to a directory, so that it can be re-loaded using the
         [`~optimum.neuron.modeling_traced.NeuronTracedModel.from_pretrained`] class method.
 
         Args:
-            save_directory (`Union[str, Path]`):
+            save_directory (`str | Path`):
                 Directory where to save the model file.
         """
         src_path = self.model_save_dir / self.model_file_name
@@ -160,17 +158,17 @@ class NeuronTracedModel(NeuronModel):
     @classmethod
     def _from_pretrained(
         cls,
-        model_id: Union[str, Path],
+        model_id: str | Path,
         config: "PretrainedConfig",
-        token: Optional[Union[bool, str]] = None,
-        revision: Optional[str] = None,
+        token: bool | str | None = None,
+        revision: str | None = None,
         force_download: bool = False,
-        cache_dir: Optional[str] = None,
-        file_name: Optional[str] = None,
+        cache_dir: str | None = None,
+        file_name: str | None = None,
         subfolder: str = "",
         local_files_only: bool = False,
-        model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        neuron_config: Optional["NeuronDefaultConfig"] = None,
+        model_save_dir: str | Path | TemporaryDirectory | None = None,
+        neuron_config: "NeuronDefaultConfig | None" = None,
         **kwargs,
     ) -> "NeuronTracedModel":
         model_path = Path(model_id)
@@ -252,22 +250,22 @@ class NeuronTracedModel(NeuronModel):
         cls,
         model_id: str,
         config: "PretrainedConfig",
-        token: Optional[Union[bool, str]] = None,
-        revision: Optional[str] = None,
+        token: bool | str | None = None,
+        revision: str | None = None,
         force_download: bool = False,
-        cache_dir: Optional[str] = None,
-        compiler_workdir: Optional[Union[str, Path]] = None,
-        tensor_parallel_size: Optional[int] = 1,
+        cache_dir: str | None = None,
+        compiler_workdir: str | Path | None = None,
+        tensor_parallel_size: int | None = 1,
         disable_neuron_cache: bool = False,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
-        task: Optional[str] = None,
-        auto_cast: Optional[str] = None,
-        auto_cast_type: Optional[str] = None,
-        disable_fast_relayout: Optional[bool] = False,
+        task: str | None = None,
+        auto_cast: str | None = None,
+        auto_cast_type: str | None = None,
+        disable_fast_relayout: bool | None = False,
         disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
         output_attentions: bool = False,
@@ -278,7 +276,7 @@ class NeuronTracedModel(NeuronModel):
         Exports a vanilla Transformers model into a neuron-compiled TorchScript Module using `optimum.exporters.neuron.export`.
 
         Args:
-            kwargs_shapes (`Dict[str, int]`):
+            kwargs_shapes (`dict[str, int]`):
                 Shapes to use during inference. This argument allows to override the default shapes used during the export.
         """
         if task is None:
@@ -384,10 +382,10 @@ class NeuronTracedModel(NeuronModel):
         self,
         save_directory: str,
         repository_id: str,
-        private: Optional[bool] = None,
-        revision: Optional[str] = None,
-        token: Optional[Union[bool, str]] = None,
-        endpoint: Optional[str] = None,
+        private: bool | None = None,
+        revision: str | None = None,
+        token: bool | str | None = None,
+        endpoint: str | None = None,
     ) -> str:
         api = HfApi(endpoint=endpoint)
 
@@ -414,8 +412,8 @@ class NeuronTracedModel(NeuronModel):
 
     def _attributes_init(
         self,
-        model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        preprocessors: Optional[List] = None,
+        model_save_dir: str | Path | TemporaryDirectory | None = None,
+        preprocessors: list | None = None,
         **kwargs,
     ):
         """
@@ -485,7 +483,7 @@ class NeuronTracedModel(NeuronModel):
         )
 
     @classmethod
-    def get_input_static_shapes(cls, neuron_config: "NeuronDefaultConfig") -> Dict[str, int]:
+    def get_input_static_shapes(cls, neuron_config: "NeuronDefaultConfig") -> dict[str, int]:
         """
         Gets a dictionary of inputs with their valid static shapes.
         """
@@ -496,7 +494,7 @@ class NeuronTracedModel(NeuronModel):
         }
         return input_static_shapes
 
-    def _validate_static_shape(self, input_shapes: List[int], target_shapes: List[int]) -> bool:
+    def _validate_static_shape(self, input_shapes: list[int], target_shapes: list[int]) -> bool:
         """
         Checks if a input needs to be padded.
         """
@@ -516,13 +514,13 @@ class NeuronTracedModel(NeuronModel):
             )
 
     def _pad_to_compiled_shape(
-        self, inputs: Dict[str, "torch.Tensor"], padding_side: Literal["right", "left"] = "right"
+        self, inputs: dict[str, "torch.Tensor"], padding_side: Literal["right", "left"] = "right"
     ):
         """
         Pads input tensors if they are not in valid shape.
 
         Args:
-            inputs (`Dict[str, "torch.Tensor"]`):
+            inputs (`dict[str, "torch.Tensor"]`):
                 Dictionary of input torch tensors.
             padding_side (`Literal["right", "left"]`, defaults to "right"):
                 The side on which to apply the padding.
@@ -577,26 +575,26 @@ class NeuronTracedModel(NeuronModel):
         return inputs
 
     @contextmanager
-    def neuron_padding_manager(self, inputs: Dict[str, "torch.Tensor"]):
+    def neuron_padding_manager(self, inputs: dict[str, "torch.Tensor"]):
         inputs = tuple(self._pad_to_compiled_shape(inputs).values())
         yield inputs
 
     @staticmethod
     def remove_padding(
-        outputs: List[torch.Tensor],
-        dims: List[int],
-        indices: List[int],
+        outputs: list[torch.Tensor],
+        dims: list[int],
+        indices: list[int],
         padding_side: Literal["right", "left"] = "right",
-    ) -> List[torch.Tensor]:
+    ) -> list[torch.Tensor]:
         """
         Removes padding from output tensors.
 
         Args:
-            outputs (`List[torch.Tensor]`):
+            outputs (`list[torch.Tensor]`):
                 List of torch tensors which are inference output.
-            dims (`List[int]`):
+            dims (`list[int]`):
                 List of dimensions in which we slice a tensor.
-            indices (`List[int]`):
+            indices (`list[int]`):
                 List of indices in which we slice a tensor along an axis.
             padding_side (`Literal["right", "left"]`, defaults to "right"):
                 The side on which the padding has been applied.

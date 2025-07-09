@@ -17,8 +17,6 @@ Common Neuron configuration classes that handle most of the features for buildin
 configurations.
 """
 
-from typing import List
-
 from ...utils import (
     DummyAudioInputGenerator,
     DummyBboxInputGenerator,
@@ -81,7 +79,7 @@ class TextSeq2SeqNeuronConfig(NeuronDefaultConfig):
         DummySeq2SeqPastKeyValuesGenerator,
     )
 
-    def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
+    def _create_dummy_input_generator_classes(self, **kwargs) -> list["DummyInputGenerator"]:
         dummy_text_input_generator = self.DUMMY_INPUT_GENERATOR_CLASSES[0](
             self.task, self._normalized_config, **kwargs
         )

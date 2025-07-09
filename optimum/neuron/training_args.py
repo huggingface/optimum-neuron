@@ -17,7 +17,6 @@
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Optional
 
 import torch
 from transformers.trainer_utils import get_last_checkpoint
@@ -76,7 +75,7 @@ class NeuronTrainingArgumentsMixin:
         default=False,
         metadata={"help": "Whether or not to disable sequence parallelism."},
     )
-    neuron_cc_optlevel: Optional[int] = field(
+    neuron_cc_optlevel: int | None = field(
         default=None,
         metadata={
             "choices": [1, 2, 3],
@@ -91,7 +90,7 @@ class NeuronTrainingArgumentsMixin:
         default=-1,
         metadata={"help": "The number of microbatches used for pipeline execution."},
     )
-    kv_size_multiplier: Optional[int] = field(
+    kv_size_multiplier: int | None = field(
         default=None,
         metadata={
             "help": (
@@ -228,7 +227,7 @@ class NeuronTrainingArgumentsMixin:
         return super()._setup_devices
 
     @property
-    def neuron_cc_flags_model_type(self) -> Optional[str]:
+    def neuron_cc_flags_model_type(self) -> str | None:
         """Controls the value to provide to the Neuron Compiler for the model-type flag."""
         return "transformer"
 
