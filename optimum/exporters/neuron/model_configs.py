@@ -19,7 +19,6 @@ import inspect
 import os
 from functools import partial
 from pathlib import Path
-from typing import List
 
 import neuronx_distributed
 import torch
@@ -821,7 +820,7 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
     )
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         common_inputs = [
             "hidden_states",
             "encoder_hidden_states",
@@ -835,7 +834,7 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
         return common_inputs
 
     @property
-    def outputs(self) -> List[str]:
+    def outputs(self) -> list[str]:
         return ["out_hidden_states"]
 
     def patch_model_and_prepare_aliases(self, model_or_path, *args):
@@ -998,11 +997,7 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
     def patch_model_and_prepare_aliases(
         self,
         model: "VaeDecoder",
-<<<<<<< HEAD
-        input_names: List[str] = None,
-=======
-        dummy_inputs: dict[str, torch.Tensor],
->>>>>>> main
+        input_names: list[str] = None,
         **kwargs,
     ):
         return super().patch_model_and_prepare_aliases(model=model, input_names=input_names, forward_with_tuple=True)
@@ -1032,7 +1027,7 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
     LIBRARY_NAME = "diffusers"
 
     @property
-    def inputs(self) -> List[str]:
+    def inputs(self) -> list[str]:
         return ["input_ids"]
 
     @property

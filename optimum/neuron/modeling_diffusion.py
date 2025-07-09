@@ -454,7 +454,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         data_parallel_mode, tensor_parallel_size = NeuronDiffusionPipelineBase.set_parallel_mode(neuron_configs)
 
-        def _load_models_to_single_core(models: Dict[str, Path]):
+        def _load_models_to_single_core(models: dict[str, Path]):
             """
             Loading models to a signgle core of a Neuron device, eg. text encoders, vae.
             """
@@ -472,7 +472,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 )
             return models
 
-        def _load_models_to_both_cores(models: Dict[str, Path]):
+        def _load_models_to_both_cores(models: dict[str, Path]):
             """
             Loading models to both cores for data parallelism, eg. unet, transformer, controlnet.
             """
@@ -1167,7 +1167,7 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
         if self.config.model_type == "t5":
             return [outputs["last_hidden_state"].to(self.config.torch_dtype)]
 
-        if return_dict and not isinstance(outputs, Dict):
+        if return_dict and not isinstance(outputs, dict):
             outputs = ModelOutput(dict(zip(self.neuron_config.outputs, outputs)))
 
         return outputs
@@ -1288,7 +1288,7 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
         joint_attention_kwargs: dict[str, Any] | None = None,
         added_cond_kwargs: dict[str, torch.Tensor] | None = None,
         cross_attention_kwargs: dict[str, Any] | None = None,
-        attention_mask: torch.Tensor | None= None,
+        attention_mask: torch.Tensor | None = None,
         encoder_attention_mask: torch.Tensor | None = None,
         return_dict: bool = True,
     ):

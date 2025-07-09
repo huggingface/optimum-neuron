@@ -219,7 +219,7 @@ def normalize_diffusers_input_shapes(
 
 def infer_shapes_of_diffusers(
     input_shapes: dict[str, dict[str, int]],
-    model: "StableDiffusionPipeline | StableDiffusionXLPipeline" | "FluxPipeline",
+    model: "StableDiffusionPipeline | StableDiffusionXLPipeline | FluxPipeline",
     has_controlnets: bool,
 ):
     max_sequence_length_1 = model.tokenizer.model_max_length if model.tokenizer is not None else None

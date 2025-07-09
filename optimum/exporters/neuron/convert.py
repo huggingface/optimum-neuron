@@ -573,7 +573,7 @@ def export_neuronx(
     return config.inputs, config.outputs
 
 
-def prepare_dummy_inputs(config: "NeuronDefaultConfig", input_shapes: Dict[str, int], return_dict: bool = True):
+def prepare_dummy_inputs(config: "NeuronDefaultConfig", input_shapes: dict[str, int], return_dict: bool = True):
     """
     Create dummy inputs used for tracing the model.
     """
@@ -588,7 +588,7 @@ def prepare_dummy_inputs(config: "NeuronDefaultConfig", input_shapes: Dict[str, 
 
 def prepare_compiler_flags(
     config: "NeuronDefaultConfig",
-    auto_cast: Optional[str] = None,
+    auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
     optlevel: str = "2",
     instance_type: str = "trn1",
@@ -648,7 +648,7 @@ def trace_neuronx(
     tensor_parallel_size: int,
     aliases=None,
     inline_weights_to_neff: bool = True,
-    compiler_workdir: Optional[Path] = None,
+    compiler_workdir: Path | None = None,
 ):
     if tensor_parallel_size > 1:
         # Tensor Parallelism

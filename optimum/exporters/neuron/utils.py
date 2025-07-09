@@ -134,7 +134,7 @@ def get_diffusion_models_for_export(
     controlnet_input_shapes: dict[str, Any] | None = None,
     image_encoder_input_shapes: dict[str, Any] | None = None,
     text_encoder_2_input_shapes: dict[str, Any] | None = None,
-    model_name_or_path: str | Path | None  = None,
+    model_name_or_path: str | Path | None = None,
 ) -> dict[str, tuple["PreTrainedModel | ModelMixin", "NeuronDefaultConfig"]]:
     """
     Returns the components of a Stable Diffusion / Diffusion Transformer(eg. Pixart) / Flux model and their subsequent neuron configs.

@@ -123,7 +123,7 @@ class PixartTransformerNeuronWrapper(torch.nn.Module):
 
 
 class FluxTransformerNeuronWrapper(torch.nn.Module):
-    def __init__(self, model, input_names: List[str], device: str = None):
+    def __init__(self, model, input_names: list[str], device: str = None):
         super().__init__()
         self.model = model
         self.dtype = model.dtype
@@ -210,7 +210,7 @@ class T5EncoderWrapper(torch.nn.Module):
         self,
         model: "PreTrainedModel",
         sequence_length: int,
-        batch_size:  int | None = None,
+        batch_size: int | None = None,
         device: str = "xla",
         tensor_parallel_size: int = 1,
     ):

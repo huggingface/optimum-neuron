@@ -93,6 +93,8 @@
       sections:
       - local: model_doc/diffusers/controlnet
         title: ControlNet
+      - local: model_doc/diffusers/flux
+        title: Flux
       - local: model_doc/diffusers/pix2pix
         title: InstructPix2Pix
       - local: model_doc/diffusers/lcm
