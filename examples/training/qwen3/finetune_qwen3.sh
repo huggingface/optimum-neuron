@@ -32,7 +32,7 @@ torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_qwen3.py \
   --per_device_train_batch_size $BS \
   --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
   --learning_rate 8e-4 \
-  --bf16 true \
+  --bf16 \
   --tensor_parallel_size $TP_DEGREE \
   --zero_1 \
   --async_save \

@@ -217,9 +217,11 @@ torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_qwen3.py \
   --max_steps $MAX_STEPS \
   --per_device_train_batch_size $BS \
   --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
-  --learning_rate 5e-4 \
-  --bf16 true \
+  --learning_rate 8e-4 \
+  --bf16 \
   --tensor_parallel_size $TP_DEGREE \
+  --zero_1 \
+  --async_save \
   --logging_steps $LOGGING_STEPS \
   --output_dir $OUTPUT_DIR \
   --lr_scheduler_type "cosine" \
@@ -271,7 +273,3 @@ finetuned_model.save_pretrained(MERGED_MODEL_PATH)
 Once this step is done, it is possible to test the model with a new prompt.
 
 You have successfully created a fine-tuned model from Qwen3!
-
-
-
-
