@@ -14,7 +14,6 @@
 """An optimum-neuron vLLM model loader."""
 
 import logging
-from typing import Optional, Union
 
 import torch
 import torch.nn as nn
@@ -84,7 +83,7 @@ class OptimumNeuronModelForCausalLM(nn.Module):
         self,
         logits: torch.Tensor,
         sampling_metadata: SamplingMetadata,
-    ) -> Optional[SamplerOutput]:
+    ) -> SamplerOutput | None:
         # on-device sampling
         if self.model.neuron_config.on_device_sampling:
             batch_size = logits.shape
@@ -114,10 +113,10 @@ class OptimumNeuronModelForCausalLM(nn.Module):
 
 def check_neuron_config_compatibility(
     neuron_config_dict: dict,
-    batch_size: Optional[int] = None,
-    sequence_length: Optional[int] = None,
-    tensor_parallel_size: Optional[int] = None,
-    torch_dtype: Optional[Union[str, torch.dtype]] = None,
+    batch_size: int | None = None,
+    sequence_length: int | None = None,
+    tensor_parallel_size: int | None = None,
+    torch_dtype: str | torch.dtype | None = None,
 ) -> bool:
     """Check if the cached entry is compatible with the current environment."""
     logger.debug(
@@ -175,10 +174,10 @@ def check_neuron_config_compatibility(
 
 def _is_cached(
     model_id: str,
-    batch_size: Optional[int] = None,
-    sequence_length: Optional[int] = None,
-    tensor_parallel_size: Optional[int] = None,
-    torch_dtype: Optional[Union[str, torch.dtype]] = None,
+    batch_size: int | None = None,
+    sequence_length: int | None = None,
+    tensor_parallel_size: int | None = None,
+    torch_dtype: str | torch.dtype | None = None,
 ) -> bool:
     # Look for cached entries for the specified model
     in_cache = False

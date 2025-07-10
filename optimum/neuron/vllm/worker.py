@@ -14,7 +14,6 @@
 """An optimum-neuron vLLM worker class."""
 
 import logging
-from typing import List, Optional, Set, Tuple
 
 import torch
 from vllm.config import VllmConfig
@@ -70,7 +69,7 @@ class OptimumNeuronWorker(LocalOrDistributedWorkerBase):
     def load_model(self):
         self.model_runner.load_model()
 
-    def determine_num_available_blocks(self) -> Tuple[int, int]:
+    def determine_num_available_blocks(self) -> tuple[int, int]:
         """Determine the number of available KV blocks.
 
         Swapping is not yet supported, so always return num_cpu_blocks=0.
@@ -102,7 +101,7 @@ class OptimumNeuronWorker(LocalOrDistributedWorkerBase):
         return False
 
     @property
-    def kv_cache(self) -> Optional[List[List[torch.Tensor]]]:
+    def kv_cache(self) -> list[list[torch.Tensor]] | None:
         return None
 
     @torch.inference_mode()
@@ -148,5 +147,5 @@ class OptimumNeuronWorker(LocalOrDistributedWorkerBase):
     def pin_lora(self, lora_id: int) -> bool:
         raise NotImplementedError(f"{type(self)} does not support LoRA with Optimum Neuron platform")
 
-    def list_loras(self) -> Set[int]:
+    def list_loras(self) -> set[int]:
         raise NotImplementedError(f"{type(self)} does not support LoRA with Optimum Neuron platform")

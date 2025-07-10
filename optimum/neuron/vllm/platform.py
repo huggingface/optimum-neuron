@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
-from typing import Optional
 
 from vllm.platforms.interface import Platform, PlatformEnum
 
@@ -33,7 +32,7 @@ class OptimumNeuronPlatform(Platform):
         return "neuron"
 
     @classmethod
-    def is_async_output_supported(cls, enforce_eager: Optional[bool]) -> bool:
+    def is_async_output_supported(cls, enforce_eager: bool | None) -> bool:
         return False
 
     @classmethod
