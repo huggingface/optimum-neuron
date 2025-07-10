@@ -25,7 +25,7 @@ We can either compile one or multiple ControlNet via the Optimum CLI or programm
 ### Option 1: CLI
 
 ```bash
-optimum-cli export neuron -m runwayml/stable-diffusion-v1-5 --batch_size 1 --height 512 --width 512 --controlnet_ids lllyasviel/sd-controlnet-canny --num_images_per_prompt 1 sd_neuron_controlnet/
+optimum-cli export neuron -m stable-diffusion-v1-5/stable-diffusion-v1-5 --batch_size 1 --height 512 --width 512 --controlnet_ids lllyasviel/sd-controlnet-canny --num_images_per_prompt 1 sd_neuron_controlnet/
 ```
 
 ### Option 2: Python API
@@ -33,7 +33,7 @@ optimum-cli export neuron -m runwayml/stable-diffusion-v1-5 --batch_size 1 --hei
 ```python
 from optimum.neuron import NeuronStableDiffusionControlNetPipeline
 
-model_id = "runwayml/stable-diffusion-v1-5"
+model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 controlnet_id = "lllyasviel/sd-controlnet-canny"
 
 # [Neuron] pipeline
