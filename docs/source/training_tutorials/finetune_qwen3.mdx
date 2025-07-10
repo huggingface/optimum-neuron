@@ -180,7 +180,7 @@ dataset = preprocess_dataset_with_eos(tokenizer.eos_token)
  trainer.train()
 ```
 
-📝 **Complete script available:** All steps above are combined in a ready-to-use script [here](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/qwen3/finetune_qwen3.py).
+📝 **Complete script available:** All steps above are combined in a ready-to-use script [finetune_qwen3.py](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/qwen3/finetune_qwen3.py).
 
 
 To launch training, just run the following command in your AWS Trainium instance:
@@ -226,7 +226,7 @@ torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_qwen3.py \
   --overwrite_output_dir
 ```
 
-🔧 **Single command execution:** The complete training script is available [here](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/qwen3/finetune_qwen3.sh):
+🔧 **Single command execution:** The complete bash training script [finetune_qwen3.sh](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/qwen3/finetune_qwen3.sh) is available:
 
 ```bash
 ./finetune_qwen3.sh
