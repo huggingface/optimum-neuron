@@ -282,3 +282,30 @@ finetuned_model.save_pretrained(MERGED_MODEL_PATH)
 Once this step is done, it is possible to test the model with a new prompt.
 
 You have successfully created a fine-tuned model from Qwen3!
+
+## 5. 🤗 Push to Hugging Face Hub
+
+Share your fine-tuned model with the community by uploading it to the Hugging Face Hub.
+
+**Step 1: Authentication**
+```bash
+huggingface-cli login
+```
+
+**Step 2: Upload your model**
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+MERGED_MODEL_PATH = "Qwen3-8B-recipes"
+HUB_MODEL_NAME = "your-username/qwen3-8b-recipes"
+
+# Load and push tokenizer
+tokenizer = AutoTokenizer.from_pretrained(MERGED_MODEL_PATH)
+tokenizer.push_to_hub(HUB_MODEL_NAME)
+
+# Load and push model
+model = AutoModelForCausalLM.from_pretrained(MERGED_MODEL_PATH)
+model.push_to_hub(HUB_MODEL_NAME)
+```
+
+🎉 **Your fine-tuned Qwen3 model is now available on the Hub for others to use!**
