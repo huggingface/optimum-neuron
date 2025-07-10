@@ -1,4 +1,0 @@
-accelerate>=0.12.0
-datasets>=1.17.0
-evaluate
-scikit-learn
