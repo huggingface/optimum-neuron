@@ -113,7 +113,7 @@ sentence-transformers = [
     "sentence-transformers >= 2.2.0",
 ]
 vllm = [
-    "vllm >= 0.9.1, <1.0.0",
+    "vllm == 0.9.2",
 ]
 
 [project.scripts]

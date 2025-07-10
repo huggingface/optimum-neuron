@@ -84,7 +84,7 @@ EXTRAS_REQUIRE = {
     ],
     "diffusers": ["diffusers>=0.28.0, <=0.30.3", "peft==0.14.0"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
-    "vllm": ["vllm >= 0.9.1, <1.0.0"],
+    "vllm": ["vllm == 0.9.2"],
 }
 
 setup(
