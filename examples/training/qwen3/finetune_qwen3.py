@@ -84,7 +84,7 @@ def train(model_id, tokenizer, dataset, training_args):
     args = training_args.to_dict()
 
     sft_config = NeuronSFTConfig(
-        max_seq_length=8192,
+        max_seq_length=4096,
         packing=True,
         **args,
     )

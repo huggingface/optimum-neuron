@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Flags for Neuron compilation
-export NEURON_CC_FLAGS="--model-type transformer --cache_dir=$HOME/neuron_compile_cache/ --retry_failed_compilation"
+export NEURON_CC_FLAGS="--model-type transformer --retry_failed_compilation"
 export NEURON_FUSE_SOFTMAX=1
 export NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS=3 # Async Runtime
 export MALLOC_ARENA_MAX=64 # Host OOM mitigation
@@ -15,9 +15,14 @@ GRADIENT_ACCUMULATION_STEPS=8
 LOGGING_STEPS=2
 MODEL_NAME="Qwen/Qwen3-8B" # Change this to the desired model name
 OUTPUT_DIR="$(echo $MODEL_NAME | cut -d'/' -f2)-finetuned"
-MAX_STEPS=-1
 DISTRIBUTED_ARGS="--nproc_per_node $PROCESSES_PER_NODE"
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
+if [ "$NEURON_EXTRACT_GRAPHS_ONLY" = "1" ]; then
+    MAX_STEPS=5
+else
+    MAX_STEPS=-1
+fi
 
 torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_qwen3.py \
   --model_id $MODEL_NAME \
@@ -25,15 +30,13 @@ torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_qwen3.py \
   --do_train \
   --max_steps $MAX_STEPS \
   --per_device_train_batch_size $BS \
-  --per_device_eval_batch_size $BS \
   --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
-  --gradient_checkpointing true \
+  --learning_rate 8e-4 \
   --bf16 true \
-  --save_steps 20 \
-  --async_save true \
   --tensor_parallel_size $TP_DEGREE \
+  --zero_1 \
+  --async_save \
   --logging_steps $LOGGING_STEPS \
-  --save_total_limit -1 \
   --output_dir $OUTPUT_DIR \
   --lr_scheduler_type "cosine" \
   --overwrite_output_dir
