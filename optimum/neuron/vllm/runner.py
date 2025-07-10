@@ -15,7 +15,7 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 
 import torch
 from vllm.attention.backends.abstract import AttentionBackend
@@ -42,12 +42,12 @@ class ModelInputForOptimumNeuron(ModelRunnerInputBase):
     Used by the OptimumNeuronModelRunner.
     """
 
-    input_ids: Optional[torch.Tensor] = None
-    position_ids: Optional[torch.Tensor] = None
-    seq_ids: Optional[torch.Tensor] = None
-    sampling_metadata: SamplingMetadata = None
+    input_ids: torch.Tensor | None = None
+    position_ids: torch.Tensor | None = None
+    seq_ids: torch.Tensor | None = None
+    sampling_metadata: SamplingMetadata | None = None
 
-    def as_broadcastable_tensor_dict(self) -> Dict[str, Union[int, torch.Tensor]]:
+    def as_broadcastable_tensor_dict(self) -> dict[str, int | torch.Tensor]:
         return {
             "input_ids": self.input_ids,
             "position_ids": self.position_ids,
@@ -58,8 +58,8 @@ class ModelInputForOptimumNeuron(ModelRunnerInputBase):
     @classmethod
     def from_broadcasted_tensor_dict(
         cls,
-        tensor_dict: Dict[str, Any],
-        attn_backend: Optional["AttentionBackend"] = None,
+        tensor_dict: dict[str, Any],
+        attn_backend: "AttentionBackend" | None = None,
     ) -> "ModelInputForOptimumNeuron":
         return ModelInputForOptimumNeuron(
             input_ids=tensor_dict["input_ids"],
@@ -118,7 +118,7 @@ class OptimumNeuronModelRunner(ModelRunnerBase[ModelInputForOptimumNeuron]):
     def get_multi_modal_data_neuron(self, input_images):
         raise NotImplementedError("need to restore multi-modal support")
 
-    def _convert_to_neuron_sampling_params(self, sampling_params: SamplingParams) -> Tuple[int, float, float]:
+    def _convert_to_neuron_sampling_params(self, sampling_params: SamplingParams) -> tuple[int, float, float]:
         # Returns the top_k, top_p and temperature parameters for neuron.
         top_k = sampling_params.top_k
         top_p = sampling_params.top_p
@@ -136,11 +136,11 @@ class OptimumNeuronModelRunner(ModelRunnerBase[ModelInputForOptimumNeuron]):
     def execute_model(
         self,
         model_input: ModelInputForOptimumNeuron,
-        kv_caches: Optional[List[torch.Tensor]] = None,
-        intermediate_tensors: Optional[IntermediateTensors] = None,
+        kv_caches: list[torch.Tensor] | None = None,
+        intermediate_tensors: IntermediateTensors | None = None,
         num_steps: int = 1,
         **kwargs,
-    ) -> Optional[List[SamplerOutput]]:
+    ) -> list[SamplerOutput] | None:
         if num_steps > 1:
             raise ValueError("OptimumNeuronModelRunner does not support multi-step execution.")
 
@@ -160,19 +160,19 @@ class OptimumNeuronModelRunner(ModelRunnerBase[ModelInputForOptimumNeuron]):
 
         return [output]
 
-    def make_model_input_from_broadcasted_tensor_dict(self, tensor_dict: Dict[str, Any]) -> ModelInputForOptimumNeuron:
+    def make_model_input_from_broadcasted_tensor_dict(self, tensor_dict: dict[str, Any]) -> ModelInputForOptimumNeuron:
         return ModelInputForOptimumNeuron.from_broadcasted_tensor_dict(tensor_dict)
 
     def _prepare_prompt(
         self,
-        seq_group_metadata_list: List[SequenceGroupMetadata],
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[int]]:
+        seq_group_metadata_list: list[SequenceGroupMetadata],
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, list[int]]:
         assert len(seq_group_metadata_list) > 0
-        input_tokens: List[List[int]] = []
-        input_positions: List[List[int]] = []
-        input_block_ids: List[int] = []
+        input_tokens: list[list[int]] = []
+        input_positions: list[list[int]] = []
+        input_block_ids: list[int] = []
 
-        seq_lens: List[int] = []
+        seq_lens: list[int] = []
         for seq_group_metadata in seq_group_metadata_list:
             assert seq_group_metadata.is_prompt
             seq_ids = list(seq_group_metadata.seq_data.keys())
@@ -206,12 +206,12 @@ class OptimumNeuronModelRunner(ModelRunnerBase[ModelInputForOptimumNeuron]):
 
     def _prepare_decode(
         self,
-        seq_group_metadata_list: List[SequenceGroupMetadata],
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        seq_group_metadata_list: list[SequenceGroupMetadata],
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         assert len(seq_group_metadata_list) > 0
-        input_tokens: List[List[int]] = []
-        input_positions: List[List[int]] = []
-        input_block_ids: List[int] = []
+        input_tokens: list[list[int]] = []
+        input_positions: list[list[int]] = []
+        input_block_ids: list[int] = []
 
         for seq_group_metadata in seq_group_metadata_list:
             assert not seq_group_metadata.is_prompt
@@ -240,9 +240,9 @@ class OptimumNeuronModelRunner(ModelRunnerBase[ModelInputForOptimumNeuron]):
 
     def prepare_model_input(
         self,
-        seq_group_metadata_list: List[SequenceGroupMetadata],
+        seq_group_metadata_list: list[SequenceGroupMetadata],
         virtual_engine: int = 0,
-        finished_requests_ids: Optional[List[str]] = None,
+        finished_requests_ids: list[str] | None = None,
     ) -> ModelInputForOptimumNeuron:
         # NOTE: We assume that all sequences in the group are all prompts or
         # all decodes.
@@ -280,7 +280,7 @@ class OptimumNeuronModelRunner(ModelRunnerBase[ModelInputForOptimumNeuron]):
     def remove_all_loras(self):
         raise NotImplementedError("LoRAs are not supported in the optimum-neuron framewrok.")
 
-    def set_active_loras(self, lora_requests: Set[LoRARequest], lora_mapping: LoRAMapping) -> None:
+    def set_active_loras(self, lora_requests: set[LoRARequest], lora_mapping: LoRAMapping) -> None:
         raise NotImplementedError("LoRAs are not supported in the optimum-neuron framewrok.")
 
     def add_lora(self, lora_request: LoRARequest):
@@ -292,5 +292,5 @@ class OptimumNeuronModelRunner(ModelRunnerBase[ModelInputForOptimumNeuron]):
     def pin_lora(self, lora_id: int) -> bool:
         raise NotImplementedError("LoRAs are not supported in the optimum-neuron framewrok.")
 
-    def list_loras(self) -> Set[int]:
+    def list_loras(self) -> set[int]:
         raise NotImplementedError("LoRAs are not supported in the optimum-neuron framewrok.")
