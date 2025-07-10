@@ -29,9 +29,3 @@ Start fine-tuning with a single command:
 ./finetune_qwen3.sh
 ```
 
-## 📊 Performance Results
-
-### `Qwen/Qwen3-8B` Benchmark
-
-
-
