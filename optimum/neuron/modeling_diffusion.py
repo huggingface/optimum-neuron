@@ -396,6 +396,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
     @requires_torch_neuronx
     def load_model(
         data_parallel_mode: Literal["none", "unet", "transformer", "all"] | None,
+        tensor_parallel_size: int,
         text_encoder_path: str | Path | None = None,
         text_encoder_2_path: str | Path | None = None,
         image_encoder_path: str | Path | None = None,
@@ -406,7 +407,6 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         controlnet_paths: list[Path] | None = None,
         dynamic_batch_size: bool = False,
         to_neuron: bool = False,
-        neuron_configs: dict | None = None,
     ):
         """
         Loads Stable Diffusion TorchScript modules compiled by neuron(x)-cc compiler. It will be first loaded onto CPU and then moved to
@@ -417,6 +417,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
                 load unet into both cores of each device), "all"(load the whole pipeline into both cores). This applies exclusively to inference
                 performed on a single device, in case of tensor parallelism, it will be ignored.
+            tensor_parallel_size (`int`):
+                Tensor parallelism size, the number of Neuron cores on which to shard the model.
             text_encoder_path (`str | Path`, defaults to `None`):
                 Path of the compiled text encoder.
             text_encoder_2_path (`str | Path | None`, defaults to `None`):
@@ -437,8 +439,6 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 Whether enable dynamic batch size for neuron compiled model. If `True`, the input batch size can be a multiple of the batch size during the compilation.
             to_neuron (`bool`, defaults to `False`):
                 Whether to move manually the traced model to NeuronCore. It's only needed when `inline_weights_to_neff=False`, otherwise it is loaded automatically to a Neuron device.
-            neuron_configs (`dict | None`, defaults to `None`):
-                The Neuron configurations of models in the pipeline.
         """
         submodels = {
             # Load the UNet/Diffusion transformer first to avoid CPU OOM
@@ -451,8 +451,6 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             "controlnet": controlnet_paths,
             "image_encoder": image_encoder_path,
         }
-
-        data_parallel_mode, tensor_parallel_size = NeuronDiffusionPipelineBase.set_parallel_mode(neuron_configs)
 
         def _load_models_to_single_core(models: dict[str, Path]):
             """
@@ -729,6 +727,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 configs[name] = sub_model_configs if len(sub_model_configs) > 1 else sub_model_configs[0]
                 neuron_configs[name] = sub_neuron_configs if len(sub_neuron_configs) > 1 else sub_neuron_configs[0]
 
+        data_parallel_mode, tensor_parallel_size = NeuronDiffusionPipelineBase.set_parallel_mode(neuron_configs)
         pipe = cls.load_model(
             data_parallel_mode=data_parallel_mode,
             text_encoder_path=model_and_config_save_paths["text_encoder"][0],
@@ -741,7 +740,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             controlnet_paths=model_and_config_save_paths["controlnet"][0],
             dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME].dynamic_batch_size,
             to_neuron=not inline_weights_to_neff,
-            neuron_configs=neuron_configs,
+            tensor_parallel_size=tensor_parallel_size,
         )
 
         if model_save_dir is None:
