@@ -1,0 +1,270 @@
+<!---
+Copyright 2025 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+# Fine-Tune Qwen3 on AWS Trainium
+
+This tutorial will teach how to fine-tune open LLMs like Qwen 3 on AWS Trainium.
+
+**It is the direct adaptation of the [Qwen3 fine-tuning example script](https://github.com/huggingface/optimum-neuron/tree/main/examples/training/qwen3).**
+
+## 1. Setup AWS environment
+
+In this example, we will use the `trn1.32xlarge` instance on AWS with 16 Accelerators, including 32 Neuron Cores and the Hugging Face Neuron Deep Learning AMI. 
+The Hugging Face AMI comes with all important libraries, like `datasets`, `transformers`, `optimum-neuron` and Neuron SDK packages pre-installed this makes it super easy to get started, since there is no need for environment management.
+
+To create such instance you can follow the guide [here](https://huggingface.co/docs/optimum-neuron/guides/setup_aws_instance).
+
+## 2. Load and prepare the dataset
+
+We will use a [simple recipes](https://huggingface.co/datasets/tengomucho/simple_recipes) dataset, to make LLMs get better at suggesting delicious ideas.
+
+```
+{
+    'recipes': "- Preheat oven to 350 degrees\n- Butter two 9x5' loaf pans\n- Cream the sugar and the butter until light and whipped\n- Add the bananas, eggs, lemon juice, orange rind\n- Beat until blended uniformly\n- Be patient, and beat until the banana lumps are gone\n- Sift the dry ingredients together\n- Fold lightly and thoroughly into the banana mixture\n- Pour the batter into prepared loaf pans\n- Bake for 45 to 55 minutes, until the loaves are firm in the middle and the edges begin to pull away from the pans\n- Cool the loaves on racks for 30 minutes before removing from the pans\n- Freezes well",
+    'names': 'Beat this banana bread'
+}
+```
+
+To load the dataset we use the `load_dataset()` method from the `datasets` library.
+
+```python
+from random import randrange
+
+from datasets import load_dataset
+
+
+# Load dataset from the hub
+dataset_id = "tengomucho/simple_recipes"
+recipes = load_dataset(dataset_id, split="train")
+
+dataset_size = len(recipes)
+print(f"dataset size: {dataset_size}")
+print(recipes[randrange(dataset_size)])
+# dataset size: 20000
+```
+
+To tune our model we need to convert our structured examples into a collection of quotes with a given context, so we define our tokenization function that we will be able to map on the dataset.
+
+The dataset should be structured with input-output pairs, where each input is a prompt and the output is the expected response from the model. 
+We will make use of the model’s tokenizer chat template and preprocess the dataset to be fed to the trainer.
+
+```python
+# Preprocesses the dataset
+def preprocess_dataset_with_eos(eos_token):
+    def preprocess_function(examples):
+        recipes = examples["recipes"]
+        names = examples["names"]
+
+        chats = []
+        for recipe, name in zip(recipes, names):
+            # Append the EOS token to the response
+            recipe += eos_token
+
+            chat = [
+                {"role": "user", "content": f"How can I make {name}?"},
+                {"role": "assistant", "content": recipe},
+            ]
+
+            chats.append(chat)
+        return {"messages": chats}
+
+    dataset = recipes.map(preprocess_function, batched=True, remove_columns=recipes.column_names)
+    return dataset
+
+# Structures the dataset into prompt-expected output pairs.
+def formatting_function(examples):
+    return tokenizer.apply_chat_template(examples["messages"], tokenize=False, add_generation_prompt=False)
+```
+
+Note: these functions make references of `eos_token` and `tokenizer`, they are well-defined in the [Python script](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/qwen3/finetune_qwen3.py) to run this tutorial.
+
+
+## 3. Fine-tune Qwen 3 on AWS Trainium using the NeuronSFTTrainer and PEFT
+
+Usually, to fine-tune PyTorch-based transformer models you would use [PEFT](https://github.com/huggingface/peft) to use LoRA adapters to save memory and use the [`SFTTrainer`](https://huggingface.co/docs/trl/en/sft_trainer) to perform supervised fine-tuning.
+
+On AWS Trainium, `optimum-neuron` offers a 1-to-1 replacement with the `NeuronSFTTrainer`.
+
+When it comes to distributed training on AWS Trainium there are few things we need to take care of. Since Qwen3 is a big model it does not fit on a single accelerator. 
+The `NeuronSFTTrainer` supports different distributed training techniques (DDP, Tensor Parallelism, Pipeline Parallelism) to solve this.
+
+Loading the model and preparing the LoRA adapter is very similar to what you would do with other accelerators.
+
+Combining all the pieces together, and assuming the dataset has already been loaded, we can write the following code to fine-tune Qwen3 on AWS Trainium:
+
+```python
+model_id = "Qwen/Qwen3-8B"
+
+# Define the training arguments
+output_dir = "qwen3-finetuned-recipes"
+training_args = NeuronTrainingArguments(
+    output_dir=output_dir,
+    num_train_epochs=3,
+    do_train=True,
+    max_steps=-1,  # -1 means train until the end of the dataset
+    per_device_train_batch_size=1,
+    gradient_accumulation_steps=8,
+    learning_rate=5e-4,
+    bf16=True,  
+    tensor_parallel_size=8,
+    logging_steps=2,
+    lr_scheduler_type="cosine",
+    overwrite_output_dir=True,
+)
+
+# Load the model with the NeuronModelForCausalLM class.
+# It will load the model with a custom modeling speficically designed for AWS Trainium.
+trn_config = training_args.trn_config
+dtype = torch.bfloat16 if training_args.bf16 else torch.float32
+model = NeuronModelForCausalLM.from_pretrained(
+    model_id,
+    trn_config,
+    torch_dtype=dtype,
+    # Use FlashAttention2 for better performance and to be able to use larger sequence lengths.
+    use_flash_attention_2=True,
+)
+
+lora_config = LoraConfig(
+    r=64,
+    lora_alpha=128,
+    lora_dropout=0.05,
+    target_modules=["embed_tokens", "q_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj", "gate_proj"],
+    bias="none",
+    task_type="CAUSAL_LM",
+)
+
+# Converting the NeuronTrainingArguments to a dictionary to feed them to the NeuronSFTConfig.
+args = training_args.to_dict()
+
+sft_config = NeuronSFTConfig(
+    max_seq_length=4096,
+    packing=True,
+    **args,
+)
+
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+dataset = preprocess_dataset_with_eos(tokenizer.eos_token)
+
+ def formatting_function(examples):
+     return tokenizer.apply_chat_template(examples["messages"], tokenize=False, add_generation_prompt=False)
+
+ # The NeuronSFTTrainer will use `formatting_function` to format the dataset and `lora_config` to apply LoRA on the
+ # model.
+ trainer = NeuronSFTTrainer(
+     args=sft_config,
+     model=model,
+     peft_config=lora_config,
+     tokenizer=tokenizer,
+     train_dataset=dataset,
+     formatting_func=formatting_function,
+ )
+ trainer.train()
+```
+
+For your convenience, we prepare a script that does all the steps above, including dataset loading, model loading, and training. You can find it [here](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/qwen3/finetune_qwen3.py).
+
+
+To launch training, just run the following command in your AWS Trainium instance:
+
+```bash
+# Flags for Neuron compilation
+export NEURON_CC_FLAGS="--model-type transformer --retry_failed_compilation"
+export NEURON_FUSE_SOFTMAX=1
+export NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS=3 # Async Runtime
+export MALLOC_ARENA_MAX=64 # Host OOM mitigation
+
+# Variables for training
+PROCESSES_PER_NODE=32
+NUM_EPOCHS=3
+TP_DEGREE=8
+BS=1
+GRADIENT_ACCUMULATION_STEPS=8
+LOGGING_STEPS=2
+MODEL_NAME="Qwen/Qwen3-8B" # Change this to the desired model name
+OUTPUT_DIR="$(echo $MODEL_NAME | cut -d'/' -f2)-finetuned"
+DISTRIBUTED_ARGS="--nproc_per_node $PROCESSES_PER_NODE"
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
+if [ "$NEURON_EXTRACT_GRAPHS_ONLY" = "1" ]; then
+    MAX_STEPS=5
+else
+    MAX_STEPS=-1
+fi
+
+torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_qwen3.py \
+  --model_id $MODEL_NAME \
+  --num_train_epochs $NUM_EPOCHS \
+  --do_train \
+  --max_steps $MAX_STEPS \
+  --per_device_train_batch_size $BS \
+  --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
+  --learning_rate 5e-4 \
+  --bf16 true \
+  --tensor_parallel_size $TP_DEGREE \
+  --logging_steps $LOGGING_STEPS \
+  --output_dir $OUTPUT_DIR \
+  --lr_scheduler_type "cosine" \
+  --overwrite_output_dir
+```
+
+Again, for your convenience, we combined this script into a single file that you can find [here](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/qwen3/finetune_qwen3.sh), so you can simply do:
+
+```bash
+./finetune_qwen3.sh
+```
+
+## 4. Consolidate and Test the Fine-Tuned Model
+
+Optimum Neuron trains and serializes model shard files separately, meaning that they need to be consolidated (i.e.: re-merged) to be used.
+
+To do this, you can use the Optimum CLI as suggested here:
+
+```bash
+optimum-cli neuron consolidate Qwen3-8B-finetuned Qwen3-8B-finetuned/adapter_default
+```
+
+This will create an `adapter_model.safetensors` file, the LoRA adapter weights that we trained in the previous step. We can now reload the model and merge it, so it can be loaded for evaluation:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel, PeftConfig
+
+
+MODEL_NAME = "Qwen/Qwen3-8B"
+ADAPTER_PATH = "Qwen3-8B-finetuned/adapter_default"
+MERGED_MODEL_PATH = "Qwen3-8B-recipes"
+
+# Load base model
+model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+
+# Load adapter configuration and model
+adapter_config = PeftConfig.from_pretrained(ADAPTER_PATH)
+finetuned_model = PeftModel.from_pretrained(model, ADAPTER_PATH, config=adapter_config)
+
+print("Saving tokenizer")
+tokenizer.save_pretrained(MERGED_MODEL_PATH)
+print("Saving model")
+finetuned_model = finetuned_model.merge_and_unload()
+finetuned_model.save_pretrained(MERGED_MODEL_PATH)
+```
+
+Once this step is done, it is possible to test the model with a new prompt.
+
+You have successfully created a fine-tuned model from Qwen3!
+
+
+
+
