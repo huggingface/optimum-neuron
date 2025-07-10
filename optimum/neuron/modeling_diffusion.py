@@ -317,7 +317,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         # change lcm scheduler which extends the denoising procedure
         self.is_lcm = False
-        if self.unet and NeuronDiffusionPipelineBase.is_lcm(self.unet.config):
+        if self.unet and NeuronDiffusionPipelineBase.is_lcm(self.unet.neuron_config):
             self.is_lcm = True
             self.scheduler = LCMScheduler.from_config(self.scheduler.config)
 
