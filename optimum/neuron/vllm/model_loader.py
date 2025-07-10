@@ -26,8 +26,9 @@ from vllm.sequence import CompletionSequenceGroupOutput, Logprob, SequenceOutput
 
 from ..cache import get_hub_cached_entries
 from ..configuration_utils import NeuronConfig
-from ..modeling_decoder import NeuronModelForCausalLM, get_available_cores
+from ..modeling_decoder import NeuronModelForCausalLM
 from ..utils import map_torch_dtype
+from ..utils.system import get_available_cores
 from ..utils.version_utils import get_neuronxcc_version
 
 
