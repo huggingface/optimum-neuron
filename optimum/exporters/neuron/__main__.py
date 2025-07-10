@@ -328,6 +328,9 @@ def get_submodels_and_neuron_configs(
         # TODO: Enable optional outputs for Stable Diffusion
         if output_attentions:
             raise ValueError(f"`output_attentions`is not supported by the {task} task yet.")
+        # Custom lowering for Softmax and SILU operations. Mandatory for applying optimized attention score of diffusion models.
+        os.environ["NEURON_FUSE_SOFTMAX"] = "1"
+        os.environ["NEURON_CUSTOM_SILU"] = "1"
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_stable_diffusion(
             model=model,
             input_shapes=input_shapes,

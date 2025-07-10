@@ -74,6 +74,7 @@ tests = [
     "mediapipe",
     "timm >= 1.0.0",
     "hf_transfer",
+    "torchcodec",
 ]
 quality = [
     "ruff",
