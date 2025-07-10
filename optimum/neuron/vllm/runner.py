@@ -59,7 +59,7 @@ class ModelInputForOptimumNeuron(ModelRunnerInputBase):
     def from_broadcasted_tensor_dict(
         cls,
         tensor_dict: dict[str, Any],
-        attn_backend: "AttentionBackend" | None = None,
+        attn_backend: AttentionBackend | None = None,
     ) -> "ModelInputForOptimumNeuron":
         return ModelInputForOptimumNeuron(
             input_ids=tensor_dict["input_ids"],
