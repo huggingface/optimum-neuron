@@ -147,7 +147,16 @@ lora_config = LoraConfig(
     r=64,
     lora_alpha=128,
     lora_dropout=0.05,
-    target_modules=["embed_tokens", "q_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj", "gate_proj"],
+    target_modules=[
+        "embed_tokens",
+        "q_proj",
+        "v_proj",
+        "o_proj",
+        "k_proj",
+        "up_proj",
+        "down_proj",
+        "gate_proj",
+    ],
     bias="none",
     task_type="CAUSAL_LM",
 )
