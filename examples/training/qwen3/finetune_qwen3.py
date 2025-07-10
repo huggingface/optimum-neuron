@@ -115,6 +115,9 @@ class ScriptArguments:
     )
 
 
+# =============================================================================
+# Main Function
+# =============================================================================
 if __name__ == "__main__":
     parser = HfArgumentParser((ScriptArguments, NeuronTrainingArguments))
     script_args, training_args = parser.parse_args_into_dataclasses()
