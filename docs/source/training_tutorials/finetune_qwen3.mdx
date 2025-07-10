@@ -13,22 +13,26 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 -->
-# Fine-Tune Qwen3 on AWS Trainium
+# 🚀 Fine-Tune Qwen3 on AWS Trainium
 
-This tutorial will teach how to fine-tune open LLMs like Qwen 3 on AWS Trainium.
+This tutorial shows how to fine-tune the Qwen3 model on AWS Trainium accelerators using optimum-neuron.
 
-**It is the direct adaptation of the [Qwen3 fine-tuning example script](https://github.com/huggingface/optimum-neuron/tree/main/examples/training/qwen3).**
+**This is based on the [Qwen3 fine-tuning example script](https://github.com/huggingface/optimum-neuron/tree/main/examples/training/qwen3).**
 
-## 1. Setup AWS environment
+## 1. 🛠️ Setup AWS Environment
 
-In this example, we will use the `trn1.32xlarge` instance on AWS with 16 Accelerators, including 32 Neuron Cores and the Hugging Face Neuron Deep Learning AMI. 
-The Hugging Face AMI comes with all important libraries, like `datasets`, `transformers`, `optimum-neuron` and Neuron SDK packages pre-installed this makes it super easy to get started, since there is no need for environment management.
+We'll use a `trn1.32xlarge` instance with 16 Trainium Accelerators (32 Neuron Cores) and the Hugging Face Neuron Deep Learning AMI.
 
-To create such instance you can follow the guide [here](https://huggingface.co/docs/optimum-neuron/guides/setup_aws_instance).
+The Hugging Face AMI includes all required libraries pre-installed:
+- `datasets`, `transformers`, `optimum-neuron`
+- Neuron SDK packages
+- No additional environment setup needed
 
-## 2. Load and prepare the dataset
+To create your instance, follow the guide [here](https://huggingface.co/docs/optimum-neuron/guides/setup_aws_instance).
 
-We will use a [simple recipes](https://huggingface.co/datasets/tengomucho/simple_recipes) dataset, to make LLMs get better at suggesting delicious ideas.
+## 2. 📊 Load and Prepare the Dataset
+
+We'll use the [simple recipes dataset](https://huggingface.co/datasets/tengomucho/simple_recipes) to fine-tune our model for recipe generation.
 
 ```
 {
@@ -91,16 +95,19 @@ def formatting_function(examples):
 Note: these functions make references of `eos_token` and `tokenizer`, they are well-defined in the [Python script](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/qwen3/finetune_qwen3.py) to run this tutorial.
 
 
-## 3. Fine-tune Qwen 3 on AWS Trainium using the NeuronSFTTrainer and PEFT
+## 3. 🎯 Fine-tune Qwen3 with NeuronSFTTrainer and PEFT
 
-Usually, to fine-tune PyTorch-based transformer models you would use [PEFT](https://github.com/huggingface/peft) to use LoRA adapters to save memory and use the [`SFTTrainer`](https://huggingface.co/docs/trl/en/sft_trainer) to perform supervised fine-tuning.
+For standard PyTorch fine-tuning, you'd typically use [PEFT](https://github.com/huggingface/peft) with LoRA adapters and the [`SFTTrainer`](https://huggingface.co/docs/trl/en/sft_trainer).
 
-On AWS Trainium, `optimum-neuron` offers a 1-to-1 replacement with the `NeuronSFTTrainer`.
+On AWS Trainium, `optimum-neuron` provides `NeuronSFTTrainer` as a drop-in replacement.
 
-When it comes to distributed training on AWS Trainium there are few things we need to take care of. Since Qwen3 is a big model it does not fit on a single accelerator. 
-The `NeuronSFTTrainer` supports different distributed training techniques (DDP, Tensor Parallelism, Pipeline Parallelism) to solve this.
+**Distributed Training on Trainium:**
+Since Qwen3 doesn't fit on a single accelerator, we use distributed training techniques:
+- Data Parallel (DDP)
+- Tensor Parallelism  
+- Pipeline Parallelism
 
-Loading the model and preparing the LoRA adapter is very similar to what you would do with other accelerators.
+Model loading and LoRA configuration work similarly to other accelerators.
 
 Combining all the pieces together, and assuming the dataset has already been loaded, we can write the following code to fine-tune Qwen3 on AWS Trainium:
 
@@ -173,7 +180,7 @@ dataset = preprocess_dataset_with_eos(tokenizer.eos_token)
  trainer.train()
 ```
 
-For your convenience, we prepare a script that does all the steps above, including dataset loading, model loading, and training. You can find it [here](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/qwen3/finetune_qwen3.py).
+📝 **Complete script available:** All steps above are combined in a ready-to-use script [here](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/qwen3/finetune_qwen3.py).
 
 
 To launch training, just run the following command in your AWS Trainium instance:
@@ -219,17 +226,17 @@ torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_qwen3.py \
   --overwrite_output_dir
 ```
 
-Again, for your convenience, we combined this script into a single file that you can find [here](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/qwen3/finetune_qwen3.sh), so you can simply do:
+🔧 **Single command execution:** The complete training script is available [here](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/qwen3/finetune_qwen3.sh):
 
 ```bash
 ./finetune_qwen3.sh
 ```
 
-## 4. Consolidate and Test the Fine-Tuned Model
+## 4. 🔄 Consolidate and Test the Fine-Tuned Model
 
-Optimum Neuron trains and serializes model shard files separately, meaning that they need to be consolidated (i.e.: re-merged) to be used.
+Optimum Neuron saves model shards separately during distributed training. These need to be consolidated before use.
 
-To do this, you can use the Optimum CLI as suggested here:
+Use the Optimum CLI to consolidate:
 
 ```bash
 optimum-cli neuron consolidate Qwen3-8B-finetuned Qwen3-8B-finetuned/adapter_default
