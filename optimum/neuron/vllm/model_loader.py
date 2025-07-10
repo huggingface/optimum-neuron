@@ -247,7 +247,7 @@ def get_optimum_neuron_model(
             torch_dtype=torch_dtype,
         ):
             hub_cache_url = "https://huggingface.co/aws-neuron/optimum-neuron-cache"  # noqa: E501
-            neuron_export_url = "https://huggingface.co/docs/optimum-neuron/main/en/guides/export_model#exporting-neuron-models-using-neuronx-tgi"  # noqa: E501
+            neuron_export_url = "https://huggingface.co/docs/optimum-neuron/main/en/guides/export_model"  # noqa: E501
             error_msg = (
                 f"No cached version found for {model_id} with "
                 f"batch size = {batch_size}, seq len = {sequence_length},"
