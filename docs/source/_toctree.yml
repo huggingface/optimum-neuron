@@ -35,7 +35,7 @@
           title: Fine-tune BERT for Text Classification
         - local: training_tutorials/sft_lora_finetune_llm
           title: Fine-tune Llama 3 8B with LoRA and the SFTTrainer
-        - local: training_tutorials/qwen3-fine-tuning
+        - local: training_tutorials/finetune_qwen3
           title: Fine-tune Qwen 3 on AWS Trainium
         - local: training_tutorials/pretraining_hyperpod_llm
           title: Continuous Pretraining of Llama 3.2 1B on SageMaker Hyperpod
