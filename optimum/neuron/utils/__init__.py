@@ -57,6 +57,7 @@ _import_structure = {
         "ASTDummyAudioInputGenerator",
         "DummyIPAdapterInputGenerator",
         "DummyFluxTransformerRotaryEmbGenerator",
+        "DummyTimestepInputGenerator",
         "WhisperDummyTextInputGenerator",
     ],
     "misc": [
@@ -129,6 +130,7 @@ if TYPE_CHECKING:
         DummyFluxTransformerRotaryEmbGenerator,
         DummyIPAdapterInputGenerator,
         DummyMaskedPosGenerator,
+        DummyTimestepInputGenerator,
         WhisperDummyTextInputGenerator,
     )
     from .misc import (

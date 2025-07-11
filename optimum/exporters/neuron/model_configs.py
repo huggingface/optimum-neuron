@@ -34,6 +34,7 @@ from optimum.neuron.utils import (
     DummyFluxTransformerRotaryEmbGenerator,
     DummyIPAdapterInputGenerator,
     DummyMaskedPosGenerator,
+    DummyTimestepInputGenerator,
     WhisperDummyTextInputGenerator,
     get_checkpoint_shard_files,
     saved_model_in_temporary_directory,
@@ -44,7 +45,6 @@ from optimum.utils import (
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
     DummyTextInputGenerator,
-    DummyTimestepInputGenerator,
     DummyTransformerTimestepInputGenerator,
     DummyVisionInputGenerator,
     NormalizedConfig,
@@ -658,8 +658,8 @@ class UNetNeuronConfig(VisionNeuronConfig):
 
     DUMMY_INPUT_GENERATOR_CLASSES = (
         DummyVisionInputGenerator,
-        DummyTimestepInputGenerator,
         DummySeq2SeqDecoderTextInputGenerator,
+        DummyTimestepInputGenerator,
         DummyControNetInputGenerator,
         DummyIPAdapterInputGenerator,
     )
@@ -695,7 +695,6 @@ class UNetNeuronConfig(VisionNeuronConfig):
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
-        dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
         dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
 
         # break down down_block_additional_residuals
