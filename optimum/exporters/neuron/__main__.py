@@ -260,7 +260,7 @@ def infer_shapes_of_diffusers(
     input_shapes[unet_or_transformer_name] = input_shapes.pop("unet_or_transformer")
     if unet_or_transformer_name == "transformer":
         input_shapes[unet_or_transformer_name]["encoder_hidden_size"] = model.text_encoder.config.hidden_size
-        if hasattr(model.transformer, "pos_embed"):
+        if hasattr(model.transformer, "pos_embed") and hasattr(model.transformer.pos_embed, "axes_dim"):
             input_shapes[unet_or_transformer_name]["rotary_axes_dim"] = sum(model.transformer.pos_embed.axes_dim)
 
     # VAE

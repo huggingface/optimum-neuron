@@ -350,7 +350,6 @@ def export_models(
     failed_models = []
     total_compilation_time = 0
     compile_configs = {}
-    models_and_neuron_configs.pop("text_encoder")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -533,13 +532,14 @@ def export_neuronx(
     for axis in config.mandatory_axes:
         input_shapes[axis] = getattr(config, axis)
 
-    dummy_inputs = prepare_dummy_inputs(config, input_shapes, return_dict=False)
+    dummy_inputs = prepare_dummy_inputs(config, input_shapes, return_dict=True)
+    dummy_inputs_tuple = tuple(dummy_inputs.values())
 
     # Prepare the model / function(tp) to trace
     if getattr(config, "is_encoder_decoder", False):
         checked_model, aliases = config.patch_model_and_prepare_aliases(model_or_path, **input_shapes)
     else:
-        checked_model, aliases = config.patch_model_and_prepare_aliases(model_or_path, config.inputs)
+        checked_model, aliases = config.patch_model_and_prepare_aliases(model_or_path, dummy_inputs.keys())
 
     # Construct compiler configurations
     compiler_args = prepare_compiler_flags(
@@ -561,7 +561,7 @@ def export_neuronx(
     trace_neuronx(
         model=checked_model,
         config=config,
-        dummy_inputs=dummy_inputs,
+        dummy_inputs=dummy_inputs_tuple,
         compiler_args=compiler_args,
         output=output,
         tensor_parallel_size=tensor_parallel_size,

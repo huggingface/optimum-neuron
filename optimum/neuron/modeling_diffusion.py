@@ -1078,6 +1078,9 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         if all([self.image_encoder, self.encoder_hid_proj]):
             self.unet.encoder_hid_proj = self.encoder_hid_proj
 
+    def to(self, *args, **kwargs):
+        pass
+
     def __call__(self, *args, **kwargs):
         # Height and width to unet/transformer (static shapes)
         unet_or_transformer = self.unet or self.transformer
@@ -1156,11 +1159,15 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
 
         input_ids = input_ids.to(torch.long)  # dummy generator uses long int for tracing
         inputs = (input_ids,)
-        if attention_mask is not None and not torch.all(attention_mask == 1):
+        if (
+            attention_mask is not None
+            and not torch.all(attention_mask == 1)
+            and not self.neuron_config.MODEL_TYPE == "t5-encoder"
+        ):
             inputs += (attention_mask,)
 
         outputs = self.model(*inputs)
-        if self.config.model_type == "t5":
+        if self.config.model_type == "t5" and isinstance(outputs, dict):  # Flux text encoder 2
             return [outputs["last_hidden_state"].to(self.config.torch_dtype)]
 
         if return_dict and not isinstance(outputs, dict):
@@ -1270,7 +1277,8 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
         neuron_config: dict[str, str] | None = None,
     ):
         super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_TRANSFORMER_NAME)
-        self.pos_embed = FluxPosEmbed(theta=10000, axes_dim=self.config.axes_dims_rope)
+        if neuron_config.MODEL_TYPE == "flux-transformer-2d":
+            self.pos_embed = FluxPosEmbed(theta=10000, axes_dim=self.config.axes_dims_rope)
 
     def forward(
         self,
@@ -1292,8 +1300,10 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
             ids = torch.cat((txt_ids, img_ids), dim=0)
             image_rotary_emb = torch.stack(self.pos_embed(ids), dim=2).to(hidden_states.dtype)
             guidance = guidance.to(hidden_states.dtype)
+            timestep = timestep.to(hidden_states.dtype)
             inputs = (hidden_states, encoder_hidden_states, pooled_projections, timestep, guidance, image_rotary_emb)
         elif self.neuron_config.MODEL_TYPE == "pixart-transformer-2d":
+            timestep = timestep.to(hidden_states.dtype)
             inputs = (hidden_states, encoder_hidden_states, timestep, encoder_attention_mask)
 
         outputs = self.model(*inputs)
@@ -1405,7 +1415,7 @@ class NeuronControlNetModel(_NeuronDiffusionModelPart):
         added_cond_kwargs: dict | None = None,
         return_dict: bool = True,
     ) -> "ControlNetOutput | tuple[tuple[torch.Tensor, ...]]":
-        timestep = timestep.expand((sample.shape[0],)).to(torch.long)
+        timestep = timestep.expand((sample.shape[0],)).float()
         inputs = (sample, timestep, encoder_hidden_states, controlnet_cond, conditioning_scale)
         if added_cond_kwargs:
             text_embeds = added_cond_kwargs.pop("text_embeds", None)
@@ -1464,6 +1474,7 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
                 "Guess mode is not yet supported. File us an issue on: https://github.com/huggingface/optimum-neuron/issues."
             )
         for i, (image, scale, controlnet) in enumerate(zip(controlnet_cond, conditioning_scale, self.nets)):
+            timestep = timestep.float()
             inputs = (sample, timestep, encoder_hidden_states, image, scale)
             down_samples, mid_sample = controlnet(*inputs)
 
