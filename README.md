@@ -17,8 +17,11 @@ limitations under the License.
 # Optimum Neuron
 
 🤗 Optimum Neuron is the interface between the 🤗 Transformers library and AWS Accelerators including [AWS Trainium](https://aws.amazon.com/machine-learning/trainium/?nc1=h_ls) and [AWS Inferentia](https://aws.amazon.com/machine-learning/inferentia/?nc1=h_ls).
-It provides a set of tools enabling easy model loading, training and inference on single- and multi-Accelerator settings for different downstream tasks.
-The list of officially validated models and tasks is available [here](TODO:). Users can try other models and tasks with only few changes.
+**Key Features:**
+- 🔄 **Drop-in replacement** for standard Transformers training and inference
+- ⚡ **Distributed training** support with minimal code changes  
+- 🎯 **Optimized models** for AWS accelerators
+- 📈 **Production-ready** inference with compiled models
 
 ## Install
 To install the latest release of this package:
@@ -52,11 +55,11 @@ pip install git+https://github.com/huggingface/optimum-neuron.git
 
 ## Quick Start
 
-🤗 Optimum Neuron was designed with one goal in mind: **to make training and inference straightforward for any 🤗 Transformers user while leveraging the complete power of AWS Accelerators**.
+Optimum Neuron makes AWS accelerator adoption seamless for Transformers users.
 
 ### Training
 
-It's very easy to train a model on AWS Trainium, you just need to replace some classes you are familiar with in the Hugging Face ecosystem with their `optimum.neuron` counterparts.
+Training on AWS Trainium requires minimal changes to your existing code:
 
 ```python
 import torch
@@ -143,16 +146,15 @@ if __name__ == "__main__":
     main()
 ```
 
-This tiny example shows how to perform super fine-tuning (SFT) on a small Qwen3 model using the [Databricks Dolly dataset](https://huggingface.co/datasets/databricks/databricks-dolly-15k). The code uses `NeuronSFTTrainer` and `NeuronModelForCausalLM` to train the model on AWS Trainium devices with minimal changes compared to the standard training code in 🤗 Transformers.
+This example demonstrates supervised fine-tuning on the [Databricks Dolly dataset](https://huggingface.co/datasets/databricks/databricks-dolly-15k) using `NeuronSFTTrainer` and `NeuronModelForCausalLM` - the Trainium-optimized versions of standard Transformers components.
 
 
-Then you can run compilation:
-
+**Compilation** (optional for first run):
 ```bash
 NEURON_CC_FLAGS="--model-type transformer" neuron_parallel_compile torchrun --nproc_per_node 32 sft_finetune_qwen3.py
 ```
 
-Finally, you can launch the training:
+**Training:**
 ```bash
 NEURON_CC_FLAGS="--model-type transformer" torchrun --nproc_per_node 32 sft_finetune_qwen3.py
 ```
