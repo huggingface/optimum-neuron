@@ -50,48 +50,113 @@ pip install git+https://github.com/huggingface/optimum-neuron.git
 
 *Make sure that you have installed the Neuron driver and tools before installing `optimum-neuron`, [more extensive guide here](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/setup/torch-neuronx.html#setup-torch-neuronx).*
 
-Last but not least, don't forget to install the requirements for every example:
-
-```bash
-cd <example-folder>
-pip install -r requirements.txt
-```
-
-
 ## Quick Start
 
 🤗 Optimum Neuron was designed with one goal in mind: **to make training and inference straightforward for any 🤗 Transformers user while leveraging the complete power of AWS Accelerators**.
 
 ### Training
 
-There are two main classes one needs to know:
-- TrainiumArgumentParser: inherits the original [HfArgumentParser](https://huggingface.co/docs/transformers/main/en/internal/trainer_utils#transformers.HfArgumentParser) in Transformers with additional checks on the argument values to make sure that they will work well with AWS Trainium instances.
-- [NeuronTrainer](https://huggingface.co/docs/optimum-neuron/main/en/package_reference/trainer): this version trainer takes care of doing the proper checks and changes to the supported models to make them trainable on AWS Trainium instances.
+It's very easy to train a model on AWS Trainium, you just need to replace some classes you are familiar with in the Hugging Face ecosystem with their `optimum.neuron` counterparts.
 
-The [NeuronTrainer](https://huggingface.co/docs/optimum-neuron/package_reference/trainer) is very similar to the [🤗 Transformers Trainer](https://huggingface.co/docs/transformers/main_classes/trainer), and adapting a script using the Trainer to make it work with Trainium will mostly consist in simply swapping the Trainer class for the NeuronTrainer one.
-That's how most of the [example scripts](https://github.com/huggingface/optimum-neuron/tree/main/examples) were adapted from their [original counterparts](https://github.com/huggingface/transformers/tree/main/examples/pytorch).
+```python
+import torch
+import torch_xla.runtime as xr
 
-```diff
-from transformers import TrainingArguments
-+from optimum.neuron import NeuronTrainer as Trainer
+from datasets import load_dataset
+from transformers import AutoTokenizer
 
-training_args = TrainingArguments(
-  # training arguments...
-)
+# Optimum Neuron's drop-in replacements for standard training components
+from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer, NeuronTrainingArguments
+from optimum.neuron.models.training import NeuronModelForCausalLM
 
-# A lot of code here
 
-# Initialize our Trainer
-trainer = Trainer(
-    model=model,
-    args=training_args,  # Original training arguments.
-    train_dataset=train_dataset if training_args.do_train else None,
-    eval_dataset=eval_dataset if training_args.do_eval else None,
-    compute_metrics=compute_metrics,
-    tokenizer=tokenizer,
-    data_collator=data_collator,
-)
+def format_dolly_dataset(example):
+    """Format Dolly dataset into instruction-following format."""
+    instruction = f"### Instruction\n{example['instruction']}"
+    context = f"### Context\n{example['context']}" if example["context"] else None
+    response = f"### Answer\n{example['response']}"
+    
+    # Combine all parts with double newlines
+    parts = [instruction, context, response]
+    return "\n\n".join(part for part in parts if part)
+
+
+def main():
+    # 📊 Load instruction-following dataset
+    dataset = load_dataset("databricks/databricks-dolly-15k", split="train")
+    
+    # 🔧 Model configuration
+    model_id = "Qwen/Qwen3-1.7B"
+    output_dir = "qwen3-1.7b-finetuned"
+    
+    # 🔤 Setup tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer.pad_token = tokenizer.eos_token
+    
+    # ⚙️ Configure training for Trainium
+    training_args = NeuronTrainingArguments(
+        learning_rate=1e-4,
+        tensor_parallel_size=8,  # Split model across 8 accelerators
+        per_device_train_batch_size=1,  # Batch size per device
+        gradient_accumulation_steps=8,
+        output_dir=output_dir,
+    )
+    
+    # 🧠 Load model optimized for Trainium
+    model = NeuronModelForCausalLM.from_pretrained(
+        model_id,
+        training_args.trn_config,
+        torch_dtype=torch.bfloat16,
+        use_flash_attention_2=True,  # Enable fast attention
+    )
+    
+    # 📝 Setup supervised fine-tuning
+    sft_config = NeuronSFTConfig(
+        max_seq_length=2048,
+        packing=True,  # Pack multiple samples for efficiency
+        **training_args.to_dict(),
+    )
+    
+    # 🚀 Initialize trainer and start training
+    trainer = NeuronSFTTrainer(
+        model=model,
+        args=sft_config,
+        tokenizer=tokenizer,
+        train_dataset=dataset,
+        formatting_func=format_dolly_dataset,
+    )
+    
+    trainer.train()
+    
+    # 🤗 Share your model with the community
+    trainer.push_to_hub(
+        commit_message="Fine-tuned on Databricks Dolly dataset",
+        blocking=True,
+        model_name=output_dir,
+    )
+    
+    if xr.local_ordinal() == 0:
+        print(f"✅ Training complete! Model saved to {output_dir}")
+
+
+if __name__ == "__main__":
+    main()
 ```
+
+This tiny example shows how to perform super fine-tuning (SFT) on a small Qwen3 model using the [Databricks Dolly dataset](https://huggingface.co/datasets/databricks/databricks-dolly-15k). The code uses `NeuronSFTTrainer` and `NeuronModelForCausalLM` to train the model on AWS Trainium devices with minimal changes compared to the standard training code in 🤗 Transformers.
+
+
+Then you can run compilation:
+
+```bash
+NEURON_CC_FLAGS="--model-type transformer" neuron_parallel_compile torchrun --nproc_per_node 32 sft_finetune_qwen3.py
+```
+
+Finally, you can launch the training:
+```bash
+NEURON_CC_FLAGS="--model-type transformer" torchrun --nproc_per_node 32 sft_finetune_qwen3.py
+```
+
 
 ### Inference
 
