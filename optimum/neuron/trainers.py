@@ -549,6 +549,7 @@ class _TrainerForNeuron:
                 self.control.should_save = is_new_best_metric
 
         if self.control.should_save:
+            xm.mark_step()
 
             def save_closure(self, model, trial):
                 self._save_checkpoint(model, trial)
@@ -574,8 +575,6 @@ class _TrainerForNeuron:
                 )
 
             model_to_save = self.model.original_torch_module if isinstance(self.model, NxDPPModel) else self.model
-            # This mark_step is needed to avoid hang issues.
-            xm.mark_step()
             model_to_save.save_pretrained(
                 output_dir,
                 optimizer=self.optimizer if not self.args.save_only_model else None,
