@@ -19,16 +19,7 @@ from argparse import ArgumentParser, Namespace, _SubParsersAction
 from pathlib import Path
 
 from ...exporters import TasksManager
-from ...utils import is_diffusers_available
 from ..base import BaseOptimumCLICommand, CommandInfo
-
-
-if is_diffusers_available():
-    # Mandatory for applying optimized attention score of Stable Diffusion
-    import os
-
-    os.environ["NEURON_FUSE_SOFTMAX"] = "1"
-    os.environ["NEURON_CUSTOM_SILU"] = "1"
 
 
 def parse_args_neuronx(parser: "ArgumentParser"):

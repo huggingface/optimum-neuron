@@ -52,7 +52,7 @@ Here is an example of exporting stable diffusion components with `NeuronStableDi
 ```python
 from optimum.neuron import NeuronStableDiffusionPipeline
 
-model_id = "runwayml/stable-diffusion-v1-5"
+model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 input_shapes = {"batch_size": 1, "height": 512, "width": 512}
 
@@ -79,7 +79,7 @@ stable_diffusion.save_pretrained(save_directory)
 ```python
 from optimum.neuron import NeuronStableDiffusionPipeline
 
-model_id = "runwayml/stable-diffusion-v1-5"
+model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 input_shapes = {"batch_size": 1, "height": 512, "width": 512}
 

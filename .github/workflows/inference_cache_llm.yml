@@ -25,6 +25,7 @@ jobs:
       matrix:
         config: [
           llama,
+          qwen,
           qwen2.5,
           granite,
           phi4,

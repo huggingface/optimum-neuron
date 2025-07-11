@@ -106,9 +106,6 @@ if is_diffusers_available():
         NeuronStableDiffusionXLControlNetPipelineMixin,
         NeuronStableDiffusionXLPipelineMixin,
     )
-
-    os.environ["NEURON_FUSE_SOFTMAX"] = "1"
-    os.environ["NEURON_CUSTOM_SILU"] = "1"
 else:
     raise ModuleNotFoundError("`diffusers` python package is not installed.")
 
@@ -1519,7 +1516,7 @@ class NeuronStableDiffusionInstructPix2PixPipeline(
     NeuronDiffusionPipelineBase, StableDiffusionInstructPix2PixPipeline
 ):
     main_input_name = "prompt"
-    task = "task-to-image"
+    task = "text-to-image"
     auto_model_class = StableDiffusionInstructPix2PixPipeline
 
 

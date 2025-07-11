@@ -84,6 +84,7 @@ EXTRAS_REQUIRE = {
     ],
     "diffusers": ["diffusers>=0.31.0", "peft==0.15.2"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
+    "vllm": ["vllm == 0.9.2"],
 }
 
 setup(
@@ -121,6 +122,9 @@ setup(
         "console_scripts": [
             "optimum-cli=optimum.commands.optimum_cli:main",
             "neuron_parallel_compile=optimum.neuron.utils.neuron_parallel_compile:main",
-        ]
+        ],
+        "vllm.platform_plugins": [
+            "optimum_neuron = optimum.neuron.vllm.plugin:register",
+        ],
     },
 )
