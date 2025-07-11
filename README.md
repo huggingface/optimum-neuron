@@ -102,6 +102,7 @@ def main():
         tensor_parallel_size=8,  # Split model across 8 accelerators
         per_device_train_batch_size=1,  # Batch size per device
         gradient_accumulation_steps=8,
+        logging_steps=1,
         output_dir=output_dir,
     )
     
