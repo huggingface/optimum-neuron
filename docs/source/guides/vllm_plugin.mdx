@@ -11,8 +11,8 @@ This platform supports two modes of operation:
 Notes
 - only a relevant subset of all possible configurations for a given model are cached,
 - you can use the `optimum-cli` to get all [cached configurations](https://huggingface.co/docs/optimum-neuron/guides/cache_system#neuron-model-cache-lookup-inferentia-only) for each model.
-- to deploy vanilla Hugging Face hub models that are not cached on the Hugging Face hub, it
-is still possible to use the default `neuron` platform from the vLLM package.
+- to deploy models that are not cached on the Hugging Face hub, you need to [export](https://huggingface.co/docs/optimum-neuron/main/en/guides/export_model)
+ them beforehand.
 
 ## Setup
 
