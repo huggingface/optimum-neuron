@@ -1436,6 +1436,20 @@ class _TrainerForNeuron:
     def save_state(self):
         return super().save_state()
 
+    def push_to_hub(
+        self,
+        commit_message: str | None = "End of training",
+        blocking: bool = True,
+        token: str | None = None,
+        revision: str | None = None,
+        **kwargs,
+    ) -> str:
+        if is_precompilation():
+            logger.info("Push to hub skipped during precompilation.")
+            return ""
+        else:
+            return super().push_to_hub(commit_message, blocking, token, revision, **kwargs)
+
 
 class NeuronTrainer(_TrainerForNeuron, Trainer):
     """
