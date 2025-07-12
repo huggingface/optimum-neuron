@@ -94,7 +94,7 @@ class NeuronPeftModel(PeftModel):
         patcher = Patcher(
             [
                 ("peft.peft_model.PEFT_TYPE_TO_MODEL_MAPPING", PEFT_TYPE_TO_MODEL_MAPPING),
-                ("peft.mapping.MODEL_TYPE_TO_PEFT_MODEL_MAPPING", MODEL_TYPE_TO_PEFT_MODEL_MAPPING),
+                ("peft.auto.MODEL_TYPE_TO_PEFT_MODEL_MAPPING", MODEL_TYPE_TO_PEFT_MODEL_MAPPING),
             ]
         )
         with patcher:
