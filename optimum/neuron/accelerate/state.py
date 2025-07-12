@@ -221,3 +221,7 @@ class NeuronAcceleratorState(AcceleratorState):
     @property
     def autocast_backend(self):
         return self._autocast_backend
+
+    @deepspeed_plugin.setter  # noqa: F821
+    def deepspeed_plugin(self, value):
+        self._deepspeed_plugin = value
