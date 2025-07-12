@@ -1152,6 +1152,9 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         if all([self.image_encoder, self.encoder_hid_proj]):
             self.unet.encoder_hid_proj = self.encoder_hid_proj
 
+    def to(self, *args, **kwargs):
+        pass
+
     def __call__(self, *args, **kwargs):
         # Height and width to unet/transformer (static shapes)
         unet_or_transformer = self.unet or self.transformer
@@ -1353,6 +1356,7 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
         encoder_attention_mask: torch.Tensor | None = None,
         return_dict: bool = True,
     ):
+        timestep = timestep.to(hidden_states.dtype)
         inputs = (hidden_states, encoder_hidden_states, timestep, encoder_attention_mask)
         outputs = self.model(*inputs)
         if return_dict:
@@ -1461,7 +1465,7 @@ class NeuronControlNetModel(_NeuronDiffusionModelPart):
         added_cond_kwargs: dict | None = None,
         return_dict: bool = True,
     ) -> "ControlNetOutput | tuple[tuple[torch.Tensor, ...]]":
-        timestep = timestep.expand((sample.shape[0],)).to(torch.long)
+        timestep = timestep.expand((sample.shape[0],)).float()
         inputs = (sample, timestep, encoder_hidden_states, controlnet_cond, conditioning_scale)
         if added_cond_kwargs:
             text_embeds = added_cond_kwargs.pop("text_embeds", None)
@@ -1520,6 +1524,7 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
                 "Guess mode is not yet supported. File us an issue on: https://github.com/huggingface/optimum-neuron/issues."
             )
         for i, (image, scale, controlnet) in enumerate(zip(controlnet_cond, conditioning_scale, self.nets)):
+            timestep = timestep.float()
             inputs = (sample, timestep, encoder_hidden_states, image, scale)
             down_samples, mid_sample = controlnet(*inputs)
 

@@ -22,11 +22,20 @@ import neuronx_distributed
 import torch
 
 from optimum.exporters.tasks import TasksManager
+from optimum.neuron.utils import (
+    ASTDummyAudioInputGenerator,
+    DummyBeamValuesGenerator,
+    DummyControNetInputGenerator,
+    DummyIPAdapterInputGenerator,
+    DummyMaskedPosGenerator,
+    DummyTimestepInputGenerator,
+    WhisperDummyTextInputGenerator,
+    saved_model_in_temporary_directory,
+)
 from optimum.utils import (
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
     DummyTextInputGenerator,
-    DummyTimestepInputGenerator,
     DummyVisionInputGenerator,
     NormalizedConfig,
     NormalizedConfigManager,
@@ -37,15 +46,6 @@ from optimum.utils import (
     is_diffusers_available,
 )
 
-from ...neuron.utils import (
-    ASTDummyAudioInputGenerator,
-    DummyBeamValuesGenerator,
-    DummyControNetInputGenerator,
-    DummyIPAdapterInputGenerator,
-    DummyMaskedPosGenerator,
-    WhisperDummyTextInputGenerator,
-    saved_model_in_temporary_directory,
-)
 from .config import (
     AudioNeuronConfig,
     TextAndVisionNeuronConfig,
@@ -645,8 +645,8 @@ class UNetNeuronConfig(VisionNeuronConfig):
 
     DUMMY_INPUT_GENERATOR_CLASSES = (
         DummyVisionInputGenerator,
-        DummyTimestepInputGenerator,
         DummySeq2SeqDecoderTextInputGenerator,
+        DummyTimestepInputGenerator,
         DummyControNetInputGenerator,
         DummyIPAdapterInputGenerator,
     )
@@ -759,6 +759,7 @@ class PixartTransformerNeuronConfig(VisionNeuronConfig):
 
     DUMMY_INPUT_GENERATOR_CLASSES = (
         DummyVisionInputGenerator,
+        DummyTimestepInputGenerator,
         DummyControNetInputGenerator,
         DummyTextInputGenerator,
         DummySeq2SeqDecoderTextInputGenerator,
