@@ -22,6 +22,7 @@ from optimum.utils import (
     DTYPE_MAPPER,
     DummyAudioInputGenerator,
     DummyInputGenerator,
+    NormalizedConfig,
     NormalizedTextConfig,
     NormalizedVisionConfig,
 )
@@ -122,10 +123,54 @@ class DummyMaskedPosGenerator(DummyInputGenerator):
             return masked_pos.bool()
 
 
+class DummyTimestepInputGenerator(DummyInputGenerator):
+    SUPPORTED_INPUT_NAMES = (
+        "timestep",
+        "text_embeds",
+        "time_ids",
+        "timestep_cond",
+    )
+
+    def __init__(
+        self,
+        task: str,
+        normalized_config: NormalizedConfig,
+        batch_size: int,
+        **kwargs,
+    ):
+        self.task = task
+        self.vocab_size = normalized_config.vocab_size
+        self.text_encoder_projection_dim = getattr(normalized_config, "text_encoder_projection_dim", None)
+        self.time_ids = 5 if getattr(normalized_config, "requires_aesthetics_score", False) else 6
+        self.batch_size = batch_size
+        self.time_cond_proj_dim = getattr(normalized_config.config, "time_cond_proj_dim", None)
+
+    def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
+        if input_name == "timestep":
+            shape = [self.batch_size]
+            return self.random_float_tensor(shape, max_value=999, framework=framework, dtype=float_dtype)
+        if input_name == "text_embeds":
+            if self.text_encoder_projection_dim is None:
+                raise ValueError(
+                    "Unable to infer the value of `text_encoder_projection_dim` for generating `text_embeds`, please double check the config of your model."
+                )
+            dim = self.text_encoder_projection_dim
+        elif input_name == "timestep_cond":
+            if self.time_cond_proj_dim is None:
+                raise ValueError(
+                    "Unable to infer the value of `time_cond_proj_dim` for generating `timestep_cond`, please double check the config of your model."
+                )
+            dim = self.time_cond_proj_dim
+        else:
+            dim = self.time_ids
+
+        shape = [self.batch_size, dim]
+        return self.random_float_tensor(shape, max_value=self.vocab_size, framework=framework, dtype=float_dtype)
+
+
 class DummyControNetInputGenerator(DummyInputGenerator):
     SUPPORTED_INPUT_NAMES = (
         # ControlNet inputs
-        "timestep",
         "encoder_hidden_states",  # depending on the hidden_size of text encoder
         "controlnet_cond",
         "conditioning_scale",
@@ -158,10 +203,7 @@ class DummyControNetInputGenerator(DummyInputGenerator):
         self.text_encoder_hidden_size = encoder_hidden_size
 
     def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
-        if input_name == "timestep":
-            shape = [self.batch_size]
-            return self.random_int_tensor(shape, max_value=999, framework=framework, dtype=int_dtype)
-        elif input_name == "encoder_hidden_states":
+        if input_name == "encoder_hidden_states":
             shape = (self.batch_size, self.sequence_length, self.text_encoder_hidden_size)
             return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
         elif input_name == "controlnet_cond":
@@ -260,3 +302,37 @@ class ASTDummyAudioInputGenerator(DummyAudioInputGenerator):
         if input_name == "input_values":
             return self.random_float_tensor(shape, min_value=-1, max_value=1, framework=framework, dtype=float_dtype)
         return super().generate(input_name, framework=framework, int_dtype=int_dtype, float_dtype=float_dtype)
+
+
+class DummyFluxTransformerRotaryEmbGenerator(DummyInputGenerator):
+    """
+    Generates dummy image rotary embedding.
+    """
+
+    SUPPORTED_INPUT_NAMES = ("image_rotary_emb",)
+
+    def __init__(
+        self,
+        task: str,
+        normalized_config: NormalizedTextConfig,
+        sequence_length: int,
+        height: int,
+        width: int,
+        rotary_axes_dim: int,
+        **kwargs,
+    ):
+        self.task = task
+        self.sequence_length = sequence_length
+        self.height = height
+        self.width = width
+        self.rotary_axes_dim = rotary_axes_dim
+        self.normalized_config = normalized_config
+
+    def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
+        if input_name == "image_rotary_emb":
+            shape = [
+                self.sequence_length + (self.height // 2) * (self.width // 2),
+                self.rotary_axes_dim,
+                2,  # freqs_cos, freqs_sin
+            ]
+            return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)

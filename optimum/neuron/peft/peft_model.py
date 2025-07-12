@@ -39,6 +39,7 @@ from .utils.save_and_load import get_peft_model_state_dict
 
 if is_peft_available():
     from peft import PeftConfig, PeftModel
+    from peft.mapping import PEFT_TYPE_TO_PREFIX_MAPPING
     from peft.tuners import XLoraModel
     from peft.utils import (
         SAFETENSORS_WEIGHTS_NAME,
@@ -47,7 +48,6 @@ if is_peft_available():
         load_peft_weights,
         set_peft_model_state_dict,
     )
-    from peft.utils.constants import PEFT_TYPE_TO_PREFIX_MAPPING
 
 else:
 
@@ -94,7 +94,7 @@ class NeuronPeftModel(PeftModel):
         patcher = Patcher(
             [
                 ("peft.peft_model.PEFT_TYPE_TO_MODEL_MAPPING", PEFT_TYPE_TO_MODEL_MAPPING),
-                ("peft.mapping.MODEL_TYPE_TO_PEFT_MODEL_MAPPING", MODEL_TYPE_TO_PEFT_MODEL_MAPPING),
+                ("peft.auto.MODEL_TYPE_TO_PEFT_MODEL_MAPPING", MODEL_TYPE_TO_PEFT_MODEL_MAPPING),
             ]
         )
         with patcher:
