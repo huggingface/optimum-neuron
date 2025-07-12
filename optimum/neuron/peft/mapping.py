@@ -23,10 +23,11 @@ from .tuners import NeuronLoraModel
 
 
 if is_peft_available():
+    from peft import get_peft_model as orig_get_peft_model
+    from peft.auto import MODEL_TYPE_TO_PEFT_MODEL_MAPPING
     from peft.config import PeftConfig
-    from peft.mapping import MODEL_TYPE_TO_PEFT_MODEL_MAPPING, PEFT_TYPE_TO_CONFIG_MAPPING
+    from peft.mapping import PEFT_TYPE_TO_CONFIG_MAPPING
     from peft.mapping import PEFT_TYPE_TO_TUNER_MAPPING as ORIG_PEFT_TYPE_TO_TUNER_MAPPING
-    from peft.mapping import get_peft_model as orig_get_peft_model
     from peft.mixed_model import PeftMixedModel
     from peft.peft_model import PeftModel
     from peft.tuners.tuners_utils import BaseTuner
