@@ -13,4 +13,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .model import NeuronCLIPForImageClassification, NeuronCLIPModel
+from .modeling_clip import NeuronCLIPForImageClassification, NeuronCLIPModel
