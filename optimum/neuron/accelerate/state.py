@@ -222,6 +222,20 @@ class NeuronAcceleratorState(AcceleratorState):
     def autocast_backend(self):
         return self._autocast_backend
 
-    @deepspeed_plugin.setter  # noqa: F821
+    @property
+    def deepspeed_plugin(self):
+        """
+        Returns the currently active DeepSpeedPlugin.
+
+        If not using deepspeed, returns `None`.
+        """
+        # To maintain original behavior, return None if not using deepspeed.
+        if self.distributed_type != DistributedType.DEEPSPEED:
+            return None
+        from accelerate.utils.deepspeed import get_active_deepspeed_plugin
+
+        return get_active_deepspeed_plugin(self)
+
+    @deepspeed_plugin.setter
     def deepspeed_plugin(self, value):
         self._deepspeed_plugin = value
