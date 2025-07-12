@@ -24,7 +24,7 @@ from transformers import GenerationConfig, WhisperForConditionalGeneration
 from transformers.modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
 from transformers.utils import ModelOutput
 
-from optimum.neuron.exporters.neuron import NeuronDefaultConfig
+from optimum.exporters.neuron import NeuronDefaultConfig
 from optimum.neuron.modeling_seq2seq import NeuronModelForConditionalGeneration, _NeuronSeq2SeqModelPart
 from optimum.neuron.modeling_traced import NeuronTracedModel
 from optimum.neuron.utils import NEURON_FILE_NAME
