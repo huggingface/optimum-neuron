@@ -20,8 +20,8 @@ import torch
 from transformers import AutoModelForObjectDetection
 from transformers.modeling_outputs import ModelOutput
 
-from ...modeling_traced import NeuronTracedModel
-from ...utils.doc import (
+from optimum.neuron.modeling_traced import NeuronTracedModel
+from optimum.neuron.utils.doc import (
     _PROCESSOR_FOR_IMAGE,
     NEURON_IMAGE_INPUTS_DOCSTRING,
     NEURON_MODEL_START_DOCSTRING,
