@@ -60,7 +60,7 @@ tests = [
     "sentencepiece",
     "datasets",
     "sacremoses",
-    "diffusers>=0.29.0, <=0.30.3",
+    "diffusers>=0.31.0, <=0.34.0",
     "safetensors",
     "sentence-transformers >= 2.2.0",
     "peft==0.15.2",
@@ -106,8 +106,8 @@ neuronx = [
     "libneuronxla==2.2.4410.0",
 ]
 diffusers = [
-    "diffusers>=0.28.0, <=0.30.3",
-    "peft==0.14.0",
+    "diffusers>=0.31.0, <=0.34.0",
+    "peft==0.15.2",
 ]
 sentence-transformers = [
     "sentence-transformers >= 2.2.0",
