@@ -24,8 +24,8 @@ from transformers import (
 from transformers.modeling_outputs import BaseModelOutputWithPooling, ImageClassifierOutput
 from transformers.models.clip.modeling_clip import CLIPOutput
 
-from ...modeling_traced import NeuronTracedModel
-from ...utils.doc import (
+from optimum.neuron.modeling_traced import NeuronTracedModel
+from optimum.neuron.utils.doc import (
     _GENERIC_PROCESSOR,
     _PROCESSOR_FOR_IMAGE,
     NEURON_IMAGE_CLASSIFICATION_EXAMPLE,
