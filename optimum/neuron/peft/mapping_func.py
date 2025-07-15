@@ -25,12 +25,7 @@ if is_peft_available():
     from peft.config import PeftConfig
     from peft.mixed_model import PeftMixedModel
     from peft.peft_model import PeftModel
-    from peft.tuners.tuners_utils import BaseTuner
-    from peft.utils import PeftType
 else:
-
-    class BaseTuner:
-        pass
 
     class PeftConfig:
         pass
@@ -42,9 +37,6 @@ else:
         pass
 
     def orig_get_peft_model(*args, **kwargs):
-        pass
-
-    class PeftType:
         pass
 
 
