@@ -63,7 +63,7 @@ tests = [
     "diffusers>=0.31.0, <=0.34.0",
     "safetensors",
     "sentence-transformers >= 2.2.0",
-    "peft==0.15.2",
+    "peft==0.16.0",
     "trl==0.11.4",
     "compel",
     "rjieba",
@@ -83,7 +83,7 @@ quality = [
 ]
 training = [
     "trl == 0.11.4",
-    "peft == 0.15.2",
+    "peft == 0.16.0",
     "evaluate == 0.4.3",
     "neuronx_distributed==0.13.14393",
 ]
@@ -107,7 +107,7 @@ neuronx = [
 ]
 diffusers = [
     "diffusers>=0.31.0, <=0.34.0",
-    "peft==0.15.2",
+    "peft==0.16.0",
 ]
 sentence-transformers = [
     "sentence-transformers >= 2.2.0",
