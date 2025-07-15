@@ -20,7 +20,13 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+import neuronx_distributed
 import torch
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_data_parallel_rank,
+    get_pipeline_model_parallel_rank,
+    get_tensor_model_parallel_rank,
+)
 from transformers import PreTrainedModel
 
 from ..models.training import (
@@ -39,12 +45,9 @@ from .utils.save_and_load import get_peft_model_state_dict
 
 if is_peft_available():
     from peft import PeftConfig, PeftModel
-    from peft.mapping import PEFT_TYPE_TO_PREFIX_MAPPING
+    from peft.mapping import PEFT_TYPE_TO_CONFIG_MAPPING, PEFT_TYPE_TO_PREFIX_MAPPING
     from peft.tuners import XLoraModel
     from peft.utils import (
-        SAFETENSORS_WEIGHTS_NAME,
-        TRANSFORMERS_MODELS_TO_PREFIX_TUNING_POSTPROCESS_MAPPING,
-        WEIGHTS_NAME,
         load_peft_weights,
         set_peft_model_state_dict,
     )
@@ -60,18 +63,13 @@ else:
     class XLoraModel:
         pass
 
-    def get_peft_model_state_dict(*args, **kwargs):
-        pass
-
     def load_peft_weights(*args, **kwargs):
         pass
 
     def set_peft_model_state_dict(*args, **kwargs):
         pass
 
-    SAFETENSORS_WEIGHTS_NAME = ""
-    TRANSFORMERS_MODELS_TO_PREFIX_TUNING_POSTPROCESS_MAPPING = {}
-    WEIGHTS_NAME = ""
+    PEFT_TYPE_TO_CONFIG_MAPPING = {}
     PEFT_TYPE_TO_PREFIX_MAPPING = {}
 
 ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME = "adapter_shards"
@@ -86,14 +84,14 @@ class NeuronPeftModel(PeftModel):
         autocast_adapter_dtype: bool = True,
         **kwargs: Any,
     ) -> None:
+        from .mapping import MODEL_TYPE_TO_PEFT_MODEL_MAPPING, PEFT_TYPE_TO_TUNER_MAPPING
+
         # We adapt the PEFT config for the model using the transformation specs.
         peft_config = adapt_peft_config_for_model(model, peft_config, inplace=False)
 
-        from .mapping import MODEL_TYPE_TO_PEFT_MODEL_MAPPING, PEFT_TYPE_TO_MODEL_MAPPING
-
         patcher = Patcher(
             [
-                ("peft.peft_model.PEFT_TYPE_TO_MODEL_MAPPING", PEFT_TYPE_TO_MODEL_MAPPING),
+                ("peft.peft_model.PEFT_TYPE_TO_TUNER_MAPPING", PEFT_TYPE_TO_TUNER_MAPPING),
                 ("peft.auto.MODEL_TYPE_TO_PEFT_MODEL_MAPPING", MODEL_TYPE_TO_PEFT_MODEL_MAPPING),
             ]
         )
@@ -131,13 +129,6 @@ class NeuronPeftModel(PeftModel):
         path_initial_model_for_weight_conversion: str | None = None,
         **kwargs: Any,
     ) -> None:
-        import neuronx_distributed
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_data_parallel_rank,
-            get_pipeline_model_parallel_rank,
-            get_tensor_model_parallel_rank,
-        )
-
         if os.path.isfile(save_directory):
             raise ValueError(f"Provided path ({save_directory}) should be a directory, not a file")
 
@@ -162,10 +153,11 @@ class NeuronPeftModel(PeftModel):
                 raise ValueError(msg)
 
             if not any(
-                str(peft_config.init_lora_weights).lower().startswith(prefix) for prefix in ["pissa", "olora", "true"]
+                str(peft_config.init_lora_weights).lower().startswith(prefix)
+                for prefix in ["pissa", "corda", "olora", "true"]
             ):
                 warnings.warn(
-                    "`path_initial_model_for_weight_conversion` only works for converting a PiSSA or OLoRA adapter to "
+                    "`path_initial_model_for_weight_conversion` only works for converting a PiSSA/CorDA/OLoRA adapter to "
                     "a LoRA adapter"
                 )
             initial_adapter_name = os.path.basename(path_initial_model_for_weight_conversion)
@@ -176,8 +168,9 @@ class NeuronPeftModel(PeftModel):
                     adapter_name=initial_adapter_name,
                 )
                 is_pissa = str(self.peft_config[initial_adapter_name].init_lora_weights).lower().startswith("pissa")
+                is_corda = str(self.peft_config[initial_adapter_name].init_lora_weights).lower() == "corda"
                 is_olora = str(self.peft_config[initial_adapter_name].init_lora_weights).lower() == "olora"
-                if is_pissa or is_olora:
+                if is_pissa or is_corda or is_olora:
                     raise ValueError(
                         "The `init_lora_weights` parameter of the initial adapter should be set to `True`. "
                         "Otherwise, `self.load_adapter` will subtract the decomposed values again based on the "
@@ -296,7 +289,7 @@ class NeuronPeftModel(PeftModel):
         autocast_adapter_dtype: bool = True,
         **kwargs: Any,
     ) -> PeftModel:
-        from .mapping import MODEL_TYPE_TO_PEFT_MODEL_MAPPING, PEFT_TYPE_TO_CONFIG_MAPPING
+        from .mapping import MODEL_TYPE_TO_PEFT_MODEL_MAPPING
 
         # load the config
         if config is None:
@@ -381,8 +374,6 @@ class NeuronPeftModel(PeftModel):
         autocast_adapter_dtype: bool = True,
         **kwargs: Any,
     ):
-        from .mapping import PEFT_TYPE_TO_CONFIG_MAPPING
-
         low_cpu_mem_usage = False
 
         hf_hub_download_kwargs, kwargs = self._split_kwargs(kwargs)
