@@ -18,12 +18,14 @@ from ..utils.import_utils import is_peft_available
 from .peft_model import NeuronPeftModel, NeuronPeftModelForCausalLM
 from .tuners import NeuronLoraModel
 
+
 if is_peft_available():
     from peft.tuners.tuners_utils import BaseTuner
 else:
 
     class BaseTuner:
         pass
+
 
 PEFT_TYPE_TO_TUNER_MAPPING: dict[str, type[BaseTuner]] = {
     "LORA": NeuronLoraModel,
