@@ -13,10 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from transformers import PreTrainedModel
 
 from ..utils.import_utils import is_peft_available
-from .peft_model import NeuronPeftModel, NeuronPeftModelForCausalLM
-from .tuners import NeuronLoraModel
+from ..utils.patching import Patcher
+from .mapping import MODEL_TYPE_TO_PEFT_MODEL_MAPPING, PEFT_TYPE_TO_TUNER_MAPPING
 
 
 if is_peft_available():
@@ -47,9 +48,33 @@ else:
         pass
 
 
-PEFT_TYPE_TO_TUNER_MAPPING: dict[str, type[BaseTuner]] = {
-    "LORA": NeuronLoraModel,
-}
-MODEL_TYPE_TO_PEFT_MODEL_MAPPING: dict[str, type[NeuronPeftModel]] = {
-    "CAUSAL_LM": NeuronPeftModelForCausalLM,
-}
+def get_peft_model(
+    model: PreTrainedModel,
+    peft_config: PeftConfig,
+    adapter_name: str = "default",
+    mixed: bool = False,
+    autocast_adapter_dtype: bool = True,
+    revision: str | None = None,
+    low_cpu_mem_usage: bool = False,
+) -> PeftModel | PeftMixedModel:
+    if peft_config.peft_type not in PEFT_TYPE_TO_TUNER_MAPPING:
+        raise ValueError(
+            "PEFT type {peft_config.peft_type} not supported in Optimum Neuron. Supported types are: "
+            f"{list(PEFT_TYPE_TO_TUNER_MAPPING.keys())}"
+        )
+    patcher = Patcher(
+        [
+            ("peft.mapping_func.MODEL_TYPE_TO_PEFT_MODEL_MAPPING", MODEL_TYPE_TO_PEFT_MODEL_MAPPING),
+        ],
+    )
+    with patcher:
+        peft_model = orig_get_peft_model(
+            model,
+            peft_config,
+            adapter_name=adapter_name,
+            mixed=mixed,
+            autocast_adapter_dtype=autocast_adapter_dtype,
+            revision=revision,
+            low_cpu_mem_usage=low_cpu_mem_usage,
+        )
+    return peft_model

@@ -13,5 +13,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .mapping import get_peft_model
+from .mapping_func import get_peft_model
 from .peft_model import NeuronPeftModel, NeuronPeftModelForCausalLM
