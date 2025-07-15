@@ -30,7 +30,6 @@ PACKAGE_DIST = dist/optimum_neuron-$(VERSION).tar.gz
 PACKAGE_WHEEL = dist/optimum_neuron-$(VERSION)-py3-none-any.whl
 PACKAGE_PYTHON_FILES = $(call rwildcard, optimum/*.py)
 PACKAGE_FILES = $(PACKAGE_PYTHON_FILES)  \
-				setup.py \
 				pyproject.toml \
 				README.md \
 				MANIFEST.in
