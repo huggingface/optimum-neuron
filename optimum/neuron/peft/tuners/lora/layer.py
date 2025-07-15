@@ -85,6 +85,7 @@ class NeuronLoraLayer(LoraLayer):
         # Mark the weight as unmerged
         self._disable_adapters = False
         self.merged_adapters = []
+        self.use_dora: dict[str, bool] = {}  # not actively used anymore after #2443, keep it for BC
         self.lora_bias: dict[str, bool] = {}
         self.lora_magnitude_vector = torch.nn.ModuleDict()  # for DoRA
         self._caches: dict[str, Any] = {}
