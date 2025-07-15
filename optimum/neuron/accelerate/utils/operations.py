@@ -12,19 +12,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Custom operations related to accelerate for Neuron."""
 
 import torch
+import torch_xla.core.xla_model as xm
 from accelerate.utils.operations import recursively_apply
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_data_parallel_group,
+    model_parallel_is_initialized,
+)
 
 
 def _xla_gather(tensor, out_of_graph: bool = False):
-    import torch_xla.core.xla_model as xm
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_data_parallel_group,
-        model_parallel_is_initialized,
-    )
-
     groups = None
     if model_parallel_is_initialized():
         groups = get_data_parallel_group(as_list=True)
