@@ -4,13 +4,13 @@ on:
   push:
     branches: [ main ]
     paths:
-      - "setup.py"
+      - "pyproject.toml"
       - "optimum/**.py"
       - ".github/workflows/test_inf2_inference.yml"
   pull_request:
     branches: [ main ]
     paths:
-      - "setup.py"
+      - "pyproject.toml"
       - "optimum/**.py"
       - ".github/workflows/test_inf2_inference.yml"
 

@@ -44,13 +44,6 @@ Optimum Neuron is a fast-moving project, and you may want to install it from sou
 pip install git+https://github.com/huggingface/optimum-neuron.git
 ```
 
-> Alternatively, you can install the package without pip as follows:
-> ```bash
-> git clone https://github.com/huggingface/optimum-neuron.git
-> cd optimum-neuron
-> python setup.py install
-> ```
-
 *Make sure that you have installed the Neuron driver and tools before installing `optimum-neuron`, [more extensive guide here](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/setup/torch-neuronx.html#setup-torch-neuronx).*
 
 ## Quick Start

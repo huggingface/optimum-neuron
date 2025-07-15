@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - "setup.py"
+      - "pyproject.toml"
       - "optimum/neuron/**.py"
       - "tests/**.py"
       - "examples/**.py"
@@ -12,7 +12,7 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - "setup.py"
+      - "pyproject.toml"
       - "optimum/neuron/**.py"
       - "tests/**.py"
       - "examples/**.py"
