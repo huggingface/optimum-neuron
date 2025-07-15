@@ -12,25 +12,35 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Custom Accelerator class for Neuron."""
 
 import contextlib
 import os
 import re
 import shutil
 import sys
-import warnings
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 
 import torch
+import torch_xla.core.xla_model as xm
+import torch_xla.runtime as xr
 from accelerate import Accelerator
 from accelerate.checkpointing import save_accelerator_state, save_custom_state
 from accelerate.utils import AutocastKwargs, DistributedType
 from accelerate.utils.operations import gather_object, recursively_apply
+from neuronx_distributed import parallel_layers
+from neuronx_distributed.optimizer import NeuronZero1Optimizer
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_data_parallel_group,
+    get_pipeline_model_parallel_size,
+    get_tensor_model_parallel_group,
+    model_parallel_is_initialized,
+)
+from neuronx_distributed.utils.model_utils import move_model_to_device
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
+from torch_xla.distributed.parallel_loader import MpDeviceLoader
 from transformers import PreTrainedModel
 
 from ...utils import logging
@@ -43,7 +53,6 @@ from ..utils import (
     patch_within_function,
 )
 from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
-from ..utils.torch_xla_and_neuronx_initialization import check_neuron_cc_flags_for_model
 from ..utils.training_utils import is_custom_modeling_model
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
@@ -60,18 +69,6 @@ from .utils.misc import (
 from .utils.operations import _xla_gather
 
 
-if TYPE_CHECKING:
-    try:
-        from torch.optim.lr_scheduler import LRScheduler
-    except ImportError:
-        from torch.optim.lr_scheduler import _LRScheduler as LRScheduler
-
-import torch_xla.core.xla_model as xm
-import torch_xla.runtime as xr
-from neuronx_distributed.utils.model_utils import move_model_to_device
-from torch_xla.distributed.parallel_loader import MpDeviceLoader
-
-
 logger = logging.get_logger(__name__)
 
 
@@ -85,12 +82,47 @@ class NeuronAccelerator(Accelerator):
         **kwargs,
     ):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
-        # TODO: check that removing it does not break anything.
         patch_accelerate_is_torch_xla_available()
 
         full_kwargs = args_and_kwargs_to_kwargs_only(
             super().__init__, args=args, kwargs=kwargs, include_default_values=True
         )
+
+        if full_kwargs.pop("dynamo_plugin", None) is not None:
+            raise NotImplementedError(
+                "Dynamo plugin is not supported in `optimum-neuron`. Please set `dynamo_plugin=None`."
+            )
+
+        if full_kwargs.pop("dynamo_backend", None) is not None:
+            raise NotImplementedError(
+                "Dynamo backend is not supported in `optimum-neuron`. Please set `dynamo_backend=None`."
+            )
+        if full_kwargs.pop("deepspeed_plugin", None) is not None:
+            raise NotImplementedError(
+                "Deepspeed plugin is not supported in `optimum-neuron`. Please set `deepspeed_plugin=None`."
+            )
+        if full_kwargs.pop("deepspeed_plugins", None) is not None:
+            raise NotImplementedError(
+                "Deepspeed plugins are not supported in `optimum-neuron`. Please set `deepspeed_plugins=None`."
+            )
+        os.environ["ACCELERATE_USE_DEEPSPEED"] = "false"
+
+        if full_kwargs.pop("fsdp_plugin", None) is not None:
+            raise NotImplementedError(
+                "FSDP plugin is not supported in `optimum-neuron`. Please set `fsdp_plugin=None`."
+            )
+        os.environ["ACCELERATE_USE_FSDP"] = "false"
+
+        if full_kwargs.pop("torch_tp_plugin", None) is not None:
+            raise NotImplementedError(
+                "Torch TP plugin is not supported in `optimum-neuron`. Please set `torch_tp_plugin=None`."
+            )
+
+        if full_kwargs.pop("megatron_lm_plugin", None) is not None:
+            raise NotImplementedError(
+                "Megatron LM plugin is not supported in `optimum-neuron`. Please set `megatron_lm_plugin=None`."
+            )
+        os.environ["ACCELERATE_USE_MEGATRON_LM"] = "false"
 
         # There is a check for gradient_accumulation_steps to be equal to 1 when
         # DistributedType == DistributedType.XLA, so we change that for initialization
@@ -107,24 +139,18 @@ class NeuronAccelerator(Accelerator):
         full_kwargs["gradient_accumulation_plugin"] = gradient_accumulation_plugin
         full_kwargs["gradient_accumulation_steps"] = gradient_accumulation_steps
 
-        fsdp_plugin = full_kwargs["fsdp_plugin"]
-        if fsdp_plugin is not None:
-            raise ValueError("FSDP is not supported.")
-        self.fsdp_plugin = fsdp_plugin
-
-        self._model_cpu_parameters_to_xla = {}
-
         if not isinstance(autocast_backend, AutocastBackend):
             autocast_backend = AutocastBackend(autocast_backend)
 
+        # TODO: remove this, it should already be patched.
         # The original `is_torch_xla_available` function is checking for TPU or GPU in `accelerate`.
         # Here, we patch it to return True for Neuron cores as well.
-        def patched_is_torch_xla_available(check_is_tpu: bool = False, check_is_gpu: bool = False) -> bool:
-            return True
+        # def patched_is_torch_xla_available(check_is_tpu: bool = False, check_is_gpu: bool = False) -> bool:
+        #     return True
 
-        import accelerate
+        # import accelerate
 
-        accelerate.state.is_torch_xla_available = patched_is_torch_xla_available
+        # accelerate.state.is_torch_xla_available = patched_is_torch_xla_available
 
         patched_accelerator_state = partial(
             NeuronAcceleratorState, trn_config=trn_config, autocast_backend=autocast_backend
@@ -151,7 +177,6 @@ class NeuronAccelerator(Accelerator):
         rank: int,
         force_drop_last: bool,
     ) -> DataLoader:
-        # TODO: make it more robust, similar to the prepare_data_loader function in `accelerate`.
         if isinstance(data_loader.sampler, DistributedSampler):
             return data_loader
 
@@ -184,12 +209,18 @@ class NeuronAccelerator(Accelerator):
         return distributed_dataloader
 
     def prepare_data_loader(
-        self, data_loader: DataLoader, device_placement: bool | None = None, use_mp_device_loader: bool = False
+        self,
+        data_loader: DataLoader,
+        device_placement: bool | None = None,
+        slice_fn_for_dispatch: Callable | None = None,
+        use_mp_device_loader: bool = False,
     ):
+        if slice_fn_for_dispatch is not None:
+            raise NotImplementedError(
+                "The `slice_fn_for_dispatch` argument is not supported in `NeuronAccelerator.prepare_data_loader`."
+            )
         force_drop_last = False
         if self.state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            from neuronx_distributed import parallel_layers
-
             num_replicas = parallel_layers.parallel_state.get_data_parallel_size()
             rank = parallel_layers.parallel_state.get_data_parallel_rank()
             force_drop_last = parallel_layers.parallel_state.get_pipeline_model_parallel_size() > 1
@@ -219,13 +250,6 @@ class NeuronAccelerator(Accelerator):
         if optimizer_dtype is None:
             raise ValueError(f"The precision {self.state.mixed_precision} is not supported for ZeRO Stage 1")
 
-        from neuronx_distributed.optimizer import NeuronZero1Optimizer
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_data_parallel_group,
-            get_tensor_model_parallel_group,
-            model_parallel_is_initialized,
-        )
-
         if not model_parallel_is_initialized():
             sharding_groups = None
             grad_norm_groups = None
@@ -251,7 +275,7 @@ class NeuronAccelerator(Accelerator):
         return super().prepare_optimizer(optimizer, device_placement=device_placement)
 
     @patch_within_function(("accelerate.accelerator.AcceleratedScheduler", NeuronAcceleratedScheduler))
-    def prepare_scheduler(self, scheduler: "LRScheduler"):
+    def prepare_scheduler(self, scheduler: torch.optim.lr_scheduler.LRScheduler):
         return super().prepare_scheduler(scheduler)
 
     def patch_model_for_neuron(
@@ -292,10 +316,6 @@ class NeuronAccelerator(Accelerator):
                 "Model parallelism is only supported for models with a custom modeling implementation."
             )
 
-        # Since it is not possible to set the best compiler flags for a given model because XLA is initialized before
-        # we get access to the model, we simply check if the flags are the best and notify the user otherwise.
-        check_neuron_cc_flags_for_model(model)
-
         model = self.patch_model_for_neuron(model)
 
         # We do not want to use the cache, or output unused tensors as it would imply more communication that we do not
@@ -305,7 +325,7 @@ class NeuronAccelerator(Accelerator):
         model.config.output_hidden_states = False
 
         if is_custom_modeling_model(model):
-            if model.trn_config.pipeline_parallel_size > 1:
+            if get_pipeline_model_parallel_size() > 1:
                 model = create_nxdpp_model(model)
                 model.move_model_to_device()
             else:
@@ -349,17 +369,7 @@ class NeuronAccelerator(Accelerator):
             loss.backward(**kwargs)
 
     @contextlib.contextmanager
-    def autocast(self, cache_enabled: bool = False, autocast_handler: AutocastKwargs | None = None):
-        if cache_enabled:
-            warnings.warn(
-                "Passing `cache_enabled=True` to `accelerator.autocast` is deprecated and will be removed in v0.23.0. "
-                "Please use the `AutocastKwargs` class instead and pass it to the `Accelerator` as a `kwarg_handler`.",
-                FutureWarning,
-            )
-            if self.autocast_handler is not None:
-                self.autocast_handler.cache_enabled = True
-            else:
-                self.autocast_handler = AutocastKwargs(cache_enabled=True)
+    def autocast(self, autocast_handler: AutocastKwargs | None = None):
         if autocast_handler is None:
             # By default `self.autocast_handler` enables autocast if:
             #   - `self.state.mixed_precision == "bf16"`
@@ -505,14 +515,16 @@ class NeuronAccelerator(Accelerator):
     def gather(self, tensor, out_of_graph: bool = False):
         return _xla_gather(tensor, out_of_graph=out_of_graph)
 
-    def gather_for_metrics(self, input_data):
+    def gather_for_metrics(self, input_data, use_gather_object: bool = False):
         try:
             recursively_apply(lambda x: x, input_data, error_on_other_type=True)
             all_tensors = True
         except TypeError:
             all_tensors = False
 
-        if not all_tensors:
+        use_gather_object = use_gather_object or not all_tensors
+
+        if use_gather_object:
             data = gather_object(input_data)
         else:
             # It is needed to perform out-of-graph gather otherwise re-compilation happens at every evaluation step.
