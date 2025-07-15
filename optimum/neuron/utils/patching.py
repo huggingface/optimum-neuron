@@ -201,7 +201,19 @@ def patch_within_function(
     return decorator
 
 
+def _patch_everywhere(attribute_name: str, patch: Any, module_name_prefix: str | None = None):
+    for name, module in dict(sys.modules).items():
+        if module_name_prefix is not None and not name.startswith(module_name_prefix):
+            continue
+        if hasattr(module, attribute_name):
+            setattr(module, attribute_name, patch)
+
+
 @functools.lru_cache()
+def _patch_everywhere_with_cache(attribute_name: str, patch: Any, module_name_prefix: str | None = None):
+    _patch_everywhere(attribute_name, patch, module_name_prefix)
+
+
 def patch_everywhere(attribute_name: str, patch: Any, module_name_prefix: str | None = None):
     """
     Finds all occurences of `attribute_name` in the loaded modules and patches them with `patch`.
@@ -214,11 +226,16 @@ def patch_everywhere(attribute_name: str, patch: Any, module_name_prefix: str | 
         module_name_prefix (`str | None`, defaults to `None`):
             If set, only module names starting with this prefix will be considered for patching.
     """
-    for name, module in dict(sys.modules).items():
-        if module_name_prefix is not None and not name.startswith(module_name_prefix):
-            continue
-        if hasattr(module, attribute_name):
-            setattr(module, attribute_name, patch)
+    is_hashable = True
+    try:
+        hash(patch)
+    except TypeError:
+        is_hashable = False
+    if is_hashable:
+        _patch_everywhere_with_cache(attribute_name, patch, module_name_prefix)
+    else:
+        # If the patch is not hashable, we cannot use the LRU cache so we call the function directly.
+        _patch_everywhere(attribute_name, patch, module_name_prefix)
 
 
 def replace_class_in_inheritance_hierarchy(obj: Any, orig_cls: Type, replacement_cls: Type):
