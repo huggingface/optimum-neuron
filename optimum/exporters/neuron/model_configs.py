@@ -826,11 +826,13 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
             "encoder_hidden_states",
             "pooled_projections",
             "timestep",
-            "guidance",
             # Q: Why `image_rotary_emb` but not `txt_ids` and `img_ids`? We compute the rotary positional embeddings in CPU to save Neuron memory.
             # shape: [txt_ids.shape(0)+img_ids.shape(0), sum(axes_dim), 2]
             "image_rotary_emb",
         ]
+        if getattr(self._config, "guidance_embeds", False):
+            common_inputs.append("guidance")
+
         return common_inputs
 
     @property

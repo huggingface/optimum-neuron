@@ -1298,10 +1298,12 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
     ):
         if self.neuron_config.MODEL_TYPE == "flux-transformer-2d":
             ids = torch.cat((txt_ids, img_ids), dim=0)
-            image_rotary_emb = torch.stack(self.pos_embed(ids), dim=2).to(hidden_states.dtype)
-            guidance = guidance.to(hidden_states.dtype)
             timestep = timestep.to(hidden_states.dtype)
-            inputs = (hidden_states, encoder_hidden_states, pooled_projections, timestep, guidance, image_rotary_emb)
+            image_rotary_emb = torch.stack(self.pos_embed(ids), dim=2).to(hidden_states.dtype)
+            inputs = (hidden_states, encoder_hidden_states, pooled_projections, timestep, image_rotary_emb)
+            if guidance is not None:
+                guidance = guidance.to(hidden_states.dtype)
+                inputs += (guidance,)
         elif self.neuron_config.MODEL_TYPE == "pixart-transformer-2d":
             timestep = timestep.to(hidden_states.dtype)
             inputs = (hidden_states, encoder_hidden_states, timestep, encoder_attention_mask)
