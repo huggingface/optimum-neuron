@@ -262,7 +262,7 @@ class T5EncoderWrapper(torch.nn.Module):
 
     @staticmethod
     def shard_ff(ff: "T5LayerFF"):
-        orig_wi_0 = ff.DenseReluDense.wi_0
+        orig_wi_0 = ff.DenseReluDense.wi_0  # only applicable for T5 with gated silu`
         ff.DenseReluDense.wi_0 = ColumnParallelLinear(
             orig_wi_0.in_features, orig_wi_0.out_features, bias=False, gather_output=False
         )
