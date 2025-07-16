@@ -96,11 +96,11 @@ To instruct fine-tune our model we need to:
 
     1. Convert our structured examples into collection of tasks described via instructions
 
-    2. (Optional) Pack multiple examples to one sequence for more efficient training. In other words, we are stacking multiple examples into one example, 
+    2. (Optional) Pack multiple examples to one sequence for more efficient training. In other words, we are stacking multiple examples into one example,
     and split them with the EOS token.
 
 We could do this manually, but we will use the `NeuronSFTTrainer` instead.
-    
+
 ## 3. Supervised Fine-Tuning of Llama on AWS Trainium with the `NeuronSFTTrainer`
 
 Normally you would use the **[SFTConfig](https://huggingface.co/docs/trl/main/en/sft_trainer#trl.SFTConfig)** and **[SFTTrainer](https://huggingface.co/docs/trl/main/en/sft_trainer)** classes to perform supervised fine-tuning of PyTorch-based transformer models.
@@ -126,7 +126,7 @@ def format_dolly(examples):
 
 ### Preparing the model
 
-Since Llama-3 8B is a big model it will not fit on a single `trn1.32xlarge` instance, even with distributed training. To actually fine-tune a 8B model using only one Trainium instance we need to use both LoRA and distributed training. 
+Since Llama-3 8B is a big model it will not fit on a single `trn1.32xlarge` instance, even with distributed training. To actually fine-tune a 8B model using only one Trainium instance we need to use both LoRA and distributed training.
 
 <Tip>
 
@@ -206,7 +206,7 @@ PyTorch Neuron uses `torch_xla`. It evaluates operations lazily during the execu
 
 ### Precompilation
 
-When training models on AWS Trainium we first need to compile our model with our training arguments. 
+When training models on AWS Trainium we first need to compile our model with our training arguments.
 
 To ease this step, we added a [model cache repository](https://huggingface.co/aws-neuron/optimum-neuron-cache), which allows us to use precompiled models from the Hugging Face Hub to skip the compilation step. This is useful because it will allow to compile models much faster than what it would do when doing the actual training, because compilation can be parallelized. But be careful: every change in the model configuration might lead to a new compilation, which could result in some cache misses.
 
@@ -287,7 +287,7 @@ rm -rf dolly_llama_output
 
 ### Actual Training
 
-After compilation is done we can start our actual training with a similar command, we just need to remove the use of `neuron_parallel_compile`. 
+After compilation is done we can start our actual training with a similar command, we just need to remove the use of `neuron_parallel_compile`.
 
 We will use `torchrun` to launch our training script. `torchrun` is a tool that automatically distributes a PyTorch model across multiple accelerators. We can pass the number of accelerators as `nproc_per_node` arguments alongside our hyperparameters.
 

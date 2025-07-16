@@ -18,7 +18,7 @@ We have containers for training and inference, and optimized text generation con
 We recommend using the `sagemaker` Python SDK to retrieve the image URI for the container you want to use. Here is a code snippet to retrieve the latest Text Generation Inference container Image URI:
 ```python
 from sagemaker.huggingface import get_huggingface_llm_image_uri
- 
+
 # retrieve the llm image uri
 llm_image = get_huggingface_llm_image_uri(
   "huggingface-neuronx"

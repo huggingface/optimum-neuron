@@ -49,7 +49,7 @@ You can format your HCL2 files locally. This command will update your files in p
 
 Format a single file:
 ```bash
-packer fmt build.pkr.hcl 
+packer fmt build.pkr.hcl
 ```
 
 Format all files in a directory:
@@ -58,7 +58,7 @@ packer fmt ./hcl2-files
 ```
 
 #### Validate Packer blocks
-You can validate the syntax and configuration of your files locally. This command will return a zero exit status on success, and a non-zero exit status on failure. 
+You can validate the syntax and configuration of your files locally. This command will return a zero exit status on success, and a non-zero exit status on failure.
 
 ```bash
 packer validate -var 'region=us-west-2' -var 'optimum_version=v0.0.17' ./hcl2-files

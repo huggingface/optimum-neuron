@@ -33,8 +33,8 @@ You can either compile and export a Stable Diffusion Checkpoint via CLI or `Neur
 Here is an example of exporting stable diffusion components with `Optimum` CLI:
 
 ```bash
-optimum-cli export neuron --model stable-diffusion-v1-5/stable-diffusion-v1-5 
-    --ip_adapter_id h94/IP-Adapter 
+optimum-cli export neuron --model stable-diffusion-v1-5/stable-diffusion-v1-5
+    --ip_adapter_id h94/IP-Adapter
     --ip_adapter_subfolder models
     --ip_adapter_weight_name ip-adapter-full-face_sd15.bin
     --ip_adapter_scale 0.5
@@ -57,13 +57,13 @@ compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 input_shapes = {"batch_size": 1, "height": 512, "width": 512}
 
 stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(
-    model_id, 
-    export=True, 
+    model_id,
+    export=True,
     ip_adapter_id="h94/IP-Adapter",
     ip_adapter_subfolder="models",
     ip_adapter_weight_name="ip-adapter-full-face_sd15.bin",
     ip_adapter_scale=0.5,
-    **compiler_args, 
+    **compiler_args,
     **input_shapes,
 )
 
@@ -84,13 +84,13 @@ compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 input_shapes = {"batch_size": 1, "height": 512, "width": 512}
 
 stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(
-    model_id, 
-    export=True, 
+    model_id,
+    export=True,
     ip_adapter_id="h94/IP-Adapter",
     ip_adapter_subfolder="models",
     ip_adapter_weight_name="ip-adapter-full-face_sd15.bin",
     ip_adapter_scale=0.5,
-    **compiler_args, 
+    **compiler_args,
     **input_shapes,
 )
 
