@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Custom PartialState and AcceleratorState for Neuron."""
 
 import os
 
@@ -22,10 +21,6 @@ import torch_xla.runtime as xr
 from accelerate.state import AcceleratorState, PartialState, ThreadLocalSharedDict
 from accelerate.utils import (
     DistributedType,
-    DynamoBackend,
-    check_fp8_capability,
-    is_fp8_available,
-    is_ipex_available,
     parse_choice_from_env,
     parse_flag_from_env,
 )
@@ -58,12 +53,10 @@ class NeuronPartialState(PartialState):
             self.device = torch.device(env_device) if env_device is not None else None
             self.debug = parse_flag_from_env("ACCELERATE_DEBUG_MODE")
             use_sagemaker_dp = kwargs.pop("_use_sagemaker_dp", None)
-            if use_sagemaker_dp is None:
-                use_sagemaker_dp = (
-                    os.environ.get("ACCELERATE_USE_SAGEMAKER", "false") == "true"
-                    and os.environ.get("ACCELERATE_SAGEMAKER_DISTRIBUTED_TYPE") != SageMakerDistributedType.NO
-                )
-
+            if use_sagemaker_dp is not None:
+                raise NotImplementedError("SageMaker distributed training is not supported by `optimum-neuron`.")
+            os.environ["ACCELERATE_USE_SAGEMAKER"] = "false"
+            os.environ["ACCELERATE_SAGEMAKER_DISTRIBUTED_TYPE"] = SageMakerDistributedType.NO.value
             backend, distributed_type = self._prepare_backend(cpu, use_sagemaker_dp, kwargs.pop("backend", None))
             self.backend = backend
             self.distributed_type = distributed_type
@@ -121,6 +114,7 @@ class NeuronAcceleratorState(AcceleratorState):
         dynamo_plugin=None,
         deepspeed_plugin=None,
         fsdp_plugin=None,
+        torch_tp_plugin=None,
         megatron_lm_plugin=None,
         trn_config: TrainingNeuronConfig | None = None,
         autocast_backend: str | AutocastBackend | None = None,
@@ -151,17 +145,9 @@ class NeuronAcceleratorState(AcceleratorState):
                 else mixed_precision.lower()
             )
             if mixed_precision == "fp8":
-                if not is_fp8_available():
-                    raise ValueError(
-                        "Using `fp8` precision requires `transformer_engine` or `MS-AMP` to be installed."
-                    )
-                elif not check_fp8_capability():
-                    logger.warning(
-                        f"The current device has compute capability of {torch.cuda.get_device_capability()} which is "
-                        "insufficient for FP8 mixed precision training (requires a GPU Hopper/Ada Lovelace "
-                        "or higher, compute capability of 8.9 or higher). Will use FP16 instead."
-                    )
-                    mixed_precision = "fp16"
+                raise NotImplementedError(
+                    "FP8 mixed precision is not supported by `optimum-neuron`. Please use `bf16`, or `no` instead."
+                )
 
             self.dynamo_plugin = dynamo_plugin
             if not _from_accelerator:
@@ -169,11 +155,9 @@ class NeuronAcceleratorState(AcceleratorState):
                     "Please make sure to properly initialize your accelerator via `accelerator = Accelerator()` "
                     "before using any functionality from the `accelerate` library."
                 )
-            # deepspeed handles mixed_precision using deepspeed_config
-            self._mixed_precision = "no" if self.distributed_type == DistributedType.DEEPSPEED else mixed_precision
 
+            self._mixed_precision = mixed_precision
             self._autocast_backend = autocast_backend
-
             if self.distributed_type == DistributedType.XLA:
                 if mixed_precision == "bf16":
                     os.environ["NEURON_RT_STOCHASTIC_ROUNDING_EN"] = "1"
@@ -192,18 +176,9 @@ class NeuronAcceleratorState(AcceleratorState):
                         pipeline_model_parallel_size=self.trn_config.pipeline_parallel_size,
                     )
 
-            if self.distributed_type is DistributedType.NO:
-                if is_ipex_available():
-                    "check if user disables it explicitly"
-                    self.use_ipex = parse_flag_from_env("ACCELERATE_USE_IPEX", default=True)
-                else:
-                    self.use_ipex = False
-            if (
-                self.dynamo_plugin.backend != DynamoBackend.NO
-                and self._mixed_precision == "no"
-                and self.device.type == "cuda"
-            ):
-                torch.backends.cuda.matmul.allow_tf32 = True
+            elif self.distributed_type is DistributedType.NO:
+                os.environ["ACCELERATE_USE_IPEX"] = "false"
+                self.use_ipex = False
 
             PartialState._shared_state["distributed_type"] = self.distributed_type
 
@@ -224,18 +199,13 @@ class NeuronAcceleratorState(AcceleratorState):
 
     @property
     def deepspeed_plugin(self):
-        """
-        Returns the currently active DeepSpeedPlugin.
-
-        If not using deepspeed, returns `None`.
-        """
-        # To maintain original behavior, return None if not using deepspeed.
-        if self.distributed_type != DistributedType.DEEPSPEED:
-            return None
-        from accelerate.utils.deepspeed import get_active_deepspeed_plugin
-
-        return get_active_deepspeed_plugin(self)
+        # Returns `None` to maintain original behavior.
+        return None
 
     @deepspeed_plugin.setter
     def deepspeed_plugin(self, value):
+        if value is not None:
+            raise ValueError(
+                "Deepspeed plugin is not supported by `optimum-neuron`. Please use `deepspeed_plugin=None` instead."
+            )
         self._deepspeed_plugin = value

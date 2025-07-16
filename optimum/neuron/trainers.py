@@ -549,6 +549,7 @@ class _TrainerForNeuron:
                 self.control.should_save = is_new_best_metric
 
         if self.control.should_save:
+            xm.mark_step()
 
             def save_closure(self, model, trial):
                 self._save_checkpoint(model, trial)
@@ -574,8 +575,6 @@ class _TrainerForNeuron:
                 )
 
             model_to_save = self.model.original_torch_module if isinstance(self.model, NxDPPModel) else self.model
-            # This mark_step is needed to avoid hang issues.
-            xm.mark_step()
             model_to_save.save_pretrained(
                 output_dir,
                 optimizer=self.optimizer if not self.args.save_only_model else None,
@@ -1435,6 +1434,20 @@ class _TrainerForNeuron:
     @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics_method))
     def save_state(self):
         return super().save_state()
+
+    def push_to_hub(
+        self,
+        commit_message: str | None = "End of training",
+        blocking: bool = True,
+        token: str | None = None,
+        revision: str | None = None,
+        **kwargs,
+    ) -> str:
+        if is_precompilation():
+            logger.info("Push to hub skipped during precompilation.")
+            return ""
+        else:
+            return super().push_to_hub(commit_message, blocking, token, revision, **kwargs)
 
 
 class NeuronTrainer(_TrainerForNeuron, Trainer):

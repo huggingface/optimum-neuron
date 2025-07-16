@@ -34,6 +34,7 @@ if is_peft_available():
     from peft.tuners.lora import Embedding as LoraEmbedding
     from peft.tuners.lora import Linear as LoraLinear
     from peft.tuners.lora import LoraLayer
+    from peft.tuners.lora.variants import LoraVariant
     from peft.utils.integrations import gather_params_ctx
 else:
 
@@ -46,8 +47,27 @@ else:
     class LoraLayer:
         pass
 
+    class LoraVariant:
+        pass
+
     def gather_params_ctx(param):
         pass
+
+
+def use_peft_instead_of_optimum_neuron(neuron_lora_layer_method):
+    """
+    This decorator is used to mark methods that should not be used directly in optimum-neuron.
+    Instead, the official PEFT method should be used.
+    """
+
+    def wrapper(*args, **kwargs):
+        method_name = neuron_lora_layer_method.__name__
+        raise NotImplementedError(
+            f"Please use `peft.tuners.lora.LoraLayer.{method_name}` on the un-sharded model instead of using"
+            f"`optimum.neuron.peft.lora.NeuronLoraLayer.{method_name}` on the sharded model from `optimum-neuron`."
+        )
+
+    return wrapper
 
 
 class NeuronLoraLayer(LoraLayer):
@@ -65,11 +85,14 @@ class NeuronLoraLayer(LoraLayer):
         # Mark the weight as unmerged
         self._disable_adapters = False
         self.merged_adapters = []
-        self.use_dora: dict[str, bool] = {}
+        self.use_dora: dict[str, bool] = {}  # not actively used anymore after #2443, keep it for BC
         self.lora_bias: dict[str, bool] = {}
         self.lora_magnitude_vector = torch.nn.ModuleDict()  # for DoRA
         self._caches: dict[str, Any] = {}
         self.ephemeral_gpu_offload: bool = ephemeral_gpu_offload
+        # flag to enable/disable casting of input to weight dtype during forward call
+        self.cast_input_dtype_enabled: bool = True
+        self.lora_variant: dict[str, LoraVariant] = {}
         self.kwargs = kwargs
 
         base_layer = self.get_base_layer()
@@ -102,11 +125,24 @@ class NeuronLoraLayer(LoraLayer):
         init_lora_weights,
         use_rslora,
         use_dora: bool = False,
+        use_qalora: bool = False,
         lora_bias: bool = False,
+        qalora_group_size: int = 32,
+        **kwargs,
     ):
+        # collect the kwargs
+        kwargs = locals().copy()
+        del kwargs["self"]
+
         # This code works for linear layers, override for other layer types
         if r <= 0:
             raise ValueError(f"`r` should be a positive integer value but the value passed is {r}")
+
+        lora_variant = self.resolve_lora_variant(
+            use_dora=use_dora, use_qalora=use_qalora, qalora_group_size=qalora_group_size
+        )
+        if lora_variant is not None:
+            self.lora_variant[adapter_name] = lora_variant
 
         self.r[adapter_name] = r
         self.lora_alpha[adapter_name] = lora_alpha
@@ -152,10 +188,15 @@ class NeuronLoraLayer(LoraLayer):
         else:
             self.scaling[adapter_name] = lora_alpha / r
 
-        # for inits that require access to the base weight, use gather_param_ctx so that the weight is gathered when using DeepSpeed
+        self.use_dora[adapter_name] = use_dora
+
+        # for inits that require access to the base weight, use gather_param_ctx so that the weight is gathered.
         if isinstance(init_lora_weights, str) and init_lora_weights.startswith("pissa"):
             with gather_params_ctx(self.get_base_layer().weight):
                 self.pissa_init(adapter_name, init_lora_weights)
+        elif isinstance(init_lora_weights, str) and init_lora_weights.startswith("corda"):
+            with gather_params_ctx(self.get_base_layer().weight):
+                self.corda_init(adapter_name, init_lora_weights)
         elif isinstance(init_lora_weights, str) and init_lora_weights.lower() == "olora":
             with gather_params_ctx(self.get_base_layer().weight):
                 self.olora_init(adapter_name)
@@ -164,16 +205,16 @@ class NeuronLoraLayer(LoraLayer):
                 self.loftq_init(adapter_name)
         elif init_lora_weights == "eva":
             nn.init.zeros_(self.lora_B[adapter_name].weight)
+        elif init_lora_weights == "orthogonal":
+            with gather_params_ctx(self.get_base_layer().weight):
+                self.orthogonal_init(adapter_name)
         elif init_lora_weights:
             self.reset_lora_parameters(adapter_name, init_lora_weights)
         # call this before dora_init
         self._move_adapter_to_device_of_base_layer(adapter_name)
 
-        if use_dora:
-            self.dora_init(adapter_name)
-            self.use_dora[adapter_name] = True
-        else:
-            self.use_dora[adapter_name] = False
+        if adapter_name in self.lora_variant:
+            self.lora_variant[adapter_name].init(self, **kwargs)
 
         self.set_adapter(self.active_adapters)
 
@@ -211,9 +252,17 @@ class ParallelLinear(nn.Module, NeuronLoraLayer):
         )
         self.is_target_conv_1d_layer = is_target_conv_1d_layer
 
-    merge = LoraLinear.merge
-    unmerge = LoraLinear.unmerge
-    get_delta_weight = LoraLinear.get_delta_weight
+    def resolve_lora_variant(self, *, use_dora: bool, **kwargs) -> LoraVariant | None:
+        if not use_dora:
+            return None
+
+        from peft.tuners.lora.variants import DoraLinearVariant
+
+        return DoraLinearVariant()
+
+    merge = use_peft_instead_of_optimum_neuron(LoraLinear.merge)
+    unmerge = use_peft_instead_of_optimum_neuron(LoraLinear.unmerge)
+    get_delta_weight = use_peft_instead_of_optimum_neuron(LoraLinear.get_delta_weight)
     forward = LoraLinear.forward
 
     def __repr__(self):
@@ -263,11 +312,24 @@ class GQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
         init_lora_weights,
         use_rslora,
         use_dora: bool = False,
+        use_qalora: bool = False,
         lora_bias: bool = False,
+        qalora_group_size: int = 32,
+        **kwargs,
     ):
+        # collect the kwargs
+        kwargs = locals().copy()
+        del kwargs["self"]
+
         # This code works for linear layers, override for other layer types
         if r <= 0:
             raise ValueError(f"`r` should be a positive integer value but the value passed is {r}")
+
+        lora_variant = self.resolve_lora_variant(
+            use_dora=use_dora, use_qalora=use_qalora, qalora_group_size=qalora_group_size
+        )
+        if lora_variant is not None:
+            self.lora_variant[adapter_name] = lora_variant
 
         self.r[adapter_name] = r
         self.lora_alpha[adapter_name] = lora_alpha
@@ -290,7 +352,6 @@ class GQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
             sequence_parallel_enabled=self.base_layer.sequence_parallel_enabled,
             fuse_qkv=self.base_layer.fuse_qkv,
         )
-
         self.lora_bias[adapter_name] = lora_bias
 
         if use_rslora:
@@ -298,10 +359,15 @@ class GQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
         else:
             self.scaling[adapter_name] = lora_alpha / r
 
+        self.use_dora[adapter_name] = use_dora
+
         # for inits that require access to the base weight, use gather_param_ctx so that the weight is gathered when using DeepSpeed
         if isinstance(init_lora_weights, str) and init_lora_weights.startswith("pissa"):
             with gather_params_ctx(self.get_base_layer().weight):
                 self.pissa_init(adapter_name, init_lora_weights)
+        elif isinstance(init_lora_weights, str) and init_lora_weights.startswith("corda"):
+            with gather_params_ctx(self.get_base_layer().weight):
+                self.corda_init(adapter_name, init_lora_weights)
         elif isinstance(init_lora_weights, str) and init_lora_weights.lower() == "olora":
             with gather_params_ctx(self.get_base_layer().weight):
                 self.olora_init(adapter_name)
@@ -310,16 +376,16 @@ class GQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
                 self.loftq_init(adapter_name)
         elif init_lora_weights == "eva":
             nn.init.zeros_(self.lora_B[adapter_name].weight)
+        elif init_lora_weights == "orthogonal":
+            with gather_params_ctx(self.get_base_layer().weight):
+                self.orthogonal_init(adapter_name)
         elif init_lora_weights:
             self.reset_lora_parameters(adapter_name, init_lora_weights)
         # call this before dora_init
         self._move_adapter_to_device_of_base_layer(adapter_name)
 
-        if use_dora:
-            self.dora_init(adapter_name)
-            self.use_dora[adapter_name] = True
-        else:
-            self.use_dora[adapter_name] = False
+        if adapter_name in self.lora_variant:
+            self.lora_variant[adapter_name].init(self, **kwargs)
 
         self.set_adapter(self.active_adapters)
 
@@ -385,6 +451,7 @@ class ParallelEmbedding(nn.Module, NeuronLoraLayer):
         r: int = 0,
         lora_alpha: int = 1,
         lora_dropout: float = 0.0,
+        fan_in_fan_out: bool = False,  # Set this to True if the layer to replace stores weight like (fan_in, fan_out)
         init_lora_weights: bool | str = True,
         use_rslora: bool = False,
         use_dora: bool = False,
@@ -397,6 +464,7 @@ class ParallelEmbedding(nn.Module, NeuronLoraLayer):
 
         super().__init__()
         NeuronLoraLayer.__init__(self, base_layer)
+        self.fan_in_fan_out = fan_in_fan_out
 
         self._active_adapter = adapter_name
         self.update_layer(
@@ -410,11 +478,18 @@ class ParallelEmbedding(nn.Module, NeuronLoraLayer):
             lora_bias=lora_bias,
         )
 
+    def resolve_lora_variant(self, *, use_dora: bool, **kwargs) -> LoraVariant | None:
+        if not use_dora:
+            return None
+
+        from peft.tuners.lora.variants import DoraEmbeddingVariant
+
+        return DoraEmbeddingVariant()
+
     update_layer = LoraEmbedding.update_layer
-    dora_init = LoraEmbedding.dora_init
-    merge = LoraEmbedding.merge
-    unmerge = LoraEmbedding.unmerge
-    get_delta_weight = LoraEmbedding.get_delta_weight
+    merge = use_peft_instead_of_optimum_neuron(LoraEmbedding.merge)
+    unmerge = use_peft_instead_of_optimum_neuron(LoraEmbedding.unmerge)
+    get_delta_weight = use_peft_instead_of_optimum_neuron(LoraEmbedding.get_delta_weight)
     _mixed_batch_forward = LoraEmbedding._mixed_batch_forward
     _embed = LoraEmbedding._embed
 

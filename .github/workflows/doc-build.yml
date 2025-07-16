@@ -69,7 +69,6 @@ jobs:
           export NEURON_PLATFORM_TARGET_OVERRIDE="trn1"
           source aws_neuron_venv_pytorch/bin/activate
           doc-builder notebook-to-mdx notebooks/text-classification/fine_tune_bert.ipynb --output_dir docs/source/training_tutorials/
-          doc-builder notebook-to-mdx notebooks/text-generation/qwen3-fine-tuning.ipynb --output_dir docs/source/training_tutorials/
           doc-builder notebook-to-mdx notebooks/sagemaker/deploy-llama-3-3-70b.ipynb --output_dir docs/source/inference_tutorials/
           doc-builder notebook-to-mdx notebooks/sagemaker/deploy-mixtral-8x7b.ipynb --output_dir docs/source/inference_tutorials/
           doc-builder build optimum.neuron docs/source/ \

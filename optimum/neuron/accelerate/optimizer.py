@@ -12,13 +12,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Custom AcceleratedOptimizer for Neuron."""
 
 import accelerate
 import torch
 import torch_xla.core.xla_model as xm
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.utils import DistributedType
+from neuronx_distributed import parallel_layers
+from neuronx_distributed.parallel_layers.grads import bucket_allreduce_gradients
+from neuronx_distributed.parallel_layers.mappings import reduce_from_tensor_model_parallel_region
 from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
 
 from .utils.dataclasses import NeuronDistributedType
@@ -34,8 +36,6 @@ def allreduce_sequence_parallel_gradients(optimizer):
     Modified from megatron-lm:
     https://gitlab-master.nvidia.com/ADLR/megatron-lm/-/blob/3f91f09bb2ab32f9904b47f46f19d2fc3f518ed8/megatron/training.py#L425
     """
-    from neuronx_distributed.parallel_layers.mappings import reduce_from_tensor_model_parallel_region
-
     grads = []
     for param_group in optimizer.__getstate__()["param_groups"]:
         for group, params in param_group.items():
@@ -55,17 +55,12 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
         self,
         optimizer: "torch.optim.Optimizer",
         device_placement: bool = True,
-        scaler: "torch.cuda.amp.GradScaler | None" = None,
+        scaler: torch.amp.GradScaler | None = None,
     ):
         super().__init__(optimizer, device_placement=device_placement, scaler=scaler)
 
-        self.parameters = []
-        self.parameter_ids = {}
         self.clip_grad_norm_to_perform = None
         self.grad_norm = None
-        if self.accelerator_state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            self.parameters = [p for group in self.optimizer.param_groups for p in group["params"]]
-            self.parameter_ids = {id(p) for p in self.parameters}
 
     # TODO: might be needed to override this soon.
     def load_state_dict(self, state_dict):
@@ -75,9 +70,6 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
         self.clip_grad_norm_to_perform = {"parameters": parameters, "max_norm": max_norm, "norm_type": norm_type}
 
     def step(self, closure=None):
-        from neuronx_distributed import parallel_layers
-        from neuronx_distributed.parallel_layers.grads import bucket_allreduce_gradients
-
         if self.gradient_state.sync_gradients:
             # For sequence-parallel, we have to explicitly all-reduce the layernorm gradients.
             if self.accelerator_state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:

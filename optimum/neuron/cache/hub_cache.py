@@ -209,7 +209,7 @@ class CompileCacheHfProxy(CompileCache):
                     folder_path=self.default_cache.cache_path,
                     commit_message="Synchronizing local compiler cache.",
                     ignore_patterns="lock",
-                    non_blocking=non_blocking,
+                    run_as_future=non_blocking,
                 )
             xm.rendezvous("synchronize_hub_cache")
         logger.info("Synchronization complete.")

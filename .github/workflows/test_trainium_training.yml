@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - "setup.py"
+      - "pyproject.toml"
       - "optimum/neuron/models/training/**.py"
       - "tests/training/**.py"
       - ".github/workflows/test_trainium_training.yml"
@@ -13,7 +13,7 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - "setup.py"
+      - "pyproject.toml"
       - "optimum/neuron/models/training/**.py"
       - "tests/training/**.py"
       - ".github/workflows/test_trainium_training.yml"

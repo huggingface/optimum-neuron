@@ -16,26 +16,20 @@
 
 import os
 import re
-from typing import TYPE_CHECKING
 
 import torch
+import torch_xla.distributed.xla_backend as xbn
 
 from optimum.utils import logging
 
 from ..cache.training import patch_neuron_cc_wrapper
-from .misc import is_main_worker
 
-
-if TYPE_CHECKING:
-    from transformers import PreTrainedModel
 
 logger = logging.get_logger()
 
 
 def init_process_group():
     if os.environ.get("TORCHELASTIC_RUN_ID"):
-        import torch_xla.distributed.xla_backend as xbn
-
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
             torch.distributed.init_process_group(backend="xla")
             if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
@@ -81,17 +75,3 @@ def set_neuron_cc_optlevel(optlevel: int = 2):
     else:
         neuron_cc_flags += f" -O{optlevel}"
     os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
-
-
-def check_neuron_cc_flags_for_model(model: "PreTrainedModel"):
-    """
-    Sets flags for the Neuron compiler depending on the model.
-    """
-    neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
-    if "ForCausalLM" or "ForConditionalGeneration" in model.__class__.__name__:
-        distribution_strategy = "--distribution-strategy=llm-training"
-        if is_main_worker() and distribution_strategy not in neuron_cc_flags:
-            logger.warning(
-                f"No distribution strategy was set. For {model.__class__.__name__} it is possible to set the following "
-                'optimization: NEURON_CC_FLAGS=" --distribution-strategy=llm-training".'
-            )
