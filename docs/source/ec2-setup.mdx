@@ -58,32 +58,32 @@ Here is the list of regions that support at least one type of Trainium or Infere
 Here is a Python script that lets you pull the latest supported instance type in each region you have enabled:
 
 ```python
-import boto3  
+import boto3
 from datetime import datetime
 
-ec2 = boto3.client('ec2')  
+ec2 = boto3.client('ec2')
 
-regions = [region['RegionName'] for region in ec2.describe_regions()['Regions']]  
+regions = [region['RegionName'] for region in ec2.describe_regions()['Regions']]
 
 
-#Edit this line to change the instance types displayed  
-instance_types = ['trn1.32xlarge', 'trn1.2xlarge', 'inf2.48xlarge', 'inf2.24xlarge', 'inf2.8xlarge', 'inf2.xlarge', 'trn2.48xlarge']  
-  
-supported_regions = {}  
-  
-for region in regions:  
-   ec2_region = boto3.client('ec2', region_name=region)  
-   response = ec2_region.describe_instance_type_offerings(  
-      #LocationType='availability-zone',  
-      Filters=[  
-        {'Name': 'instance-type', 'Values': instance_types},  
-      ]  
+#Edit this line to change the instance types displayed
+instance_types = ['trn1.32xlarge', 'trn1.2xlarge', 'inf2.48xlarge', 'inf2.24xlarge', 'inf2.8xlarge', 'inf2.xlarge', 'trn2.48xlarge']
+
+supported_regions = {}
+
+for region in regions:
+   ec2_region = boto3.client('ec2', region_name=region)
+   response = ec2_region.describe_instance_type_offerings(
+      #LocationType='availability-zone',
+      Filters=[
+        {'Name': 'instance-type', 'Values': instance_types},
+      ]
    )
-   if response['InstanceTypeOfferings']:  
-      supported_regions[region] = [offer['InstanceType'] for offer in response['InstanceTypeOfferings']]  
+   if response['InstanceTypeOfferings']:
+      supported_regions[region] = [offer['InstanceType'] for offer in response['InstanceTypeOfferings']]
 
 print('# Supported Regions as of',datetime.now().strftime('%B %d, %Y'))
-print('================')  
+print('================')
 
 
 client = boto3.client('ssm')
@@ -97,7 +97,7 @@ for region, instance_types in supported_regions.items():
     print(f' * {region}: {region_long_name}')
     for instance_type in instance_types:
       print(f'  - {instance_type}')
-    print('\n') 
+    print('\n')
 ```
 
 #### Increase service quota
@@ -205,7 +205,7 @@ ssh -i "/path/to/sshkey.pem" ubuntu@instance_ip_address
 
 This method involves running the Jupyter notebook server on the Neuron instance, mapping a port locally, then using the browser on your desktop to access the notebook server.
 
-Start by mapping a port on your local machine to the Neuron instance. From a terminal on your system, run 
+Start by mapping a port on your local machine to the Neuron instance. From a terminal on your system, run
 ```bash
 ssh -i "/path/to/sshkey.pem" -N -f -L localhost:8888:localhost:8888 ubuntu@instance_ip_address
 ```
