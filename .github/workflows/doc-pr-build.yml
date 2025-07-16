@@ -45,7 +45,6 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           pip install --upgrade pip
           pip install ".[quality, diffusers]"
-
       - name: Make documentation
         shell: bash
         run: |
