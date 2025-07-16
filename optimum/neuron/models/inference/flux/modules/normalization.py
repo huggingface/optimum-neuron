@@ -21,8 +21,6 @@
 Adapted from `neuronx_distributed_inference/models/diffusers/normalization.py`.
 """
 
-from typing import Optional, Tuple
-
 import torch
 from neuronx_distributed.parallel_layers.layer_norm import LayerNorm
 from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear
@@ -70,8 +68,8 @@ class NeuronAdaLayerNormZeroSingle(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        emb: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        emb: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         emb = self.linear(self.silu(emb))
         shift_msa, scale_msa, gate_msa = emb.chunk(3, dim=1)
         x = self.norm(x) * (1 + scale_msa[:, None]) + shift_msa[:, None]
@@ -90,7 +88,7 @@ class NeuronAdaLayerNormZero(nn.Module):
     def __init__(
         self,
         embedding_dim: int,
-        num_embeddings: Optional[int] = None,
+        num_embeddings: int | None = None,
         norm_type="layer_norm",
         bias=True,
         use_parallel_layer=True,
@@ -122,11 +120,11 @@ class NeuronAdaLayerNormZero(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        timestep: Optional[torch.Tensor] = None,
-        class_labels: Optional[torch.LongTensor] = None,
-        hidden_dtype: Optional[torch.dtype] = None,
-        emb: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        timestep: torch.Tensor | None = None,
+        class_labels: torch.LongTensor | None = None,
+        hidden_dtype: torch.dtype | None = None,
+        emb: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         if self.emb is not None:
             emb = self.emb(timestep, class_labels, hidden_dtype=hidden_dtype)
         emb = self.linear(self.silu(emb))

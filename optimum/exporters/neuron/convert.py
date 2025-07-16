@@ -655,7 +655,6 @@ def trace_neuronx(
         # Tensor Parallelism
         if isinstance(model, BaseModelInstance):
             # Case 1: Using `neuronx_distributed.trace.model_builder`
-            # TODO: from optimum.neuron.models.inference.nxd.backend.cache import neff_cache
             model_builder = ModelBuilder(
                 router=None,
                 debug=False,

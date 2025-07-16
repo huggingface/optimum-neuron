@@ -21,7 +21,7 @@ Adapted from `neuronx_distributed_inference/models/diffusers/embeddings.py`.
 """
 
 import math
-from typing import List, Optional, Tuple, Union
+from typing import List
 
 import numpy as np
 import torch
@@ -40,7 +40,7 @@ def apply_rotary_emb(
     freqs_cis: torch.Tensor,
     use_real: bool = True,
     use_real_unbind_dim: int = -1,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Apply rotary embeddings to input tensors using the given frequency tensor. This function applies rotary embeddings
     to the given query or key 'x' tensors using the provided frequency tensor 'freqs_cis'. The input tensors are
@@ -53,7 +53,7 @@ def apply_rotary_emb(
         freqs_cis (`torch.Tensor`): Precomputed frequency tensor for complex exponentials. ([S, D, 2])
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]: Tuple of modified query tensor and key tensor with rotary embeddings.
+        tuple[torch.Tensor, torch.Tensor]: Tuple of modified query tensor and key tensor with rotary embeddings.
     """
     if use_real:
         cos, sin = freqs_cis.unbind(-1)
@@ -172,7 +172,7 @@ class FluxPosEmbed(nn.Module):
 
 def get_1d_rotary_pos_embed(
     dim: int,
-    pos: Union[np.ndarray, int],
+    pos: np.ndarray | int,
     theta: float = 10000.0,
     use_real=False,
     linear_factor=1.0,
@@ -189,7 +189,7 @@ def get_1d_rotary_pos_embed(
 
     Args:
         dim (`int`): Dimension of the frequency tensor.
-        pos (`np.ndarray` or `int`): Position indices for the frequency tensor. [S] or scalar
+        pos (`pos: np.ndarray | int`): Position indices for the frequency tensor. [S] or scalar
         theta (`float`, *optional*, defaults to 10000.0):
             Scaling factor for frequency computation. Defaults to 10000.0.
         use_real (`bool`, *optional*):
@@ -336,7 +336,7 @@ class NeuronTimestepEmbedding(nn.Module):
         time_embed_dim: int,
         act_fn: str = "silu",
         out_dim: int = None,
-        post_act_fn: Optional[str] = None,
+        post_act_fn: str | None = None,
         sample_proj_bias=True,
         reduce_dtype: torch.dtype = torch.bfloat16,
     ):

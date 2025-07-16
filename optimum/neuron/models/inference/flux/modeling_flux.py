@@ -21,7 +21,7 @@ import logging
 import math
 import os
 from types import SimpleNamespace
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import torch
@@ -109,7 +109,7 @@ class NeuronFluxTransformer2DModel(torch.nn.Module):
         self,
         patch_size: int = 1,
         in_channels: int = 64,
-        out_channels: Optional[int] = None,
+        out_channels: int | None = None,
         num_layers: int = 19,
         num_single_layers: int = 38,
         attention_head_dim: int = 128,
@@ -117,7 +117,7 @@ class NeuronFluxTransformer2DModel(torch.nn.Module):
         joint_attention_dim: int = 4096,
         pooled_projection_dim: int = 768,
         guidance_embeds: bool = False,
-        axes_dims_rope: Tuple[int] = (16, 56, 56),
+        axes_dims_rope: tuple[int] = (16, 56, 56),
         reduce_dtype: torch.dtype = torch.bfloat16,
     ):
         super().__init__()
@@ -211,7 +211,7 @@ class NeuronFluxTransformer2DModel(torch.nn.Module):
         timestep: torch.LongTensor = None,
         image_rotary_emb: torch.Tensor = None,
         guidance: torch.Tensor = None,
-        joint_attention_kwargs: Optional[Dict[str, Any]] = None,
+        joint_attention_kwargs: dict[str, Any] | None = None,
         controlnet_block_samples=None,
         controlnet_single_block_samples=None,
         controlnet_blocks_repeat: bool = False,
@@ -526,7 +526,7 @@ class NeuronFeedForward(nn.Module):
     def __init__(
         self,
         dim: int,
-        dim_out: Optional[int] = None,
+        dim_out: int | None = None,
         mult: int = 4,
         dropout: float = 0.0,
         activation_fn: str = "geglu",
@@ -628,17 +628,17 @@ class NeuronAttention(nn.Module):
     def __init__(
         self,
         query_dim: int,
-        cross_attention_dim: Optional[int] = None,
+        cross_attention_dim: int | None = None,
         heads: int = 8,
         dim_head: int = 64,
         dropout: float = 0.0,
         bias: bool = False,
         upcast_attention: bool = False,
         upcast_softmax: bool = False,
-        cross_attention_norm: Optional[str] = None,
-        qk_norm: Optional[str] = None,
-        added_kv_proj_dim: Optional[int] = None,
-        added_proj_bias: Optional[bool] = True,
+        cross_attention_norm: str | None = None,
+        qk_norm: str | None = None,
+        added_kv_proj_dim: int | None = None,
+        added_proj_bias: bool | None = True,
         out_bias: bool = True,
         scale_qk: bool = True,
         eps: float = 1e-5,
@@ -801,8 +801,8 @@ class NeuronAttention(nn.Module):
         self,
         hidden_states: torch.Tensor,
         image_rotary_emb: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        encoder_hidden_states: Optional[torch.Tensor] = None,
+        attention_mask: torch.Tensor | None = None,
+        encoder_hidden_states: torch.Tensor | None = None,
     ) -> torch.Tensor:
         r"""
         The forward method of the `Attention` class.
