@@ -60,7 +60,7 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           python -m ensurepip --upgrade
           python -m pip install --upgrade setuptools
-          python -m pip install ".[quality, tests, diffusers]"
+          python -m pip install ".[quality, diffusers]"
 
       - name: Make documentation
         shell: bash
