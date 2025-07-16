@@ -20,5 +20,3 @@ Simply add `flash_decoding_enabled` to be True.
 We onboarded LLAMA onto this feature and use it for reference. To enable flash decoding for a new model (dense LLM for now), you need modify below:
 - Override `add_derived_config` to set `num_cores_per_group` based on model configuration. See LLAMA example in `src/neuronx_distributed_inference/models/llama/modeling_llama.py`
 - Modify `convert_hf_to_neuron_state_dict` to facilitate rank usage in base model. See LLAMA example in `src/neuronx_distributed_inference/models/llama/modeling_llama.py`
-
-

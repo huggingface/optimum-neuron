@@ -27,4 +27,3 @@ example
 ```bash
 <img src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/0_login.png" alt="Login" />
 ```
-
