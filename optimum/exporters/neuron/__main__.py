@@ -80,18 +80,17 @@ if is_neuronx_available():
 
     NEURON_COMPILER = "Neuronx"
 
+if is_diffusers_available():
+    from diffusers import (
+        DiffusionPipeline,
+        FluxPipeline,
+        ModelMixin,
+        StableDiffusionPipeline,
+        StableDiffusionXLPipeline,
+    )
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
-
-    if is_diffusers_available():
-        from diffusers import (
-            DiffusionPipeline,
-            FluxPipeline,
-            ModelMixin,
-            StableDiffusionPipeline,
-            StableDiffusionXLPipeline,
-        )
 
 
 logger = logging.get_logger()
@@ -226,6 +225,8 @@ def infer_shapes_of_diffusers(
     max_sequence_length_2 = (
         model.tokenizer_2.model_max_length if hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None else None
     )
+    if isinstance(model, FluxPipeline):
+        max_sequence_length_2 = input_shapes["text_encoder"].get("sequence_length", None) or max_sequence_length_2
 
     vae_encoder_num_channels = model.vae.config.in_channels
     vae_decoder_num_channels = model.vae.config.latent_channels
@@ -236,7 +237,7 @@ def infer_shapes_of_diffusers(
     scaled_width = width // vae_scale_factor
 
     # Text encoders
-    if input_shapes["text_encoder"].get("sequence_length") is None:
+    if input_shapes["text_encoder"].get("sequence_length") is None or hasattr(model, "text_encoder_2"):
         input_shapes["text_encoder"].update({"sequence_length": max_sequence_length_1})
     if hasattr(model, "text_encoder_2"):
         input_shapes["text_encoder_2"] = {
