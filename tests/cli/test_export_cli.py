@@ -199,7 +199,7 @@ class TestExportCLI(unittest.TestCase):
                     shell=False,
                     check=True,
                 )
-    
+
     @requires_neuronx
     def test_flux_tp2(self):
         model_ids = ["hf-internal-testing/tiny-flux-pipe-gated-silu"]
