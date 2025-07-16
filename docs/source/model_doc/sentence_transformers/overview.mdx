@@ -49,8 +49,8 @@ input_shapes = {
 compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 
 neuron_model = NeuronModelForSentenceTransformers.from_pretrained(
-    "BAAI/bge-large-en-v1.5", 
-    export=True, 
+    "BAAI/bge-large-en-v1.5",
+    export=True,
     **input_shapes,
     **compiler_args,
 )
@@ -82,10 +82,10 @@ input_shapes = {
 compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 
 neuron_model = NeuronModelForSentenceTransformers.from_pretrained(
-    "sentence-transformers/clip-ViT-B-32", 
-    subfolder="0_CLIPModel", 
-    export=True, 
-    dynamic_batch_size=False, 
+    "sentence-transformers/clip-ViT-B-32",
+    subfolder="0_CLIPModel",
+    export=True,
+    dynamic_batch_size=False,
     **input_shapes,
     **compiler_args,
 )

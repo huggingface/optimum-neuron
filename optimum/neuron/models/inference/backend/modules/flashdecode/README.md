@@ -1,13 +1,13 @@
 # Flash Decoding
 
-Flash decoding supports long context inference by reducing KV cache memory. This is done by sharding and distributing 
+Flash decoding supports long context inference by reducing KV cache memory. This is done by sharding and distributing
 cache storage instead of replicating it on multiple devices (cores).
 
-Flash decoding lives in the context of GQA (group query attention). This means it is a feature on top of GQA and not 
-traditional MHA (multi-head attention). In GQA, we replicate the KV cache in the devices within the same KV group. 
+Flash decoding lives in the context of GQA (group query attention). This means it is a feature on top of GQA and not
+traditional MHA (multi-head attention). In GQA, we replicate the KV cache in the devices within the same KV group.
 Now, instead of replicating, we shard the KV and distribute them to each device in the group. To accommodate this setup, we modify the attention computation as follows:
-1) Gather all query heads in the group, 
-2) Compute partial softmax on each device, 
+1) Gather all query heads in the group,
+2) Compute partial softmax on each device,
 3) Reduce-scatter in the end to get the complete result.
 
 ## User guide
