@@ -78,6 +78,7 @@ tests = [
     "torchcodec < 0.6.0",
 ]
 quality = [
+    "pre-commit",
     "ruff",
     "isort",
 ]
