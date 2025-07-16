@@ -118,5 +118,3 @@ For this example:
 ```
 $ docker compose -f llama3-70b-trn1.32xlarge/docker-compose.yaml --env-file llama3-70b-trn1.32xlarge/.env up
 ```
-
-
