@@ -81,6 +81,32 @@ out.save("flux_optimum.png")
   alt="Flux dev generated image."
 />
 
+## Timestep-distilled
+
+* max_sequence_length cannot be more than 256.
+* guidance_scale needs to be 0.
+* As this is a timestep-distilled model, it benefits from fewer sampling steps.
+
+```bash
+optimum-cli export neuron --model black-forest-labs/FLUX.1-schnell --tensor_parallel_size 8 --batch_size 1 --height 1024 --width 1024 --num_images_per_prompt 1 --sequence_length 256 --torch_dtype bfloat16 flux_schnell_neuron_1024_tp8/
+```
+
+```python
+import torch
+from optimum.neuron import NeuronFluxPipeline
+
+pipe = NeuronFluxPipeline.from_pretrained("flux_schnell_neuron_1024_tp8")
+prompt = "A cat holding a sign that says hello world"
+out = pipe(prompt, max_sequence_length=256, num_inference_steps=4).images[0]
+```
+
+<img
+  src="https://huggingface.co/datasets/Jingya/document_images/resolve/main/optimum/neuron/flux_schnell_optimum.png"
+  width="256"
+  height="256"
+  alt="Flux schnell generated image."
+/>
+
 ## NeuronFluxPipeline
 
 The Flux pipeline for text-to-image generation.
