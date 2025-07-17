@@ -20,16 +20,19 @@ import torch
 from transformers.models.t5.modeling_t5 import T5LayerCrossAttention
 
 from ...neuron.utils import is_neuronx_available
+from .utils import f32Wrapper
 
 
 if is_neuronx_available():
     import torch_xla.core.xla_model as xm
 
 import neuronx_distributed
+from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, RowParallelLinear
 
 
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
+    from transformers.models.t5.modeling_t5 import T5Attention, T5LayerFF
 
 
 class UnetNeuronWrapper(torch.nn.Module):
@@ -119,6 +122,44 @@ class PixartTransformerNeuronWrapper(torch.nn.Module):
         return out_tuple
 
 
+class FluxTransformerNeuronWrapper(torch.nn.Module):
+    def __init__(self, model, input_names: list[str], device: str = None):
+        super().__init__()
+        self.model = model
+        self.dtype = model.dtype
+        self.input_names = input_names
+        self.device = device
+
+    def forward(self, *inputs):
+        if len(inputs) != len(self.input_names):
+            raise ValueError(
+                f"The model needs {len(self.input_names)} inputs: {self.input_names}."
+                f" But only {len(input)} inputs are passed."
+            )
+
+        ordered_inputs = dict(zip(self.input_names, inputs))
+
+        hidden_states = ordered_inputs.pop("hidden_states", None)
+        encoder_hidden_states = ordered_inputs.pop("encoder_hidden_states", None)
+        pooled_projections = ordered_inputs.pop("pooled_projections", None)
+        timestep = ordered_inputs.pop("timestep", None)
+        guidance = ordered_inputs.pop("guidance", None)
+        image_rotary_emb = ordered_inputs.pop("image_rotary_emb", None)
+
+        out_tuple = self.model(
+            hidden_states=hidden_states,
+            timestep=timestep,
+            guidance=guidance,
+            pooled_projections=pooled_projections,
+            encoder_hidden_states=encoder_hidden_states,
+            image_rotary_emb=image_rotary_emb,
+            joint_attention_kwargs=None,
+            return_dict=False,
+        )
+
+        return out_tuple
+
+
 class ControlNetNeuronWrapper(torch.nn.Module):
     def __init__(self, model, input_names: list[str], device: str = None):
         super().__init__()
@@ -166,7 +207,12 @@ class ControlNetNeuronWrapper(torch.nn.Module):
 # For text encoding
 class T5EncoderWrapper(torch.nn.Module):
     def __init__(
-        self, model: "PreTrainedModel", sequence_length: int, batch_size: int | None = None, device: str = "cpu"
+        self,
+        model: "PreTrainedModel",
+        sequence_length: int,
+        batch_size: int | None = None,
+        device: str = "xla",
+        tensor_parallel_size: int = 1,
     ):
         super().__init__()
         self.model = model
@@ -174,15 +220,109 @@ class T5EncoderWrapper(torch.nn.Module):
         self.sequence_length = sequence_length
         self.batch_size = batch_size
         self.device = device
+        self.tensor_parallel_size = tensor_parallel_size
+
         for block in self.model.encoder.block:
             block.layer[1].DenseReluDense.act = torch.nn.GELU(approximate="tanh")
         precomputed_bias = (
             self.model.encoder.block[0].layer[0].SelfAttention.compute_bias(self.sequence_length, self.sequence_length)
         )
-        self.model.encoder.block[0].layer[0].SelfAttention.compute_bias = lambda *args, **kwargs: precomputed_bias
+        if self.tensor_parallel_size > 1:
+            self.model = self.parallelize(self.model)
+            precomputed_bias_tp = self.shard_weights(precomputed_bias, 1)
+            self.model.encoder.block[0].layer[0].SelfAttention.compute_bias = (
+                lambda *args, **kwargs: precomputed_bias_tp
+            )
+        else:
+            self.model.encoder.block[0].layer[0].SelfAttention.compute_bias = lambda *args, **kwargs: precomputed_bias
 
-    def forward(self, input_ids, attention_mask):
-        return self.model(input_ids, attention_mask=attention_mask)
+    def parallelize(self, model):
+        for _, block in enumerate(model.encoder.block):
+            selfAttention = block.layer[0].SelfAttention
+            ff = block.layer[1]
+            layer_norm_0 = block.layer[0].layer_norm.to(torch.float32)
+            layer_norm_1 = block.layer[1].layer_norm.to(torch.float32)
+            block.layer[1] = self.shard_ff(ff)
+            block.layer[0].SelfAttention = self.shard_self_attention(selfAttention, self.tensor_parallel_size)
+            block.layer[0].layer_norm = f32Wrapper(layer_norm_0)
+            block.layer[1].layer_norm = f32Wrapper(layer_norm_1)
+        final_layer_norm = model.encoder.final_layer_norm.to(torch.float32)
+        model.encoder.final_layer_norm = f32Wrapper(final_layer_norm)
+
+        return model
+
+    @staticmethod
+    def shard_weights(data, dim):
+        tp_rank = neuronx_distributed.parallel_layers.parallel_state.get_tensor_model_parallel_rank()
+        s = data.shape[dim] // neuronx_distributed.parallel_layers.parallel_state.get_tensor_model_parallel_size()
+        if dim == 0:
+            return data[s * tp_rank : s * (tp_rank + 1)].clone()
+        elif dim == 1:
+            return data[:, s * tp_rank : s * (tp_rank + 1)].clone()
+
+    @staticmethod
+    def shard_ff(ff: "T5LayerFF"):
+        orig_wi_0 = ff.DenseReluDense.wi_0  # only applicable for T5 with gated silu`
+        ff.DenseReluDense.wi_0 = ColumnParallelLinear(
+            orig_wi_0.in_features, orig_wi_0.out_features, bias=False, gather_output=False
+        )
+        ff.DenseReluDense.wi_0.weight.data = T5EncoderWrapper.shard_weights(orig_wi_0.weight.data, 0)
+        orig_wi_1 = ff.DenseReluDense.wi_1
+        ff.DenseReluDense.wi_1 = ColumnParallelLinear(
+            orig_wi_1.in_features, orig_wi_1.out_features, bias=False, gather_output=False
+        )
+        ff.DenseReluDense.wi_1.weight.data = T5EncoderWrapper.shard_weights(orig_wi_1.weight.data, 0)
+        orig_wo = ff.DenseReluDense.wo
+        ff.DenseReluDense.wo = RowParallelLinear(
+            orig_wo.in_features, orig_wo.out_features, bias=False, input_is_parallel=True
+        )
+        ff.DenseReluDense.wo.weight.data = T5EncoderWrapper.shard_weights(orig_wo.weight.data, 1)
+        ff.DenseReluDense.act = torch.nn.GELU(approximate="tanh")
+        return ff
+
+    @staticmethod
+    def shard_self_attention(selfAttention: "T5Attention", tensor_parallel_size: int):
+        orig_inner_dim = selfAttention.q.out_features
+        dim_head = orig_inner_dim // selfAttention.n_heads
+        selfAttention.n_heads = selfAttention.n_heads // tensor_parallel_size
+        selfAttention.inner_dim = dim_head * selfAttention.n_heads
+        orig_q = selfAttention.q
+        selfAttention.q = ColumnParallelLinear(
+            selfAttention.q.in_features, selfAttention.q.out_features, bias=False, gather_output=False
+        )
+        selfAttention.q.weight.data = T5EncoderWrapper.shard_weights(orig_q.weight.data, 0)
+        del orig_q
+        orig_k = selfAttention.k
+        selfAttention.k = ColumnParallelLinear(
+            selfAttention.k.in_features,
+            selfAttention.k.out_features,
+            bias=(selfAttention.k.bias is not None),
+            gather_output=False,
+        )
+        selfAttention.k.weight.data = T5EncoderWrapper.shard_weights(orig_k.weight.data, 0)
+        del orig_k
+        orig_v = selfAttention.v
+        selfAttention.v = ColumnParallelLinear(
+            selfAttention.v.in_features,
+            selfAttention.v.out_features,
+            bias=(selfAttention.v.bias is not None),
+            gather_output=False,
+        )
+        selfAttention.v.weight.data = T5EncoderWrapper.shard_weights(orig_v.weight.data, 0)
+        del orig_v
+        orig_out = selfAttention.o
+        selfAttention.o = RowParallelLinear(
+            selfAttention.o.in_features,
+            selfAttention.o.out_features,
+            bias=(selfAttention.o.bias is not None),
+            input_is_parallel=True,
+        )
+        selfAttention.o.weight.data = T5EncoderWrapper.shard_weights(orig_out.weight.data, 1)
+        del orig_out
+        return selfAttention
+
+    def forward(self, input_ids):
+        return self.model(input_ids, output_hidden_states=False)
 
 
 # Adapted from https://awsdocs-neuron.readthedocs-hosted.com/en/latest/src/examples/pytorch/torch-neuronx/t5-inference-tutorial.html

@@ -80,16 +80,17 @@ if is_neuronx_available():
 
     NEURON_COMPILER = "Neuronx"
 
-
 if is_diffusers_available():
-    from diffusers import StableDiffusionXLPipeline
-
+    from diffusers import (
+        DiffusionPipeline,
+        FluxPipeline,
+        ModelMixin,
+        StableDiffusionPipeline,
+        StableDiffusionXLPipeline,
+    )
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
-
-    if is_diffusers_available():
-        from diffusers import DiffusionPipeline, ModelMixin, StableDiffusionPipeline
 
 
 logger = logging.get_logger()
@@ -191,7 +192,7 @@ def parse_optlevel(args: argparse.Namespace) -> dict[str, bool]:
     return optlevel
 
 
-def normalize_stable_diffusion_input_shapes(
+def normalize_diffusers_input_shapes(
     args: argparse.Namespace,
 ) -> dict[str, dict[str, int]]:
     args = vars(args) if isinstance(args, argparse.Namespace) else args
@@ -215,19 +216,18 @@ def normalize_stable_diffusion_input_shapes(
     return input_shapes
 
 
-def infer_stable_diffusion_shapes_from_diffusers(
+def infer_shapes_of_diffusers(
     input_shapes: dict[str, dict[str, int]],
-    model: "StableDiffusionPipeline | StableDiffusionXLPipeline",
+    model: "StableDiffusionPipeline | StableDiffusionXLPipeline | FluxPipeline",
     has_controlnets: bool,
 ):
-    if model.tokenizer is not None:
-        max_sequence_length = model.tokenizer.model_max_length
-    elif hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None:
-        max_sequence_length = model.tokenizer_2.model_max_length
-    else:
-        raise AttributeError(
-            f"Cannot infer max sequence_length from {type(model)} as there is no tokenizer as attribute."
-        )
+    max_sequence_length_1 = model.tokenizer.model_max_length if model.tokenizer is not None else None
+    max_sequence_length_2 = (
+        model.tokenizer_2.model_max_length if hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None else None
+    )
+    if isinstance(model, FluxPipeline):
+        max_sequence_length_2 = input_shapes["text_encoder"].get("sequence_length", None) or max_sequence_length_2
+
     vae_encoder_num_channels = model.vae.config.in_channels
     vae_decoder_num_channels = model.vae.config.latent_channels
     vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
@@ -237,10 +237,13 @@ def infer_stable_diffusion_shapes_from_diffusers(
     scaled_width = width // vae_scale_factor
 
     # Text encoders
-    if input_shapes["text_encoder"].get("sequence_length") is None:
-        input_shapes["text_encoder"].update({"sequence_length": max_sequence_length})
+    if input_shapes["text_encoder"].get("sequence_length") is None or hasattr(model, "text_encoder_2"):
+        input_shapes["text_encoder"].update({"sequence_length": max_sequence_length_1})
     if hasattr(model, "text_encoder_2"):
-        input_shapes["text_encoder_2"] = input_shapes["text_encoder"]
+        input_shapes["text_encoder_2"] = {
+            "batch_size": input_shapes["text_encoder"]["batch_size"],
+            "sequence_length": max_sequence_length_2,
+        }
 
     # UNet or Transformer
     unet_or_transformer_name = "transformer" if hasattr(model, "transformer") else "unet"
@@ -253,11 +256,13 @@ def infer_stable_diffusion_shapes_from_diffusers(
         }
     )
     if input_shapes["unet_or_transformer"].get("sequence_length") is None:
-        input_shapes["unet_or_transformer"]["sequence_length"] = max_sequence_length
+        input_shapes["unet_or_transformer"]["sequence_length"] = max_sequence_length_2 or max_sequence_length_1
     input_shapes["unet_or_transformer"]["vae_scale_factor"] = vae_scale_factor
     input_shapes[unet_or_transformer_name] = input_shapes.pop("unet_or_transformer")
     if unet_or_transformer_name == "transformer":
         input_shapes[unet_or_transformer_name]["encoder_hidden_size"] = model.text_encoder.config.hidden_size
+        if hasattr(model.transformer, "pos_embed") and hasattr(model.transformer.pos_embed, "axes_dim"):
+            input_shapes[unet_or_transformer_name]["rotary_axes_dim"] = sum(model.transformer.pos_embed.axes_dim)
 
     # VAE
     input_shapes["vae_encoder"].update({"num_channels": vae_encoder_num_channels, "height": height, "width": width})
@@ -331,11 +336,13 @@ def get_submodels_and_neuron_configs(
         # Custom lowering for Softmax and SILU operations. Mandatory for applying optimized attention score of diffusion models.
         os.environ["NEURON_FUSE_SOFTMAX"] = "1"
         os.environ["NEURON_CUSTOM_SILU"] = "1"
-        models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_stable_diffusion(
+        models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_diffusion(
             model=model,
             input_shapes=input_shapes,
+            tensor_parallel_size=tensor_parallel_size,
             output=output,
             dynamic_batch_size=dynamic_batch_size,
+            model_name_or_path=model_name_or_path,
             submodels=submodels,
             output_hidden_states=output_hidden_states,
             controlnet_ids=controlnet_ids,
@@ -409,11 +416,13 @@ def _reorder_models_and_neuron_configs(models_and_neuron_configs):
     return models_and_neuron_configs
 
 
-def _get_submodels_and_neuron_configs_for_stable_diffusion(
+def _get_submodels_and_neuron_configs_for_diffusion(
     model: "PreTrainedModel | DiffusionPipeline",
     input_shapes: dict[str, int],
+    tensor_parallel_size: int,
     output: Path,
     dynamic_batch_size: bool = False,
+    model_name_or_path: str | Path | None = None,
     submodels: dict[str, Path | str] | None = None,
     output_hidden_states: bool = False,
     controlnet_ids: str | list[str] | None = None,
@@ -425,12 +434,11 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         raise RuntimeError(
             "Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
         )
-    input_shapes = infer_stable_diffusion_shapes_from_diffusers(
+    input_shapes = infer_shapes_of_diffusers(
         input_shapes=input_shapes,
         model=model,
         has_controlnets=controlnet_ids is not None,
     )
-
     # Saving the model config and preprocessor as this is needed sometimes.
     model.scheduler.save_pretrained(output.joinpath("scheduler"))
     if getattr(model, "tokenizer", None) is not None:
@@ -445,6 +453,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
 
     models_and_neuron_configs = get_diffusion_models_for_export(
         pipeline=model,
+        tensor_parallel_size=tensor_parallel_size,
         text_encoder_input_shapes=input_shapes["text_encoder"],
         unet_input_shapes=input_shapes.get("unet", None),
         transformer_input_shapes=input_shapes.get("transformer", None),
@@ -456,6 +465,8 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         controlnet_ids=controlnet_ids,
         controlnet_input_shapes=input_shapes.get("controlnet", None),
         image_encoder_input_shapes=input_shapes.get("image_encoder", None),
+        text_encoder_2_input_shapes=input_shapes.get("text_encoder_2", None),
+        model_name_or_path=model_name_or_path,
     )
     output_model_names = {
         DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
@@ -783,7 +794,7 @@ def main():
     library_name = TasksManager.infer_library_from_model(args.model, cache_dir=args.cache_dir)
 
     if library_name == "diffusers":
-        input_shapes = normalize_stable_diffusion_input_shapes(args)
+        input_shapes = normalize_diffusers_input_shapes(args)
         submodels = {"unet": args.unet}
     elif library_name == "sentence_transformers":
         input_shapes = normalize_sentence_transformers_input_shapes(args)

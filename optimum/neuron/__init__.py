@@ -60,6 +60,7 @@ _import_structure = {
         "NeuronStableDiffusionXLControlNetPipeline",
         "NeuronPixArtAlphaPipeline",
         "NeuronPixArtSigmaPipeline",
+        "NeuronFluxPipeline",
     ],
     "modeling_decoder": ["NeuronModelForCausalLM"],
     "modeling_seq2seq": [
@@ -110,6 +111,7 @@ if TYPE_CHECKING:
     from .modeling_decoder import NeuronModelForCausalLM
     from .modeling_diffusion import (
         NeuronDiffusionPipelineBase,
+        NeuronFluxPipeline,
         NeuronLatentConsistencyModelPipeline,
         NeuronPixArtAlphaPipeline,
         NeuronPixArtSigmaPipeline,

@@ -120,6 +120,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
     DUMMY_INPUT_GENERATOR_CLASSES = ()
     ATOL_FOR_VALIDATION: float | dict[str, float] = 1e-5
     MODEL_TYPE = None
+    LIBRARY_NAME = "transformers"
     CUSTOM_MODEL_WRAPPER = None
 
     _TASK_TO_COMMON_OUTPUTS = {
@@ -205,6 +206,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
                 hidden_size=getattr(input_shapes.image_encoder_shapes, "hidden_size", None),
                 projection_dim=getattr(input_shapes.image_encoder_shapes, "projection_dim", None),
             ),
+            "rotary_axes_dim": input_shapes.rotary_axes_dim,
         }
         valid_input_shapes = {}
         for name, value in axes_values.items():
@@ -380,17 +382,24 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
 
         return unflatten
 
-    def patch_model_for_export(
+    def patch_model_and_prepare_aliases(
         self,
         model: "PreTrainedModel",
-        dummy_inputs: dict[str, torch.Tensor] | None = None,
+        input_names: list[str] = None,
         forward_with_tuple: bool = False,
         eligible_outputs: list[str | int] | None = None,
         device: str | None = None,
     ):
         """
-        Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
-        tracing are under the correct order.
+        Patch the model and generate aliases for tracing.
+
+        This function performs the following:
+        1. Verifies that the input order of the model's `forward` method matches the structure
+        of the generated dummy inputs. This ensures the dummy inputs tuple is correctly ordered
+        for tracing.
+        2. Applies model sharding if tensor parallelism is enabled (using `CUSTOM_MODEL_WRAPPER`).
+        3. Prepares I/O aliases to identify specific input tensors as state tensors.
+        These state tensors will remain on the device, helping to reduce host-device I/O overhead.
         """
         output_hidden_states = self.output_hidden_states
 
@@ -430,6 +439,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
                 return outputs
 
         if self.CUSTOM_MODEL_WRAPPER is None:
-            return ModelWrapper(model, list(dummy_inputs.keys()))
+            # Order dummy input and build empty alias
+            return ModelWrapper(model, input_names), {}
         else:
-            return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
+            return self.CUSTOM_MODEL_WRAPPER(model, input_names), {}

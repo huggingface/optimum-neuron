@@ -19,9 +19,9 @@ from transformers.utils import _LazyModule
 
 _import_structure = {
     "__main__": [
-        "infer_stable_diffusion_shapes_from_diffusers",
+        "infer_shapes_of_diffusers",
         "main_export",
-        "normalize_stable_diffusion_input_shapes",
+        "normalize_diffusers_input_shapes",
         "get_submodels_and_neuron_configs",
         "load_models_and_neuron_configs",
     ],
@@ -29,26 +29,26 @@ _import_structure = {
     "convert": ["export", "export_models", "validate_model_outputs", "validate_models_outputs"],
     "utils": [
         "build_stable_diffusion_components_mandatory_shapes",
-        "get_stable_diffusion_models_for_export",
+        "get_diffusion_models_for_export",
         "replace_stable_diffusion_submodels",
-        "get_submodels_for_export_stable_diffusion",
+        "get_submodels_for_export_diffusion",
     ],
 }
 
 if TYPE_CHECKING:
     from .__main__ import (
         get_submodels_and_neuron_configs,
-        infer_stable_diffusion_shapes_from_diffusers,
+        infer_shapes_of_diffusers,
         load_models_and_neuron_configs,
         main_export,
-        normalize_stable_diffusion_input_shapes,
+        normalize_diffusers_input_shapes,
     )
     from .base import NeuronDefaultConfig
     from .convert import export, export_models, validate_model_outputs, validate_models_outputs
     from .utils import (
         build_stable_diffusion_components_mandatory_shapes,
-        get_stable_diffusion_models_for_export,
-        get_submodels_for_export_stable_diffusion,
+        get_diffusion_models_for_export,
+        get_submodels_for_export_diffusion,
         replace_stable_diffusion_submodels,
     )
 else:

@@ -93,6 +93,7 @@ class InputShapesArguments:
     vae_scale_factor: int | None = None
     encoder_hidden_size: int | None = None
     image_encoder_shapes: ImageEncoderArguments | None = None
+    rotary_axes_dim: int | None = None
 
 
 class DataclassParser:

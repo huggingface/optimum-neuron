@@ -302,3 +302,37 @@ class ASTDummyAudioInputGenerator(DummyAudioInputGenerator):
         if input_name == "input_values":
             return self.random_float_tensor(shape, min_value=-1, max_value=1, framework=framework, dtype=float_dtype)
         return super().generate(input_name, framework=framework, int_dtype=int_dtype, float_dtype=float_dtype)
+
+
+class DummyFluxTransformerRotaryEmbGenerator(DummyInputGenerator):
+    """
+    Generates dummy image rotary embedding.
+    """
+
+    SUPPORTED_INPUT_NAMES = ("image_rotary_emb",)
+
+    def __init__(
+        self,
+        task: str,
+        normalized_config: NormalizedTextConfig,
+        sequence_length: int,
+        height: int,
+        width: int,
+        rotary_axes_dim: int,
+        **kwargs,
+    ):
+        self.task = task
+        self.sequence_length = sequence_length
+        self.height = height
+        self.width = width
+        self.rotary_axes_dim = rotary_axes_dim
+        self.normalized_config = normalized_config
+
+    def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
+        if input_name == "image_rotary_emb":
+            shape = [
+                self.sequence_length + (self.height // 2) * (self.width // 2),
+                self.rotary_axes_dim,
+                2,  # freqs_cos, freqs_sin
+            ]
+            return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)

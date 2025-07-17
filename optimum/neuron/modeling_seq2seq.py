@@ -43,7 +43,6 @@ from .utils import (
     DECODER_NAME,
     ENCODER_NAME,
     NEURON_FILE_NAME,
-    is_neuronx_available,
 )
 from .utils.doc import (
     _TOKENIZER_FOR_DOC,
@@ -57,10 +56,8 @@ from .utils.doc import (
 if TYPE_CHECKING:
     from transformers import PretrainedConfig, PreTrainedModel
 
-if is_neuronx_available():
-    import torch_neuronx
-
 import neuronx_distributed
+import torch_neuronx
 
 
 logger = logging.getLogger(__name__)
