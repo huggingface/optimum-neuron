@@ -54,6 +54,7 @@ tests = [
     "pytest-rerunfailures",
     "cloudpickle",
     "pytest-timeout",
+    "pytest-order",
     "psutil",
     "parameterized",
     "GitPython",
