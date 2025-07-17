@@ -2,14 +2,37 @@
 
 In todays world, mostly every AI Engineer is familiar with running inference by simply making an API call, but how is that request served optimally by the backend? How does the model provider or service you are using ensure latency and throughput requirements are met?
 
-In this blog we will cover how to serve a model using optimum neuron on AWS Inferentia2 with the HuggingFace TGI container. I'll also delve into how to optimize for latency and throughput and what decisions we can make to influence our priorities.
+In this blog we will cover how to serve a model using Optimum Neuron on AWS Inferentia2 with the HuggingFace TGI container. I'll also delve into how to optimize for latency and throughput and what decisions we can make to influence our priorities.
 
 ## Understanding the Tools
 
 * Inferentia2 chips: Inferentia2 is the second generation AWS purpose-built Machine Learning inference accelerator.
 * Optimum Neuron: The interface between the 🤗 Transformers library and AWS Accelerators including AWS Trainium and AWS Inferentia.
-* Text Generation Inference (TGI) container: Text Generation Inference (TGI) is a toolkit for deploying and serving Large Language Models (LLMs)
-* GuideLLM: A tool for evaluating and optimizing the deployment of large language models (LLMs)
+* Text Generation Inference (TGI) container: Text Generation Inference (TGI) is a toolkit for deploying and serving Large Language Models (LLMs).
+* GuideLLM: A tool for evaluating and optimizing the deployment of large language models (LLMs).
+
+The instance I am using for this experiment will be `inf2.48xlarge`. I can check instance type as well as see each device by running `neuron-ls` which gives the following output:
+
+```
+instance-type: inf2.48xlarge
++--------+--------+--------+-----------+---------+
+| NEURON | NEURON | NEURON | CONNECTED |   PCI   |
+| DEVICE | CORES  | MEMORY |  DEVICES  |   BDF   |
++--------+--------+--------+-----------+---------+
+| 0      | 2      | 32 GB  | 11, 1     | 80:1e.0 |
+| 1      | 2      | 32 GB  | 0, 2      | 90:1e.0 |
+| 2      | 2      | 32 GB  | 1, 3      | 80:1d.0 |
+| 3      | 2      | 32 GB  | 2, 4      | 90:1f.0 |
+| 4      | 2      | 32 GB  | 3, 5      | 80:1f.0 |
+| 5      | 2      | 32 GB  | 4, 6      | 90:1d.0 |
+| 6      | 2      | 32 GB  | 5, 7      | 20:1e.0 |
+| 7      | 2      | 32 GB  | 6, 8      | 20:1f.0 |
+| 8      | 2      | 32 GB  | 7, 9      | 10:1e.0 |
+| 9      | 2      | 32 GB  | 8, 10     | 10:1f.0 |
+| 10     | 2      | 32 GB  | 9, 11     | 10:1d.0 |
+| 11     | 2      | 32 GB  | 10, 0     | 20:1d.0 |
++--------+--------+--------+-----------+---------+
+```
 
 ## Setup and Installation
 
@@ -104,6 +127,9 @@ guidellm \
  --data "prompt_tokens=15900,prompt_tokens_variance=100,generated_tokens=450,generated_tokens_variance=50" \
  --output-path ${output_path} \
  ```
+
+Take note of the parameters passed via the `--data` flag. As my use case is for long prompts and long generation, I have set `prompt_tokens` and `generated_tokens accordingly. Remember to set these according to your use case and the input / output token load you expect.
+Based on these numbers, GuideLLM will generate prompts of random sizes in a normal distribution of around 15900 tokens, and ask for a random number of generated tokens in a normal distribution of around 450 tokens.
 
 The docker compose file is important for defining your data parallel, by specifying the number of devices I wish to allocate to each container. This is also where I specify the load balancer.
 
@@ -296,9 +322,11 @@ Unpacking the results, we get quite a few useful data points for us to use. Unde
 From these tests we are given several metrics for each like how many requests were successfully performed vs how many failed. The time to first token, prompt input and output sizes and more.
 For my experiment, I can see that under max load, I can serve up to 0.85 requests per second at a maximum latency of just under 44 seconds per request. Depending on my latency budget, the next step would be to increase my batch size if I can tolerate longer response times and desire more throughput. Alternatively, I could lower my batch size to decrease the latency, at the cost of potentially reducing throughput.
 
+Lastly, the large input and output tokens required for my workload directly effect the benchmark results, specifically the time needed to encode my input context contributing to most of the benchmark time.
+
 ## Conclusion
 
-In this blog post, I took you through how to compile and load an optimum neuron model, how to serve it with the HuggingFace Text Generation Inference container, and how to benchmark your settings to optimize for your workload.
+In this blog post, I took you through how to compile and load an Optimum Neuron model, how to serve it with the HuggingFace Text Generation Inference container, and how to benchmark your settings to optimize for your workload.
 
 ## References
 
