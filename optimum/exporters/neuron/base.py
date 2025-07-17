@@ -391,7 +391,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         device: str | None = None,
     ):
         """
-        Patch the model and generate aliased for tracing.
+        Patch the model and generate aliases for tracing.
 
         This function performs the following:
         1. Verifies that the input order of the model's `forward` method matches the structure
