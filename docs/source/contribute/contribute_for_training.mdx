@@ -392,9 +392,133 @@ Here `"your_model"` is the corresponding to the `model_type` attribute of your m
 
 ## Testing Your Implementation
 
-2. **Custom Modeling Tests**: Verify outputs match original implementation
-3. **Weight Transformation Tests**: Test checkpoint loading and consolidation
-4. **Distributed Training Tests**: Test with different parallelism configurations
+The training tests in `tests/training/` provide a comprehensive testing framework that validates numerical correctness, distributed training scenarios, and checkpoint compatibility.
+Most of the tests are not designed to be run on every custom modeling implementation, but rather to validate the core functionality of the Optimum Neuron training infrastructure.
+With that in mind, here's what you need to implement for your custom modeling:
+
+### 1. Custom Modeling Validation
+
+The `test_custom_modeling.py` file validates that your custom implementation produces identical outputs to the original Transformers model:
+
+Update `tests/training/test_custom_modeling.py`:
+```python
+CUSTOM_MODELINGS_TO_TEST = [
+    # ... existing models ...
+    ("YourModelForCausalLM", "your-org/your-model-name"),
+]
+```
+
+- **Numerical Correctness**: Ensures custom models match Transformers outputs exactly
+- **Parallelization Support**: Tests various QKV implementations (regular, fused, GQA)
+
+Key test your model must pass:
+```python
+def test_custom_modeling_matches_original()  # Output matching
+```
+
+### 2. End-to-End Training Validation
+
+The `test_overfit.py` file validates training convergence. To include your model in end-to-end training validation, you must add it to the parametrized test cases:
+
+Update `tests/training/test_overfit.py`:
+```python
+@pytest.mark.parametrize(
+    "model_class_name,model_name_or_path,learning_rate,warmup_ratio,training_kwargs,use_flash_attention_2,max_expected_loss,max_length,num_steps",
+    [
+        # ... existing models ...
+        [
+            "YourModelForCausalLM",
+            "your-org/your-model-name",
+            1e-4,
+            0.03,
+            {},
+            True,
+            0.5,
+            2048,
+            50,
+        ],
+    ],
+    ids=[
+        # ... existing model IDs ...
+        "your-org/your-model-name",
+    ],
+)
+```
+
+This validates:
+- **Convergence Validation**: Ensures models can overfit simple datasets
+
+Your model will be tested in:
+```python
+def test_overfit_custom_modeling_causal_lm()       # Basic training (your model included)
+```
+
+### 3. Auto Model Loading
+
+The `test_modeling_auto.py` file validates that your model can be loaded through the `NeuronModel` and `NeuronModelForCausalLM` auto classes. To include your model in these tests, you must add it to the test cases:
+
+Update `tests/training/test_modeling_auto.py`:
+```python
+@pytest.mark.parametrize("from_pretrained", [False, True], ids=["from_config", "from_pretrained"])
+@distributed_test(world_size=1)
+@is_trainium_test
+def test_auto_model_with_supported_architecture(from_pretrained):
+    trn_config = TrainingNeuronConfig()
+    kwargs = {"torch_dtype": torch.bfloat16}
+    for model_name_or_path in [
+        "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random",
+        "michaelbenayoun/granite-tiny-4kv-heads-4layers-random", 
+        "michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random",
+        "your-org/your-model-name",  # Add your model here
+    ]:
+        # ... rest of test logic
+
+@pytest.mark.parametrize("from_pretrained", [False, True], ids=["from_config", "from_pretrained"])
+@distributed_test(world_size=1)
+@is_trainium_test
+def test_auto_model_for_causal_lm_with_supported_architecture(from_pretrained):
+    trn_config = TrainingNeuronConfig()
+    kwargs = {"torch_dtype": torch.bfloat16}
+    for model_name_or_path in [
+        "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random",
+        "michaelbenayoun/granite-tiny-4kv-heads-4layers-random",
+        "michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random", 
+        "your-org/your-model-name",  # Add your model here
+    ]:
+        # ... rest of test logic
+```
+
+This validates:
+- **Auto Model Loading**: Tests that `NeuronModel.from_pretrained()` and `NeuronModel.from_config()` work correctly
+- **Auto CausalLM Loading**: Tests that `NeuronModelForCausalLM.from_pretrained()` and `NeuronModelForCausalLM.from_config()` work correctly
+
+### 4. Running Tests
+
+Tests require AWS Trainium instances. Run specific test categories:
+
+```bash
+# Run all custom modeling tests
+pytest tests/training/test_custom_modeling.py -v
+
+# Run specific model tests
+pytest tests/training/test_custom_modeling.py -v -k "your_model"
+
+# Run end-to-end training validation
+pytest tests/training/test_overfit.py -v
+```
+
+### 5. Test Requirements
+
+Your implementation must:
+
+1. **Pass numerical correctness tests** against original Transformers implementation
+2. **Support at least DP and TP out of all the  parallelization strategies** (TP, PP, DP combinations)
+3. **Handle various QKV implementations** (regular, fused, GQA)
+4. **Support checkpoint consolidation** for distributed training
+5. **Support LoRA training** if applicable
+6. **Demonstrate convergence** through overfitting tests
+
+The testing framework ensures your custom model maintains compatibility with the existing Optimum Neuron training infrastructure while delivering expected performance and correctness guarantees.
 
 ## Common Issues
 
