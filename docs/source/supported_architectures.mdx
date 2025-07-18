@@ -18,14 +18,14 @@ limitations under the License.
 
 ## Training
 
-Training a model on a Trainium instance requires:
+Training on AWS Trainium instances (Trn1) enables large-scale model training with distributed parallelism strategies.
 
-    1. A model that can be compiled with the Neuron SDK.
-    2. Either that:
-        * The model is small enough to fit everything that is needed (model, gradients, optimizer states, activations) on one accelerator (16GB of memory per accelerator),
-        * Or there is a custom modeling implementation adding support for tensor-parallelism and/or pipeline-parallelism for this model architecture in Optimum Neuron.
+**Requirements:**
+- Model must be compatible with the Neuron SDK (if small enough to fit in 16GB, training is supported for any architecture that can be compiled)
+- **Memory constraint:** Each accelerator has 16GB memory for model weights, gradients, optimizer states, and activations
+- **For large models:** Custom modeling implementation with tensor parallelism and/or pipeline parallelism support is required
 
-The following table lists the architectures and tasks with a custom modeling implementation that Optimum Neuron supports for training on Amazon EC2 Trn1 instances.
+The following architectures have custom modeling implementations with distributed training support:
 
 | Architecture             | Task            | Tensor Parallelism | Pipeline Parallelism | Expert Parallelism   |
 |--------------------------|-----------------|--------------------|----------------------|----------------------|
