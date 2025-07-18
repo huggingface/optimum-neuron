@@ -5,6 +5,8 @@
     title: Installation
   - local: quickstart
     title: Quickstart
+  - local: supported_architectures
+    title: Supported Architectures
   - local: containers
     title: Optimum Containers
   - sections:
@@ -138,8 +140,6 @@
   - sections:
     - local: package_reference/trainer
       title: Neuron Trainer
-    - local: package_reference/supported_models
-      title: Supported Architectures
     - local: package_reference/export
       title: Neuron Exporter
     - local: package_reference/modeling
