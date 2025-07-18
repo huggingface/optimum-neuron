@@ -46,9 +46,9 @@ Create a new directory: `optimum/neuron/models/training/your_model/`
 
 **`__init__.py`**
 ```python
-from .modeling_your_model import YourModelForCausalLM
+from .modeling_your_model import YourModelForCausalLM, YourModel
 
-__all__ = ["YourModelForCausalLM"]
+__all__ = ["YourModelForCausalLM", "YourModel"]
 ```
 
 ### Step 2: Implement Custom Model Classes
@@ -67,6 +67,7 @@ from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
 from transformers import PreTrainedModel
 from transformers.models.your_model import YourModelConfig
 
+from ..config import TrainingNeuronConfig
 from ..modeling_utils import NeuronModelMixin
 from ..transformations_utils import (
     CustomModule,
@@ -89,6 +90,8 @@ class YourModelEmbeddings(nn.Module, CustomModule):
             dtype=config.torch_dtype,
             sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
         )
+        # No transformation specs needed for embeddings
+        self.specs = ModelWeightTransformationSpecs()
 ```
 
 #### MLP Layer with Fused Linears
@@ -301,7 +304,7 @@ class YourPreTrainedModel(PreTrainedModel, NeuronModelMixin):
 
 class YourModel(NeuronModelMixin, YourPreTrainedModel):
     def __init__(self, config: YourModelConfig, trn_config: TrainingNeuronConfig):
-        YourPreTrainedModel.__init__(config)
+        YourPreTrainedModel.__init__(self, config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
@@ -512,7 +515,7 @@ pytest tests/training/test_overfit.py -v
 Your implementation must:
 
 1. **Pass numerical correctness tests** against original Transformers implementation
-2. **Support at least DP and TP out of all the  parallelization strategies** (TP, PP, DP combinations)
+2. **Support parallelization strategies** (at minimum DP and TP; PP support recommended)
 3. **Handle various QKV implementations** (regular, fused, GQA)
 4. **Support checkpoint consolidation** for distributed training
 5. **Support LoRA training** if applicable
