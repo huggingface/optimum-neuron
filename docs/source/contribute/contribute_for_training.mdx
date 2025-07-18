@@ -133,6 +133,10 @@ class YourModelMLP(nn.Module, CustomModule):
 ```
 
 #### Attention Layer
+
+The attention layer implementation depends on the model's architecture and tensor parallel configuration. There are three main variants:
+
+**1. Separate Q, K, V Projections (Default)**
 ```python
 class YourModelAttention(nn.Module, CustomModule):
     def __init__(self, config, trn_config, layer_idx):
@@ -142,15 +146,29 @@ class YourModelAttention(nn.Module, CustomModule):
         self.num_key_value_heads = config.num_key_value_heads
         self.head_dim = config.hidden_size // self.num_heads
         
-        # Use GQA QKV projection for grouped query attention
-        self.qkv_proj = GQAQKVColumnParallelLinear(
+        # Separate projections for Q, K, V
+        self.q_proj = ColumnParallelLinear(
             config.hidden_size,
-            [self.num_heads * self.head_dim, self.num_key_value_heads * self.head_dim],
+            self.num_heads * self.head_dim,
             bias=False,
             gather_output=False,
             sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
-            kv_size_multiplier=trn_config.kv_size_multiplier,
-            fuse_qkv=trn_config.fuse_qkv,
+            dtype=config.torch_dtype,
+        )
+        self.k_proj = ColumnParallelLinear(
+            config.hidden_size,
+            self.num_key_value_heads * self.head_dim,
+            bias=False,
+            gather_output=False,
+            sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
+            dtype=config.torch_dtype,
+        )
+        self.v_proj = ColumnParallelLinear(
+            config.hidden_size,
+            self.num_key_value_heads * self.head_dim,
+            bias=False,
+            gather_output=False,
+            sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
             dtype=config.torch_dtype,
         )
         
@@ -163,30 +181,113 @@ class YourModelAttention(nn.Module, CustomModule):
             dtype=config.torch_dtype,
         )
         
-        # Define transformation specs
+        # No transformation specs needed - regular parallel layers
         self.specs = ModelWeightTransformationSpecs()
-        self.specs.add_spec(
-            GQAQKVColumnParallelLinearSpec(
-                gqa_qkv_projection_name="qkv_proj",
-                query_projection_name="q_proj",
-                key_projection_name="k_proj", 
-                value_projection_name="v_proj",
-                output_projection_name="o_proj",
-                num_attention_heads=self.num_heads,
-                num_key_value_heads=self.num_key_value_heads,
-                kv_size_multiplier=trn_config.kv_size_multiplier,
-                q_output_size_per_partition=self.qkv_proj.q_output_size_per_partition,
-                kv_output_size_per_partition=self.qkv_proj.kv_output_size_per_partition,
-                fuse_qkv=trn_config.fuse_qkv,
+```
+
+**2. Fused QKV Projection (Multi-Head Attention)**
+```python
+class YourModelAttention(nn.Module, CustomModule):
+    def __init__(self, config, trn_config, layer_idx):
+        super().__init__()
+        # ... (same setup as above)
+        
+        tp_size = get_tensor_model_parallel_size()
+        
+        # Only use fused QKV when num_heads == num_key_value_heads (no GQA)
+        if trn_config.fuse_qkv and self.num_heads == self.num_key_value_heads:
+            self.qkv_proj = ColumnParallelLinear(
+                config.hidden_size,
+                3 * self.num_heads * self.head_dim,  # Q + K + V
+                stride=3,  # Important for proper sharding
+                bias=False,
+                gather_output=False,
+                sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
+                dtype=config.torch_dtype,
             )
-        )
+            
+            # Define transformation specs for fused QKV
+            self.specs = ModelWeightTransformationSpecs()
+            self.specs.add_spec(
+                FusedLinearsSpec(
+                    fused_linear_name="qkv_proj",
+                    linear_names=["q_proj", "k_proj", "v_proj"],
+                    bias=False,
+                    fuse_axis="column",
+                    original_dims=[self.num_heads * self.head_dim] * 3,
+                )
+            )
+            self.split_size = self.num_heads * self.head_dim // tp_size
+```
+
+**3. GQA QKV Projection (Required for Challenging TP Configurations)**
+```python
+class YourModelAttention(nn.Module, CustomModule):
+    def __init__(self, config, trn_config, layer_idx):
+        super().__init__()
+        # ... (same setup as above)
+        
+        tp_size = get_tensor_model_parallel_size()
+        
+        # Use GQA QKV when KV heads can't be evenly distributed across TP ranks
+        # This happens when: num_key_value_heads < tp_size or num_key_value_heads % tp_size != 0
+        self.qkv_linear = (self.num_key_value_heads < tp_size) or (self.num_key_value_heads % tp_size != 0)
+        
+        if self.qkv_linear:
+            # Calculate KV size multiplier to ensure even distribution
+            if trn_config.kv_size_multiplier is None:
+                self.kv_size_multiplier = trn_config.auto_kv_size_multiplier(self.num_key_value_heads)
+            else:
+                self.kv_size_multiplier = trn_config.kv_size_multiplier
+                
+            self.qkv_proj = GQAQKVColumnParallelLinear(
+                config.hidden_size,
+                [self.num_heads * self.head_dim, self.num_key_value_heads * self.head_dim],
+                bias=False,
+                gather_output=False,
+                sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
+                kv_size_multiplier=self.kv_size_multiplier,
+                fuse_qkv=trn_config.fuse_qkv,
+                dtype=config.torch_dtype,
+            )
+            
+            # Define transformation specs for GQA QKV
+            self.specs = ModelWeightTransformationSpecs()
+            self.specs.add_spec(
+                GQAQKVColumnParallelLinearSpec(
+                    gqa_qkv_projection_name="qkv_proj",
+                    query_projection_name="q_proj",
+                    key_projection_name="k_proj", 
+                    value_projection_name="v_proj",
+                    output_projection_name="o_proj",
+                    num_attention_heads=self.num_heads,
+                    num_key_value_heads=self.num_key_value_heads,
+                    kv_size_multiplier=self.kv_size_multiplier,
+                    q_output_size_per_partition=self.qkv_proj.q_output_size_per_partition,
+                    kv_output_size_per_partition=self.qkv_proj.kv_output_size_per_partition,
+                    fuse_qkv=trn_config.fuse_qkv,
+                )
+            )
+```
+
+**When to Use Each Variant:**
+
+- **Separate Q, K, V**: Default approach, works for all configurations but may be less efficient
+- **Fused QKV**: Use when `num_heads == num_key_value_heads` (no grouped query attention) and `fuse_qkv=True`
+- **GQA QKV**: Required when using grouped query attention with challenging tensor parallel configurations where KV heads cannot be evenly distributed across TP ranks
+
+The choice is typically determined by:
+```python
+tp_size = get_tensor_model_parallel_size()
+use_gqa_qkv = (num_key_value_heads < tp_size) or (num_key_value_heads % tp_size != 0)
+use_fused_qkv = trn_config.fuse_qkv and (num_heads == num_key_value_heads) and not use_gqa_qkv
 ```
 
 ### Step 4: Implement Main Model Classes
 
 #### Base Model
 ```python
-class YourModel(PreTrainedModel, NeuronModelMixin):
+class YourPreTrainedModel(PreTrainedModel, NeuronModelMixin):
     config_class = YourModelConfig
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
@@ -196,17 +297,15 @@ class YourModel(PreTrainedModel, NeuronModelMixin):
     _supports_cache_class = True
     _supports_quantized_cache = True
     _supports_static_cache = True
-    
-    # Pipeline parallelism support
-    SUPPORTS_PIPELINE_PARALLELISM = True
-    PIPELINE_TRANSFORMER_LAYER_CLS = YourModelDecoderLayer
-    PIPELINE_INPUT_NAMES = ["input_ids", "attention_mask"]
-    
-    def __init__(self, config, trn_config):
-        super().__init__(config)
-        self.trn_config = trn_config
+
+
+class YourModel(NeuronModelMixin, YourPreTrainedModel):
+    def __init__(self, config: YourModelConfig, trn_config: TrainingNeuronConfig):
+        YourPreTrainedModel.__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
+
+        self.trn_config = trn_config
         
         self.embed_tokens = ParallelEmbedding(...)
         self.layers = nn.ModuleList([
@@ -220,8 +319,7 @@ class YourModel(PreTrainedModel, NeuronModelMixin):
 
 #### CausalLM Model
 ```python
-class YourModelForCausalLM(PreTrainedModel, NeuronModelMixin):
-    config_class = YourModelConfig
+class YourModelForCausalLM(NeuronModelMixin, YourPreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
     
     # Pipeline parallelism support
@@ -250,18 +348,23 @@ class YourModelForCausalLM(PreTrainedModel, NeuronModelMixin):
 
 Update `optimum/neuron/models/training/__init__.py`:
 ```python
-from .your_model import YourModelForCausalLM
+from .your_model import YourModelForCausalLM, YourModel
 
-__all__ = [..., "YourModelForCausalLM"]
+__all__ = [..., "YourModelForCausalLM", "YourModel"]
 ```
 
 Update `optimum/neuron/models/training/auto_models.py`:
 ```python
-_MODEL_MAPPING = {
-    ...,
-    "YourModelConfig": YourModelForCausalLM,
-}
+from .your_model.modeling_your_model import YourModelForCausalLM, YourModel
+
+# Register the base model (without head)
+register_neuron_model_for_training("your_model", "model")(YourModel)
+
+# Register the CausalLM model
+register_neuron_model_for_training("your_model", "text-generation")(YourModelForCausalLM)
 ```
+
+Here `"your_model"` is the corresponding to the `model_type` attribute of your model's configuration class.
 
 ## Best Practices
 
@@ -281,7 +384,6 @@ _MODEL_MAPPING = {
 - Set `SUPPORTS_PIPELINE_PARALLELISM = True` for supported models
 - Define `PIPELINE_TRANSFORMER_LAYER_CLS` as your decoder layer class
 - List all input names in `PIPELINE_INPUT_NAMES`
-- Consider memory management for pipeline stages
 
 ### 4. Flash Attention Support
 - Set `_supports_flash_attn_2 = True` if your model supports it
@@ -290,7 +392,6 @@ _MODEL_MAPPING = {
 
 ## Testing Your Implementation
 
-1. **Unit Tests**: Create tests in `tests/training/test_your_model.py`
 2. **Custom Modeling Tests**: Verify outputs match original implementation
 3. **Weight Transformation Tests**: Test checkpoint loading and consolidation
 4. **Distributed Training Tests**: Test with different parallelism configurations

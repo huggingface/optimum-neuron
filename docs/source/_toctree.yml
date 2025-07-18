@@ -133,7 +133,7 @@
     title: Benchmarks
   - sections:
     - local: contribute/contribute_for_training
-      title: Add a custom architecture implementation for training
+      title: Add a custom model implementation for training
     - local: contribute/contribute_for_inference
       title: Add inference support for a new model architecture
     title: Contribute
