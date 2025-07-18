@@ -14,8 +14,6 @@
       title: Training and Deployment using Amazon Sagemaker
     - local: guides/cache_system
       title: Neuron model cache
-    - local: guides/fine_tune
-      title: Fine-tune Transformers with AWS Trainium
     - local: guides/distributed_training
       title: Distributed Training
     - local: guides/export_model
