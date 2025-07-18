@@ -411,13 +411,24 @@ CUSTOM_MODELINGS_TO_TEST = [
 ]
 ```
 
-- **Numerical Correctness**: Ensures custom models match Transformers outputs exactly
-- **Parallelization Support**: Tests various QKV implementations (regular, fused, GQA)
+**Important**: For custom modeling validation tests, use small/tiny models to ensure CI efficiency. The test models should have:
+- Small vocabulary size (e.g., 1000-8000 tokens)
+- Few layers (e.g., 2-4 layers)
+- Small hidden dimensions (e.g., 128-512)
+- Minimal attention heads (e.g., 4-8 heads)
+
+Examples of good test models for custom modeling validation:
+- `"michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"` - 4 layers, 4 KV heads
+- `"michaelbenayoun/granite-tiny-4kv-heads-4layers-random"` - Tiny Granite model
+- `"michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random"` - Tiny Qwen3 model
 
 Key test your model must pass:
 ```python
 def test_custom_modeling_matches_original()  # Output matching
 ```
+
+- **Numerical Correctness**: Ensures custom models match Transformers outputs exactly
+- **Parallelization Support**: Tests various QKV implementations (regular, fused, GQA)
 
 ### 2. End-to-End Training Validation
 
@@ -530,4 +541,14 @@ The testing framework ensures your custom model maintains compatibility with the
 - **Memory Issues**: Consider gradient checkpointing and activation recomputation
 - **Attention Compatibility**: Verify attention implementations work with your model architecture
 
-This guide provides the foundation for implementing custom models. Reference existing implementations (LLaMA, Granite, Qwen3) for complete examples and advanced patterns.
+## Additional Resources
+
+This guide provides the foundation for implementing custom models. For complete examples and advanced patterns, reference these existing implementations:
+
+- **LLaMA**: `optimum/neuron/models/training/llama/modeling_llama.py` - Complete implementation with (regular, fused and GQA attention), fused MLP
+- **Qwen3**: `optimum/neuron/models/training/qwen3/modeling_qwen3.py` - Demonstrates how to adapt the Llama implementation for Qwen3 with `q_norm` and `k_norm` layers
+
+Key files to study:
+- `optimum/neuron/models/training/modeling_utils.py` - Base `NeuronModelMixin` class
+- `optimum/neuron/models/training/transformations_utils.py` - Weight transformation specifications
+- `optimum/neuron/models/training/config.py` - `TrainingNeuronConfig` for parallelism settings
