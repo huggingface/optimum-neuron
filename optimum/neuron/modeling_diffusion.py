@@ -74,6 +74,7 @@ NEURON_COMPILER_VERSION = get_neuronxcc_version()
 if is_diffusers_available():
     from diffusers import (
         ControlNetModel,
+        FluxInpaintPipeline,
         FluxPipeline,
         LatentConsistencyModelPipeline,
         LCMScheduler,
@@ -1603,3 +1604,8 @@ class NeuronStableDiffusionXLControlNetPipeline(
 class NeuronFluxPipeline(NeuronDiffusionPipelineBase, FluxPipeline):
     main_input_name = "prompt"
     auto_model_class = FluxPipeline
+
+
+class NeuronFluxInpaintPipeline(NeuronDiffusionPipelineBase, FluxInpaintPipeline):
+    main_input_name = "prompt"
+    auto_model_class = FluxInpaintPipeline
