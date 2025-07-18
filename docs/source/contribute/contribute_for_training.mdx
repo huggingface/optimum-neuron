@@ -2,14 +2,6 @@
 
 This guide explains how to add custom model implementations to the `optimum/neuron/models/training/` directory. Custom models are needed to support distributed training features like tensor parallelism, pipeline parallelism, and sequence parallelism on AWS Trainium devices.
 
-## Overview
-
-Custom model implementations in Optimum Neuron follow a specific pattern:
-- They inherit from both the original Transformers model and `NeuronModelMixin`
-- They use parallel layers from `neuronx_distributed` for distributed training
-- They define weight transformation specs to handle checkpoint conversion between original and custom formats
-- They are marked with `CustomModule` to enable weight transformation
-
 ## Architecture Components
 
 ### 1. NeuronModelMixin
@@ -18,7 +10,6 @@ The `NeuronModelMixin` class provides core functionality:
 - `from_pretrained()`: Loads regular Transformers weights into custom implementations
 - `save_pretrained()`: Saves sharded checkpoints with consolidation metadata
 - Pipeline parallelism support through `PIPELINE_*` attributes
-- Attention implementation management (flash attention, eager attention)
 
 ### 2. Weight Transformation Specs
 
@@ -51,9 +42,11 @@ from .modeling_your_model import YourModelForCausalLM, YourModel
 __all__ = ["YourModelForCausalLM", "YourModel"]
 ```
 
-### Step 2: Implement Custom Model Classes
+### Step 2: Implement the Model Building Blocks
 
 **`modeling_your_model.py`**
+
+#### Imports and Dependencies
 
 ```python
 import torch
@@ -77,11 +70,9 @@ from ..transformations_utils import (
 )
 ```
 
-### Step 3: Implement Core Components
-
 #### Embedding Layer
 ```python
-class YourModelEmbeddings(nn.Module, CustomModule):
+class YourModelEmbeddings(nn.Module):
     def __init__(self, config, trn_config):
         super().__init__()
         self.embed_tokens = ParallelEmbedding(
@@ -90,11 +81,13 @@ class YourModelEmbeddings(nn.Module, CustomModule):
             dtype=config.torch_dtype,
             sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
         )
-        # No transformation specs needed for embeddings
-        self.specs = ModelWeightTransformationSpecs()
 ```
 
+
 #### MLP Layer with Fused Linears
+
+**Important**: Any module that has transformation specs must inherit from `CustomModule` to ensure proper handling of weight transformations, and the transformation specs must be defined in the `self.specs` attribute.
+
 ```python
 class YourModelMLP(nn.Module, CustomModule):
     def __init__(self, config, trn_config):
@@ -286,7 +279,7 @@ use_gqa_qkv = (num_key_value_heads < tp_size) or (num_key_value_heads % tp_size 
 use_fused_qkv = trn_config.fuse_qkv and (num_heads == num_key_value_heads) and not use_gqa_qkv
 ```
 
-### Step 4: Implement Main Model Classes
+### Step 3: Implement Main Model Classes
 
 #### Base Model
 ```python
@@ -347,7 +340,7 @@ class YourModelForCausalLM(NeuronModelMixin, YourPreTrainedModel):
         self.post_init()
 ```
 
-### Step 5: Register Model
+### Step 4: Register Model
 
 Update `optimum/neuron/models/training/__init__.py`:
 ```python
