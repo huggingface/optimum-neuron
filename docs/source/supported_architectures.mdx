@@ -16,7 +16,36 @@ limitations under the License.
 
 # Supported architectures
 
-## Transformers
+## Training
+
+Training a model on a Trainium instance requires:
+
+    1. A model that can be compiled with the Neuron SDK.
+    2. Either that:
+        * The model is small enough to fit everything that is needed (model, gradients, optimizer states, activations) on one accelerator (16GB of memory per accelerator),
+        * Or there is a custom modeling implementation adding support for tensor-parallelism and/or pipeline-parallelism for this model architecture in Optimum Neuron.
+
+The following table lists the architectures and tasks with a custom modeling implementation that Optimum Neuron supports for training on Amazon EC2 Trn1 instances.
+
+| Architecture             | Task            | Tensor Parallelism | Pipeline Parallelism | Expert Parallelism   |
+|--------------------------|-----------------|--------------------|----------------------|----------------------|
+| Llama, Llama 2, Llama 3  | text-generation | ✓                  | ✓                    | N/A                  |
+| Qwen3                    | text-generation | ✓                  | ✓                    | N/A                  |
+| Granite                  | text-generation | ✓                  | ✗                    | N/A                  |
+
+
+
+## Inference
+
+The following table lists the architectures and tasks that Optimum Neuron supports for inference on Amazon EC2 Inf2 instances. 
+
+<Tip>
+
+If a LLM is listed, e.g. a model with a `text-generation` task, it means that there is also [TGI](https://huggingface.co/docs/text-generation-inference/en/index) support for it.
+
+</Tip>
+
+### Transformers
 
 | Architecture              | Task                                                                                                                                          |
 |---------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
@@ -67,7 +96,7 @@ limitations under the License.
 | Yolos                     | feature-extraction, object-detection                                                                                                          |
 
 
-## Diffusers
+### Diffusers
 
 | Architecture                  | Task                                                                                                                                   |
 |-------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
@@ -79,7 +108,7 @@ limitations under the License.
 | PixArt-α                      | text-to-image                                                                                                                          |
 | PixArt-Σ                      | text-to-image                                                                                                                          |
 
-## Sentence Transformers
+### Sentence Transformers
 
 | Architecture                  | Task                                                                                                                                   |
 |-------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
@@ -89,8 +118,6 @@ limitations under the License.
 
 <Tip>
 
-More details for checking supported tasks [here](https://huggingface.co/docs/optimum-neuron/guides/export_model#selecting-a-task).
+ To learn how to export a model for inference, you can check this [guide](https://huggingface.co/docs/optimum-neuron/guides/export_model#selecting-a-task).
 
 </Tip>
-
-More architectures coming soon, stay tuned! 🚀
