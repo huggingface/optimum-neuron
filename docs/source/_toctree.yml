@@ -132,8 +132,8 @@
       title: Llama-3.3 70B on AWS Inferentia2
     title: Benchmarks
   - sections:
-    - local: community/contributing
-      title: Add support for a new model architecture
+    - local: contribute/contribute_for_inference
+      title: Add inference support for a new model architecture
     title: Contribute
   - sections:
     - local: package_reference/trainer
