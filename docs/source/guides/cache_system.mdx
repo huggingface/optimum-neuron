@@ -17,7 +17,13 @@ specific language governing permissions and limitations under the License.
 **Problem**: Neuron compilation takes 30-60 minutes for large models  
 **Solution**: Download pre-compiled models in seconds
 
-The cache system stores compiled Neuron models on HuggingFace Hub, eliminating recompilation time for your team.
+The cache system stores compiled Neuron models on HuggingFace Hub, eliminating recompilation time for your team. When you train or load a model, the system automatically checks for cached versions before starting the expensive compilation process.
+
+**Key Benefits:**
+- **Time savings**: Download compiled models in seconds vs. hours of compilation
+- **Team collaboration**: Share compiled models across team members and instances
+- **Cost reduction**: Avoid repeated compilation costs on cloud instances
+- **Automatic operation**: Works transparently with existing code
 
 ## Quick Start
 
@@ -42,30 +48,41 @@ That's it! The cache works automatically for supported model classes.
 
 ## How It Works
 
+The cache system operates on two levels to minimize compilation time:
+
 **Cache Priority** (fastest to slowest):
 1. **Local cache** → Instant access from `/var/tmp/neuron-compile-cache`
-2. **Hub cache** → Download in seconds from HuggingFace
-3. **Compile** → 30-60 minutes for large models
+2. **Hub cache** → Download in seconds from HuggingFace Hub
+3. **Compile from scratch** → 30-60 minutes for large models
 
-**Cache Key**: Each compiled model gets a unique hash based on:
-- Model configuration (architecture, precision, input shapes)
-- Neuron compiler version and settings
-- Number of cores used
+**What Gets Cached**: The system caches **NEFF files** (Neuron Executable File Format) - the compiled binary artifacts that run on Neuron cores, not the original model files.
+
+**Cache Identification**: Each cached compilation gets a unique hash based on:
+- **Model factors**: Architecture, precision (fp16/bf16), input shapes, task type
+- **Compilation factors**: NeuronX compiler version, number of cores, optimization flags
+- **Environment factors**: Model checkpoint revision, Optimum Neuron version
+
+This means even small changes to your setup may require recompilation, but identical configurations will always hit the cache.
 
 ## Supported Models
 
-| Model Class | Cache Support | Notes |
-|-------------|---------------|-------|
-| `NeuronTrainer` | ✅ Full | Auto download + upload |
-| `NeuronModelForCausalLM` | ✅ Full | Auto download |
-| Other `NeuronModelForXXX` | ❌ None | Use different export system |
+| Model Class | Cache Support | Platform | Notes |
+|-------------|---------------|----------|-------|
+| `NeuronTrainer` | ✅ Full | Trainium | Auto download + upload during training |
+| `NeuronModelForCausalLM` | ✅ Full | Both | Auto download for inference |
+| Other `NeuronModelForXXX` | ❌ None | Both | Use different export mechanism, no cache integration |
+
+**Note**: Models like `NeuronModelForSequenceClassification`, `NeuronModelForQuestionAnswering`, etc. use a different compilation path that doesn't integrate with the cache system. Only `NeuronModelForCausalLM` and training workflows support caching.
 
 ## Private Cache Setup
 
+The default public cache (`aws-neuron/optimum-neuron-cache`) is read-only for users and only contains models compiled by the Optimum team. For most use cases, you'll want a private cache repository.
+
 **Why private cache?**
-- Store your team's compiled models
-- Keep private models secure
-- Upload your own compilations
+- **Upload your compilations**: Store models you compile for team reuse
+- **Private models**: Keep proprietary model compilations secure  
+- **Team collaboration**: Share compiled artifacts across team members and CI/CD
+- **Custom configurations**: Cache models with your specific batch sizes, sequence lengths, etc.
 
 ### Method 1: CLI Setup (Recommended)
 
@@ -111,18 +128,27 @@ optimum-cli neuron cache synchronize
 
 ### Manual Cache Control
 ```python
-from optimum.neuron.cache import hub_neuronx_cache
+from optimum.neuron.cache import hub_neuronx_cache, synchronize_hub_cache
 from optimum.neuron.cache.entries import SingleModelCacheEntry
+from optimum.neuron.cache.training import patch_neuron_cc_wrapper
 
 # Create cache entry
 cache_entry = SingleModelCacheEntry(model_id, task, config, neuron_config)
 
-# Use specific cache repository
-with hub_neuronx_cache(entry=cache_entry, cache_repo_id="my-org/cache"):
-    model = load_model()  # Will use specified cache
+# The NeuronX compiler will use the Hugging Face Hub cache system
+with patch_neuron_cc_wrapper():
+    # The compiler will check the specified remote cache for pre-compiled NEFF files
+    with hub_neuronx_cache(entry=cache_entry, cache_repo_id="my-org/cache"):
+        model = training_loop()  # Will use specified cache
+
+# Synchronize local cache with Hub
+synchronize_hub_cache(cache_repo_id="my-org/cache")
 ```
 
 ### Cache Lookup (Inferentia)
+
+The inference cache includes a **registry** that lets you search for compatible pre-compiled models before attempting compilation. This is especially useful on Inferentia where you want to avoid compilation altogether.
+
 ```bash
 optimum-cli neuron cache lookup meta-llama/Llama-2-7b-chat-hf
 ```
@@ -134,7 +160,10 @@ task: text-generation
 batch_size: 1, sequence_length: 2048
 num_cores: 24, precision: fp16
 compiler_version: 2.12.54.0
+checkpoint_revision: c1b0db933684edbfe29a06fa47eb19cc48025e93
 ```
+
+**Important**: Finding entries doesn't guarantee cache hits. Your exact configuration must match the cached parameters, including compiler version and model revision.
 
 ## Troubleshooting
 
@@ -175,26 +204,39 @@ rm -rf /var/tmp/neuron-compile-cache/*
 ## Cache Types
 
 ### Training Cache (Trainium)
-- **Runtime caching**: Compiled graphs cached during training
-- **Private repos**: Supports team-specific caches
+- **Runtime caching**: Compiled graphs are automatically cached as they're generated during training
+- **Auto upload**: New compilations are uploaded to your cache repository during training
+- **Private repos**: Supports team-specific caches for collaboration
+- **Context managers**: Uses `hub_neuronx_cache` to patch the compiler transparently
 
 ### Inference Cache (Inferentia) 
-- **Pre-compiled lookup**: Search registry before compilation
-- **Public only**: Read-only access to shared cache
-- **Registry search**: Find compatible model configurations
+- **Pre-compiled lookup**: Search a registry of cached model configurations before compilation
+- **Public cache only**: Read-only access to the shared public cache (`aws-neuron/optimum-neuron-cache`)
+- **Registry search**: Use `optimum-cli neuron cache lookup` to find compatible models
+- **NeuronModelForCausalLM integration**: Automatically downloads cached models if available
 
 ### Traced Model Cache (Both platforms)
-- **Manual upload**: Explicitly cache after model tracing  
-- **AOT compilation**: Pre-compile for production deployment
-- **Cross-platform**: Works on Trainium and Inferentia
+- **Manual workflow**: You explicitly cache compiled artifacts after tracing models
+- **Ahead-of-time (AOT) compilation**: Pre-compile models once, deploy everywhere
+- **Cross-platform**: Works on both Trainium and Inferentia
+- **Production ready**: Good for deployment scenarios where compilation time must be eliminated
 
 ## Best Practices
 
-✅ **Use consistent configurations** across your team  
-✅ **Create private cache** for your organization  
-✅ **Check cache hits** in logs ("Fetched cached" messages)  
-✅ **Standardize parameters** (batch size, sequence length, precision)
+### Configuration Management
+✅ **Use consistent configurations** across your team to maximize cache hits  
+✅ **Standardize parameters** like batch size, sequence length, and precision  
+✅ **Document your configurations** so team members use compatible settings  
+✅ **Pin compiler versions** in CI/CD to ensure consistent cache behavior  
 
-❌ **Don't** frequently change compilation parameters  
-❌ **Don't** skip authentication setup  
-❌ **Don't** ignore "recompiling" warnings
+### Cache Operations
+✅ **Create private cache** for your organization to store your compilations  
+✅ **Check cache hits** in logs (look for "Fetched cached" messages)  
+✅ **Monitor cache repository size** as NEFF files can be large (GBs)  
+✅ **Use lookup before compiling** to find compatible cached models  
+
+### Common Pitfalls
+❌ **Don't** frequently change compilation parameters without good reason  
+❌ **Don't** skip authentication setup (`huggingface-cli login`)  
+❌ **Don't** ignore "recompiling" warnings - investigate why cache missed  
+❌ **Don't** assume cache hits - always verify with logs or lookup commands
