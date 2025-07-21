@@ -204,23 +204,3 @@ Fix: Ensure good internet connection
 ```bash
 rm -rf /var/tmp/neuron-compile-cache/*
 ```
-
-## Cache Types
-
-### Training Cache (Trainium)
-- **Runtime caching**: Compiled graphs are automatically cached as they're generated during training
-- **Auto upload**: New compilations are uploaded to your cache repository during training
-- **Private repos**: Supports team-specific caches for collaboration
-- **Context managers**: Uses `hub_neuronx_cache` to patch the compiler transparently
-
-### Inference Cache (Inferentia) 
-- **Pre-compiled lookup**: Search a registry of cached model configurations before compilation
-- **Public cache only**: Read-only access to the shared public cache (`aws-neuron/optimum-neuron-cache`)
-- **Registry search**: Use `optimum-cli neuron cache lookup` to find compatible models
-- **NeuronModelForCausalLM integration**: Automatically downloads cached models if available
-
-### Traced Model Cache (Both platforms)
-- **Manual workflow**: You explicitly cache compiled artifacts after tracing models
-- **Ahead-of-time (AOT) compilation**: Pre-compile models once, deploy everywhere
-- **Cross-platform**: Works on both Trainium and Inferentia
-- **Production ready**: Good for deployment scenarios where compilation time must be eliminated
