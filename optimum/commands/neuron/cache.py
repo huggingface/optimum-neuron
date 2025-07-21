@@ -24,7 +24,6 @@ from ...neuron.utils.cache_utils import (
     set_custom_cache_repo_name_in_hf_home,
 )
 from ...neuron.utils.require_utils import requires_torch_neuronx
-from ...neuron.utils.runner import ExampleRunner
 from ...utils import logging
 from ..base import BaseOptimumCLICommand, CommandInfo
 
@@ -63,101 +62,6 @@ class SetCustomCacheRepoCommand(BaseOptimumCLICommand):
     def run(self):
         set_custom_cache_repo_name_in_hf_home(self.args.name)
         logger.info(f"Neuron cache name set locally to {self.args.name} in {HF_HOME_CACHE_REPO_FILE}.")
-
-
-class AddToCacheRepoCommand(BaseOptimumCLICommand):
-    @staticmethod
-    def parse_args(parser: "ArgumentParser"):
-        parser.add_argument("-m", "--model", type=str, required=True, help="The name of model or path of the model.")
-        parser.add_argument("--task", type=str, required=True, help="The task for which the model should be compiled.")
-
-        # Shapes
-        parser.add_argument(
-            "--train_batch_size",
-            type=int,
-            required=True,
-            help="The batch size to use during the model compilation for training.",
-        )
-
-        parser.add_argument(
-            "--eval_batch_size",
-            type=int,
-            default=None,
-            help="The batch size to use during model compilation for evaluation.",
-        )
-
-        sequence_length_group = parser.add_mutually_exclusive_group()
-
-        sequence_length_group.add_argument(
-            "--sequence_length", type=int, help="The sequence length of the model during compilation."
-        )
-
-        seq2seq_sequence_length_group = sequence_length_group.add_argument_group()
-        seq2seq_sequence_length_group.add_argument(
-            "--encoder_sequence_length",
-            type=int,
-            help="The sequence length of the encoder part of the model during compilation.",
-        )
-        seq2seq_sequence_length_group.add_argument(
-            "--decoder_sequence_length",
-            type=int,
-            help="The sequence length of the decoder part of the model during compilation.",
-        )
-
-        parser.add_argument(
-            "--gradient_accumulation_steps", type=int, default=1, help="The number of gradient accumulation steps.."
-        )
-
-        parser.add_argument(
-            "--precision",
-            choices=["fp", "bf16"],
-            type=str,
-            required=True,
-            help="The precision to use during the model compilation.",
-        )
-        parser.add_argument(
-            "--num_cores",
-            choices=list(range(1, 33)),
-            type=int,
-            required=True,
-            help="The number of neuron cores to use during compilation.",
-        )
-        parser.add_argument(
-            "--example_dir", type=str, default=None, help="Path to where the example scripts are stored."
-        )
-        parser.add_argument(
-            "--max_steps", type=int, default=10, help="The maximum number of steps to run compilation for."
-        )
-
-    def run(self):
-        runner = ExampleRunner(self.args.model, self.args.task, example_dir=self.args.example_dir)
-        if self.args.eval_batch_size is None:
-            self.args.eval_batch_size = self.args.train_batch_size
-
-        if self.args.sequence_length is not None:
-            sequence_length = self.args.sequence_length
-        elif self.args.encoder_sequence_length is None and self.args.decoder_sequence_length is None:
-            raise ValueError(
-                "You need to specify either sequence_length or encoder_sequence_length and decoder_sequence_length"
-            )
-        elif self.args.encoder_sequence_length is None or self.args.decoder_sequence_length is None:
-            raise ValueError("Both the encoder_sequence_length and the decoder_sequence_length must be provided.")
-        else:
-            sequence_length = [self.args.encoder_sequence_length, self.args.decoder_sequence_length]
-        returncode, stdout = runner.run(
-            self.args.num_cores,
-            self.args.precision,
-            self.args.train_batch_size,
-            sequence_length,
-            do_eval=True,
-            eval_batch_size=self.args.eval_batch_size,
-            gradient_accumulation_steps=self.args.gradient_accumulation_steps,
-            num_epochs=3,
-            max_steps=self.args.max_steps,
-            save_steps=self.args.max_steps // 2,
-        )
-        if returncode != 0:
-            raise ValueError(f"Could not add the model to the cache. Full log:\n{stdout}.")
 
 
 class SynchronizeRepoCommand(BaseOptimumCLICommand):
@@ -214,11 +118,6 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
             name="set",
             help="Set the name of the Neuron cache repo to use locally.",
             subcommand_class=SetCustomCacheRepoCommand,
-        ),
-        CommandInfo(
-            name="add",
-            help="Add a model to the cache of your choice (trainium only).",
-            subcommand_class=AddToCacheRepoCommand,
         ),
         CommandInfo(
             name="synchronize",
