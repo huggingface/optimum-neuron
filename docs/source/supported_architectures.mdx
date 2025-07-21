@@ -16,7 +16,42 @@ limitations under the License.
 
 # Supported architectures
 
-## Transformers
+## Training
+
+Training on AWS Trainium instances (Trn1) enables large-scale model training with distributed parallelism strategies.
+
+**Requirements:**
+- Model must be compatible with the Neuron SDK. If it small enough to fit within 16GB, training is supported for any architecture that can be successfully compiled.
+- **Memory constraint:** Each accelerator has 16GB of memory for model weights, gradients, optimizer states, and activations.
+- **For large models:** Custom modeling implementation with tensor parallelism and/or pipeline parallelism support is required.
+
+The following architectures have custom modeling implementations with distributed training support:
+
+| Architecture             | Task            | Tensor Parallelism | Pipeline Parallelism |
+|--------------------------|-----------------|--------------------|----------------------|
+| Llama, Llama 2, Llama 3  | text-generation | ✓                  | ✓                    |
+| Qwen3                    | text-generation | ✓                  | ✓                    |
+| Granite                  | text-generation | ✓                  | ✗                    |
+
+
+<Tip>
+
+If you need to add support for a custom model not listed above, check out our [contribute for training guide](./contribute/contribute_for_training) to learn how to implement custom modeling with distributed training support. You can also open an issue in the [Optimum Neuron GitHub repository](https://github.com/huggingface/optimum-neuron/issues) to request support for it.
+
+</Tip>
+
+
+## Inference
+
+The following table lists the architectures and tasks that Optimum Neuron supports for inference on Amazon EC2 Inf2 instances. 
+
+<Tip>
+
+If a LLM is listed, e.g. a model with a `text-generation` task, it means that there is also [TGI](https://huggingface.co/docs/text-generation-inference/en/index) support for it.
+
+</Tip>
+
+### Transformers
 
 | Architecture              | Task                                                                                                                                          |
 |---------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
@@ -51,7 +86,7 @@ limitations under the License.
 | MPNet                     | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | Phi3                      | text-generation                                                                                 |
 | Phi                       | feature-extraction, text-classification, token-classification                                                                                 |
-| Qwen2                     | text-generation                                                                                 |
+| Qwen2, Qwen 3                     | text-generation                                                                                 |
 | RoBERTa                   | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | RoFormer                  | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | Swin                      | feature-extraction, image-classification                                                                                                      |
@@ -67,7 +102,7 @@ limitations under the License.
 | Yolos                     | feature-extraction, object-detection                                                                                                          |
 
 
-## Diffusers
+### Diffusers
 
 | Architecture                  | Task                                                                                                                                   |
 |-------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
@@ -78,8 +113,9 @@ limitations under the License.
 | LCM                           | text-to-image                                                                                                                          |
 | PixArt-α                      | text-to-image                                                                                                                          |
 | PixArt-Σ                      | text-to-image                                                                                                                          |
+| Flux                          | text-to-image                                                                                                                          |
 
-## Sentence Transformers
+### Sentence Transformers
 
 | Architecture                  | Task                                                                                                                                   |
 |-------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
@@ -89,8 +125,6 @@ limitations under the License.
 
 <Tip>
 
-More details for checking supported tasks [here](https://huggingface.co/docs/optimum-neuron/guides/export_model#selecting-a-task).
+ To learn how to export a model for inference, you can check this [guide](https://huggingface.co/docs/optimum-neuron/guides/export_model#selecting-a-task).
 
 </Tip>
-
-More architectures coming soon, stay tuned! 🚀
