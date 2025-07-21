@@ -12,383 +12,189 @@ specific language governing permissions and limitations under the License.
 
 # Neuron Model Cache
 
-## What You'll Learn
+## Why Use the Cache?
 
-After reading this guide, you'll understand:
-- How the Neuron model cache system works and its benefits
-- The difference between training cache (Trainium) and inference cache (Inferentia)
-- When and how to use public vs private cache repositories
-- How to troubleshoot common caching issues
+**Problem**: Neuron compilation takes 30-60 minutes for large models  
+**Solution**: Download pre-compiled models in seconds
 
-## Overview
+The cache system stores compiled Neuron models on HuggingFace Hub, eliminating recompilation time for your team.
 
-The Neuron Model Cache is a remote caching system that stores compiled Neuron models to avoid lengthy recompilation times. Instead of compiling models from scratch every time (which can take up to an hour for large models), the cache allows you to download pre-compiled artifacts in seconds.
+## Quick Start
 
-The cache system operates on two levels:
-- **Local cache**: Fast, device-specific storage (usually `/var/tmp/neuron-compile-cache`)
-- **HuggingFace Hub cache**: Shared, remote repository for team collaboration and public models
-
-The system first checks your local cache, then falls back to the Hub cache if artifacts aren't found locally.
-
-## Cache Types and Platform Support
-
-Optimum Neuron uses different caching approaches depending on your use case:
-
-| Cache Type | Platform | Use Case | Availability |
-|------------|----------|----------|-------------|
-| **Training Cache** | Trainium | Model training with `NeuronTrainer` | ✅ Public & Private repos |
-| **Inference Cache** | Inferentia | Pre-compiled model lookup | ✅ Public repo only |
-| **Traced Model Cache** | Both | Ahead-of-time compiled models | ✅ Public & Private repos |
-
-**Note:** Currently, models exported using `NeuronModelForSequenceClassification`, `NeuronModelForQuestionAnswering`, and other task-specific classes use a different export mechanism and don't support the cache system. Only `NeuronModelForCausalLM` and `NeuronTrainer` integrate with the cache.
-
-## How Neuron Compilation Works
-
-Before diving into caching, it's important to understand the compilation process:
-
-1. **Model Export**: When you train or load a model on Neuron platforms, it must be exported to Neuron format 
-
-2. **Graph Conversion**: The model is converted into [XLA](https://github.com/pytorch/xla/) subgraphs
-
-3. **NEFF Compilation**: Each subgraph is compiled with the Neuron compiler into **NEFF** (Neuron Executable File Format) binary files
-
-The graph conversion is relatively fast, but **NEFF compilation can take 30-60 minutes for large models**.
-
-## The Caching Solution
-
-To avoid recompiling NEFFs every time:
-
-1. **Local Cache**: [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx) stores NEFF files locally in `/var/tmp/neuron-compile-cache`
-2. **Hub Cache**: Optimum Neuron extends this with a [**shared remote cache** on the Hugging Face Hub](https://huggingface.co/aws-neuron/optimum-neuron-cache)
-
-The Hub cache solves the key limitation of local caching: **every new host or team member can benefit from previously compiled models**, rather than waiting hours for recompilation.
-
-### Cache Priority
-When loading a model, the system checks caches in this order:
-1. **Local cache first** (fastest - immediate access)
-2. **HuggingFace Hub cache** (fast - download in seconds)
-3. **Recompile from scratch** (slow - up to 1 hour)
-
-## Basic Usage
-
-The cache system works automatically with supported model classes - no additional configuration needed!
-
-### Training on Trainium
-
-#### Using `NeuronTrainer`
-
-When you use `NeuronTrainer`, it automatically handles caching for you. It checks the local cache first, then the Hub cache, and compiles if no cached NEFFs are found. It also uploads any newly compiled NEFFs to the Hub cache for future use during training.
-
+### Training (Trainium)
 ```python
 from optimum.neuron import NeuronTrainer
 
-# The trainer automatically uses the cache
-trainer = NeuronTrainer(...)
-trainer.train()  # Will download cached NEFFs if available
+# Cache works automatically - no configuration needed
+trainer = NeuronTrainer(model=model, args=training_args)
+trainer.train()  # Downloads cached models if available
 ```
 
-#### Low-level API
-
-For advanced users who need direct control over caching:
-
+### Inference (Inferentia/Trainium)
 ```python
-from optimum.neuron.cache import hub_neuronx_cache, synchronize_hub_cache
-from optimum.neuron.cache.optimum_neuron_cc_wrapper import patch_neuron_cc_wrapper
+from optimum.neuron import NeuronModelForCausalLM
+
+# Cache works automatically 
+model = NeuronModelForCausalLM.from_pretrained("model_id")
+```
+
+That's it! The cache works automatically for supported model classes.
+
+## How It Works
+
+**Cache Priority** (fastest to slowest):
+1. **Local cache** → Instant access from `/var/tmp/neuron-compile-cache`
+2. **Hub cache** → Download in seconds from HuggingFace
+3. **Compile** → 30-60 minutes for large models
+
+**Cache Key**: Each compiled model gets a unique hash based on:
+- Model configuration (architecture, precision, input shapes)
+- Neuron compiler version and settings
+- Number of cores used
+
+## Supported Models
+
+| Model Class | Cache Support | Notes |
+|-------------|---------------|-------|
+| `NeuronTrainer` | ✅ Full | Auto download + upload |
+| `NeuronModelForCausalLM` | ✅ Full | Auto download |
+| Other `NeuronModelForXXX` | ❌ None | Use different export system |
+
+## Private Cache Setup
+
+**Why private cache?**
+- Store your team's compiled models
+- Keep private models secure
+- Upload your own compilations
+
+### Method 1: CLI Setup (Recommended)
+
+```bash
+# Create private cache repository
+optimum-cli neuron cache create
+
+# Set as default cache
+optimum-cli neuron cache set your-org/your-cache-name
+```
+
+### Method 2: Environment Variable
+
+```bash
+# Use for single training run
+CUSTOM_CACHE_REPO="your-org/your-cache" python train.py
+
+# Or export for session
+export CUSTOM_CACHE_REPO="your-org/your-cache"
+```
+
+**Prerequisites:**
+- Login: `huggingface-cli login`
+- Write access to cache repository
+
+## CLI Commands
+
+```bash
+# Create new cache repository
+optimum-cli neuron cache create [-n NAME] [--public]
+
+# Set default cache repository  
+optimum-cli neuron cache set REPO_NAME
+
+# Search for cached models (Inferentia)
+optimum-cli neuron cache lookup MODEL_ID
+
+# Sync local cache with Hub
+optimum-cli neuron cache synchronize
+```
+
+## Advanced Usage
+
+### Manual Cache Control
+```python
+from optimum.neuron.cache import hub_neuronx_cache
 from optimum.neuron.cache.entries import SingleModelCacheEntry
 
 # Create cache entry
 cache_entry = SingleModelCacheEntry(model_id, task, config, neuron_config)
 
-# Patche the Neuron compiler to use hub cache
-with patch_neuron_cc_wrapper():
-    # Under this context, the Neuron compiler will use the remote cache if available
-    with hub_neuronx_cache(entry=cache_entry, cache_repo_id="my-org/cache"):
-        training_loop()  # Your training code here 
-
-# Synchronize local cache with Hub cache, e.g. upload new NEFFs to the Hub
-synchronize_hub_cache(
-    cache_path="/var/tmp/neuron-compile-cache",
-    cache_repo_id="my-org/cache"
-)
+# Use specific cache repository
+with hub_neuronx_cache(entry=cache_entry, cache_repo_id="my-org/cache"):
+    model = load_model()  # Will use specified cache
 ```
 
-### Inference on Trainium/Inferentia
-```python
-from optimum.neuron import NeuronModelForCausalLM
-
-# Model loading automatically uses the cache
-model = NeuronModelForCausalLM.from_pretrained("model_id")
-# Will download cached NEFFs if available, otherwise compile
-```
-
-### What Happens Behind the Scenes
-
-1. **Cache Check**: During model export, Optimum Neuron generates a unique hash for your model configuration
-2. **Local Lookup**: First checks if NEFFs exist in your local cache
-3. **Hub Lookup**: If not found locally, searches the Hub cache repository
-4. **Download or Compile**: Downloads cached NEFFs if found, otherwise compiles from scratch
-5. **Cache Update**: Newly compiled NEFFs are stored locally and can be uploaded to your Hub cache
-
-## Understanding Cache Types
-
-Optimum Neuron provides different caching mechanisms depending on your platform and use case:
-
-### Training Cache (Trainium)
-
-Used during model training with `NeuronTrainer`. This cache:
-- **Operates at runtime**: Caches compiled graphs as they're generated during training
-- **Uses context managers**: Automatically patches the Neuron compiler to intercept and cache compilations
-- **Supports private repos**: You can create and use private cache repositories to avoid public access
-- **Uploads automatically**: New compilations are automatically uploaded to your cache repo during training
-
-```python
-from optimum.neuron import NeuronTrainer
-
-# Training automatically uses and updates the cache
-trainer = NeuronTrainer(model=model, args=training_args)
-trainer.train()  # Downloads cached NEFFs if available, uploads new ones
-```
-
-### Inference Cache (Inferentia)
-
-Used for loading pre-compiled models for inference. This cache:
-- **Uses a registry system**: Maintains a searchable index of cached model configurations
-- **Enables lookup**: You can search for compatible cached models before compiling
-- **Read-only for users**: Only the Optimum team populates the public inference cache
-- **Works with NeuronModelForCausalLM**: Automatically downloads cached models if available
-
-### Traced Model Cache
-
-Used for ahead-of-time (AOT) compiled models. This cache:
-- **Manual upload**: You explicitly cache compiled artifacts after model tracing
-- **Works on both platforms**: Supports both Trainium and Inferentia
-- **Good for production**: Pre-compile models once, deploy everywhere
-
-## How Cache Identification Works
-
-The cache system is built on top of the [NeuronX compiler cache](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-features/neuron-caching.html) and operates on **NEFF binaries, not models directly**.
-
-### Cache Key Generation
-
-Each cached NEFF file is identified by a unique hash generated from:
-
-**Model-specific factors:**
-- Transformers model configuration (architecture, hidden sizes, etc.)
-- Input shapes selected during export
-- Model precision (fp32, fp16, bf16)
-- Task type (text-generation, text-classification, etc.)
-
-**Compilation-specific factors:**
-- NeuronX compiler version
-- Number of Neuron cores used
-- Compilation flags and optimization level
-
-### Important Cache Behavior
-
-⚠️ **Key Limitations:**
-- **Runtime identification**: Cache compatibility can only be determined during actual export
-- **Configuration sensitivity**: Even small config changes create different NEFF files
-- **Compiler dependency**: Different compiler versions produce different NEFFs
-
-This means you cannot predict cache availability in advance - the system must attempt compilation to know if cached versions exist.
-
-## Inference Cache Lookup (Inferentia)
-
-For Inferentia users, the cache system includes a **registry** that lets you search for compatible pre-compiled models before starting compilation.
-
-### How the Registry Works
-
-The registry stores model configurations in a structured format:
-
-```
-neuronxcc-2.12.54.0+f631c2365/          # Compiler version
-├── 0_REGISTRY/                          # Registry folder
-│   └── 0.0.18/                         # Optimum-neuron version  
-│       └── llama/                       # Model architecture
-│           └── meta-llama/              # Model organization
-│               └── Llama-2-7b-chat-hf/  # Model name
-│                   └── 54c1f6689cd.json # Configuration hash
-```
-
-Each JSON file contains the exact compilation parameters used, allowing you to check compatibility before compilation.
-
-### Using Cache Lookup
-
-Search for cached configurations using the CLI:
-
+### Cache Lookup (Inferentia)
 ```bash
 optimum-cli neuron cache lookup meta-llama/Llama-2-7b-chat-hf
 ```
 
 Example output:
 ```
-*** 1 entries found in cache for meta-llama/Llama-2-7b-chat-hf ***
-
+*** 1 entries found in cache ***
 task: text-generation
-batch_size: 1
-num_cores: 24
-auto_cast_type: fp16
-sequence_length: 2048
-compiler_type: neuronx-cc
-compiler_version: 2.12.54.0+f631c2365
-checkpoint_id: meta-llama/Llama-2-7b-chat-hf
-checkpoint_revision: c1b0db933684edbfe29a06fa47eb19cc48025e93
+batch_size: 1, sequence_length: 2048
+num_cores: 24, precision: fp16
+compiler_version: 2.12.54.0
 ```
-
-⚠️ **Important**: Finding registry entries doesn't guarantee cache hits. If you've modified compilation parameters or updated NeuronX packages, the model may still need recompilation.
-
-## CLI Reference and Private Cache Setup
-
-The Optimum CLI provides comprehensive cache management capabilities:
-
-```bash
-optimum-cli neuron cache --help
-```
-
-### Available Commands
-
-| Command | Platform | Description |
-|---------|----------|--------------|
-| `create` | Both | Create a new cache repository on HuggingFace Hub |
-| `set` | Trainium | Set the default cache repository to use locally |
-| `synchronize` | Both | Sync local cache with Hub cache |
-| `lookup` | Inferentia | Search for compatible cached model configurations |
-
-### Command Details
-
-**Create Cache Repository:**
-```bash
-optimum-cli neuron cache create [-n NAME] [--public]
-```
-
-**Set Default Cache (Trainium):**
-```bash
-optimum-cli neuron cache set REPO_NAME
-```
-
-**Synchronize Cache:**
-```bash
-optimum-cli neuron cache synchronize [--cache-dir PATH] [--repo-id REPO]
-```
-
-**Lookup Models (Inferentia):**
-```bash
-optimum-cli neuron cache lookup MODEL_ID
-```
-
-### Private Cache Repositories (Trainium)
-
-The default public cache (`aws-neuron/optimum-neuron-cache`) has limitations:
-1. You cannot push your own compiled files
-2. It's public (not suitable for private models)
-
-#### Method 1: Using CLI Commands
-
-**Create a private cache:**
-```bash
-optimum-cli neuron cache create [-n NAME] [--public]
-```
-
-Example:
-```bash
-# Create private cache (default behavior)
-optimum-cli neuron cache create
-# Output: michaelbenayoun/optimum-neuron-cache [private]
-
-# Create with custom name
-optimum-cli neuron cache create -n my-team-cache
-```
-
-**Set active cache repository:**
-```bash
-optimum-cli neuron cache set REPO_NAME
-```
-
-Example:
-```bash
-optimum-cli neuron cache set michaelbenayoun/my-custom-cache
-# Cache set locally in ~/.cache/huggingface/optimum_neuron_custom_cache
-```
-
-<Tip>
-Use `optimum-cli neuron cache set` when working on new instances to configure your team's cache.
-</Tip>
-
-#### Method 2: Environment Variable
-
-For quick testing or CI/CD pipelines:
-
-```bash
-# Temporary usage
-CUSTOM_CACHE_REPO="my-org/my-cache" torchrun train.py
-
-# Persistent usage
-export CUSTOM_CACHE_REPO="my-org/my-cache"
-torchrun train.py
-```
-
-**Prerequisites:**
-- [Login to HuggingFace Hub](https://huggingface.co/docs/huggingface_hub/quick-start#login): `huggingface-cli login`
-- Write access to your cache repository
-
-
-## Supported Model Classes
-
-| Model Class | Cache Support | Platform | Notes |
-|-------------|---------------|----------|-------|
-| `NeuronTrainer` | ✅ Full | Trainium | Automatic cache download and upload |
-| `NeuronModelForCausalLM` | ✅ Full | Both | Automatic cache download |
-| Other `NeuronModelForXXX` | ❌ None | Both | Use different export mechanism |
-| Custom traced models | ✅ Manual | Both | Requires explicit cache operations |
-
 
 ## Troubleshooting
 
-### Common Issues and Solutions
+### "Cache repository does not exist"
+```
+Fix: Check repository name and login status
+→ huggingface-cli login
+→ Verify repo format: org/repo-name
+```
 
-#### "Cache repository does not exist or you don't have access to it"
-**Cause**: Invalid repository name or insufficient permissions  
-**Solution**: 
-- Verify the repository name format: `org/repo-name`
-- Ensure you're logged in: `huggingface-cli login`
-- Check repository permissions if using a private cache
+### "Graph will be recompiled" 
+```
+Cause: No cached model matches your exact configuration
+Fix: Use lookup to find compatible configurations
+→ optimum-cli neuron cache lookup MODEL_ID
+```
 
-#### "Graph will be recompiled" warnings
-**Cause**: No cached NEFF files match your exact configuration  
-**Why this happens**:
-- Different model configurations (batch size, sequence length, precision)
-- Updated NeuronX compiler version
-- Modified compilation flags
+### Cache not uploading during training
+```
+Cause: No write permissions to cache repository  
+Fix: Verify access and authentication
+→ huggingface-cli whoami
+→ Check cache repo permissions
+```
 
-**Solutions**:
-- Use `optimum-cli neuron cache lookup` to find compatible configurations
-- Check if your configuration matches available cached entries
-- Consider adjusting parameters to match cached configurations
+### Slow downloads
+```
+Cause: Large compiled models (GBs) downloading
+Fix: Ensure good internet connection
+→ Monitor logs for download progress
+```
 
-#### Slow cache downloads
-**Cause**: Large NEFF files being downloaded from Hub  
-**Solutions**:
-- Ensure good internet connectivity
-- Consider using a private cache closer to your infrastructure
-- Monitor download progress in logs
-
-#### Cache not updating during training
-**Cause**: No write permissions to cache repository  
-**Solutions**:
-- Verify you have write access to the cache repo
-- Check authentication: `huggingface-cli whoami`
-- Ensure the cache repo exists and is accessible
-
-#### Local cache corruption
-**Cause**: Interrupted compilation or disk issues  
-**Solution**: Clear local cache and retry
+### Clear corrupted local cache
 ```bash
 rm -rf /var/tmp/neuron-compile-cache/*
 ```
 
-### Cache Performance Tips
+## Cache Types
 
-1. **Use consistent configurations**: Standardize batch sizes, sequence lengths, and precision across your team
-2. **Monitor cache hits**: Check logs for "Fetched cached" messages to verify cache usage
-3. **Batch compilation**: Compile multiple model variants together to populate cache efficiently
-4. **Private cache for teams**: Create team-specific cache repositories for better collaboration
+### Training Cache (Trainium)
+- **Runtime caching**: Compiled graphs cached during training
+- **Private repos**: Supports team-specific caches
+
+### Inference Cache (Inferentia) 
+- **Pre-compiled lookup**: Search registry before compilation
+- **Public only**: Read-only access to shared cache
+- **Registry search**: Find compatible model configurations
+
+### Traced Model Cache (Both platforms)
+- **Manual upload**: Explicitly cache after model tracing  
+- **AOT compilation**: Pre-compile for production deployment
+- **Cross-platform**: Works on Trainium and Inferentia
+
+## Best Practices
+
+✅ **Use consistent configurations** across your team  
+✅ **Create private cache** for your organization  
+✅ **Check cache hits** in logs ("Fetched cached" messages)  
+✅ **Standardize parameters** (batch size, sequence length, precision)
+
+❌ **Don't** frequently change compilation parameters  
+❌ **Don't** skip authentication setup  
+❌ **Don't** ignore "recompiling" warnings
