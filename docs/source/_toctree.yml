@@ -10,8 +10,6 @@
   - sections:
     - local: guides/setup_aws_instance
       title: Get Started on Amazon EC2
-    - local: guides/sagemaker
-      title: Training and Deployment using Amazon Sagemaker
     - local: guides/cache_system
       title: Neuron model cache
     - local: guides/distributed_training
