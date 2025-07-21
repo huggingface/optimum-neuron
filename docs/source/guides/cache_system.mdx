@@ -46,6 +46,20 @@ model = NeuronModelForCausalLM.from_pretrained("model_id")
 
 That's it! The cache works automatically for supported model classes.
 
+## Supported Models
+
+| Model Class | Cache Support | Platform | Notes |
+|-------------|---------------|----------|-------|
+| `NeuronTrainer` | ✅ Full | Trainium | Auto download + upload during training |
+| `NeuronModelForCausalLM` | ✅ Full | Both | Auto download for inference |
+| Other `NeuronModelForXXX` | ❌ None | Both | Use different export mechanism, no cache integration |
+
+<Tip warning={true}>
+
+**Important Limitation**: Models like `NeuronModelForSequenceClassification`, `NeuronModelForQuestionAnswering`, etc. use a different compilation path that doesn't integrate with the cache system. Only `NeuronModelForCausalLM` and training workflows support caching.
+
+</Tip>
+
 ## How It Works
 
 The cache system operates on two levels to minimize compilation time:
@@ -64,19 +78,12 @@ The cache system operates on two levels to minimize compilation time:
 
 This means even small changes to your setup may require recompilation, but identical configurations will always hit the cache.
 
-## Supported Models
-
-| Model Class | Cache Support | Platform | Notes |
-|-------------|---------------|----------|-------|
-| `NeuronTrainer` | ✅ Full | Trainium | Auto download + upload during training |
-| `NeuronModelForCausalLM` | ✅ Full | Both | Auto download for inference |
-| Other `NeuronModelForXXX` | ❌ None | Both | Use different export mechanism, no cache integration |
-
-**Note**: Models like `NeuronModelForSequenceClassification`, `NeuronModelForQuestionAnswering`, etc. use a different compilation path that doesn't integrate with the cache system. Only `NeuronModelForCausalLM` and training workflows support caching.
 
 ## Private Cache Setup
 
-The default public cache (`aws-neuron/optimum-neuron-cache`) is read-only for users and only contains models compiled by the Optimum team. For most use cases, you'll want a private cache repository.
+The default public cache (`aws-neuron/optimum-neuron-cache`) is **read-only** for users - you can download cached models but cannot upload your own compilations. This public cache only contains models compiled by the Optimum team for common configurations.
+
+For most use cases, you'll want to create a **private cache repository** where you can store your own compiled models.
 
 **Why private cache?**
 - **Upload your compilations**: Store models you compile for team reuse
@@ -128,7 +135,13 @@ optimum-cli neuron cache synchronize
 
 ### Use the Cache in Training Loops (Trainium)
 
-If you do not use the `NeuronTrainer` class, you can still leverage the cache system in your custom training loops. This allows you to compile models and automatically upload them to your private cache repository.
+If you do not use the `NeuronTrainer` class, you can still leverage the cache system in your custom training loops. This is useful when you need more control over the training process or when integrating with custom training frameworks while still benefiting from cached compilations.
+
+**When to use this approach:**
+- Custom training loops that don't fit the `NeuronTrainer` pattern
+- Advanced optimization scenarios requiring fine-grained control
+
+**Note**: For most use cases, `NeuronTrainer` handles caching automatically and is the recommended approach.
 
 ```python
 from optimum.neuron.cache import hub_neuronx_cache, synchronize_hub_cache
@@ -167,6 +180,25 @@ checkpoint_revision: c1b0db933684edbfe29a06fa47eb19cc48025e93
 ```
 
 **Important**: Finding entries doesn't guarantee cache hits. Your exact configuration must match the cached parameters, including compiler version and model revision.
+
+## CI/CD Integration
+
+The cache system works seamlessly in automated environments:
+
+**Environment Variables**: Use `CUSTOM_CACHE_REPO` to specify cache repository in CI workflows
+```bash
+# In your CI configuration
+CUSTOM_CACHE_REPO="your-org/your-cache" python train.py
+```
+
+**Authentication**: Ensure your CI environment has access to your private cache repository:
+- Set `HF_TOKEN` environment variable with appropriate read/write permissions
+- For GitHub Actions, store as a repository secret
+
+**Best Practices**:
+- Use separate cache repositories for different environments (dev/staging/prod)
+- Consider cache repository permissions when setting up automated workflows
+- Monitor cache repository size in long-running CI workflows
 
 ## Troubleshooting
 
