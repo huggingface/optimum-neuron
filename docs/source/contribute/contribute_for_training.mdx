@@ -18,7 +18,7 @@ Transformation specs handle converting weights between:
 - Custom parallel format → Original Transformers format (during checkpoint consolidation)
 
 Key transformation spec types:
-- `FusedLinearsSpec`: Handles fused linear layers (e.g., gate_up_proj)
+- `FusedLinearsSpec`: Handles fused linear layers (e.g., `gate_up_proj`)
 - `GQAQKVColumnParallelLinearSpec`: Handles grouped query attention projections when the tensor parallel size is greater than the number of key-value heads
 
 ### 3. Parallel Layers
@@ -462,7 +462,7 @@ def test_overfit_custom_modeling_causal_lm()       # Basic training (your model 
 
 ### 3. Auto Model Loading
 
-The `test_modeling_auto.py` file validates that your model can be loaded through the `NeuronModel` and `NeuronModelForCausalLM` auto classes. To include your model in these tests, you must add it to the test cases:
+The `test_modeling_auto.py` file validates that your model can be loaded using the `NeuronModel` and `NeuronModelForCausalLM` auto classes. To include your model in these tests, you must add it to the test cases:
 
 Update `tests/training/test_modeling_auto.py`:
 ```python
