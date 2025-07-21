@@ -126,7 +126,10 @@ optimum-cli neuron cache synchronize
 
 ## Advanced Usage
 
-### Manual Cache Control
+### Use the Cache in Training Loops (Trainium)
+
+If you do not use the `NeuronTrainer` class, you can still leverage the cache system in your custom training loops. This allows you to compile models and automatically upload them to your private cache repository.
+
 ```python
 from optimum.neuron.cache import hub_neuronx_cache, synchronize_hub_cache
 from optimum.neuron.cache.entries import SingleModelCacheEntry
@@ -168,21 +171,21 @@ checkpoint_revision: c1b0db933684edbfe29a06fa47eb19cc48025e93
 ## Troubleshooting
 
 ### "Cache repository does not exist"
-```
+```txt
 Fix: Check repository name and login status
 → huggingface-cli login
 → Verify repo format: org/repo-name
 ```
 
 ### "Graph will be recompiled" 
-```
+```txt
 Cause: No cached model matches your exact configuration
 Fix: Use lookup to find compatible configurations
 → optimum-cli neuron cache lookup MODEL_ID
 ```
 
 ### Cache not uploading during training
-```
+```txt
 Cause: No write permissions to cache repository  
 Fix: Verify access and authentication
 → huggingface-cli whoami
@@ -190,7 +193,8 @@ Fix: Verify access and authentication
 ```
 
 ### Slow downloads
-```
+
+```txt
 Cause: Large compiled models (GBs) downloading
 Fix: Ensure good internet connection
 → Monitor logs for download progress
@@ -220,23 +224,3 @@ rm -rf /var/tmp/neuron-compile-cache/*
 - **Ahead-of-time (AOT) compilation**: Pre-compile models once, deploy everywhere
 - **Cross-platform**: Works on both Trainium and Inferentia
 - **Production ready**: Good for deployment scenarios where compilation time must be eliminated
-
-## Best Practices
-
-### Configuration Management
-✅ **Use consistent configurations** across your team to maximize cache hits  
-✅ **Standardize parameters** like batch size, sequence length, and precision  
-✅ **Document your configurations** so team members use compatible settings  
-✅ **Pin compiler versions** in CI/CD to ensure consistent cache behavior  
-
-### Cache Operations
-✅ **Create private cache** for your organization to store your compilations  
-✅ **Check cache hits** in logs (look for "Fetched cached" messages)  
-✅ **Monitor cache repository size** as NEFF files can be large (GBs)  
-✅ **Use lookup before compiling** to find compatible cached models  
-
-### Common Pitfalls
-❌ **Don't** frequently change compilation parameters without good reason  
-❌ **Don't** skip authentication setup (`huggingface-cli login`)  
-❌ **Don't** ignore "recompiling" warnings - investigate why cache missed  
-❌ **Don't** assume cache hits - always verify with logs or lookup commands
