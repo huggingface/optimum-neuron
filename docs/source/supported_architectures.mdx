@@ -21,9 +21,9 @@ limitations under the License.
 Training on AWS Trainium instances (Trn1) enables large-scale model training with distributed parallelism strategies.
 
 **Requirements:**
-- Model must be compatible with the Neuron SDK (if small enough to fit in 16GB, training is supported for any architecture that can be compiled)
-- **Memory constraint:** Each accelerator has 16GB memory for model weights, gradients, optimizer states, and activations
-- **For large models:** Custom modeling implementation with tensor parallelism and/or pipeline parallelism support is required
+- Model must be compatible with the Neuron SDK. If it small enough to fit within 16GB, training is supported for any architecture that can be successfully compiled.
+- **Memory constraint:** Each accelerator has 16GB of memory for model weights, gradients, optimizer states, and activations.
+- **For large models:** Custom modeling implementation with tensor parallelism and/or pipeline parallelism support is required.
 
 The following architectures have custom modeling implementations with distributed training support:
 
@@ -33,6 +33,12 @@ The following architectures have custom modeling implementations with distribute
 | Qwen3                    | text-generation | ✓                  | ✓                    | N/A                  |
 | Granite                  | text-generation | ✓                  | ✗                    | N/A                  |
 
+
+<Tip>
+
+If you need to add support for a custom model not listed above, check out our [contribute for training guide](./contribute/contribute_for_training) to learn how to implement custom modeling with distributed training support.
+
+</Tip>
 
 
 ## Inference
