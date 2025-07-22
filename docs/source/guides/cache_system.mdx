@@ -20,10 +20,10 @@ specific language governing permissions and limitations under the License.
 The cache system stores compiled Neuron models on HuggingFace Hub, eliminating recompilation time for your team. When you train or load a model, the system automatically checks for cached versions before starting the expensive compilation process.
 
 **Key Benefits:**
-- **Time savings**: Download compiled models in seconds vs. hours of compilation
-- **Team collaboration**: Share compiled models across team members and instances
-- **Cost reduction**: Avoid repeated compilation costs on cloud instances
-- **Automatic operation**: Works transparently with existing code
+- **Time savings**: download compiled models in seconds vs. hours of compilation
+- **Team collaboration**: share compiled models across team members and instances
+- **Cost reduction**: avoid repeated compilation costs on cloud instances
+- **Automatic operation**: works transparently with existing code
 
 ## Quick Start
 
@@ -65,16 +65,16 @@ That's it! The cache works automatically for supported model classes.
 The cache system operates on two levels to minimize compilation time:
 
 **Cache Priority** (fastest to slowest):
-1. **Local cache** → Instant access from `/var/tmp/neuron-compile-cache`
-2. **Hub cache** → Download in seconds from HuggingFace Hub
+1. **Local cache** → instant access from `/var/tmp/neuron-compile-cache`
+2. **Hub cache** → download in seconds from HuggingFace Hub
 3. **Compile from scratch** → 30-60 minutes for large models
 
-**What Gets Cached**: The system caches **NEFF files** (Neuron Executable File Format) - the compiled binary artifacts that run on Neuron cores, not the original model files.
+**What Gets Cached**: the system caches **NEFF files** (Neuron Executable File Format) - the compiled binary artifacts that run on Neuron cores, not the original model files.
 
-**Cache Identification**: Each cached compilation gets a unique hash based on:
-- **Model factors**: Architecture, precision (fp16/bf16), input shapes, task type
+**Cache Identification**: each cached compilation gets a unique hash based on:
+- **Model factors**: architecture, precision (fp16/bf16), input shapes, task type
 - **Compilation factors**: NeuronX compiler version, number of cores, optimization flags
-- **Environment factors**: Model checkpoint revision, Optimum Neuron version
+- **Environment factors**: model checkpoint revision, Optimum Neuron version
 
 This means even small changes to your setup may require recompilation, but identical configurations will always hit the cache.
 
@@ -86,10 +86,10 @@ The default public cache (`aws-neuron/optimum-neuron-cache`) is **read-only** fo
 For most use cases, you'll want to create a **private cache repository** where you can store your own compiled models.
 
 **Why private cache?**
-- **Upload your compilations**: Store models you compile for team reuse
-- **Private models**: Keep proprietary model compilations secure  
-- **Team collaboration**: Share compiled artifacts across team members and CI/CD
-- **Custom configurations**: Cache models with your specific batch sizes, sequence lengths, etc.
+- **Upload your compilations**: store models you compile for team reuse
+- **Private models**: keep proprietary model compilations secure  
+- **Team collaboration**: share compiled artifacts across team members and CI/CD
+- **Custom configurations**: cache models with your specific batch sizes, sequence lengths, etc.
 
 ### Method 1: CLI Setup (Recommended)
 
@@ -113,7 +113,7 @@ export CUSTOM_CACHE_REPO="your-org/your-cache"
 
 **Prerequisites:**
 - Login: `huggingface-cli login`
-- Write access to cache repository
+- write access to cache repository
 
 ## CLI Commands
 
@@ -138,8 +138,8 @@ optimum-cli neuron cache synchronize
 If you do not use the `NeuronTrainer` class, you can still leverage the cache system in your custom training loops. This is useful when you need more control over the training process or when integrating with custom training frameworks while still benefiting from cached compilations.
 
 **When to use this approach:**
-- Custom training loops that don't fit the `NeuronTrainer` pattern
-- Advanced optimization scenarios requiring fine-grained control
+- custom training loops that don't fit the `NeuronTrainer` pattern
+- advanced optimization scenarios requiring fine-grained control
 
 **Note**: For most use cases, `NeuronTrainer` handles caching automatically and is the recommended approach.
 
@@ -185,20 +185,20 @@ checkpoint_revision: c1b0db933684edbfe29a06fa47eb19cc48025e93
 
 The cache system works seamlessly in automated environments:
 
-**Environment Variables**: Use `CUSTOM_CACHE_REPO` to specify cache repository in CI workflows
+**Environment Variables**: use `CUSTOM_CACHE_REPO` to specify cache repository in CI workflows
 ```bash
 # In your CI configuration
 CUSTOM_CACHE_REPO="your-org/your-cache" python train.py
 ```
 
-**Authentication**: Ensure your CI environment has access to your private cache repository:
+**Authentication**: ensure your CI environment has access to your private cache repository:
 - Set `HF_TOKEN` environment variable with appropriate read/write permissions
 - For GitHub Actions, store as a repository secret
 
 **Best Practices**:
-- Use separate cache repositories for different environments (dev/staging/prod)
-- Consider cache repository permissions when setting up automated workflows
-- Monitor cache repository size in long-running CI workflows
+- use separate cache repositories for different environments (dev/staging/prod)
+- consider cache repository permissions when setting up automated workflows
+- monitor cache repository size in long-running CI workflows
 
 ## Troubleshooting
 
