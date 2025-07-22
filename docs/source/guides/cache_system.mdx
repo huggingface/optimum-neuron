@@ -27,7 +27,7 @@ The cache system stores compiled Neuron models on HuggingFace Hub, eliminating r
 
 ## Quick Start
 
-### Training (Trainium)
+### Training
 ```python
 from optimum.neuron import NeuronTrainer
 
@@ -36,7 +36,7 @@ trainer = NeuronTrainer(model=model, args=training_args)
 trainer.train()  # Downloads cached models if available
 ```
 
-### Inference (Inferentia/Trainium)
+### Inference
 ```python
 from optimum.neuron import NeuronModelForCausalLM
 
@@ -48,11 +48,11 @@ That's it! The cache works automatically for supported model classes.
 
 ## Supported Models
 
-| Model Class | Cache Support | Platform | Notes |
+| Model Class | Cache Support | Use Case | Notes |
 |-------------|---------------|----------|-------|
-| `NeuronTrainer` | ✅ Full | Trainium | Auto download + upload during training |
-| `NeuronModelForCausalLM` | ✅ Full | Both | Auto download for inference |
-| Other `NeuronModelForXXX` | ❌ None | Both | Use different export mechanism, no cache integration |
+| `NeuronTrainer` | ✅ Full | Training | Auto download + upload during training |
+| `NeuronModelForCausalLM` | ✅ Full | Inference | Auto download for inference |
+| Other `NeuronModelForXXX` | ❌ None | Inference | Use different export mechanism, no cache integration |
 
 <Tip warning={true}>
 
@@ -124,7 +124,7 @@ optimum-cli neuron cache create [-n NAME] [--public]
 # Set default cache repository  
 optimum-cli neuron cache set REPO_NAME
 
-# Search for cached models (Inferentia)
+# Search for cached models
 optimum-cli neuron cache lookup MODEL_ID
 
 # Sync local cache with Hub
@@ -133,7 +133,7 @@ optimum-cli neuron cache synchronize
 
 ## Advanced Usage
 
-### Use the Cache in Training Loops (Trainium)
+### Use the Cache in Training Loops
 
 If you do not use the `NeuronTrainer` class, you can still leverage the cache system in your custom training loops. This is useful when you need more control over the training process or when integrating with custom training frameworks while still benefiting from cached compilations.
 
@@ -161,9 +161,9 @@ with patch_neuron_cc_wrapper():
 synchronize_hub_cache(cache_repo_id="my-org/cache")
 ```
 
-### Cache Lookup (Inferentia)
+### Cache Lookup
 
-The inference cache includes a **registry** that lets you search for compatible pre-compiled models before attempting compilation. This is especially useful on Inferentia where you want to avoid compilation altogether.
+The inference cache includes a **registry** that lets you search for compatible pre-compiled models before attempting compilation. This is especially useful for inference where you want to avoid compilation altogether.
 
 ```bash
 optimum-cli neuron cache lookup meta-llama/Llama-2-7b-chat-hf
