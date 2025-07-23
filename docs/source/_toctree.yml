@@ -138,7 +138,7 @@
           title: IP-Adapter
         title: SPECIFIC PIPELINES and ADAPTERS
       title: DIFFUSERS PIPELINES
-    - local: package_reference/modeling_auto
+    - local: model_doc/modeling_auto
       title: Auto Model Classes
     title: Models and Pipelines Inference API
   title: Optimum Neuron
