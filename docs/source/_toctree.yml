@@ -67,7 +67,7 @@
       title: Llama-3.1 8B on AWS Inferentia2
     - local: benchmarks/inferentia-llama3.3-70b
       title: Llama-3.3 70B on AWS Inferentia2
-    title: Benchmarks
+    title: Inference Benchmarks
   - sections:
     - local: contribute/contribute_for_training
       title: Add a custom model implementation for training
@@ -77,8 +77,6 @@
   - sections:
     - local: package_reference/trainer
       title: Neuron Trainer
-    - local: package_reference/export
-      title: Neuron Exporter
     title: Training API
   - sections:
     - isExpanded: false
