@@ -18,49 +18,55 @@ limitations under the License.
 
 Learn how to run and fine-tune models for optimal performance with AWS Trainium.
 
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin: 32px 0;">
+<div style="display: grid !important; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)) !important; gap: 24px !important; margin: 32px -32px !important; padding: 0 32px !important; max-width: none !important; width: calc(100% + 64px) !important;">
 
-<div style="border-radius: 8px; overflow: hidden; background-color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: all 0.3s ease-in-out; cursor: pointer;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.15)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'"
-  <div style="height: 120px; background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%); display: flex; align-items: center; justify-content: center; position: relative;">
-    <img src="../../assets/training_tutorials/llama-logo.png" alt="Llama 3" style="width: 120px; height: 60px; object-fit: contain;" onerror="this.outerHTML='<div style=\'color: white; font-size: 48px; font-weight: bold;\'>🦙</div>'"/>
+<a href="./sft_lora_finetune_llm" style="text-decoration: none !important; color: inherit !important; display: block !important;">
+<div style="border-radius: 8px !important; overflow: hidden !important; background-color: white !important; box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important; transition: all 0.3s ease-in-out !important; cursor: pointer !important; display: flex !important; flex-direction: column !important; min-height: 200px !important;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.15)'; this.querySelector('.card-content').style.backgroundPosition='0% 0'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'; this.querySelector('.card-content').style.backgroundPosition='100% 0'">
+  <div style="height: 140px !important; min-height: 140px !important; background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%) !important; display: flex !important; align-items: center !important; justify-content: center !important; position: relative !important;">
+    <img src="../../assets/training_tutorials/llama-logo.png" alt="Llama 3" style="width: 100% !important; height: 100% !important; object-fit: cover !important; z-index: 10 !important; position: relative !important;" onerror="this.outerHTML='<div style=\'color: white; font-size: 48px; font-weight: bold; z-index: 10; position: relative;\'>🦙</div>'"/>
   </div>
-  <div style="padding: 16px;">
-    <h3 style="margin: 0 0 6px 0; font-size: 16px; font-weight: 600; color: #24292e;">
-      <a href="./sft_lora_finetune_llm" style="text-decoration: none; color: #0366d6;">Llama 3</a>
+  <div class="card-content" style="padding: 20px !important; background: white !important; background-image: linear-gradient(90deg, transparent 0%, #f8f9fa 50%, #e9ecef 100%) !important; background-size: 200% 100% !important; background-position: 100% 0 !important; transition: background-position 0.4s ease-out !important; width: 100% !important; box-sizing: border-box !important; flex: 1 !important;">
+    <h3 style="margin: 0 0 8px 0 !important; font-size: 18px !important; font-weight: 600 !important; color: #24292e !important;">
+      Llama 3
     </h3>
-    <p style="margin: 0; font-size: 12px; color: #586069; line-height: 1.3;">
+    <p style="margin: 0 !important; font-size: 14px !important; color: #586069 !important; line-height: 1.4 !important;">
       Fine-tune Llama 3 8B with LoRA
     </p>
   </div>
 </div>
+</a>
 
-<div style="border-radius: 8px; overflow: hidden; background-color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: all 0.3s ease-in-out; cursor: pointer;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.15)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'"
-  <div style="height: 120px; background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); display: flex; align-items: center; justify-content: center; position: relative;">
-    <img src="../../assets/training_tutorials/qwen3-logo.png" alt="Qwen3" style="width: 120px; height: 60px; object-fit: contain;" onerror="this.outerHTML='<div style=\'color: white; font-size: 48px; font-weight: bold;\'>🔷</div>'"/>
+<a href="./finetune_qwen3" style="text-decoration: none !important; color: inherit !important; display: block !important;">
+<div style="border-radius: 8px !important; overflow: hidden !important; background-color: white !important; box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important; transition: all 0.3s ease-in-out !important; cursor: pointer !important; display: flex !important; flex-direction: column !important; min-height: 200px !important;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.15)'; this.querySelector('.card-content').style.backgroundPosition='0% 0'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'; this.querySelector('.card-content').style.backgroundPosition='100% 0'">
+  <div style="height: 140px !important; min-height: 140px !important; background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%) !important; display: flex !important; align-items: center !important; justify-content: center !important; position: relative !important;">
+    <img src="../../assets/training_tutorials/qwen3-logo.png" alt="Qwen3" style="width: 100% !important; height: 100% !important; object-fit: cover !important; z-index: 10 !important; position: relative !important;" onerror="this.outerHTML='<div style=\'color: white; font-size: 48px; font-weight: bold; z-index: 10; position: relative;\'>🔷</div>'"/>
   </div>
-  <div style="padding: 16px;">
-    <h3 style="margin: 0 0 6px 0; font-size: 16px; font-weight: 600; color: #24292e;">
-      <a href="./finetune_qwen3" style="text-decoration: none; color: #0366d6;">Qwen 3</a>
+  <div class="card-content" style="padding: 20px !important; background: white !important; background-image: linear-gradient(90deg, transparent 0%, #f8f9fa 50%, #e9ecef 100%) !important; background-size: 200% 100% !important; background-position: 100% 0 !important; transition: background-position 0.4s ease-out !important; width: 100% !important; box-sizing: border-box !important; flex: 1 !important;">
+    <h3 style="margin: 0 0 8px 0 !important; font-size: 18px !important; font-weight: 600 !important; color: #24292e !important;">
+      Qwen 3
     </h3>
-    <p style="margin: 0; font-size: 12px; color: #586069; line-height: 1.3;">
+    <p style="margin: 0 !important; font-size: 14px !important; color: #586069 !important; line-height: 1.4 !important;">
       Fine-tune Qwen3 8B with LoRA
     </p>
   </div>
 </div>
+</a>
 
-<div style="border-radius: 8px; overflow: hidden; background-color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: all 0.3s ease-in-out; cursor: pointer;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.15)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'"
-  <div style="height: 120px; background: linear-gradient(135deg, #059669 0%, #0891b2 100%); display: flex; align-items: center; justify-content: center; position: relative;">
-    <img src="../../assets/training_tutorials/sagemaker-logo.png" alt="SageMaker Hyperpod" style="width: 120px; height: 60px; object-fit: contain;" onerror="this.outerHTML='<div style=\'color: white; font-size: 28px; font-weight: bold; text-align: center;\'>☁️<br/>SageMaker</div>'"/>
+<a href="./pretraining_hyperpod_llm" style="text-decoration: none !important; color: inherit !important; display: block !important;">
+<div style="border-radius: 8px !important; overflow: hidden !important; background-color: white !important; box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important; transition: all 0.3s ease-in-out !important; cursor: pointer !important; display: flex !important; flex-direction: column !important; min-height: 200px !important;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.15)'; this.querySelector('.card-content').style.backgroundPosition='0% 0'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'; this.querySelector('.card-content').style.backgroundPosition='100% 0'">
+  <div style="height: 140px !important; min-height: 140px !important; background: linear-gradient(135deg, #059669 0%, #0891b2 100%) !important; display: flex !important; align-items: center !important; justify-content: center !important; position: relative !important;">
+    <img src="../../assets/training_tutorials/sagemaker-logo.png" alt="SageMaker Hyperpod" style="width: 100% !important; height: 100% !important; object-fit: cover !important; z-index: 10 !important; position: relative !important;" onerror="this.outerHTML='<div style=\'color: white; font-size: 28px; font-weight: bold; text-align: center; z-index: 10; position: relative;\'>☁️<br/>SageMaker</div>'"/>
   </div>
-  <div style="padding: 16px;">
-    <h3 style="margin: 0 0 6px 0; font-size: 16px; font-weight: 600; color: #24292e;">
-      <a href="./pretraining_hyperpod_llm" style="text-decoration: none; color: #0366d6;">Continuous Pretraining on SageMaker Hyperpod</a>
+  <div class="card-content" style="padding: 20px !important; background: white !important; background-image: linear-gradient(90deg, transparent 0%, #f8f9fa 50%, #e9ecef 100%) !important; background-size: 200% 100% !important; background-position: 100% 0 !important; transition: background-position 0.4s ease-out !important; width: 100% !important; box-sizing: border-box !important; flex: 1 !important;">
+    <h3 style="margin: 0 0 8px 0 !important; font-size: 18px !important; font-weight: 600 !important; color: #24292e !important;">
+      Continuous Pretraining on SageMaker Hyperpod
     </h3>
-    <p style="margin: 0; font-size: 12px; color: #586069; line-height: 1.3;">
+    <p style="margin: 0 !important; font-size: 14px !important; color: #586069 !important; line-height: 1.4 !important;">
       Continuous Pretrain Llama 3.2 1B on SageMaker Hyperpod
     </p>
   </div>
 </div>
+</a>
 
 </div>
 
