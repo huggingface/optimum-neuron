@@ -28,8 +28,6 @@
       title: Benchmarking LLM performance with TGI on AWS Inferentia2
     title: How-To Guides
   - sections:
-    - local: training_tutorials/notebooks
-      title: Notebooks
     - local: training_tutorials/fine_tune_bert
       title: Fine-tune BERT for Text Classification
     - local: training_tutorials/sft_lora_finetune_llm
