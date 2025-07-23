@@ -57,6 +57,7 @@ CUSTOM_MODELINGS_TO_TEST = [
     ("LlamaForCausalLM", "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"),
     ("GraniteForCausalLM", "michaelbenayoun/granite-tiny-4kv-heads-4layers-random"),
     ("Qwen3ForCausalLM", "michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random"),
+    ("DeepseekV3ForCausalLM", "michaelbenayoun/deepseekv3-tiny-4kv-heads-4-layers-random"),
 ]
 LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
 
@@ -264,7 +265,7 @@ def test_custom_modeling_matches_original(
         # `tie_word_embeddings` is not supported in the PP setting.
         config.tie_word_embeddings = False
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, trust_remote_code=True)
 
     if qkv_implementation == "fuse_qkv":
         config.num_key_value_heads = config.num_attention_heads
