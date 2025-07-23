@@ -255,18 +255,18 @@ class DeepseekV3MoE(nn.Module):
     A mixed expert module containing shared experts.
     """
 
-    def __init__(self, config):
+    def __init__(self, config, trn_config: TrainingNeuronConfig):
         super().__init__()
         self.config = config
         self.experts = nn.ModuleList(
             [
-                DeepseekV3MLP(config, intermediate_size=config.moe_intermediate_size)
+                DeepseekV3MLP(config, trn_config, intermediate_size=config.moe_intermediate_size)
                 for _ in range(config.n_routed_experts)
             ]
         )
         self.gate = DeepseekV3TopkRouter(config)
         self.shared_experts = DeepseekV3MLP(
-            config=config, intermediate_size=config.moe_intermediate_size * config.n_shared_experts
+            config, trn_config, intermediate_size=config.moe_intermediate_size * config.n_shared_experts
         )
 
     def moe(self, hidden_states: torch.Tensor, topk_indices: torch.Tensor, topk_weights: torch.Tensor):
