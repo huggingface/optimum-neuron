@@ -63,6 +63,24 @@
       title: Inference Tutorials
     title: Tutorials
   - sections:
+    - local: benchmarks/inferentia-llama3.1-8b
+      title: Llama-3.1 8B on AWS Inferentia2
+    - local: benchmarks/inferentia-llama3.3-70b
+      title: Llama-3.3 70B on AWS Inferentia2
+    title: Benchmarks
+  - sections:
+    - local: contribute/contribute_for_training
+      title: Add a custom model implementation for training
+    - local: contribute/contribute_for_inference
+      title: Add inference support for a new model architecture
+    title: Contribute
+  - sections:
+    - local: package_reference/trainer
+      title: Neuron Trainer
+    - local: package_reference/export
+      title: Neuron Exporter
+    title: Training API
+  - sections:
     - isExpanded: false
       sections:
       - isExpanded: false
@@ -122,26 +140,8 @@
           title: IP-Adapter
         title: SPECIFIC PIPELINES and ADAPTERS
       title: DIFFUSERS PIPELINES
-    title: Models and Pipelines
-  - sections:
-    - local: benchmarks/inferentia-llama3.1-8b
-      title: Llama-3.1 8B on AWS Inferentia2
-    - local: benchmarks/inferentia-llama3.3-70b
-      title: Llama-3.3 70B on AWS Inferentia2
-    title: Benchmarks
-  - sections:
-    - local: contribute/contribute_for_training
-      title: Add a custom model implementation for training
-    - local: contribute/contribute_for_inference
-      title: Add inference support for a new model architecture
-    title: Contribute
-  - sections:
-    - local: package_reference/trainer
-      title: Neuron Trainer
-    - local: package_reference/export
-      title: Neuron Exporter
-    - local: package_reference/modeling
-      title: Neuron Models
-    title: API
+    - local: package_reference/modeling_auto
+      title: Auto Model Classes
+    title: Models and Pipelines Inference API
   title: Optimum Neuron
   isExpanded: true
