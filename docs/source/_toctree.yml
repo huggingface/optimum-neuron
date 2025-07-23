@@ -1,8 +1,8 @@
 - sections:
   - local: index
     title: 🤗 Optimum Neuron
-  - local: getting-started-on-ec2
-    title: Getting Started on EC2
+  - local: ec2-setup
+    title: EC2 Setup
   - local: quickstart
     title: Quickstart
   - local: supported_architectures
