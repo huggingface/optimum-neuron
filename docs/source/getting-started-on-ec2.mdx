@@ -238,7 +238,15 @@ With Visual Studio Code installed on your local machine, you can use the Remote-
 
 ## Alternative: Manual Installation
 
-If you have an existing infrastructure or prefer to install Optimum Neuron manually, you can use pip installation. Note that you will need to ensure the Neuron drivers and tools are properly installed first.
+Manual installation is useful in several scenarios:
+
+- **Using a newer version**: Install the latest Optimum Neuron version that may not yet be available in the DLAMI
+- **Custom AMI requirements**: Working with your organization's standard AMI or security-hardened images
+- **Existing infrastructure**: Adding Neuron support to pre-configured environments or Docker containers
+- **Development setup**: Installing pre-release or development versions for testing
+- **Minimal installations**: Creating lightweight environments with only required dependencies
+
+If you choose manual installation, you will need to ensure the Neuron drivers and tools are properly installed first.
 
 Before installing `optimum-neuron` make sure that you have installed the Neuron driver and tools, check out [more detailed guide here](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/setup/torch-neuronx.html#setup-torch-neuronx).
 
