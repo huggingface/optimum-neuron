@@ -42,7 +42,7 @@
         title: Continuous Pretraining of Llama 3.2 1B on SageMaker Hyperpod
       title: How-to Fine-Tune LLMs
     title: Training Tutorials
-    - sections:
+  - sections:
       - isExpanded: false
         sections:
         - local: inference_tutorials/notebooks
