@@ -15,6 +15,7 @@
 """DeepSeek v3 model implementation for Neuron."""
 
 import math
+from functools import partial
 from typing import Callable, Optional, Tuple
 
 import neuronx_distributed.parallel_layers.utils as neuronx_dist_utils
@@ -29,6 +30,10 @@ from neuronx_distributed.parallel_layers.layers import (
 )
 from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 from torch import nn
+import torch
+import torch.nn.functional as F
+import torch.utils.checkpoint
+from torch import nn
 from torch_xla.utils.checkpoint import checkpoint
 from transformers import PreTrainedModel
 from transformers.activations import ACT2FN
@@ -37,6 +42,13 @@ from transformers.modeling_outputs import (
     BaseModelOutputWithPast,
     CausalLMOutputWithPast,
 )
+from transformers.activations import ACT2FN
+from transformers.cache_utils import Cache
+from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
+from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
+from transformers.processing_utils import Unpack
+from transformers.utils import logging
+from transformers.models.deepseek_v3.configuration_deepseek_v3 import DeepseekV3Config
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.processing_utils import Unpack
@@ -53,20 +65,6 @@ from ..transformations_utils import (
     GQAQKVColumnParallelLinearSpec,
     ModelWeightTransformationSpecs,
 )
-
-import torch
-import torch.nn.functional as F
-import torch.utils.checkpoint
-from torch import nn
-
-from transformers.activations import ACT2FN
-from transformers.cache_utils import Cache
-from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
-from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-from transformers.processing_utils import Unpack
-from transformers.utils import logging
-from transformers.models.deepseek_v3.configuration_deepseek_v3 import DeepseekV3Config
-
 from ..llama.modeling_llama import (
     LlamaDecoderLayer,
     LlamaForCausalLM,
@@ -82,6 +80,8 @@ from ..llama.modeling_llama import (
 
 logger = logging.get_logger(__name__)
 
+def _init_normal(std, w):
+    return nn.init.normal_(w, mean=0.0, std=std)
 
 class DeepseekV3RMSNorm(LlamaRMSNorm):
     pass
@@ -307,8 +307,6 @@ class DeepseekV3MoE(nn.Module):
 
 
 class DeepseekV3Attention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
-
     def __init__(self, config: DeepseekV3Config, trn_config: TrainingNeuronConfig, layer_idx: int):
         super().__init__()
         self.config = config
@@ -327,7 +325,19 @@ class DeepseekV3Attention(nn.Module):
         self.is_causal = True
         self.q_a_proj = nn.Linear(config.hidden_size, config.q_lora_rank, bias=config.attention_bias)
         self.q_a_layernorm = DeepseekV3RMSNorm(config.q_lora_rank)
+
+        init_method = partial(_init_normal, config.initializer_range)
         self.q_b_proj = nn.Linear(config.q_lora_rank, self.num_heads * self.qk_head_dim, bias=False)
+        #self.q_b_proj = ColumnParallelLinear(
+        #    config.q_lora_rank, 
+        #    self.num_heads * self.qk_head_dim, 
+        #    bias=False,
+        #    gather_output=False,
+        #    init_method=init_method,
+        #    sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
+        #    sequence_dimension=0,
+        #    dtype=self.config.torch_dtype,
+        #)
 
         self.kv_a_proj_with_mqa = nn.Linear(
             config.hidden_size,
@@ -340,6 +350,16 @@ class DeepseekV3Attention(nn.Module):
             self.num_heads * (self.qk_nope_head_dim + self.v_head_dim),
             bias=False,
         )
+        # self.kv_b_proj = ColumnParallelLinear(
+        #     self.kv_lora_rank,
+        #     self.num_heads * (self.qk_nope_head_dim + self.v_head_dim),
+        #     bias=False,
+        #     gather_output=False,
+        #     init_method=init_method,
+        #     sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
+        #     sequence_dimension=0,
+        #     dtype=self.config.torch_dtype,
+        # )
 
         self.o_proj = nn.Linear(
             self.num_heads * self.v_head_dim,
@@ -677,6 +697,9 @@ class DeepseekV3Model(NeuronModelMixin, DeepseekV3PreTrainedModel):
         return causal_mask
 
 
+class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
+
+
 class DeepseekV3ForCausalLM(NeuronModelMixin, DeepseekV3PreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
 
@@ -721,22 +744,19 @@ class DeepseekV3ForCausalLM(NeuronModelMixin, DeepseekV3PreTrainedModel):
         return self.model
 
     @can_return_tuple
-    @deprecate_kwarg("num_logits_to_keep", version="4.50", new_name="logits_to_keep")
-    @add_start_docstrings_to_model_forward(DEEPSEEK_V3_INPUTS_DOCSTRING)
-    @replace_return_docstrings(output_type=CausalLMOutputWithPast, config_class=_CONFIG_FOR_DOC)
     def forward(
         self,
-        input_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Cache] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        cache_position: Optional[torch.LongTensor] = None,
-        logits_to_keep: Union[int, torch.Tensor] = 0,
+        input_ids: torch.LongTensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_values: Cache | None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+        labels: torch.LongTensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        cache_position: torch.LongTensor | None = None,
+        logits_to_keep: int | torch.Tensor = 0,
         **kwargs: Unpack[KwargsForCausalLM],
     ) -> CausalLMOutputWithPast:
         r"""
