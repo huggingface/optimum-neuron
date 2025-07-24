@@ -1,8 +1,8 @@
 - sections:
   - local: index
     title: 🤗 Optimum Neuron
-  - local: installation
-    title: Installation
+  - local: ec2-setup
+    title: EC2 Setup
   - local: quickstart
     title: Quickstart
   - local: supported_architectures
@@ -10,8 +10,6 @@
   - local: containers
     title: Optimum Containers
   - sections:
-    - local: guides/setup_aws_instance
-      title: Get Started on Amazon EC2
     - local: guides/cache_system
       title: Neuron model cache
     - local: guides/distributed_training
