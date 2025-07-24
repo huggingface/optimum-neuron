@@ -26,22 +26,21 @@
       title: Benchmarking LLM performance with TGI on AWS Inferentia2
     title: How-To Guides
   - sections:
-    - sections:
-      - isExpanded: false
-        sections:
-        - local: training_tutorials/notebooks
-          title: Notebooks
-        - local: training_tutorials/fine_tune_bert
-          title: Fine-tune BERT for Text Classification
-        - local: training_tutorials/sft_lora_finetune_llm
-          title: Fine-tune Llama 3 8B with LoRA and the SFTTrainer
-        - local: training_tutorials/finetune_qwen3
-          title: Fine-tune Qwen 3 on AWS Trainium
-        - local: training_tutorials/pretraining_hyperpod_llm
-          title: Continuous Pretraining of Llama 3.2 1B on SageMaker Hyperpod
-        title: EC2
-      title: Training Tutorials
-    - sections:
+    - local: training_tutorials/fine_tune_bert
+      title: Fine-tune BERT for Text Classification
+    - isExpanded: true
+      sections:
+      - local: training_tutorials/fine_tune_llms_overview
+        title: Overview
+      - local: training_tutorials/sft_lora_finetune_llm
+        title: Fine-Tune Llama 3 8B with LoRA
+      - local: training_tutorials/finetune_qwen3
+        title: Fine-Tune Qwen3 8B with LoRA
+      - local: training_tutorials/pretraining_hyperpod_llm
+        title: Continuous Pretrain Llama 3.2 1B on SageMaker Hyperpod
+      title: How-to Fine-Tune LLMs
+    title: Training Tutorials
+  - sections:
       - isExpanded: false
         sections:
         - local: inference_tutorials/notebooks
@@ -58,8 +57,7 @@
         - local: inference_tutorials/deploy-mixtral-8x7b
           title: Deploy Mixtral 8x7B on AWS Inferentia2 with SageMaker
         title: SageMaker
-      title: Inference Tutorials
-    title: Tutorials
+    title: Inference Tutorials
   - sections:
     - local: benchmarks/inferentia-llama3.1-8b
       title: Llama-3.1 8B on AWS Inferentia2
