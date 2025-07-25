@@ -60,7 +60,6 @@ dataset = load_dataset(dataset_id, split="train")
 
 dataset_size = len(dataset)
 print(f"dataset size: {dataset_size}")
-print(dataset[randrange(dataset_size)])
 # dataset size: 15011
 ```
 
@@ -94,7 +93,6 @@ On AWS Trainium, `optimum-neuron` provides `NeuronSFTTrainer` as a drop-in repla
 Since Llama 3 8B doesn't fit on a single accelerator, we use distributed training techniques:
 - Data Parallel (DDP)
 - Tensor Parallelism  
-- Pipeline Parallelism
 
 Model loading and LoRA configuration work similarly to other accelerators.
 
@@ -114,7 +112,7 @@ training_args = NeuronTrainingArguments(
     gradient_accumulation_steps=8,
     learning_rate=5e-5,
     bf16=True,  
-    tensor_parallel_size=2,
+    tensor_parallel_size=8,
     logging_steps=2,
     lr_scheduler_type="constant",
     overwrite_output_dir=True,
@@ -189,7 +187,7 @@ export MALLOC_ARENA_MAX=64 # Host OOM mitigation
 # Variables for training
 PROCESSES_PER_NODE=32
 NUM_EPOCHS=3
-TP_DEGREE=2
+TP_DEGREE=8
 BS=1
 GRADIENT_ACCUMULATION_STEPS=8
 LOGGING_STEPS=2
