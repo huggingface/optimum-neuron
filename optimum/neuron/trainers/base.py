@@ -111,6 +111,7 @@ transformers_get_optimizer_cls_and_kwargs = Trainer.get_optimizer_cls_and_kwargs
 
 class _TrainerForNeuron:
     def __init__(self, *args, **kwargs):
+
         if not isinstance(self, Trainer):
             raise TypeError(f"{self.__class__.__name__} can only be mixed with Trainer subclasses.")
 
@@ -124,9 +125,7 @@ class _TrainerForNeuron:
                 if training_args.half_precision_backend == "amp":
                     self.use_amp = True
 
-        if is_precompilation():
-            self.prepare_for_precompilation(training_args)
-
+        # It is a mixin-in, we call the parent constructor, which is expected to be a children of Trainer.
         super().__init__(*args, **kwargs)
 
         if not isinstance(self.args, NeuronTrainingArguments):
@@ -150,23 +149,6 @@ class _TrainerForNeuron:
     @property
     def mp_enabled(self):
         return self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
-
-    def prepare_for_precompilation(self, args: "TrainingArguments"):
-        if not is_precompilation():
-            return
-
-        if args.num_train_epochs != 1:
-            if is_main_worker():
-                logger.info("Setting the number of epochs for precompilation to 1.")
-            args.num_train_epochs = 1
-        if args.do_eval:
-            if is_main_worker():
-                logger.info("Disabling evaluation during precompilation as this is not well supported yet.")
-            args.do_eval = False
-        if args.do_predict:
-            if is_main_worker():
-                logger.info("Disabling prediction during precompilation as this is not well supported yet.")
-            args.do_predict = False
 
     def create_accelerator_and_postprocess(self):
         # We explicitly don't rely on the `Accelerator` to do gradient accumulation
@@ -195,22 +177,16 @@ class _TrainerForNeuron:
         )
 
         non_blocking = accelerator_config.pop("non_blocking")
-        if not is_accelerate_available("0.30.0"):
-            if non_blocking:
-                raise ImportError(
-                    "`non_blocking` is only supported in accelerate v0.30.0 and above. Please upgrade accelerate to use this feature."
-                )
-        else:
-            if non_blocking and not self.args.dataloader_pin_memory:
-                logger.warning(
-                    "`non_blocking` is enabled but `dataloader_pin_memory` is not. For the best performance, it's recommended to enable both."
-                )
-            dataloader_config.non_blocking = non_blocking
+        if non_blocking and not self.args.dataloader_pin_memory:
+            logger.warning(
+                "`non_blocking` is enabled but `dataloader_pin_memory` is not. For the best performance, it's recommended to enable both."
+            )
+        dataloader_config.non_blocking = non_blocking
 
         args = {
-            "deepspeed_plugin": self.args.deepspeed_plugin,
+            "deepspeed_plugin": None, # We don't use deepspeed plugin in NeuronTrainer
+            "dataloader_config": dataloader_config,
         }
-        args["dataloader_config"] = dataloader_config
 
         # create accelerator object
         self.accelerator = NeuronAccelerator(
@@ -229,49 +205,6 @@ class _TrainerForNeuron:
                 self.gather_function, use_gather_object=self.args.eval_use_gather_object
             )
 
-        # deepspeed and accelerate flags covering both trainer args and accelerate launcher
-        self.is_deepspeed_enabled = getattr(self.accelerator.state, "deepspeed_plugin", None) is not None
-        self.is_fsdp_enabled = getattr(self.accelerator.state, "fsdp_plugin", None) is not None
-
-        # post accelerator creation setup
-        if self.is_fsdp_enabled:
-            fsdp_plugin = self.accelerator.state.fsdp_plugin
-            fsdp_plugin.limit_all_gathers = self.args.fsdp_config.get(
-                "limit_all_gathers", fsdp_plugin.limit_all_gathers
-            )
-            if is_accelerate_available("0.23.0"):
-                fsdp_plugin.activation_checkpointing = self.args.fsdp_config.get(
-                    "activation_checkpointing", fsdp_plugin.activation_checkpointing
-                )
-                if fsdp_plugin.activation_checkpointing and self.args.gradient_checkpointing:
-                    raise ValueError(
-                        "The activation_checkpointing in FSDP config and the gradient_checkpointing in training arg "
-                        "can't be set to True simultaneously. Please use FSDP's activation_checkpointing logic "
-                        "when using FSDP."
-                    )
-
-        if self.is_deepspeed_enabled and getattr(self.args, "hf_deepspeed_config", None) is None:
-            self.propagate_args_to_deepspeed()
-
-        # `save_only_model` can't be used with DeepSpeed/FSDP along with `load_best_model_at_end`
-        if (
-            self.args.save_only_model
-            and (self.is_deepspeed_enabled or self.is_fsdp_enabled)
-            and self.args.load_best_model_at_end
-        ):
-            wrapper = "DeepSpeed" if self.is_deepspeed_enabled else "FSDP"
-            raise ValueError(f"{wrapper} can't be used with `save_only_model` along with `load_best_model_at_end`.")
-
-        # `auto_find_batch_size` isn't supported yet with DeepSpeed Zero-3
-        if (
-            self.is_deepspeed_enabled
-            and self.accelerator.state.deepspeed_plugin.zero_stage == 3
-            and self.args.auto_find_batch_size
-        ):
-            raise ValueError(
-                "`auto_find_batch_size` isn't supported yet with DeepSpeed Zero-3. Please consider using Zero-2, Zero-1, or FSDP"
-            )
-
     @requires_torch_neuronx
     def synchronize_hub_cache(self):
         cache_path = get_neuron_cache_path()
@@ -285,20 +218,16 @@ class _TrainerForNeuron:
                     f"compilation caching with the Hugging Face Hub. Error: {e}"
                 )
 
-    def _wrap_model(self, model, training=True, dataloader=None):
-        return super()._wrap_model(
-            self.accelerator.patch_model_for_neuron(model), training=training, dataloader=dataloader
-        )
-
     def _get_train_sampler(self) -> torch.utils.data.Sampler | None:
-        if self.mp_enabled:
-            if self.train_dataset is None or not has_length(self.train_dataset):
-                return None
+        if self.train_dataset is None or not has_length(self.train_dataset):
+            return None
 
+        if self.mp_enabled:
             if self.args.group_by_length:
                 raise ValueError("LengthGroupedSampler is currently not supported with model parallelism.")
 
             return torch.utils.data.RandomSampler(self.train_dataset)
+
         return super()._get_train_sampler()
 
     def _get_eval_sampler(self, eval_dataset: torch.utils.data.Dataset) -> torch.utils.data.Sampler | None:
