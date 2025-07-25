@@ -139,7 +139,16 @@ if TYPE_CHECKING:
     from .models.inference.whisper import NeuronWhisperForConditionalGeneration
     from .models.inference.yolos import NeuronYolosForObjectDetection
     from .pipelines import pipeline
-    from .trainers import NeuronORPOTrainer, NeuronSFTTrainer, NeuronTrainer, Seq2SeqNeuronTrainer, NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments, NeuronORPOConfig, NeuronSFTConfig
+    from .trainers import (
+        NeuronORPOConfig,
+        NeuronORPOTrainer,
+        NeuronSFTConfig,
+        NeuronSFTTrainer,
+        NeuronTrainer,
+        NeuronTrainingArguments,
+        Seq2SeqNeuronTrainer,
+        Seq2SeqNeuronTrainingArguments,
+    )
 
 else:
     import sys
