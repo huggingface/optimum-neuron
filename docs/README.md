@@ -2,7 +2,7 @@
 
 1. Setup
 ```bash
-pip install hf-doc-builder==0.4.0 watchdog --upgrade
+pip install "git+https://github.com/huggingface/doc-builder.git" watchdog --upgrade
 ```
 
 2. Local Development

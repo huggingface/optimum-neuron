@@ -61,7 +61,7 @@ jobs:
           python -m ensurepip --upgrade
           python -m pip install --upgrade setuptools
           python -m pip install ".[quality, diffusers]"
-
+          python -m pip install "git+https://github.com/huggingface/doc-builder.git"
       - name: Make documentation
         shell: bash
         run: |
