@@ -32,7 +32,7 @@
       sections:
       - local: training_tutorials/fine_tune_llms_overview
         title: Overview
-      - local: training_tutorials/sft_lora_finetune_llm
+      - local: training_tutorials/finetune_llama
         title: Fine-Tune Llama 3 8B with LoRA
       - local: training_tutorials/finetune_qwen3
         title: Fine-Tune Qwen3 8B with LoRA
