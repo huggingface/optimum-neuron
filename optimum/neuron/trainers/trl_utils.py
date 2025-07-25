@@ -16,8 +16,8 @@
 
 from dataclasses import dataclass
 
-from ..training_args import NeuronTrainingArguments
-from .import_utils import is_trl_available
+from ..utils.import_utils import is_trl_available
+from .training_args import NeuronTrainingArguments
 
 
 if is_trl_available():
