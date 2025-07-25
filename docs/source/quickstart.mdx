@@ -16,63 +16,125 @@ limitations under the License.
 
 # Quickstart
 
-🤗 Optimum Neuron was designed with one goal in mind: **to make training and inference straightforward for any 🤗 Transformers user while leveraging the complete power of AWS Accelerators**.
+🤗 Optimum Neuron makes AWS accelerator adoption seamless for Hugging Face users with **drop-in replacements** for standard training and inference components.
+
+***🚀 Need to set up your environment first?** Check out our [Getting Started on EC2](getting-started-on-ec2) page for complete installation and AWS setup instructions.*
+
+**Key Features:**
+- 🔄 **Drop-in replacement** for standard Transformers training and inference
+- ⚡ **Distributed training** support with minimal code changes  
+- 🎯 **Optimized models** for AWS accelerators
+- 📈 **Production-ready** inference with compiled models
 
 ## Training
 
-There are three main classes one needs to know:
+Training on AWS Trainium requires minimal changes to your existing code - just swap in Optimum Neuron's drop-in replacements:
 
-- NeuronArgumentParser: inherits the original [HfArgumentParser](https://huggingface.co/docs/transformers/main/en/internal/trainer_utils#transformers.HfArgumentParser) in Transformers with additional checks on the argument values to make sure that they will work well with AWS Trainium instances.
-- [NeuronTrainingArguments](https://huggingface.co/docs/optimum/neuron/package_reference/trainer#optimum.neuron.NeuronTrainingArguments): extends the original TrainingArguments with Trainium-specific parameters to optimize performance on AWS Trainium hardware.
-- [NeuronTrainer](https://huggingface.co/docs/optimum/neuron/package_reference/trainer): the trainer class that takes care of compiling and distributing the model to run on Trainium Chips, and performing training and evaluation.
+```python
+import torch
+import torch_xla.runtime as xr
 
-The [NeuronTrainer](https://huggingface.co/docs/optimum/neuron/package_reference/trainer) is very similar to the [🤗 Transformers Trainer](https://huggingface.co/docs/transformers/main_classes/trainer), and adapting a script for Trainium instances will mostly consist in:
-    - Swapping the `Trainer` class for the `NeuronTrainer` one
-    - Using `NeuronTrainingArguments` instead of `TrainingArguments`
+from datasets import load_dataset
+from transformers import AutoTokenizer
 
-That's how most of the [example scripts](https://github.com/huggingface/optimum-neuron/tree/main/examples) were adapted from their [original counterparts](https://github.com/huggingface/transformers/tree/main/examples/pytorch):
+# Optimum Neuron's drop-in replacements for standard training components
+from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer, NeuronTrainingArguments
+from optimum.neuron.models.training import NeuronModelForCausalLM
 
-```diff
--from transformers import TrainingArguments
-+from optimum.neuron import NeuronTrainingArguments
--from transformers import Trainer
-+from optimum.neuron import NeuronTrainer as Trainer
--training_args = TrainingArguments(
-+training_args = NeuronTrainingArguments(
-  # training arguments...
-)
-# A lot of code here
-# Initialize our Trainer
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=train_dataset if training_args.do_train else None,
-    eval_dataset=eval_dataset if training_args.do_eval else None,
-    compute_metrics=compute_metrics,
-    tokenizer=tokenizer,
-    data_collator=data_collator,
-)
+
+def format_dolly_dataset(example):
+    """Format Dolly dataset into instruction-following format."""
+    instruction = f"### Instruction\n{example['instruction']}"
+    context = f"### Context\n{example['context']}" if example["context"] else None
+    response = f"### Answer\n{example['response']}"
+    
+    # Combine all parts with double newlines
+    parts = [instruction, context, response]
+    return "\n\n".join(part for part in parts if part)
+
+
+def main():
+    # Load instruction-following dataset
+    dataset = load_dataset("databricks/databricks-dolly-15k", split="train")
+    
+    # Model configuration
+    model_id = "Qwen/Qwen3-1.7B"
+    output_dir = "qwen3-1.7b-finetuned"
+    
+    # Setup tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer.pad_token = tokenizer.eos_token
+    
+    # Configure training for Trainium
+    training_args = NeuronTrainingArguments(
+        learning_rate=1e-4,
+        tensor_parallel_size=8,  # Split model across 8 accelerators
+        per_device_train_batch_size=1,  # Batch size per device
+        gradient_accumulation_steps=8,
+        logging_steps=1,
+        output_dir=output_dir,
+    )
+    
+    # Load model optimized for Trainium
+    model = NeuronModelForCausalLM.from_pretrained(
+        model_id,
+        training_args.trn_config,
+        torch_dtype=torch.bfloat16,
+        use_flash_attention_2=True,  # Enable fast attention
+    )
+    
+    # Setup supervised fine-tuning
+    sft_config = NeuronSFTConfig(
+        max_seq_length=2048,
+        packing=True,  # Pack multiple samples for efficiency
+        **training_args.to_dict(),
+    )
+    
+    # Initialize trainer and start training
+    trainer = NeuronSFTTrainer(
+        model=model,
+        args=sft_config,
+        tokenizer=tokenizer,
+        train_dataset=dataset,
+        formatting_func=format_dolly_dataset,
+    )
+    
+    trainer.train()
+    
+    # Share your model with the community
+    trainer.push_to_hub(
+        commit_message="Fine-tuned on Databricks Dolly dataset",
+        blocking=True,
+        model_name=output_dir,
+    )
+    
+    if xr.local_ordinal() == 0:
+        print(f"Training complete! Model saved to {output_dir}")
+
+
+if __name__ == "__main__":
+    main()
 ```
 
-All Trainium instances come at least with 2 Neuron Cores. To leverage those we need to launch the training with `torchrun`.
-Below you see an example of how to launch a training script on a `trn1.2xlarge` instance using a `bert-base-uncased` model.
+This example demonstrates supervised fine-tuning on the [Databricks Dolly dataset](https://huggingface.co/datasets/databricks/databricks-dolly-15k) using `NeuronSFTTrainer` and `NeuronModelForCausalLM` - the Trainium-optimized versions of standard Transformers components.
 
+### Running Training
+
+**Compilation** (optional for first run):
 ```bash
-torchrun --nproc_per_node=2 huggingface-neuron-samples/text-classification/run_glue.py \
---model_name_or_path bert-base-uncased \
---dataset_name philschmid/emotion \
---do_train \
---do_eval \
---bf16 True \
---per_device_train_batch_size 16 \
---learning_rate 5e-5 \
---num_train_epochs 3 \
---output_dir ./bert-emotion
+NEURON_CC_FLAGS="--model-type transformer" neuron_parallel_compile torchrun --nproc_per_node 32 sft_finetune_qwen3.py
+```
+
+**Training:**
+```bash
+NEURON_CC_FLAGS="--model-type transformer" torchrun --nproc_per_node 32 sft_finetune_qwen3.py
 ```
 
 ## Inference
 
-You can compile and export your 🤗 Transformers models to a serialized format before inference on Neuron devices:
+Optimized inference requires two steps: **export** your model to Neuron format, then **run** it with `NeuronModelForXXX` classes.
+
+### 1. Export Your Model
 
 ```bash
 optimum-cli export neuron \
@@ -84,23 +146,36 @@ optimum-cli export neuron \
   distilbert_base_uncased_finetuned_sst2_english_neuron/
 ```
 
-The command above will export `distilbert-base-uncased-finetuned-sst-2-english` with static shapes: `batch_size=1` and `sequence_length=32`, and cast all `matmul` operations from FP32 to BF16. Check out the [exporter guide](https://huggingface.co/docs/optimum-neuron/guides/export_model#exporting-a-model-to-neuron-using-the-cli) for more compilation options.
+This exports the model with optimized settings: static shapes (`batch_size=1`, `sequence_length=32`) and BF16 precision for `matmul` operations. Check out the [exporter guide](https://huggingface.co/docs/optimum-neuron/guides/export_model) for more compilation options.
 
-Then you can run the exported Neuron model on Neuron devices with `NeuronModelForXXX` classes which are similar to `AutoModelForXXX` classes in 🤗 Transformers:
+### 2. Run Inference
 
-```diff
+```python
 from transformers import AutoTokenizer
--from transformers import AutoModelForSequenceClassification
-+from optimum.neuron import NeuronModelForSequenceClassification
+from optimum.neuron import NeuronModelForSequenceClassification
 
-# PyTorch checkpoint
--model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
-+model = NeuronModelForSequenceClassification.from_pretrained("distilbert_base_uncased_finetuned_sst2_english_neuron")
+# Load the compiled Neuron model
+model = NeuronModelForSequenceClassification.from_pretrained(
+    "distilbert_base_uncased_finetuned_sst2_english_neuron"
+)
 
+# Setup tokenizer (same as original model)
 tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
-inputs = tokenizer("Hamilton is considered to be the best musical of past years.", return_tensors="pt")
 
+# Run inference
+inputs = tokenizer("Hamilton is considered to be the best musical of past years.", return_tensors="pt")
 logits = model(**inputs).logits
+
 print(model.config.id2label[logits.argmax().item()])
 # 'POSITIVE'
 ```
+
+The `NeuronModelForXXX` classes work as drop-in replacements for their `AutoModelForXXX` counterparts, making migration seamless.
+
+## Next Steps
+
+Ready to dive deeper? Check out our comprehensive guides:
+
+- 📚 **[Getting Started](getting-started)** - Complete setup and installation
+- 🏋️ **[Training Tutorials](training_tutorials/notebooks)** - End-to-end training examples
+- 🔧 **[Export Guide](guides/export_model)** - Advanced model compilation options
