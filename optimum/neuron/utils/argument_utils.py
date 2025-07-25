@@ -18,7 +18,9 @@ import os
 from dataclasses import asdict, dataclass, fields, is_dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
-from ...utils import logging
+from optimum.utils import logging
+
+from .input_generators import DTYPE_MAPPER
 
 
 if TYPE_CHECKING:
@@ -256,6 +258,8 @@ def store_compilation_config(
     config: "PretrainedConfig | dict",
     input_shapes: dict[str, int],
     compiler_kwargs: dict[str, Any],
+    int_dtype: str,
+    float_dtype: str,
     dynamic_batch_size: bool,
     compiler_type: str,
     compiler_version: str,
@@ -294,6 +298,8 @@ def store_compilation_config(
 
     config_args["input_names"] = input_names
     config_args["output_names"] = output_names
+    config_args["int_dtype"] = DTYPE_MAPPER.str(int_dtype)
+    config_args["float_dtype"] = DTYPE_MAPPER.str(float_dtype)
 
     original_model_type = getattr(config, "export_model_type", None) or getattr(
         config, "model_type", None

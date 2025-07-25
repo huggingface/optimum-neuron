@@ -51,6 +51,7 @@ _import_structure = {
         "is_trl_available",
     ],
     "input_generators": [
+        "DTYPE_MAPPER",
         "DummyBeamValuesGenerator",
         "DummyMaskedPosGenerator",
         "DummyControNetInputGenerator",
@@ -124,6 +125,7 @@ if TYPE_CHECKING:
         is_trl_available,
     )
     from .input_generators import (
+        DTYPE_MAPPER,
         ASTDummyAudioInputGenerator,
         DummyBeamValuesGenerator,
         DummyControNetInputGenerator,

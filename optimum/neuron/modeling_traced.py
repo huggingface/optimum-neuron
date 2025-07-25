@@ -35,6 +35,7 @@ from .cache.entries.single_model import SingleModelCacheEntry
 from .cache.hub_cache import create_hub_compile_cache_proxy
 from .modeling_base import NeuronModel
 from .utils import (
+    DTYPE_MAPPER,
     NEURON_FILE_NAME,
     InputShapesArguments,
     check_if_weights_replacable,
@@ -481,6 +482,8 @@ class NeuronTracedModel(NeuronModel):
             tensor_parallel_size=tensor_parallel_size,
             input_shapes=compile_shapes,
             output_hidden_states=neuron_config.get("output_hidden_states", False),
+            int_dtype=DTYPE_MAPPER.pt(neuron_config.get("int_dtype")),
+            float_dtype=DTYPE_MAPPER.pt(neuron_config.get("float_dtype")),
         )
 
     @classmethod

@@ -350,6 +350,11 @@ def export_models(
     failed_models = []
     total_compilation_time = 0
     compile_configs = {}
+    # models_and_neuron_configs.pop("text_encoder_2")
+    # models_and_neuron_configs.pop("text_encoder")
+    # models_and_neuron_configs.pop("transformer")
+    # models_and_neuron_configs.pop("vae_encoder")
+    # models_and_neuron_configs.pop("vae_decoder")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -393,6 +398,8 @@ def export_models(
             config=model_config,
             input_shapes=sub_neuron_config.input_shapes,
             compiler_kwargs=compiler_kwargs,
+            int_dtype=sub_neuron_config.int_dtype,
+            float_dtype=sub_neuron_config.float_dtype,
             input_names=neuron_inputs,
             output_names=neuron_outputs,
             dynamic_batch_size=sub_neuron_config.dynamic_batch_size,

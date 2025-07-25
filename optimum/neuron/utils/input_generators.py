@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING
 import torch
 
 from optimum.utils import (
-    DTYPE_MAPPER,
     DummyAudioInputGenerator,
     DummyInputGenerator,
     NormalizedConfig,
@@ -30,6 +29,35 @@ from optimum.utils import (
 
 if TYPE_CHECKING:
     from .argument_utils import ImageEncoderArguments
+
+
+class DTYPE_MAPPER:
+
+    MAPPING = {
+        "fp32": torch.float32,
+        "fp16": torch.float16,
+        "bf16": torch.bfloat16,
+        "int64": torch.int64,
+        "int32": torch.int32,
+        "int8": torch.int8,
+        "bool": torch.bool,
+    }
+
+    REVERSE_MAPPING = {v: k for k, v in MAPPING.items()}
+
+    @classmethod
+    def str(cls, dtype):
+        if not isinstance(dtype, str):
+            return cls.REVERSE_MAPPING[dtype]
+        else:
+            return dtype
+
+    @classmethod
+    def pt(cls, dtype):
+        if not isinstance(dtype, torch.dtype):
+            return cls.MAPPING[dtype]
+        else:
+            return dtype
 
 
 class DummyBeamValuesGenerator(DummyInputGenerator):

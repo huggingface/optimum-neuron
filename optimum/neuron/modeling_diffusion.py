@@ -963,6 +963,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                     config=model_config,
                     input_shapes=neuron_config.input_shapes,
                     compiler_kwargs=compiler_kwargs,
+                    int_dtype=neuron_config.int_dtype,
+                    float_dtype=neuron_config.float_dtype,
                     input_names=neuron_config.inputs,
                     output_names=neuron_config.outputs,
                     dynamic_batch_size=neuron_config.dynamic_batch_size,
@@ -1300,16 +1302,16 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
         encoder_attention_mask: torch.Tensor | None = None,
         return_dict: bool = True,
     ):
+        hidden_states = hidden_states.to(self.neuron_config.float_dtype)
+        timestep = timestep.to(self.neuron_config.float_dtype)
         if self.neuron_config.MODEL_TYPE == "flux-transformer-2d":
             ids = torch.cat((txt_ids, img_ids), dim=0)
-            timestep = timestep.to(hidden_states.dtype)
-            image_rotary_emb = torch.stack(self.pos_embed(ids), dim=2).to(hidden_states.dtype)
+            image_rotary_emb = torch.stack(self.pos_embed(ids), dim=2).to(self.neuron_config.float_dtype)
             inputs = (hidden_states, encoder_hidden_states, pooled_projections, timestep, image_rotary_emb)
             if guidance is not None:
-                guidance = guidance.to(hidden_states.dtype)
+                guidance = guidance.to(self.neuron_config.float_dtype)
                 inputs += (guidance,)
         elif self.neuron_config.MODEL_TYPE == "pixart-transformer-2d":
-            timestep = timestep.to(hidden_states.dtype)
             inputs = (hidden_states, encoder_hidden_states, timestep, encoder_attention_mask)
 
         outputs = self.model(*inputs)
@@ -1331,6 +1333,7 @@ class NeuronModelVaeEncoder(_NeuronDiffusionModelPart):
         super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_VAE_ENCODER_NAME)
 
     def forward(self, sample: torch.Tensor, return_dict: bool = True):
+        sample = sample.to(self.neuron_config.float_dtype)
         inputs = (sample,)
         outputs = self.model(*inputs)
 
@@ -1361,7 +1364,7 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
         return_dict: bool = True,
         generator=None,
     ):
-        inputs = (latent_sample,)
+        inputs = (latent_sample.to(self.neuron_config.float_dtype),)
         if image is not None:
             inputs += (image,)
         if mask is not None:

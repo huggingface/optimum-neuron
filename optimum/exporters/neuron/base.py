@@ -24,7 +24,7 @@ import torch
 from optimum.utils import logging
 
 from ...exporters.base import ExportConfig
-from ...neuron.utils import ImageEncoderArguments, InputShapesArguments, is_neuron_available
+from ...neuron.utils import DTYPE_MAPPER, ImageEncoderArguments, InputShapesArguments, is_neuron_available
 
 
 if TYPE_CHECKING:
@@ -322,12 +322,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
             input_was_inserted = False
             for dummy_input_gen in dummy_inputs_generators:
                 if dummy_input_gen.supports_input(input_name):
-                    # TODO: remove the mapper and use directly torch float dtype after the PR in Optimum makes its way to a release: https://github.com/huggingface/optimum/pull/2117
-                    mapper = {torch.float32: "fp32", torch.float16: "fp16", torch.bfloat16: "bf16"}
-                    if isinstance(self.float_dtype, torch.dtype):
-                        float_dtype = mapper[self.float_dtype]
-                    else:
-                        float_dtype = self.float_dtype
+                    float_dtype = DTYPE_MAPPER.str(self.float_dtype)
                     dummy_inputs[input_name] = dummy_input_gen.generate(
                         input_name, framework="pt", int_dtype=self.int_dtype, float_dtype=float_dtype
                     )
