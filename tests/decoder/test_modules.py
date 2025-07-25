@@ -7,6 +7,7 @@ import pytest
 import torch
 from nxd_testing import build_module, validate_accuracy
 from transformers import AutoConfig, set_seed
+from transformers.models.gpt_oss.modeling_gpt_oss import GptOssDecoderLayer, GptOssRotaryEmbedding
 from transformers.models.llama.modeling_llama import (
     LlamaDecoderLayer,
     LlamaMLP,
@@ -20,6 +21,13 @@ from transformers.models.mixtral.modeling_mixtral import (
 
 from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
 from optimum.neuron.models.inference.backend.modules.rms_norm import NeuronRMSNorm
+from optimum.neuron.models.inference.gpt_oss.modeling_gpt_oss import (
+    GptOssRotaryEmbedding as NeuronGptOssRotaryEmbedding,
+)
+from optimum.neuron.models.inference.gpt_oss.modeling_gpt_oss import (
+    NeuronGptOssDecoderLayer,
+    convert_gptoss_to_neuron_state_dict,
+)
 from optimum.neuron.models.inference.llama.modeling_llama import Llama3RotaryEmbedding as NeuronLlama3RotaryEmbedding
 from optimum.neuron.models.inference.llama.modeling_llama import NeuronLlamaDecoderLayer, NeuronLlamaMLP
 from optimum.neuron.models.inference.mixtral.modeling_mixtral import (
@@ -111,11 +119,49 @@ def test_llama_mlp():
     )
 
 
+@dataclass
+class RotaryEmbeddingTestConfig:
+    name: str
+    config_id: str
+    rotary_embedding_cls: torch.nn.Module
+    neuron_rotary_embedding_cls: torch.nn.Module
+    neuron_init_kwargs: Callable[[AutoConfig], dict]
+
+
+CONFIGS = [
+    RotaryEmbeddingTestConfig(
+        name="llama",
+        config_id="unsloth/Llama-3.2-1B-Instruct",
+        rotary_embedding_cls=LlamaRotaryEmbedding,
+        neuron_rotary_embedding_cls=NeuronLlama3RotaryEmbedding,
+        neuron_init_kwargs=lambda config: {
+            "dim": config.hidden_size // config.num_attention_heads,
+            "max_position_embeddings": config.max_position_embeddings,
+            "base": config.rope_theta,
+            "factor": config.rope_scaling["factor"],
+            "low_freq_factor": config.rope_scaling["low_freq_factor"],
+            "high_freq_factor": config.rope_scaling["high_freq_factor"],
+            "original_max_position_embeddings": config.rope_scaling["original_max_position_embeddings"],
+        },
+    ),
+    RotaryEmbeddingTestConfig(
+        name="gpt-oss",
+        config_id="openai/gpt-oss-20b",
+        rotary_embedding_cls=GptOssRotaryEmbedding,
+        neuron_rotary_embedding_cls=NeuronGptOssRotaryEmbedding,
+        neuron_init_kwargs=lambda config: {
+            "config": config,
+        },
+    ),
+]
+
+
 @is_inferentia_test
 @requires_neuronx
-def test_llama_rotary_embedding():
+@pytest.mark.parametrize("test_config", CONFIGS, ids=[test_config.name for test_config in CONFIGS])
+def test_llama_rotary_embedding(test_config: RotaryEmbeddingTestConfig):
     set_seed(42)
-    config_id = "unsloth/Llama-3.2-1B-Instruct"
+    config_id = test_config.config_id
     config = AutoConfig.from_pretrained(config_id)
     hidden_size = config.hidden_size
     seq_len = 4096
@@ -132,26 +178,17 @@ def test_llama_rotary_embedding():
     ]
 
     # Create a cpu layer
-    cpu_module = LlamaRotaryEmbedding(config)
+    cpu_module = test_config.rotary_embedding_cls(config)
 
     def cpu_module_wrapper(x, position_ids):
         cos, sin = cpu_module(x, position_ids)
         return cos, sin
 
     # Create a neuron equivalent of the cpu module
-    head_dim = config.hidden_size // config.num_attention_heads
     neuron_module = build_module(
-        NeuronLlama3RotaryEmbedding,
+        test_config.neuron_rotary_embedding_cls,
         example_inputs,
-        module_init_kwargs={
-            "dim": head_dim,
-            "max_position_embeddings": config.max_position_embeddings,
-            "base": config.rope_theta,
-            "factor": config.rope_scaling["factor"],
-            "low_freq_factor": config.rope_scaling["low_freq_factor"],
-            "high_freq_factor": config.rope_scaling["high_freq_factor"],
-            "original_max_position_embeddings": config.rope_scaling["original_max_position_embeddings"],
-        },
+        module_init_kwargs=test_config.neuron_init_kwargs(config),
     )
 
     # Validate the accuracy of the model. Note that atol and rtol are relaxed considering calculations in the neuron
@@ -170,6 +207,19 @@ def _convert_state_dict_for_mixtral(state_dict, config, neuron_config):
     for key in keys:
         state_dict[f"layers.0.{key}"] = state_dict.pop(key)
     state_dict = convert_mixtral_to_neuron_state_dict(state_dict, config, neuron_config)
+    # Remove "layers.0" prefix from the state dict keys
+    keys = list(state_dict.keys())
+    for key in keys:
+        state_dict[key.replace("layers.0.", "")] = state_dict.pop(key)
+    return state_dict
+
+
+def _convert_state_dict_for_gpt_oss(state_dict, config, neuron_config):
+    # Add "layers.0" prefix to the state dict keys to use "convert_mixtral_to_neuron_state_dict"
+    keys = list(state_dict.keys())
+    for key in keys:
+        state_dict[f"layers.0.{key}"] = state_dict.pop(key)
+    state_dict = convert_gptoss_to_neuron_state_dict(state_dict, config, neuron_config)
     # Remove "layers.0" prefix from the state dict keys
     keys = list(state_dict.keys())
     for key in keys:
@@ -211,6 +261,15 @@ DECODER_TESTS_CONFIGS = [
         },
         state_dict_conversion_fn=_convert_state_dict_for_mixtral,
     ),
+    DecoderLayerTestConfig(
+        name="gpt-oss",
+        config_id="tengomucho/tiny-random-gpt-oss",
+        decoder_layer_cls=GptOssDecoderLayer,
+        neuron_decoder_layer_cls=NeuronGptOssDecoderLayer,
+        rotary_embedding_cls=GptOssRotaryEmbedding,
+        neuron_init_kwargs=lambda config, neuron_config: {"config": config, "neuron_config": neuron_config},
+        state_dict_conversion_fn=_convert_state_dict_for_gpt_oss,
+    ),
 ]
 
 
@@ -225,16 +284,21 @@ def test_decoder_layer(test_config: DecoderLayerTestConfig):
     config = AutoConfig.from_pretrained(config_id)
     hidden_size = config.hidden_size
     dtype = torch.float32
-    seq_len = 128
+    seq_len = 2048
     # Initialize hidden states to random values between -3 and 3
     hidden_states = torch.rand(1, seq_len, hidden_size, dtype=dtype) * 6 - 3
     position_ids = torch.arange(seq_len, dtype=torch.int64).view(1, -1)
     attention_mask = torch.ones(1, 1, seq_len, seq_len).to(torch.bool).tril(diagonal=0)
+    if getattr(config, "sliding_window", False):
+        # If model config supports sliding window, test it.
+        config.sliding_window = min(seq_len // 4, config.sliding_window)
+        sliding_window = config.sliding_window
+        sliding_window_overlay = torch.ones(seq_len, seq_len).to(torch.bool).triu(diagonal=1 - sliding_window)
+        sliding_window_overlay = sliding_window_overlay[None, None, :, :].expand(
+            attention_mask.shape[0], 1, seq_len, seq_len
+        )
+        attention_mask = torch.logical_and(attention_mask, sliding_window_overlay)
     inputs = [(hidden_states, attention_mask, position_ids)]
-    example_inputs = [
-        tuple([torch.zeros_like(input_element, dtype=input_element.dtype) for input_element in input_elements])
-        for input_elements in inputs
-    ]
 
     example_inputs = [
         tuple([torch.zeros_like(input_element) for input_element in input_elements]) for input_elements in inputs
