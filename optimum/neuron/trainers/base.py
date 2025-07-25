@@ -109,6 +109,7 @@ if KEEP_HF_HUB_PROGRESS_BARS is None:
 
 transformers_get_optimizer_cls_and_kwargs = Trainer.get_optimizer_cls_and_kwargs
 
+
 class _TrainerForNeuron:
     def __init__(self, *args, **kwargs):
         if not isinstance(self, Trainer):

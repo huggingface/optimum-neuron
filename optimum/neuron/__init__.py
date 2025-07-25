@@ -27,7 +27,16 @@ from transformers.utils import _LazyModule
 
 _import_structure = {
     "hf_argparser": ["NeuronHfArgumentParser"],
-    "trainers": ["NeuronTrainer", "Seq2SeqNeuronTrainer", "NeuronSFTTrainer", "NeuronORPOTrainer", "NeuronTrainingArguments", "Seq2SeqNeuronTrainingArguments", "NeuronSFTConfig", "NeuronORPOConfig"],
+    "trainers": [
+        "NeuronTrainer",
+        "Seq2SeqNeuronTrainer",
+        "NeuronSFTTrainer",
+        "NeuronORPOTrainer",
+        "NeuronTrainingArguments",
+        "Seq2SeqNeuronTrainingArguments",
+        "NeuronSFTConfig",
+        "NeuronORPOConfig",
+    ],
     "modeling_traced": ["NeuronTracedModel"],
     "modeling": [
         "NeuronModelForFeatureExtraction",

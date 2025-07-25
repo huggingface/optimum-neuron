@@ -57,9 +57,11 @@ else:
     class SFTConfig:
         pass
 
+
 if is_peft_available():
     from peft import PeftConfig
 else:
+
     class PeftConfig:
         pass
 

@@ -47,13 +47,13 @@ from .base import TRL_VERSION, _TrainerForNeuron
 if is_trl_available():
     from trl import ORPOConfig, ORPOTrainer
 else:
+
     class ORPOConfig:
         pass
 
     class ORPOTrainer:
         def __init__(self, *args, **kwargs):
             raise RuntimeError("You need to install the `trl` library to use the `ORPOTrainer`.")
-
 
 
 class _ORPOTrainerInit(ORPOTrainer):
