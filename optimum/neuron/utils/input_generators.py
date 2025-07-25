@@ -32,7 +32,6 @@ if TYPE_CHECKING:
 
 
 class DTYPE_MAPPER:
-
     MAPPING = {
         "fp32": torch.float32,
         "fp16": torch.float16,
