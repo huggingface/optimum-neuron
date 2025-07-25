@@ -6,6 +6,10 @@ import pytest
 import torch
 from nxd_testing import build_module, validate_accuracy
 from transformers import AutoConfig, set_seed
+from transformers.models.gpt_oss.modeling_gpt_oss import (
+    GptOssAttention,
+    GptOssRotaryEmbedding,
+)
 from transformers.models.llama.modeling_llama import (
     LlamaAttention,
     LlamaRotaryEmbedding,
@@ -16,6 +20,9 @@ from transformers.models.mixtral.modeling_mixtral import (
 )
 
 from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
+from optimum.neuron.models.inference.gpt_oss.modeling_gpt_oss import (
+    GptOssAttention as NeuronGptOssAttention,
+)
 from optimum.neuron.models.inference.llama.modeling_llama import (
     NeuronLlamaAttention,
 )
@@ -67,6 +74,13 @@ class AttentionTestConfig:
 
 
 CONFIGS = [
+    AttentionTestConfig(
+        name="gpt-oss",
+        config_id="tengomucho/tiny-random-gpt-oss",
+        attention_cls=GptOssAttention,
+        rotary_embedding_cls=GptOssRotaryEmbedding,
+        neuron_attention_cls=NeuronGptOssAttention,
+    ),
     AttentionTestConfig(
         name="llama",
         config_id="llamafactory/tiny-random-Llama-3",
