@@ -14,11 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# 🚀 Fine-Tune Llama 3 8B with LoRA
+# 🚀 Fine-Tune Llama 3.1 8B with LoRA
 
-This tutorial shows how to fine-tune the Llama 3 model on AWS Trainium accelerators using optimum-neuron.
+This tutorial shows how to fine-tune the Llama 3.1 model on AWS Trainium accelerators using optimum-neuron.
 
-**This is based on the [Llama 3 fine-tuning example script](https://github.com/huggingface/optimum-neuron/tree/main/examples/training/llama).**
+**This is based on the [Llama 3.1 fine-tuning example script](https://github.com/huggingface/optimum-neuron/tree/main/examples/training/llama).**
 
 ## 1. 🛠️ Setup AWS Environment
 
@@ -30,6 +30,12 @@ The Hugging Face AMI includes all required libraries pre-installed:
 - No additional environment setup needed
 
 To create your instance, follow the guide [here](https://huggingface.co/docs/optimum-neuron/ec2-setup).
+
+**Model Access:** The Llama 3.1 model is gated and requires access approval. You can request access at [meta-llama/Llama-3.1-8B](https://huggingface.co/meta-llama/Llama-3.1-8B). Once approved, make sure to authenticate with the Hugging Face Hub:
+
+```bash
+huggingface-cli login
+```
 
 ## 2. 📊 Load and Prepare the Dataset
 
@@ -83,26 +89,26 @@ def format_dolly(examples):
 Note: this function is well-defined in the [Python script](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/llama/finetune_llama.py) to run this tutorial.
 
 
-## 3. 🎯 Fine-tune Llama 3 with NeuronSFTTrainer and PEFT
+## 3. 🎯 Fine-tune Llama 3.1 with NeuronSFTTrainer and PEFT
 
 For standard PyTorch fine-tuning, you'd typically use [PEFT](https://github.com/huggingface/peft) with LoRA adapters and the [`SFTTrainer`](https://huggingface.co/docs/trl/en/sft_trainer).
 
 On AWS Trainium, `optimum-neuron` provides `NeuronSFTTrainer` as a drop-in replacement.
 
 **Distributed Training on Trainium:**
-Since Llama 3 8B doesn't fit on a single accelerator, we use distributed training techniques:
+Since Llama 3.1 8B doesn't fit on a single accelerator, we use distributed training techniques:
 - Data Parallel (DDP)
 - Tensor Parallelism  
 
 Model loading and LoRA configuration work similarly to other accelerators.
 
-Combining all the pieces together, and assuming the dataset has already been loaded, we can write the following code to fine-tune Llama 3 on AWS Trainium:
+Combining all the pieces together, and assuming the dataset has already been loaded, we can write the following code to fine-tune Llama 3.1 on AWS Trainium:
 
 ```python
-model_id = "meta-llama/Meta-Llama-3-8B"
+model_id = "meta-llama/Llama-3.1-8B"
 
 # Define the training arguments
-output_dir = "Meta-Llama-3-8B-finetuned"
+output_dir = "Llama-3.1-8B-finetuned"
 training_args = NeuronTrainingArguments(
     output_dir=output_dir,
     num_train_epochs=3,
@@ -110,7 +116,7 @@ training_args = NeuronTrainingArguments(
     max_steps=-1,  # -1 means train until the end of the dataset
     per_device_train_batch_size=1,
     gradient_accumulation_steps=8,
-    learning_rate=5e-5,
+    learning_rate=5e-4,
     bf16=True,  
     tensor_parallel_size=8,
     logging_steps=2,
@@ -191,7 +197,7 @@ TP_DEGREE=8
 BS=1
 GRADIENT_ACCUMULATION_STEPS=8
 LOGGING_STEPS=2
-MODEL_NAME="meta-llama/Meta-Llama-3-8B" # Change this to the desired model name
+MODEL_NAME="meta-llama/Llama-3.1-8B" # Change this to the desired model name
 OUTPUT_DIR="$(echo $MODEL_NAME | cut -d'/' -f2)-finetuned"
 DISTRIBUTED_ARGS="--nproc_per_node $PROCESSES_PER_NODE"
 
@@ -208,7 +214,7 @@ torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_llama.py \
   --max_steps $MAX_STEPS \
   --per_device_train_batch_size $BS \
   --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
-  --learning_rate 5e-5 \
+  --learning_rate 5e-4 \
   --bf16 \
   --tensor_parallel_size $TP_DEGREE \
   --zero_1 \
@@ -232,7 +238,7 @@ Optimum Neuron saves model shards separately during distributed training. These 
 Use the Optimum CLI to consolidate:
 
 ```bash
-optimum-cli neuron consolidate Meta-Llama-3-8B-finetuned Meta-Llama-3-8B-finetuned/adapter_default
+optimum-cli neuron consolidate Llama-3.1-8B-finetuned Llama-3.1-8B-finetuned/adapter_default
 ```
 
 This will create an `adapter_model.safetensors` file, the LoRA adapter weights that we trained in the previous step. We can now reload the model and merge it, so it can be loaded for evaluation:
@@ -242,9 +248,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel, PeftConfig
 
 
-MODEL_NAME = "meta-llama/Meta-Llama-3-8B"
-ADAPTER_PATH = "Meta-Llama-3-8B-finetuned/adapter_default"
-MERGED_MODEL_PATH = "Meta-Llama-3-8B-dolly"
+MODEL_NAME = "meta-llama/Llama-3.1-8B"
+ADAPTER_PATH = "Llama-3.1-8B-finetuned/adapter_default"
+MERGED_MODEL_PATH = "Llama-3.1-8B-dolly"
 
 # Load base model
 model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
@@ -263,7 +269,7 @@ finetuned_model.save_pretrained(MERGED_MODEL_PATH)
 
 Once this step is done, it is possible to test the model with a new prompt.
 
-You have successfully created a fine-tuned model from Llama 3!
+You have successfully created a fine-tuned model from Llama 3.1!
 
 ## 5. 🤗 Push to Hugging Face Hub
 
@@ -278,8 +284,8 @@ huggingface-cli login
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-MERGED_MODEL_PATH = "Meta-Llama-3-8B-dolly"
-HUB_MODEL_NAME = "your-username/llama3-8b-dolly"
+MERGED_MODEL_PATH = "Llama-3.1-8B-dolly"
+HUB_MODEL_NAME = "your-username/llama3.1-8b-dolly"
 
 # Load and push tokenizer
 tokenizer = AutoTokenizer.from_pretrained(MERGED_MODEL_PATH)
@@ -290,4 +296,4 @@ model = AutoModelForCausalLM.from_pretrained(MERGED_MODEL_PATH)
 model.push_to_hub(HUB_MODEL_NAME)
 ```
 
-🎉 **Your fine-tuned Llama 3 model is now available on the Hub for others to use!**
+🎉 **Your fine-tuned Llama 3.1 model is now available on the Hub for others to use!**
