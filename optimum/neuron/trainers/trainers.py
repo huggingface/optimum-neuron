@@ -15,7 +15,6 @@
 """Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
 import contextlib
-import dataclasses
 import functools
 import inspect
 import math
@@ -24,11 +23,8 @@ import shutil
 import sys
 import time
 import warnings
-from collections import defaultdict
-from functools import wraps
-from typing import Any, Callable
+from typing import Any
 
-import datasets
 import numpy as np
 import torch
 import torch_xla.core.xla_model as xm
@@ -38,19 +34,12 @@ from accelerate import __version__ as accelerate_version
 from accelerate.utils import AutocastKwargs, DataLoaderConfiguration
 from neuronx_distributed.pipeline import NxDPPModel
 from packaging import version
-from torch import nn
 from torch.utils.data import Dataset
 from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    DataCollator,
-    DataCollatorForLanguageModeling,
     PreTrainedModel,
-    PreTrainedTokenizerBase,
     Seq2SeqTrainer,
     Trainer,
     TrainingArguments,
-    is_wandb_available,
 )
 from transformers.debug_utils import DebugOption, DebugUnderflowOverflow
 from transformers.integrations import hp_params
@@ -61,7 +50,7 @@ from transformers.trainer import (
     TRAINER_STATE_NAME,
     TRAINING_ARGS_NAME,
 )
-from transformers.trainer_callback import TrainerCallback, TrainerState
+from transformers.trainer_callback import TrainerState
 from transformers.trainer_pt_utils import (
     IterableDatasetShard,
     find_batch_size,
@@ -90,31 +79,29 @@ from transformers.utils import (
 
 from optimum.utils import logging
 
-from .accelerate import NeuronAccelerator, NeuronDistributedType, NeuronPartialState
-from .cache.hub_cache import hub_neuronx_cache, synchronize_hub_cache
-from .cache.training import patch_neuron_cc_wrapper
-from .peft import NeuronPeftModel, get_peft_model
-from .training_args import NeuronTrainingArguments
-from .utils import (
+from ..accelerate import NeuronAccelerator, NeuronDistributedType
+from ..cache.hub_cache import hub_neuronx_cache, synchronize_hub_cache
+from ..cache.training import patch_neuron_cc_wrapper
+from ..utils import (
     is_trl_available,
     patch_within_function,
 )
-from .utils.cache_utils import (
+from ..utils.cache_utils import (
     get_hf_hub_cache_repos,
     get_neuron_cache_path,
     has_write_access_to_repo,
 )
-from .utils.import_utils import is_peft_available
-from .utils.misc import is_main_worker, is_precompilation
-from .utils.require_utils import requires_torch_neuronx
-from .utils.training_utils import (
+from ..utils.import_utils import is_peft_available
+from ..utils.misc import is_main_worker, is_precompilation
+from ..utils.require_utils import requires_torch_neuronx
+from ..utils.training_utils import (
     get_model_param_count,
     is_main_worker_for_metrics,
     is_main_worker_for_metrics_method,
     patch_generation_mixin_to_neuron_generation_mixin,
     skip_first_batches,
 )
-from .utils.trl_utils import NeuronSFTConfig
+from .training_args import NeuronTrainingArguments
 
 
 if is_sagemaker_mp_enabled():

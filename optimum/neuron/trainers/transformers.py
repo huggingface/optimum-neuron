@@ -13,8 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from transformers import Trainer, Seq2SeqTrainer
+from transformers import Seq2SeqTrainer, Trainer
+
 from .base import _TrainerForNeuron
+
 
 class NeuronTrainer(_TrainerForNeuron, Trainer):
     """
