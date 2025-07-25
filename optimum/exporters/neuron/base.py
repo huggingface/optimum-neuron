@@ -322,9 +322,11 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
             input_was_inserted = False
             for dummy_input_gen in dummy_inputs_generators:
                 if dummy_input_gen.supports_input(input_name):
-                    float_dtype = DTYPE_MAPPER.str(self.float_dtype)
                     dummy_inputs[input_name] = dummy_input_gen.generate(
-                        input_name, framework="pt", int_dtype=self.int_dtype, float_dtype=float_dtype
+                        input_name,
+                        framework="pt",
+                        int_dtype=DTYPE_MAPPER.str(self.int_dtype),
+                        float_dtype=DTYPE_MAPPER.str(self.float_dtype),
                     )
                     input_was_inserted = True
                     break

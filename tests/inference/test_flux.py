@@ -61,7 +61,7 @@ def test_flux_inpaint(neuron_flux_tp2_path):
     assert isinstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
     assert isinstance(neuron_pipeline.vae_decoder, NeuronModelVaeDecoder)
 
-    prompt = "Pancake stack with butter and syrup, high resolution, on a park bench"
+    prompt = "Face of a yellow cat, high resolution, sitting on a park bench"
     img_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png"
     mask_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo_mask.png"
     source = load_image(img_url)
