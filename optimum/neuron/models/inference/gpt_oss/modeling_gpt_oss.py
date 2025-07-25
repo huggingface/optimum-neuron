@@ -19,7 +19,6 @@ import torch
 import torch_xla.core.xla_model as xm
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, ParallelEmbedding
-
 from neuronx_distributed.parallel_layers.mappings import (
     _reduce_scatter_along_dim,
     gather_from_sequence_parallel_region,
@@ -27,14 +26,13 @@ from neuronx_distributed.parallel_layers.mappings import (
     scatter_to_tensor_model_parallel_region,
 )
 from torch import nn
+from transformers.integrations.mxfp4 import convert_moe_packed_tensors
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from transformers.utils import logging
-from transformers.integrations.mxfp4 import convert_moe_packed_tensors
 
-from optimum.neuron.models.inference.backend.modules.moe.expert_mlps import ExpertMLPs
 from optimum.neuron.models.inference.backend.modules.moe.moe_parallel_layers import (
     ExpertFusedColumnParallelLinear,
-    ExpertFusedRowParallelLinear
+    ExpertFusedRowParallelLinear,
 )
 
 from ..backend.config import NxDNeuronConfig
