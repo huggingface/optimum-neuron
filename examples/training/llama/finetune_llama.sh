@@ -38,5 +38,6 @@ torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_llama.py \
   --async_save \
   --logging_steps $LOGGING_STEPS \
   --output_dir $OUTPUT_DIR \
-  --lr_scheduler_type "constant" \
+  --lr_scheduler_type "cosine" \
+  --warmup_ratio 0.1 \
   --overwrite_output_dir
