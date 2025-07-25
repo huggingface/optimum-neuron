@@ -332,7 +332,7 @@ def get_model_inputs(
     pad_to_multiple_of: int | None = None,
 ):
     input_str = "Hello there, I'm Michael and I live in Paris!"
-    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, trust_remote_code=True)
 
     inputs = tokenizer(input_str, return_tensors="pt")
 
