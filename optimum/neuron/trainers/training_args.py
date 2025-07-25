@@ -27,13 +27,13 @@ from transformers.utils import (
     is_sagemaker_mp_enabled,
 )
 
-from ..utils import logging
-from .accelerate import NeuronAcceleratorState, NeuronPartialState
-from .accelerate.utils import patch_accelerate_is_torch_xla_available
-from .models.training.config import TrainingNeuronConfig
-from .utils import is_main_worker
-from .utils.patching import Patcher, patch_within_function
-from .utils.torch_xla_and_neuronx_initialization import set_neuron_cc_optlevel
+from ...utils import logging
+from ..accelerate import NeuronAcceleratorState, NeuronPartialState
+from ..accelerate.utils import patch_accelerate_is_torch_xla_available
+from ..models.training.config import TrainingNeuronConfig
+from ..utils import is_main_worker
+from ..utils.patching import Patcher, patch_within_function
+from ..utils.torch_xla_and_neuronx_initialization import set_neuron_cc_optlevel
 
 
 if is_sagemaker_mp_enabled():

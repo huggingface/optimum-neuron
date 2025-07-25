@@ -27,8 +27,16 @@ from transformers.utils import _LazyModule
 
 _import_structure = {
     "hf_argparser": ["NeuronHfArgumentParser"],
-    "trainers": ["NeuronTrainer", "Seq2SeqNeuronTrainer", "NeuronSFTTrainer", "NeuronORPOTrainer"],
-    "training_args": ["NeuronTrainingArguments", "Seq2SeqNeuronTrainingArguments"],
+    "trainers": [
+        "NeuronTrainer",
+        "Seq2SeqNeuronTrainer",
+        "NeuronSFTTrainer",
+        "NeuronORPOTrainer",
+        "NeuronTrainingArguments",
+        "Seq2SeqNeuronTrainingArguments",
+        "NeuronSFTConfig",
+        "NeuronORPOConfig",
+    ],
     "modeling_traced": ["NeuronTracedModel"],
     "modeling": [
         "NeuronModelForFeatureExtraction",
@@ -74,7 +82,6 @@ _import_structure = {
         "NeuronPartialState",
     ],
     "pipelines": ["pipeline"],
-    "utils": ["NeuronSFTConfig", "NeuronORPOConfig"],
 }
 
 # Model structures
@@ -143,9 +150,16 @@ if TYPE_CHECKING:
     from .models.inference.whisper import NeuronWhisperForConditionalGeneration
     from .models.inference.yolos import NeuronYolosForObjectDetection
     from .pipelines import pipeline
-    from .trainers import NeuronORPOTrainer, NeuronSFTTrainer, NeuronTrainer, Seq2SeqNeuronTrainer
-    from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
-    from .utils import NeuronORPOConfig, NeuronSFTConfig
+    from .trainers import (
+        NeuronORPOConfig,
+        NeuronORPOTrainer,
+        NeuronSFTConfig,
+        NeuronSFTTrainer,
+        NeuronTrainer,
+        NeuronTrainingArguments,
+        Seq2SeqNeuronTrainer,
+        Seq2SeqNeuronTrainingArguments,
+    )
 
 else:
     import sys

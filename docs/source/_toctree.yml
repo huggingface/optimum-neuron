@@ -1,21 +1,17 @@
 - sections:
   - local: index
     title: 🤗 Optimum Neuron
-  - local: installation
-    title: Installation
+  - local: ec2-setup
+    title: EC2 Setup
   - local: quickstart
     title: Quickstart
+  - local: supported_architectures
+    title: Supported Architectures
   - local: containers
     title: Optimum Containers
   - sections:
-    - local: guides/setup_aws_instance
-      title: Get Started on Amazon EC2
-    - local: guides/sagemaker
-      title: Training and Deployment using Amazon Sagemaker
     - local: guides/cache_system
       title: Neuron model cache
-    - local: guides/fine_tune
-      title: Fine-tune Transformers with AWS Trainium
     - local: guides/distributed_training
       title: Distributed Training
     - local: guides/export_model
@@ -30,22 +26,21 @@
       title: Benchmarking LLM performance with TGI on AWS Inferentia2
     title: How-To Guides
   - sections:
-    - sections:
-      - isExpanded: false
-        sections:
-        - local: training_tutorials/notebooks
-          title: Notebooks
-        - local: training_tutorials/fine_tune_bert
-          title: Fine-tune BERT for Text Classification
-        - local: training_tutorials/sft_lora_finetune_llm
-          title: Fine-tune Llama 3 8B with LoRA and the SFTTrainer
-        - local: training_tutorials/finetune_qwen3
-          title: Fine-tune Qwen 3 on AWS Trainium
-        - local: training_tutorials/pretraining_hyperpod_llm
-          title: Continuous Pretraining of Llama 3.2 1B on SageMaker Hyperpod
-        title: EC2
-      title: Training Tutorials
-    - sections:
+    - local: training_tutorials/fine_tune_bert
+      title: Fine-tune BERT for Text Classification
+    - isExpanded: true
+      sections:
+      - local: training_tutorials/fine_tune_llms_overview
+        title: Overview
+      - local: training_tutorials/sft_lora_finetune_llm
+        title: Fine-Tune Llama 3 8B with LoRA
+      - local: training_tutorials/finetune_qwen3
+        title: Fine-Tune Qwen3 8B with LoRA
+      - local: training_tutorials/pretraining_hyperpod_llm
+        title: Continuous Pretrain Llama 3.2 1B on SageMaker Hyperpod
+      title: How-to Fine-Tune LLMs
+    title: Training Tutorials
+  - sections:
       - isExpanded: false
         sections:
         - local: inference_tutorials/notebooks
@@ -62,8 +57,23 @@
         - local: inference_tutorials/deploy-mixtral-8x7b
           title: Deploy Mixtral 8x7B on AWS Inferentia2 with SageMaker
         title: SageMaker
-      title: Inference Tutorials
-    title: Tutorials
+    title: Inference Tutorials
+  - sections:
+    - local: benchmarks/inferentia-llama3.1-8b
+      title: Llama-3.1 8B on AWS Inferentia2
+    - local: benchmarks/inferentia-llama3.3-70b
+      title: Llama-3.3 70B on AWS Inferentia2
+    title: Inference Benchmarks
+  - sections:
+    - local: contribute/contribute_for_training
+      title: Add a custom model implementation for training
+    - local: contribute/contribute_for_inference
+      title: Add inference support for a new model architecture
+    title: Contribute
+  - sections:
+    - local: package_reference/trainer
+      title: Neuron Trainer
+    title: Training API
   - sections:
     - isExpanded: false
       sections:
@@ -124,26 +134,8 @@
           title: IP-Adapter
         title: SPECIFIC PIPELINES and ADAPTERS
       title: DIFFUSERS PIPELINES
-    title: Models and Pipelines
-  - sections:
-    - local: benchmarks/inferentia-llama3.1-8b
-      title: Llama-3.1 8B on AWS Inferentia2
-    - local: benchmarks/inferentia-llama3.3-70b
-      title: Llama-3.3 70B on AWS Inferentia2
-    title: Benchmarks
-  - sections:
-    - local: community/contributing
-      title: Add support for a new model architecture
-    title: Contribute
-  - sections:
-    - local: package_reference/trainer
-      title: Neuron Trainer
-    - local: package_reference/supported_models
-      title: Supported Architectures
-    - local: package_reference/export
-      title: Neuron Exporter
-    - local: package_reference/modeling
-      title: Neuron Models
-    title: API
+    - local: model_doc/modeling_auto
+      title: Auto Model Classes
+    title: Models and Pipelines Inference API
   title: Optimum Neuron
   isExpanded: true

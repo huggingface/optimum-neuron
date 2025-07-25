@@ -78,18 +78,18 @@ def format_dolly_dataset(example):
 
 
 def main():
-    # 📊 Load instruction-following dataset
+    # Load instruction-following dataset
     dataset = load_dataset("databricks/databricks-dolly-15k", split="train")
     
-    # 🔧 Model configuration
+    # Model configuration
     model_id = "Qwen/Qwen3-1.7B"
     output_dir = "qwen3-1.7b-finetuned"
     
-    # 🔤 Setup tokenizer
+    # Setup tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
     
-    # ⚙️ Configure training for Trainium
+    # Configure training for Trainium
     training_args = NeuronTrainingArguments(
         learning_rate=1e-4,
         tensor_parallel_size=8,  # Split model across 8 accelerators
@@ -99,7 +99,7 @@ def main():
         output_dir=output_dir,
     )
     
-    # 🧠 Load model optimized for Trainium
+    # Load model optimized for Trainium
     model = NeuronModelForCausalLM.from_pretrained(
         model_id,
         training_args.trn_config,
@@ -107,14 +107,14 @@ def main():
         use_flash_attention_2=True,  # Enable fast attention
     )
     
-    # 📝 Setup supervised fine-tuning
+    # Setup supervised fine-tuning
     sft_config = NeuronSFTConfig(
         max_seq_length=2048,
         packing=True,  # Pack multiple samples for efficiency
         **training_args.to_dict(),
     )
     
-    # 🚀 Initialize trainer and start training
+    # Initialize trainer and start training
     trainer = NeuronSFTTrainer(
         model=model,
         args=sft_config,
@@ -125,7 +125,7 @@ def main():
     
     trainer.train()
     
-    # 🤗 Share your model with the community
+    # Share your model with the community
     trainer.push_to_hub(
         commit_message="Fine-tuned on Databricks Dolly dataset",
         blocking=True,
@@ -133,7 +133,7 @@ def main():
     )
     
     if xr.local_ordinal() == 0:
-        print(f"✅ Training complete! Model saved to {output_dir}")
+        print(f"Training complete! Model saved to {output_dir}")
 
 
 if __name__ == "__main__":
