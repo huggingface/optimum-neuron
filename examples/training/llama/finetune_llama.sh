@@ -31,7 +31,7 @@ torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_llama.py \
   --max_steps $MAX_STEPS \
   --per_device_train_batch_size $BS \
   --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
-  --learning_rate 5e-4 \
+  --learning_rate 8e-4 \
   --bf16 \
   --tensor_parallel_size $TP_DEGREE \
   --zero_1 \
@@ -39,5 +39,5 @@ torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_llama.py \
   --logging_steps $LOGGING_STEPS \
   --output_dir $OUTPUT_DIR \
   --lr_scheduler_type "cosine" \
-  --warmup_ratio 0.1 \
+  --warmup_ratio 0.03 \
   --overwrite_output_dir
