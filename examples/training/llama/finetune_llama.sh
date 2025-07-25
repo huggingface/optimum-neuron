@@ -13,7 +13,7 @@ TP_DEGREE=8
 BS=1
 GRADIENT_ACCUMULATION_STEPS=8
 LOGGING_STEPS=2
-MODEL_NAME="meta-llama/Meta-Llama-3-8B" # Change this to the desired model name
+MODEL_NAME="meta-llama/Llama-3.1-8B" # Change this to the desired model name
 OUTPUT_DIR="$(echo $MODEL_NAME | cut -d'/' -f2)-finetuned"
 DISTRIBUTED_ARGS="--nproc_per_node $PROCESSES_PER_NODE"
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
@@ -31,7 +31,7 @@ torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_llama.py \
   --max_steps $MAX_STEPS \
   --per_device_train_batch_size $BS \
   --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
-  --learning_rate 5e-5 \
+  --learning_rate 5e-4 \
   --bf16 \
   --tensor_parallel_size $TP_DEGREE \
   --zero_1 \
