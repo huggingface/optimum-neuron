@@ -65,15 +65,7 @@ def train(model_id, tokenizer, dataset, training_args):
         r=16,
         lora_alpha=16,
         lora_dropout=0.05,
-        target_modules=[
-            "q_proj",
-            "gate_proj", 
-            "v_proj",
-            "o_proj",
-            "k_proj",
-            "up_proj",
-            "down_proj"
-        ],
+        target_modules=["q_proj", "gate_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj"],
         bias="none",
         task_type="CAUSAL_LM",
     )
