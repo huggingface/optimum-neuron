@@ -30,7 +30,7 @@
       title: Fine-tune BERT for Text Classification
     - isExpanded: true
       sections:
-      - local: training_tutorials/fine_tune_llms_overview
+      - local: training_tutorials/finetune_llms_overview
         title: Overview
       - local: training_tutorials/finetune_llama
         title: Fine-Tune Llama 3 8B with LoRA
