@@ -497,8 +497,8 @@ class NeuronTracedModel(NeuronModel):
             tensor_parallel_size=tensor_parallel_size,
             input_shapes=compile_shapes,
             output_hidden_states=neuron_config.get("output_hidden_states", False),
-            int_dtype=DTYPE_MAPPER.pt(neuron_config.get("int_dtype")),
-            float_dtype=DTYPE_MAPPER.pt(neuron_config.get("float_dtype")),
+            int_dtype=DTYPE_MAPPER.pt(neuron_config.get("int_dtype", "int64")),
+            float_dtype=DTYPE_MAPPER.pt(neuron_config.get("float_dtype", "fp32")),
         )
 
     @classmethod
