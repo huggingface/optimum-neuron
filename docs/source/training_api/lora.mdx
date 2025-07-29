@@ -1,0 +1,83 @@
+<!---
+Copyright 2025 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# LoRA for Neuron
+
+LoRA (Low-Rank Adaptation) implementation optimized for distributed training on AWS Trainium devices. This module provides efficient parameter-efficient fine-tuning with tensor parallelism and sequence parallelism support.
+
+## PEFT Model Classes
+
+### NeuronPeftModel
+
+[[autodoc]] peft.peft_model.NeuronPeftModel
+
+### NeuronPeftModelForCausalLM
+
+[[autodoc]] peft.peft_model.NeuronPeftModelForCausalLM
+
+## LoRA Layer Implementations
+
+### Base LoRA Layer
+
+[[autodoc]] peft.tuners.lora.layer.NeuronLoraLayer
+
+### Parallel Linear LoRA
+
+[[autodoc]] peft.tuners.lora.layer.ParallelLinear
+
+### GQA QKV Column Parallel LoRA
+
+[[autodoc]] peft.tuners.lora.layer.GQAQKVColumnParallelLinear
+
+### Parallel Embedding LoRA
+
+[[autodoc]] peft.tuners.lora.layer.ParallelEmbedding
+
+## LoRA Model
+
+### NeuronLoraModel
+
+[[autodoc]] peft.tuners.lora.model.NeuronLoraModel
+
+## Utility Functions
+
+### get_peft_model
+
+[[autodoc]] peft.mapping_func.get_peft_model
+
+### State Dict Functions
+
+[[autodoc]] peft.utils.save_and_load.get_peft_model_state_dict
+
+[[autodoc]] peft.utils.save_and_load.has_valid_embedding_base_layer
+
+## Architecture Support
+
+The Neuron LoRA implementation supports the following parallel layer types:
+
+- **ColumnParallelLinear**: For layers that split weights along the output dimension
+- **RowParallelLinear**: For layers that split weights along the input dimension  
+- **ParallelEmbedding**: For embedding layers distributed across ranks
+- **GQAQKVColumnParallelLinear**: For grouped query attention projections with challenging tensor parallel configurations
+
+Each layer type has a corresponding LoRA implementation that maintains the parallelization strategy while adding low-rank adaptation capabilities.
+
+## Key Features
+
+- **Distributed Training**: Full support for tensor parallelism and sequence parallelism
+- **Checkpoint Consolidation**: Automatic conversion between sharded and consolidated checkpoints
+- **Weight Transformation**: Seamless integration with model weight transformation specs
+- **Compatibility**: Works with all supported custom modeling architectures in Optimum Neuron

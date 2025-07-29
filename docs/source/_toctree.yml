@@ -75,6 +75,8 @@
       title: Neuron Trainer
     - local: training_api/trl_trainers
       title: Neuron TRL Trainers
+    - local: training_api/lora
+      title: LoRA for Neuron
     title: Training API
   - sections:
     - isExpanded: false
