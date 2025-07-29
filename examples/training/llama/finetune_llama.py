@@ -30,18 +30,27 @@ from optimum.neuron.models.training import NeuronModelForCausalLM
 # NOTE: this section can be adapted to load any dataset you want.
 dataset_id = "databricks/databricks-dolly-15k"
 dolly_dataset = load_dataset(dataset_id, split="train")
+# To remove, it's just to test training.
+dolly_dataset = dolly_dataset.select([0] * 100000)
 
 
-def format_dolly(examples):
-    """Format Dolly dataset examples into instruction-response pairs."""
-    output_text = []
-    for i in range(len(examples["instruction"])):
-        instruction = f"### Instruction\n{examples['instruction'][i]}"
-        context = f"### Context\n{examples['context'][i]}" if len(examples["context"][i]) > 0 else None
-        response = f"### Answer\n{examples['response'][i]}"
-        prompt = "\n\n".join([j for j in [instruction, context, response] if j is not None])
-        output_text.append(prompt)
-    return output_text
+def format_dolly(example):
+    """Format Dolly dataset examples using Llama 3.1 chat template format."""
+    user_content = example["instruction"]
+    if len(example["context"]) > 0:
+        user_content += f"\n\nContext: {example['context']}"
+
+    # Format using Llama 3.1 chat template structure
+    formatted_text = (
+        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
+        "Cutting Knowledge Date: December 2023\n"
+        "Today Date: 29 Jul 2025\n\n"
+        "You are a helpful assistant<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n"
+        f"{user_content}<|eot_id|>\n"
+        f"<|start_header_id|>assistant<|end_header_id|>\n\n"
+        f"{example['response']}<|eot_id|>"
+    )
+    return formatted_text
 
 
 # =============================================================================
@@ -63,9 +72,9 @@ def train(model_id, tokenizer, dataset, training_args):
 
     lora_config = LoraConfig(
         r=16,
-        lora_alpha=16,
+        lora_alpha=32,
         lora_dropout=0.05,
-        target_modules=["q_proj", "gate_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj"],
+        target_modules=["embed_tokens", "q_proj", "gate_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj"],
         bias="none",
         task_type="CAUSAL_LM",
     )
@@ -75,7 +84,7 @@ def train(model_id, tokenizer, dataset, training_args):
 
     sft_config = NeuronSFTConfig(
         max_seq_length=2048,
-        packing=False,
+        packing=True,
         **args,
     )
 
@@ -110,7 +119,7 @@ if __name__ == "__main__":
     script_args, training_args = parser.parse_args_into_dataclasses()
 
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_id)
-    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.pad_token = "<|finetune_right_pad_id|>"
 
     train(
         model_id=script_args.model_id,
