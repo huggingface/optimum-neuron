@@ -53,7 +53,7 @@ For models that exceed these memory constraints, `optimum-neuron` provides sophi
 **Requirement**: Only works in combination with tensor parallelism.
 
 ### 4. Pipeline Parallelism (Inter-layer Model Parallelism)
-[Pipeline Parallelism](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/libraries/neuronx-distributed/pipeline_parallelism_overview.html) splits model layers across different devices vertically.
+[Pipeline Parallelism](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/libraries/neuronx-distributed/pipeline_parallelism_overview.html) splits model layers across different devices.
 
 **How it works**: Divides your model into stages, with each stage containing consecutive layers running on different devices. Uses microbatching to keep all devices busy.
 
@@ -267,7 +267,7 @@ training_args = NeuronTrainingArguments(
 
 # Load model using custom implementation - must be done with the model class directly
 model = LlamaForCausalLM.from_pretrained(
-    "meta-llama/Llama-2-7b-hf",
+    "meta-llama/Llama-3.2-3B",
     trn_config=training_args.trn_config  # Pass the auto-generated trn_config
 )
 
@@ -305,7 +305,7 @@ accelerator = NeuronAccelerator(
 
 # Load model with custom implementation
 model = LlamaForCausalLM.from_pretrained(
-    "meta-llama/Llama-2-7b-hf",
+    "meta-llama/Llama-3.2-3B",
     trn_config=trn_config
 )
 
@@ -354,7 +354,7 @@ training_args = NeuronTrainingArguments(
 
 # Load model using custom implementation
 model = LlamaForCausalLM.from_pretrained(
-    "meta-llama/Llama-2-7b-hf",
+    "meta-llama/Llama-3.2-3B",
     trn_config=training_args.trn_config
 )
 
