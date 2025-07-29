@@ -1,5 +1,5 @@
 <!---
-Copyright 2023 The HuggingFace Team. All rights reserved.
+Copyright 2025 The HuggingFace Team. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,16 +14,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# NeuronTrainer
+# TRL Trainers
 
-Training classes for AWS Trainium accelerators.
+[TRL](https://huggingface.co/docs/trl/en/index)-compatible trainers for AWS Trainium accelerators.
 
-## NeuronTrainingArguments
+## NeuronSFTTrainer
 
-[[autodoc]] trainers.training_args.NeuronTrainingArguments
+### NeuronSFTConfig
 
-## NeuronTrainer
+[[autodoc]] trainers.trl_utils.NeuronSFTConfig
 
-[[autodoc]] trainers.NeuronTrainer
+### NeuronSFTTrainer
 
-[[autodoc]] trainers.Seq2SeqNeuronTrainer
+[[autodoc]] trainers.sft_trainer.NeuronSFTTrainer
+
+
+## NeuronORPOTrainer
+
+### NeuronORPOConfig
+
+[[autodoc]] trainers.trl_utils.NeuronORPOConfig
+
+### NeuronORPOTrainer
+
+[[autodoc]] trainers.orpo_trainer.NeuronORPOTrainer
