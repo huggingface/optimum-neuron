@@ -75,6 +75,8 @@
       title: Neuron Trainer
     - local: training_api/trl_trainers
       title: Neuron TRL Trainers
+    - local: training_api/transformations
+      title: Model Weight Transformation Specs
     title: Training API
   - sections:
     - isExpanded: false
