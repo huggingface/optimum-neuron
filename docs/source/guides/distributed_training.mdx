@@ -37,6 +37,8 @@ To alleviate that, `optimum-neuron` supports several parallelism strategies enab
 
 **When to use**: When your model is too large to fit on a single device, even after applying ZeRO-1.
 
+**Typical deployment**: Usually applied within a single node (intra-node) due to high communication requirements.
+
 **Trade-offs**: Increases communication overhead between devices, which can slow down training if overused.
 
 ### 3. Sequence Parallelism (Activation Sharding)
@@ -58,6 +60,8 @@ To alleviate that, `optimum-neuron` supports several parallelism strategies enab
 **Memory savings**: Reduces model parameter memory by `1/pipeline_parallel_size`.
 
 **When to use**: For very large models that don't fit even with tensor parallelism, or when you want to scale across many devices with less communication overhead than tensor parallelism.
+
+**Typical deployment**: Usually applied across multiple nodes (inter-node) to scale to larger numbers of devices while minimizing high-bandwidth communication requirements.
 
 **Trade-offs**: Introduces pipeline bubbles (idle time) and requires careful tuning of microbatch sizes.
 
