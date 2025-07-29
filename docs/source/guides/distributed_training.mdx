@@ -15,12 +15,51 @@ specific language governing permissions and limitations under the License.
 
 But there is a caveat: each Neuron core is an independent data-parallel worker by default. It means that the model, the gradient state and the optimizer state, amounting to approximately 4 times the model size, must fit in each of the Neuron cores (16GB) to be able to train. If that is the case, then the activations must also fit in the remaining memory.
 
-To alleviate that, `optimum-neuron` supports parallelism features enabling you to harness the full power of your Trainium instance:
+To alleviate that, `optimum-neuron` supports several parallelism strategies enabling you to harness the full power of your Trainium instance:
 
-  1. [ZeRO-1](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-neuronx/tutorials/training/zero1_gpt2.html): It is an optimization of data-parallelism which consists in sharding the optimizer state (which usually represents half of the memory needed on the device) over the data-parallel ranks.
-  2. [Tensor Parallelism](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/libraries/neuronx-distributed/tensor_parallelism_overview.html): It is a technique which consists in sharding each of your model matrix-multiplications along a given axis (row or column) on multiple devices. It also known as intra-layer model parallelism. The number of devices to shard your parameters on is called the `tensor_parallel_size`. 
-  3. [Sequence parallelism](https://arxiv.org/pdf/2205.05198.pdf): It is an optimization over Tensor Parallelism which shards the activations on the sequence axis outside of the tensor parallel regions. It is useful because it saves memory by sharding the activations.
-  4. [Pipeline Parallelism](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/libraries/neuronx-distributed/pipeline_parallelism_overview.html): It consists in sharding the model block layers on multiple devices. It is also known as inter-layer model parallelism. The number of devices to shard your layers on is called the `pipeline_parallel_size`.
+## Parallelism Strategies Overview
+
+### 1. ZeRO-1 (Optimizer State Sharding)
+[ZeRO-1](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-neuronx/tutorials/training/zero1_gpt2.html) is an optimizer-level optimization that reduces memory usage without changing your model architecture.
+
+**How it works**: Shards the optimizer state (gradients, momentum, variance) across data-parallel ranks instead of replicating it on each device.
+
+**Memory savings**: Reduces optimizer memory usage by `1/data_parellel_size`.
+
+**When to use**: Always beneficial when training with multiple devices, regardless of model size.
+
+### 2. Tensor Parallelism (Intra-layer Model Parallelism)
+[Tensor Parallelism](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/libraries/neuronx-distributed/tensor_parallelism_overview.html) splits individual model layers across multiple devices.
+
+**How it works**: Shards matrix multiplications (linear layers, attention) along rows or columns across devices. Each device computes part of each layer, requiring communication between devices for each forward/backward pass.
+
+**Memory savings**: Reduces model parameter memory by `1/tensor_parallel_size`.
+
+**When to use**: When your model is too large to fit on a single device, even after applying ZeRO-1.
+
+**Trade-offs**: Increases communication overhead between devices, which can slow down training if overused.
+
+### 3. Sequence Parallelism (Activation Sharding)
+[Sequence parallelism](https://arxiv.org/pdf/2205.05198.pdf) is an optimization that works alongside Tensor Parallelism to further reduce memory usage.
+
+**How it works**: Shards activations along the sequence dimension in regions where tensors are not already sharded by tensor parallelism.
+
+**Memory savings**: Reduces activation memory proportional to sequence length, especially beneficial for long sequences.
+
+**When to use**: Always enable when using tensor parallelism - it provides additional memory savings with minimal overhead.
+
+**Requirement**: Only works in combination with tensor parallelism.
+
+### 4. Pipeline Parallelism (Inter-layer Model Parallelism)
+[Pipeline Parallelism](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/libraries/neuronx-distributed/pipeline_parallelism_overview.html) splits model layers across different devices vertically.
+
+**How it works**: Divides your model into stages, with each stage containing consecutive layers running on different devices. Uses microbatching to keep all devices busy.
+
+**Memory savings**: Reduces model parameter memory by `1/pipeline_parallel_size`.
+
+**When to use**: For very large models that don't fit even with tensor parallelism, or when you want to scale across many devices with less communication overhead than tensor parallelism.
+
+**Trade-offs**: Introduces pipeline bubbles (idle time) and requires careful tuning of microbatch sizes.
 
 The good news is that it is possible to combine those techniques, and `optimum-neuron` makes it very easy!
 
@@ -405,45 +444,17 @@ The sharded checkpoints are saved under a directory called `shards`. The `optimu
 
 </Tip>
 
-## Training Arguments Reference
-
-The `NeuronTrainingArguments` class provides comprehensive control over all aspects of distributed training. Here are the key parameters:
-
-### Core Parallelism Settings
-- `tensor_parallel_size`: Number of devices for tensor parallelism (default: 1)
-- `pipeline_parallel_size`: Number of pipeline stages (default: 1)
-- `pipeline_parallel_num_microbatches`: Number of microbatches for pipeline scheduling (default: -1, auto-calculated)
-
-### Tensor Parallelism Options
-- `disable_sequence_parallel`: Disable sequence parallelism (default: False)
-- `kv_size_multiplier`: Multiplier for key-value cache size (default: None, auto-calculated)
-
-### ZeRO Optimization
-- `zero_1`: Enable ZeRO Stage 1 optimization (default: False)
-
-### Memory and Performance Optimizations
-- `gradient_checkpointing`: Enable gradient checkpointing to save memory (default: False)
-- `fuse_qkv`: Fuse query-key-value projections for efficiency (default: False)
-- `recompute_causal_mask`: Recompute attention masks to save memory (default: True)
-
-### Checkpoint and Serialization
-- `use_xser`: Use optimized XLA serialization (default: True)
-- `async_save`: Enable asynchronous checkpoint saving (default: False)
-- `num_local_ranks_per_step`: Local ranks per checkpoint step (default: 8)
-
 ### Example Configurations
 
 ```python
 # Memory-optimized configuration for large models
 training_args = NeuronTrainingArguments(
     output_dir="./output",
-    per_device_train_batch_size=1,
+    per_device_train_batch_size=16,
     bf16=True,
     tensor_parallel_size=8,
     pipeline_parallel_size=4,
-    disable_sequence_parallel=False,
     gradient_checkpointing=True,
-    fuse_qkv=True,
     pipeline_parallel_num_microbatches=16,
     zero_1=True,
 )
@@ -454,7 +465,6 @@ training_args = NeuronTrainingArguments(
     per_device_train_batch_size=4,
     bf16=True,
     tensor_parallel_size=4,
-    fuse_qkv=True,
     async_save=True,
 )
 
@@ -465,7 +475,6 @@ training_args = NeuronTrainingArguments(
     bf16=True,
     tensor_parallel_size=2,
     pipeline_parallel_size=2,
-    disable_sequence_parallel=False,
     gradient_checkpointing=True,
     zero_1=True,
 )
