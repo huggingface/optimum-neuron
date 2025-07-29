@@ -126,9 +126,7 @@ def _custom_model_matches_original_model(
 
     static_seed_patcher = StaticSeedPatcher(SEED)
 
-    accelerator = create_accelerator(
-        tp_size, pp_size, sequence_parallel_enabled=sequence_parallel_enabled
-    )
+    accelerator = create_accelerator(tp_size, pp_size, sequence_parallel_enabled=sequence_parallel_enabled)
 
     orig_model_class = getattr(transformers, model_class_name)
     with static_seed_patcher:
