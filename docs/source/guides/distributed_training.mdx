@@ -11,11 +11,11 @@ specific language governing permissions and limitations under the License.
 -->
 # Distributed Training with `optimum-neuron`
 
-[AWS Trainium instances](https://aws.amazon.com/machine-learning/trainium/) are great to train models. They can contain up to 16 Neuron devices, each device containing 2 Neuron cores and has 32GB of memory (16GB per core). For example a `trn1.32xlarge` instance has 32 x 16 = 512GB of memory.
+AWS Trainium instances provide powerful infrastructure for training large language models at scale. A `trn1.32xlarge` instance contains 16 Neuron devices with 32 cores total, offering 512GB of memory (16GB per core).
 
-But there is a caveat: each Neuron core is an independent data-parallel worker by default. It means that the model, the gradient state and the optimizer state, amounting to approximately 4 times the model size, must fit in each of the Neuron cores (16GB) to be able to train. If that is the case, then the activations must also fit in the remaining memory.
+However, training large models presents a fundamental challenge: by default, each Neuron core operates as an independent data-parallel worker, requiring the entire model, gradients, and optimizer state (approximately 4× the model size) to fit within a single core's 16GB memory limit, with additional space needed for activations.
 
-To alleviate that, `optimum-neuron` supports several parallelism strategies enabling you to harness the full power of your Trainium instance:
+For models that exceed these memory constraints, `optimum-neuron` provides sophisticated parallelism strategies that distribute computation and memory across multiple devices, enabling you to train models that would be impossible to fit on individual cores:
 
 ## Parallelism Strategies Overview
 
@@ -447,42 +447,6 @@ optimum-cli neuron consolidate my_training my_training_consolidated_checkpoint
 The sharded checkpoints are saved under a directory called `shards`. The `optimum-cli neuron consolidate` command accepts as input both a directory that contains a `shards` directory, or the `shards` directory itself.
 
 </Tip>
-
-### Example Configurations
-
-```python
-# Memory-optimized configuration for large models
-training_args = NeuronTrainingArguments(
-    output_dir="./output",
-    per_device_train_batch_size=16,
-    bf16=True,
-    tensor_parallel_size=8,
-    pipeline_parallel_size=4,
-    gradient_checkpointing=True,
-    pipeline_parallel_num_microbatches=16,
-    zero_1=True,
-)
-
-# High-throughput configuration
-training_args = NeuronTrainingArguments(
-    output_dir="./output",
-    per_device_train_batch_size=4,
-    bf16=True,
-    tensor_parallel_size=4,
-    async_save=True,
-)
-
-# Balanced configuration
-training_args = NeuronTrainingArguments(
-    output_dir="./output",
-    per_device_train_batch_size=2,
-    bf16=True,
-    tensor_parallel_size=2,
-    pipeline_parallel_size=2,
-    gradient_checkpointing=True,
-    zero_1=True,
-)
-```
 
 ## Best Practices
 
