@@ -71,8 +71,10 @@
       title: Add inference support for a new model architecture
     title: Contribute
   - sections:
-    - local: package_reference/trainer
+    - local: training_api/trainer
       title: Neuron Trainer
+    - local: training_api/trl_trainers
+      title: Neuron TRL Trainers
     title: Training API
   - sections:
     - isExpanded: false
