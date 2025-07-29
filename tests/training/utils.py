@@ -379,7 +379,6 @@ def create_accelerator(
     pp_size: int,
     zero_1: bool = False,
     gradient_accumulation_steps: int = 1,
-    parallelize_embeddings: bool = True,
     sequence_parallel_enabled: bool = True,
     kv_size_multiplier: int | None = None,
     checkpoint_dir: Path | str | None = None,
@@ -388,7 +387,6 @@ def create_accelerator(
     trn_config = TrainingNeuronConfig(
         tensor_parallel_size=tp_size,
         kv_size_multiplier=kv_size_multiplier,
-        parallelize_embeddings=parallelize_embeddings,
         sequence_parallel_enabled=sequence_parallel_enabled,
         pipeline_parallel_size=pp_size,
         checkpoint_dir=checkpoint_dir,

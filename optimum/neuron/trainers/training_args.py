@@ -61,16 +61,6 @@ class NeuronTrainingArgumentsMixin:
     tensor_parallel_size: int = field(
         default=1, metadata={"help": "The number of replicas the model will be sharded on."}
     )
-    disable_embedding_parallelization: bool = field(
-        default=False,
-        metadata={
-            "help": (
-                "If set, the embeddings will not be parallelized when doing model parallelism. When embeddings are not "
-                "parallelized in decoder and seq2seq models, the language modeling head cannot be parallelized either "
-                "or need an all-gather, which can be costly."
-            )
-        },
-    )
     disable_sequence_parallel: bool = field(
         default=False,
         metadata={"help": "Whether or not to disable sequence parallelism."},
@@ -187,7 +177,6 @@ class NeuronTrainingArgumentsMixin:
 
         self.trn_config = TrainingNeuronConfig(
             self.tensor_parallel_size,
-            parallelize_embeddings=not self.disable_embedding_parallelization,
             sequence_parallel_enabled=not self.disable_sequence_parallel,
             kv_size_multiplier=self.kv_size_multiplier,
             pipeline_parallel_size=self.pipeline_parallel_size,
