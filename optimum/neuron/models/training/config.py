@@ -12,7 +12,6 @@ from ...utils.torch_xla_and_neuronx_initialization import init_process_group
 @register_neuron_config
 class TrainingNeuronConfig(NeuronConfig):
     tensor_parallel_size: int = 1
-    parallelize_embeddings: bool = True
     sequence_parallel_enabled: bool = False
     kv_size_multiplier: int | None = None
     pipeline_parallel_size: int = 1
