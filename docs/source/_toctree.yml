@@ -77,6 +77,8 @@
       title: Neuron TRL Trainers
     - local: training_api/transformations
       title: Model Weight Transformation Specs
+    - local: training_api/lora
+      title: LoRA for Neuron
     title: Training API
   - sections:
     - isExpanded: false

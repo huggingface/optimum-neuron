@@ -40,5 +40,6 @@ def has_valid_embedding_base_layer(layer):
 
 @functools.wraps(orig_get_peft_model_state_dict)
 def get_peft_model_state_dict(*args, **kwargs):
+    """Get the state dict of the PEFT model"""
     with Patcher([("peft.utils.save_and_load.has_valid_embedding_base_layer", has_valid_embedding_base_layer)]):
         return orig_get_peft_model_state_dict(*args, **kwargs)
