@@ -492,8 +492,12 @@ class _TrainerForNeuron:
                 self.control.should_save = is_new_best_metric
 
         if self.control.should_save:
-            self._save_checkpoint(model, trial)
-            self.control = self.callback_handler.on_save(self.args, self.state, self.control)
+
+            def save_closure(self, model, trial):
+                self._save_checkpoint(model, trial)
+                self.control = self.callback_handler.on_save(self.args, self.state, self.control)
+
+            xm.add_step_closure(save_closure, (self, model, trial))
 
     def _save_xla(self, output_dir: str | None = None):
         output_dir = output_dir if output_dir is not None else self.args.output_dir
