@@ -547,8 +547,8 @@ class _TrainerForNeuron:
                     save_function=xm.save,
                 )
 
-        if self.tokenizer is not None and self.args.should_save:
-            self.tokenizer.save_pretrained(output_dir)
+        if self.processing_class is not None and self.args.should_save:
+            self.processing_class.save_pretrained(output_dir)
 
     def save_model(self, output_dir: str | None = None, _internal_call: bool = False):
         if not is_precompilation():  # Avoid unnecessary model saving during precompilation
