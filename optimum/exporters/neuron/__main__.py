@@ -556,7 +556,7 @@ def load_models_and_neuron_configs(
     local_files_only: bool,
     token: bool | str | None,
     submodels: dict[str, Path | str] | None,
-    torch_dtype: str | torch.dtype | None = None,
+    torch_dtype: str | torch.dtype = torch.float32,
     tensor_parallel_size: int = 1,
     controlnet_ids: str | list[str] | None = None,
     lora_args: LoRAAdapterArguments | None = None,
