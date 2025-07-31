@@ -276,13 +276,14 @@ class _TrainerForNeuron:
     def synchronize_hub_cache(self):
         cache_path = get_neuron_cache_path()
         repo_id = get_hf_hub_cache_repos()[0]
-        try:
-            synchronize_hub_cache(cache_path=cache_path, cache_repo_id=repo_id)
-        except Exception as e:
-            logger.warning(
-                f"Failed to synchronize the hub cache for {repo_id}. This is not a critical error, but it prevents"
-                f"compilation caching with the Hugging Face Hub. Error: {e}"
-            )
+        if not self.args.skip_cache_push:
+            try:
+                synchronize_hub_cache(cache_path=cache_path, cache_repo_id=repo_id)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to synchronize the hub cache for {repo_id}. This is not a critical error, but it prevents"
+                    f"compilation caching with the Hugging Face Hub. Error: {e}"
+                )
 
     def _wrap_model(self, model, training=True, dataloader=None):
         return super()._wrap_model(
