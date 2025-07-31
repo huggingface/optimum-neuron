@@ -14,109 +14,160 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# Fine-tune BERT for Text Classification
+# 🚀 Fine-tune BERT for Text Classification
 
-> Transform text classification with lightning-fast BERT training on AWS Trainium accelerators
+This tutorial shows how to fine-tune BERT for emotion classification on AWS Trainium accelerators using optimum-neuron.
 
-_Complete example available: [fine_tune_bert.py](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/bert/fine_tune_bert.py)_
+**This is based on the [BERT fine-tuning example script](https://github.com/huggingface/optimum-neuron/tree/main/examples/training/bert).**
 
-This guide demonstrates fine-tuning BERT for emotion classification in **under 8 minutes** and **$0.20** on AWS Trainium using the [emotion dataset](https://huggingface.co/datasets/dair-ai/emotion).
+## 1. 🛠️ Setup AWS Environment
 
-## Prerequisites
+We'll use a `trn1.2xlarge` instance with 1 Trainium Accelerator (2 Neuron Cores) and the Hugging Face Neuron Deep Learning AMI.
 
-- AWS Trainium instance (`trn1.2xlarge` recommended)
-- [Hugging Face Account](https://huggingface.co/join) for model sharing
-- Optimum Neuron installed with training dependencies:
+The Hugging Face AMI includes all required libraries pre-installed:
+- `datasets`, `transformers`, `optimum-neuron`  
+- Neuron SDK packages
+- No additional environment setup needed
 
-```bash
-python -m pip install .[training]
+To create your instance, follow the guide [here](https://huggingface.co/docs/optimum-neuron/ec2-setup).
+
+## 2. 📊 Load and Prepare the Dataset
+
+We'll use the [emotion dataset](https://huggingface.co/datasets/dair-ai/emotion) to fine-tune our model for emotion classification. The dataset contains English Twitter messages labeled with six emotions: anger, fear, joy, love, sadness, and surprise.
+
+```
+{
+    'text': 'i feel like i am still looking at the same stuff i look at all the time',
+    'label': 4  # sadness
+}
 ```
 
-## Quick Start
-
-Download and run the complete training script:
-
-```bash
-# Get the training script
-wget https://raw.githubusercontent.com/huggingface/optimum-neuron/main/examples/training/bert/fine_tune_bert.py
-
-# Launch distributed training on 2 Neuron cores
-torchrun --nproc_per_node=2 fine_tune_bert.py
-```
-
-## What happens during training?
-
-The script automatically:
-
-1. **Loads the emotion dataset** - 16,000 English Twitter messages with 6 emotion labels
-2. **Tokenizes text** - Converts text to BERT-compatible tokens (max length: 128)
-3. **Fine-tunes BERT** - 3 epochs with optimized hyperparameters for Trainium
-4. **Saves the model** - Ready-to-use emotion classifier
-
-Key training configuration:
+To load the dataset we use the `load_dataset()` method from the `datasets` library:
 
 ```python
-# Essential training setup
-from transformers import AutoModelForSequenceClassification, Trainer, TrainingArguments
 from datasets import load_dataset
+from random import randrange
 
-# Load emotion dataset and BERT model
-dataset = load_dataset("dair-ai/emotion")
+# Load dataset from the hub  
+dataset_id = "dair-ai/emotion"
+dataset = load_dataset(dataset_id)
+
+dataset_size = len(dataset["train"])
+print(f"dataset size: {dataset_size}")
+# dataset size: 16000
+```
+
+To prepare our dataset, we need to tokenize the text inputs to convert them into BERT-compatible tokens. We'll use padding and truncation to ensure all sequences have the same length:
+
+```python
+from transformers import AutoTokenizer
+
+# Load tokenizer
+model_id = "bert-base-uncased"
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+# Tokenization function  
+def tokenize_function(examples):
+    return tokenizer(
+        examples["text"],
+        padding="max_length", 
+        truncation=True,
+        max_length=128,
+    )
+
+# Apply tokenization
+dataset = dataset.map(tokenize_function, batched=True)
+```
+
+## 3. 🎯 Fine-tune BERT with Trainer
+
+For standard PyTorch fine-tuning, we use the [`Trainer`](https://huggingface.co/docs/transformers/en/main_classes/trainer) and [`TrainingArguments`](https://huggingface.co/docs/transformers/en/main_classes/trainer#transformers.TrainingArguments) classes.
+
+**Distributed Training on Trainium:**
+Since we're using `trn1.2xlarge` with 2 Neuron Cores, we can leverage data parallelism for faster training.
+
+Combining all the pieces together, we can write the following code to fine-tune BERT on AWS Trainium:
+
+```python
+from transformers import AutoModelForSequenceClassification, Trainer, TrainingArguments
+
+model_id = "bert-base-uncased"
+
+# Load model for sequence classification
+num_labels = len(dataset["train"].features["label"].names)
 model = AutoModelForSequenceClassification.from_pretrained(
-    "bert-base-uncased", num_labels=6
+    model_id, 
+    num_labels=num_labels
 )
 
-# Optimized training arguments for Trainium
+# Define training arguments optimized for Trainium
 training_args = TrainingArguments(
     output_dir="bert-emotion-model",
     num_train_epochs=3,
     per_device_train_batch_size=8,
     learning_rate=5e-5,
     bf16=True,  # Faster training on Trainium
-    eval_strategy="epoch",
+    do_train=True,
+    save_strategy="epoch", 
+    logging_steps=100,
+    overwrite_output_dir=True,
 )
+
+# Initialize trainer
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=dataset["train"],
+    processing_class=tokenizer,
+)
+
+# Start training
+trainer.train()
 ```
 
-## Results
+📝 **Complete script available:** All steps above are combined in a ready-to-use script [fine_tune_bert.py](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/bert/fine_tune_bert.py).
 
-**Training Performance:**
-- ⏱️ **Training time**: ~7.5 minutes (3 epochs)
-- 💰 **Cost**: ~$0.18 on `trn1.2xlarge`
-- 📊 **Final metrics**: 82.4% validation accuracy, 0.176 eval loss
-
-**Sample output:**
-```bash
-🚀 Starting BERT fine-tuning with model: bert-base-uncased
-⚡ Training started...
-***** train metrics *****
-  train_loss               =     0.2024
-  train_runtime            = 0:07:27.14
-  eval_loss                =     0.1761
-✅ Training completed! Model saved to bert-emotion-model
-```
-
-## Customization
-
-Modify training parameters via command-line arguments:
+To launch training, just run the following command in your AWS Trainium instance:
 
 ```bash
-# Custom model and training settings  
+# Launch distributed training on 2 Neuron cores
 torchrun --nproc_per_node=2 fine_tune_bert.py \
-  --model_id distilbert-base-uncased \
-  --epochs 5 \
-  --learning_rate 3e-5 \
-  --batch_size 16 \
-  --output_dir my-emotion-model
+  --model_id bert-base-uncased \
+  --learning_rate 5e-5 \
+  --batch_size 8 \
+  --epochs 3 \
+  --output_dir bert-emotion-model
 ```
 
-## Next Steps
+🔧 **Single command execution:** The complete bash training script [fine_tune_bert.sh](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/bert/fine_tune_bert.sh) is available:
 
-🚀 **Deploy your model**: Use [AWS Inferentia](https://huggingface.co/docs/optimum-neuron/guides/export_model) for cost-effective inference  
-📤 **Share on Hub**: Add `--repository_id your-username/model-name` to upload automatically  
-🔧 **Adapt to your data**: Replace the emotion dataset with your own text classification dataset
+```bash
+./fine_tune_bert.sh
+```
 
-<Tip>
+## 5. 🤗 Push to Hugging Face Hub
 
-💡 **Remember**: Terminate your EC2 instance to avoid unnecessary charges!
+Share your fine-tuned model with the community by uploading it to the Hugging Face Hub.
 
-</Tip>
+**Step 1: Authentication**
+```bash
+huggingface-cli login
+```
+
+**Step 2: Upload your model**
+```python
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+MODEL_PATH = "bert-emotion-model"
+HUB_MODEL_NAME = "your-username/bert-emotion-classifier"
+
+# Load and push tokenizer
+tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+tokenizer.push_to_hub(HUB_MODEL_NAME)
+
+# Load and push model
+model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
+model.push_to_hub(HUB_MODEL_NAME)
+```
+
+🎉 **Your fine-tuned BERT model is now available on the Hub for others to use!**
