@@ -1,6 +1,6 @@
 # Adapted from https://github.com/aws-neuron/neuronx-distributed/blob/c9ee222866916e2f2ab10be884a7ad237c7cb7f4/src/neuronx_distributed/modules/moe/expert_mlps_v2.py
 import math
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import torch
 import torch.nn.functional as F
@@ -55,6 +55,7 @@ class ExpertMLPsV2(torch.nn.Module):
         device: torch.device = torch.device("cpu"),
         tensor_model_parallel_group: Optional[ProcessGroup] = None,
         expert_model_parallel_group: Optional[ProcessGroup] = None,
+        glu_activation_fn: Optional[Callable[..., Any]] = None,
         # spmd_rank will be removed once we support ReplicaID (P87857655)
     ):
         super().__init__()
@@ -100,6 +101,7 @@ class ExpertMLPsV2(torch.nn.Module):
             input_layer_init_method=routed_experts_mlp_config.input_layer_init_method,
             output_layer_init_method=routed_experts_mlp_config.output_layer_init_method,
             tensor_model_parallel_group=self.tensor_parallel_group,
+            glu_activation_fn=glu_activation_fn,
         )
         self.dtype = dtype
         self.device = device
