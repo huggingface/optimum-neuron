@@ -30,6 +30,7 @@ class ExpertMLPs(ExpertMLPsV2):
         normalize_top_k_affinities: Whether to normalize the affinities of the chosen experts before combining with the MLP outputs.
                                     Should be used only with top_k > 1.
         return_bias: Whether to return the bias in the forward pass. Currently not supported.
+        expert_bias: Whether to use bias in the expert MLPs.
         init_method: Function used for initializing the gate and up projection linear layer weights.
         output_layer_init_method: Function used for initializing the down projection linear layer weights.
         dtype: Datatype for the layer weights.
@@ -63,6 +64,7 @@ class ExpertMLPs(ExpertMLPsV2):
         block_size: Union[None, int] = None,
         normalize_top_k_affinities: bool = False,
         return_bias: bool = False,
+        expert_bias: bool = False,
         init_method: Optional[Callable[..., Any]] = torch.nn.init.kaiming_uniform_,
         output_layer_init_method: Optional[Callable[..., Any]] = torch.nn.init.kaiming_uniform_,
         dtype: torch.dtype = torch.float32,
@@ -119,6 +121,7 @@ class ExpertMLPs(ExpertMLPsV2):
             dtype=dtype,
             device=device,
             return_bias=return_bias,
+            expert_bias=expert_bias,
             tensor_model_parallel_group=tensor_model_parallel_group,
             expert_model_parallel_group=expert_model_parallel_group,
             glu_activation_fn=glu_activation_fn,

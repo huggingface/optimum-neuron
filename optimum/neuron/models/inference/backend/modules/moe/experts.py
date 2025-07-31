@@ -39,6 +39,7 @@ class Experts(Module):
         output_layer_init_method=None,
         tensor_model_parallel_group: Optional[ProcessGroup] = None,
         glu_activation_fn: Optional[Callable[..., Any]] = None,
+        expert_bias: bool = False,
     ) -> None:
         super().__init__()
 
@@ -63,6 +64,7 @@ class Experts(Module):
                 # we fuse up and gate projections to a single matmul. Later on in code
                 # we'll split the resulting output to yield up and gate matrices.
                 output_size=intermediate_size * 2,
+                bias=expert_bias,
                 dtype=dtype,
                 device=device,
                 stride=2,
@@ -76,6 +78,7 @@ class Experts(Module):
                 num_experts=num_experts,
                 input_size=hidden_size,
                 output_size=intermediate_size,
+                bias=expert_bias,
                 dtype=dtype,
                 device=device,
                 init_method=input_layer_init_method,
@@ -88,6 +91,7 @@ class Experts(Module):
             num_experts=num_experts,
             input_size=intermediate_size,
             output_size=hidden_size,
+            bias=expert_bias,
             reduce_output=get_expert_model_parallel_size() > 1,
             dtype=dtype,
             device=device,
