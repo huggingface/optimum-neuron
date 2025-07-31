@@ -1,5 +1,5 @@
 # Adapted from https://github.com/aws-neuron/neuronx-distributed/blob/c9ee222866916e2f2ab10be884a7ad237c7cb7f4/src/neuronx_distributed/modules/moe/experts.py
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import torch
 from neuronx_distributed.parallel_layers.mappings import (
@@ -38,11 +38,14 @@ class Experts(Module):
         input_layer_init_method=None,
         output_layer_init_method=None,
         tensor_model_parallel_group: Optional[ProcessGroup] = None,
+        glu_activation_fn: Optional[Callable[..., Any]] = None,
     ) -> None:
         super().__init__()
 
         self._glu = glu
         self._activation_fn = activation_fn
+        # A different activation function can be used for the gate/up projection, e.g. SwiGLU
+        self._glu_activation_fn = glu_activation_fn
         self.num_experts = num_experts
         # todo: we can also generalize expert-parallel group
         self.tensor_parallel_group = (
@@ -165,7 +168,9 @@ class Experts(Module):
         return output
 
     def _activation(self, x: Tensor) -> Tensor:
-        if self._glu:
+        if self._glu_activation_fn:
+            return self._glu_activation_fn(x)
+        elif self._glu:
             gate, up = torch.chunk(x, chunks=2, dim=-1)
             return self._activation_fn(gate) * up
         else:

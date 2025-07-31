@@ -48,6 +48,7 @@ class ExpertMLPs(ExpertMLPsV2):
         block_sharding_strategy: corresponds to different block parallel blockwise matmul kernel
         skip_dma: kernel optimizations for skip tokens and skip weights. When skip token is true, inputs to blockwise kernel do not need to be padded.
                   always_augment_inputs_for_blockwise_matmul: always pad the inputs to blockwise kernel regardless of the value of skip dma.
+        glu_activation_fn: Activation function for (or instead of) the Gated Linear Unit in the MLP.
     """
 
     def __init__(
@@ -80,6 +81,7 @@ class ExpertMLPs(ExpertMLPsV2):
         block_sharding_strategy: BlockShardStrategy = BlockShardStrategy.HI_LO,
         skip_dma_token: bool = False,
         skip_dma_weight: bool = False,
+        glu_activation_fn: Optional[Callable[..., Any]] = None,
     ):
         routed_experts_mlp_config = RoutedExpertsMLPOpsConfig(
             num_experts=num_experts,
@@ -119,4 +121,5 @@ class ExpertMLPs(ExpertMLPsV2):
             return_bias=return_bias,
             tensor_model_parallel_group=tensor_model_parallel_group,
             expert_model_parallel_group=expert_model_parallel_group,
+            glu_activation_fn=glu_activation_fn,
         )
