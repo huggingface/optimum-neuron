@@ -74,16 +74,22 @@ To instruct fine-tune our model we need to convert our structured examples into 
 The dataset should be structured with input-output pairs, where each input is a prompt and the output is the expected response from the model.
 
 ```python
-def format_dolly(examples):
-    """Format Dolly dataset examples into instruction-response pairs."""
-    output_text = []
-    for i in range(len(examples["instruction"])):
-        instruction = f"### Instruction\n{examples['instruction'][i]}"
-        context = f"### Context\n{examples['context'][i]}" if len(examples["context"][i]) > 0 else None
-        response = f"### Answer\n{examples['response'][i]}"
-        prompt = "\n\n".join([j for j in [instruction, context, response] if j is not None])
-        output_text.append(prompt)
-    return output_text
+def format_dolly(example, tokenizer):
+    """Format Dolly dataset examples using the tokenizer's chat template."""
+    user_content = example["instruction"]
+    if len(example["context"]) > 0:
+        user_content += f"\n\nContext: {example['context']}"
+
+    messages = [
+        {
+            "role": "system",
+            "content": "Cutting Knowledge Date: December 2023\nToday Date: 29 Jul 2025\n\nYou are a helpful assistant",
+        },
+        {"role": "user", "content": user_content},
+        {"role": "assistant", "content": example["response"]},
+    ]
+
+    return tokenizer.apply_chat_template(messages, tokenize=False)
 ```
 
 Note: this function is well-defined in the [Python script](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/llama/finetune_llama.py) to run this tutorial.
@@ -115,13 +121,13 @@ training_args = NeuronTrainingArguments(
     do_train=True,
     max_steps=-1,  # -1 means train until the end of the dataset
     per_device_train_batch_size=1,
-    gradient_accumulation_steps=8,
-    learning_rate=8e-4,
+    gradient_accumulation_steps=16,
+    learning_rate=1e-4,
     bf16=True,  
     tensor_parallel_size=8,
-    logging_steps=2,
-    lr_scheduler_type="cosine",
-    warmup_ratio=0.03,
+    logging_steps=1,
+    warmup_steps=5,
+    async_save=True,
     overwrite_output_dir=True,
 )
 
@@ -138,18 +144,10 @@ model = NeuronModelForCausalLM.from_pretrained(
 )
 
 lora_config = LoraConfig(
-    r=16,
-    lora_alpha=16,
+    r=64,
+    lora_alpha=128,
     lora_dropout=0.05,
-    target_modules=[
-        "q_proj",
-        "gate_proj", 
-        "v_proj",
-        "o_proj",
-        "k_proj",
-        "up_proj",
-        "down_proj"
-    ],
+    target_modules=["embed_tokens", "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
     bias="none",
     task_type="CAUSAL_LM",
 )
@@ -159,12 +157,28 @@ args = training_args.to_dict()
 
 sft_config = NeuronSFTConfig(
     max_seq_length=2048,
-    packing=False,
+    packing=True,
     **args,
 )
 
 tokenizer = AutoTokenizer.from_pretrained(model_id)
-tokenizer.pad_token = tokenizer.eos_token
+tokenizer.pad_token = "<|finetune_right_pad_id|>"
+
+# Set chat template for Llama 3.1 format
+tokenizer.chat_template = (
+    "{% for message in messages %}"
+    "{% if message['role'] == 'system' %}"
+    "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{{ message['content'] }}<|eot_id|>"
+    "{% elif message['role'] == 'user' %}"
+    "<|start_header_id|>user<|end_header_id|>\n\n{{ message['content'] }}<|eot_id|>"
+    "{% elif message['role'] == 'assistant' %}"
+    "<|start_header_id|>assistant<|end_header_id|>\n\n{{ message['content'] }}<|eot_id|>"
+    "{% endif %}"
+    "{% endfor %}"
+    "{% if add_generation_prompt %}"
+    "<|start_header_id|>assistant<|end_header_id|>\n\n"
+    "{% endif %}"
+)
 
 # The NeuronSFTTrainer will use `format_dolly` to format the dataset and `lora_config` to apply LoRA on the
 # model.
@@ -174,7 +188,7 @@ trainer = NeuronSFTTrainer(
     peft_config=lora_config,
     tokenizer=tokenizer,
     train_dataset=dataset,
-    formatting_func=format_dolly,
+    formatting_func=lambda example: format_dolly(example, tokenizer),
 )
 trainer.train()
 ```
@@ -196,8 +210,8 @@ PROCESSES_PER_NODE=32
 NUM_EPOCHS=3
 TP_DEGREE=8
 BS=1
-GRADIENT_ACCUMULATION_STEPS=8
-LOGGING_STEPS=2
+GRADIENT_ACCUMULATION_STEPS=16
+LOGGING_STEPS=1
 MODEL_NAME="meta-llama/Llama-3.1-8B" # Change this to the desired model name
 OUTPUT_DIR="$(echo $MODEL_NAME | cut -d'/' -f2)-finetuned"
 DISTRIBUTED_ARGS="--nproc_per_node $PROCESSES_PER_NODE"
@@ -215,15 +229,13 @@ torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_llama.py \
   --max_steps $MAX_STEPS \
   --per_device_train_batch_size $BS \
   --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
-  --learning_rate 8e-4 \
+  --learning_rate 1e-4 \
   --bf16 \
   --tensor_parallel_size $TP_DEGREE \
-  --zero_1 \
   --async_save \
+  --warmup_steps 5 \
   --logging_steps $LOGGING_STEPS \
   --output_dir $OUTPUT_DIR \
-  --lr_scheduler_type "cosine" \
-  --warmup_ratio 0.03 \
   --overwrite_output_dir
 ```
 
