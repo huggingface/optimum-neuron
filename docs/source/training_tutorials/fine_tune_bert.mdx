@@ -105,9 +105,12 @@ training_args = TrainingArguments(
     output_dir="bert-emotion-model",
     num_train_epochs=3,
     per_device_train_batch_size=8,
+    per_device_eval_batch_size=8,
     learning_rate=5e-5,
     bf16=True,  # Faster training on Trainium
     do_train=True,
+    do_eval=True,
+    eval_strategy="epoch",
     save_strategy="epoch", 
     logging_steps=100,
     overwrite_output_dir=True,
@@ -118,6 +121,7 @@ trainer = Trainer(
     model=model,
     args=training_args,
     train_dataset=dataset["train"],
+    eval_dataset=dataset["validation"],
     processing_class=tokenizer,
 )
 
@@ -126,6 +130,8 @@ trainer.train()
 ```
 
 📝 **Complete script available:** All steps above are combined in a ready-to-use script [fine_tune_bert.py](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/bert/fine_tune_bert.py).
+
+### Launch Training
 
 To launch training, just run the following command in your AWS Trainium instance:
 
@@ -140,6 +146,16 @@ torchrun --nproc_per_node=2 fine_tune_bert.py \
 ```
 
 🔧 **Single command execution:** The complete bash training script [fine_tune_bert.sh](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/bert/fine_tune_bert.sh) is available:
+
+#### Precompilation (Optional)
+
+For faster training, you can precompile the model graphs:
+
+```bash
+neuron_parallel_compile ./fine_tune_bert.sh
+```
+
+#### Actual Training
 
 ```bash
 ./fine_tune_bert.sh

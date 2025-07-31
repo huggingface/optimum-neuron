@@ -36,6 +36,7 @@ class ScriptArguments:
     model_id: str = field(default="bert-base-uncased", metadata={"help": "Model ID from Hugging Face Hub"})
     output_dir: str = field(default="bert-emotion-model", metadata={"help": "Output directory for the model"})
     epochs: int = field(default=3, metadata={"help": "Number of training epochs"})
+    max_steps: int = field(default=-1, metadata={"help": "Maximum number of training steps (-1 means no limit)"})
     learning_rate: float = field(default=5e-5, metadata={"help": "Learning rate"})
     batch_size: int = field(default=8, metadata={"help": "Training batch size per device"})
     max_length: int = field(default=128, metadata={"help": "Maximum sequence length"})
@@ -88,10 +89,14 @@ def main():
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         num_train_epochs=args.epochs,
+        max_steps=args.max_steps,
         learning_rate=args.learning_rate,
         per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=args.batch_size,
         bf16=True,
         do_train=True,
+        do_eval=True,
+        eval_strategy="epoch",
         save_strategy="epoch",
         logging_steps=100,
         overwrite_output_dir=True,
@@ -102,6 +107,7 @@ def main():
         model=model,
         args=training_args,
         train_dataset=dataset["train"],
+        eval_dataset=dataset["validation"],
         processing_class=tokenizer,
     )
 

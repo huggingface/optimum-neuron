@@ -11,7 +11,17 @@ This example demonstrates how to fine-tune BERT for emotion classification using
 
 ## 🛠️ Quick Start
 
-### Launch Training
+### Step 1: Compilation (Optional)
+
+For first-time training or custom configurations, compile your model:
+
+```bash
+neuron_parallel_compile ./fine_tune_bert.sh
+```
+
+> 💡 **Pro Tip**: Skip this step by using pre-compiled models from our [HuggingFace Hub cache](https://huggingface.co/aws-neuron/optimum-neuron-cache) for instant training!
+
+### Step 2: Launch Training
 
 Start fine-tuning with a single command:
 
