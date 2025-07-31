@@ -33,11 +33,11 @@
       - local: training_tutorials/finetune_llms_overview
         title: Overview
       - local: training_tutorials/finetune_llama
-        title: Fine-Tune Llama 3 8B with LoRA
+        title: Instruction Fine-Tuning of Llama 3.1 8B with LoRA
       - local: training_tutorials/finetune_qwen3
         title: Fine-Tune Qwen3 8B with LoRA
       - local: training_tutorials/pretraining_hyperpod_llm
-        title: Continuous Pretrain Llama 3.2 1B on SageMaker Hyperpod
+        title: Continuous Pretraining of Llama 3.2 1B on SageMaker Hyperpod
       title: How-to Fine-Tune LLMs
     title: Training Tutorials
   - sections:
