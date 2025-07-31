@@ -27,7 +27,6 @@ from transformers import AutoConfig, AutoModel, GenerationMixin
 
 from optimum.exporters.neuron import main_export
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
-from optimum.exporters.neuron.utils import check_mandatory_input_shapes
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import logging
 from optimum.utils.save_utils import maybe_load_preprocessors
@@ -266,6 +265,7 @@ class NeuronTracedModel(NeuronModel):
         local_files_only: bool = False,
         trust_remote_code: bool = False,
         task: str | None = None,
+        torch_dtype: str | torch.dtype = torch.float32,
         auto_cast: str | None = None,
         auto_cast_type: str | None = None,
         disable_fast_relayout: bool | None = False,
@@ -301,38 +301,12 @@ class NeuronTracedModel(NeuronModel):
         commit_hash = kwargs_shapes.pop("_commit_hash", None)
 
         if not disable_neuron_cache and is_neuronx_available():
-            # 1. Fetch all model configs
-            model = TasksManager.get_model_from_task(
-                task=task,
-                model_name_or_path=model_id,
-                subfolder=subfolder,
-                revision=revision,
-                cache_dir=cache_dir,
-                token=token,
-                framework="pt",
-                local_files_only=local_files_only,
-                force_download=force_download,
-                trust_remote_code=trust_remote_code,
-                _commit_hash=commit_hash,
-            )
-            neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-                model=model,
-                exporter="neuron",
-                task=task,
-                library_name=cls.library_name,
-            )
-            input_shapes = check_mandatory_input_shapes(neuron_config_constructor, task, kwargs_shapes)
-            input_shapes = InputShapesArguments(**input_shapes)
-            neuron_config = neuron_config_constructor(
-                model.config, dynamic_batch_size=dynamic_batch_size, input_shapes=input_shapes
-            )
             # Check if the cache exists
             compilation_config = store_compilation_config(
                 config=config,
                 input_shapes=kwargs_shapes,
                 compiler_kwargs=compiler_kwargs,
-                int_dtype=neuron_config.int_dtype,
-                float_dtype=neuron_config.float_dtype,
+                float_dtype=torch_dtype,
                 dynamic_batch_size=dynamic_batch_size,
                 tensor_parallel_size=tensor_parallel_size,
                 compiler_type=NEURON_COMPILER_TYPE,
@@ -355,6 +329,20 @@ class NeuronTracedModel(NeuronModel):
         if cache_available:
             try:
                 neuron_model = cls.from_pretrained(model_cache_dir)
+                model = TasksManager.get_model_from_task(
+                    task=task,
+                    model_name_or_path=model_id,
+                    subfolder=subfolder,
+                    revision=revision,
+                    cache_dir=cache_dir,
+                    token=token,
+                    framework="pt",
+                    torch_dtype=torch_dtype,
+                    local_files_only=local_files_only,
+                    force_download=force_download,
+                    trust_remote_code=trust_remote_code,
+                    _commit_hash=commit_hash,
+                )
                 if not inline_weights_to_neff:
                     # replace weights
                     neuron_model.replace_weights(weights=model)
@@ -374,6 +362,7 @@ class NeuronTracedModel(NeuronModel):
                 model_name_or_path=model_id,
                 output=save_dir_path,
                 compiler_kwargs=compiler_kwargs,
+                torch_dtype=torch_dtype,
                 task=task,
                 dynamic_batch_size=dynamic_batch_size,
                 cache_dir=cache_dir,

@@ -191,25 +191,6 @@ def get_stable_diffusion_configs(
     return configs
 
 
-def map_torch_dtype(dtype: str | torch.dtype):
-    dtype_mapping = {
-        "bfloat16": torch.bfloat16,
-        "float16": torch.float16,
-        "float32": torch.float32,
-        "float64": torch.float64,
-        "int32": torch.int32,
-        "int64": torch.int64,
-        "bf16": torch.bfloat16,
-        "fp16": torch.float16,
-        "fp32": torch.float32,
-    }
-
-    if isinstance(dtype, str) and dtype in dtype_mapping:
-        dtype = dtype_mapping.get(dtype)
-
-    return dtype
-
-
 # Adapted from https://github.com/huggingface/diffusers/blob/d4dc4d7654d4855e516be1989f54bfeea736090e/src/diffusers/utils/hub_utils.py#L341
 def get_checkpoint_shard_files(
     pretrained_model_name_or_path,

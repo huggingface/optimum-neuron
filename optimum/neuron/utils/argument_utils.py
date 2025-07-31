@@ -18,6 +18,8 @@ import os
 from dataclasses import asdict, dataclass, fields, is_dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
+import torch
+
 from optimum.utils import logging
 
 from .input_generators import DTYPE_MAPPER
@@ -258,13 +260,13 @@ def store_compilation_config(
     config: "PretrainedConfig | dict",
     input_shapes: dict[str, int],
     compiler_kwargs: dict[str, Any],
-    int_dtype: str,
-    float_dtype: str,
+    float_dtype: str | torch.dtype,
     dynamic_batch_size: bool,
     compiler_type: str,
     compiler_version: str,
     inline_weights_to_neff: bool,
     optlevel: str,
+    int_dtype: str | torch.dtype = "int64",
     tensor_parallel_size: int = 1,
     model_type: str | None = None,
     task: str | None = None,

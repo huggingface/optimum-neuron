@@ -26,7 +26,7 @@ from vllm.sequence import CompletionSequenceGroupOutput, Logprob, SequenceOutput
 from ..cache import get_hub_cached_entries
 from ..configuration_utils import NeuronConfig
 from ..modeling_decoder import NeuronModelForCausalLM
-from ..utils import map_torch_dtype
+from ..utils import DTYPE_MAPPER
 from ..utils.system import get_available_cores
 from ..utils.version_utils import get_neuronxcc_version
 
@@ -161,8 +161,8 @@ def check_neuron_config_compatibility(
         )
         return False
     if torch_dtype is not None:
-        neuron_config_value = map_torch_dtype(str(neuron_config_dict["torch_dtype"]))
-        target_value = map_torch_dtype(torch_dtype)
+        neuron_config_value = DTYPE_MAPPER.pt(str(neuron_config_dict["torch_dtype"]))
+        target_value = DTYPE_MAPPER.pt(torch_dtype)
         if target_value != neuron_config_value:
             logger.debug(
                 "The target dtype %s is different from the neuron config dtype %s", target_value, neuron_config_value
