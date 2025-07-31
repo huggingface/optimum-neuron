@@ -41,6 +41,7 @@ class ExpertMLPsV2(torch.nn.Module):
         routed_experts_mlp_config: routed expert configs. Details are in neuronx_distributed.modules.moe.model_utils
         blockwise_matmul_config: blockwise matmul configs. Details are in neuronx_distributed.modules.moe.model_utils
         return_bias: Whether to return the bias in the forward pass. Currently not supported.
+        expert_bias: Whether to use bias in the expert MLPs.
         init_method: Function used for initializing the gate and up projection linear layer weights.
         dtype: Datatype for the layer weights.
         device: Device for the layer weights.
@@ -51,6 +52,7 @@ class ExpertMLPsV2(torch.nn.Module):
         routed_experts_mlp_config: RoutedExpertsMLPOpsConfig,
         blockwise_matmul_config: BlockwiseMatmulConfig = BlockwiseMatmulConfig.default(),
         return_bias: bool = False,
+        expert_bias: bool = False,
         dtype: torch.dtype = torch.float32,
         device: torch.device = torch.device("cpu"),
         tensor_model_parallel_group: Optional[ProcessGroup] = None,
@@ -102,6 +104,7 @@ class ExpertMLPsV2(torch.nn.Module):
             output_layer_init_method=routed_experts_mlp_config.output_layer_init_method,
             tensor_model_parallel_group=self.tensor_parallel_group,
             glu_activation_fn=glu_activation_fn,
+            expert_bias=expert_bias,
         )
         self.dtype = dtype
         self.device = device
