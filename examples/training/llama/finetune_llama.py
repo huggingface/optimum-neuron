@@ -31,6 +31,7 @@ from optimum.neuron.models.training import NeuronModelForCausalLM
 dataset_id = "databricks/databricks-dolly-15k"
 dolly_dataset = load_dataset(dataset_id, split="train")
 
+
 def format_dolly(example, tokenizer):
     """Format Dolly dataset examples using the tokenizer's chat template."""
     user_content = example["instruction"]
