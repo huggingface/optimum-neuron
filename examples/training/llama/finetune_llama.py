@@ -34,23 +34,22 @@ dolly_dataset = load_dataset(dataset_id, split="train")
 dolly_dataset = dolly_dataset.select([0] * 100000)
 
 
-def format_dolly(example):
-    """Format Dolly dataset examples using Llama 3.1 chat template format."""
+def format_dolly(example, tokenizer):
+    """Format Dolly dataset examples using the tokenizer's chat template."""
     user_content = example["instruction"]
     if len(example["context"]) > 0:
         user_content += f"\n\nContext: {example['context']}"
 
-    # Format using Llama 3.1 chat template structure
-    formatted_text = (
-        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
-        "Cutting Knowledge Date: December 2023\n"
-        "Today Date: 29 Jul 2025\n\n"
-        "You are a helpful assistant<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n"
-        f"{user_content}<|eot_id|>\n"
-        f"<|start_header_id|>assistant<|end_header_id|>\n\n"
-        f"{example['response']}<|eot_id|>"
-    )
-    return formatted_text
+    messages = [
+        {
+            "role": "system",
+            "content": "Cutting Knowledge Date: December 2023\nToday Date: 29 Jul 2025\n\nYou are a helpful assistant",
+        },
+        {"role": "user", "content": user_content},
+        {"role": "assistant", "content": example["response"]},
+    ]
+
+    return tokenizer.apply_chat_template(messages, tokenize=False)
 
 
 # =============================================================================
@@ -71,10 +70,10 @@ def train(model_id, tokenizer, dataset, training_args):
     )
 
     lora_config = LoraConfig(
-        r=16,
-        lora_alpha=32,
+        r=64,
+        lora_alpha=128,
         lora_dropout=0.05,
-        target_modules=["embed_tokens", "q_proj", "gate_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj"],
+        target_modules=["embed_tokens", "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         bias="none",
         task_type="CAUSAL_LM",
     )
@@ -96,7 +95,7 @@ def train(model_id, tokenizer, dataset, training_args):
         peft_config=lora_config,
         tokenizer=tokenizer,
         train_dataset=dataset,
-        formatting_func=format_dolly,
+        formatting_func=lambda example: format_dolly(example, tokenizer),
     )
     trainer.train()
 
@@ -120,6 +119,22 @@ if __name__ == "__main__":
 
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_id)
     tokenizer.pad_token = "<|finetune_right_pad_id|>"
+
+    # Set chat template for Llama 3.1 format
+    tokenizer.chat_template = (
+        "{% for message in messages %}"
+        "{% if message['role'] == 'system' %}"
+        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{{ message['content'] }}<|eot_id|>"
+        "{% elif message['role'] == 'user' %}"
+        "<|start_header_id|>user<|end_header_id|>\n\n{{ message['content'] }}<|eot_id|>"
+        "{% elif message['role'] == 'assistant' %}"
+        "<|start_header_id|>assistant<|end_header_id|>\n\n{{ message['content'] }}<|eot_id|>"
+        "{% endif %}"
+        "{% endfor %}"
+        "{% if add_generation_prompt %}"
+        "<|start_header_id|>assistant<|end_header_id|>\n\n"
+        "{% endif %}"
+    )
 
     train(
         model_id=script_args.model_id,
