@@ -1,0 +1,255 @@
+<!---
+Copyright 2024 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# Fine-tune BERT for Text Classification
+
+_Note: The complete script for this tutorial can be downloaded [here](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/bert/fine_tune_bert.py)._
+
+This guide will help you get started with [AWS Trainium](https://aws.amazon.com/machine-learning/trainium/?nc1=h_ls) and Hugging Face Transformers for text classification tasks. It covers how to set up a Trainium instance on AWS, load and process a dataset, and fine-tune BERT using Hugging Face Transformers and Optimum Neuron.
+
+You will learn how to:
+
+1. [Setup AWS environment](#1-setup-aws-environment)
+2. [Load and process the dataset](#2-load-and-process-the-dataset)
+3. [Fine-tune BERT using Hugging Face Transformers and Optimum Neuron](#3-fine-tune-bert-using-hugging-face-transformers-and-optimum-neuron)
+
+Before we can start, make sure you have a [Hugging Face Account](https://huggingface.co/join) to save artifacts and experiments.
+
+## Quick intro: AWS Trainium
+
+[AWS Trainium (Trn1)](https://aws.amazon.com/de/ec2/instance-types/trn1/) is a purpose-built EC2 for deep learning (DL) training workloads. Trainium is the successor of [AWS Inferentia](https://aws.amazon.com/ec2/instance-types/inf1/?nc1=h_ls) focused on high-performance training workloads claiming up to 50% cost-to-train savings over comparable GPU-based instances.
+
+Trainium has been optimized for training natural language processing, computer vision, and recommender models used. The accelerator supports a wide range of data types, including FP32, TF32, BF16, FP16, UINT8, and configurable FP8.
+
+The biggest Trainium instance, the `trn1.32xlarge` comes with over 500GB of memory, making it easy to fine-tune ~10B parameter models on a single instance. Below you will find an overview of the available instance types. More details [here](https://aws.amazon.com/en/ec2/instance-types/trn1/#Product_details):
+
+| instance size | accelerators | accelerator memory | vCPU | CPU Memory | price per hour |
+| --- | --- | --- | --- | --- | --- |
+| trn1.2xlarge | 1 | 32 | 8 | 32 | $1.34 |
+| trn1.32xlarge | 16 | 512 | 128 | 512 | $21.50 |
+| trn1n.32xlarge (2x bandwidth) | 16 | 512 | 128 | 512 | $24.78 |
+
+---
+
+Now we know what Trainium offers, let's get started. 🚀
+
+<Tip>
+
+_Note: This tutorial was created on a trn1.2xlarge AWS EC2 Instance._
+
+</Tip>
+
+## 1. Setup AWS environment
+
+In this tutorial, we will use the `trn1.2xlarge` instance on AWS with 1 Accelerator, including two Neuron Cores and the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2).
+
+Once the instance is up and running, we can ssh into it. But instead of developing inside a terminal we want to use a development environment that allows us to prepare our dataset and launch the training. For this, we can use ssh port forwarding to tunnel our localhost traffic to the Trainium instance if needed.
+
+```bash
+PUBLIC_DNS="" # IP address, e.g. ec2-3-80-....
+KEY_PATH="" # local path to key, e.g. ssh/trn.pem
+
+ssh -L 8080:localhost:8080 -i ${KEY_NAME}.pem ubuntu@$PUBLIC_DNS
+```
+
+We need to make sure we have the `training` extra installed, to get all the necessary dependencies:
+
+```bash
+python -m pip install .[training]
+```
+
+## 2. Load and process the dataset
+
+We are training a Text Classification model on the [emotion](https://huggingface.co/datasets/dair-ai/emotion) dataset to keep the example straightforward. The `emotion` is a dataset of English Twitter messages with six basic emotions: anger, fear, joy, love, sadness, and surprise.
+
+We will use the `load_dataset()` method from the [🤗 Datasets](https://huggingface.co/docs/datasets/index) library to load the `emotion`.
+
+```python
+from datasets import load_dataset
+
+# Dataset id from huggingface.co/dataset
+dataset_id = "dair-ai/emotion"
+
+# Load raw dataset
+raw_dataset = load_dataset(dataset_id)
+
+print(f"Train dataset size: {len(raw_dataset['train'])}")
+print(f"Test dataset size: {len(raw_dataset['test'])}")
+
+# Train dataset size: 16000
+# Test dataset size: 2000
+```
+
+Let's check out an example of the dataset:
+
+```python
+from random import randrange
+
+random_id = randrange(len(raw_dataset['train']))
+raw_dataset['train'][random_id]
+# {'text': 'i also like to listen to jazz whilst painting it makes me feel more artistic and ambitious actually look to the rainbow', 'label': 1}
+```
+
+We must convert our "Natural Language" to token IDs to train our model. This is done by a Tokenizer, which tokenizes the inputs (including converting the tokens to their corresponding IDs in the pre-trained vocabulary). If you want to learn more about this, check out [chapter 6](https://huggingface.co/course/chapter6/1?fw=pt) of the [Hugging Face Course](https://huggingface.co/course/chapter1/1).
+
+<Tip>
+
+In order to avoid graph recompilation, inputs should have a fixed shape. We need to truncate or pad all samples to the same length.
+
+</Tip>
+
+```python
+from transformers import AutoTokenizer
+
+# Model id to load the tokenizer
+model_id = "bert-base-uncased"
+
+# Load Tokenizer
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+# Tokenize helper function
+def tokenize_function(example):
+    return tokenizer(
+        example["text"],
+        padding="max_length",
+        truncation=True,
+        max_length=128,
+    )
+
+# Tokenize dataset
+tokenized_emotions = raw_dataset.map(tokenize_function, batched=True, remove_columns=["text"])
+```
+
+## 3. Fine-tune BERT using Hugging Face Transformers and Optimum Neuron
+
+We can use the **[Trainer](https://huggingface.co/docs/transformers/en/main_classes/trainer#transformers.Trainer)** and **[TrainingArguments](https://huggingface.co/docs/transformers/en/main_classes/trainer#transformers.TrainingArguments)** to fine-tune PyTorch-based transformer models on Neuron cores.
+
+We prepared a simple [fine_tune_bert.py](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/bert/fine_tune_bert.py) training script to perform training and evaluation on the dataset. Below is an excerpt:
+
+```python
+from transformers import Trainer, TrainingArguments, AutoModelForSequenceClassification
+
+def training_function(args):
+    # Load the dataset
+    emotions = load_dataset("dair-ai/emotion")
+    model_id = args.model_id
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+    # Tokenize the dataset
+    def tokenize_function(example):
+        return tokenizer(
+            example["text"],
+            padding="max_length",
+            truncation=True,
+            max_length=args.train_max_length,
+        )
+
+    tokenized_emotions = emotions.map(tokenize_function, batched=True)
+    num_labels = len(emotions["train"].features["label"].names)
+
+    # Download the model from huggingface.co/models
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_id, num_labels=num_labels
+    )
+
+    training_args = TrainingArguments(
+        output_dir=f"{model_id}-finetuned",
+        learning_rate=args.learning_rate,
+        per_device_train_batch_size=args.per_device_train_batch_size,
+        num_train_epochs=args.epochs,
+        bf16=True,
+        do_train=True,
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        logging_steps=500,
+    )
+
+    # Create Trainer instance
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=tokenized_emotions["train"],
+        eval_dataset=tokenized_emotions["validation"],
+        processing_class=tokenizer,
+    )
+
+    # Start training
+    trainer.train()
+```
+
+You can download the complete training script using:
+
+```bash
+wget https://raw.githubusercontent.com/huggingface/optimum-neuron/main/examples/training/bert/fine_tune_bert.py
+```
+
+We will use `torchrun` to launch our training script on both neuron cores for distributed training, thus enabling data parallelism. `torchrun` is a tool that automatically distributes a PyTorch model across multiple accelerators. We can pass the number of accelerators as `nproc_per_node` arguments alongside our hyperparameters.
+
+### Launch Training
+
+Use the following command to launch training:
+
+```bash
+torchrun --nproc_per_node=2 fine_tune_bert.py \
+ --model_id bert-base-uncased \
+ --learning_rate 5e-5 \
+ --per_device_train_batch_size 8 \
+ --epochs 3
+```
+
+Alternatively, you can use the provided shell script:
+
+```bash
+bash fine_tune_bert.sh
+```
+
+After compilation, it will only take a few minutes to complete the training.
+
+**Training Results:**
+
+```bash
+***** train metrics *****
+  epoch                    =        3.0
+  eval_loss                =     0.1761
+  eval_runtime             = 0:00:03.73
+  eval_samples_per_second  =    267.956
+  eval_steps_per_second    =     16.881
+  total_flos               =  1470300GF
+  train_loss               =     0.2024
+  train_runtime            = 0:07:27.14
+  train_samples_per_second =     53.674
+  train_steps_per_second   =      6.709
+```
+
+## Cost Analysis
+
+Looking at the price-performance, our training only costs approximately **20 cents** (`1.34$/h * 0.13h = 0.18$`) for a complete 3-epoch fine-tuning run on the emotion dataset.
+
+<Tip>
+
+Last but not least, remember to terminate the EC2 instance to avoid unnecessary charges.
+
+</Tip>
+
+## Next Steps
+
+Once your model is fine-tuned, you can:
+
+1. **Evaluate the model** on your test dataset
+2. **Push the model to the Hugging Face Hub** for sharing with the community
+3. **Deploy the model** for inference using Optimum Neuron on AWS Inferentia instances
+
+This completes the BERT fine-tuning tutorial for text classification on AWS Trainium. The same approach can be applied to other BERT-based models and text classification datasets with minimal modifications.
