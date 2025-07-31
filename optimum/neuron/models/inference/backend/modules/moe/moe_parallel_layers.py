@@ -55,8 +55,6 @@ class ExpertFusedLinearWithAsyncCommunication(torch.autograd.Function):
         process_group: Optional[ProcessGroup] = None,
         reduce_dtype: torch.dtype = torch.float32,
     ):
-        if bias is not None:
-            raise NotImplementedError("Bias is not currently supported for MoE")
         if sequence_parallel_enabled:
             raise NotImplementedError(
                 "sequence parallelism (SP) is not currently supported for expert "
@@ -89,6 +87,11 @@ class ExpertFusedLinearWithAsyncCommunication(torch.autograd.Function):
         # ... might refer to 1 or more dimensions, including C dimension (expert capacity)
         # input: (E, ..., H), weight: (E, H, I)
         output = torch.einsum("e...h,ehi->e...i", input, weight)
+
+        if bias is not None:
+            # Bias needs to be broadcast to the same shape as output
+            bias = bias.reshape(bias.shape[0], 1, 1, bias.shape[-1])
+            output += bias
 
         # output: (E, ..., I)
         return output
@@ -182,6 +185,7 @@ class ExpertFusedColumnParallelLinear(layers.ColumnParallelLinear, ExpertFusedLi
         num_experts: int,
         input_size: int,
         output_size: int,
+        bias: bool = False,
         dtype: torch.dtype = torch.float32,
         device: Optional[torch.device] = None,
         stride: int = 1,
@@ -191,11 +195,10 @@ class ExpertFusedColumnParallelLinear(layers.ColumnParallelLinear, ExpertFusedLi
     ) -> None:
         self.num_experts = num_experts
         self._n_local_experts = utils.divide(num_experts, parallel_state.get_expert_model_parallel_size())
-
         super().__init__(
             input_size=input_size,
             output_size=output_size,
-            bias=False,
+            bias=bias,
             gather_output=False,
             dtype=dtype,
             device=device,
@@ -206,6 +209,11 @@ class ExpertFusedColumnParallelLinear(layers.ColumnParallelLinear, ExpertFusedLi
             skip_bias_add=False,
             tensor_model_parallel_group=tensor_model_parallel_group,
         )
+        if bias:
+            # Reset the partition_dim for bias to 1, as it is not correctly set in the parent class, that guesses bias
+            # shape has only one dimension.
+            self.bias.partition_dim = 1
+
         self._mark_expert_parallel_weights()
 
     def set_weight_and_bias_config(self):
@@ -217,7 +225,14 @@ class ExpertFusedColumnParallelLinear(layers.ColumnParallelLinear, ExpertFusedLi
         )
         # Column parallel partitioning for each expert
         self.weight_partition_dim = 2
-        self.bias_shape = None
+
+        if self.add_bias:
+            self.bias_shape = (
+                self._n_local_experts,
+                self.output_size_per_partition,
+            )
+        else:
+            self.bias_shape = None
 
     def _init_weight(self, weight):
         # Initialize the linear layer of each expert separately
@@ -242,10 +257,14 @@ class ExpertFusedColumnParallelLinear(layers.ColumnParallelLinear, ExpertFusedLi
 
         # Matrix multiply.
         weight = self.weight[expert_indices, :, :] if expert_indices is not None else self.weight
+        if self.bias is not None:
+            bias = self.bias[expert_indices] if expert_indices is not None else self.bias
+        else:
+            bias = None
         output = self._forward_impl(
             input=input_parallel,
             weight=weight,
-            bias=None,
+            bias=bias,
             async_grad_allreduce=self.async_tensor_model_parallel_allreduce,
             sequence_parallel_enabled=self.sequence_parallel_enabled,
             autograd_func_class=self.autograd_func_class,
@@ -273,6 +292,7 @@ class ExpertFusedRowParallelLinear(layers.RowParallelLinear, ExpertFusedLinear):
         num_experts: int,
         input_size: int,
         output_size: int,
+        bias: bool = False,
         reduce_output: bool = True,
         dtype: torch.dtype = torch.float32,
         device: Optional[torch.device] = None,
@@ -287,7 +307,7 @@ class ExpertFusedRowParallelLinear(layers.RowParallelLinear, ExpertFusedLinear):
         super().__init__(
             input_size=input_size,
             output_size=output_size,
-            bias=False,
+            bias=bias,
             input_is_parallel=True,
             dtype=dtype,
             device=device,
@@ -310,7 +330,13 @@ class ExpertFusedRowParallelLinear(layers.RowParallelLinear, ExpertFusedLinear):
         )
         # Row parallel partitioning for each expert
         self.weight_partition_dim = 1
-        self.bias_shape = None
+        if self.add_bias:
+            self.bias_shape = (
+                self._n_local_experts,
+                self.output_size,
+            )
+        else:
+            self.bias_shape = None
 
     def _init_weight(self, weight):
         # Initialize the linear layer of each expert separately
@@ -327,10 +353,14 @@ class ExpertFusedRowParallelLinear(layers.RowParallelLinear, ExpertFusedLinear):
 
         # Matrix multiply.
         weight = self.weight[expert_indices, :, :] if expert_indices is not None else self.weight
+        if self.bias is not None:
+            bias = self.bias[expert_indices] if expert_indices is not None else self.bias
+        else:
+            bias = None
         output_parallel = self._forward_impl(
             input=input_,
             weight=weight,
-            bias=None,
+            bias=bias,
             async_grad_allreduce=False,
             sequence_parallel_enabled=False,
             autograd_func_class=self.autograd_func_class,
