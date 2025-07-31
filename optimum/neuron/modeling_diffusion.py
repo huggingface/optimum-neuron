@@ -777,7 +777,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         cls,
         model_id: str | Path,
         config: dict[str, Any],
-        torch_dtype: str | torch.dtype | None = None,
+        torch_dtype: str | torch.dtype = torch.float32,
         unet_id: str | Path | None = None,
         token: bool | str | None = None,
         revision: str = "main",
