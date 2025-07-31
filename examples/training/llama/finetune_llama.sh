@@ -11,8 +11,8 @@ PROCESSES_PER_NODE=32
 NUM_EPOCHS=3
 TP_DEGREE=8
 BS=1
-GRADIENT_ACCUMULATION_STEPS=8
-LOGGING_STEPS=2
+GRADIENT_ACCUMULATION_STEPS=16
+LOGGING_STEPS=1
 MODEL_NAME="meta-llama/Llama-3.1-8B" # Change this to the desired model name
 OUTPUT_DIR="$(echo $MODEL_NAME | cut -d'/' -f2)-finetuned"
 DISTRIBUTED_ARGS="--nproc_per_node $PROCESSES_PER_NODE"
@@ -31,13 +31,11 @@ torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_llama.py \
   --max_steps $MAX_STEPS \
   --per_device_train_batch_size $BS \
   --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
-  --learning_rate 8e-4 \
+  --learning_rate 1e-4 \
   --bf16 \
   --tensor_parallel_size $TP_DEGREE \
-  --zero_1 \
   --async_save \
+  --warmup_steps 5 \
   --logging_steps $LOGGING_STEPS \
   --output_dir $OUTPUT_DIR \
-  --lr_scheduler_type "cosine" \
-  --warmup_ratio 0.03 \
   --overwrite_output_dir
