@@ -61,6 +61,7 @@ if is_diffusers_available():
         DiffusionPipeline,
         FluxImg2ImgPipeline,
         FluxInpaintPipeline,
+        FluxKontextPipeline,
         FluxPipeline,
         ModelMixin,
         StableDiffusionXLImg2ImgPipeline,
@@ -423,7 +424,7 @@ def get_submodels_for_export_diffusion(
     is_stable_diffusion_xl = isinstance(
         pipeline, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline, StableDiffusionXLPipeline)
     )
-    is_flux = isinstance(pipeline, (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline))
+    is_flux = isinstance(pipeline, (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline, FluxKontextPipeline))
 
     # Lora
     pipeline = _load_lora_weights_to_pipeline(pipeline=pipeline, lora_args=lora_args)
