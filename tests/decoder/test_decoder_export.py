@@ -16,21 +16,27 @@ from tempfile import TemporaryDirectory
 
 import pytest
 import torch
-from transformers import AutoModelForCausalLM
+from transformers import CONFIG_MAPPING, AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM
+from optimum.neuron.models.inference.gpt_oss.configuration_gpt_oss import GptOssConfig
 from optimum.neuron.utils import DTYPE_MAPPER
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
-DECODER_MODEL_ARCHITECTURES = ["llama", "granite", "qwen2", "phi3", "mixtral"]
+# NOTE: we do this because currently the config in the current version of transformers does not support GptOss.
+CONFIG_MAPPING.register("gpt_oss", GptOssConfig)
+
+
 DECODER_MODEL_NAMES = {
     "llama": "llamafactory/tiny-random-Llama-3",
     "qwen2": "yujiepan/qwen2.5-128k-tiny-random",
     "granite": "hf-internal-testing/tiny-random-GraniteForCausalLM",
     "phi3": "yujiepan/phi-4-tiny-random",
     "mixtral": "dacorvo/Mixtral-tiny",
+    "gpt_oss": "tengomucho/tiny-random-gpt-oss",
 }
+DECODER_MODEL_ARCHITECTURES = list(DECODER_MODEL_NAMES.keys())
 
 
 @pytest.fixture(
@@ -92,6 +98,11 @@ def test_decoder_export_save_reload(
         "auto_cast_type": auto_cast_type,
     }
     with TemporaryDirectory() as model_path:
+        if "gpt-oss" in model_id:
+            if is_local:
+                pytest.skip("GptOss is not supported for local export, it requires newer version of transformers")
+            if auto_cast_type == "fp16":
+                pytest.skip("GptOss does not support fp16")
         if is_local:
             with TemporaryDirectory() as tmpdir:
                 model = AutoModelForCausalLM.from_pretrained(model_id)
