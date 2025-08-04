@@ -1,40 +1,43 @@
-<!---
-Copyright 2023 The HuggingFace Team. All rights reserved.
+<!--Copyright 2023 The HuggingFace Team. All rights reserved.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+the License. You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+http://www.apache.org/licenses/LICENSE-2.0
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.
 -->
 
-# Get started on Amazon EC2
+# EC2 Setup
 
-The simplest way to work with AWS Trainium or Inferentia and Optimum Neuron on Amazon EC2 is the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2) (DLAMI). The DLAMI comes with all required libraries pre-packaged for you, including the Neuron Drivers, Transformers, Datasets, and Accelerate. The HF DLAMI is provided at no additional charge to Amazon EC2 users.
+This guide will help you get Optimum Neuron up and running. There are two main approaches:
+
+1. **🚀 Recommended: AWS EC2 with Deep Learning AMI** - The simplest way to get started with pre-configured environment
+2. **⚙️ Manual Installation** - Install Optimum Neuron on existing infrastructure
+
+## Recommended: AWS EC2 with Deep Learning AMI
+
+The simplest way to work with AWS Trainium or Inferentia and Optimum Neuron on Amazon EC2 is the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2) (DLAMI). The DLAMI comes with all required libraries pre-packaged for you, including the Optimum Neuron, Neuron Drivers, Transformers, Datasets, and Accelerate. The HF DLAMI is provided at no additional charge to Amazon EC2 users.
 
 Optimum Neuron supports Inf1, Inf2, Trn1 and Trn2, all accessible on Amazon EC2. You can find all the specifications of the Trn and Inf instances [here](https://aws.amazon.com/ec2/instance-types/), in the "Accelerated Computing" section.
 
-In this guide, we will show you:
-1. [How to create an AWS Trainium or Inferentia instance on Amazon EC2 with the HF DLAMI](#how-to-create-an-aws-trainium-or-inferentia-instance-on-amazon-ec2-with-the-hf-dlami)
+In this section, we will show you:
+1. [How to create an AWS Trainium or Inferentia instance on Amazon EC2 with the HF DLAMI](#create-an-aws-trainium-or-inferentia-instance-on-amazon-ec2-with-the-hf-dlami)
     1. [Find a supported region](#find-a-supported-region)
     2. [Increase service quota](#increase-service-quota)
     3. [Launch the Amazon EC2 instance with the HF DLAMI](#launch-the-amazon-ec2-instance-with-the-hf-dlami)
     4. [Connect through SSH](#connect-through-ssh)
-2. [How to set up your remote development environment](#how-to-set-up-your-remote-development-environment)
+2. [How to set up your remote development environment](#set-up-your-remote-development-environment)
     1. [Access through Jupyter Notebook](#access-through-jupyter-notebook)
     2. [Access through VS Code remote server](#access-through-vs-code-remote-server)
 
-## Create an AWS Trainium or Inferentia instance on Amazon EC2 with the HF DLAMI
+### Create an AWS Trainium or Inferentia instance on Amazon EC2 with the HF DLAMI
 
 Before creating the EC2 instance, make sure you are in a supported region for the instance you selected and that you have quota in your AWS account.
 
-### Find a supported region
+#### Find a supported region
 
 Here is the list of regions that support at least one type of Trainium or Inferentia2 instance, as of February 2025:
 - us-east-1: US East (N. Virginia)
@@ -97,7 +100,7 @@ for region, instance_types in supported_regions.items():
     print('\n') 
 ```
 
-### Increase service quota
+#### Increase service quota
 
 Now that you selected your region and that you switched to it, you can request a Service Quota increase through the AWS Console by navigating to Service Quota, AWS services in the left panel, search for Amazon EC2, then "trn" or "inf". You are able to request quota increase for On-Demand and Spot instances separately.
 
@@ -105,7 +108,7 @@ By default, all quotas are 0 for Inferentia and Trainium. There is no charge for
 
 For example, a quota of 192 will let you run a single inf2.48xlarge, two inf2.24xlarges, six inf2.8xlarges, or forty-eight of the inf2.xlarges. It will also let you run inf1 instance types. Similarly for Trainium, a quota of 128 will let you run a single trn1n.32xlarge or trn1.32xlarge, but it will also let you run sixteen trn1.2xlarge.
 
-### Launch the Amazon EC2 instance with the HF DLAMI
+#### Launch the Amazon EC2 instance with the HF DLAMI
 
 Let's deploy a trn1.2xlarge instance in the us-east-1 region (North Virginia) through the EC2 console.
 
@@ -116,21 +119,21 @@ First, click on **Launch instance** and define a name for the instance (`trainiu
   alt="name instance"
 />
 
-Next, you search the Amazon Marketplace for Hugging Face AMIs. Entering “Hugging Face” in the search bar for “Application and OS Images” and hitting “enter”.
+Next, you search the Amazon Marketplace for Hugging Face AMIs. Entering "Hugging Face" in the search bar for "Application and OS Images" and hitting "enter".
 
 <img
   src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/setup_aws_instance/02-search-ami.png"
   alt="search ami"
 />
 
-This should now open the “Choose an Amazon Machine Image” view with the search. You can now navigate to “AWS Marketplace AMIs” and find the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2) and click select.
+This should now open the "Choose an Amazon Machine Image" view with the search. You can now navigate to "AWS Marketplace AMIs" and find the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2) and click select.
 
 <img
   src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/setup_aws_instance/03-select-ami.png"
   alt="select ami"
 />
 
-_You will be asked to subscribe if you aren’t. The AMI is completely free of charge, and you will only pay for the EC2 compute._
+_You will be asked to subscribe if you aren't. The AMI is completely free of charge, and you will only pay for the EC2 compute._
 
 Then you need to define a key pair, which will be used to connect to the instance via `ssh`. You can create one in place if you don't have a key pair.
 
@@ -146,7 +149,7 @@ After that, create or select a [security group](https://docs.aws.amazon.com/vpc/
   alt="select security group"
 />
 
-You are ready to launch the instance. Therefore click on “Launch Instance” on the right side.
+You are ready to launch the instance. Therefore click on "Launch Instance" on the right side.
 
 <img
   src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/setup_aws_instance/06-launch-instance.png"
@@ -155,7 +158,7 @@ You are ready to launch the instance. Therefore click on “Launch Instance” o
 
 AWS will now provision the instance using the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2).
 
-### Connect through SSH
+#### Connect through SSH
 
 Once the instance is ready, you can view and copy the public IPv4 address to `ssh` into the machine.
 
@@ -187,7 +190,7 @@ instance-id: i-0570615e41700a481
 +--------+--------+--------+---------+
 ```
 
-## How to set up your remote development environment
+### Set up your remote development environment
 
 We will walk through setting up Jupyter Notebooks or VS Code remote server on the Amazon EC2 instance.
 
@@ -198,7 +201,7 @@ You should have a .pem file that you created when you deployed your instance or 
 ssh -i "/path/to/sshkey.pem" ubuntu@instance_ip_address
 ```
 
-### Access through Jupyter Notebook
+#### Access through Jupyter Notebook
 
 This method involves running the Jupyter notebook server on the Neuron instance, mapping a port locally, then using the browser on your desktop to access the notebook server.
 
@@ -223,7 +226,7 @@ This process works because you have mapped the 8888 port on your local machine t
 
 If you have problems, make sure the initial port mapping was successful. If you already have something running on port 8888 on your machine, this may give you an error. You can always change the port (e.g. 8885) in all the instructions if you need to.
 
-### Access through VS Code remote server
+#### Access through VS Code remote server
 
 With Visual Studio Code installed on your local machine, you can use the Remote-SSH command to edit and run files that are stored on a Neuron instance. See the VS Code article for additional details.
 
@@ -232,3 +235,41 @@ With Visual Studio Code installed on your local machine, you can use the Remote-
 3. VS Code should connect and automatically set up the VS Code server.
 4. Eventually, you should be prompted for a base directory. You can browse to a directory on the Neuron instance.
 5. In case you find that some commands seem greyed out in the menus, but the keyboard commands still work (⌘S to save or ^⇧` for terminal), you may need to restart VS Code.
+
+## Alternative: Manual Installation
+
+Manual installation is useful in several scenarios:
+
+- **Using a newer version**: Install the latest Optimum Neuron version that may not yet be available in the DLAMI
+- **Custom AMI requirements**: Working with your organization's standard AMI or security-hardened images
+- **Existing infrastructure**: Adding Neuron support to pre-configured environments or Docker containers
+- **Development setup**: Installing pre-release or development versions for testing
+- **Minimal installations**: Creating lightweight environments with only required dependencies
+
+If you choose manual installation, you will need to ensure the Neuron drivers and tools are properly installed first.
+
+Before installing `optimum-neuron` make sure that you have installed the Neuron driver and tools, check out [more detailed guide here](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/setup/torch-neuronx.html#setup-torch-neuronx).
+
+### Adding pip packages URL
+
+Pointing to the AWS Neuron repository:
+
+```bash
+python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+```
+
+### Installing `optimum-neuron` for AWS Trainium (`trn1`) or AWS inferentia2 (`inf2`)
+
+```bash
+python -m pip install optimum-neuron[neuronx]
+```
+
+### Installing `optimum-neuron` for AWS inferentia (`inf1`)
+
+```bash
+python -m pip install optimum-neuron[neuron]
+```
+
+## What's Next?
+
+Now that you have Optimum Neuron set up, check out the **[Quickstart Guide](./quickstart)** to learn the basics of training and inference with Optimum Neuron.

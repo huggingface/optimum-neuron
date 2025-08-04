@@ -80,7 +80,6 @@ tests = [
 quality = [
     "ruff",
     "isort",
-    "hf_doc_builder @ git+https://github.com/huggingface/doc-builder.git",
 ]
 training = [
     "trl == 0.11.4",

@@ -44,6 +44,7 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
+    DTYPE_MAPPER,
     ENCODER_NAME,
     NEURON_FILE_NAME,
     ImageEncoderArguments,
@@ -52,7 +53,6 @@ from ...neuron.utils import (
     LoRAAdapterArguments,
     is_neuron_available,
     is_neuronx_available,
-    map_torch_dtype,
 )
 from ...neuron.utils.version_utils import (
     check_compiler_compatibility_for_stable_diffusion,
@@ -83,8 +83,8 @@ if is_neuronx_available():
 if is_diffusers_available():
     from diffusers import (
         DiffusionPipeline,
-        FluxPipeline,
         FluxKontextPipeline,
+        FluxPipeline,
         ModelMixin,
         StableDiffusionPipeline,
         StableDiffusionXLPipeline,
@@ -557,7 +557,7 @@ def load_models_and_neuron_configs(
     local_files_only: bool,
     token: bool | str | None,
     submodels: dict[str, Path | str] | None,
-    torch_dtype: str | torch.dtype | None = None,
+    torch_dtype: str | torch.dtype = torch.float32,
     tensor_parallel_size: int = 1,
     controlnet_ids: str | list[str] | None = None,
     lora_args: LoRAAdapterArguments | None = None,
@@ -616,7 +616,7 @@ def main_export(
     model_name_or_path: str,
     output: str | Path,
     compiler_kwargs: dict[str, Any],
-    torch_dtype: str | torch.dtype | None = None,
+    torch_dtype: str | torch.dtype = torch.float32,
     tensor_parallel_size: int = 1,
     model: "PreTrainedModel | ModelMixin | None" = None,
     task: str = "auto",
@@ -644,7 +644,7 @@ def main_export(
     **input_shapes,
 ):
     output = Path(output)
-    torch_dtype = map_torch_dtype(torch_dtype)
+    torch_dtype = DTYPE_MAPPER.pt(torch_dtype)
     if not output.parent.exists():
         output.parent.mkdir(parents=True)
 

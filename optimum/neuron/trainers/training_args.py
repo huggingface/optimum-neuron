@@ -27,13 +27,13 @@ from transformers.utils import (
     is_sagemaker_mp_enabled,
 )
 
-from ..utils import logging
-from .accelerate import NeuronAcceleratorState, NeuronPartialState
-from .accelerate.utils import patch_accelerate_is_torch_xla_available
-from .models.training.config import TrainingNeuronConfig
-from .utils import is_main_worker
-from .utils.patching import Patcher, patch_within_function
-from .utils.torch_xla_and_neuronx_initialization import set_neuron_cc_optlevel
+from ...utils import logging
+from ..accelerate import NeuronAcceleratorState, NeuronPartialState
+from ..accelerate.utils import patch_accelerate_is_torch_xla_available
+from ..models.training.config import TrainingNeuronConfig
+from ..utils import is_main_worker
+from ..utils.patching import Patcher, patch_within_function
+from ..utils.torch_xla_and_neuronx_initialization import set_neuron_cc_optlevel
 
 
 if is_sagemaker_mp_enabled():
@@ -60,16 +60,6 @@ class NeuronTrainingArgumentsMixin:
     zero_1: bool = field(default=False, metadata={"help": "Whether to use  ZeRO Stage 1 Optimization."})
     tensor_parallel_size: int = field(
         default=1, metadata={"help": "The number of replicas the model will be sharded on."}
-    )
-    disable_embedding_parallelization: bool = field(
-        default=False,
-        metadata={
-            "help": (
-                "If set, the embeddings will not be parallelized when doing model parallelism. When embeddings are not "
-                "parallelized in decoder and seq2seq models, the language modeling head cannot be parallelized either "
-                "or need an all-gather, which can be costly."
-            )
-        },
     )
     disable_sequence_parallel: bool = field(
         default=False,
@@ -187,7 +177,6 @@ class NeuronTrainingArgumentsMixin:
 
         self.trn_config = TrainingNeuronConfig(
             self.tensor_parallel_size,
-            parallelize_embeddings=not self.disable_embedding_parallelization,
             sequence_parallel_enabled=not self.disable_sequence_parallel,
             kv_size_multiplier=self.kv_size_multiplier,
             pipeline_parallel_size=self.pipeline_parallel_size,

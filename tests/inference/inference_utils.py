@@ -21,6 +21,7 @@ from typing import Dict
 
 import huggingface_hub
 import requests
+import torch
 from PIL import Image
 from transformers import set_seed
 
@@ -148,7 +149,12 @@ class NeuronModelTestMixin(unittest.TestCase):
 
             set_seed(SEED)
             neuron_model = self.NEURON_MODEL_CLASS.from_pretrained(
-                model_id, **model_args, export=True, dynamic_batch_size=dynamic_batch_size, **self.STATIC_INPUTS_SHAPES
+                model_id,
+                **model_args,
+                export=True,
+                torch_dtype=torch.float32,
+                dynamic_batch_size=dynamic_batch_size,
+                **self.STATIC_INPUTS_SHAPES,
             )
 
             model_dir = tempfile.mkdtemp(prefix=f"{model_arch_and_params}_{self.TASK}_")
