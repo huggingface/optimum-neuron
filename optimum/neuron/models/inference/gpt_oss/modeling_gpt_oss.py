@@ -19,9 +19,9 @@ import torch
 import torch_xla.core.xla_model as xm
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, ParallelEmbedding
+
 from neuronx_distributed.parallel_layers.mappings import (
     _reduce_scatter_along_dim,
-    copy_to_tensor_model_parallel_region,
     gather_from_sequence_parallel_region,
     reduce_scatter_to_sequence_parallel_region,
     scatter_to_tensor_model_parallel_region,
@@ -29,8 +29,13 @@ from neuronx_distributed.parallel_layers.mappings import (
 from torch import nn
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from transformers.utils import logging
+from transformers.integrations.mxfp4 import convert_moe_packed_tensors
 
 from optimum.neuron.models.inference.backend.modules.moe.expert_mlps import ExpertMLPs
+from optimum.neuron.models.inference.backend.modules.moe.moe_parallel_layers import (
+    ExpertFusedColumnParallelLinear,
+    ExpertFusedRowParallelLinear
+)
 
 from ..backend.config import NxDNeuronConfig
 from ..backend.modules.attention.attention_base import (
@@ -54,6 +59,30 @@ logger = logging.get_logger(__name__)
 # a different implementation.
 
 
+def _convert_weight(neuron_state_dict, weight_name, new_weight_name):
+    """In this model, weights can be quantized using MXFP4. To support this, we dequantize weights on the fly.
+    """
+    # If weight is not quantized, we can just copy it with the new name
+    if weight_name in neuron_state_dict:
+        neuron_state_dict[new_weight_name] = neuron_state_dict.pop(weight_name)
+        return
+
+    # Search the blocks and scales in the state dict
+    blocks_name = weight_name + "_blocks"
+    scales_name = weight_name + "_scales"
+    if blocks_name in neuron_state_dict and scales_name in neuron_state_dict:
+        blocks = neuron_state_dict[blocks_name]
+        scales = neuron_state_dict[scales_name]
+        dequantized = convert_moe_packed_tensors(blocks, scales)
+        # Dimensions are transposed when quantized, so we need to transpose them back
+        neuron_state_dict[new_weight_name] = dequantized.transpose(1, 2).contiguous()
+        neuron_state_dict.pop(blocks_name)
+        neuron_state_dict.pop(scales_name)
+        return
+
+    raise ValueError(f"Weight {weight_name} not found in neuron_state_dict")
+
+
 def convert_gptoss_to_neuron_state_dict(neuron_state_dict, config, neuron_config):
     """
     Helper function which returns the model weights from the GptOss model in a state dictionary compatible with the stucture of the neuron MoE model.
@@ -62,33 +91,87 @@ def convert_gptoss_to_neuron_state_dict(neuron_state_dict, config, neuron_config
 
     for l in range(config.num_hidden_layers):  # noqa: E741
         # Using NxD ExpertMLPs layer changes weights
-        neuron_state_dict[f"layers.{l}.mlp.experts.mlp_op.gate_up_proj.weight"] = neuron_state_dict.pop(
-            f"layers.{l}.mlp.experts.gate_up_proj"
+        _convert_weight(
+            neuron_state_dict,
+            f"layers.{l}.mlp.experts.gate_up_proj",
+            f"layers.{l}.mlp.experts.gate_up_proj.weight",
         )
-        neuron_state_dict[f"layers.{l}.mlp.experts.mlp_op.gate_up_proj.bias"] = neuron_state_dict.pop(
-            f"layers.{l}.mlp.experts.gate_up_proj_bias"
+        _convert_weight(
+            neuron_state_dict,
+            f"layers.{l}.mlp.experts.gate_up_proj_bias",
+            f"layers.{l}.mlp.experts.gate_up_proj.bias",
         )
-        neuron_state_dict[f"layers.{l}.mlp.experts.mlp_op.down_proj.weight"] = neuron_state_dict.pop(
-            f"layers.{l}.mlp.experts.down_proj"
+        _convert_weight(
+            neuron_state_dict,
+            f"layers.{l}.mlp.experts.down_proj",
+            f"layers.{l}.mlp.experts.down_proj.weight"
         )
-        neuron_state_dict[f"layers.{l}.mlp.experts.mlp_op.down_proj.bias"] = neuron_state_dict.pop(
-            f"layers.{l}.mlp.experts.down_proj_bias"
+        _convert_weight(
+            neuron_state_dict,
+            f"layers.{l}.mlp.experts.down_proj_bias",
+            f"layers.{l}.mlp.experts.down_proj.bias",
         )
         gc.collect()
 
     return neuron_state_dict
 
 
-def _experts_swiglu_activation(x: torch.Tensor) -> torch.Tensor:
-    ALPHA = 1.702
-    LIMIT = 7.0
-    # gate, up = torch.chunk(x, chunks=2, dim=-1)
-    gate, up = x[..., ::2], x[..., 1::2]
-    gate = gate.clamp(min=None, max=LIMIT)
-    up = up.clamp(min=-LIMIT, max=LIMIT)
-    glu = gate * torch.sigmoid(gate * ALPHA)
-    gated_output = (up + 1) * glu
-    return gated_output
+class NeuronGptOssExperts(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.intermediate_size = config.intermediate_size
+        self.num_experts = config.num_local_experts
+        self.hidden_size = config.hidden_size
+        self.expert_dim = self.intermediate_size
+
+        self.gate_up_proj = ExpertFusedColumnParallelLinear(
+            num_experts=self.num_experts,
+            input_size=self.hidden_size,
+            output_size=2 * self.expert_dim,
+            bias=True,
+            stride=2,
+        )
+        self.down_proj = ExpertFusedRowParallelLinear(
+            num_experts=self.num_experts,
+            input_size=self.expert_dim,
+            output_size=self.hidden_size,
+            bias=True,
+        )
+
+        self.alpha = 1.702
+        self.limit = 7.0
+
+    def forward(self, hidden_states: torch.Tensor, router_indices=None, routing_weights=None) -> torch.Tensor:
+        """
+        When training is is more efficient to just loop over the experts and compute the output for each expert
+        as otherwise the memory would explode.
+
+        For inference we can sacrifice some memory and compute the output for all experts at once. By repeating the inputs.
+
+        Args:
+            hidden_states (torch.Tensor): (batch_size, seq_len, hidden_size)
+            selected_experts (torch.Tensor): (batch_size * token_num, top_k)
+            routing_weights (torch.Tensor): (batch_size * token_num, num_experts)
+        Returns:
+            torch.Tensor
+        """
+        batch_size = hidden_states.shape[0]
+        hidden_states = hidden_states.reshape(-1, self.hidden_size)  # (num_tokens, hidden_size)
+        num_experts = routing_weights.shape[1]
+
+        hidden_states = hidden_states.repeat(num_experts, 1)
+        hidden_states = hidden_states.view(num_experts, -1, self.hidden_size)
+
+        gate_up = self.gate_up_proj(hidden_states)
+        gate, up = gate_up[..., ::2], gate_up[..., 1::2]
+        gate = gate.clamp(min=None, max=self.limit)
+        up = up.clamp(min=-self.limit, max=self.limit)
+        glu = gate * torch.sigmoid(gate * self.alpha)
+        next_states = self.down_proj((up + 1) * glu)
+        next_states = next_states.view(num_experts, batch_size, -1, self.hidden_size)
+        next_states = next_states * routing_weights.transpose(0, 1).view(num_experts, batch_size, -1)[..., None]
+        next_states = next_states.sum(dim=0)
+        return next_states
 
 
 class GptOssMLP(nn.Module):
@@ -97,18 +180,7 @@ class GptOssMLP(nn.Module):
         self.top_k = config.num_experts_per_tok
         self.hidden_dim = config.hidden_size
         self.num_local_experts = config.num_local_experts
-        self.experts = ExpertMLPs(
-            num_experts=config.num_local_experts,
-            top_k=config.num_experts_per_tok,
-            hidden_size=config.hidden_size,
-            intermediate_size=config.intermediate_size,
-            hidden_act=config.hidden_act,
-            capacity_factor=neuron_config.capacity_factor,
-            glu_mlp=True,
-            expert_bias=True,
-            normalize_top_k_affinities=True,
-            glu_activation_fn=_experts_swiglu_activation,
-        )
+        self.experts = NeuronGptOssExperts(config)
         self.router = nn.Linear(config.hidden_size, self.num_local_experts, bias=True)
 
         self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
@@ -131,9 +203,6 @@ class GptOssMLP(nn.Module):
             )
         else:
             full_hidden_states = hidden_states
-        # full_hidden_states: (S, B, H) or (B, S, H)
-        full_hidden_states_shape = full_hidden_states.shape
-        seq_len = full_hidden_states_shape[self.sequence_dimension]
 
         # Get the router_logits, expert_affinities and expert_index from the router
         # router_logits: (T, E), expert_affinities: (T, E), expert_index: (T, top_k)
@@ -161,14 +230,7 @@ class GptOssMLP(nn.Module):
         router_top_value = torch.nn.functional.softmax(router_top_value, dim=1, dtype=router_logits.dtype)
         router_scores = torch.zeros_like(router_logits).scatter_(1, router_indices, router_top_value)
 
-        # full_hidden_states: (S, B, H) or (B, S, H) -> (T, H)
-        full_hidden_states = full_hidden_states.reshape(-1, self.hidden_dim)
-        output_states = self.experts(
-            hidden_states=full_hidden_states,
-            expert_affinities=router_scores,
-            expert_index=router_indices,
-            seq_len=seq_len,
-        )
+        output_states = self.experts(full_hidden_states, router_indices, router_scores)
 
         if self.sequence_parallel_enabled:
             # Delayed reduce-scatter back to sequence parallel (as the hidden_states were in SP)
