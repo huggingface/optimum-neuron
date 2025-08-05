@@ -27,7 +27,7 @@ from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.models.granite.configuration_granite import GraniteConfig
 from transformers.processing_utils import Unpack
-from transformers.utils import LossKwargs, can_return_tuple, logging
+from transformers.utils import TransformersKwargs, can_return_tuple, logging
 
 from ..config import TrainingNeuronConfig
 from ..llama.modeling_llama import (
@@ -225,7 +225,7 @@ class GraniteModel(LlamaModel):
         return output
 
 
-class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
+class KwargsForCausalLM(FlashAttentionKwargs, TransformersKwargs): ...
 
 
 class GraniteForCausalLM(LlamaForCausalLM):
