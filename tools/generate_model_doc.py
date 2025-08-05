@@ -117,99 +117,48 @@ def get_transformers_overview(model_name: str, local_transformers_path: Optional
     logger.warning(f"Could not fetch overview for {model_name}")
     return generate_fallback_overview(model_name)
 
+def clean_overview_text(text: str) -> str:
+    """Clean extracted overview but keep links and paragraph breaks."""
+    # Normalize line endings and strip trailing spaces
+    text = re.sub(r'\r\n', '\n', text)
+    text = re.sub(r'[ \t]+$', '', text, flags=re.MULTILINE)
+    return text.strip()
+
 def extract_overview_from_content(content: str, model_name: str) -> str:
-    """Extract overview section from transformers documentation content"""
-    
-    # Remove the license header if present (both HTML and MD style comments)
-    content = re.sub(r'', '', content, flags=re.DOTALL)
-    content = re.sub(r'', '', content, flags=re.DOTALL)
-    
-    # Remove front matter if present
-    content = re.sub(r'^---\s*\n.*?\n---\s*\n', '', content, flags=re.DOTALL | re.MULTILINE)
-    
-    # Extract overview section - try multiple patterns
+    """Extract only the overview section from transformers doc content."""
+
+    # Remove HTML/JS/C-style comments
+    content = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)
+    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+
+    # Remove YAML front matter if present
+    content = re.sub(r'^---\s*\n.*?\n---\s*\n', '', content,
+                     flags=re.DOTALL | re.MULTILINE)
+
+    # Build a stop marker for overview extraction
+    stop_pattern = r'(?=\n#{1,3}\s|\n>\s*\[!TIP\]|\n>\s*\[!NOTE\]|\n>\s*\[!IMPORTANT\]|\Z)'
+
     patterns = [
-        r'## Overview\s*\n(.*?)(?=\n##|\n#|$)',
-        r'# Overview\s*\n(.*?)(?=\n#|$)', 
-        r'## Model description\s*\n(.*?)(?=\n##|\n#|$)',
-        r'# Model description\s*\n(.*?)(?=\n#|$)',
-        r'## Introduction\s*\n(.*?)(?=\n##|\n#|$)',
-        r'## Summary\s*\n(.*?)(?=\n##|\n#|$)',
-        # Sometimes the overview is right after the model name header
-        rf'# {model_name.upper()}\s*\n(.*?)(?=\n##|\n#|$)',
+        rf'## Overview\s*\n(.*?){stop_pattern}',
+        rf'# Overview\s*\n(.*?){stop_pattern}', 
+        rf'## Model description\s*\n(.*?){stop_pattern}',
+        rf'# Model description\s*\n(.*?){stop_pattern}',
+        rf'## Introduction\s*\n(.*?){stop_pattern}',
+        rf'## Summary\s*\n(.*?){stop_pattern}',
+        # Sometimes the overview is right after the model name
+        rf'#\s*{re.escape(model_name)}\s*\n(.*?){stop_pattern}',
     ]
-    
+
     for pattern in patterns:
-        overview_match = re.search(pattern, content, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+        overview_match = re.search(pattern, content,
+                                   re.DOTALL | re.MULTILINE | re.IGNORECASE)
         if overview_match:
-            overview_text = overview_match.group(1).strip()
-            
-            # Clean up the overview text
-            overview_text = clean_overview_text(overview_text)
-            
-            if overview_text and len(overview_text) > 50:  # Ensure we have substantial content
+            overview_text = clean_overview_text(overview_match.group(1))
+            if overview_text and len(overview_text) > 50:
                 logger.info(f"Found overview for {model_name} using pattern: {pattern}")
                 return overview_text
-    
-    # If no overview section found, try to get the first substantial paragraph
-    # after the title
-    lines = content.split('\n')
-    collecting = False
-    overview_lines = []
-    
-    for line in lines:
-        line = line.strip()
-        
-        # Start collecting after we see a title or header
-        if re.match(rf'#{1,2}\s*{model_name}', line, re.IGNORECASE) or collecting:
-            collecting = True
-            continue
-            
-        # Stop if we hit another header
-        if collecting and re.match(r'#{1,3}\s+', line):
-            break
-            
-        # Collect non-empty lines
-        if collecting and line and not line.startswith('#'):
-            overview_lines.append(line)
-            
-        # Stop if we have enough content
-        if collecting and len(' '.join(overview_lines)) > 200:
-            break
-    
-    if overview_lines:
-        overview_text = ' '.join(overview_lines)
-        overview_text = clean_overview_text(overview_text)
-        if len(overview_text) > 50:
-            logger.info(f"Extracted overview from content body for {model_name}")
-            return overview_text
-    
-    return ""
 
-def clean_overview_text(text: str) -> str:
-    """Clean and format the overview text"""
-    
-    # Remove excessive whitespace and normalize
-    text = re.sub(r'\s+', ' ', text)
-    
-    # Split into sentences and rejoin properly
-    sentences = text.split('. ')
-    sentences = [s.strip() for s in sentences if s.strip()]
-    
-    # Rejoin sentences with proper spacing
-    cleaned_text = '. '.join(sentences)
-    
-    # Ensure it ends with a period if it doesn't already
-    if cleaned_text and not cleaned_text.endswith('.'):
-        cleaned_text += '.'
-    
-    # Remove any remaining markdown artifacts
-    cleaned_text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', cleaned_text)  # Remove markdown links but keep text
-    cleaned_text = re.sub(r'`([^`]+)`', r'\1', cleaned_text)  # Remove backticks
-    cleaned_text = re.sub(r'\*\*([^*]+)\*\*', r'\1', cleaned_text)  # Remove bold formatting
-    cleaned_text = re.sub(r'\*([^*]+)\*', r'\1', cleaned_text)  # Remove italic formatting
-    
-    return cleaned_text.strip()
+    return ""
 
 def generate_fallback_overview(model_name: str) -> str:
     """Generate a fallback overview when transformers documentation is not available"""
