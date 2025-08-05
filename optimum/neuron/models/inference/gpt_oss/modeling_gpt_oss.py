@@ -22,6 +22,7 @@ from neuronx_distributed.parallel_layers.mappings import (
     scatter_to_tensor_model_parallel_region,
 )
 from torch import nn
+from transformers.integrations.mxfp4 import convert_moe_packed_tensors
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from transformers.utils import logging
 
@@ -50,6 +51,29 @@ logger = logging.get_logger(__name__)
 # a different implementation.
 
 
+def _convert_weight(neuron_state_dict, weight_name, new_weight_name):
+    """In this model, weights can be quantized using MXFP4. To support this, we dequantize weights on the fly."""
+    # If weight is not quantized, we can just copy it with the new name
+    if weight_name in neuron_state_dict:
+        neuron_state_dict[new_weight_name] = neuron_state_dict.pop(weight_name)
+        return
+
+    # Search the blocks and scales in the state dict
+    blocks_name = weight_name + "_blocks"
+    scales_name = weight_name + "_scales"
+    if blocks_name in neuron_state_dict and scales_name in neuron_state_dict:
+        blocks = neuron_state_dict[blocks_name]
+        scales = neuron_state_dict[scales_name]
+        dequantized = convert_moe_packed_tensors(blocks, scales)
+        # Dimensions are transposed when quantized, so we need to transpose them back
+        neuron_state_dict[new_weight_name] = dequantized.transpose(1, 2).contiguous()
+        neuron_state_dict.pop(blocks_name)
+        neuron_state_dict.pop(scales_name)
+        return
+
+    raise ValueError(f"Weight {weight_name} not found in neuron_state_dict")
+
+
 def convert_gptoss_to_neuron_state_dict(neuron_state_dict, config, neuron_config):
     """
     Helper function which returns the model weights from the GptOss model in a state dictionary compatible with the stucture of the neuron MoE model.
@@ -58,17 +82,23 @@ def convert_gptoss_to_neuron_state_dict(neuron_state_dict, config, neuron_config
 
     for l in range(config.num_hidden_layers):  # noqa: E741
         # Using NxD ExpertMLPs layer changes weights
-        neuron_state_dict[f"layers.{l}.mlp.experts.gate_up_proj.weight"] = neuron_state_dict.pop(
-            f"layers.{l}.mlp.experts.gate_up_proj"
+        _convert_weight(
+            neuron_state_dict,
+            f"layers.{l}.mlp.experts.gate_up_proj",
+            f"layers.{l}.mlp.experts.gate_up_proj.weight",
         )
-        neuron_state_dict[f"layers.{l}.mlp.experts.gate_up_proj.bias"] = neuron_state_dict.pop(
-            f"layers.{l}.mlp.experts.gate_up_proj_bias"
+        _convert_weight(
+            neuron_state_dict,
+            f"layers.{l}.mlp.experts.gate_up_proj_bias",
+            f"layers.{l}.mlp.experts.gate_up_proj.bias",
         )
-        neuron_state_dict[f"layers.{l}.mlp.experts.down_proj.weight"] = neuron_state_dict.pop(
-            f"layers.{l}.mlp.experts.down_proj"
+        _convert_weight(
+            neuron_state_dict, f"layers.{l}.mlp.experts.down_proj", f"layers.{l}.mlp.experts.down_proj.weight"
         )
-        neuron_state_dict[f"layers.{l}.mlp.experts.down_proj.bias"] = neuron_state_dict.pop(
-            f"layers.{l}.mlp.experts.down_proj_bias"
+        _convert_weight(
+            neuron_state_dict,
+            f"layers.{l}.mlp.experts.down_proj_bias",
+            f"layers.{l}.mlp.experts.down_proj.bias",
         )
         gc.collect()
 
