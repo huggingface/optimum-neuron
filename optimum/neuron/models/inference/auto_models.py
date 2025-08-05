@@ -58,6 +58,15 @@ class LLamaModelForCausalLM(LlamaNxDModelForCausalLM):
     pass
 
 
+@register_neuron_model_for_inference("mixtral", "text-generation")
+class MixtralNeuronModelForCausalLM(MixtralNxDModelForCausalLM):
+    """
+    Mixtral model with NxD backend for inference on AWS Neuron.
+    """
+
+    pass
+
+
 @register_neuron_model_for_inference("phi3", "text-generation")
 class Phi3ModelForCausalLM(Phi3NxDModelForCausalLM):
     """
@@ -71,15 +80,6 @@ class Phi3ModelForCausalLM(Phi3NxDModelForCausalLM):
 class Qwen2ModelForCausalLM(Qwen2NxDModelForCausalLM):
     """
     Qwen2 model with NxD backend for inference on AWS Neuron.
-    """
-
-    pass
-
-
-@register_neuron_model_for_inference("mixtral", "text-generation")
-class MixtralNeuronModelForCausalLM(MixtralNxDModelForCausalLM):
-    """
-    Mixtral model with NxD backend for inference on AWS Neuron.
     """
 
     pass
