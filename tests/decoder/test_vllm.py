@@ -42,7 +42,7 @@ def _test_vllm_generation(llm):
 
 def test_vllm_from_neuron_model(base_neuron_decoder_path):
     """Test vLLm generation on a single model exported locally."""
-    llm = LLM(model=base_neuron_decoder_path, device="neuron")
+    llm = LLM(model=base_neuron_decoder_path)
     _test_vllm_generation(llm)
 
 
@@ -56,7 +56,6 @@ def test_vllm_from_hub_model(neuron_decoder_config):
         max_model_len=export_kwargs["sequence_length"],
         tensor_parallel_size=export_kwargs["num_cores"],
         dtype=DTYPE_MAPPER.pt(export_kwargs["auto_cast_type"]),
-        device="neuron",
     )
     _test_vllm_generation(llm)
 
@@ -68,7 +67,6 @@ def test_vllm_greedy_expectations(neuron_decoder_config):
     llm = LLM(
         model=neuron_decoder_config["neuron_model_path"],
         max_num_seqs=neuron_decoder_config["export_kwargs"]["batch_size"],
-        device="neuron",
     )
     # Send more prompts than the compiled batch size (4) and request
     # varying generation lengths to test continuous batching.
