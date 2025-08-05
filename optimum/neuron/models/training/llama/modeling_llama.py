@@ -40,7 +40,7 @@ from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.processing_utils import Unpack
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
-from transformers.utils import LossKwargs, can_return_tuple, logging
+from transformers.utils import TransformersKwargs, can_return_tuple, logging
 
 from ..config import TrainingNeuronConfig
 from ..loss_utils import ForCausalLMLoss
@@ -812,7 +812,7 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         return causal_mask
 
 
-class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
+class KwargsForCausalLM(FlashAttentionKwargs, TransformersKwargs): ...
 
 
 class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
