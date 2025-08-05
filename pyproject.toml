@@ -98,12 +98,12 @@ neuron = [
 ]
 neuronx = [
     "wheel",
-    "neuronx-cc==2.19.8089.0",
-    "torch-neuronx==2.7.0.2.8.6734+ac864f72",
+    "neuronx-cc==2.20.9961.0+0acef03a",
+    "torch-neuronx==2.7.0.2.9.9357+08e1f40d",
     "torch==2.7.0.*",
     "torchvision==0.22.*",
-    "neuronx_distributed==0.13.14393",
-    "libneuronxla==2.2.4410.0",
+    "neuronx_distributed==0.14.18461+9ac233f2",
+    "libneuronxla==2.2.8201.0+f46ac1ef",
 ]
 diffusers = [
     "diffusers>=0.31.0, <=0.34.0",
