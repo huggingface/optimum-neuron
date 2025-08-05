@@ -277,6 +277,8 @@ def get_diffusion_models_for_export(
             float_dtype=transformer.dtype,
             input_shapes=transformer_input_shapes,
         )
+        is_flux_kontext = isinstance(pipeline, FluxKontextPipeline)
+        transformer_neuron_config.is_flux_kontext = is_flux_kontext
         if not tensor_parallel_size > 1:
             models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (transformer, transformer_neuron_config)
         else:
