@@ -137,6 +137,27 @@ mask = load_image(mask_url)
 images = pipe(prompt=prompt, image=source, mask_image=mask, max_sequence_length=256)
 ```
 
+## NeuronFluxKontextPipeline
+
+The Flux pipeline for image editing.
+
+[[autodoc]] modeling_diffusion.NeuronFluxKontextPipeline
+    - __call__
+
+With `NeuronFluxKontextPipeline`, pass the original image and a prompt describing what you want to change about the original image.
+
+```python
+from diffusers.utils import load_image
+from optimum.neuron import NeuronFluxKontextPipeline
+
+
+pipe = NeuronFluxKontextPipeline.from_pretrained("Jlonge4/FLUX.1-kontext-neuronx-1024x1024-tp8")
+prompt = "Change the dog in the image into a labrador"
+img_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png"
+source = load_image(img_url)
+images = pipe(prompt=prompt, image=source, max_sequence_length=256)
+```
+
 Are there any other diffusion features that you want us to support in 🤗`Optimum-neuron`? Please file an issue to [`Optimum-neuron` Github repo](https://github.com/huggingface/optimum-neuron) or discuss with us on [HuggingFace’s community forum](https://discuss.huggingface.co/c/optimum/), cheers 🤗 !
 
 
