@@ -233,6 +233,8 @@ class GptOssMLP(nn.Module):
         else:
             full_hidden_states = hidden_states
         # full_hidden_states: (S, B, H) or (B, S, H)
+        full_hidden_states_shape = full_hidden_states.shape
+        seq_len = full_hidden_states_shape[self.sequence_dimension]
 
         # Get the router_logits, expert_affinities and expert_index from the router
         # router_logits: (T, E), expert_affinities: (T, E), expert_index: (T, top_k)
@@ -257,15 +259,18 @@ class GptOssMLP(nn.Module):
         router_indices = router_indices.detach().to(dtype=torch.long)
         # Perform activation in fp64 to prevent auto-downcasting of operation to bf16, for numerical accuracy
         # expert_affinities: (T, E)
-        router_top_value = torch.nn.functional.softmax(router_top_value, dim=1, dtype=torch.float64)
+        router_top_value = torch.nn.functional.softmax(router_top_value, dim=1, dtype=router_logits.dtype)
         # Cast to required dtype
-        router_top_value = router_top_value.to(dtype=router_logits.dtype)
+        # router_top_value = router_top_value.to(dtype=router_logits.dtype)
         router_scores = torch.zeros_like(router_logits).scatter_(1, router_indices, router_top_value)
 
         # full_hidden_states: (S, B, H) or (B, S, H) -> (T, H)
         full_hidden_states = full_hidden_states.reshape(-1, self.hidden_dim)
         output_states = self.experts(
-            full_hidden_states, router_scores, router_indices, seq_len=full_hidden_states.shape[0]
+            hidden_states=full_hidden_states,
+            expert_affinities=router_scores,
+            expert_index=router_indices,
+            seq_len=seq_len,
         )
 
         if self.sequence_parallel_enabled:
@@ -276,6 +281,7 @@ class GptOssMLP(nn.Module):
                 process_group=self.tensor_parallel_group,
             )
 
+        # TODO: check if this is correct when sequence_parallel is enabled
         batch_size = hidden_states.shape[0]
         output_states = output_states.reshape(batch_size, -1, self.hidden_dim)
         return (output_states,)
