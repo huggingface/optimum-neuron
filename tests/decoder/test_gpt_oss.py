@@ -8,7 +8,7 @@ import huggingface_hub
 import pytest
 from conftest import OPTIMUM_CACHE_REPO_ID, _get_hub_neuron_model_id
 from transformers import AutoTokenizer
-from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+# from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.cache import synchronize_hub_cache
@@ -17,8 +17,8 @@ from optimum.neuron.models.inference.gpt_oss.modeling_gpt_oss import GptOssNxdFo
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
-# NOTE: we do this because currently the config in the current version of transformers does not support GptOss.
-CONFIG_MAPPING.register("gpt_oss", GptOssConfig)
+# # NOTE: we do this because currently the config in the current version of transformers does not support GptOss.
+# CONFIG_MAPPING.register("gpt_oss", GptOssConfig)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,12 +37,12 @@ DECODER_MODEL_CONFIGURATIONS = {
             "auto_cast_type": "bf16",
         },
     },
-    "gpt-rc-20b": {
-        "model_id": "plop-internal/gpt-oss-20b-trfs-0804",
+    "gpt-oss-20b": {
+        "model_id": "openai/gpt-oss-20b",
         "export_kwargs": {
             "batch_size": 1,
-            "sequence_length": 4096,
-            "num_cores": 16,
+            "sequence_length": 256,
+            "num_cores": 8,
             "auto_cast_type": "bf16",
         },
     },
@@ -84,7 +84,7 @@ def _get_neuron_model_for_config(config_name: str, model_config, neuron_model_pa
     export_kwargs = model_config["export_kwargs"]
     neuron_model_id = _get_hub_neuron_model_id(config_name, model_config)
     hub = huggingface_hub.HfApi()
-    if hub.repo_exists(neuron_model_id):
+    if False and hub.repo_exists(neuron_model_id):
         logger.info(f"Fetching {neuron_model_id} from the HuggingFace hub")
         hub.snapshot_download(neuron_model_id, local_dir=neuron_model_path)
     else:
@@ -93,7 +93,7 @@ def _get_neuron_model_for_config(config_name: str, model_config, neuron_model_pa
         tokenizer.save_pretrained(neuron_model_path)
         del tokenizer
         # Create the test model on the hub
-        model.push_to_hub(save_directory=neuron_model_path, repository_id=neuron_model_id, private=True)
+        #model.push_to_hub(save_directory=neuron_model_path, repository_id=neuron_model_id, private=True)
         # Make sure it is cached
         synchronize_hub_cache(cache_repo_id=OPTIMUM_CACHE_REPO_ID)
     # Add dynamic parameters to the model configuration
@@ -145,10 +145,13 @@ def model_and_tokenizer(neuron_oai_decoder_path):
 
 @is_inferentia_test
 @requires_neuronx
-def test_gpt_oss(model_and_tokenizer):
+def test_gpt_oss(model_and_tokenizer: tuple[NeuronModelForCausalLM, AutoTokenizer]):
     model, tokenizer = model_and_tokenizer
     prompt = "What is Deep Learning?"
     inputs = tokenizer(prompt, return_tensors="pt")
-    outputs = model.generate(**inputs, max_new_tokens=100)
+    outputs = model.generate(**inputs, max_new_tokens=100, do_sample=False)
     generated_text = tokenizer.decode(outputs[0])
     print(generated_text)
+    # breakpoint()
+    # logits = model.forward(**inputs, return_logits=True)
+    # print(logits)
