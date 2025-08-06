@@ -226,7 +226,7 @@ def infer_shapes_of_diffusers(
     max_sequence_length_2 = (
         model.tokenizer_2.model_max_length if hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None else None
     )
-    if isinstance(model, FluxPipeline) or isinstance(model, FluxKontextPipeline):
+    if isinstance(model, (FluxPipeline, FluxKontextPipeline)):
         max_sequence_length_2 = input_shapes["text_encoder"].get("sequence_length", None) or max_sequence_length_2
 
     vae_encoder_num_channels = model.vae.config.in_channels
