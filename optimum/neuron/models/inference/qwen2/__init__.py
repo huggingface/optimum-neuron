@@ -18,5 +18,3 @@ from .modeling_qwen2 import (
     NxDQwen2Model,
     Qwen2NxDModelForCausalLM,
 )
-
-

@@ -14,10 +14,9 @@
 # limitations under the License.
 
 from .modeling_granite import (
+    GraniteNxDModelForCausalLM,
     NeuronGraniteDecoderLayer,
     NxDGraniteEmbedding,
     NxDGraniteHead,
     NxDGraniteModel,
-    GraniteNxDModelForCausalLM,
 )
-
