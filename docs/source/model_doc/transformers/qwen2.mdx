@@ -1,0 +1,72 @@
+<!---
+Copyright 2025 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+# Qwen2
+
+## Overview
+
+[Qwen2](https://huggingface.co/papers/2407.10671) is a family of large language models (pretrained, instruction-tuned and mixture-of-experts) available in sizes from 0.5B to 72B parameters. The models are built on the Transformer architecture featuring enhancements like group query attention (GQA), rotary positional embeddings (RoPE), a mix of sliding window and full attention, and dual chunk attention with YARN for training stability. Qwen2 models support multiple languages and context lengths up to 131,072 tokens.
+
+You can find all the official Qwen2 checkpoints under the [Qwen2](https://huggingface.co/collections/Qwen/qwen2-6659360b33528ced941e557f) collection.
+
+## Export to Neuron
+
+To deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you first need to compile the models and export them to a serialized format for inference. Below are two approaches to compile the model, you can choose the one that best suits your needs. Here we take the `text-generation` as an example:
+
+### Option 1: CLI
+  
+You can export the model using the Optimum command-line interface as follows:
+
+```bash
+optimum-cli export neuron --model Qwen/Qwen2-1.5B-Instruct --task text-generation --batch_size 1 --sequence_length 128 qwen2_text_generation_neuronx/
+```
+
+> [!TIP]
+> Execute `optimum-cli export neuron --help` to display all command line options and their description.
+
+### Option 2: Python API
+
+```python
+from optimum.neuron import NeuronModelForCausalLM
+
+input_shapes = {"batch_size": 1, "sequence_length": 128}
+compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+neuron_model = NeuronModelForCausalLM.from_pretrained(
+    "Qwen/Qwen2-1.5B-Instruct",
+    export=True,
+    **input_shapes,
+    **compiler_args,
+)
+
+# Save locally
+neuron_model.save_pretrained("qwen2_text_generation_neuronx")
+
+# Upload to the HuggingFace Hub
+neuron_model.push_to_hub(
+    "qwen2_text_generation_neuronx", repository_id="my-neuron-repo"  # Replace with your HF Hub repo id
+)
+```
+
+## NeuronQwen2DecoderLayer
+
+[[autodoc]] models.inference.qwen2.NeuronQwen2DecoderLayer
+
+## NxDQwen2Model
+
+[[autodoc]] models.inference.qwen2.NxDQwen2Model
+
+## Qwen2NxDModelForCausalLM
+
+[[autodoc]] models.inference.qwen2.Qwen2NxDModelForCausalLM
