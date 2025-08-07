@@ -49,6 +49,7 @@ def neuron_flux_tp2_path():
     del neuron_pipeline
     yield model_path
 
+
 @pytest.fixture(scope="module")
 @requires_neuronx
 def neuron_flux_kontext_tp2_path():
