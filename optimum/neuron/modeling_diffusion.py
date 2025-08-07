@@ -1609,9 +1609,11 @@ class NeuronFluxPipeline(NeuronDiffusionPipelineBase, FluxPipeline):
     main_input_name = "prompt"
     auto_model_class = FluxPipeline
 
+
 class NeuronFluxKontextPipeline(NeuronDiffusionPipelineBase, FluxKontextPipeline):
     main_input_name = "prompt"
     auto_model_class = FluxKontextPipeline
+
 
 class NeuronFluxInpaintPipeline(NeuronDiffusionPipelineBase, FluxInpaintPipeline):
     main_input_name = "prompt"

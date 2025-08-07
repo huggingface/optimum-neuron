@@ -17,7 +17,7 @@ from tempfile import TemporaryDirectory
 import pytest
 import torch
 
-from optimum.neuron import NeuronFluxPipeline, NeuronFluxKontextPipeline
+from optimum.neuron import NeuronFluxKontextPipeline, NeuronFluxPipeline
 from optimum.neuron.utils.testing_utils import requires_neuronx
 
 
@@ -51,7 +51,7 @@ def neuron_flux_tp2_path():
 
 @pytest.fixture(scope="module")
 @requires_neuronx
-def neuron_flux__kontext_tp2_path():
+def neuron_flux_kontext_tp2_path():
     compiler_args = {"auto_cast": "none"}
     input_shapes = {
         "batch_size": 1,
