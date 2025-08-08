@@ -10,7 +10,7 @@ variable "instance_type" {
 }
 
 variable "source_ami" {
-  default     = "ami-0ffd183ece0ca0475"
+  default     = "ami-0aea5bf206fcd4a09"
   description = "Base Image"
   type        = string
   /*
