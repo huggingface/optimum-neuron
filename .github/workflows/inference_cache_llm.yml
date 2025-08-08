@@ -32,6 +32,7 @@ jobs:
           llama3.1-70b,
           qwen2.5-large,
           llama-variants,
+          smollm3,
         ]
     steps:
       - name: Checkout
