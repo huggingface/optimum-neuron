@@ -137,6 +137,31 @@ mask = load_image(mask_url)
 images = pipe(prompt=prompt, image=source, mask_image=mask, max_sequence_length=256)
 ```
 
+## NeuronFluxKontextPipeline
+
+The Flux pipeline for image editing.
+
+[[autodoc]] modeling_diffusion.NeuronFluxKontextPipeline
+    - __call__
+
+With `NeuronFluxKontextPipeline`, pass the original image and a prompt describing what you want to change about the original image.
+
+```python
+from diffusers.utils import load_image
+from optimum.neuron import NeuronFluxKontextPipeline
+
+
+pipe = NeuronFluxKontextPipeline.from_pretrained("Jlonge4/FLUX.1-kontext-neuronx-1024x1024-tp8")
+prompt = "Change the cushions in the chair from red to green"
+img_url = "https://huggingface.co/datasets/Jlonge4/document_images/resolve/main/flux_optimum.png"
+source = load_image(img_url)
+images = pipe(prompt=prompt, image=source, guidance_scale=2.5)
+```
+
+| Image | Prompt | Output |
+|:-----:|:------:|:------:|
+| <img src="https://huggingface.co/datasets/Jlonge4/document_images/resolve/main/flux_optimum.png" alt="red_cushions" width="250"/> | ***Change the cushions in the chair from red to green*** | <img src="https://huggingface.co/datasets/Jlonge4/document_images/resolve/main/flux_optimum_edit.png" alt="green_cushions" width="250"/> |
+
 Are there any other diffusion features that you want us to support in 🤗`Optimum-neuron`? Please file an issue to [`Optimum-neuron` Github repo](https://github.com/huggingface/optimum-neuron) or discuss with us on [HuggingFace’s community forum](https://discuss.huggingface.co/c/optimum/), cheers 🤗 !
 
 

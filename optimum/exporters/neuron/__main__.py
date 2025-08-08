@@ -83,6 +83,7 @@ if is_neuronx_available():
 if is_diffusers_available():
     from diffusers import (
         DiffusionPipeline,
+        FluxKontextPipeline,
         FluxPipeline,
         ModelMixin,
         StableDiffusionPipeline,
@@ -218,14 +219,14 @@ def normalize_diffusers_input_shapes(
 
 def infer_shapes_of_diffusers(
     input_shapes: dict[str, dict[str, int]],
-    model: "StableDiffusionPipeline | StableDiffusionXLPipeline | FluxPipeline",
+    model: "StableDiffusionPipeline | StableDiffusionXLPipeline | FluxPipeline | FluxKontextPipeline",
     has_controlnets: bool,
 ):
     max_sequence_length_1 = model.tokenizer.model_max_length if model.tokenizer is not None else None
     max_sequence_length_2 = (
         model.tokenizer_2.model_max_length if hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None else None
     )
-    if isinstance(model, FluxPipeline):
+    if isinstance(model, (FluxPipeline, FluxKontextPipeline)):
         max_sequence_length_2 = input_shapes["text_encoder"].get("sequence_length", None) or max_sequence_length_2
 
     vae_encoder_num_channels = model.vae.config.in_channels
