@@ -105,6 +105,7 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
         "qwen3": " What is the difference between Deep Learning and Machine Learning?\n\nDeep Learning is a subset of",
         "granite": "\n\nDeep Learning is a subset of machine learning that is inspired by the structure and",
         "phi": "\n\nDeep learning is a subfield of machine learning that focuses on creating",
+        "smollm3": " Deep learning is a subset of machine learning that uses neural networks with many layers to learn",
     }
     config_name = neuron_decoder_config["name"]
     generated_text = tokenizer.decode(outputs[0])
