@@ -27,7 +27,10 @@ from optimum.neuron.modeling_diffusion import (
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils.testing_utils import require_diffusers
 
+from ..helpers import skip_for_sdk
 
+
+@skip_for_sdk(["2.25.0"])
 @pytest.mark.order(0)
 @is_inferentia_test
 @requires_neuronx
@@ -48,6 +51,7 @@ def test_flux_txt2img(neuron_flux_tp2_path):
     assert isinstance(image, PIL.Image.Image)
 
 
+@skip_for_sdk(["2.25.0"])
 @pytest.mark.order(0)
 @is_inferentia_test
 @requires_neuronx

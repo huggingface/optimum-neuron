@@ -22,6 +22,8 @@ from optimum.neuron.utils import is_neuronx_available
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import logging
 
+from ..helpers import skip_for_sdk
+
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -200,6 +202,7 @@ class TestExportCLI(unittest.TestCase):
                     check=True,
                 )
 
+    @skip_for_sdk(["2.25.0"])
     @requires_neuronx
     def test_flux_tp2(self):
         model_ids = ["hf-internal-testing/tiny-flux-pipe-gated-silu"]
