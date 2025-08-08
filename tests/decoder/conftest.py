@@ -72,6 +72,15 @@ DECODER_MODEL_CONFIGURATIONS = {
             "auto_cast_type": "bf16",
         },
     },
+    "smollm3": {
+        "model_id": "HuggingFaceTB/SmolLM3-3B",
+        "export_kwargs": {
+            "batch_size": 4,
+            "sequence_length": 4096,
+            "num_cores": 2,
+            "auto_cast_type": "bf16",
+        },
+    },
 }
 
 

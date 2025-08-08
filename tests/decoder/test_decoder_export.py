@@ -30,6 +30,7 @@ DECODER_MODEL_NAMES = {
     "granite": "hf-internal-testing/tiny-random-GraniteForCausalLM",
     "phi3": "yujiepan/phi-4-tiny-random",
     "mixtral": "dacorvo/Mixtral-tiny",
+    "smollm3": "HuggingFaceTB/SmolLM3-3B",
 }
 
 
