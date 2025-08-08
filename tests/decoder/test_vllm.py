@@ -131,6 +131,14 @@ def test_vllm_greedy_expectations(neuron_decoder_config):
             " due to the absorption of light by the atmosphere.",
             " the time I was in the first grade. I remember the day I got the first grade, the",
         ],
+        "smollm3": [
+            " the head of state and government of the United States",
+            " Paris. The Eiffel Tower is in Paris. The Eiffel Tower is a famous landmark",
+            " It was a special day, for it was the first of April, and people were putting the finishing touches to their April Fools' Day pranks",
+            " to be happy. I believe that happiness is the most important thing in life. I believe that happiness is not just a feeling, but a state of being. I believe that happiness is not something that",
+            " blue because of Rayleigh scattering. This is the",
+            " of my grandmother, who was a wonderful cook, making a delicious chicken and dumplings soup. She",
+        ],
     }[neuron_decoder_config["name"]]
 
     for expected_output, output in zip(expected_outputs, outputs):
