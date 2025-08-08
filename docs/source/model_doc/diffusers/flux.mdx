@@ -152,11 +152,15 @@ from optimum.neuron import NeuronFluxKontextPipeline
 
 
 pipe = NeuronFluxKontextPipeline.from_pretrained("Jlonge4/FLUX.1-kontext-neuronx-1024x1024-tp8")
-prompt = "Change the dog in the image into a labrador"
-img_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png"
+prompt = "Change the cushions in the chair from red to green"
+img_url = "https://huggingface.co/datasets/Jlonge4/document_images/resolve/main/flux_optimum.png"
 source = load_image(img_url)
 images = pipe(prompt=prompt, image=source, guidance_scale=2.5)
 ```
+
+| Image | Prompt | Output |
+|:-----:|:------:|:------:|
+| <img src="https://huggingface.co/datasets/Jlonge4/document_images/resolve/main/flux_optimum.png" alt="red_cushions" width="250"/> | ***Change the cushions in the chair from red to green*** | <img src="https://huggingface.co/datasets/Jlonge4/document_images/resolve/main/flux_optimum_edit.png" alt="green_cushions" width="250"/> |
 
 Are there any other diffusion features that you want us to support in 🤗`Optimum-neuron`? Please file an issue to [`Optimum-neuron` Github repo](https://github.com/huggingface/optimum-neuron) or discuss with us on [HuggingFace’s community forum](https://discuss.huggingface.co/c/optimum/), cheers 🤗 !
 
