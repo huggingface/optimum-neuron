@@ -1,0 +1,190 @@
+<!---
+Copyright 2024 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# 🚀 Fine-tune BERT for Text Classification
+
+This tutorial shows how to fine-tune BERT for emotion classification on AWS Trainium accelerators using optimum-neuron.
+
+**This is based on the [BERT fine-tuning example script](https://github.com/huggingface/optimum-neuron/tree/main/examples/training/bert).**
+
+## 1. 🛠️ Setup AWS Environment
+
+We'll use a `trn1.2xlarge` instance with 1 Trainium Accelerator (2 Neuron Cores) and the Hugging Face Neuron Deep Learning AMI.
+
+The Hugging Face AMI includes all required libraries pre-installed:
+- `datasets`, `transformers`, `optimum-neuron`  
+- Neuron SDK packages
+- No additional environment setup needed
+
+To create your instance, follow the guide [here](https://huggingface.co/docs/optimum-neuron/ec2-setup).
+
+## 2. 📊 Load and Prepare the Dataset
+
+We'll use the [emotion dataset](https://huggingface.co/datasets/dair-ai/emotion) to fine-tune our model for emotion classification. The dataset contains English Twitter messages labeled with six emotions: anger, fear, joy, love, sadness, and surprise.
+
+```
+{
+    'text': 'i feel like i am still looking at the same stuff i look at all the time',
+    'label': 4  # sadness
+}
+```
+
+To load the dataset we use the `load_dataset()` method from the `datasets` library:
+
+```python
+from datasets import load_dataset
+from random import randrange
+
+# Load dataset from the hub  
+dataset_id = "dair-ai/emotion"
+dataset = load_dataset(dataset_id)
+
+dataset_size = len(dataset["train"])
+print(f"dataset size: {dataset_size}")
+# dataset size: 16000
+```
+
+To prepare our dataset, we need to tokenize the text inputs to convert them into BERT-compatible tokens. We'll use padding and truncation to ensure all sequences have the same length:
+
+```python
+from transformers import AutoTokenizer
+
+# Load tokenizer
+model_id = "bert-base-uncased"
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+# Tokenization function  
+def tokenize_function(examples):
+    return tokenizer(
+        examples["text"],
+        padding="max_length", 
+        truncation=True,
+        max_length=128,
+    )
+
+# Apply tokenization
+dataset = dataset.map(tokenize_function, batched=True)
+```
+
+## 3. 🎯 Fine-tune BERT with Trainer
+
+For training on AWS Trainium, we use the [`NeuronTrainer`](https://huggingface.co/docs/optimum-neuron/training_api/trainer) and [`NeuronTrainingArguments`](https://huggingface.co/docs/optimum-neuron/training_api/trainer) classes from Optimum Neuron.
+
+**Distributed Training on Trainium:**
+Since we're using `trn1.2xlarge` with 2 Neuron Cores, we can leverage data parallelism for faster training.
+
+Combining all the pieces together, we can write the following code to fine-tune BERT on AWS Trainium:
+
+```python
+from transformers import AutoModelForSequenceClassification
+from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
+
+model_id = "bert-base-uncased"
+
+# Load model for sequence classification
+num_labels = len(dataset["train"].features["label"].names)
+model = AutoModelForSequenceClassification.from_pretrained(
+    model_id, 
+    num_labels=num_labels
+)
+
+# Define training arguments optimized for Trainium
+training_args = NeuronTrainingArguments(
+    output_dir="bert-emotion-model",
+    num_train_epochs=3,
+    per_device_train_batch_size=8,
+    per_device_eval_batch_size=8,
+    learning_rate=5e-5,
+    bf16=True,  # Faster training on Trainium
+    do_train=True,
+    do_eval=True,
+    eval_strategy="epoch",
+    save_strategy="epoch", 
+    logging_steps=100,
+    overwrite_output_dir=True,
+)
+
+# Initialize trainer
+trainer = NeuronTrainer(
+    model=model,
+    args=training_args,
+    train_dataset=dataset["train"],
+    eval_dataset=dataset["validation"],
+    processing_class=tokenizer,
+)
+
+# Start training
+trainer.train()
+```
+
+📝 **Complete script available:** All steps above are combined in a ready-to-use script [finetune_bert.py](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/bert/finetune_bert.py).
+
+### Launch Training
+
+To launch training, just run the following command in your AWS Trainium instance:
+
+```bash
+# Launch distributed training on 2 Neuron cores
+torchrun --nproc_per_node=2 finetune_bert.py \
+  --model_id bert-base-uncased \
+  --learning_rate 5e-5 \
+  --batch_size 8 \
+  --epochs 3 \
+  --output_dir bert-emotion-model
+```
+
+🔧 **Single command execution:** The complete bash training script [finetune_bert.sh](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/bert/finetune_bert.sh) is available:
+
+#### Precompilation (Optional)
+
+For faster training, you can precompile the model graphs:
+
+```bash
+neuron_parallel_compile ./finetune_bert.sh
+```
+
+#### Actual Training
+
+```bash
+./finetune_bert.sh
+```
+
+## 5. 🤗 Push to Hugging Face Hub
+
+Share your fine-tuned model with the community by uploading it to the Hugging Face Hub.
+
+**Step 1: Authentication**
+```bash
+huggingface-cli login
+```
+
+**Step 2: Upload your model**
+```python
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+MODEL_PATH = "bert-emotion-model"
+HUB_MODEL_NAME = "your-username/bert-emotion-classifier"
+
+# Load and push tokenizer
+tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+tokenizer.push_to_hub(HUB_MODEL_NAME)
+
+# Load and push model
+model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
+model.push_to_hub(HUB_MODEL_NAME)
+```
+
+🎉 **Your fine-tuned BERT model is now available on the Hub for others to use!**
