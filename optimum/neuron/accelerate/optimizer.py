@@ -84,6 +84,7 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                 else:
                     self.optimizer.grad_clipping = False
                 self.optimizer.step(closure=closure)
+                self.grad_norm = self.optimizer._grad_norm
                 # Resetting everything.
                 self.optimizer.grad_clipping = False
                 self.clip_grad_norm_to_perform = None

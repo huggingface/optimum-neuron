@@ -203,7 +203,7 @@ class Qwen3Model(LlamaModel):
         )
         self.norm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
-        self.gradient_checkpointing = False
+        self.gradient_checkpointing = self.trn_config.gradient_checkpointing
 
         # Initialize weights and apply final processing
         self.post_init()
