@@ -21,6 +21,7 @@ import os
 import shutil
 from abc import abstractmethod
 from collections import OrderedDict
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -1320,6 +1321,11 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
         if isinstance(outputs, torch.Tensor):
             outputs = (outputs,)
         return outputs
+
+    # Dummy context manager
+    @contextmanager
+    def cache_context(self, name: str):
+        yield
 
 
 class NeuronModelVaeEncoder(_NeuronDiffusionModelPart):
