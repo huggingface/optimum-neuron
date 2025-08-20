@@ -117,7 +117,7 @@ class NeuronFluxTransformer2DModel(torch.nn.Module):
         joint_attention_dim: int = 4096,
         pooled_projection_dim: int = 768,
         guidance_embeds: bool = False,
-        axes_dims_rope: tuple[int] = (16, 56, 56),
+        axes_dims_rope: list[int] = [16, 56, 56],
         reduce_dtype: torch.dtype = torch.bfloat16,
     ):
         super().__init__()
