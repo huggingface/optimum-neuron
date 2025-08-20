@@ -945,6 +945,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 ip_adapter_args=ip_adapter_args,
                 output_hidden_states=output_hidden_states,
                 torch_dtype=torch_dtype,
+                tensor_parallel_size=tensor_parallel_size,
                 controlnet_ids=controlnet_ids,
                 **input_shapes_copy,
             )
@@ -954,7 +955,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             for name, (model, neuron_config) in models_and_neuron_configs.items():
                 if "vae" in name:  # vae configs are not cached.
                     continue
-                model_config = model.config
+                model_config = getattr(model, "config", None) or neuron_config._config
                 if isinstance(model_config, FrozenDict):
                     model_config = OrderedDict(model_config)
                     model_config = DiffusersPretrainedConfig.from_dict(model_config)
@@ -968,7 +969,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                     input_names=neuron_config.inputs,
                     output_names=neuron_config.outputs,
                     dynamic_batch_size=neuron_config.dynamic_batch_size,
-                    tensor_parallel_size=tensor_parallel_size,
+                    tensor_parallel_size=neuron_config.tensor_parallel_size,
                     compiler_type=NEURON_COMPILER_TYPE,
                     compiler_version=NEURON_COMPILER_VERSION,
                     inline_weights_to_neff=inline_weights_to_neff,
@@ -990,6 +991,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         if cache_exist:
             # load cache
+            logger.info(f"Neuron cache found at {model_cache_dir}. If you want to recompile the model, please set `disable_neuron_cache=True`.")
             neuron_model = cls.from_pretrained(model_cache_dir, data_parallel_mode=data_parallel_mode)
             # replace weights
             if not inline_weights_to_neff:
