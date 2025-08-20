@@ -61,10 +61,10 @@ tests = [
     "sentencepiece",
     "datasets",
     "sacremoses",
-    "diffusers @ git+https://github.com/huggingface/diffusers.git@main",
+    "diffusers==0.35.*",
     "safetensors",
     "sentence-transformers >= 2.2.0",
-    "peft==0.16.0",
+    "peft==0.17.0",
     "trl==0.11.4",
     "compel",
     "rjieba",
@@ -83,7 +83,7 @@ quality = [
 ]
 training = [
     "trl == 0.11.4",
-    "peft == 0.16.0",
+    "peft == 0.17.0",
     "evaluate == 0.4.3",
     "neuronx_distributed==0.13.14393",
 ]
@@ -106,8 +106,8 @@ neuronx = [
     "libneuronxla==2.2.4410.0",
 ]
 diffusers = [
-    "diffusers @ git+https://github.com/huggingface/diffusers.git@main",
-    "peft==0.16.0",
+    "diffusers==0.35.*",
+    "peft==0.17.0",
 ]
 sentence-transformers = [
     "sentence-transformers >= 2.2.0",
