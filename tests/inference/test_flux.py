@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import PIL
-import pytest
 import torch
 from diffusers.utils import load_image
 
@@ -29,7 +28,6 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 from optimum.utils.testing_utils import require_diffusers
 
 
-@pytest.mark.order(0)
 @is_inferentia_test
 @requires_neuronx
 @require_diffusers
@@ -49,7 +47,6 @@ def test_flux_txt2img(neuron_flux_tp2_path):
     assert isinstance(image, PIL.Image.Image)
 
 
-@pytest.mark.order(0)
 @is_inferentia_test
 @requires_neuronx
 @require_diffusers
@@ -71,7 +68,6 @@ def test_flux_inpaint(neuron_flux_tp2_path):
     assert isinstance(image, PIL.Image.Image)
 
 
-@pytest.mark.order(0)
 @is_inferentia_test
 @requires_neuronx
 @require_diffusers
