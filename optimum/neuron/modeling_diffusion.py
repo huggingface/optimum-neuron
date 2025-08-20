@@ -992,7 +992,9 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         if cache_exist:
             # load cache
-            logger.info(f"Neuron cache found at {model_cache_dir}. If you want to recompile the model, please set `disable_neuron_cache=True`.")
+            logger.info(
+                f"Neuron cache found at {model_cache_dir}. If you want to recompile the model, please set `disable_neuron_cache=True`."
+            )
             neuron_model = cls.from_pretrained(model_cache_dir, data_parallel_mode=data_parallel_mode)
             # replace weights
             if not inline_weights_to_neff:
