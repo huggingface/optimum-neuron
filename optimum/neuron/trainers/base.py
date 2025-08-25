@@ -22,13 +22,15 @@ import shutil
 import sys
 import time
 import warnings
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torch_xla.core.xla_model as xm
 import torch_xla.debug.metrics as met
 import torch_xla.runtime as xr
+from torch.utils.data import IterableDataset
 from accelerate import __version__ as accelerate_version
 from accelerate.utils import AutocastKwargs, DataLoaderConfiguration
 from neuronx_distributed.pipeline import NxDPPModel
@@ -40,7 +42,24 @@ from transformers import (
     TrainingArguments,
 )
 from transformers.debug_utils import DebugOption, DebugUnderflowOverflow
-from transformers.integrations import hp_params
+from transformers.utils import is_datasets_available
+from transformers.data.data_collator import DataCollator, DataCollatorWithPadding, default_data_collator
+from transformers.tokenizatgion_utils_base import PreTrainedTokenizerBase
+from transformers.image_processing_utils import BaseImageProcessor
+from transformers.feature_extraction_sequence_utils import SequenceFeatureExtractor
+from transformers.feature_extraction_utils import FeatureExtractionMixin
+from transformers.processing_utils import ProcessorMixin
+from transformers.trainer_callback import (
+    CallbackHandler,
+    DefaultFlowCallback,
+    ExportableState,
+    PrinterCallback,
+    ProgressCallback,
+    TrainerCallback,
+    TrainerControl,
+    TrainerState,
+)
+from transformers.integrations import hp_params. get_reporting_integration_callbacks
 from transformers.modeling_utils import unwrap_model
 from transformers.trainer import (
     OPTIMIZER_NAME,
@@ -51,6 +70,7 @@ from transformers.trainer import (
 from transformers.trainer_callback import TrainerState
 from transformers.trainer_pt_utils import (
     IterableDatasetShard,
+    LabelSmoother,
     find_batch_size,
     get_dataloader_sampler,
     nested_concat,
@@ -72,7 +92,10 @@ from transformers.trainer_utils import (
 from transformers.utils import (
     WEIGHTS_NAME,
     is_accelerate_available,
+    find_labels,
+    can_return_loss,
 )
+from transformers.models.auto.modeling_auto import MODEL_MAPPING_NAMES, MODEL_FOR_CAUSAL_LM_MAPPING_NAMES
 
 from optimum.utils import logging
 
@@ -86,6 +109,7 @@ from ..utils.cache_utils import (
     get_hf_hub_cache_repos,
     get_neuron_cache_path,
 )
+from ..peft import NeuronPeftModel
 from ..utils.misc import is_main_worker, is_precompilation
 from ..utils.require_utils import requires_torch_neuronx
 from ..utils.training_utils import (
@@ -100,6 +124,9 @@ from .training_args import NeuronTrainingArguments
 
 logger = logging.get_logger("transformers.trainer")
 
+if is_datasets_available():
+    import datasets
+
 TRL_VERSION = "0.11.4"
 
 KEEP_HF_HUB_PROGRESS_BARS = os.environ.get("KEEP_HF_HUB_PROGRESS_BARS")
@@ -108,6 +135,144 @@ if KEEP_HF_HUB_PROGRESS_BARS is None:
 
 transformers_get_optimizer_cls_and_kwargs = Trainer.get_optimizer_cls_and_kwargs
 
+DEFAULT_CALLBACKS = [DefaultFlowCallback]
+DEFAULT_PROGRESS_CALLBACK = ProgressCallback
+
+
+class NeuronBaseTrainer:
+    def __init__(
+        self,
+        model: PreTrainedModel | nn.Module | None = None,
+        args: TrainingArguments | None = None,
+        data_collator: DataCollator | None = None,
+        train_dataset: Dataset | IterableDataset | "datasets.Dataset" | None = None,
+        eval_dataset: Dataset | dict[str, Dataset] | "datasets.Dataset" | None = None,
+        processing_class: PreTrainedTokenizerBase | BaseImageProcessor | FeatureExtractionMixin | ProcessorMixin | None = None,
+        model_init: Callable[[], PreTrainedModel] | None = None,
+        compute_loss_func: Callable | None = None,
+        compute_metrics: Callable[[EvalPrediction], dict] | None = None,
+        callbacks: list[TrainerCallback] | None = None,
+        optimizers: tuple[torch.optim.Optimizer | None, torch.optim.lr_scheduler.LambdaLR | None] = (None, None),
+        optimizer_cls_and_kwargs: tuple[type[torch.optim.Optimizer], dict[str, Any]] | None = None,
+        preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+    ):
+
+        if args is None:
+            output_dir = "tmp_trainer"
+            logger.info(f"No `TrainingArguments` passed, using `output_dir={output_dir}`.")
+            args = NeuronTrainingArguments(output_dir=output_dir)
+
+        self.args = args
+        self.compute_loss_func = compute_loss_func
+
+        # TODO: set seed here?
+
+        if model is None:
+            raise ValueError("A model must be provided to the Trainer.")
+
+        if model.__class__.__name__ in MODEL_MAPPING_NAMES:
+            raise ValueError(
+                f"The model you have picked ({model.__class__.__name__}) cannot be used as is for training: it only "
+                "computes hidden states and does not accept any labels. You should choose a model with a head "
+                "suitable for your task like any of the `AutoModelForXxx` listed at "
+                "https://huggingface.co/docs/transformers/model_doc/auto"
+            )
+
+        if self.args.use_liger_kernel:
+            raise RuntimeError(f"Liger kernel is not supported in NeuronTrainer.")
+
+        default_collator = (
+            DataCollatorWithPadding(processing_class)
+            if processing_class is not None
+            and isinstance(processing_class, (PreTrainedTokenizerBase, SequenceFeatureExtractor))
+            else default_data_collator
+        )
+        self.data_collator = data_collator if data_collator is not None else default_collator
+        self.train_dataset = train_dataset
+        self.eval_dataset = eval_dataset
+        self.processing_class = processing_class
+
+        self.model = model
+
+        self.compute_metrics = compute_metrics
+        self.optimizer, self.lr_scheduler = optimizers
+        self.optimizer_cls_and_kwargs = optimizer_cls_and_kwargs
+
+        if self.optimizer_cls_and_kwargs is not None and self.optimizer is not None:
+            raise RuntimeError("Passing both `optimizers` and `optimizer_cls_and_kwargs` arguments is incompatible.")
+
+        if self.optimizer is not None:
+            model_device = optimizer_device = None
+            for param in self.model.parameters():
+                model_device = param.device
+                break
+            for param_group in self.optimizer.param_groups:
+                if len(param_group["params"]) > 0:
+                    optimizer_device = param_group["params"][0].device
+                    break
+            if model_device != optimizer_device:
+                raise ValueError(
+                    "The model and the optimizer parameters are not on the same device, which probably means you"
+                    " created an optimizer around your model **before** putting on the device and passing it to the"
+                    " `Trainer`. Make sure the lines `import torch_xla.core.xla_model as xm` and"
+                    " `model.to(xm.xla_device())` is performed before the optimizer creation in your script."
+                )
+
+        default_callbacks = DEFAULT_CALLBACKS + get_reporting_integration_callbacks(self.args.report_to)
+        callbacks = default_callbacks if callbacks is None else default_callbacks + callbacks
+        self.callback_handler = CallbackHandler(
+            callbacks, self.model, self.processing_class, self.optimizer, self.lr_scheduler
+        )
+        self.add_callback(PrinterCallback if self.args.disable_tqdm else DEFAULT_PROGRESS_CALLBACK)
+
+        # Create distant repo and output directory if needed
+        self.hub_model_id = None
+        if self.args.push_to_hub:
+            self.init_hf_repo()
+        if self.args.should_save:
+            os.makedirs(self.args.output_dir, exist_ok=True)
+
+        if not callable(self.data_collator) and callable(getattr(self.data_collator, "collate_batch", None)):
+            raise ValueError("The `data_collator` should be a simple callable (function, class with `__call__`).")
+
+        if args.max_steps > 0 and args.num_train_epochs > 0:
+            logger.info("max_steps is given, it will override any value given in num_train_epochs")
+
+        if train_dataset is not None and not has_length(train_dataset) and args.max_steps <= 0:
+            raise ValueError(
+                "The train_dataset does not implement __len__, max_steps has to be specified. "
+                "The number of steps needs to be known in advance for the learning rate scheduler."
+            )
+
+        self._signature_columns = None
+
+        # Label smoothing
+        if self.args.label_smoothing_factor != 0:
+            self.label_smoother = LabelSmoother(epsilon=self.args.label_smoothing_factor)
+        else:
+            self.label_smoother = None
+
+        self.control = TrainerControl()
+
+        self.state = TrainerState(
+            is_local_process_zero=self.is_local_process_zero(),
+            is_world_process_zero=self.is_world_process_zero(),
+            stateful_callbacks=[
+                cb for cb in self.callback_handler.callbacks + [self.control] if isinstance(cb, ExportableState)
+            ],
+        )
+
+        if isinstance(self.model, NeuronPeftModel) and self.args.label_names is None:
+            logger.warning(
+                f"No label_names provided for model class `{self.model.__class__.__name__}`."
+                " Since `NeuronPeftModel` hides base models input arguments, if label_names is not given, label_names "
+                "can't be set automatically within `NeuronTrainer`."
+                " Note that empty label_names list will be used instead."
+            )
+        default_label_names = find_labels(self.model.__class__)
+        self.label_names = default_label_names if self.args.label_names is None else self.args.label_names
+        self.can_return_loss = can_return_loss(self.model.__class__)
+        self.control = self.callback_handler.on_init_end(self.args, self.state, self.control)
 
 class _TrainerForNeuron:
     def __init__(
