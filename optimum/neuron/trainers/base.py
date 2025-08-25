@@ -22,7 +22,7 @@ import shutil
 import sys
 import time
 import warnings
-from typing import Any, Callable
+from typing import Any, Callable, Type
 
 import numpy as np
 import torch
@@ -286,6 +286,44 @@ class NeuronBaseTrainer:
             "NeuronTrainer.tokenizer is now deprecated. You should use NeuronTrainer.processing_class instead."
         )
         return self.processing_class
+
+    def add_callback(self, callback: Type[TrainerCallback] | TrainerCallback):
+        """
+        Add a callback to the current list of `TrainerCallback`.
+
+        Args:
+           callback (`Type[TrainerCallback] | TrainerCallback`):
+               A `TrainerCallback` class or an instance of a `TrainerCallback`. In the
+               first case, will instantiate a member of that class.
+        """
+        self.callback_handler.add_callback(callback)
+
+    def pop_callback(self, callback: Type[TrainerCallback] | TrainerCallback) -> TrainerCallback | None:
+        """
+        Remove a callback from the current list of `TrainerCallback` and returns it.
+
+        If the callback is not found, returns `None` (and no error is raised).
+
+        Args:
+           callback (`Type[TrainerCallback] | TrainerCallback`):
+               A `TrainerCallback` class or an instance of a `TrainerCallback`. In the
+               first case, will pop the first member of that class found in the list of callbacks.
+
+        Returns:
+            `TrainerCallback | None`: The callback removed, if found.
+        """
+        return self.callback_handler.pop_callback(callback)
+
+    def remove_callback(self, callback: Type[TrainerCallback] | TrainerCallback):
+        """
+        Remove a callback from the current list of `TrainerCallback`.
+
+        Args:
+           callback (`Type[TrainerCallback] | TrainerCallback`):
+               A `TrainerCallback` class or an instance of a `TrainerCallback`. In the
+               first case, will remove the first member of that class found in the list of callbacks.
+        """
+        self.callback_handler.remove_callback(callback)
 
 
 class _TrainerForNeuron:
