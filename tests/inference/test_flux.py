@@ -12,12 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import PIL
-import pytest
 import torch
 from diffusers.utils import load_image
 
-from optimum.neuron import NeuronFluxInpaintPipeline, NeuronFluxPipeline
+from optimum.neuron import NeuronFluxInpaintPipeline, NeuronFluxKontextPipeline, NeuronFluxPipeline
 from optimum.neuron.modeling_diffusion import (
     NeuronModelTextEncoder,
     NeuronModelTransformer,
@@ -28,7 +28,6 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 from optimum.utils.testing_utils import require_diffusers
 
 
-@pytest.mark.order(0)
 @is_inferentia_test
 @requires_neuronx
 @require_diffusers
@@ -48,7 +47,6 @@ def test_flux_txt2img(neuron_flux_tp2_path):
     assert isinstance(image, PIL.Image.Image)
 
 
-@pytest.mark.order(0)
 @is_inferentia_test
 @requires_neuronx
 @require_diffusers
@@ -67,4 +65,30 @@ def test_flux_inpaint(neuron_flux_tp2_path):
     source = load_image(img_url)
     mask = load_image(mask_url)
     image = neuron_pipeline(prompt=prompt, image=source, mask_image=mask, max_sequence_length=256).images[0]
+    assert isinstance(image, PIL.Image.Image)
+
+
+@is_inferentia_test
+@requires_neuronx
+@require_diffusers
+def test_flux_kontext_img_edit(neuron_flux_kontext_tp2_path):
+    neuron_pipeline = NeuronFluxKontextPipeline.from_pretrained(neuron_flux_kontext_tp2_path)
+
+    assert isinstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
+    assert isinstance(neuron_pipeline.text_encoder_2, NeuronModelTextEncoder)
+    assert isinstance(neuron_pipeline.transformer, NeuronModelTransformer)
+    assert isinstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
+    assert isinstance(neuron_pipeline.vae_decoder, NeuronModelVaeDecoder)
+
+    prompt = "Change the dog on the bench into a labrador"
+    img_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png"
+    source = load_image(img_url)
+
+    image = neuron_pipeline(
+        prompt=prompt,
+        image=source,
+        max_sequence_length=256,
+        _auto_resize=False,
+        max_area=64,
+    ).images[0]
     assert isinstance(image, PIL.Image.Image)

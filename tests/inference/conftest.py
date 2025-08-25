@@ -17,7 +17,7 @@ from tempfile import TemporaryDirectory
 import pytest
 import torch
 
-from optimum.neuron import NeuronFluxPipeline
+from optimum.neuron import NeuronFluxKontextPipeline, NeuronFluxPipeline
 from optimum.neuron.utils.testing_utils import requires_neuronx
 
 
@@ -35,6 +35,35 @@ def neuron_flux_tp2_path():
 
     neuron_pipeline = NeuronFluxPipeline.from_pretrained(
         "hf-internal-testing/tiny-flux-pipe-gated-silu",
+        export=True,
+        torch_dtype=torch.bfloat16,
+        tensor_parallel_size=2,
+        dynamic_batch_size=False,
+        disable_neuron_cache=True,
+        **input_shapes,
+        **compiler_args,
+    )
+    model_dir = TemporaryDirectory()
+    model_path = model_dir.name
+    neuron_pipeline.save_pretrained(model_path)
+    del neuron_pipeline
+    yield model_path
+
+
+@pytest.fixture(scope="module")
+@requires_neuronx
+def neuron_flux_kontext_tp2_path():
+    compiler_args = {"auto_cast": "none"}
+    input_shapes = {
+        "batch_size": 1,
+        "height": 8,
+        "width": 8,
+        "num_images_per_prompt": 1,
+        "sequence_length": 256,
+    }
+
+    neuron_pipeline = NeuronFluxKontextPipeline.from_pretrained(
+        "hf-internal-testing/tiny-flux-kontext-pipe-gated-silu",
         export=True,
         torch_dtype=torch.bfloat16,
         tensor_parallel_size=2,
