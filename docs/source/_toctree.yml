@@ -41,22 +41,22 @@
       title: How-to Fine-Tune LLMs
     title: Training Tutorials
   - sections:
-      - isExpanded: false
-        sections:
-        - local: inference_tutorials/notebooks
-          title: Notebooks
-        - local: inference_tutorials/llama2-13b-chatbot
-          title: Create your own chatbot with llama-2-13B on AWS Inferentia
-        - local: inference_tutorials/sentence_transformers
-          title: Sentence Transformers on AWS Inferentia
-        title: EC2
-      - isExpanded: false
-        sections:
-        - local: inference_tutorials/deploy-llama-3-3-70b
-          title: Deploy Llama 3.3 70B on AWS Inferentia2 with SageMaker
-        - local: inference_tutorials/deploy-mixtral-8x7b
-          title: Deploy Mixtral 8x7B on AWS Inferentia2 with SageMaker
-        title: SageMaker
+    - isExpanded: false
+      sections:
+      - local: inference_tutorials/notebooks
+        title: Notebooks
+      - local: inference_tutorials/llama2-13b-chatbot
+        title: Create your own chatbot with llama-2-13B on AWS Inferentia
+      - local: inference_tutorials/sentence_transformers
+        title: Sentence Transformers on AWS Inferentia
+      title: EC2
+    - isExpanded: false
+      sections:
+      - local: inference_tutorials/deploy-llama-3-3-70b
+        title: Deploy Llama 3.3 70B on AWS Inferentia2 with SageMaker
+      - local: inference_tutorials/deploy-mixtral-8x7b
+        title: Deploy Mixtral 8x7B on AWS Inferentia2 with SageMaker
+      title: SageMaker
     title: Inference Tutorials
   - sections:
     - local: benchmarks/inferentia-llama3.1-8b
@@ -87,6 +87,10 @@
         sections:
         - local: model_doc/transformers/bert
           title: BERT
+        - local: model_doc/transformers/granite
+          title: Granite
+        - local: model_doc/transformers/qwen2
+          title: Qwen2
         title: TEXT MODELS
       - isExpanded: false
         sections:
