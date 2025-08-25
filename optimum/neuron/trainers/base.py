@@ -72,6 +72,7 @@ from transformers.trainer import (
 from transformers.trainer_callback import TrainerState
 from transformers.trainer_pt_utils import (
     IterableDatasetShard,
+    get_parameter_names,
     LabelSmoother,
     find_batch_size,
     get_dataloader_sampler,
@@ -79,6 +80,7 @@ from transformers.trainer_pt_utils import (
     nested_numpify,
     reissue_pt_warnings,
 )
+from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from transformers.trainer_utils import (
     PREFIX_CHECKPOINT_DIR,
     EvalLoopOutput,
@@ -537,6 +539,20 @@ class NeuronBaseTrainer:
             self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
 
         return self.optimizer
+
+    def get_num_trainable_parameters(self):
+        """
+        Get the number of trainable parameters.
+        """
+        return get_model_param_count(self.model, trainable_only=True)
+
+    def get_learning_rates(self):
+        """
+        Returns the learning rate of each parameter from self.optimizer.
+        """
+        if self.optimizer is None:
+            raise ValueError("Trainer optimizer is None, please make sure you have setup the optimizer before.")
+        return [group["lr"] for group in self.optimizer.param_groups]
 
     def get_optimizer_group(self, param: str | torch.nn.parameter.Parameter | None = None):
         """
