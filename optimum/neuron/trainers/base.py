@@ -625,6 +625,36 @@ class NeuronBaseTrainer:
             self._created_lr_scheduler = True
         return self.lr_scheduler
 
+    def num_examples(self, dataloader: DataLoader) -> int:
+        """
+        Helper to get number of samples in a [`~torch.utils.data.DataLoader`] by accessing its dataset. When
+        dataloader.dataset does not exist or has no length, estimates as best it can
+        """
+        try:
+            dataset = dataloader.dataset
+            # Special case for IterableDatasetShard, we need to dig deeper
+            if isinstance(dataset, IterableDatasetShard):
+                return len(dataloader.dataset.dataset)
+            return len(dataloader.dataset)
+        except (NameError, AttributeError, TypeError):  # no dataset or length, estimate by length of dataloader
+            return len(dataloader) * self.args.per_device_train_batch_size
+
+    @staticmethod
+    def num_tokens(train_dl: DataLoader, max_steps: int | None = None) -> int:
+        """
+        Helper to get number of tokens in a [`~torch.utils.data.DataLoader`] by enumerating dataloader.
+        """
+        train_tokens = 0
+        try:
+            for batch in train_dl:
+                tokens = batch["input_ids"].numel()
+                if max_steps is not None:
+                    return tokens * max_steps
+                train_tokens += tokens
+        except KeyError:
+            logger.warning("Cannot get num_tokens from dataloader")
+        return train_tokens
+
 
 class _TrainerForNeuron:
     def __init__(
