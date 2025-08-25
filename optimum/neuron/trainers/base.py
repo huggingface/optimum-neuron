@@ -435,30 +435,26 @@ class _TrainerForNeuron:
         return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
 
     def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time):
-        # We always reduce the loss, even when we do not use it to avoid a new graph.
-        # This communication is not costly.
-
         if self.state.global_step > self._globalstep_last_logged:
-            from neuronx_distributed.parallel_layers.parallel_state import (
-                get_data_parallel_replica_groups,
-                get_data_parallel_size,
-                model_parallel_is_initialized,
-            )
-
-            if model_parallel_is_initialized():
-                dp_size = get_data_parallel_size()
-            else:
-                dp_size = xr.world_size()
-
-            tr_loss_div = tr_loss / dp_size
-
-            reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_replica_groups())
-
-            reduced_tr_loss = reduced_tr_loss.detach()
-
             if self.control.should_log:
-                xm.mark_step()
+                from neuronx_distributed.parallel_layers.parallel_state import (
+                    get_data_parallel_replica_groups,
+                    get_data_parallel_size,
+                    model_parallel_is_initialized,
+                )
+
+                if model_parallel_is_initialized():
+                    dp_size = get_data_parallel_size()
+                else:
+                    dp_size = xr.world_size()
+
+                tr_loss_div = tr_loss / dp_size
+
+                reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_replica_groups())
+
+                reduced_tr_loss = reduced_tr_loss.detach()
                 tr_loss.zero_()
+                xm.mark_step()
 
                 def log_closure(self, reduced_tr_loss, grad_norm):
                     # We need to check that self.state.global_step > self._globalstep_last_logged because if two
@@ -498,7 +494,6 @@ class _TrainerForNeuron:
                 self.control.should_save = is_new_best_metric
 
         if self.control.should_save:
-            xm.mark_step()
 
             def save_closure(self, model, trial):
                 self._save_checkpoint(model, trial)
@@ -1002,6 +997,7 @@ class _TrainerForNeuron:
                         self.state.global_step += 1
                         self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                         self.control = self.callback_handler.on_step_end(args, self.state, self.control)
+                        xm.mark_step()
                         self._maybe_log_save_evaluate(
                             tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time
                         )
