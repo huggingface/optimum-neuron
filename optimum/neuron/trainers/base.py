@@ -165,6 +165,10 @@ class NeuronBaseTrainer:
         self.args = args
         self.compute_loss_func = compute_loss_func
 
+        # Set the correct log level depending on the node
+        log_level = args.get_process_log_level()
+        logging.set_verbosity(log_level)
+
         # TODO: set seed here?
 
         if model is None:
@@ -177,6 +181,9 @@ class NeuronBaseTrainer:
                 "suitable for your task like any of the `AutoModelForXxx` listed at "
                 "https://huggingface.co/docs/transformers/model_doc/auto"
             )
+
+        self.model = model
+        self.create_accelerator_and_postprocess()
 
         if self.args.use_liger_kernel:
             raise RuntimeError(f"Liger kernel is not supported in NeuronTrainer.")
@@ -192,7 +199,6 @@ class NeuronBaseTrainer:
         self.eval_dataset = eval_dataset
         self.processing_class = processing_class
 
-        self.model = model
 
         self.compute_metrics = compute_metrics
         self.optimizer, self.lr_scheduler = optimizers
@@ -273,6 +279,14 @@ class NeuronBaseTrainer:
         self.label_names = default_label_names if self.args.label_names is None else self.args.label_names
         self.can_return_loss = can_return_loss(self.model.__class__)
         self.control = self.callback_handler.on_init_end(self.args, self.state, self.control)
+
+    @property
+    def tokenizer(self) -> PreTrainedTokenizerBase | None:
+        logger.warning(
+            "NeuronTrainer.tokenizer is now deprecated. You should use NeuronTrainer.processing_class instead."
+        )
+        return self.processing_class
+
 
 class _TrainerForNeuron:
     def __init__(
