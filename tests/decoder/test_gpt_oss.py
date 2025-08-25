@@ -155,3 +155,100 @@ def test_gpt_oss(model_and_tokenizer: tuple[NeuronModelForCausalLM, AutoTokenize
     # breakpoint()
     # logits = model.forward(**inputs, return_logits=True)
     # print(logits)
+
+
+import torch
+from transformers import AutoModelForCausalLM
+from neuronx_distributed_inference.utils.testing import build_module, validate_accuracy
+from transformers.models.gpt_oss.modeling_gpt_oss import GptOssForCausalLM, GptOssRMSNorm, GptOssExperts
+from optimum.neuron.models.inference.gpt_oss.modeling_gpt_oss import CustomRMSNorm, _experts_swiglu_activation
+from optimum.neuron.models.inference.backend.modules.moe.expert_mlps import ExpertMLPs
+
+@is_inferentia_test
+@requires_neuronx
+def test_gpt_vs_cpu(model_and_tokenizer: tuple[NeuronModelForCausalLM, AutoTokenizer]):
+    prompt = "Gravity is"
+    checkpoint = "tengomucho/tiny-random-gpt-oss"
+    device = "cpu"
+    tokenizer = AutoTokenizer.from_pretrained(checkpoint)
+
+    model_cpu = GptOssForCausalLM.from_pretrained(checkpoint).to(device)
+    inputs = tokenizer.encode(prompt, return_tensors="pt").to(device)
+    max_new_tokens = 10
+    outputs = model_cpu.generate(inputs, max_new_tokens=max_new_tokens, do_sample=False)
+    generated_text = tokenizer.decode(outputs[0])
+    print(generated_text)
+
+    model, tokenizer = model_and_tokenizer
+    inputs = tokenizer.encode(prompt, return_tensors="pt")
+    outputs = model.generate(inputs, max_new_tokens=max_new_tokens, do_sample=False)
+    generated_text = tokenizer.decode(outputs[0])
+    print(generated_text)
+    # Comparison would fail
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_gpt_oss_rms_norm():
+    checkpoint = "tengomucho/tiny-random-gpt-oss"
+    config = GptOssConfig.from_pretrained(checkpoint)
+    hidden_size = config.hidden_size
+    seq_len = 2
+    hidden_states = torch.ones(1, seq_len, hidden_size, dtype=torch.bfloat16)
+    inputs = [(hidden_states,)]
+
+    example_inputs = [tuple([torch.zeros_like(input_element) for input_element in input_elements]) for input_elements in inputs]
+
+    # Create a cpu layer
+    cpu_module = GptOssRMSNorm(hidden_size)
+
+    # Create a function to run the model
+    neuron_module = build_module(CustomRMSNorm, example_inputs, module_init_kwargs={"hidden_size": hidden_size})
+
+    # Validate the accuracy of the model
+    validate_accuracy(neuron_module, inputs, cpu_callable=cpu_module)
+
+@is_inferentia_test
+@requires_neuronx
+def test_gpt_oss_experts():
+    checkpoint = "tengomucho/tiny-random-gpt-oss"
+    config = GptOssConfig.from_pretrained(checkpoint)
+
+    hidden_size = config.hidden_size
+    seq_len = 2
+    hidden_states = torch.ones(1, seq_len, hidden_size, dtype=torch.bfloat16)
+    indices = torch.tensor([[ 2, 37, 45,  4], [ 2, 37, 53, 22]], dtype=torch.int64)
+    routing_weights = torch.tensor([[0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+         0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+         0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+         0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+        [0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+         0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+         0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+         0., 0., 0., 0., 0., 0., 0., 0., 0., 0.]])
+    inputs = [hidden_states, indices, routing_weights, torch.tensor(seq_len)]
+    example_inputs = [torch.zeros_like(input_element) for input_element in inputs]
+    # inputs.append(seq_len)
+    # example_inputs.append(seq_len)
+    inputs = [tuple(inputs)]
+    example_inputs = [tuple(example_inputs)]
+
+    # Create a cpu layer
+    cpu_module = GptOssExperts(config)
+
+    # Create a function to run the model
+    neuron_module = build_module(ExpertMLPs, example_inputs, module_init_kwargs={
+        "num_experts": config.num_local_experts,
+        "top_k": config.num_experts_per_tok,
+        "hidden_size": hidden_size,
+        "intermediate_size": config.intermediate_size,
+        "hidden_act": config.hidden_act,
+        "glu_mlp": True,
+        "capacity_factor": 1.0,
+        "expert_bias": True,
+        "normalize_top_k_affinities": True,
+        "glu_activation_fn": _experts_swiglu_activation
+    })
+
+    # Validate the accuracy of the model
+    validate_accuracy(neuron_module, inputs, cpu_callable=cpu_module)
