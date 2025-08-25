@@ -19,7 +19,7 @@ import torch
 from transformers import AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.utils import map_torch_dtype
+from optimum.neuron.utils import DTYPE_MAPPER
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -52,7 +52,7 @@ def check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num_
         if hasattr(neuron_config, "auto_cast_type"):
             assert neuron_config.auto_cast_type == auto_cast_type
         elif hasattr(neuron_config, "torch_dtype"):
-            assert neuron_config.torch_dtype == map_torch_dtype(auto_cast_type)
+            assert neuron_config.torch_dtype == DTYPE_MAPPER.pt(auto_cast_type)
     input_shape = (batch_size, min(10, neuron_config.sequence_length))
     input_ids = torch.ones(input_shape, dtype=torch.int64)
     attention_mask = torch.ones(input_shape, dtype=torch.int64)

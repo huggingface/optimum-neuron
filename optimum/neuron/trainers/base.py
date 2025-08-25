@@ -85,7 +85,6 @@ from ..utils import (
 from ..utils.cache_utils import (
     get_hf_hub_cache_repos,
     get_neuron_cache_path,
-    has_write_access_to_repo,
 )
 from ..utils.misc import is_main_worker, is_precompilation
 from ..utils.require_utils import requires_torch_neuronx
@@ -605,13 +604,16 @@ class _TrainerForNeuron:
 
     @requires_torch_neuronx
     def synchronize_hub_cache(self):
+        cache_path = get_neuron_cache_path()
         repo_id = get_hf_hub_cache_repos()[0]
-        if not self.args.skip_cache_push and xr.global_ordinal() == 0:
-            has_write_access = has_write_access_to_repo(repo_id)
-            if has_write_access:
-                cache_path = get_neuron_cache_path()
+        if not self.args.skip_cache_push:
+            try:
                 synchronize_hub_cache(cache_path=cache_path, cache_repo_id=repo_id)
-        xm.rendezvous("Hub cache synchronization done")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to synchronize the hub cache for {repo_id}. This is not a critical error, but it prevents"
+                    f"compilation caching with the Hugging Face Hub. Error: {e}"
+                )
 
     def _get_train_sampler(self) -> torch.utils.data.Sampler | None:
         if self.train_dataset is None or not has_length(self.train_dataset):
@@ -873,8 +875,8 @@ class _TrainerForNeuron:
                     save_function=xm.save,
                 )
 
-        if self.tokenizer is not None and self.args.should_save:
-            self.tokenizer.save_pretrained(output_dir)
+        if self.processing_class is not None and self.args.should_save:
+            self.processing_class.save_pretrained(output_dir)
 
     def save_model(self, output_dir: str | None = None, _internal_call: bool = False):
         if not is_precompilation():  # Avoid unnecessary model saving during precompilation

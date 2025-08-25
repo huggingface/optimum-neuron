@@ -1,0 +1,79 @@
+<!---
+Copyright 2025 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# Model Weight Transformation Specs
+
+The transformation specs API defines how model weights are transformed between the original Transformers implementation and the custom implementation optimized for Neuron devices. This enables automatic weight conversion during model loading and checkpoint consolidation.
+
+## Base Classes
+
+### ModelWeightTransformationSpec
+
+[[autodoc]] models.training.transformations_utils.ModelWeightTransformationSpec
+
+### ModelWeightTransformationSpecs
+
+[[autodoc]] models.training.transformations_utils.ModelWeightTransformationSpecs
+
+### CustomModule
+
+[[autodoc]] models.training.transformations_utils.CustomModule
+
+## Transformation Specifications
+
+### FusedLinearsSpec
+
+[[autodoc]] models.training.transformations_utils.FusedLinearsSpec
+
+### GQAQKVColumnParallelLinearSpec
+
+[[autodoc]] models.training.transformations_utils.GQAQKVColumnParallelLinearSpec
+
+## Utility Functions
+
+### Weight Creation Functions
+
+[[autodoc]] models.training.transformations_utils.create_local_weight_with_padding
+
+[[autodoc]] models.training.transformations_utils.create_local_fused_weight
+
+### Model-level Functions
+
+[[autodoc]] models.training.transformations_utils.specialize_transformation_specs_for_model
+
+[[autodoc]] models.training.transformations_utils.adapt_peft_config_for_model
+
+[[autodoc]] models.training.transformations_utils.to_original_peft_config_for_model
+
+### State Dict Functions
+
+[[autodoc]] models.training.transformations_utils.adapt_state_dict
+
+[[autodoc]] models.training.transformations_utils.to_original_weights
+
+### Metadata Functions
+
+[[autodoc]] models.training.transformations_utils.create_parameter_metadata
+
+[[autodoc]] models.training.transformations_utils.get_tensor_model_parallel_attributes
+
+### Helper Functions
+
+[[autodoc]] models.training.transformations_utils.remove_adapter_name
+
+[[autodoc]] models.training.transformations_utils.is_base_layer
+
+[[autodoc]] models.training.transformations_utils.get_adapter_name

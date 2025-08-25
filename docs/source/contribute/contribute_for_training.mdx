@@ -21,6 +21,8 @@ Key transformation spec types:
 - `FusedLinearsSpec`: Handles fused linear layers (e.g., `gate_up_proj`)
 - `GQAQKVColumnParallelLinearSpec`: Handles grouped query attention projections when the tensor parallel size is greater than the number of key-value heads
 
+For complete API documentation of all transformation specs and utility functions, see the [Model Weight Transformation Specs API Reference](../training_api/transformations).
+
 ### 3. Parallel Layers
 
 Use these parallel layers from `neuronx_distributed`:

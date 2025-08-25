@@ -5,7 +5,7 @@ import pytest
 
 from optimum.neuron.configuration_utils import NeuronConfig
 from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
-from optimum.neuron.utils import map_torch_dtype
+from optimum.neuron.utils import DTYPE_MAPPER
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -43,6 +43,6 @@ def test_export_decoder_cli(batch_size, sequence_length, auto_cast_type, num_cor
         assert isinstance(neuron_config, NxDNeuronConfig)
         assert neuron_config.batch_size == batch_size
         assert neuron_config.sequence_length == sequence_length
-        assert neuron_config.torch_dtype == map_torch_dtype(auto_cast_type)
+        assert neuron_config.torch_dtype == DTYPE_MAPPER.pt(auto_cast_type)
         assert neuron_config.tp_degree == num_cores
         assert neuron_config.checkpoint_id == model_id

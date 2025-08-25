@@ -17,7 +17,7 @@
 import torch
 
 from ....configuration_utils import NeuronConfig, register_neuron_config
-from ....utils import map_torch_dtype
+from ....utils import DTYPE_MAPPER
 
 
 NEURON_CONFIG_FILE = "neuron_config.json"
@@ -116,7 +116,7 @@ class NxDNeuronConfig(NeuronConfig):
         self.tp_degree = tp_degree
         self.torch_dtype = torch_dtype
         if isinstance(self.torch_dtype, str):
-            self.torch_dtype = map_torch_dtype(self.torch_dtype)
+            self.torch_dtype = DTYPE_MAPPER.pt(self.torch_dtype)
         self.n_active_tokens = self.sequence_length if n_active_tokens is None else n_active_tokens
         self.output_logits = output_logits
 
@@ -124,7 +124,7 @@ class NxDNeuronConfig(NeuronConfig):
 
         self.rpl_reduce_dtype = torch_dtype if rpl_reduce_dtype is None else rpl_reduce_dtype
         if isinstance(self.rpl_reduce_dtype, str):
-            self.rpl_reduce_dtype = map_torch_dtype(self.rpl_reduce_dtype)
+            self.rpl_reduce_dtype = DTYPE_MAPPER.pt(self.rpl_reduce_dtype)
 
         # fallback to sequence_length is for compatibility with vllm
         self.max_context_length = max_context_length

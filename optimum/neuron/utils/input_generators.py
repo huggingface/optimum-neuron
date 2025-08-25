@@ -19,17 +19,65 @@ from typing import TYPE_CHECKING
 import torch
 
 from optimum.utils import (
-    DTYPE_MAPPER,
     DummyAudioInputGenerator,
     DummyInputGenerator,
     NormalizedConfig,
     NormalizedTextConfig,
     NormalizedVisionConfig,
+    logging,
 )
 
 
 if TYPE_CHECKING:
     from .argument_utils import ImageEncoderArguments
+
+
+logger = logging.get_logger()
+
+
+class DTYPE_MAPPER:
+    MAPPING = {
+        "fp32": torch.float32,
+        "fp16": torch.float16,
+        "bf16": torch.bfloat16,
+        "int64": torch.int64,
+        "int32": torch.int32,
+        "int8": torch.int8,
+        "bool": torch.bool,
+    }
+    EXTENDED_MAPPING = {
+        "bfloat16": torch.bfloat16,
+        "float16": torch.float16,
+        "float32": torch.float32,
+        "float64": torch.float64,
+    }
+
+    REVERSE_MAPPING = {v: k for k, v in MAPPING.items()}
+
+    @classmethod
+    def str(cls, dtype):
+        if not isinstance(dtype, str):
+            if dtype in cls.REVERSE_MAPPING:
+                return cls.REVERSE_MAPPING.get(dtype)
+            else:
+                raise ValueError(
+                    f"Unable to find `{dtype}` in the dtype mapping, valid values are {list(cls.REVERSE_MAPPING.keys())}."
+                )
+        else:
+            return dtype
+
+    @classmethod
+    def pt(cls, dtype):
+        mapping = cls.MAPPING | cls.EXTENDED_MAPPING
+        if not isinstance(dtype, torch.dtype):
+            if dtype in mapping:
+                return mapping.get(dtype)
+            else:
+                raise ValueError(
+                    f"Unable to find `{dtype}` in the dtype mapping, valid values are {list(mapping.keys())}."
+                )
+        else:
+            return dtype
 
 
 class DummyBeamValuesGenerator(DummyInputGenerator):

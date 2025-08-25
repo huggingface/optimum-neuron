@@ -35,6 +35,7 @@ from .cache.entries.single_model import SingleModelCacheEntry
 from .cache.hub_cache import create_hub_compile_cache_proxy
 from .modeling_base import NeuronModel
 from .utils import (
+    DTYPE_MAPPER,
     NEURON_FILE_NAME,
     InputShapesArguments,
     check_if_weights_replacable,
@@ -264,6 +265,7 @@ class NeuronTracedModel(NeuronModel):
         local_files_only: bool = False,
         trust_remote_code: bool = False,
         task: str | None = None,
+        torch_dtype: str | torch.dtype = torch.float32,
         auto_cast: str | None = None,
         auto_cast_type: str | None = None,
         disable_fast_relayout: bool | None = False,
@@ -298,12 +300,13 @@ class NeuronTracedModel(NeuronModel):
         # clean shapes
         commit_hash = kwargs_shapes.pop("_commit_hash", None)
 
-        if not disable_neuron_cache and is_neuronx_available():  # TODO: support caching of Inf1 as well
+        if not disable_neuron_cache and is_neuronx_available():
             # Check if the cache exists
             compilation_config = store_compilation_config(
                 config=config,
                 input_shapes=kwargs_shapes,
                 compiler_kwargs=compiler_kwargs,
+                float_dtype=torch_dtype,
                 dynamic_batch_size=dynamic_batch_size,
                 tensor_parallel_size=tensor_parallel_size,
                 compiler_type=NEURON_COMPILER_TYPE,
@@ -334,6 +337,7 @@ class NeuronTracedModel(NeuronModel):
                     cache_dir=cache_dir,
                     token=token,
                     framework="pt",
+                    torch_dtype=torch_dtype,
                     local_files_only=local_files_only,
                     force_download=force_download,
                     trust_remote_code=trust_remote_code,
@@ -358,6 +362,7 @@ class NeuronTracedModel(NeuronModel):
                 model_name_or_path=model_id,
                 output=save_dir_path,
                 compiler_kwargs=compiler_kwargs,
+                torch_dtype=torch_dtype,
                 task=task,
                 dynamic_batch_size=dynamic_batch_size,
                 cache_dir=cache_dir,
@@ -481,6 +486,8 @@ class NeuronTracedModel(NeuronModel):
             tensor_parallel_size=tensor_parallel_size,
             input_shapes=compile_shapes,
             output_hidden_states=neuron_config.get("output_hidden_states", False),
+            int_dtype=DTYPE_MAPPER.pt(neuron_config.get("int_dtype", "int64")),
+            float_dtype=DTYPE_MAPPER.pt(neuron_config.get("float_dtype", "fp32")),
         )
 
     @classmethod
