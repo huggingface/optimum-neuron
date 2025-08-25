@@ -29,11 +29,10 @@ _import_structure = {
     "hf_argparser": ["NeuronHfArgumentParser"],
     "trainers": [
         "NeuronTrainer",
-        "Seq2SeqNeuronTrainer",
+        # "Seq2SeqNeuronTrainer",
         "NeuronSFTTrainer",
         "NeuronORPOTrainer",
         "NeuronTrainingArguments",
-        "Seq2SeqNeuronTrainingArguments",
         "NeuronSFTConfig",
         "NeuronORPOConfig",
     ],
@@ -157,8 +156,7 @@ if TYPE_CHECKING:
         NeuronSFTTrainer,
         NeuronTrainer,
         NeuronTrainingArguments,
-        Seq2SeqNeuronTrainer,
-        Seq2SeqNeuronTrainingArguments,
+        # Seq2SeqNeuronTrainer,
     )
 
 else:

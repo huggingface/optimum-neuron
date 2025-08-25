@@ -153,6 +153,7 @@ def _get_model_param_count(model: "torch.nn.Module | NxDPPModel"):
         all_param_count = reduce_param_count_over_pp_ranks(all_param_count)
         trainable_param_count = reduce_param_count_over_pp_ranks(trainable_param_count)
 
+    xm.mark_step()
     return trainable_param_count, all_param_count
 
 
@@ -165,7 +166,7 @@ def get_model_param_count(model: "torch.nn.Module | NxDPPModel", trainable_only:
     return output
 
 
-def is_main_worker_for_metrics() -> bool:
+def is_logging_process() -> bool:
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_data_parallel_rank,
         get_pipeline_model_parallel_rank,
@@ -181,16 +182,13 @@ def is_main_worker_for_metrics() -> bool:
     pp_rank = get_pipeline_model_parallel_rank()
     pp_size = get_pipeline_model_parallel_size()
 
-    can_log_loss = dp_rank == tp_rank == 0 and pp_rank == pp_size - 1
+    return dp_rank == tp_rank == 0 and pp_rank == pp_size - 1
 
-    return can_log_loss
-
-
-def is_main_worker_for_metrics_method(self) -> bool:
+def is_logging_process_method(self) -> bool:
     """
-    Method version of `is_main_worker_for_metrics`, useful when this is used to patch a method from the Trainer class.
+    Method version of `is_logging_process`, useful when this is used to patch a method from the Trainer class.
     """
-    return is_main_worker_for_metrics()
+    return is_logging_process()
 
 
 def is_custom_modeling_model(model) -> bool:

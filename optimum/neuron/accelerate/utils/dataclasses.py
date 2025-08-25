@@ -27,11 +27,3 @@ class NeuronDistributedType(str, enum.Enum):
 
     MODEL_PARALLELISM = "MODEL_PARALLELISM"
 
-
-class AutocastBackend(str, enum.Enum):
-    """
-    Represents the backend to use for mixed-precision training.
-    """
-
-    XLA = "xla"
-    AMP = "amp"
