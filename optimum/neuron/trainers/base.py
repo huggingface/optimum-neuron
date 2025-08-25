@@ -22,11 +22,12 @@ import shutil
 import sys
 import time
 import warnings
-from typing import Any, Callable, Type
+from typing import Any, Callable, Type, TYPE_CHECKING
 
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 import torch_xla.core.xla_model as xm
 import torch_xla.debug.metrics as met
 import torch_xla.runtime as xr
@@ -80,6 +81,7 @@ from transformers.trainer_pt_utils import (
 from transformers.trainer_utils import (
     PREFIX_CHECKPOINT_DIR,
     EvalLoopOutput,
+    RemoveColumnsCollator,
     EvalPrediction,
     HPSearchBackend,
     PredictionOutput,
@@ -280,6 +282,8 @@ class NeuronBaseTrainer:
         self.can_return_loss = can_return_loss(self.model.__class__)
         self.control = self.callback_handler.on_init_end(self.args, self.state, self.control)
 
+        self._train_batch_size = args.train_batch_size
+
     @property
     def tokenizer(self) -> PreTrainedTokenizerBase | None:
         logger.warning(
@@ -324,6 +328,134 @@ class NeuronBaseTrainer:
                first case, will remove the first member of that class found in the list of callbacks.
         """
         self.callback_handler.remove_callback(callback)
+
+    def _set_signature_columns_if_needed(self):
+        if self._signature_columns is None:
+            # Inspect model forward signature to keep only the arguments it accepts.
+            model_to_inspect = self.model
+            if isinstance(self.model, NeuronPeftModel):
+                if hasattr(self.model, "get_base_model"):
+                    model_to_inspect = self.model.get_base_model()
+                else:
+                    # PeftMixedModel do not provide a `get_base_model` method
+                    model_to_inspect = self.model.base_model.model
+            signature = inspect.signature(model_to_inspect.forward)
+            self._signature_columns = list(signature.parameters.keys())
+            # Labels may be named label or label_ids, the default data collator handles that.
+            self._signature_columns += list(set(["label", "label_ids"] + self.label_names))
+
+    def _remove_unused_columns(self, dataset: "datasets.Dataset", description: str | None = None):
+        if not is_datasets_available() or not self.args.remove_unused_columns:
+            return dataset
+
+        import datasets
+
+        self._set_signature_columns_if_needed()
+        # At this point self._signature_columns is guaranteed to be not None
+        signature_columns: list = self._signature_columns
+
+        ignored_columns = list(set(dataset.column_names) - set(signature_columns))
+        if len(ignored_columns) > 0:
+            dset_description = "" if description is None else f"in the {description} set"
+            logger.info(
+                f"The following columns {dset_description} don't have a corresponding argument in "
+                f"`{self.model.__class__.__name__}.forward` and have been ignored: {', '.join(ignored_columns)}."
+                f" If {', '.join(ignored_columns)} are not expected by `{self.model.__class__.__name__}.forward`, "
+                " you can safely ignore this message."
+            )
+
+        columns = [k for k in signature_columns if k in dataset.column_names]
+        if len(columns) == 0:
+            raise ValueError(
+                "No columns in the dataset match the model's forward method signature: ({', '.join(signature_columns)}). "
+                f"The following columns have been ignored: [{', '.join(ignored_columns)}]. "
+                "Please check the dataset and model. You may need to set `remove_unused_columns=False` in `TrainingArguments`."
+            )
+
+        if version.parse(datasets.__version__) < version.parse("1.4.0"):
+            dataset.set_format(
+                type=dataset.format["type"], columns=columns, format_kwargs=dataset.format["format_kwargs"]
+            )
+            return dataset
+        else:
+            return dataset.remove_columns(ignored_columns)
+
+    def _get_collator_with_removed_columns(
+        self, data_collator: Callable, description: str | None = None
+    ) -> Callable:
+        """Wrap the data collator in a callable removing unused columns."""
+        if not self.args.remove_unused_columns:
+            return data_collator
+        self._set_signature_columns_if_needed()
+        signature_columns = self._signature_columns
+
+        remove_columns_collator = RemoveColumnsCollator(
+            data_collator=data_collator,
+            signature_columns=signature_columns,
+            logger=logger,
+            description=description,
+            model_name=self.model.__class__.__name__,
+        )
+        return remove_columns_collator
+
+    def _get_train_sampler(self, train_dataset: Dataset | None = None) -> torch.utils.data.Sampler | None:
+        if train_dataset is None:
+            train_dataset = self.train_dataset
+        if train_dataset is None or not has_length(train_dataset):
+            return None
+        # TODO: should we use DistributedSampler in distributed mode or let the accelerator handle the work?
+        return RandomSampler(train_dataset)
+
+    def _get_dataloader(
+        self,
+        dataset: Dataset,
+        description: str,
+        batch_size: int,
+        sampler_fn: Callable[[Dataset], torch.utils.data.Sampler] | None = None,
+        is_training: bool = False,
+        dataloader_key: str | None = None,
+    ) -> DataLoader:
+        data_collator = self.data_collator
+        if is_datasets_available() and isinstance(dataset, datasets.Dataset):
+                dataset = self._remove_unused_columns(dataset, description=description)
+        else:
+            data_collator = self._get_collator_with_removed_columns(self.data_collator, description=description)
+
+        dataloader_params = {
+            "batch_size": batch_size,
+            "collate_fn": data_collator,
+            "num_workers": self.args.dataloader_num_workers,
+            "pin_memory": self.args.dataloader_pin_memory,
+            "persistent_workers": self.args.dataloader_persistent_workers,
+        }
+
+        if not isinstance(dataset, torch.utils.data.IterableDataset):
+            if sampler_fn is not None:
+                dataloader_params["sampler"] = sampler_fn(dataset)
+            dataloader_params["drop_last"] = self.args.dataloader_drop_last
+            dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
+            if is_training:
+                dataloader_params["worker_init_fn"] = partial(
+                    seed_worker, num_workers=self.args.dataloader_num_workers, rank=self.args.process_index
+                )
+
+        dataloader = DataLoader(dataset, **dataloader_params)
+        
+        # The NeuronAccelerator will take care of preparing the dataloader, transforming the sampler for distributed
+        # training.
+        return self.accelerator.prepare(dataloader)
+
+    def get_train_dataloader(self) -> DataLoader
+        if self.train_dataset is None:
+            raise ValueError("Trainer: training requires a train_dataset.")
+
+        return self._get_dataloader(
+            dataset=self.train_dataset,
+            description="Training",
+            batch_size=self._train_batch_size,
+            sampler_fn=self._get_train_sampler,
+            is_training=True,
+        )
 
 
 class _TrainerForNeuron:
