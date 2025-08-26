@@ -1,0 +1,87 @@
+<!--Copyright 2024 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+the License. You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.
+-->
+
+# Setting up your development environment
+
+You have decided to contribute to `optimum-neuron`: at this stage you should have an up-to-date copy of the `optimum-neuron`
+ repository installed locally (either a clone of the [original repository](https://github.com/huggingface/optimum-neuron)
+if you have write access or a clone from your own fork if you are an external contributor).
+
+Before contributing and submit your first pull-request, you need to prepare your development environment by installing a few development tools.
+
+## Prepare a python virtual environment
+
+> **_NOTE:_** ❗If you are using the Hugging Face Deep Learning AMI, you can reuse the virtual environment that is automatically activated when logging to the machine and skip this step.
+
+```shell
+$ python3 -m venv .venv
+$ source .venv/bin/activate
+```
+
+Note: `optimum-neuron` requires at least python 3.10
+
+## Install development tools
+
+First, you need to install the tools that are used to check that your contribution complies
+with the few `optimum-neuron` styling and coding rules.
+
+```shell
+$ pip install .[quality]
+$ pre-commit install
+```
+
+Then, and only if you plan to modify the `optimum-neuron` code itself, you need to
+install the test environment.
+
+```shell
+$ pip install .[tests]
+```
+
+## Creating a development branch
+
+You cannot contribute your changes directly to the `optimum-neuron` `main` branch, so you need
+first to create a development branch containing your changes:
+
+```shell
+$ git checkout main
+$ git pull
+$ git checkout -b <my-awesome-contribution>
+```
+
+## Committing your changes
+
+All contributions are reviewed by the `optimum-neuron` maintainers: in order to speed up the review,
+you are **strongly** encouraged to submit your changes in small,
+[atomic](https://dev.to/samuelfaure/how-atomic-git-commits-dramatically-increased-my-productivity-and-will-increase-yours-too-4a84) changes.
+
+`optimum-neuron` has a few styling and coding policies that are enforced by the quality tools you previously installed.
+
+You can however apply the styling tools manually before committing using explicit commands:
+
+For any contribution:
+
+```shell
+$ pre-commit run end-of-file-fixer
+$ pre-commit run trailing-whitespace
+
+For python code:
+
+```shell
+$ pre-commit run ruff-check
+$ pre-commit run ruff-format
+```
+
+## Submitting your pull-request
+
+We have prepared a pull-request template with a few instructions that you should read carefully before submitting.
+
+Thank you for contributing to `optimum-neuron` !

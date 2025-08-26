@@ -65,6 +65,8 @@
       title: Llama-3.3 70B on AWS Inferentia2
     title: Inference Benchmarks
   - sections:
+    - local: contribute/dev_environment
+      title: Set up a development environment
     - local: contribute/contribute_for_training
       title: Add a custom model implementation for training
     - local: contribute/contribute_for_inference
