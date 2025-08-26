@@ -308,7 +308,6 @@ class NeuronTrainer:
         self.can_return_loss = can_return_loss(self.model.__class__)
         self.control = self.callback_handler.on_init_end(self.args, self.state, self.control)
 
-        self._train_batch_size = args.train_batch_size
 
     @property
     def tokenizer(self) -> PreTrainedTokenizerBase | None:
@@ -387,11 +386,6 @@ class NeuronTrainer:
 
         # some Trainer classes need to use `gather` instead of `gather_for_metrics`, thus we store a flag
         self.gather_function = self.accelerator.gather_for_metrics
-
-        if "use_gather_object" in inspect.signature(self.gather_function).parameters.keys():
-            self.gather_function = functools.partial(
-                self.gather_function, use_gather_object=self.args.eval_use_gather_object
-            )
 
     def add_callback(self, callback: Type[TrainerCallback] | TrainerCallback):
         """
@@ -554,7 +548,7 @@ class NeuronTrainer:
         return self._get_dataloader(
             dataset=self.train_dataset,
             description="Training",
-            batch_size=self._train_batch_size,
+            batch_size=self.args.per_device_train_batch_size,
             sampler_fn=self._get_train_sampler,
             is_training=True,
         )
@@ -772,7 +766,7 @@ class NeuronTrainer:
         # number of training epochs: num_train_epochs
         # number of training steps per epoch: num_update_steps_per_epoch
         # total number of training steps to execute: max_steps
-        total_train_batch_size = self._train_batch_size * args.gradient_accumulation_steps * args.dp_size
+        total_train_batch_size = args.per_device_train_batch_size * args.gradient_accumulation_steps * args.trn_config.data_parallel_size
 
         len_dataloader = None
         num_train_tokens = None
@@ -1653,11 +1647,6 @@ class _TrainerForNeuron:
 
         # some Trainer classes need to use `gather` instead of `gather_for_metrics`, thus we store a flag
         self.gather_function = self.accelerator.gather_for_metrics
-
-        if "use_gather_object" in inspect.signature(self.gather_function).parameters.keys():
-            self.gather_function = functools.partial(
-                self.gather_function, use_gather_object=self.args.eval_use_gather_object
-            )
 
     @requires_torch_neuronx
     def synchronize_hub_cache(self):

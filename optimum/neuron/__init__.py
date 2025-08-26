@@ -33,7 +33,6 @@ _import_structure = {
         "NeuronSFTTrainer",
         "NeuronORPOTrainer",
         "NeuronTrainingArguments",
-        "Seq2SeqNeuronTrainingArguments",
         "NeuronSFTConfig",
         "NeuronORPOConfig",
     ],
@@ -158,7 +157,6 @@ if TYPE_CHECKING:
         NeuronTrainer,
         NeuronTrainingArguments,
         # Seq2SeqNeuronTrainer,
-        Seq2SeqNeuronTrainingArguments,
     )
 
 else:

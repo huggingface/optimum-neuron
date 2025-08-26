@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Defines a TrainingArguments class compatible with Neuron."""
 
 import os
 import json
@@ -32,7 +31,8 @@ from transformers.trainer_utils import (
     SaveStrategy,
     SchedulerType,
 )
-from transformers.training_args import trainer_log_levels, OptimizerNames
+from transformers.trainer_pt_utils import AcceleratorConfig
+from transformers.training_args import trainer_log_levels, OptimizerNames, default_logdir, _convert_str_dict
 from transformers.training_args_seq2seq import Seq2SeqTrainingArguments
 from transformers.utils import (
     cached_property,
@@ -46,6 +46,7 @@ from ..models.training.config import TrainingNeuronConfig
 from ..utils import is_main_worker
 from ..utils.patching import Patcher, patch_within_function
 from ..utils.torch_xla_and_neuronx_initialization import set_neuron_cc_optlevel
+from ..utils.training_utils import is_logging_process
 
 
 logger = logging.get_logger(__name__)
@@ -59,8 +60,6 @@ class NeuronTrainingArguments:
     # Important: These should be typed with Optional[Union[dict,str,...]]
     _VALID_DICT_FIELDS = [
         "accelerator_config",
-        "fsdp_config",
-        "deepspeed",
         "gradient_checkpointing_kwargs",
         "lr_scheduler_kwargs",
     ]
@@ -708,17 +707,8 @@ class NeuronTrainingArguments:
         else:
             os.environ["ACCELERATE_USE_AMP"] = "false"
 
-        self._world_size_should_behave_as_dp_size = False
-
-    @cached_property
-    @patch_within_function(
-        [
-            ("transformers.training_args.PartialState", NeuronPartialState),
-            ("transformers.training_args.AcceleratorState", NeuronAcceleratorState),
-        ]
-    )
-    def _setup_devices(self) -> "torch.device":
-        return super()._setup_devices
+        # Setup the device here
+        self._setup_devices
 
     @cached_property
     def _setup_devices(self) -> "torch.device":
@@ -753,44 +743,63 @@ class NeuronTrainingArguments:
         return self._setup_devices
 
     @property
-    def place_model_on_device(self):
-        return not self.trn_config.should_parallelize and super().place_model_on_device
-
-    @property
-    def world_size_should_behave_as_dp_size(self):
-        return self._world_size_should_behave_as_dp_size
-
-    @world_size_should_behave_as_dp_size.setter
-    def world_size_should_behave_as_dp_size(self, value: bool):
-        if not isinstance(value, bool):
-            raise ValueError(
-                f"world_size_should_behave_as_dp_size should be a boolean, but a {type(value)} was provided here."
-            )
-        self._world_size_should_behave_as_dp_size = value
-
-    @property
-    def dp_size(self):
-        divisor = 1
-        if self.trn_config.should_parallelize:
-            divisor = self.trn_config.tensor_parallel_size * self.trn_config.pipeline_parallel_size
-        return super().world_size // divisor
-
-    @property
     def world_size(self):
-        if self.world_size_should_behave_as_dp_size:
-            return self.dp_size
-        return super().world_size
+        return self.trn_config.data_parallel_size
 
-    @contextmanager
-    def world_size_as_dp_size(self):
-        orig_state = self.world_size_should_behave_as_dp_size
-        self.world_size_should_behave_as_dp_size = True
-        try:
-            yield
-        finally:
-            self.world_size_should_behave_as_dp_size = orig_state
+    @property
+    def process_index(self):
+        """
+        The index of the current process used.
+        """
+        if self.distributed_state is not None:
+            return self.distributed_state.process_index
+        return 0
 
+    @property
+    def local_process_index(self):
+        """
+        The index of the local process used.
+        """
+        if self.distributed_state is not None:
+            return self.distributed_state.local_process_index
+        return 0
 
-@dataclass
-class Seq2SeqNeuronTrainingArguments(NeuronTrainingArgumentsMixin, Seq2SeqTrainingArguments):
-    pass
+    @property
+    def should_log(self):
+        """
+        Whether or not the current process should produce log.
+        """
+        if self.log_on_each_node:
+            return self.local_process_index == 0
+        else:
+            return self.process_index == 0
+
+    @property
+    def should_save(self):
+        """
+        Whether or not the current process should write to disk, e.g., to save models and checkpoints.
+        """
+        return self.process_index == 0
+
+    def get_process_log_level(self):
+        """
+        Returns the log level to be used depending on whether this process is the main process of node 0, main process
+        of node non-0, or a non-main process.
+
+        For the main process the log level defaults to the logging level set (`logging.WARNING` if you didn't do
+        anything) unless overridden by `log_level` argument.
+
+        For the replica processes the log level defaults to `logging.WARNING` unless overridden by `log_level_replica`
+        argument.
+
+        The choice between the main and replica process settings is made according to the return value of `should_log`.
+        """
+
+        # convert to int
+        log_level = trainer_log_levels[self.log_level]
+        log_level_replica = trainer_log_levels[self.log_level_replica]
+
+        log_level_main_node = logging.get_verbosity() if log_level == -1 else log_level
+        log_level_replica_node = logging.get_verbosity() if log_level_replica == -1 else log_level_replica
+        return log_level_main_node if self.should_log else log_level_replica_node
+
