@@ -34,7 +34,7 @@ from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.peft import get_peft_model
 from optimum.neuron.utils.misc import is_precompilation
 from optimum.neuron.utils.testing_utils import is_trainium_test
-from optimum.neuron.utils.training_utils import is_main_worker_for_metrics
+from optimum.neuron.utils.training_utils import is_logging_process
 from optimum.neuron.version import __sdk_version__ as sdk_version
 
 from ..distributed_utils import EarlyExit, distributed_test
@@ -166,7 +166,7 @@ def _overfit_causal_lm(
 
     # The master worker checks the logs, since it is the only worker to have access to them, to retrieve the last logged
     # loss. It then checks if it is lower or equal to max_expected_loss.
-    if is_main_worker_for_metrics():
+    if is_logging_process():
         last_loss = None
         for logs in reversed(stored_logs):
             if "loss" in logs:

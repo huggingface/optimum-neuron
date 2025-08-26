@@ -15,6 +15,7 @@
 
 import contextlib
 import functools
+from functools import partial
 import inspect
 import math
 import os
@@ -25,13 +26,17 @@ import warnings
 from typing import Any, Callable, Type, TYPE_CHECKING
 
 import numpy as np
+from neuronx_distributed.pipeline import NxDPPModel
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_data_parallel_replica_groups,
     get_data_parallel_size,
     model_parallel_is_initialized,
+    get_pipeline_model_parallel_rank,
+    get_pipeline_model_parallel_size,
 )
 import torch
 import torch.nn as nn
+from torch.utils._pytree import tree_map
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 import torch_xla.core.xla_model as xm
 import torch_xla.debug.metrics as met
@@ -51,7 +56,7 @@ from transformers.training_args import OptimizerNames
 from transformers.debug_utils import DebugOption, DebugUnderflowOverflow
 from transformers.utils import is_datasets_available
 from transformers.data.data_collator import DataCollator, DataCollatorWithPadding, default_data_collator
-from transformers.tokenizatgion_utils_base import PreTrainedTokenizerBase
+from transformers.tokenization_utils import PreTrainedTokenizerBase
 from transformers.image_processing_utils import BaseImageProcessor
 from transformers.feature_extraction_sequence_utils import SequenceFeatureExtractor
 from transformers.feature_extraction_utils import FeatureExtractionMixin
@@ -66,7 +71,7 @@ from transformers.trainer_callback import (
     TrainerControl,
     TrainerState,
 )
-from transformers.integrations import hp_params. get_reporting_integration_callbacks
+from transformers.integrations import hp_params, get_reporting_integration_callbacks
 from accelerate.data_loader import SeedableRandomSampler
 from transformers.modeling_utils import unwrap_model
 from transformers.trainer import (
@@ -89,6 +94,8 @@ from transformers.trainer_pt_utils import (
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from transformers.trainer_utils import (
     PREFIX_CHECKPOINT_DIR,
+    seed_worker,
+    get_last_checkpoint,
     EvalLoopOutput,
     RemoveColumnsCollator,
     EvalPrediction,
@@ -126,8 +133,8 @@ from ..utils.misc import is_main_worker, is_precompilation
 from ..utils.require_utils import requires_torch_neuronx
 from ..utils.training_utils import (
     get_model_param_count,
-    is_main_worker_for_metrics,
-    is_main_worker_for_metrics_method,
+    is_logging_process,
+    is_logging_process_method,
     patch_generation_mixin_to_neuron_generation_mixin,
     skip_first_batches,
 )
@@ -160,14 +167,14 @@ SCHEDULER_NAME = "scheduler.pt"
 FSDP_MODEL_NAME = "pytorch_model_fsdp"
 
 
-class NeuronBaseTrainer:
+class NeuronTrainer:
     def __init__(
         self,
         model: PreTrainedModel | nn.Module | None = None,
         args: TrainingArguments | None = None,
         data_collator: DataCollator | None = None,
-        train_dataset: Dataset | IterableDataset | "datasets.Dataset" | None = None,
-        eval_dataset: Dataset | dict[str, Dataset] | "datasets.Dataset" | None = None,
+        train_dataset: "Dataset | IterableDataset | datasets.Dataset | None" = None,
+        eval_dataset: "Dataset | dict[str, Dataset] | datasets.Dataset | None" = None,
         processing_class: PreTrainedTokenizerBase | BaseImageProcessor | FeatureExtractionMixin | ProcessorMixin | None = None,
         model_init: Callable[[], PreTrainedModel] | None = None,
         compute_loss_func: Callable | None = None,
@@ -180,7 +187,7 @@ class NeuronBaseTrainer:
 
         if args is None:
             output_dir = "tmp_trainer"
-            logger.info(f"No `TrainingArguments` passed, using `output_dir={output_dir}`.")
+            self.info(f"No `TrainingArguments` passed, using `output_dir={output_dir}`.")
             args = NeuronTrainingArguments(output_dir=output_dir)
 
         self.args = args
@@ -263,7 +270,7 @@ class NeuronBaseTrainer:
             raise ValueError("The `data_collator` should be a simple callable (function, class with `__call__`).")
 
         if args.max_steps > 0 and args.num_train_epochs > 0:
-            logger.info("max_steps is given, it will override any value given in num_train_epochs")
+            self.info("max_steps is given, it will override any value given in num_train_epochs")
 
         if train_dataset is not None and not has_length(train_dataset) and args.max_steps <= 0:
             raise ValueError(
@@ -290,7 +297,7 @@ class NeuronBaseTrainer:
         )
 
         if isinstance(self.model, NeuronPeftModel) and self.args.label_names is None:
-            logger.warning(
+            self.warning(
                 f"No label_names provided for model class `{self.model.__class__.__name__}`."
                 " Since `NeuronPeftModel` hides base models input arguments, if label_names is not given, label_names "
                 "can't be set automatically within `NeuronTrainer`."
@@ -305,10 +312,86 @@ class NeuronBaseTrainer:
 
     @property
     def tokenizer(self) -> PreTrainedTokenizerBase | None:
-        logger.warning(
+        self.warning(
             "NeuronTrainer.tokenizer is now deprecated. You should use NeuronTrainer.processing_class instead."
         )
         return self.processing_class
+
+    @staticmethod
+    def info(msg: str):
+        if is_logging_process():
+            logger.info(msg)
+
+    @staticmethod
+    def warning(msg: str):
+        if is_logging_process():
+            logger.warning(msg)
+
+    @staticmethod
+    def debug(msg: str):
+        if is_logging_process():
+            logger.debug(msg)
+
+    @staticmethod
+    def error(msg: str):
+        if is_logging_process():
+            logger.error(msg)
+
+    def create_accelerator_and_postprocess(self):
+        # We explicitly don't rely on the `Accelerator` to do gradient accumulation
+        grad_acc_kwargs = {}
+        if self.args.accelerator_config.gradient_accumulation_kwargs is not None:
+            grad_acc_kwargs = self.args.accelerator_config.gradient_accumulation_kwargs
+
+        # check if num_steps is attempted to be passed in gradient_accumulation_kwargs
+        if "num_steps" in grad_acc_kwargs:
+            if self.args.gradient_accumulation_steps > 1:
+                # raise because we do not know which setting is intended.
+                raise ValueError(
+                    "The `AcceleratorConfig`'s `num_steps` is set but `gradient_accumulation_steps` is greater than 1 in the passed `TrainingArguments`"
+                    "If using the passed `AcceleratorConfig` is desired, do not set the `TrainingArguments` `gradient_accumulation_steps`."
+                )
+            else:
+                self.args.gradient_accumulation_steps = grad_acc_kwargs["num_steps"]
+
+        accelerator_config = self.args.accelerator_config.to_dict()
+
+        # TODO: do we support these configurations in the distributed setting?
+        dataloader_config = DataLoaderConfiguration(
+            split_batches=accelerator_config.pop("split_batches"),
+            dispatch_batches=accelerator_config.pop("dispatch_batches"),
+            even_batches=accelerator_config.pop("even_batches"),
+            use_seedable_sampler=accelerator_config.pop("use_seedable_sampler"),
+        )
+
+        non_blocking = accelerator_config.pop("non_blocking")
+        if non_blocking and not self.args.dataloader_pin_memory:
+            self.warning(
+                "`non_blocking` is enabled but `dataloader_pin_memory` is not. For the best performance, it's recommended to enable both."
+            )
+        dataloader_config.non_blocking = non_blocking
+
+        args = {
+            "deepspeed_plugin": None, # We don't use deepspeed plugin in NeuronTrainer
+            "dataloader_config": dataloader_config,
+        }
+
+        # create accelerator object
+        self.accelerator = NeuronAccelerator(
+            *args,
+            trn_config=self.args.trn_config,
+            zero_1=self.args.zero_1,
+            mixed_precision="bf16" if self.args.bf16 else "no",
+            autocast_backend=self.args.half_precision_backend,
+        )
+
+        # some Trainer classes need to use `gather` instead of `gather_for_metrics`, thus we store a flag
+        self.gather_function = self.accelerator.gather_for_metrics
+
+        if "use_gather_object" in inspect.signature(self.gather_function).parameters.keys():
+            self.gather_function = functools.partial(
+                self.gather_function, use_gather_object=self.args.eval_use_gather_object
+            )
 
     def add_callback(self, callback: Type[TrainerCallback] | TrainerCallback):
         """
@@ -376,7 +459,7 @@ class NeuronBaseTrainer:
         ignored_columns = list(set(dataset.column_names) - set(signature_columns))
         if len(ignored_columns) > 0:
             dset_description = "" if description is None else f"in the {description} set"
-            logger.info(
+            self.info(
                 f"The following columns {dset_description} don't have a corresponding argument in "
                 f"`{self.model.__class__.__name__}.forward` and have been ignored: {', '.join(ignored_columns)}."
                 f" If {', '.join(ignored_columns)} are not expected by `{self.model.__class__.__name__}.forward`, "
@@ -464,7 +547,7 @@ class NeuronBaseTrainer:
         # training.
         return self.accelerator.prepare(dataloader)
 
-    def get_train_dataloader(self) -> DataLoader
+    def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
             raise ValueError("Trainer: training requires a train_dataset.")
 
@@ -667,33 +750,23 @@ class NeuronBaseTrainer:
                     return tokens * max_steps
                 train_tokens += tokens
         except KeyError:
-            logger.warning("Cannot get num_tokens from dataloader")
+            NeuronTrainer.warning("Cannot get num_tokens from dataloader")
         train_tokens = xm.all_reduce("sum", torch.tensor(train_tokens), group=get_data_parallel_replica_groups()).item()
         return train_tokens
 
-    def train(
-        self,
-        resume_from_checkpoint: str | bool | None = None,
-        **kwargs,
-    ):
-        if resume_from_checkpoint is False:
-            resume_from_checkpoint = None
+    def autocast_smart_context_manager(self, cache_enabled: bool | None = True):
+        """
+        A helper wrapper that creates an appropriate context manager for `autocast` while feeding it the desired
+        arguments, depending on the situation.
+        """
+        autocast_handler = AutocastKwargs(
+            enabled=self.accelerator.autocast_handler.enabled,
+            cache_enabled=cache_enabled,
+        )
+        return self.accelerator.autocast(autocast_handler=autocast_handler)
 
-        # Load potential model checkpoint
-        if isinstance(resume_from_checkpoint, bool) and resume_from_checkpoint:
-            resume_from_checkpoint = get_last_checkpoint(args.output_dir)
-            if resume_from_checkpoint is None:
-                raise ValueError(f"No valid checkpoint found in output directory ({args.output_dir})")
-
-        if resume_from_checkpoint is not None:
-            self._load_from_checkpoint(resume_from_checkpoint)
-
-        from neuronx_distributed.pipeline import NxDPPModel
-
-        self.accelerator.free_memory()
-
-        # Data loader and number of training steps
-        train_dataloader = self.get_train_dataloader()
+    def get_training_examples_info(self, train_dataloader: DataLoader):
+        args = self.args
 
         # Setting up training control variables:
         # number of training epochs: num_train_epochs
@@ -741,7 +814,17 @@ class NeuronBaseTrainer:
                 f" {args.max_steps}"
             )
 
+        return num_update_steps_per_epoch, num_examples, max_steps, num_train_epochs, num_train_samples, num_train_tokens
 
+
+    def setup_training(self, train_dataloader: DataLoader, max_steps: int, num_train_epochs: int, num_examples: int, total_train_batch_size: int):
+        """
+        Setup everything to prepare for the training loop.
+        This methods does not return anything but initializes many attributes of the class for training.
+        """
+        args = self.args
+
+        # Initialize the Trainer state
         self.state = TrainerState()
 
         # Compute absolute values for logging, eval, and save if given as ratio
@@ -766,12 +849,10 @@ class NeuronBaseTrainer:
 
             self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
 
-        model = self.accelerator.prepare(model)
-        self.model = model
-
+        self.model = self.accelerator.prepare(self.model)
         self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
-        if not isinstance(model, NxDPPModel):
+        if not isinstance(self.model, NxDPPModel):
             self.model.train()
 
         if hasattr(self.lr_scheduler, "step"):
@@ -780,53 +861,23 @@ class NeuronBaseTrainer:
             # to handle cases wherein we pass "DummyScheduler" such as when it is specified in DeepSpeed config.
             self.optimizer, self.lr_scheduler = self.accelerator.prepare(self.optimizer, self.lr_scheduler)
 
-        # Check if saved optimizer or scheduler states exist
-        self._load_optimizer_and_scheduler(resume_from_checkpoint)
-
         # Train!
-        parameter_count = get_model_param_count(model, trainable_only=True)
-        if is_main_worker():
-            logger.info("***** Running training *****")
-            logger.info(f"  Num examples = {num_examples:,}")
-            logger.info(f"  Num Epochs = {num_train_epochs:,}")
-            logger.info(f"  Data Parallel Size: {self.args.dp_size}")
-            logger.info(f"  Tensor Parallel Size: {self.args.tp_size}")
-            logger.info(f"  Pipeline Parallel Size: {self.args.pp_size}")
-            logger.info(f"  Instantaneous batch size per data parallel rank = {self.args.per_device_train_batch_size:,}")
-            logger.info(f"  Gradient Accumulation steps = {self.args.gradient_accumulation_steps}")
-            logger.info(
-                f"  Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size:,}"
-            )
-            logger.info(f"  Total optimization steps = {max_steps:,}")
-            logger.info(f"  Number of trainable parameters = {parameter_count:,}")
+        parameter_count = get_model_param_count(self.model, trainable_only=True)
+        self.info("***** Running training *****")
+        self.info(f"  Num examples = {num_examples:,}")
+        self.info(f"  Num Epochs = {num_train_epochs:,}")
+        self.info(f"  Data Parallel Size: {args.dp_size}")
+        self.info(f"  Tensor Parallel Size: {args.tp_size}")
+        self.info(f"  Pipeline Parallel Size: {args.pp_size}")
+        self.info(f"  Instantaneous batch size per data parallel rank = {args.per_device_train_batch_size:,}")
+        self.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
+        self.info(
+            f"Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size:,}"
+        )
+        self.info(f"  Total optimization steps = {max_steps:,}")
+        self.info(f"  Number of trainable parameters = {parameter_count:,}")
 
         self.state.epoch = 0
-        start_time = time.time()
-        epochs_trained = 0
-        steps_trained_in_current_epoch = 0
-        steps_trained_progress_bar = None
-
-        # Check if continuing training from a checkpoint
-        if resume_from_checkpoint is not None and os.path.isfile(
-            os.path.join(resume_from_checkpoint, TRAINER_STATE_NAME)
-        ):
-            self.state = TrainerState.load_from_json(os.path.join(resume_from_checkpoint, TRAINER_STATE_NAME))
-            epochs_trained = self.state.global_step // num_update_steps_per_epoch
-            if args.ignore_data_skip:
-                steps_trained_in_current_epoch = 0
-            else:
-                steps_trained_in_current_epoch = self.state.global_step % (num_update_steps_per_epoch)
-                steps_trained_in_current_epoch *= args.gradient_accumulation_steps
-
-            if is_main_worker():
-                logger.info("  Continuing training from checkpoint, will skip to saved global_step")
-                logger.info(f"  Continuing training from epoch {epochs_trained}")
-                logger.info(f"  Continuing training from global step {self.state.global_step}")
-                if not args.ignore_data_skip:
-                    logger.info(
-                        f"  Will skip the first {epochs_trained} epochs then the first"
-                        f" {steps_trained_in_current_epoch} batches in the first epoch."
-                    )
 
         # Update the references
         self.callback_handler.model = self.model
@@ -834,48 +885,163 @@ class NeuronBaseTrainer:
         self.callback_handler.lr_scheduler = self.lr_scheduler
         self.callback_handler.train_dataloader = train_dataloader
 
-
         # This should be the same if the state has been saved but in case the training arguments changed, it's safer
         # to set this after the load.
         self.state.max_steps = max_steps
         self.state.num_train_epochs = num_train_epochs
 
         self.state.is_local_process_zero = self.is_local_process_zero()
-        # We need to change which process can be seen as "world process zero" to make sure the proper metrics
-        # (eg.g loss) are logged and sent to the callbacks (for instance WandbCallback).
-        self.state.is_world_process_zero = is_main_worker_for_metrics()
+        self.state.is_world_process_zero = is_logging_process()
 
-        tr_loss = torch.tensor(0.0).to(args.device)
-        # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
-        self._total_loss_scalar = 0.0
-        self._globalstep_last_logged = self.state.global_step
+        self.global_step_last_logged = 0
 
         self.optimizer.zero_grad()
-        grad_norm: float | None = None
         self.control = self.callback_handler.on_train_begin(args, self.state, self.control)
+
+        self.loss = torch.tensor(0.0).to(xm.xla_device())
+        self.grad_norm = None
 
         # Mark step before training to materialize any tensor before creating the training graph.
         xm.mark_step()
 
-        # Skip the first epochs_trained epochs to get the random state of the dataloader at the right point.
-        if not args.ignore_data_skip:
-            for epoch in range(epochs_trained):
-                sampler = get_dataloader_sampler(train_dataloader)
-                sampler_kinds = [torch.utils.data.RandomSampler]
-                sampler_kinds.append(SeedableRandomSampler)
-                is_random_sampler = isinstance(sampler, tuple(sampler_kinds))
-                if not is_random_sampler:
-                    # We just need to begin an iteration to create the randomization of the sampler.
-                    for _ in train_dataloader:
-                        break
-                else:
-                    # Otherwise we need to call the whooooole sampler cause there is some random operation added
-                    # AT THE VERY END!
-                    sampler = sampler if sampler is not None else []
-                    _ = list(sampler)
+    def train_step(self, model: nn.Module, inputs: dict[str, Any]) -> torch.Tensor:
+        manager = self.autocast_smart_context_manager()
 
-        for epoch in range(epochs_trained, num_train_epochs):
+        # We need to move the inputs to the device only if we are not using pipeline parallelism because the
+        # NxDPPModel class handles the device placement of the inputs.
+        if self.args.pp_size == 1:
+            inputs = tree_map(lambda t: t.to(xm.xla_device()) if isinstance(t, torch.Tensor) else t, inputs)
+
+        if isinstance(model, NxDPPModel):
+            with manager:
+                loss = model.run_train(**inputs)
+            if self.args.pp_rank != self.args.pp_size - 1:
+                use_bf16 = self.accelerator.state.mixed_precision == "bf16"
+                dtype = torch.bfloat16 if use_bf16 else torch.float32
+                loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
+
+                if num_items_in_batch is None:
+                    loss = loss / self.args.gradient_accumulation_steps
+        else:
+            if (self.label_smoother is not None or self.compute_loss_func is not None) and "labels" in inputs:
+                labels = inputs.pop("labels")
+            else:
+                labels = None
+            if self.model_accepts_loss_kwargs:
+                loss_kwargs = {}
+                if num_items_in_batch is not None:
+                    loss_kwargs["num_items_in_batch"] = num_items_in_batch
+                inputs = {**inputs, **loss_kwargs}
+
+            with manager:
+                outputs = model(**inputs)
+
+            if labels is not None:
+                if isinstance(model, NeuronPeftModel):
+                    model_name = model.base_model.model._get_name()
+                else:
+                    model_name = model._get_name()
+                # User-defined compute_loss function
+                if self.compute_loss_func is not None:
+                    loss = self.compute_loss_func(outputs, labels, num_items_in_batch=num_items_in_batch)
+                elif model_name in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES.values():
+                    loss = self.label_smoother(outputs, labels, shift_labels=True)
+                else:
+                    loss = self.label_smoother(outputs, labels)
+            else:
+                if isinstance(outputs, dict) and "loss" not in outputs:
+                    raise ValueError(
+                        "The model did not return a loss from the inputs, only the following keys: "
+                        f"{','.join(outputs.keys())}. For reference, the inputs it received are {','.join(inputs.keys())}."
+                    )
+                # We don't use .loss here since the model may return tuples instead of ModelOutput.
+                loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+
+            if (
+                self.args.average_tokens_across_devices
+                and (self.model_accepts_loss_kwargs or self.compute_loss_func)
+                and num_items_in_batch is not None
+            ):
+                loss *= self.accelerator.num_processes
+
+            return loss
+
+    def maybe_log_train_step_metrics(self):
+        if self.global_step_last_logged >= self.state.global_step:
+            return
+        if self.control.should_log:
+            if model_parallel_is_initialized():
+                dp_size = get_data_parallel_size()
+            else:
+                dp_size = xr.world_size()
+
+            tr_loss_div = self.loss / dp_size
+            reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_replica_groups())
+            reduced_tr_loss = reduced_tr_loss.detach()
+            self.loss.zero_()
+
+            xm.mark_step()
+
+            def log_closure(self, reduced_tr_loss, grad_norm):
+                # We need to check that self.state.global_step > self._globalstep_last_logged because if two
+                # closures are added in a row (which can happen at the end of the training), then it will fail the
+                # second time because at this point we will have:
+                # self.state.global_step = self._globalstep_last_logged
+                if is_logging_process() and self.state.global_step > self.global_step_last_logged:
+                    logs: dict[str, float] = {}
+                    tr_loss_scalar = reduced_tr_loss.to("cpu").item()
+
+                    logs["loss"] = round(
+                        tr_loss_scalar / (self.state.global_step - self.global_step_last_logged), 4
+                    )
+                    logs["learning_rate"] = self._get_learning_rate()
+
+                    if grad_norm is not None:
+                        logs["grad_norm"] = (
+                            grad_norm.detach().to("cpu").item()
+                            if isinstance(grad_norm, torch.Tensor)
+                            else grad_norm
+                        )
+                    self.log(logs)
+
+                self.global_step_last_logged = self.state.global_step
+
+            xm.add_step_closure(log_closure, (self, reduced_tr_loss, self.grad_norm))
+
+    def maybe_save_checkpoint(self):
+        if self.control.should_save:
+            xm.mark_step()
+
+            def save_closure(self, model):
+                self._save_checkpoint(model)
+                self.control = self.callback_handler.on_save(self.args, self.state, self.control)
+
+            xm.add_step_closure(save_closure, (self,))
+
+    def train(
+        self,
+        resume_from_checkpoint: str | bool | None = None,
+        **kwargs,
+    ):
+
+        if resume_from_checkpoint not in [False, None]:
+            raise ValueError("`resume_from_checkpoint` is not supported by the NeuronTrainer.")
+
+        args = self.args
+        
+        # TODO: what's the purpose of this method?
+        self.accelerator.free_memory()
+
+        # Data loader and number of training steps
+        train_dataloader = self.get_train_dataloader()
+
+        num_update_steps_per_epoch, num_examples, max_steps, num_train_epochs, num_train_samples, num_train_tokens = self.get_training_examples_info(train_dataloader)
+
+        self.setup_training(train_dataloader, max_steps, num_train_epochs, num_examples, total_train_batch_size)
+
+        for epoch in range(num_train_epochs):
             epoch_dataloader = train_dataloader
+
             if hasattr(epoch_dataloader, "set_epoch"):
                 epoch_dataloader.set_epoch(epoch)
 
@@ -887,195 +1053,102 @@ class NeuronBaseTrainer:
 
             self.control = self.callback_handler.on_epoch_begin(args, self.state, self.control)
 
-            if epoch == epochs_trained and resume_from_checkpoint is not None and steps_trained_in_current_epoch == 0:
-                self._load_rng_state(resume_from_checkpoint)
-
-            rng_to_sync = False
-            steps_skipped = 0
-            if steps_trained_in_current_epoch > 0:
-                epoch_iterator = skip_first_batches(epoch_dataloader, steps_trained_in_current_epoch)
-                steps_skipped = steps_trained_in_current_epoch
-                steps_trained_in_current_epoch = 0
-                rng_to_sync = True
-
             step = -1
-            epoch_iterator = iter(epoch_dataloader)
-            # We chunkify the epoch iterator into gradient accumulation steps `n` batches
-            remainder = num_examples % args.gradient_accumulation_steps
-            if remainder == 0:
-                remainder = args.gradient_accumulation_steps
-            update_step = -1
-            total_updates = steps_in_epoch // args.gradient_accumulation_steps + 1
-            for _ in range(total_updates):
-                update_step += 1
-                num_batches = args.gradient_accumulation_steps if update_step != (total_updates - 1) else remainder
-                batch_samples, num_items_in_batch = self.get_batch_samples(epoch_iterator, num_batches, args.device)
-                for i, inputs in enumerate(batch_samples):
+            epoch_iterator = iter(epoch_dataloader)`
+
+            for step, inputs in enumerate(epoch_iterator):
+                xm.mark_step()
+                do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (
+                    step + 1
+                ) == steps_in_epoch  # Since we perform prefetching, we need to manually set sync_gradients
+
+                if not do_sync_step:
+                    self.accelerator.gradient_state.sync_gradients = False
+                else:
+                    self.accelerator.gradient_state.sync_gradients = True
+
+                # TODO: should we support this?
+                # if self.args.include_num_input_tokens_seen:
+                #     main_input_name = getattr(self.model, "main_input_name", "input_ids")
+                #     if main_input_name not in inputs:
+                #         logger.warning(
+                #  ii           "Tried to track the number of tokens seen, however the current model is "
+                #             "not configured properly to know what item is the input. To fix this, add "
+                #             "a `main_input_name` attribute to the model class you are using."
+                #         )
+                #     else:
+                #         input_tokens = inputs[main_input_name].numel()
+                #         input_tokens = torch.tensor(input_tokens, device=self.args.device, dtype=torch.int64)
+                #         self.state.num_input_tokens_seen += (
+                #             self.accelerator.gather(input_tokens).sum().cpu().item()
+                #         )
+
+                if step % args.gradient_accumulation_steps == 0:
+                    self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
+
+                loss_step = self.train_step(self.model, inputs)
+                self.loss += loss_step
+
+                if do_sync_step:
                     xm.mark_step()
-                    step += 1
-                    do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (
-                        step + 1
-                    ) == steps_in_epoch  # Since we perform prefetching, we need to manually set sync_gradients
-                    if not do_sync_step:
-                        self.accelerator.gradient_state.sync_gradients = False
-                    else:
-                        self.accelerator.gradient_state.sync_gradients = True
-
-                    if self.args.include_num_input_tokens_seen:
-                        main_input_name = getattr(self.model, "main_input_name", "input_ids")
-                        if main_input_name not in inputs:
-                            logger.warning(
-                                "Tried to track the number of tokens seen, however the current model is "
-                                "not configured properly to know what item is the input. To fix this, add "
-                                "a `main_input_name` attribute to the model class you are using."
-                            )
-                        else:
-                            input_tokens = inputs[main_input_name].numel()
-                            input_tokens = torch.tensor(input_tokens, device=self.args.device, dtype=torch.int64)
-                            self.state.num_input_tokens_seen += (
-                                self.accelerator.gather(input_tokens).sum().cpu().item()
-                            )
-
-                    if rng_to_sync:
-                        self._load_rng_state(resume_from_checkpoint)
-                        rng_to_sync = False
-
-                    # Skip past any already trained steps if resuming training
-                    if steps_trained_in_current_epoch > 0:
-                        steps_trained_in_current_epoch -= 1
-                        if steps_trained_progress_bar is not None:
-                            steps_trained_progress_bar.update(1)
-                        if steps_trained_in_current_epoch == 0:
-                            self._load_rng_state(resume_from_checkpoint)
-                        continue
-                    elif steps_trained_progress_bar is not None:
-                        steps_trained_progress_bar.close()
-                        steps_trained_progress_bar = None
-
-                    if step % args.gradient_accumulation_steps == 0:
-                        self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
-
-                    # We explicitly want to avoid relying on `accelerator.accumulate` for generation training
-                    context = (
-                        functools.partial(self.accelerator.no_sync, model=model)
-                        if i == len(batch_samples) - 1
-                        else contextlib.nullcontext
-                    )
-                    with context():
-                        tr_loss_step = self.training_step(model, inputs, num_items_in_batch)
-
-                    if tr_loss.device != tr_loss_step.device:
-                        raise ValueError(
-                            f"Calculated loss must be on the original device: {tr_loss.device} but device in use is "
-                            f"{tr_loss_step.device}"
+                    # Gradient clipping
+                    if args.max_grad_norm is not None and args.max_grad_norm > 0:
+                        parameters = (
+                            model.local_parameters() if isinstance(model, NxDPPModel) else model.parameters()
+                        )
+                        self.accelerator.clip_grad_norm_(
+                            parameters,
+                            args.max_grad_norm,
+                            postpone_clipping_to_optimizer_step=True,
                         )
 
-                    tr_loss = tr_loss + tr_loss_step
+                    self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
 
-                    if do_sync_step:
-                        # Since we perform prefetching, we need to manually set sync_gradients to True
-                        self.accelerator.gradient_state.sync_gradients = True
-                        xm.mark_step()
+                    self.optimizer.step()
+                    self.grad_norm = self.optimizer.grad_norm
 
-                        # Gradient clipping
-                        if args.max_grad_norm is not None and args.max_grad_norm > 0:
-                            parameters = (
-                                model.local_parameters() if isinstance(model, NxDPPModel) else model.parameters()
-                            )
-                            self.accelerator.clip_grad_norm_(
-                                parameters,
-                                args.max_grad_norm,
-                                postpone_clipping_to_optimizer_step=True,
-                            )
+                    self.control = self.callback_handler.on_optimizer_step(args, self.state, self.control)
 
-                        self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
+                    # Delay optimizer scheduling until metrics are generated
+                    if not isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                        self.lr_scheduler.step()
 
-                        self.optimizer.step()
-                        grad_norm = self.optimizer.grad_norm
+                    self.optimizer.zero_grad()
 
-                        self.control = self.callback_handler.on_optimizer_step(args, self.state, self.control)
+                    self.state.global_step += 1
+                    self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
+                    self.control = self.callback_handler.on_step_end(args, self.state, self.control)
+                else:
+                    self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
-                        # Delay optimizer scheduling until metrics are generated
-                        if not isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                            self.lr_scheduler.step()
+                self.maybe_log_train_step_metrics()
+                self.maybe_save_checkpoint()
 
-                        self.optimizer.zero_grad()
-
-                        self.state.global_step += 1
-                        self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
-                        self.control = self.callback_handler.on_step_end(args, self.state, self.control)
-                        self._maybe_log_save_evaluate(
-                            tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time
-                        )
-                    else:
-                        self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
-
-                    if self.control.should_epoch_stop or self.control.should_training_stop:
-                        # PyTorch/XLA relies on the data loader to insert the mark_step for
-                        # each step. Since we are breaking the loop early, we need to manually
-                        # insert the mark_step here.
-                        xm.mark_step()
-                        break
-                # We also need to break out of the nested loop
                 if self.control.should_epoch_stop or self.control.should_training_stop:
+                    # PyTorch/XLA relies on the data loader to insert the mark_step for
+                    # each step. Since we are breaking the loop early, we need to manually
+                    # insert the mark_step here.
                     xm.mark_step()
                     break
+
+            # We also need to break out of the nested loop
+            if self.control.should_epoch_stop or self.control.should_training_stop:
+                xm.mark_step()
+                break
+
             if step < 0:
-                if is_main_worker():
-                    logger.warning(
-                        "There seems to be not a single sample in your epoch_iterator, stopping training at step"
-                        f" {self.state.global_step}! This is expected if you're using an IterableDataset and set"
-                        f" num_steps ({max_steps}) higher than the number of available samples."
-                    )
+                self.warning(
+                    "There seems to be not a single sample in your epoch_iterator, stopping training at step"
+                    f" {self.state.global_step}! This is expected if you're using an IterableDataset and set"
+                    f" num_steps ({max_steps}) higher than the number of available samples."
+                )
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
             xm.mark_step()
-            self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
 
-            if self.control.should_training_stop:
-                break
-
-        if is_main_worker():
-            logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
-
-        # add remaining tr_loss
-        loss_scalar = tr_loss.to("cpu").item()
-        self._total_loss_scalar += loss_scalar
-        effective_global_step = max(self.state.global_step, 0.001)  # Avoid ZeroDivisionError
-        train_loss = self._total_loss_scalar / effective_global_step
-
-        metrics = speed_metrics(
-            "train",
-            start_time,
-            num_samples=num_train_samples,
-            num_steps=self.state.max_steps,
-            num_tokens=num_train_tokens,
-        )
-        metrics["train_loss"] = train_loss
-
-        self.is_in_train = False
-
-        if is_main_worker_for_metrics():
-            self.log(metrics)
-
-        run_dir = self._get_output_dir(trial)
-        checkpoints_sorted = self._sorted_checkpoints(use_mtime=False, output_dir=run_dir)
-
-        # Delete the last checkpoint when save_total_limit=1 if it's different from the best checkpoint and process allowed to save.
-        if self.args.should_save and self.state.best_model_checkpoint is not None and self.args.save_total_limit == 1:
-            for checkpoint in checkpoints_sorted:
-                if not os.path.samefile(checkpoint, self.state.best_model_checkpoint):
-                    if is_main_worker():
-                        logger.info(f"Deleting older checkpoint [{checkpoint}] due to args.save_total_limit")
-                    shutil.rmtree(checkpoint)
-
+        self.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
         self.control = self.callback_handler.on_train_end(args, self.state, self.control)
-
-        # Wait for the checkpoint to be uploaded.
-        self._finish_current_push()
-
-        return TrainOutput(self.state.global_step, train_loss, metrics)
 
     def is_local_process_zero(self) -> bool:
         """
@@ -1093,15 +1166,14 @@ class NeuronBaseTrainer:
         # process index.
         return self.args.process_index == 0
 
-
 class _TrainerForNeuron:
     def __init__(
         self,
         model: PreTrainedModel | nn.Module | None = None,
         args: TrainingArguments = None,
         data_collator: DataCollator | None = None,
-        train_dataset: Dataset | IterableDataset | "datasets.Dataset" | None = None,
-        eval_dataset: Dataset | dict[str, Dataset] | "datasets.Dataset" | None = None,
+        train_dataset: "Dataset | IterableDataset | datasets.Dataset | None" = None,
+        eval_dataset: "Dataset | dict[str, Dataset] | datasets.Dataset | None" = None,
         processing_class: PreTrainedTokenizerBase | BaseImageProcessor | FeatureExtractionMixin | ProcessorMixin | None = None,
         model_init: Callable[[], PreTrainedModel] | None = None,
         compute_loss_func: Callable | None = None,
@@ -1519,7 +1591,7 @@ class _TrainerForNeuron:
         # (eg.g loss) are logged and sent to the callbacks (for instance WandbCallback).
         self.state = TrainerState(
             is_local_process_zero=self.is_local_process_zero(),
-            is_world_process_zero=is_main_worker_for_metrics(),
+            is_world_process_zero=is_logging_process(),
         )
 
         if self.args.local_rank <= 0:
@@ -1776,7 +1848,7 @@ class _TrainerForNeuron:
                     # closures are added in a row (which can happen at the end of the training), then it will fail the
                     # second time because at this point we will have:
                     # self.state.global_step = self._globalstep_last_logged
-                    if is_main_worker_for_metrics() and self.state.global_step > self._globalstep_last_logged:
+                    if is_logging_process() and self.state.global_step > self._globalstep_last_logged:
                         logs: dict[str, float] = {}
                         tr_loss_scalar = reduced_tr_loss.to("cpu").item()
 
@@ -2139,7 +2211,7 @@ class _TrainerForNeuron:
         self.state.is_local_process_zero = self.is_local_process_zero()
         # We need to change which process can be seen as "world process zero" to make sure the proper metrics
         # (eg.g loss) are logged and sent to the callbacks (for instance WandbCallback).
-        self.state.is_world_process_zero = is_main_worker_for_metrics()
+        self.state.is_world_process_zero = is_logging_process()
 
         tr_loss = torch.tensor(0.0).to(args.device)
         # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
@@ -2381,7 +2453,7 @@ class _TrainerForNeuron:
 
         self._memory_tracker.stop_and_update_metrics(metrics)
 
-        if is_main_worker_for_metrics():
+        if is_logging_process():
             self.log(metrics)
 
         run_dir = self._get_output_dir(trial)
@@ -2687,11 +2759,11 @@ class _TrainerForNeuron:
             self.synchronize_hub_cache()
         return result
 
-    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics_method))
+    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_logging_process_method))
     def save_metrics(self, split, metrics, combined=True):
         return super().save_metrics(split, metrics, combined=combined)
 
-    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics_method))
+    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_logging_process_method))
     def save_state(self):
         return super().save_state()
 
