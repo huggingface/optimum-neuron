@@ -641,12 +641,6 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 }
             )
             # Downloads all repo's files matching the allowed patterns
-            is_flux_model = "flux" in model_id.lower()
-            if is_flux_model:
-                ignore_patterns = ["*.msgpack", "*.bin"]
-            else:
-                ignore_patterns = ["*.msgpack", "*.safetensors", "*.bin"]
-
             model_id = snapshot_download(
                 model_id,
                 cache_dir=cache_dir,
@@ -655,7 +649,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 revision=revision,
                 force_download=force_download,
                 allow_patterns=allow_patterns,
-                ignore_patterns=ignore_patterns,
+                ignore_patterns=["*.msgpack", "*.bin"],
             )
 
         new_model_save_dir = Path(model_id)
