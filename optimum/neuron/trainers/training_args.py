@@ -14,10 +14,12 @@
 # limitations under the License.
 
 import os
+import math
 import json
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any
+from enum import Enum
 
 import torch
 import torch_xla.core.xla_model as xm
@@ -765,6 +767,13 @@ class NeuronTrainingArguments:
         return 0
 
     @property
+    def train_batch_size(self) -> int:
+        """
+        The actual batch size for training.
+        """
+        return self.per_device_train_batch_size * self.trn_config.data_parallel_size
+
+    @property
     def should_log(self):
         """
         Whether or not the current process should produce log.
@@ -803,3 +812,68 @@ class NeuronTrainingArguments:
         log_level_replica_node = logging.get_verbosity() if log_level_replica == -1 else log_level_replica
         return log_level_main_node if self.should_log else log_level_replica_node
 
+    def get_warmup_steps(self, num_training_steps: int):
+        """
+        Get number of steps used for a linear warmup.
+        """
+        warmup_steps = (
+            self.warmup_steps if self.warmup_steps > 0 else math.ceil(num_training_steps * self.warmup_ratio)
+        )
+        return warmup_steps
+
+    def _dict_torch_dtype_to_str(self, d: dict[str, Any]) -> None:
+        """ Checks whether the passed dictionary and its nested dicts have a *torch_dtype* key and if it's not None,
+        converts torch.dtype to a string of just the type. For example, `torch.float32` get converted into *"float32"*
+        string, which can then be stored in the json format.
+        """
+        if d.get("torch_dtype", None) is not None and not isinstance(d["torch_dtype"], str):
+            d["torch_dtype"] = str(d["torch_dtype"]).split(".")[1]
+        for value in d.values():
+            if isinstance(value, dict):
+                self._dict_torch_dtype_to_str(value)
+
+    def to_dict(self):
+        """
+        Serializes this instance while replace `Enum` by their values (for JSON serialization support). It obfuscates
+        the token values by removing their value.
+        """
+        # filter out fields that are defined as field(init=False)
+        d = {field.name: getattr(self, field.name) for field in fields(self) if field.init}
+
+        for k, v in d.items():
+            if isinstance(v, Enum):
+                d[k] = v.value
+            if isinstance(v, list) and len(v) > 0 and isinstance(v[0], Enum):
+                d[k] = [x.value for x in v]
+            if k.endswith("_token"):
+                d[k] = f"<{k.upper()}>"
+            # Handle the accelerator_config if passed
+            if isinstance(v, AcceleratorConfig):
+                d[k] = v.to_dict()
+            # Handle the quantization_config if passed
+            if k == "model_init_kwargs" and isinstance(v, dict) and "quantization_config" in v:
+                quantization_config = v.get("quantization_config")
+                if quantization_config and not isinstance(quantization_config, dict):
+                    d[k]["quantization_config"] = quantization_config.to_dict()
+        self._dict_torch_dtype_to_str(d)
+
+        return d
+
+    def to_json_string(self):
+        """
+        Serializes this instance to a JSON string.
+        """
+        return json.dumps(self.to_dict(), indent=2)
+
+    def to_sanitized_dict(self) -> dict[str, Any]:
+        """
+        Sanitized serialization to use with TensorBoard’s hparams
+        """
+        d = self.to_dict()
+        d = {**d, **{"train_batch_size": self.train_batch_size}}
+
+        valid_types = [bool, int, float, str]
+        if is_torch_available():
+            valid_types.append(torch.Tensor)
+
+        return {k: v if type(v) in valid_types else str(v) for k, v in d.items()}

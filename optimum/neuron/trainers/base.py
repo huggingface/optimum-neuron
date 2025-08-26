@@ -688,7 +688,7 @@ class NeuronTrainer:
             "betas": (args.adam_beta1, args.adam_beta2),
             "eps": args.adam_epsilon,
         }
-        if args.optim == OptimizerNames.ADAMW:
+        if args.optim == OptimizerNames.ADAMW_TORCH:
             optimizer_cls = torch.optim.AdamW
             optimizer_kwargs.update(adam_kwargs)
         elif args.optim == OptimizerNames.SGD:
@@ -729,7 +729,7 @@ class NeuronTrainer:
                 return len(dataloader.dataset.dataset)
             return len(dataloader.dataset)
         except (NameError, AttributeError, TypeError):  # no dataset or length, estimate by length of dataloader
-            return len(dataloader) * self.args.per_device_train_batch_size * self.args.dp_size
+            return len(dataloader) * self.args.per_device_train_batch_size * self.args.trn_config.data_parallel_size
 
     @staticmethod
     def num_tokens(train_dl: DataLoader, max_steps: int | None = None) -> int:
@@ -860,9 +860,9 @@ class NeuronTrainer:
         self.info("***** Running training *****")
         self.info(f"  Num examples = {num_examples:,}")
         self.info(f"  Num Epochs = {num_train_epochs:,}")
-        self.info(f"  Data Parallel Size: {args.dp_size}")
-        self.info(f"  Tensor Parallel Size: {args.tp_size}")
-        self.info(f"  Pipeline Parallel Size: {args.pp_size}")
+        self.info(f"  Data Parallel Size: {args.trn_config.data_parallel_size}")
+        self.info(f"  Tensor Parallel Size: {args.trn_config.tensor_parallel_size}")
+        self.info(f"  Pipeline Parallel Size: {args.trn_config.pipeline_parallel_size}")
         self.info(f"  Instantaneous batch size per data parallel rank = {args.per_device_train_batch_size:,}")
         self.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
         self.info(
@@ -964,11 +964,7 @@ class NeuronTrainer:
         if self.global_step_last_logged >= self.state.global_step:
             return
         if self.control.should_log:
-            if model_parallel_is_initialized():
-                dp_size = get_data_parallel_size()
-            else:
-                dp_size = xr.world_size()
-
+            dp_size = self.args.trn_config.data_parallel_size
             tr_loss_div = self.loss / dp_size
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_replica_groups())
             reduced_tr_loss = reduced_tr_loss.detach()
