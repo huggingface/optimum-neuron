@@ -1021,7 +1021,6 @@ class NeuronTrainer:
     def train(
         self,
         resume_from_checkpoint: str | bool | None = None,
-        **kwargs,
     ):
 
         if resume_from_checkpoint not in [False, None]:
@@ -1036,6 +1035,7 @@ class NeuronTrainer:
         train_dataloader = self.get_train_dataloader()
 
         num_update_steps_per_epoch, num_examples, max_steps, num_train_epochs, num_train_samples, num_train_tokens = self.get_training_examples_info(train_dataloader)
+        total_train_batch_size = self.args.per_device_train_batch_size * args.gradient_accumulation_steps
 
         self.setup_training(train_dataloader, max_steps, num_train_epochs, num_examples, total_train_batch_size)
 
@@ -1054,7 +1054,7 @@ class NeuronTrainer:
             self.control = self.callback_handler.on_epoch_begin(args, self.state, self.control)
 
             step = -1
-            epoch_iterator = iter(epoch_dataloader)`
+            epoch_iterator = iter(epoch_dataloader)
 
             for step, inputs in enumerate(epoch_iterator):
                 xm.mark_step()
@@ -1094,7 +1094,7 @@ class NeuronTrainer:
                     # Gradient clipping
                     if args.max_grad_norm is not None and args.max_grad_norm > 0:
                         parameters = (
-                            model.local_parameters() if isinstance(model, NxDPPModel) else model.parameters()
+                            self.model.local_parameters() if isinstance(self.model, NxDPPModel) else self.model.parameters()
                         )
                         self.accelerator.clip_grad_norm_(
                             parameters,
@@ -1116,7 +1116,7 @@ class NeuronTrainer:
                     self.optimizer.zero_grad()
 
                     self.state.global_step += 1
-                    self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
+                    self.state.epoch = epoch + (step + 1) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
