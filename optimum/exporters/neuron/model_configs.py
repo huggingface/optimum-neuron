@@ -19,6 +19,7 @@ import inspect
 import os
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 import neuronx_distributed
 import torch
@@ -353,6 +354,10 @@ class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
             common_outputs.append("hidden_states")
 
         return common_outputs
+
+    @property
+    def values_override(self) -> dict[str, Any] | None:
+        return {"return_dict": False}
 
 
 @register_in_tasks_manager("clip-text-model", *["feature-extraction"], library_name="diffusers")
