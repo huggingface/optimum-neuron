@@ -61,7 +61,7 @@ class NeuronTrainingArgumentsMixin:
     framework = "pt"
 
     # Transformers specific arguments
-    output_dir: Optional[str] = field(
+    output_dir: str | None = field(
         default=None,
         metadata={
             "help": "The output directory where the model predictions and checkpoints will be written. Defaults to 'trainer_output' if not provided."
@@ -79,7 +79,7 @@ class NeuronTrainingArgumentsMixin:
 
     do_train: bool = field(default=False, metadata={"help": "Whether to run training."})
     do_eval: bool = field(default=False, metadata={"help": "Whether to run eval on the dev set."})
-    eval_strategy: Union[IntervalStrategy, str] = field(
+    eval_strategy: IntervalStrategy | str = field(
         default="no",
         metadata={"help": "The evaluation strategy to use."},
     )
@@ -106,11 +106,11 @@ class NeuronTrainingArgumentsMixin:
         default=-1,
         metadata={"help": "If > 0: set total number of training steps to perform. Override num_train_epochs."},
     )
-    lr_scheduler_type: Union[SchedulerType, str] = field(
+    lr_scheduler_type: SchedulerType | str = field(
         default="linear",
         metadata={"help": "The scheduler type to use."},
     )
-    lr_scheduler_kwargs: Optional[Union[dict[str, Any], str]] = field(
+    lr_scheduler_kwargs: dict[str, Any] | str | None = field(
         default_factory=dict,
         metadata={
             "help": (
@@ -150,8 +150,8 @@ class NeuronTrainingArgumentsMixin:
             )
         },
     )
-    logging_dir: Optional[str] = field(default=None, metadata={"help": "Tensorboard log dir."})
-    logging_strategy: Union[IntervalStrategy, str] = field(
+    logging_dir: str | None = field(default=None, metadata={"help": "Tensorboard log dir."})
+    logging_strategy: IntervalStrategy | str = field(
         default="steps",
         metadata={"help": "The logging strategy to use."},
     )
@@ -165,7 +165,7 @@ class NeuronTrainingArgumentsMixin:
             )
         },
     )
-    save_strategy: Union[SaveStrategy, str] = field(
+    save_strategy: SaveStrategy | str = field(
         default="steps",
         metadata={"help": "The checkpoint save strategy to use."},
     )
@@ -178,7 +178,7 @@ class NeuronTrainingArgumentsMixin:
             )
         },
     )
-    save_total_limit: Optional[int] = field(
+    save_total_limit: int | None = field(
         default=None,
         metadata={
             "help": (
@@ -210,7 +210,7 @@ class NeuronTrainingArgumentsMixin:
         },
     )
     seed: int = field(default=42, metadata={"help": "Random seed that will be set at the beginning of training."})
-    data_seed: Optional[int] = field(default=None, metadata={"help": "Random seed to be used with data samplers."})
+    data_seed: int | None = field(default=None, metadata={"help": "Random seed to be used with data samplers."})
     bf16: bool = field(
         default=False,
         metadata={
@@ -225,7 +225,7 @@ class NeuronTrainingArgumentsMixin:
     dataloader_drop_last: bool = field(
         default=False, metadata={"help": "Drop the last incomplete batch if it is not divisible by the batch size."}
     )
-    eval_steps: Optional[float] = field(
+    eval_steps: float | None = field(
         default=None,
         metadata={
             "help": (
@@ -243,7 +243,7 @@ class NeuronTrainingArgumentsMixin:
             )
         },
     )
-    dataloader_prefetch_factor: Optional[int] = field(
+    dataloader_prefetch_factor: int | None = field(
         default=None,
         metadata={
             "help": (
@@ -253,20 +253,20 @@ class NeuronTrainingArgumentsMixin:
         },
     )
 
-    run_name: Optional[str] = field(
+    run_name: str | None = field(
         default=None,
         metadata={
             "help": "An optional descriptor for the run. Notably used for wandb, mlflow comet and swanlab logging."
         },
     )
-    disable_tqdm: Optional[bool] = field(
+    disable_tqdm: bool | None = field(
         default=None, metadata={"help": "Whether or not to disable the tqdm progress bars."}
     )
 
-    remove_unused_columns: Optional[bool] = field(
+    remove_unused_columns: bool | None = field(
         default=True, metadata={"help": "Remove columns not required by the model when using an nlp.Dataset."}
     )
-    label_names: Optional[list[str]] = field(
+    label_names: list[str] | None = field(
         default=None, metadata={"help": "The list of keys in your dictionary of inputs that correspond to the labels."}
     )
     ignore_data_skip: bool = field(
@@ -278,7 +278,7 @@ class NeuronTrainingArgumentsMixin:
             )
         },
     )
-    accelerator_config: Optional[Union[dict, str]] = field(
+    accelerator_config: dict | str | None= field(
         default=None,
         metadata={
             "help": (
@@ -292,13 +292,13 @@ class NeuronTrainingArgumentsMixin:
     )
 
     default_optim = "adamw_torch"
-    optim: Union[OptimizerNames, str] = field(
+    optim: OptimizerNames | str = field(
         default=default_optim,
         metadata={"help": "The optimizer to use."},
     )
-    optim_args: Optional[str] = field(default=None, metadata={"help": "Optional arguments to supply to optimizer."})
+    optim_args: str | None = field(default=None, metadata={"help": "Optional arguments to supply to optimizer."})
     adafactor: bool = field(default=False, metadata={"help": "Whether or not to replace AdamW by Adafactor."})
-    report_to: Union[None, str, list[str]] = field(
+    report_to: None | str | list[str] = field(
         default=None, metadata={"help": "The list of integrations to report the results and logs to."}
     )
     dataloader_pin_memory: bool = field(
@@ -316,19 +316,19 @@ class NeuronTrainingArgumentsMixin:
     push_to_hub: bool = field(
         default=False, metadata={"help": "Whether or not to upload the trained model to the model hub after training."}
     )
-    resume_from_checkpoint: Optional[str] = field(
+    resume_from_checkpoint: str | None = field(
         default=None,
         metadata={"help": "The path to a folder with a valid checkpoint for your model."},
     )
-    hub_model_id: Optional[str] = field(
+    hub_model_id: str | None = field(
         default=None, metadata={"help": "The name of the repository to keep in sync with the local `output_dir`."}
     )
-    hub_strategy: Union[HubStrategy, str] = field(
+    hub_strategy: HubStrategy | str = field(
         default="every_save",
         metadata={"help": "The hub strategy to use when `--push_to_hub` is activated."},
     )
-    hub_token: Optional[str] = field(default=None, metadata={"help": "The token to use to push to the Model Hub."})
-    hub_private_repo: Optional[bool] = field(
+    hub_token: str | None = field(default=None, metadata={"help": "The token to use to push to the Model Hub."})
+    hub_private_repo: bool | None = field(
         default=None,
         metadata={
             "help": "Whether to make the repo private. If `None` (default), the repo will be public unless the organization's default is private. This value is ignored if the repo already exists."
@@ -344,7 +344,7 @@ class NeuronTrainingArgumentsMixin:
             "help": "If True, use gradient checkpointing to save memory at the expense of slower backward pass."
         },
     )
-    gradient_checkpointing_kwargs: Optional[Union[dict[str, Any], str]] = field(
+    gradient_checkpointing_kwargs: dict[str, Any] | str | None = field(
         default=None,
         metadata={
             "help": "Gradient checkpointing key word arguments such as `use_reentrant`. Will be passed to `torch.utils.checkpoint.checkpoint` through `model.gradient_checkpointing_enable`."
@@ -370,12 +370,12 @@ class NeuronTrainingArgumentsMixin:
         },
     )
 
-    include_tokens_per_second: Optional[bool] = field(
+    include_tokens_per_second: bool | None = field(
         default=False,
         metadata={"help": "If set to `True`, the speed metrics will include `tgs` (tokens per second per device)."},
     )
 
-    include_num_input_tokens_seen: Optional[bool] = field(
+    include_num_input_tokens_seen: bool | None = field(
         default=False,
         metadata={
             "help": "If set to `True`, will track the number of input tokens seen throughout training. (May be slower in distributed training)"
@@ -384,12 +384,12 @@ class NeuronTrainingArgumentsMixin:
 
 
 
-    use_liger_kernel: Optional[bool] = field(
+    use_liger_kernel: bool | None = field(
         default=False,
         metadata={"help": "Whether or not to enable the Liger Kernel for model training."},
     )
 
-    average_tokens_across_devices: Optional[bool] = field(
+    average_tokens_across_devices: bool | None = field(
         default=False,
         metadata={
             "help": "Whether or not to average tokens across devices. If enabled, will use all_reduce to "
