@@ -228,6 +228,8 @@ def infer_shapes_of_diffusers(
     if isinstance(model, FluxPipeline):
         max_sequence_length_2 = input_shapes["text_encoder"].get("sequence_length", None) or max_sequence_length_2
 
+    import pdb
+    pdb.set_trace()
     vae_encoder_num_channels = model.vae.config.in_channels
     vae_decoder_num_channels = model.vae.config.latent_channels
     vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8

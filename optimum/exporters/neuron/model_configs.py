@@ -906,6 +906,11 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
         return merged_state_dict
 
 
+@register_in_tasks_manager("qwen-image-transformer-2d", *["semantic-segmentation"], library_name="diffusers")
+class QwenImageTransformerNeuronConfig(FluxTransformerNeuronConfig):
+    pass
+
+
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")
 class ControlNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3

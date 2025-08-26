@@ -81,6 +81,8 @@ if is_diffusers_available():
         LCMScheduler,
         PixArtAlphaPipeline,
         PixArtSigmaPipeline,
+        QwenImagePipeline,
+        QwenImageEditPipeline,
         StableDiffusionControlNetPipeline,
         StableDiffusionImg2ImgPipeline,
         StableDiffusionInpaintPipeline,
@@ -1615,6 +1617,11 @@ class NeuronFluxPipeline(NeuronDiffusionPipelineBase, FluxPipeline):
     auto_model_class = FluxPipeline
 
 
-class NeuronFluxInpaintPipeline(NeuronDiffusionPipelineBase, FluxInpaintPipeline):
+class NeuronQwenImagePipeline(NeuronDiffusionPipelineBase, QwenImagePipeline):
     main_input_name = "prompt"
-    auto_model_class = FluxInpaintPipeline
+    auto_model_class = QwenImagePipeline
+
+
+# class NeuronQwenImageEditPipeline(NeuronDiffusionPipelineBase, QwenImageEditPipeline):
+#     main_input_name = "prompt"
+#     auto_model_class = QwenImageEditPipeline
