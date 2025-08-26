@@ -17,6 +17,7 @@
 from typing import TYPE_CHECKING
 
 import torch
+from transformers.cache_utils import EncoderDecoderCache
 from transformers.models.t5.modeling_t5 import T5LayerCrossAttention
 
 from ...neuron.utils import is_neuronx_available
@@ -621,7 +622,7 @@ class T5DecoderWrapper(torch.nn.Module):
         decoder_output = self.model.decoder(
             input_ids=input_ids,
             attention_mask=decoder_attention_mask,
-            past_key_values=past_key_values,
+            past_key_values=EncoderDecoderCache.from_legacy_cache(past_key_values),
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_attention_mask,
             use_cache=True,
