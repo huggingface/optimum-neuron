@@ -15,12 +15,24 @@
 """Defines a TrainingArguments class compatible with Neuron."""
 
 import os
+import json
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from typing import Any
 
 import torch
-from transformers.trainer_utils import get_last_checkpoint
-from transformers.training_args import TrainingArguments
+import torch_xla.core.xla_model as xm
+
+from transformers.trainer_utils import (
+    get_last_checkpoint,
+    EvaluationStrategy,
+    FSDPOption,
+    HubStrategy,
+    IntervalStrategy,
+    SaveStrategy,
+    SchedulerType,
+)
+from transformers.training_args import trainer_log_levels, OptimizerNames
 from transformers.training_args_seq2seq import Seq2SeqTrainingArguments
 from transformers.utils import (
     cached_property,
@@ -36,17 +48,11 @@ from ..utils.patching import Patcher, patch_within_function
 from ..utils.torch_xla_and_neuronx_initialization import set_neuron_cc_optlevel
 
 
-if is_sagemaker_mp_enabled():
-    import smdistributed.modelparallel.torch as smp
-
-    smp.init()
-
-
 logger = logging.get_logger(__name__)
 
 
 @dataclass
-class NeuronTrainingArgumentsMixin:
+class NeuronTrainingArguments:
     # Sometimes users will pass in a `str` repr of a dict in the CLI
     # We need to track what fields those can be. Each time a new arg
     # has a dict type, it must be added to this list.
@@ -417,13 +423,6 @@ class NeuronTrainingArgumentsMixin:
         default=False,
         metadata={"help": "Whether or not to disable sequence parallelism."},
     )
-    neuron_cc_optlevel: int | None = field(
-        default=None,
-        metadata={
-            "choices": [1, 2, 3],
-            "help": "Specify the level of optimization the Neuron compiler should perform.",
-        },
-    )
     pipeline_parallel_size: int = field(
         default=1,
         metadata={"help": "The number of pipeline parallel replicas."},
@@ -486,21 +485,179 @@ class NeuronTrainingArgumentsMixin:
         },
     )
 
+    @staticmethod
+    def info(msg: str):
+        if is_logging_process():
+            logger.info(msg)
+
     def __post_init__(self):
+        # Set default output_dir if not provided
+        if self.output_dir is None:
+            self.output_dir = "trainer_output"
+            self.info(
+                "No output directory specified, defaulting to 'trainer_output'. "
+                "To change this behavior, specify --output_dir when creating TrainingArguments."
+            )
+
+        # Parse in args that could be `dict` sent in from the CLI as a string
+        for field in self._VALID_DICT_FIELDS:
+            passed_value = getattr(self, field)
+            # We only want to do this if the str starts with a bracket to indicate a `dict`
+            # else its likely a filename if supported
+            if isinstance(passed_value, str) and passed_value.startswith("{"):
+                loaded_dict = json.loads(passed_value)
+                # Convert str values to types if applicable
+                loaded_dict = _convert_str_dict(loaded_dict)
+                setattr(self, field, loaded_dict)
+
+        # expand paths, if not os.makedirs("~/bar") will make directory
+        # in the current directory instead of the actual home
+        # see https://github.com/huggingface/transformers/issues/10628
+        if self.output_dir is not None:
+            self.output_dir = os.path.expanduser(self.output_dir)
+        if self.logging_dir is None and self.output_dir is not None:
+            self.logging_dir = os.path.join(self.output_dir, default_logdir())
+        if self.logging_dir is not None:
+            self.logging_dir = os.path.expanduser(self.logging_dir)
+
+        if self.disable_tqdm is None:
+            self.disable_tqdm = logger.getEffectiveLevel() > logging.WARN
+
+        self.eval_strategy = IntervalStrategy(self.eval_strategy)
+        self.logging_strategy = IntervalStrategy(self.logging_strategy)
+        self.save_strategy = SaveStrategy(self.save_strategy)
+        self.hub_strategy = HubStrategy(self.hub_strategy)
+
+        self.lr_scheduler_type = SchedulerType(self.lr_scheduler_type)
+        if self.do_eval is False and self.eval_strategy != IntervalStrategy.NO:
+            self.do_eval = True
+
+        # eval_steps has to be defined and non-zero, fallbacks to logging_steps if the latter is non-zero
+        if self.eval_strategy == IntervalStrategy.STEPS and (self.eval_steps is None or self.eval_steps == 0):
+            if self.logging_steps > 0:
+                logger.info(f"using `logging_steps` to initialize `eval_steps` to {self.logging_steps}")
+                self.eval_steps = self.logging_steps
+            else:
+                raise ValueError(
+                    f"evaluation strategy {self.eval_strategy} requires either non-zero --eval_steps or"
+                    " --logging_steps"
+                )
+
+        # logging_steps must be non-zero for logging_strategy that is other than 'no'
+        if self.logging_strategy == IntervalStrategy.STEPS and self.logging_steps == 0:
+            raise ValueError(f"logging strategy {self.logging_strategy} requires non-zero --logging_steps")
+
+        if self.logging_strategy == IntervalStrategy.STEPS and self.logging_steps > 1:
+            if self.logging_steps != int(self.logging_steps):
+                raise ValueError(f"--logging_steps must be an integer if bigger than 1: {self.logging_steps}")
+            self.logging_steps = int(self.logging_steps)
+        if self.eval_strategy == IntervalStrategy.STEPS and self.eval_steps > 1:
+            if self.eval_steps != int(self.eval_steps):
+                raise ValueError(f"--eval_steps must be an integer if bigger than 1: {self.eval_steps}")
+            self.eval_steps = int(self.eval_steps)
+        if self.save_strategy == SaveStrategy.STEPS and self.save_steps > 1:
+            if self.save_steps != int(self.save_steps):
+                raise ValueError(f"--save_steps must be an integer if bigger than 1: {self.save_steps}")
+            self.save_steps = int(self.save_steps)
+
+        if self.run_name is None:
+            self.run_name = self.output_dir
+
+        if self.lr_scheduler_type == SchedulerType.REDUCE_ON_PLATEAU:
+            if self.eval_strategy == IntervalStrategy.NO:
+                raise ValueError("lr_scheduler_type reduce_lr_on_plateau requires an eval strategy")
+
+        self.optim = OptimizerNames(self.optim)
+
+        # We need to setup the accelerator config here *before* the first call to `self.device`
+        if not isinstance(self.accelerator_config, AcceleratorConfig):
+            if self.accelerator_config is None:
+                self.accelerator_config = AcceleratorConfig()
+            elif isinstance(self.accelerator_config, dict):
+                self.accelerator_config = AcceleratorConfig(**self.accelerator_config)
+            # Check that a user didn't pass in the class instantiator
+            # such as `accelerator_config = AcceleratorConfig`
+            elif isinstance(self.accelerator_config, type):
+                raise NotImplementedError(
+                    "Tried passing in a callable to `accelerator_config`, but this is not supported. "
+                    "Please pass in a fully constructed `AcceleratorConfig` object instead."
+                )
+            else:
+                self.accelerator_config = AcceleratorConfig.from_json_file(self.accelerator_config)
+
+        # Disable average tokens when using single device
+        if self.average_tokens_across_devices:
+            try:
+                if self.world_size == 1:
+                    logger.warning(
+                        "average_tokens_across_devices is set to True but it is invalid when world size is"
+                        "1. Turn it to False automatically."
+                    )
+                    self.average_tokens_across_devices = False
+            except ImportError as e:
+                logger.warning(f"Can not specify world size due to {e}. Turn average_tokens_across_devices to False.")
+                self.average_tokens_across_devices = False
+
+        # if training args is specified, it will override the one specified in the accelerate config
+        if self.half_precision_backend != "apex":
+            mixed_precision_dtype = os.environ.get("ACCELERATE_MIXED_PRECISION", "no")
+            if self.bf16:
+                mixed_precision_dtype = "bf16"
+            os.environ["ACCELERATE_MIXED_PRECISION"] = mixed_precision_dtype
+
+        if self.report_to is None:
+            logger.info(
+                "The default value for the training argument `--report_to` will change in v5 (from all installed "
+                "integrations to none). In v5, you will need to use `--report_to all` to get the same behavior as "
+                "now. You should start updating your code and make this info disappear :-)."
+            )
+            self.report_to = "all"
+        if self.report_to == "all" or self.report_to == ["all"]:
+            # Import at runtime to avoid a circular import.
+            from transformers.integrations import get_available_reporting_integrations
+
+            self.report_to = get_available_reporting_integrations()
+
+            if "codecarbon" in self.report_to and torch.version.hip:
+                logger.warning(
+                    "When using the Trainer, CodeCarbonCallback requires the `codecarbon` package, which is not compatible with AMD ROCm (https://github.com/mlco2/codecarbon/pull/490). Automatically disabling the codecarbon callback. Reference: https://huggingface.co/docs/transformers/v4.39.3/en/main_classes/trainer#transformers.TrainingArguments.report_to."
+                )
+                self.report_to.remove("codecarbon")
+
+        elif self.report_to == "none" or self.report_to == ["none"]:
+            self.report_to = []
+        elif not isinstance(self.report_to, list):
+            self.report_to = [self.report_to]
+
+        if self.warmup_ratio < 0 or self.warmup_ratio > 1:
+            raise ValueError("warmup_ratio must lie in range [0,1]")
+        elif self.warmup_ratio > 0 and self.warmup_steps > 0:
+            logger.info(
+                "Both warmup_ratio and warmup_steps given, warmup_steps will override any effect of warmup_ratio"
+                " during training"
+            )
+
+        if not isinstance(self.warmup_steps, int) or self.warmup_steps < 0:
+            raise ValueError("warmup_steps must be of type int and must be 0 or a positive integer.")
+
+        if self.dataloader_num_workers == 0 and self.dataloader_prefetch_factor is not None:
+            raise ValueError(
+                "--dataloader_prefetch_factor can only be set when data is loaded in a different process, i.e."
+                " when --dataloader_num_workers > 1."
+            )
+
+        if self.include_inputs_for_metrics:
+            logger.warning(
+                "Using `include_inputs_for_metrics` is deprecated and will be removed in version 5 of 🤗 Transformers. Please use `include_for_metrics` list argument instead."
+            )
+            self.include_for_metrics.append("inputs")
         if self.do_eval:
             raise RuntimeError("Evaluation is not supported yet.")
 
-        if self.neuron_cc_flags_model_type is not None:
-            os.environ["OPTIMUM_NEURON_COMMON_FLAGS_MODEL_TYPE"] = self.neuron_cc_flags_model_type
+        # Neuron-specific setup
 
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_torch_xla_available()
-
-        if self.fsdp not in ["", []]:
-            raise RuntimeError("FSDP is not supported.")
-
-        if self.fp16:
-            raise ValueError("The fp16 data type is not supported in Neuron, please use bf16 instead.")
 
         resume_from_checkpoint = self.resume_from_checkpoint
         if resume_from_checkpoint is None and self.output_dir is not None and os.path.isdir(self.output_dir):
@@ -551,14 +708,7 @@ class NeuronTrainingArgumentsMixin:
         else:
             os.environ["ACCELERATE_USE_AMP"] = "false"
 
-        if self.neuron_cc_optlevel is not None:
-            set_neuron_cc_optlevel(self.neuron_cc_optlevel)
-
         self._world_size_should_behave_as_dp_size = False
-
-        # This is required to be able to use bf16, otherwise a check in super().__post_init__() fails.
-        with Patcher([("transformers.training_args.get_xla_device_type", lambda _: "GPU")]):
-            super().__post_init__()
 
     @cached_property
     @patch_within_function(
@@ -570,10 +720,37 @@ class NeuronTrainingArgumentsMixin:
     def _setup_devices(self) -> "torch.device":
         return super()._setup_devices
 
+    @cached_property
+    def _setup_devices(self) -> "torch.device":
+        self.info("PyTorch: setting up devices")
+
+        # Initialize the accelerator state first
+        accelerator_state_kwargs: dict[str, Any] = {"enabled": True, "use_configured_state": False}
+        if isinstance(self.accelerator_config, AcceleratorConfig):
+            accelerator_state_kwargs["use_configured_state"] = self.accelerator_config.pop(
+                "use_configured_state", False
+            )
+        if accelerator_state_kwargs["use_configured_state"]:
+            if NeuronPartialState._shared_state == {}:
+                raise ValueError(
+                    "Passing `'use_configured_state':True` to the AcceleratorConfig requires a pre-configured "
+                    "`AcceleratorState` or `PartialState` to be defined before calling `TrainingArguments`. "
+                )
+            # We rely on `PartialState` to yell if there's issues here (which it will)
+            self.distributed_state = NeuronPartialState(cpu=False)
+        else:
+            NeuronAcceleratorState._reset_state(reset_partial_state=True)
+            self.distributed_state = None
+
+        device = xm.xla_device()
+        return device
+
     @property
-    def neuron_cc_flags_model_type(self) -> str | None:
-        """Controls the value to provide to the Neuron Compiler for the model-type flag."""
-        return "transformer"
+    def device(self) -> "torch.device":
+        """
+        The device used by this process.
+        """
+        return self._setup_devices
 
     @property
     def place_model_on_device(self):
@@ -612,11 +789,6 @@ class NeuronTrainingArgumentsMixin:
             yield
         finally:
             self.world_size_should_behave_as_dp_size = orig_state
-
-
-@dataclass
-class NeuronTrainingArguments(NeuronTrainingArgumentsMixin, TrainingArguments):
-    pass
 
 
 @dataclass
