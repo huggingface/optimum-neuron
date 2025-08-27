@@ -409,11 +409,10 @@ class NeuronTrainingArguments:
     skip_cache_push: bool = field(
         default=False, metadata={"help": "Whether to skip pushing Neuron artifacts to hub cache"}
     )
-    half_precision_backend: str = field(
-        default="xla",
+    use_autocast: bool = field(
+        default=False,
         metadata={
-            "help": "The backend to be used for half precision.",
-            "choices": ["xla", "amp"],
+            "help": "Whether to use torch autocast to perform mixed precision training.",
         },
     )
     zero_1: bool = field(default=False, metadata={"help": "Whether to use  ZeRO Stage 1 Optimization."})
@@ -600,7 +599,7 @@ class NeuronTrainingArguments:
                 self.average_tokens_across_devices = False
 
         # if training args is specified, it will override the one specified in the accelerate config
-        if self.half_precision_backend != "apex":
+        if self.use_autocast:
             mixed_precision_dtype = os.environ.get("ACCELERATE_MIXED_PRECISION", "no")
             if self.bf16:
                 mixed_precision_dtype = "bf16"
@@ -704,7 +703,7 @@ class NeuronTrainingArguments:
             gradient_checkpointing=self.gradient_checkpointing,
         )
 
-        if self.bf16 and self.half_precision_backend == "amp":
+        if self.bf16 and self.use_autocast:
             os.environ["ACCELERATE_USE_AMP"] = "true"
         else:
             os.environ["ACCELERATE_USE_AMP"] = "false"

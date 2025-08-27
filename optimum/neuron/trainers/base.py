@@ -184,6 +184,7 @@ class NeuronTrainer:
         optimizer_cls_and_kwargs: tuple[type[torch.optim.Optimizer], dict[str, Any]] | None = None,
         preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
     ):
+        # TODO: filter the args that do not make sense for us and raise error for unsupported features.
 
         if args is None:
             output_dir = "tmp_trainer"
@@ -191,6 +192,8 @@ class NeuronTrainer:
             args = NeuronTrainingArguments(output_dir=output_dir)
 
         self.args = args
+        self.trn_config = self.args.trn_config
+
         self.compute_loss_func = compute_loss_func
 
         # Set the correct log level depending on the node
@@ -378,10 +381,9 @@ class NeuronTrainer:
         # create accelerator object
         self.accelerator = NeuronAccelerator(
             *args,
-            trn_config=self.args.trn_config,
+            trn_config=self.trn_config,
             zero_1=self.args.zero_1,
-            mixed_precision="bf16" if self.args.bf16 else "no",
-            autocast_backend=self.args.half_precision_backend,
+            mixed_precision="bf16" if self.args.bf16 and self.args.use_autocast else "no",
         )
 
         # some Trainer classes need to use `gather` instead of `gather_for_metrics`, thus we store a flag
@@ -539,7 +541,7 @@ class NeuronTrainer:
         
         # The NeuronAccelerator will take care of preparing the dataloader, transforming the sampler for distributed
         # training.
-        return self.accelerator.prepare(dataloader)
+        return self.accelerator.prepare_data_loader(dataloader, use_mp_device_loader=True)
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -729,7 +731,7 @@ class NeuronTrainer:
                 return len(dataloader.dataset.dataset)
             return len(dataloader.dataset)
         except (NameError, AttributeError, TypeError):  # no dataset or length, estimate by length of dataloader
-            return len(dataloader) * self.args.per_device_train_batch_size * self.args.trn_config.data_parallel_size
+            return len(dataloader) * self.args.train_batch_size
 
     @staticmethod
     def num_tokens(train_dl: DataLoader, max_steps: int | None = None) -> int:
@@ -737,15 +739,16 @@ class NeuronTrainer:
         Helper to get number of tokens in a [`~torch.utils.data.DataLoader`] by enumerating dataloader.
         """
         train_tokens = 0
+        dp_size = get_data_parallel_size()
         try:
             for batch in train_dl:
                 tokens = batch["input_ids"].numel()
                 if max_steps is not None:
-                    return tokens * max_steps
+                    return tokens * max_steps * dp_size
                 train_tokens += tokens
         except KeyError:
             NeuronTrainer.warning("Cannot get num_tokens from dataloader")
-        train_tokens = xm.all_reduce("sum", torch.tensor(train_tokens), group=get_data_parallel_replica_groups()).item()
+        train_tokens = train_tokens * dp_size
         return train_tokens
 
     def autocast_smart_context_manager(self, cache_enabled: bool | None = True):
@@ -964,7 +967,7 @@ class NeuronTrainer:
         if self.global_step_last_logged >= self.state.global_step:
             return
         if self.control.should_log:
-            dp_size = self.args.trn_config.data_parallel_size
+            dp_size = self.trn_config.data_parallel_size
             tr_loss_div = self.loss / dp_size
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_replica_groups())
             reduced_tr_loss = reduced_tr_loss.detach()
