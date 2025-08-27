@@ -649,7 +649,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 revision=revision,
                 force_download=force_download,
                 allow_patterns=allow_patterns,
-                ignore_patterns=["*.msgpack", "*.safetensors", "*.bin"],
+                ignore_patterns=["*.msgpack", "*.bin"],
             )
 
         new_model_save_dir = Path(model_id)
