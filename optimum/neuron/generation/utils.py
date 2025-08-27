@@ -233,9 +233,6 @@ class GeneralNeuronGenerationMixin(GenerationMixin):
         generation_config: GenerationConfig | None = None,
         **kwargs,
     ):
-        # 1. Handle `generation_config` and kwargs that might update it, and validate the `.generate()` call
-        self._validate_model_class()
-
         # priority: `generation_config` argument > `model.generation_config` (the default generation config)
         if generation_config is None:
             # legacy: users may modify the model configuration to control generation. To trigger this legacy behavior,
@@ -622,9 +619,6 @@ class NeuronGenerationMixin(GenerationMixin):
                     - [`~generation.BeamSearchEncoderDecoderOutput`],
                     - [`~generation.BeamSampleEncoderDecoderOutput`]
         """
-
-        # 1. Handle `generation_config` and kwargs that might update it, and validate the `.generate()` call
-        self._validate_model_class()
 
         # priority: `generation_config` argument > `model.generation_config` (the default generation config)
         if generation_config is None:
