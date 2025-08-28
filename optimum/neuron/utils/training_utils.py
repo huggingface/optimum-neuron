@@ -153,6 +153,7 @@ def _get_model_param_count(model: "torch.nn.Module | NxDPPModel"):
         all_param_count = reduce_param_count_over_pp_ranks(all_param_count)
         trainable_param_count = reduce_param_count_over_pp_ranks(trainable_param_count)
 
+    xm.mark_step()
     return trainable_param_count, all_param_count
 
 
@@ -181,10 +182,7 @@ def is_logging_process() -> bool:
     pp_rank = get_pipeline_model_parallel_rank()
     pp_size = get_pipeline_model_parallel_size()
 
-    can_log_loss = dp_rank == tp_rank == 0 and pp_rank == pp_size - 1
-
-    return can_log_loss
-
+    return dp_rank == tp_rank == 0 and pp_rank == pp_size - 1
 
 def is_logging_process_method(self) -> bool:
     """

@@ -53,6 +53,8 @@ from ..utils.training_utils import is_logging_process
 
 logger = logging.get_logger(__name__)
 
+log_levels = dict(**trainer_log_levels, silent=100)
+
 
 @dataclass
 class NeuronTrainingArguments:
@@ -131,30 +133,21 @@ class NeuronTrainingArguments:
     warmup_steps: int = field(default=0, metadata={"help": "Linear warmup over warmup_steps."})
 
     log_level: str = field(
-        default="passive",
+        default="info",
         metadata={
             "help": (
                 "Logger log level to use on the main node. Possible choices are the log levels as strings: 'debug',"
                 " 'info', 'warning', 'error' and 'critical', plus a 'passive' level which doesn't set anything and"
-                " lets the application set the level. Defaults to 'passive'."
+                " lets the application set the level. Defaults to 'info'."
             ),
-            "choices": trainer_log_levels.keys(),
+            "choices": log_levels.keys(),
         },
     )
     log_level_replica: str = field(
-        default="warning",
+        default="silent",
         metadata={
-            "help": "Logger log level to use on replica nodes. Same choices and defaults as ``log_level``",
-            "choices": trainer_log_levels.keys(),
-        },
-    )
-    log_on_each_node: bool = field(
-        default=True,
-        metadata={
-            "help": (
-                "When doing a multinode distributed training, whether to log once per node or just once on the main"
-                " node."
-            )
+            "help": "Logger log level to use on replica nodes. Same choices as ``log_level``. Defaults to 'silent'.",
+            "choices": log_levels.keys(),
         },
     )
     logging_dir: str | None = field(default=None, metadata={"help": "Tensorboard log dir."})
@@ -487,8 +480,7 @@ class NeuronTrainingArguments:
 
     @staticmethod
     def info(msg: str):
-        if is_logging_process():
-            logger.info(msg)
+        logger.info(msg)
 
     def __post_init__(self):
         # Set default output_dir if not provided
@@ -777,10 +769,7 @@ class NeuronTrainingArguments:
         """
         Whether or not the current process should produce log.
         """
-        if self.log_on_each_node:
-            return self.local_process_index == 0
-        else:
-            return self.process_index == 0
+        return is_logging_process()
 
     @property
     def should_save(self):
@@ -804,8 +793,8 @@ class NeuronTrainingArguments:
         """
 
         # convert to int
-        log_level = trainer_log_levels[self.log_level]
-        log_level_replica = trainer_log_levels[self.log_level_replica]
+        log_level = log_levels[self.log_level]
+        log_level_replica = log_levels[self.log_level_replica]
 
         log_level_main_node = logging.get_verbosity() if log_level == -1 else log_level
         log_level_replica_node = logging.get_verbosity() if log_level_replica == -1 else log_level_replica

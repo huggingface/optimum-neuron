@@ -141,7 +141,7 @@ from ..utils.training_utils import (
 from .training_args import NeuronTrainingArguments
 
 
-logger = logging.get_logger("transformers.trainer")
+logger = logging.get_logger()
 
 if is_datasets_available():
     import datasets
@@ -170,8 +170,8 @@ FSDP_MODEL_NAME = "pytorch_model_fsdp"
 class NeuronTrainer:
     def __init__(
         self,
-        model: PreTrainedModel | nn.Module | None = None,
-        args: TrainingArguments | None = None,
+        model: PreTrainedModel | nn.Module,
+        args: NeuronTrainingArguments,
         data_collator: DataCollator | None = None,
         train_dataset: "Dataset | IterableDataset | datasets.Dataset | None" = None,
         eval_dataset: "Dataset | dict[str, Dataset] | datasets.Dataset | None" = None,
@@ -188,7 +188,7 @@ class NeuronTrainer:
 
         if args is None:
             output_dir = "tmp_trainer"
-            self.info(f"No `TrainingArguments` passed, using `output_dir={output_dir}`.")
+            logger.info(f"No `TrainingArguments` passed, using `output_dir={output_dir}`.")
             args = NeuronTrainingArguments(output_dir=output_dir)
 
         self.args = args
@@ -273,7 +273,7 @@ class NeuronTrainer:
             raise ValueError("The `data_collator` should be a simple callable (function, class with `__call__`).")
 
         if args.max_steps > 0 and args.num_train_epochs > 0:
-            self.info("max_steps is given, it will override any value given in num_train_epochs")
+            logger.info("max_steps is given, it will override any value given in num_train_epochs")
 
         if train_dataset is not None and not has_length(train_dataset) and args.max_steps <= 0:
             raise ValueError(
@@ -300,7 +300,7 @@ class NeuronTrainer:
         )
 
         if isinstance(self.model, NeuronPeftModel) and self.args.label_names is None:
-            self.warning(
+            logger.warning(
                 f"No label_names provided for model class `{self.model.__class__.__name__}`."
                 " Since `NeuronPeftModel` hides base models input arguments, if label_names is not given, label_names "
                 "can't be set automatically within `NeuronTrainer`."
@@ -314,30 +314,10 @@ class NeuronTrainer:
 
     @property
     def tokenizer(self) -> PreTrainedTokenizerBase | None:
-        self.warning(
+        logger.warning(
             "NeuronTrainer.tokenizer is now deprecated. You should use NeuronTrainer.processing_class instead."
         )
         return self.processing_class
-
-    @staticmethod
-    def info(msg: str):
-        if is_logging_process():
-            logger.info(msg)
-
-    @staticmethod
-    def warning(msg: str):
-        if is_logging_process():
-            logger.warning(msg)
-
-    @staticmethod
-    def debug(msg: str):
-        if is_logging_process():
-            logger.debug(msg)
-
-    @staticmethod
-    def error(msg: str):
-        if is_logging_process():
-            logger.error(msg)
 
     def create_accelerator_and_postprocess(self):
         # We explicitly don't rely on the `Accelerator` to do gradient accumulation
@@ -368,7 +348,7 @@ class NeuronTrainer:
 
         non_blocking = accelerator_config.pop("non_blocking")
         if non_blocking and not self.args.dataloader_pin_memory:
-            self.warning(
+            logger.warning(
                 "`non_blocking` is enabled but `dataloader_pin_memory` is not. For the best performance, it's recommended to enable both."
             )
         dataloader_config.non_blocking = non_blocking
@@ -455,7 +435,7 @@ class NeuronTrainer:
         ignored_columns = list(set(dataset.column_names) - set(signature_columns))
         if len(ignored_columns) > 0:
             dset_description = "" if description is None else f"in the {description} set"
-            self.info(
+            logger.info(
                 f"The following columns {dset_description} don't have a corresponding argument in "
                 f"`{self.model.__class__.__name__}.forward` and have been ignored: {', '.join(ignored_columns)}."
                 f" If {', '.join(ignored_columns)} are not expected by `{self.model.__class__.__name__}.forward`, "
@@ -762,57 +742,69 @@ class NeuronTrainer:
         )
         return self.accelerator.autocast(autocast_handler=autocast_handler)
 
-    def get_training_examples_info(self, train_dataloader: DataLoader):
-        args = self.args
+    def set_initial_training_values(
+        self, args: NeuronTrainingArguments, dataloader: DataLoader, total_train_batch_size: int
+    ):
+        """
+        Calculates and returns the following values:
+        - `num_train_epochs`
+        - `num_update_steps_per_epoch`
+        - `num_examples`
+        - `num_train_samples`
+        - `epoch_based`
+        - `len_dataloader`
+        - `max_steps`
+        """
+        # Case 1: we rely on `args.max_steps` first
+        max_steps = args.max_steps
+        # If max_steps is negative, we use the number of epochs to determine the number of total steps later
+        epoch_based = max_steps < 0
+        len_dataloader = len(dataloader) if has_length(dataloader) else None
 
-        # Setting up training control variables:
-        # number of training epochs: num_train_epochs
-        # number of training steps per epoch: num_update_steps_per_epoch
-        # total number of training steps to execute: max_steps
-        total_train_batch_size = args.per_device_train_batch_size * args.gradient_accumulation_steps * args.trn_config.data_parallel_size
+        # Case 2: We have a dataloader length and can extrapolate
+        if len_dataloader is not None:
+            num_update_steps_per_epoch = max(
+                len_dataloader // args.gradient_accumulation_steps
+                + int(len_dataloader % args.gradient_accumulation_steps > 0),
+                1,
+            )
+            # Case 3: We have a length but are using epochs, we can extrapolate the number of steps
+            if epoch_based:
+                max_steps = math.ceil(args.num_train_epochs * num_update_steps_per_epoch)
 
-        len_dataloader = None
-        num_train_tokens = None
-        if has_length(train_dataloader):
-            len_dataloader = len(train_dataloader)
-            num_update_steps_per_epoch = len_dataloader // args.gradient_accumulation_steps
-            num_update_steps_per_epoch = max(num_update_steps_per_epoch, 1)
-            num_examples = self.num_examples(train_dataloader)
+        # Now we figure out `num_examples`, `num_train_epochs`, and `train_samples`
+        if len_dataloader:
+            num_examples = self.num_examples(dataloader)
             if args.max_steps > 0:
-                max_steps = args.max_steps
-                num_train_epochs = args.max_steps // num_update_steps_per_epoch + int(
-                    args.max_steps % num_update_steps_per_epoch > 0
+                num_train_epochs = max_steps // num_update_steps_per_epoch + int(
+                    max_steps % num_update_steps_per_epoch > 0
                 )
                 # May be slightly incorrect if the last batch in the training dataloader has a smaller size but it's
                 # the best we can do.
-                num_train_samples = args.max_steps * total_train_batch_size
-                if args.include_tokens_per_second:
-                    num_train_tokens = (
-                        self.num_tokens(train_dataloader, args.max_steps) * args.gradient_accumulation_steps
-                    )
+                num_train_samples = max_steps * total_train_batch_size
             else:
-                max_steps = math.ceil(args.num_train_epochs * num_update_steps_per_epoch)
                 num_train_epochs = math.ceil(args.num_train_epochs)
-                num_train_samples = self.num_examples(train_dataloader) * args.num_train_epochs
-                if args.include_tokens_per_second:
-                    num_train_tokens = self.num_tokens(train_dataloader) * args.num_train_epochs
+                num_train_samples = self.num_examples(dataloader) * args.num_train_epochs
         elif args.max_steps > 0:  # Rely on max_steps when dataloader does not have a working size
-            max_steps = args.max_steps
             # Setting a very large number of epochs so we go as many times as necessary over the iterator.
             num_train_epochs = sys.maxsize
             num_update_steps_per_epoch = max_steps
             num_examples = total_train_batch_size * args.max_steps
             num_train_samples = args.max_steps * total_train_batch_size
-            if args.include_tokens_per_second:
-                num_train_tokens = self.num_tokens(train_dataloader, args.max_steps) * args.gradient_accumulation_steps
         else:
             raise ValueError(
                 "args.max_steps must be set to a positive value if dataloader does not have a length, was"
                 f" {args.max_steps}"
             )
-
-        return num_update_steps_per_epoch, num_examples, max_steps, num_train_epochs, num_train_samples, num_train_tokens
-
+        return (
+            num_train_epochs,
+            num_update_steps_per_epoch,
+            num_examples,
+            num_train_samples,
+            epoch_based,
+            len_dataloader,
+            max_steps,
+        )
 
     def setup_training(self, train_dataloader: DataLoader, max_steps: int, num_train_epochs: int, num_examples: int, total_train_batch_size: int):
         """
@@ -846,7 +838,7 @@ class NeuronTrainer:
 
             self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
 
-        self.model = self.accelerator.prepare(self.model)
+        self.model = self.accelerator.prepare_model(self.model, full_bf16=args.bf16)
         self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
         if not isinstance(self.model, NxDPPModel):
@@ -860,19 +852,19 @@ class NeuronTrainer:
 
         # Train!
         parameter_count = get_model_param_count(self.model, trainable_only=True)
-        self.info("***** Running training *****")
-        self.info(f"  Num examples = {num_examples:,}")
-        self.info(f"  Num Epochs = {num_train_epochs:,}")
-        self.info(f"  Data Parallel Size: {args.trn_config.data_parallel_size}")
-        self.info(f"  Tensor Parallel Size: {args.trn_config.tensor_parallel_size}")
-        self.info(f"  Pipeline Parallel Size: {args.trn_config.pipeline_parallel_size}")
-        self.info(f"  Instantaneous batch size per data parallel rank = {args.per_device_train_batch_size:,}")
-        self.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
-        self.info(
-            f"Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size:,}"
+        logger.info("***** Running training *****")
+        logger.info(f"  Num examples = {num_examples:,}")
+        logger.info(f"  Num Epochs = {num_train_epochs:,}")
+        logger.info(f"  Data Parallel Size: {args.trn_config.data_parallel_size}")
+        logger.info(f"  Tensor Parallel Size: {args.trn_config.tensor_parallel_size}")
+        logger.info(f"  Pipeline Parallel Size: {args.trn_config.pipeline_parallel_size}")
+        logger.info(f"  Instantaneous batch size per data parallel rank = {args.per_device_train_batch_size:,}")
+        logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
+        logger.info(
+            f"  Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size:,}"
         )
-        self.info(f"  Total optimization steps = {max_steps:,}")
-        self.info(f"  Number of trainable parameters = {parameter_count:,}")
+        logger.info(f"  Total optimization steps = {max_steps:,}")
+        logger.info(f"  Num trainable parameters = {parameter_count:,}")
 
         self.state.epoch = 0
 
@@ -903,18 +895,18 @@ class NeuronTrainer:
 
     def train_step(self, model: nn.Module, inputs: dict[str, Any]) -> torch.Tensor:
         manager = self.autocast_smart_context_manager()
+        pp_size = self.trn_config.pipeline_parallel_size
 
         # We need to move the inputs to the device only if we are not using pipeline parallelism because the
         # NxDPPModel class handles the device placement of the inputs.
-        if self.args.pp_size == 1:
+        if pp_size == 1:
             inputs = tree_map(lambda t: t.to(xm.xla_device()) if isinstance(t, torch.Tensor) else t, inputs)
 
         if isinstance(model, NxDPPModel):
             with manager:
                 loss = model.run_train(**inputs)
             if self.args.pp_rank != self.args.pp_size - 1:
-                use_bf16 = self.accelerator.state.mixed_precision == "bf16"
-                dtype = torch.bfloat16 if use_bf16 else torch.float32
+                dtype = torch.bfloat16 if self.args.bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
 
                 if num_items_in_batch is None:
@@ -1027,19 +1019,22 @@ class NeuronTrainer:
         # Data loader and number of training steps
         train_dataloader = self.get_train_dataloader()
 
-        num_update_steps_per_epoch, num_examples, max_steps, num_train_epochs, num_train_samples, num_train_tokens = self.get_training_examples_info(train_dataloader)
-        total_train_batch_size = self.args.per_device_train_batch_size * args.gradient_accumulation_steps
+        total_train_batch_size = self.args.train_batch_size * args.gradient_accumulation_steps
+        (
+            num_train_epochs,
+            num_update_steps_per_epoch,
+            num_examples,
+            num_train_samples,
+            epoch_based,
+            len_dataloader,
+            max_steps,
+        ) = self.set_initial_training_values(args, train_dataloader, total_train_batch_size)
 
         self.setup_training(train_dataloader, max_steps, num_train_epochs, num_examples, total_train_batch_size)
 
         for epoch in range(num_train_epochs):
-            epoch_dataloader = train_dataloader
-
-            if hasattr(epoch_dataloader, "set_epoch"):
-                epoch_dataloader.set_epoch(epoch)
-
             steps_in_epoch = (
-                len(epoch_dataloader)
+                len_dataloader 
                 if len_dataloader is not None
                 else args.max_steps * args.gradient_accumulation_steps
             )
@@ -1047,10 +1042,9 @@ class NeuronTrainer:
             self.control = self.callback_handler.on_epoch_begin(args, self.state, self.control)
 
             step = -1
-            epoch_iterator = iter(epoch_dataloader)
+            epoch_iterator = iter(train_dataloader)
 
             for step, inputs in enumerate(epoch_iterator):
-                xm.mark_step()
                 do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (
                     step + 1
                 ) == steps_in_epoch  # Since we perform prefetching, we need to manually set sync_gradients
@@ -1059,6 +1053,9 @@ class NeuronTrainer:
                     self.accelerator.gradient_state.sync_gradients = False
                 else:
                     self.accelerator.gradient_state.sync_gradients = True
+
+                print(step, inputs)
+                continue
 
                 # TODO: should we support this?
                 # if self.args.include_num_input_tokens_seen:
@@ -1130,7 +1127,7 @@ class NeuronTrainer:
                 break
 
             if step < 0:
-                self.warning(
+                logger.warning(
                     "There seems to be not a single sample in your epoch_iterator, stopping training at step"
                     f" {self.state.global_step}! This is expected if you're using an IterableDataset and set"
                     f" num_steps ({max_steps}) higher than the number of available samples."
@@ -1140,7 +1137,7 @@ class NeuronTrainer:
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
             xm.mark_step()
 
-        self.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
+        logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
         self.control = self.callback_handler.on_train_end(args, self.state, self.control)
 
     def is_local_process_zero(self) -> bool:

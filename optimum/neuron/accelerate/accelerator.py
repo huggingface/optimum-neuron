@@ -294,6 +294,7 @@ class NeuronAccelerator(Accelerator):
         model: torch.nn.Module, 
         device_placement: bool | None = None, 
         evaluation_mode: bool = False,
+        full_bf16: bool = False,
     ):
         # If the model was already prepared, we skip.
         if model in self._models:
@@ -336,6 +337,8 @@ class NeuronAccelerator(Accelerator):
 
             if should_apply_activation_checkpointing:
                 apply_activation_checkpointing(model)
+            if full_bf16:
+                model = model.to(torch.bfloat16)
             move_model_to_device(model, xm.xla_device())
             model.tie_weights()
             device_placement = False
