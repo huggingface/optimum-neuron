@@ -26,6 +26,7 @@ jobs:
         config: [
           llama,
           qwen,
+          qwen-moe,
           qwen2.5,
           granite,
           phi4,
