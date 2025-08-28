@@ -907,7 +907,7 @@ class NeuronTrainer:
         self.loss = torch.tensor(0.0).to(dtype).to(xm.xla_device())
         self.grad_norm = None
 
-    def train_step(self, model: nn.Module, inputs: dict[str, Any], num_items_in_batch: int | None) -> torch.Tensor:
+    def train_step(self, model: nn.Module, inputs: dict[str, Any]) -> torch.Tensor:
         manager = self.autocast_smart_context_manager()
         pp_size = self.trn_config.pipeline_parallel_size
 
@@ -926,14 +926,8 @@ class NeuronTrainer:
                 dtype = torch.bfloat16 if self.args.bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
 
-                if num_items_in_batch is None:
-                    loss = loss / self.args.gradient_accumulation_steps
-        else:
-            if self.model_accepts_loss_kwargs:
-                loss_kwargs = {}
-                if num_items_in_batch is not None:
-                    loss_kwargs["num_items_in_batch"] = num_items_in_batch
-                inputs = {**inputs, **loss_kwargs}
+            if self.model_accepts_loss_kwargs and "labels" in inputs:
+                inputs = dict(**inputs, reduction="sum")
 
             with manager:
                 outputs = model(**inputs)
@@ -945,7 +939,6 @@ class NeuronTrainer:
                 )
             # We don't use .loss here since the model may return tuples instead of ModelOutput.
             loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
-
             return loss
 
     def _get_last_learning_rate(self):
@@ -1048,7 +1041,7 @@ class NeuronTrainer:
             step = -1
             epoch_iterator = iter(train_dataloader)
 
-            # The total number of items in the current batch (including gradient accumulation steps)
+            num_items_in_batch = 0
             num_items_in_batch_acc = 0
 
             for step, inputs in enumerate(epoch_iterator):
@@ -1087,9 +1080,17 @@ class NeuronTrainer:
                 else:
                     num_items_in_batch = None
 
-                loss_step = self.train_step(self.model, inputs, num_items_in_batch)
+                loss_step = self.train_step(self.model, inputs)
+
+                # If we can compute the number of items in the batch, we use it to normalize the loss.
+                # Otherwise, we divide by gradient_accumulation_steps.
                 if num_items_in_batch is None:
+                    # Here the loss reduction is "sum" so we need to normalize by the number of items in the batch.
                     loss_step = loss_step / num_items_in_batch
+                else:
+                    # In this case loss reduction is "mean" so we just need to devide by gradient_accumulation_steps.
+                    loss_step = loss_step / self.args.gradient_accumulation_steps
+
                 self.loss += loss_step
 
                 if do_sync_step:

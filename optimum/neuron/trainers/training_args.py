@@ -596,11 +596,6 @@ class NeuronTrainingArguments:
                 " when --dataloader_num_workers > 1."
             )
 
-        if self.include_inputs_for_metrics:
-            logger.warning(
-                "Using `include_inputs_for_metrics` is deprecated and will be removed in version 5 of 🤗 Transformers. Please use `include_for_metrics` list argument instead."
-            )
-            self.include_for_metrics.append("inputs")
         if self.do_eval:
             raise RuntimeError("Evaluation is not supported yet.")
 
