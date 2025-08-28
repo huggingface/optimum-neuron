@@ -1,0 +1,45 @@
+name: Optimum neuron / Test INF2 inference & pipelines
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "pyproject.toml"
+      - "optimum/**.py"
+      - ".github/workflows/test_inf2_inference.yml"
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "pyproject.toml"
+      - "optimum/**.py"
+      - ".github/workflows/test_inf2_inference.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  do-the-job:
+    name: Run INF2 tests
+    runs-on:
+      group: aws-inf2-8xlarge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Neuronx runtime
+        uses: ./.github/actions/install_neuronx_runtime
+      - name: Install cv2 dependencies
+        run: |
+          sudo apt-get install ffmpeg libsm6 libxext6  -y
+      - name: Prepare virtual environment
+        uses: ./.github/actions/prepare_venv
+      - name: Install optimum-neuron
+        uses: ./.github/actions/install_optimum_neuron
+      - name: Run diffusers inference tests - w/. nxd
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/inference/diffusers --forked -q
+      - name: Run diffusers inference tests - w/o nxd
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/inference/diffusers --ignore=tests/inference/diffusers/test_flux.py
