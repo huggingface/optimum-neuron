@@ -75,7 +75,6 @@ class NxDNeuronConfig(NeuronConfig):
         is_chunked_prefill: bool | None = False,
         flash_decoding_enabled: bool | None = False,
         async_mode: bool | None = False,
-        qk_layernorm: bool | None = False,
         attn_kernel_enabled: bool | None = False,
         qkv_kernel_enabled: bool | None = False,
         mlp_kernel_enabled: bool | None = False,
@@ -103,10 +102,6 @@ class NxDNeuronConfig(NeuronConfig):
             raise ValueError("`qkv_kernel_enabled` and `mlp_kernel_enabled` are not supported for trn1 chips.")
         if vocab_parallel:
             raise ValueError("`vocab_parallel` is not supported in optimum-neuron.")
-        if qk_layernorm:
-            raise ValueError(
-                "`qk_layernorm` is not supported in optimum-neuron. It is actually a modeling flag that affects the attention layer."
-            )
         # Required to retrieve a checkpoint from the hub
         self.checkpoint_id = checkpoint_id
         self.checkpoint_revision = checkpoint_revision
@@ -166,9 +161,6 @@ class NxDNeuronConfig(NeuronConfig):
         # Distributed config
         self.pp_degree = pp_degree
         self.ep_degree = ep_degree
-
-        # QK layer normalization
-        self.qk_layernorm = qk_layernorm
 
         # Multi-node
         # TODO: Check if start_rank_id can be modified dynamically at runtime
