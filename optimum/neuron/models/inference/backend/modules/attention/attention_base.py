@@ -103,7 +103,6 @@ class NeuronAttentionBase(nn.Module):
         self.rope_theta = config.rope_theta
         self.padding_side = neuron_config.padding_side
         self.torch_dtype = neuron_config.torch_dtype
-        self.qk_layernorm = neuron_config.qk_layernorm
         self.flash_decoding_enabled = neuron_config.flash_decoding_enabled
         self.num_cores_per_group = neuron_config.num_cores_per_group
         self.rpl_reduce_dtype = neuron_config.rpl_reduce_dtype
@@ -154,8 +153,10 @@ class NeuronAttentionBase(nn.Module):
         self.num_heads = utils.divide(self.qkv_proj.get_num_attention_heads(), self.tp_degree)
         self.num_key_value_heads = utils.divide(self.qkv_proj.get_num_key_value_heads(), self.tp_degree)
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
-        self.q_layernorm = nn.LayerNorm(self.head_dim) if self.qk_layernorm else None
-        self.k_layernorm = nn.LayerNorm(self.head_dim) if self.qk_layernorm else None
+        # By default we do not use layernorm in q and k projection
+        # This can be changed in the subclass if needed: maybe make it a parameter?
+        self.q_layernorm = None
+        self.k_layernorm = None
         self.attn_kernel_enabled = neuron_config.attn_kernel_enabled
         self.logical_nc_config = neuron_config.logical_nc_config
 
