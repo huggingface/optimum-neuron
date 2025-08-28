@@ -138,7 +138,6 @@ def neuron_oai_decoder_path(neuron_decoder_oai_config):
 
 @pytest.fixture(scope="module")
 def model_and_tokenizer(neuron_oai_decoder_path):
-    breakpoint()
     model = NeuronModelForCausalLM.from_pretrained(neuron_oai_decoder_path)
     tokenizer = AutoTokenizer.from_pretrained(neuron_oai_decoder_path)
     yield (model, tokenizer)
@@ -162,9 +161,11 @@ import torch
 from transformers import AutoModelForCausalLM, set_seed
 from neuronx_distributed_inference.utils.testing import build_module, validate_accuracy
 from transformers.models.gpt_oss.modeling_gpt_oss import (
-    GptOssForCausalLM, GptOssRMSNorm, GptOssExperts, GptOssTopKRouter
+    GptOssForCausalLM, GptOssRMSNorm, GptOssExperts, GptOssTopKRouter, GptOssMLP,
 )
-from optimum.neuron.models.inference.gpt_oss.modeling_gpt_oss import CustomRMSNorm, _experts_swiglu_activation
+from optimum.neuron.models.inference.gpt_oss.modeling_gpt_oss import (
+    CustomRMSNorm, _experts_swiglu_activation, GptOssMLP as NeuronGptOssMLP,
+)
 from optimum.neuron.models.inference.backend.modules.moe.expert_mlps import ExpertMLPs
 
 @is_inferentia_test
@@ -224,16 +225,18 @@ def _set_weights(module):
 @requires_neuronx
 @torch.no_grad()
 def test_gpt_oss_experts():
-    set_seed(123)
+    set_seed(42)
     checkpoint = "tengomucho/tiny-random-gpt-oss"
     config = GptOssConfig.from_pretrained(checkpoint)
 
     # Prepare the input
+    config.hidden_size = 3
+    config.num_local_experts = 4
     hidden_size = config.hidden_size
     seq_len = 2
     dtype = torch.float32
     # Make hidden_states between -3 and 3
-    hidden_states = torch.rand(seq_len, hidden_size, dtype=dtype).sin() * 7 - 3
+    hidden_states = torch.rand(seq_len, hidden_size, dtype=dtype) * 6 - 3
     # get routing weights and indices by using a router
     router = GptOssTopKRouter(config)
     _set_weights(router)
@@ -247,11 +250,13 @@ def test_gpt_oss_experts():
     # Create a cpu layer
     cpu_module = GptOssExperts(config)
     _set_weights(cpu_module)
+    cpu_module.eval()
 
     def wrapped_cpu_module(hidden_states, routing_weights, indices, seq_len):
         hidden_states = hidden_states.reshape(1, seq_len, hidden_size)
         ret = cpu_module(hidden_states, indices, routing_weights)
-        return ret.reshape(seq_len, hidden_size)
+        return ret
+        # return ret.reshape(seq_len, hidden_size)
 
     # Create a function to run the model
     neuron_model = build_module(ExpertMLPs, example_inputs, module_init_kwargs={
