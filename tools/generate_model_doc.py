@@ -64,7 +64,6 @@ asr_pipeline = pipeline(
 
 # Example usage
 result = asr_pipeline("https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/mlk.flac")
-print(result)
 ```""",
     "feature-extraction": """```python
 from transformers import AutoTokenizer
@@ -78,7 +77,6 @@ feature_pipeline = pipeline("feature-extraction", model=neuron_model, tokenizer=
 # Example usage
 text = "Hugging Face makes working with Transformers easy!"
 outputs = feature_pipeline(text)
-print(outputs)
 ```""",
     "text-classification": """```python
 from transformers import AutoTokenizer
@@ -92,7 +90,6 @@ classifier_pipeline = pipeline("text-classification", model=neuron_model, tokeni
 # Example usage
 text = "Hugging Face makes working with Transformers easy!"
 outputs = classifier_pipeline(text)
-print(outputs)
 ```""",
     "token-classification": """```python
 from transformers import AutoTokenizer
@@ -106,7 +103,6 @@ ner_pipeline = pipeline("token-classification", model=neuron_model, tokenizer=to
 # Example usage
 text = "Hugging Face is based in New York City."
 outputs = ner_pipeline(text)
-print(outputs)
 ```""",
     "question-answering": """```python
 from transformers import AutoTokenizer
@@ -126,7 +122,6 @@ context = (
 )
 
 output = qa_pipeline(question=question, context=context)
-print(output)
 ```""",
     "fill-mask": """```python
 from transformers import AutoTokenizer
@@ -144,7 +139,18 @@ mask_token_index = (inputs.input_ids == tokenizer.mask_token_id)[0].nonzero(as_t
 predicted_token_id = logits[0, mask_token_index].argmax(axis=-1)
 
 result = tokenizer.decode(predicted_token_id)
-print(result)
+```""",
+    "text-generation": """```python
+from transformers import AutoTokenizer, pipeline
+from optimum.neuron import {model_class}
+
+tokenizer = AutoTokenizer.from_pretrained("{output_dir}")
+model = {model_class}.from_pretrained("{output_dir}")
+
+pipeline = pipeline("text-generation", model=model, tokenizer=tokenizer)
+
+text = "Once upon a time, there was a"
+outputs = pipeline(text, max_new_tokens=100)
 ```""",
 }
 
