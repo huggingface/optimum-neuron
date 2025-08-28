@@ -71,7 +71,7 @@ from optimum.neuron.utils import NEURON_FILE_NAME, is_neuron_available, is_neuro
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import CONFIG_NAME, logging
 
-from .inference_utils import (
+from ..inference_utils import (
     MODEL_NAMES,
     SEED,
     SENTENCE_TRANSFORMERS_MODEL_NAMES,
