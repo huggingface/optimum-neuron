@@ -46,6 +46,114 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->"""
 
+# Pipeline usage templates for different tasks
+PIPELINE_TEMPLATES = {
+
+    "automatic-speech-recognition": """```python
+from transformers import AutoProcessor
+from optimum.neuron import {model_class}, pipeline
+
+processor = AutoProcessor.from_pretrained("{output_dir}")
+neuron_model = {model_class}.from_pretrained("{output_dir}")
+
+asr_pipeline = pipeline(
+    task="automatic-speech-recognition",
+    model=neuron_model,
+    tokenizer=processor.tokenizer,
+    feature_extractor=processor.feature_extractor,
+)
+
+# Example usage
+result = asr_pipeline("https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/mlk.flac")
+print(result)
+```""",
+
+    "feature-extraction": """```python
+from transformers import AutoTokenizer
+from optimum.neuron import {model_class}, pipeline
+
+tokenizer = AutoTokenizer.from_pretrained("{output_dir}")
+neuron_model = {model_class}.from_pretrained("{output_dir}")
+
+feature_pipeline = pipeline("feature-extraction", model=neuron_model, tokenizer=tokenizer)
+
+# Example usage
+text = "Hugging Face makes working with Transformers easy!"
+outputs = feature_pipeline(text)
+print(outputs)
+```""",
+
+    "text-classification": """```python
+from transformers import AutoTokenizer
+from optimum.neuron import {model_class}, pipeline
+
+tokenizer = AutoTokenizer.from_pretrained("{output_dir}")
+neuron_model = {model_class}.from_pretrained("{output_dir}")
+
+classifier_pipeline = pipeline("text-classification", model=neuron_model, tokenizer=tokenizer)
+
+# Example usage
+text = "Hugging Face makes working with Transformers easy!"
+outputs = classifier_pipeline(text)
+print(outputs)
+```""",
+
+    "token-classification": """```python
+from transformers import AutoTokenizer
+from optimum.neuron import {model_class}, pipeline
+
+tokenizer = AutoTokenizer.from_pretrained("{output_dir}")
+neuron_model = {model_class}.from_pretrained("{output_dir}")
+
+ner_pipeline = pipeline("token-classification", model=neuron_model, tokenizer=tokenizer)
+
+# Example usage
+text = "Hugging Face is based in New York City."
+outputs = ner_pipeline(text)
+print(outputs)
+```""",
+
+    "question-answering": """```python
+from transformers import AutoTokenizer
+from optimum.neuron import {model_class}, pipeline
+
+tokenizer = AutoTokenizer.from_pretrained("{output_dir}")
+neuron_model = {model_class}.from_pretrained("{output_dir}")
+
+qa_pipeline = pipeline("question-answering", model=neuron_model, tokenizer=tokenizer)
+
+# Example usage
+question = "What is the capital of France?"
+context = (
+    "France, in Western Europe, is known for its medieval cities, alpine villages "
+    "and Mediterranean beaches. Paris, its capital, is famed for its fashion houses, "
+    "classical art museums including the Louvre and monuments like the Eiffel Tower."
+)
+
+output = qa_pipeline(question=question, context=context)
+print(output)
+```""",
+
+    "fill-mask": """```python
+from transformers import AutoTokenizer
+from optimum.neuron import {model_class}
+
+tokenizer = AutoTokenizer.from_pretrained("{output_dir}")
+neuron_model = {model_class}.from_pretrained("{output_dir}")
+
+# Example usage
+text = "The capital of France is [MASK]."
+inputs = tokenizer(text, return_tensors="pt")
+logits = neuron_model(**inputs)
+
+mask_token_index = (inputs.input_ids == tokenizer.mask_token_id)[0].nonzero(as_tuple=True)[0]
+predicted_token_id = logits[0, mask_token_index].argmax(axis=-1)
+
+result = tokenizer.decode(predicted_token_id)
+print(result)
+```""",
+}
+
 EXPORT_TEMPLATE = """## Export to Neuron
 
 To deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you first need to compile the models and export them to a serialized format for inference. Below are two approaches to compile the model, you can choose the one that best suits your needs. Here we take the `{task}` as an example:
@@ -82,7 +190,19 @@ neuron_model.save_pretrained("{output_dir}")
 neuron_model.push_to_hub(
     "{output_dir}", repository_id="my-neuron-repo"  # Replace with your HF Hub repo id
 )
-```"""
+```
+
+## Usage Example
+
+To use the model that we just exported, there are two options. We can eithe use the {model_class} class or use the `Pipeline`. 
+
+### With {model_class}
+
+### With Pipeline
+
+{pipeline_template}
+
+"""
 
 
 def clean_overview_text(text: str) -> str:
@@ -218,6 +338,13 @@ def infer_task_for_model(model_id: str) -> str:
         task = "unknown"
     return task
 
+def get_pipeline_template(task: str, model_class: str, output_dir: str) -> str:
+    """Get the pipeline usage template for a specific task with formatted variables."""
+    template = PIPELINE_TEMPLATES.get(task, "")
+    if template:
+        return template.format(model_class=model_class, output_dir=output_dir)
+    return f"# No pipeline template available for task: {task}"
+
 
 def get_model_task(model_dir: Path, model_id: str) -> str:
     """Get supported task by using the model type and TasksManager"""
@@ -227,7 +354,7 @@ def get_model_task(model_dir: Path, model_id: str) -> str:
     task = infer_task_for_model(model_id)
 
     if task == "unknown":
-        logger.info("No task found through TasksManager, trying to infer from class names")
+        logger.info("No task found through TasksManager")
         task = "feature-extraction"  # Default fallback task
 
     logger.info(f"Final task for {model_dir.name}: {task}")
@@ -359,6 +486,7 @@ def generate_model_doc(
             output_dir=f"{model_name}_{task.replace('-', '_')}_neuronx",
             extra_shapes=extra_shapes,
             cli_args=cli_args,
+            pipeline_template=get_pipeline_template(task, model_class, f"{model_name}_{task.replace('-', '_')}_neuronx"),
         ),
     ]
 
