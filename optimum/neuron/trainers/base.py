@@ -194,6 +194,12 @@ class NeuronTrainer:
         self.args = args
         self.trn_config = self.args.trn_config
 
+        # Distributed training useful attributes
+        self.dp_size = self.trn_config.data_parallel_size
+        self.tp_size = self.trn_config.tensor_parallel_size
+        self.pp_size = self.trn_config.pipeline_parallel_size
+        self.pp_rank = get_pipeline_model_parallel_rank()
+
         self.compute_loss_func = compute_loss_func
 
         # Set the correct log level depending on the node
@@ -230,6 +236,21 @@ class NeuronTrainer:
         self.eval_dataset = eval_dataset
         self.processing_class = processing_class
 
+        model_forward = (
+            model.forward
+            if not isinstance(model, NeuronPeftModel)
+            else model.get_base_model().forward
+        )
+        forward_params = inspect.signature(model_forward).parameters
+
+        # Check if the model has explicit setup for loss kwargs,
+        # if not, check if `**kwargs` are in model.forward
+        if hasattr(model, "accepts_loss_kwargs"):
+            self.model_accepts_loss_kwargs = model.accepts_loss_kwargs
+        else:
+            self.model_accepts_loss_kwargs = any(
+                k.kind == inspect.Parameter.VAR_KEYWORD for k in forward_params.values()
+            )
 
         self.compute_metrics = compute_metrics
         self.optimizer, self.lr_scheduler = optimizers
@@ -345,13 +366,6 @@ class NeuronTrainer:
             even_batches=accelerator_config.pop("even_batches"),
             use_seedable_sampler=accelerator_config.pop("use_seedable_sampler"),
         )
-
-        non_blocking = accelerator_config.pop("non_blocking")
-        if non_blocking and not self.args.dataloader_pin_memory:
-            logger.warning(
-                "`non_blocking` is enabled but `dataloader_pin_memory` is not. For the best performance, it's recommended to enable both."
-            )
-        dataloader_config.non_blocking = non_blocking
 
         args = {
             "deepspeed_plugin": None, # We don't use deepspeed plugin in NeuronTrainer
@@ -503,8 +517,8 @@ class NeuronTrainer:
             "batch_size": batch_size,
             "collate_fn": data_collator,
             "num_workers": self.args.dataloader_num_workers,
-            "pin_memory": self.args.dataloader_pin_memory,
-            "persistent_workers": self.args.dataloader_persistent_workers,
+            "pin_memory": False,
+            "persistent_workers": False,
         }
 
         if not isinstance(dataset, torch.utils.data.IterableDataset):
@@ -887,13 +901,11 @@ class NeuronTrainer:
         self.optimizer.zero_grad()
         self.control = self.callback_handler.on_train_begin(args, self.state, self.control)
 
-        self.loss = torch.tensor(0.0).to(xm.xla_device())
+        dtype = torch.bfloat16 if args.bf16 else torch.float32
+        self.loss = torch.tensor(0.0).to(dtype).to(xm.xla_device())
         self.grad_norm = None
 
-        # Mark step before training to materialize any tensor before creating the training graph.
-        xm.mark_step()
-
-    def train_step(self, model: nn.Module, inputs: dict[str, Any]) -> torch.Tensor:
+    def train_step(self, model: nn.Module, inputs: dict[str, Any], num_items_in_batch: int | None) -> torch.Tensor:
         manager = self.autocast_smart_context_manager()
         pp_size = self.trn_config.pipeline_parallel_size
 
@@ -905,7 +917,7 @@ class NeuronTrainer:
         if isinstance(model, NxDPPModel):
             with manager:
                 loss = model.run_train(**inputs)
-            if self.args.pp_rank != self.args.pp_size - 1:
+            if self.pp_rank != self.pp_size - 1:
                 dtype = torch.bfloat16 if self.args.bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
 
@@ -1054,9 +1066,6 @@ class NeuronTrainer:
                 else:
                     self.accelerator.gradient_state.sync_gradients = True
 
-                print(step, inputs)
-                continue
-
                 # TODO: should we support this?
                 # if self.args.include_num_input_tokens_seen:
                 #     main_input_name = getattr(self.model, "main_input_name", "input_ids")
@@ -1076,7 +1085,10 @@ class NeuronTrainer:
                 if step % args.gradient_accumulation_steps == 0:
                     self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
-                loss_step = self.train_step(self.model, inputs)
+
+                num_items_in_batch = self.get_num_items_in_batch(inputs)
+
+                loss_step = self.train_step(self.model, inputs, num_items_in_batch)
                 self.loss += loss_step
 
                 if do_sync_step:

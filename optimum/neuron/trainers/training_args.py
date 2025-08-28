@@ -301,15 +301,6 @@ class NeuronTrainingArguments:
     report_to: None | str | list[str] = field(
         default=None, metadata={"help": "The list of integrations to report the results and logs to."}
     )
-    dataloader_pin_memory: bool = field(
-        default=True, metadata={"help": "Whether or not to pin memory for DataLoader."}
-    )
-    dataloader_persistent_workers: bool = field(
-        default=False,
-        metadata={
-            "help": "If True, the data loader will not shut down the worker processes after a dataset has been consumed once. This allows to maintain the workers Dataset instances alive. Can potentially speed up training, but will increase RAM usage."
-        },
-    )
     skip_memory_metrics: bool = field(
         default=True, metadata={"help": "Whether or not to skip adding of memory profiler reports to metrics."}
     )
