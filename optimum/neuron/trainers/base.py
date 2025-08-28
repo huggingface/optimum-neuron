@@ -513,6 +513,8 @@ class NeuronTrainer:
         else:
             data_collator = self._get_collator_with_removed_columns(self.data_collator, description=description)
 
+
+        print("data_collator", data_collator)
         dataloader_params = {
             "batch_size": batch_size,
             "collate_fn": data_collator,
@@ -917,6 +919,9 @@ class NeuronTrainer:
         if isinstance(model, NxDPPModel):
             with manager:
                 loss = model.run_train(**inputs)
+
+            # When using pipeline parallelism, the loss is only computed on the last stage.
+            # So we set the loss to zero on other stages.
             if self.pp_rank != self.pp_size - 1:
                 dtype = torch.bfloat16 if self.args.bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
@@ -924,10 +929,6 @@ class NeuronTrainer:
                 if num_items_in_batch is None:
                     loss = loss / self.args.gradient_accumulation_steps
         else:
-            if (self.label_smoother is not None or self.compute_loss_func is not None) and "labels" in inputs:
-                labels = inputs.pop("labels")
-            else:
-                labels = None
             if self.model_accepts_loss_kwargs:
                 loss_kwargs = {}
                 if num_items_in_batch is not None:
@@ -937,35 +938,26 @@ class NeuronTrainer:
             with manager:
                 outputs = model(**inputs)
 
-            if labels is not None:
-                if isinstance(model, NeuronPeftModel):
-                    model_name = model.base_model.model._get_name()
-                else:
-                    model_name = model._get_name()
-                # User-defined compute_loss function
-                if self.compute_loss_func is not None:
-                    loss = self.compute_loss_func(outputs, labels, num_items_in_batch=num_items_in_batch)
-                elif model_name in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES.values():
-                    loss = self.label_smoother(outputs, labels, shift_labels=True)
-                else:
-                    loss = self.label_smoother(outputs, labels)
-            else:
-                if isinstance(outputs, dict) and "loss" not in outputs:
-                    raise ValueError(
-                        "The model did not return a loss from the inputs, only the following keys: "
-                        f"{','.join(outputs.keys())}. For reference, the inputs it received are {','.join(inputs.keys())}."
-                    )
-                # We don't use .loss here since the model may return tuples instead of ModelOutput.
-                loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
-
-            if (
-                self.args.average_tokens_across_devices
-                and (self.model_accepts_loss_kwargs or self.compute_loss_func)
-                and num_items_in_batch is not None
-            ):
-                loss *= self.accelerator.num_processes
+            if isinstance(outputs, dict) and "loss" not in outputs:
+                raise ValueError(
+                    "The model did not return a loss from the inputs, only the following keys: "
+                    f"{','.join(outputs.keys())}. For reference, the inputs it received are {','.join(inputs.keys())}."
+                )
+            # We don't use .loss here since the model may return tuples instead of ModelOutput.
+            loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
 
             return loss
+
+    def _get_last_learning_rate(self):
+        if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            last_lr = self.optimizer.param_groups[0]["lr"]
+        else:
+            last_lr = self.lr_scheduler.get_last_lr()[0]
+
+        if isinstance(last_lr, torch.Tensor):
+            last_lr = last_lr.item()
+
+        return last_lr
 
     def maybe_log_train_step_metrics(self):
         if self.global_step_last_logged >= self.state.global_step:
@@ -991,7 +983,7 @@ class NeuronTrainer:
                     logs["loss"] = round(
                         tr_loss_scalar / (self.state.global_step - self.global_step_last_logged), 4
                     )
-                    logs["learning_rate"] = self._get_learning_rate()
+                    logs["learning_rate"] = self._get_last_learning_rate()
 
                     if grad_norm is not None:
                         logs["grad_norm"] = (
@@ -1056,39 +1048,48 @@ class NeuronTrainer:
             step = -1
             epoch_iterator = iter(train_dataloader)
 
+            # The total number of items in the current batch (including gradient accumulation steps)
+            num_items_in_batch_acc = 0
+
             for step, inputs in enumerate(epoch_iterator):
                 do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (
                     step + 1
                 ) == steps_in_epoch  # Since we perform prefetching, we need to manually set sync_gradients
+
+                for name in inputs:
+                    inputs[name] = inputs[name].squeeze(0)
+
+                if self.model_accepts_loss_kwargs and "labels" in inputs:
+                    num_items_in_current_batch = inputs["labels"].ne(-100).sum()
+                    num_items_in_batch_acc += num_items_in_current_batch
 
                 if not do_sync_step:
                     self.accelerator.gradient_state.sync_gradients = False
                 else:
                     self.accelerator.gradient_state.sync_gradients = True
 
-                # TODO: should we support this?
-                # if self.args.include_num_input_tokens_seen:
-                #     main_input_name = getattr(self.model, "main_input_name", "input_ids")
-                #     if main_input_name not in inputs:
-                #         logger.warning(
-                #  ii           "Tried to track the number of tokens seen, however the current model is "
-                #             "not configured properly to know what item is the input. To fix this, add "
-                #             "a `main_input_name` attribute to the model class you are using."
-                #         )
-                #     else:
-                #         input_tokens = inputs[main_input_name].numel()
-                #         input_tokens = torch.tensor(input_tokens, device=self.args.device, dtype=torch.int64)
-                #         self.state.num_input_tokens_seen += (
-                #             self.accelerator.gather(input_tokens).sum().cpu().item()
-                #         )
+                # TODO: when implementing metrics, save this information.
+                main_input_name = getattr(self.model, "main_input_name", "input_ids")
+                if main_input_name in inputs:
+                    input_tokens = inputs[main_input_name].numel()
+                    input_tokens = torch.tensor(input_tokens, device=self.args.device, dtype=torch.int64)
 
                 if step % args.gradient_accumulation_steps == 0:
                     self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
-
-                num_items_in_batch = self.get_num_items_in_batch(inputs)
+                # We accumulate the number of items in the batch over gradient accumulation steps.
+                if self.model_accepts_loss_kwargs and "labels" in inputs:
+                    if do_sync_step:
+                        num_items_in_batch = num_items_in_batch_acc 
+                        num_items_in_batch_acc = 0
+                    else:
+                        num_items_in_batch = 1
+                else:
+                    num_items_in_batch = None
 
                 loss_step = self.train_step(self.model, inputs, num_items_in_batch)
+                if num_items_in_batch is None:
+                    loss_step = loss_step / num_items_in_batch
                 self.loss += loss_step
 
                 if do_sync_step:
@@ -1167,6 +1168,9 @@ class NeuronTrainer:
         # Special case for SageMaker ModelParallel since there process_index is dp_process_index, not the global
         # process index.
         return self.args.process_index == 0
+
+    def log(self, content: dict):
+        print("log", content)
 
 class _TrainerForNeuron:
     def __init__(

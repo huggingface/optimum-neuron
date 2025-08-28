@@ -341,39 +341,6 @@ class NeuronTrainingArguments:
             "help": "Gradient checkpointing key word arguments such as `use_reentrant`. Will be passed to `torch.utils.checkpoint.checkpoint` through `model.gradient_checkpointing_enable`."
         },
     )
-    include_inputs_for_metrics: bool = field(
-        default=False,
-        metadata={
-            "help": "This argument is deprecated and will be removed in version 5 of 🤗 Transformers. Use `include_for_metrics` instead."
-        },
-    )
-    include_for_metrics: list[str] = field(
-        default_factory=list,
-        metadata={
-            "help": "List of strings to specify additional data to include in the `compute_metrics` function."
-            "Options: 'inputs', 'loss'."
-        },
-    )
-    eval_do_concat_batches: bool = field(
-        default=True,
-        metadata={
-            "help": "Whether to recursively concat inputs/losses/labels/predictions across batches. If `False`, will instead store them as lists, with each batch kept separate."
-        },
-    )
-
-    include_tokens_per_second: bool | None = field(
-        default=False,
-        metadata={"help": "If set to `True`, the speed metrics will include `tgs` (tokens per second per device)."},
-    )
-
-    include_num_input_tokens_seen: bool | None = field(
-        default=False,
-        metadata={
-            "help": "If set to `True`, will track the number of input tokens seen throughout training. (May be slower in distributed training)"
-        },
-    )
-
-
 
     use_liger_kernel: bool | None = field(
         default=False,
