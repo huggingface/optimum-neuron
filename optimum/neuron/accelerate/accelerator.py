@@ -53,12 +53,11 @@ from ..utils import (
     patch_within_function,
 )
 from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
-from ..utils.training_utils import is_custom_modeling_model
+from ..utils.training_utils import is_custom_modeling_model, is_logging_process
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
 from .utils import (
-    AutocastBackend,
     NeuronDistributedType,
     patch_accelerate_is_torch_xla_available,
 )
@@ -78,7 +77,6 @@ class NeuronAccelerator(Accelerator):
         *args,
         trn_config: TrainingNeuronConfig | None = None,
         zero_1: bool = False,
-        autocast_backend: str | AutocastBackend = "xla",
         **kwargs,
     ):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
@@ -139,29 +137,16 @@ class NeuronAccelerator(Accelerator):
         full_kwargs["gradient_accumulation_plugin"] = gradient_accumulation_plugin
         full_kwargs["gradient_accumulation_steps"] = gradient_accumulation_steps
 
-        if not isinstance(autocast_backend, AutocastBackend):
-            autocast_backend = AutocastBackend(autocast_backend)
-
-        # TODO: remove this, it should already be patched.
-        # The original `is_torch_xla_available` function is checking for TPU or GPU in `accelerate`.
-        # Here, we patch it to return True for Neuron cores as well.
-        # def patched_is_torch_xla_available(check_is_tpu: bool = False, check_is_gpu: bool = False) -> bool:
-        #     return True
-
-        # import accelerate
-
-        # accelerate.state.is_torch_xla_available = patched_is_torch_xla_available
-
         patched_accelerator_state = partial(
-            NeuronAcceleratorState, trn_config=trn_config, autocast_backend=autocast_backend
+            NeuronAcceleratorState, trn_config=trn_config
         )
         with Patcher([("accelerate.accelerator.AcceleratorState", patched_accelerator_state)]):
             super().__init__(**full_kwargs)
 
         self.zero_1 = zero_1
-
+        
         if self.autocast_handler is None:
-            enabled = self.state.mixed_precision == "bf16" and autocast_backend is AutocastBackend.AMP
+            enabled = self.state.mixed_precision == "bf16"
             self.autocast_handler = AutocastKwargs(enabled=enabled)
 
         if self.process_index == -1 and self.zero_1:
@@ -224,7 +209,7 @@ class NeuronAccelerator(Accelerator):
             num_replicas = parallel_layers.parallel_state.get_data_parallel_size()
             rank = parallel_layers.parallel_state.get_data_parallel_rank()
             force_drop_last = parallel_layers.parallel_state.get_pipeline_model_parallel_size() > 1
-            if is_main_worker() and force_drop_last:
+            if is_logging_process() and force_drop_last:
                 logger.warning(
                     "Pipeline parallelsim: forcing the dataloader to drop the last incomplete batch because it can "
                     "cause failure if the last batch size is not divisible by the number of microbatches for the pipeline."
@@ -305,7 +290,11 @@ class NeuronAccelerator(Accelerator):
         return model
 
     def prepare_model(
-        self, model: torch.nn.Module, device_placement: bool | None = None, evaluation_mode: bool = False
+        self, 
+        model: torch.nn.Module, 
+        device_placement: bool | None = None, 
+        evaluation_mode: bool = False,
+        full_bf16: bool = False,
     ):
         # If the model was already prepared, we skip.
         if model in self._models:
@@ -333,10 +322,6 @@ class NeuronAccelerator(Accelerator):
                 model.tie_weights()
             model = super().prepare_model(model, device_placement=False, evaluation_mode=evaluation_mode)
         else:
-            # Question: should do the same for custom models?
-            if self.state.mixed_precision == "bf16":
-                model.to(torch.bfloat16)
-
             should_apply_activation_checkpointing = False
             for mod in model.modules():
                 if getattr(mod, "gradient_checkpointing", False):
@@ -352,6 +337,8 @@ class NeuronAccelerator(Accelerator):
 
             if should_apply_activation_checkpointing:
                 apply_activation_checkpointing(model)
+            if full_bf16:
+                model = model.to(torch.bfloat16)
             move_model_to_device(model, xm.xla_device())
             model.tie_weights()
             device_placement = False
@@ -371,14 +358,12 @@ class NeuronAccelerator(Accelerator):
     @contextlib.contextmanager
     def autocast(self, autocast_handler: AutocastKwargs | None = None):
         if autocast_handler is None:
-            # By default `self.autocast_handler` enables autocast if:
-            #   - `self.state.mixed_precision == "bf16"`
-            #   - `self.state.autocast_backend is AutocastBackend.AMP`
+            # By default `self.autocast_handler` enables autocast if `self.state.mixed_precision == "bf16"`
             autocast_handler = self.autocast_handler
 
         if autocast_handler.enabled:
             autocast_kwargs = autocast_handler.to_kwargs()
-            autocast_context = torch.autocast(dtype=torch.bfloat16, device_type="cuda", **autocast_kwargs)
+            autocast_context = torch.autocast(dtype=torch.bfloat16, device_type="xla", **autocast_kwargs)
         else:
             autocast_context = contextlib.nullcontext()
 

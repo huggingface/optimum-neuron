@@ -15,6 +15,7 @@
 
 import contextlib
 import functools
+from functools import partial
 import inspect
 import math
 import os
@@ -22,13 +23,25 @@ import shutil
 import sys
 import time
 import warnings
-from typing import Any
+from typing import Any, Callable, Type, TYPE_CHECKING
 
 import numpy as np
+from neuronx_distributed.pipeline import NxDPPModel
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_data_parallel_replica_groups,
+    get_data_parallel_size,
+    model_parallel_is_initialized,
+    get_pipeline_model_parallel_rank,
+    get_pipeline_model_parallel_size,
+)
 import torch
+import torch.nn as nn
+from torch.utils._pytree import tree_map
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 import torch_xla.core.xla_model as xm
 import torch_xla.debug.metrics as met
 import torch_xla.runtime as xr
+from torch.utils.data import IterableDataset
 from accelerate import __version__ as accelerate_version
 from accelerate.utils import AutocastKwargs, DataLoaderConfiguration
 from neuronx_distributed.pipeline import NxDPPModel
@@ -39,8 +52,27 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
+from transformers.training_args import OptimizerNames
 from transformers.debug_utils import DebugOption, DebugUnderflowOverflow
-from transformers.integrations import hp_params
+from transformers.utils import is_datasets_available
+from transformers.data.data_collator import DataCollator, DataCollatorWithPadding, default_data_collator
+from transformers.tokenization_utils import PreTrainedTokenizerBase
+from transformers.image_processing_utils import BaseImageProcessor
+from transformers.feature_extraction_sequence_utils import SequenceFeatureExtractor
+from transformers.feature_extraction_utils import FeatureExtractionMixin
+from transformers.processing_utils import ProcessorMixin
+from transformers.trainer_callback import (
+    CallbackHandler,
+    DefaultFlowCallback,
+    ExportableState,
+    PrinterCallback,
+    ProgressCallback,
+    TrainerCallback,
+    TrainerControl,
+    TrainerState,
+)
+from transformers.integrations import hp_params, get_reporting_integration_callbacks
+from accelerate.data_loader import SeedableRandomSampler
 from transformers.modeling_utils import unwrap_model
 from transformers.trainer import (
     OPTIMIZER_NAME,
@@ -51,15 +83,21 @@ from transformers.trainer import (
 from transformers.trainer_callback import TrainerState
 from transformers.trainer_pt_utils import (
     IterableDatasetShard,
+    get_parameter_names,
+    LabelSmoother,
     find_batch_size,
     get_dataloader_sampler,
     nested_concat,
     nested_numpify,
     reissue_pt_warnings,
 )
+from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from transformers.trainer_utils import (
     PREFIX_CHECKPOINT_DIR,
+    seed_worker,
+    get_last_checkpoint,
     EvalLoopOutput,
+    RemoveColumnsCollator,
     EvalPrediction,
     HPSearchBackend,
     PredictionOutput,
@@ -72,7 +110,11 @@ from transformers.trainer_utils import (
 from transformers.utils import (
     WEIGHTS_NAME,
     is_accelerate_available,
+    find_labels,
+    can_return_loss,
 )
+from transformers.optimization import get_scheduler
+from transformers.models.auto.modeling_auto import MODEL_MAPPING_NAMES, MODEL_FOR_CAUSAL_LM_MAPPING_NAMES
 
 from optimum.utils import logging
 
@@ -86,19 +128,23 @@ from ..utils.cache_utils import (
     get_hf_hub_cache_repos,
     get_neuron_cache_path,
 )
+from ..peft import NeuronPeftModel
 from ..utils.misc import is_main_worker, is_precompilation
 from ..utils.require_utils import requires_torch_neuronx
 from ..utils.training_utils import (
     get_model_param_count,
-    is_main_worker_for_metrics,
-    is_main_worker_for_metrics_method,
+    is_logging_process,
+    is_logging_process_method,
     patch_generation_mixin_to_neuron_generation_mixin,
     skip_first_batches,
 )
 from .training_args import NeuronTrainingArguments
 
 
-logger = logging.get_logger("transformers.trainer")
+logger = logging.get_logger()
+
+if is_datasets_available():
+    import datasets
 
 TRL_VERSION = "0.11.4"
 
@@ -108,9 +154,1425 @@ if KEEP_HF_HUB_PROGRESS_BARS is None:
 
 transformers_get_optimizer_cls_and_kwargs = Trainer.get_optimizer_cls_and_kwargs
 
+DEFAULT_CALLBACKS = [DefaultFlowCallback]
+DEFAULT_PROGRESS_CALLBACK = ProgressCallback
+
+# Name of the files used for checkpointing
+TRAINING_ARGS_NAME = "training_args.bin"
+TRAINER_STATE_NAME = "trainer_state.json"
+OPTIMIZER_NAME = "optimizer.pt"
+SCALER_NAME = "scaler.pt"
+OPTIMIZER_NAME_BIN = "optimizer.bin"
+SCHEDULER_NAME = "scheduler.pt"
+FSDP_MODEL_NAME = "pytorch_model_fsdp"
+
+
+class NeuronTrainer:
+    def __init__(
+        self,
+        model: PreTrainedModel | nn.Module,
+        args: NeuronTrainingArguments,
+        data_collator: DataCollator | None = None,
+        train_dataset: "Dataset | IterableDataset | datasets.Dataset | None" = None,
+        eval_dataset: "Dataset | dict[str, Dataset] | datasets.Dataset | None" = None,
+        processing_class: PreTrainedTokenizerBase | BaseImageProcessor | FeatureExtractionMixin | ProcessorMixin | None = None,
+        model_init: Callable[[], PreTrainedModel] | None = None,
+        compute_loss_func: Callable | None = None,
+        compute_metrics: Callable[[EvalPrediction], dict] | None = None,
+        callbacks: list[TrainerCallback] | None = None,
+        optimizers: tuple[torch.optim.Optimizer | None, torch.optim.lr_scheduler.LambdaLR | None] = (None, None),
+        optimizer_cls_and_kwargs: tuple[type[torch.optim.Optimizer], dict[str, Any]] | None = None,
+        preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+    ):
+        # TODO: filter the args that do not make sense for us and raise error for unsupported features.
+
+        if args is None:
+            output_dir = "tmp_trainer"
+            logger.info(f"No `TrainingArguments` passed, using `output_dir={output_dir}`.")
+            args = NeuronTrainingArguments(output_dir=output_dir)
+
+        self.args = args
+        self.trn_config = self.args.trn_config
+
+        # Distributed training useful attributes
+        self.dp_size = self.trn_config.data_parallel_size
+        self.tp_size = self.trn_config.tensor_parallel_size
+        self.pp_size = self.trn_config.pipeline_parallel_size
+        self.pp_rank = get_pipeline_model_parallel_rank()
+
+        self.compute_loss_func = compute_loss_func
+
+        # Set the correct log level depending on the node
+        log_level = args.get_process_log_level()
+        logging.set_verbosity(log_level)
+
+        # TODO: set seed here?
+
+        if model is None:
+            raise ValueError("A model must be provided to the Trainer.")
+
+        if model.__class__.__name__ in MODEL_MAPPING_NAMES:
+            raise ValueError(
+                f"The model you have picked ({model.__class__.__name__}) cannot be used as is for training: it only "
+                "computes hidden states and does not accept any labels. You should choose a model with a head "
+                "suitable for your task like any of the `AutoModelForXxx` listed at "
+                "https://huggingface.co/docs/transformers/model_doc/auto"
+            )
+
+        self.model = model
+        self.create_accelerator_and_postprocess()
+
+        if self.args.use_liger_kernel:
+            raise RuntimeError(f"Liger kernel is not supported in NeuronTrainer.")
+
+        default_collator = (
+            DataCollatorWithPadding(processing_class)
+            if processing_class is not None
+            and isinstance(processing_class, (PreTrainedTokenizerBase, SequenceFeatureExtractor))
+            else default_data_collator
+        )
+        self.data_collator = data_collator if data_collator is not None else default_collator
+        self.train_dataset = train_dataset
+        self.eval_dataset = eval_dataset
+        self.processing_class = processing_class
+
+        model_forward = (
+            model.forward
+            if not isinstance(model, NeuronPeftModel)
+            else model.get_base_model().forward
+        )
+        forward_params = inspect.signature(model_forward).parameters
+
+        # Check if the model has explicit setup for loss kwargs,
+        # if not, check if `**kwargs` are in model.forward
+        if hasattr(model, "accepts_loss_kwargs"):
+            self.model_accepts_loss_kwargs = model.accepts_loss_kwargs
+        else:
+            self.model_accepts_loss_kwargs = any(
+                k.kind == inspect.Parameter.VAR_KEYWORD for k in forward_params.values()
+            )
+
+        self.compute_metrics = compute_metrics
+        self.optimizer, self.lr_scheduler = optimizers
+        self.optimizer_cls_and_kwargs = optimizer_cls_and_kwargs
+
+        if self.optimizer_cls_and_kwargs is not None and self.optimizer is not None:
+            raise RuntimeError("Passing both `optimizers` and `optimizer_cls_and_kwargs` arguments is incompatible.")
+
+        if self.optimizer is not None:
+            model_device = optimizer_device = None
+            for param in self.model.parameters():
+                model_device = param.device
+                break
+            for param_group in self.optimizer.param_groups:
+                if len(param_group["params"]) > 0:
+                    optimizer_device = param_group["params"][0].device
+                    break
+            if model_device != optimizer_device:
+                raise ValueError(
+                    "The model and the optimizer parameters are not on the same device, which probably means you"
+                    " created an optimizer around your model **before** putting on the device and passing it to the"
+                    " `Trainer`. Make sure the lines `import torch_xla.core.xla_model as xm` and"
+                    " `model.to(xm.xla_device())` is performed before the optimizer creation in your script."
+                )
+
+        default_callbacks = DEFAULT_CALLBACKS + get_reporting_integration_callbacks(self.args.report_to)
+        callbacks = default_callbacks if callbacks is None else default_callbacks + callbacks
+        self.callback_handler = CallbackHandler(
+            callbacks, self.model, self.processing_class, self.optimizer, self.lr_scheduler
+        )
+        self.add_callback(PrinterCallback if self.args.disable_tqdm else DEFAULT_PROGRESS_CALLBACK)
+
+        # Create distant repo and output directory if needed
+        self.hub_model_id = None
+        if self.args.push_to_hub:
+            self.init_hf_repo()
+        if self.args.should_save:
+            os.makedirs(self.args.output_dir, exist_ok=True)
+
+        if not callable(self.data_collator) and callable(getattr(self.data_collator, "collate_batch", None)):
+            raise ValueError("The `data_collator` should be a simple callable (function, class with `__call__`).")
+
+        if args.max_steps > 0 and args.num_train_epochs > 0:
+            logger.info("max_steps is given, it will override any value given in num_train_epochs")
+
+        if train_dataset is not None and not has_length(train_dataset) and args.max_steps <= 0:
+            raise ValueError(
+                "The train_dataset does not implement __len__, max_steps has to be specified. "
+                "The number of steps needs to be known in advance for the learning rate scheduler."
+            )
+
+        self._signature_columns = None
+
+        # Label smoothing
+        if self.args.label_smoothing_factor != 0:
+            self.label_smoother = LabelSmoother(epsilon=self.args.label_smoothing_factor)
+        else:
+            self.label_smoother = None
+
+        self.control = TrainerControl()
+
+        self.state = TrainerState(
+            is_local_process_zero=self.is_local_process_zero(),
+            is_world_process_zero=self.is_world_process_zero(),
+            stateful_callbacks=[
+                cb for cb in self.callback_handler.callbacks + [self.control] if isinstance(cb, ExportableState)
+            ],
+        )
+
+        if isinstance(self.model, NeuronPeftModel) and self.args.label_names is None:
+            logger.warning(
+                f"No label_names provided for model class `{self.model.__class__.__name__}`."
+                " Since `NeuronPeftModel` hides base models input arguments, if label_names is not given, label_names "
+                "can't be set automatically within `NeuronTrainer`."
+                " Note that empty label_names list will be used instead."
+            )
+        default_label_names = find_labels(self.model.__class__)
+        self.label_names = default_label_names if self.args.label_names is None else self.args.label_names
+        self.can_return_loss = can_return_loss(self.model.__class__)
+        self.control = self.callback_handler.on_init_end(self.args, self.state, self.control)
+
+
+    @property
+    def tokenizer(self) -> PreTrainedTokenizerBase | None:
+        logger.warning(
+            "NeuronTrainer.tokenizer is now deprecated. You should use NeuronTrainer.processing_class instead."
+        )
+        return self.processing_class
+
+    def create_accelerator_and_postprocess(self):
+        # We explicitly don't rely on the `Accelerator` to do gradient accumulation
+        grad_acc_kwargs = {}
+        if self.args.accelerator_config.gradient_accumulation_kwargs is not None:
+            grad_acc_kwargs = self.args.accelerator_config.gradient_accumulation_kwargs
+
+        # check if num_steps is attempted to be passed in gradient_accumulation_kwargs
+        if "num_steps" in grad_acc_kwargs:
+            if self.args.gradient_accumulation_steps > 1:
+                # raise because we do not know which setting is intended.
+                raise ValueError(
+                    "The `AcceleratorConfig`'s `num_steps` is set but `gradient_accumulation_steps` is greater than 1 in the passed `TrainingArguments`"
+                    "If using the passed `AcceleratorConfig` is desired, do not set the `TrainingArguments` `gradient_accumulation_steps`."
+                )
+            else:
+                self.args.gradient_accumulation_steps = grad_acc_kwargs["num_steps"]
+
+        accelerator_config = self.args.accelerator_config.to_dict()
+
+        # TODO: do we support these configurations in the distributed setting?
+        dataloader_config = DataLoaderConfiguration(
+            split_batches=accelerator_config.pop("split_batches"),
+            dispatch_batches=accelerator_config.pop("dispatch_batches"),
+            even_batches=accelerator_config.pop("even_batches"),
+            use_seedable_sampler=accelerator_config.pop("use_seedable_sampler"),
+        )
+
+        args = {
+            "deepspeed_plugin": None, # We don't use deepspeed plugin in NeuronTrainer
+            "dataloader_config": dataloader_config,
+        }
+
+        # create accelerator object
+        self.accelerator = NeuronAccelerator(
+            *args,
+            trn_config=self.trn_config,
+            zero_1=self.args.zero_1,
+            mixed_precision="bf16" if self.args.bf16 and self.args.use_autocast else "no",
+        )
+
+        # some Trainer classes need to use `gather` instead of `gather_for_metrics`, thus we store a flag
+        self.gather_function = self.accelerator.gather_for_metrics
+
+    def add_callback(self, callback: Type[TrainerCallback] | TrainerCallback):
+        """
+        Add a callback to the current list of `TrainerCallback`.
+
+        Args:
+           callback (`Type[TrainerCallback] | TrainerCallback`):
+               A `TrainerCallback` class or an instance of a `TrainerCallback`. In the
+               first case, will instantiate a member of that class.
+        """
+        self.callback_handler.add_callback(callback)
+
+    def pop_callback(self, callback: Type[TrainerCallback] | TrainerCallback) -> TrainerCallback | None:
+        """
+        Remove a callback from the current list of `TrainerCallback` and returns it.
+
+        If the callback is not found, returns `None` (and no error is raised).
+
+        Args:
+           callback (`Type[TrainerCallback] | TrainerCallback`):
+               A `TrainerCallback` class or an instance of a `TrainerCallback`. In the
+               first case, will pop the first member of that class found in the list of callbacks.
+
+        Returns:
+            `TrainerCallback | None`: The callback removed, if found.
+        """
+        return self.callback_handler.pop_callback(callback)
+
+    def remove_callback(self, callback: Type[TrainerCallback] | TrainerCallback):
+        """
+        Remove a callback from the current list of `TrainerCallback`.
+
+        Args:
+           callback (`Type[TrainerCallback] | TrainerCallback`):
+               A `TrainerCallback` class or an instance of a `TrainerCallback`. In the
+               first case, will remove the first member of that class found in the list of callbacks.
+        """
+        self.callback_handler.remove_callback(callback)
+
+    def _set_signature_columns_if_needed(self):
+        if self._signature_columns is None:
+            # Inspect model forward signature to keep only the arguments it accepts.
+            model_to_inspect = self.model
+            if isinstance(self.model, NeuronPeftModel):
+                if hasattr(self.model, "get_base_model"):
+                    model_to_inspect = self.model.get_base_model()
+                else:
+                    # PeftMixedModel do not provide a `get_base_model` method
+                    model_to_inspect = self.model.base_model.model
+            signature = inspect.signature(model_to_inspect.forward)
+            self._signature_columns = list(signature.parameters.keys())
+            # Labels may be named label or label_ids, the default data collator handles that.
+            self._signature_columns += list(set(["label", "label_ids"] + self.label_names))
+
+    def _remove_unused_columns(self, dataset: "datasets.Dataset", description: str | None = None):
+        if not is_datasets_available() or not self.args.remove_unused_columns:
+            return dataset
+
+        import datasets
+
+        self._set_signature_columns_if_needed()
+        # At this point self._signature_columns is guaranteed to be not None
+        signature_columns: list = self._signature_columns
+
+        ignored_columns = list(set(dataset.column_names) - set(signature_columns))
+        if len(ignored_columns) > 0:
+            dset_description = "" if description is None else f"in the {description} set"
+            logger.info(
+                f"The following columns {dset_description} don't have a corresponding argument in "
+                f"`{self.model.__class__.__name__}.forward` and have been ignored: {', '.join(ignored_columns)}."
+                f" If {', '.join(ignored_columns)} are not expected by `{self.model.__class__.__name__}.forward`, "
+                " you can safely ignore this message."
+            )
+
+        columns = [k for k in signature_columns if k in dataset.column_names]
+        if len(columns) == 0:
+            raise ValueError(
+                "No columns in the dataset match the model's forward method signature: ({', '.join(signature_columns)}). "
+                f"The following columns have been ignored: [{', '.join(ignored_columns)}]. "
+                "Please check the dataset and model. You may need to set `remove_unused_columns=False` in `TrainingArguments`."
+            )
+
+        if version.parse(datasets.__version__) < version.parse("1.4.0"):
+            dataset.set_format(
+                type=dataset.format["type"], columns=columns, format_kwargs=dataset.format["format_kwargs"]
+            )
+            return dataset
+        else:
+            return dataset.remove_columns(ignored_columns)
+
+    def _get_collator_with_removed_columns(
+        self, data_collator: Callable, description: str | None = None
+    ) -> Callable:
+        """Wrap the data collator in a callable removing unused columns."""
+        if not self.args.remove_unused_columns:
+            return data_collator
+        self._set_signature_columns_if_needed()
+        signature_columns = self._signature_columns
+
+        remove_columns_collator = RemoveColumnsCollator(
+            data_collator=data_collator,
+            signature_columns=signature_columns,
+            logger=logger,
+            description=description,
+            model_name=self.model.__class__.__name__,
+        )
+        return remove_columns_collator
+
+    def _get_train_sampler(self, train_dataset: Dataset | None = None) -> torch.utils.data.Sampler | None:
+        if train_dataset is None:
+            train_dataset = self.train_dataset
+        if train_dataset is None or not has_length(train_dataset):
+            return None
+        # TODO: should we use DistributedSampler in distributed mode or let the accelerator handle the work?
+        return RandomSampler(train_dataset)
+
+    def _get_dataloader(
+        self,
+        dataset: Dataset,
+        description: str,
+        batch_size: int,
+        sampler_fn: Callable[[Dataset], torch.utils.data.Sampler] | None = None,
+        is_training: bool = False,
+        dataloader_key: str | None = None,
+    ) -> DataLoader:
+        data_collator = self.data_collator
+        if is_datasets_available() and isinstance(dataset, datasets.Dataset):
+                dataset = self._remove_unused_columns(dataset, description=description)
+        else:
+            data_collator = self._get_collator_with_removed_columns(self.data_collator, description=description)
+
+
+        print("data_collator", data_collator)
+        dataloader_params = {
+            "batch_size": batch_size,
+            "collate_fn": data_collator,
+            "num_workers": self.args.dataloader_num_workers,
+            "pin_memory": False,
+            "persistent_workers": False,
+        }
+
+        if not isinstance(dataset, torch.utils.data.IterableDataset):
+            if sampler_fn is not None:
+                dataloader_params["sampler"] = sampler_fn(dataset)
+            dataloader_params["drop_last"] = self.args.dataloader_drop_last
+            dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
+            if is_training:
+                dataloader_params["worker_init_fn"] = partial(
+                    seed_worker, num_workers=self.args.dataloader_num_workers, rank=self.args.process_index
+                )
+
+        dataloader = DataLoader(dataset, **dataloader_params)
+        
+        # The NeuronAccelerator will take care of preparing the dataloader, transforming the sampler for distributed
+        # training.
+        return self.accelerator.prepare_data_loader(dataloader, use_mp_device_loader=True)
+
+    def get_train_dataloader(self) -> DataLoader:
+        if self.train_dataset is None:
+            raise ValueError("Trainer: training requires a train_dataset.")
+
+        return self._get_dataloader(
+            dataset=self.train_dataset,
+            description="Training",
+            batch_size=self.args.per_device_train_batch_size,
+            sampler_fn=self._get_train_sampler,
+            is_training=True,
+        )
+
+    def get_eval_dataloader(self) -> DataLoader:
+        raise NotImplementedError("Evaluation is not supported in NeuronTrainer.")
+
+    def get_test_dataloader(self) -> DataLoader:
+        raise NotImplementedError("Testing is not supported in NeuronTrainer.")
+
+    def create_optimizer_and_scheduler(self, num_training_steps: int):
+        """
+        Setup the optimizer and the learning rate scheduler.
+
+        We provide a reasonable default that works well. If you want to use something else, you can pass a tuple in the
+        Trainer's init through `optimizers`, or subclass and override this method (or `create_optimizer` and/or
+        `create_scheduler`) in a subclass.
+        """
+        self.create_optimizer()
+        self.create_scheduler(num_training_steps=num_training_steps, optimizer=self.optimizer)
+
+    def get_decay_parameter_names(self, model) -> list[str]:
+        """
+        Get all parameter names that weight decay will be applied to.
+
+        This function filters out parameters in two ways:
+        1. By layer type (instances of layers specified in ALL_LAYERNORM_LAYERS)
+        2. By parameter name patterns (containing 'bias', 'layernorm', or 'rmsnorm')
+        """
+        decay_parameters = get_parameter_names(model, ALL_LAYERNORM_LAYERS, ["bias", "layernorm", "rmsnorm"])
+        return decay_parameters
+
+    def create_optimizer(self):
+        """
+        Setup the optimizer.
+
+        We provide a reasonable default that works well. If you want to use something else, you can pass a tuple in the
+        Trainer's init through `optimizers`, or subclass and override this method in a subclass.
+        """
+        if isinstance(self.model, NxDPPModel):
+            opt_model = self.model.original_torch_module
+            named_parameters = list(self.model.local_named_parameters())
+        else:
+            opt_model = self.model
+            named_parameters = list(self.model.named_parameters())
+
+        if self.optimizer is None:
+            decay_parameters = self.get_decay_parameter_names(opt_model)
+            optimizer_grouped_parameters = [
+                {
+                    "params": [p for n, p in named_parameters if (n in decay_parameters and p.requires_grad)],
+                    "weight_decay": self.args.weight_decay,
+                },
+                {
+                    "params": [p for n, p in named_parameters if (n not in decay_parameters and p.requires_grad)],
+                    "weight_decay": 0.0,
+                },
+            ]
+
+            if self.optimizer_cls_and_kwargs is not None:
+                optimizer_cls, optimizer_kwargs = self.optimizer_cls_and_kwargs
+            else:
+                optimizer_cls, optimizer_kwargs = self.get_optimizer_cls_and_kwargs(self.args, opt_model)
+
+            # Overwrite `params` in case it's created by `get_optimizer_cls_and_kwargs`
+            # e.g. for GaLore optimizer.
+            if "params" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("params")
+
+            # Overwrite `model` in case it's created by `get_optimizer_cls_and_kwargs`
+            # e.g. for LOMO optimizer.
+            if "model" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("model")
+
+            # For layer-wise dummy optimizers we overwrite optimizer_grouped_parameters with `optimizer_dict`
+            # to avoid arguments conflicts.
+            if "optimizer_dict" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("optimizer_dict")
+
+            self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
+
+        return self.optimizer
+
+    def get_num_trainable_parameters(self):
+        """
+        Get the number of trainable parameters.
+        """
+        return get_model_param_count(self.model, trainable_only=True)
+
+    def get_learning_rates(self):
+        """
+        Returns the learning rate of each parameter from self.optimizer.
+        """
+        if self.optimizer is None:
+            raise ValueError("Trainer optimizer is None, please make sure you have setup the optimizer before.")
+        return [group["lr"] for group in self.optimizer.param_groups]
+
+    def get_optimizer_group(self, param: str | torch.nn.parameter.Parameter | None = None):
+        """
+        Returns optimizer group for a parameter if given, else returns all optimizer groups for params.
+
+        Args:
+            param (`str | torch.nn.parameter.Parameter | None`, defaults to `None`):
+                The parameter for which optimizer group needs to be returned.
+        """
+        if self.optimizer is None:
+            raise ValueError("Trainer optimizer is None, please make sure you have setup the optimizer before.")
+        if param is not None:
+            for group in self.optimizer.param_groups:
+                if param in group["params"]:
+                    return group
+        return [group["params"] for group in self.optimizer.param_groups]
+
+    @staticmethod
+    def get_optimizer_cls_and_kwargs(
+        args: TrainingArguments, model: PreTrainedModel | None = None
+    ) -> tuple[Any, Any]:
+        """
+        Returns the optimizer class and optimizer parameters based on the training arguments.
+
+        Args:
+            args (`transformers.training_args.TrainingArguments`):
+                The training arguments for the training session.
+
+        """
+
+        # parse args.optim_args
+        optim_args = {}
+        if args.optim_args:
+            for mapping in args.optim_args.replace(" ", "").split(","):
+                key, value = mapping.split("=")
+                optim_args[key] = value
+
+        optimizer_kwargs = {"lr": args.learning_rate}
+
+        adam_kwargs = {
+            "betas": (args.adam_beta1, args.adam_beta2),
+            "eps": args.adam_epsilon,
+        }
+        if args.optim == OptimizerNames.ADAMW_TORCH:
+            optimizer_cls = torch.optim.AdamW
+            optimizer_kwargs.update(adam_kwargs)
+        elif args.optim == OptimizerNames.SGD:
+            optimizer_cls = torch.optim.SGD
+        else:
+            raise ValueError(f"Trainer cannot instantiate unsupported optimizer: {args.optim}")
+        return optimizer_cls, optimizer_kwargs
+
+    def create_scheduler(self, num_training_steps: int, optimizer: torch.optim.Optimizer | None = None):
+        """
+        Setup the scheduler. The optimizer of the trainer must have been set up either before this method is called or
+        passed as an argument.
+
+        Args:
+            num_training_steps (int): The number of training steps to do.
+
+        """
+        if self.lr_scheduler is None:
+            self.lr_scheduler = get_scheduler(
+                self.args.lr_scheduler_type,
+                optimizer=self.optimizer if optimizer is None else optimizer,
+                num_warmup_steps=self.args.get_warmup_steps(num_training_steps),
+                num_training_steps=num_training_steps,
+                scheduler_specific_kwargs=self.args.lr_scheduler_kwargs,
+            )
+            self._created_lr_scheduler = True
+        return self.lr_scheduler
+
+    def num_examples(self, dataloader: DataLoader) -> int:
+        """
+        Helper to get number of samples in a [`~torch.utils.data.DataLoader`] by accessing its dataset. When
+        dataloader.dataset does not exist or has no length, estimates as best it can
+        """
+        try:
+            dataset = dataloader.dataset
+            # Special case for IterableDatasetShard, we need to dig deeper
+            if isinstance(dataset, IterableDatasetShard):
+                return len(dataloader.dataset.dataset)
+            return len(dataloader.dataset)
+        except (NameError, AttributeError, TypeError):  # no dataset or length, estimate by length of dataloader
+            return len(dataloader) * self.args.train_batch_size
+
+    @staticmethod
+    def num_tokens(train_dl: DataLoader, max_steps: int | None = None) -> int:
+        """
+        Helper to get number of tokens in a [`~torch.utils.data.DataLoader`] by enumerating dataloader.
+        """
+        train_tokens = 0
+        dp_size = get_data_parallel_size()
+        try:
+            for batch in train_dl:
+                tokens = batch["input_ids"].numel()
+                if max_steps is not None:
+                    return tokens * max_steps * dp_size
+                train_tokens += tokens
+        except KeyError:
+            NeuronTrainer.warning("Cannot get num_tokens from dataloader")
+        train_tokens = train_tokens * dp_size
+        return train_tokens
+
+    def autocast_smart_context_manager(self, cache_enabled: bool | None = True):
+        """
+        A helper wrapper that creates an appropriate context manager for `autocast` while feeding it the desired
+        arguments, depending on the situation.
+        """
+        autocast_handler = AutocastKwargs(
+            enabled=self.accelerator.autocast_handler.enabled,
+            cache_enabled=cache_enabled,
+        )
+        return self.accelerator.autocast(autocast_handler=autocast_handler)
+
+    def set_initial_training_values(
+        self, args: NeuronTrainingArguments, dataloader: DataLoader, total_train_batch_size: int
+    ):
+        """
+        Calculates and returns the following values:
+        - `num_train_epochs`
+        - `num_update_steps_per_epoch`
+        - `num_examples`
+        - `num_train_samples`
+        - `epoch_based`
+        - `len_dataloader`
+        - `max_steps`
+        """
+        # Case 1: we rely on `args.max_steps` first
+        max_steps = args.max_steps
+        # If max_steps is negative, we use the number of epochs to determine the number of total steps later
+        epoch_based = max_steps < 0
+        len_dataloader = len(dataloader) if has_length(dataloader) else None
+
+        # Case 2: We have a dataloader length and can extrapolate
+        if len_dataloader is not None:
+            num_update_steps_per_epoch = max(
+                len_dataloader // args.gradient_accumulation_steps
+                + int(len_dataloader % args.gradient_accumulation_steps > 0),
+                1,
+            )
+            # Case 3: We have a length but are using epochs, we can extrapolate the number of steps
+            if epoch_based:
+                max_steps = math.ceil(args.num_train_epochs * num_update_steps_per_epoch)
+
+        # Now we figure out `num_examples`, `num_train_epochs`, and `train_samples`
+        if len_dataloader:
+            num_examples = self.num_examples(dataloader)
+            if args.max_steps > 0:
+                num_train_epochs = max_steps // num_update_steps_per_epoch + int(
+                    max_steps % num_update_steps_per_epoch > 0
+                )
+                # May be slightly incorrect if the last batch in the training dataloader has a smaller size but it's
+                # the best we can do.
+                num_train_samples = max_steps * total_train_batch_size
+            else:
+                num_train_epochs = math.ceil(args.num_train_epochs)
+                num_train_samples = self.num_examples(dataloader) * args.num_train_epochs
+        elif args.max_steps > 0:  # Rely on max_steps when dataloader does not have a working size
+            # Setting a very large number of epochs so we go as many times as necessary over the iterator.
+            num_train_epochs = sys.maxsize
+            num_update_steps_per_epoch = max_steps
+            num_examples = total_train_batch_size * args.max_steps
+            num_train_samples = args.max_steps * total_train_batch_size
+        else:
+            raise ValueError(
+                "args.max_steps must be set to a positive value if dataloader does not have a length, was"
+                f" {args.max_steps}"
+            )
+        return (
+            num_train_epochs,
+            num_update_steps_per_epoch,
+            num_examples,
+            num_train_samples,
+            epoch_based,
+            len_dataloader,
+            max_steps,
+        )
+
+    def setup_training(self, train_dataloader: DataLoader, max_steps: int, num_train_epochs: int, num_examples: int, total_train_batch_size: int):
+        """
+        Setup everything to prepare for the training loop.
+        This methods does not return anything but initializes many attributes of the class for training.
+        """
+        args = self.args
+
+        # Initialize the Trainer state
+        self.state = TrainerState()
+
+        # Compute absolute values for logging, eval, and save if given as ratio
+        if args.logging_steps is not None:
+            if args.logging_steps < 1:
+                self.state.logging_steps = math.ceil(max_steps * args.logging_steps)
+            else:
+                self.state.logging_steps = args.logging_steps
+        if args.save_steps is not None:
+            if args.save_steps < 1:
+                self.state.save_steps = math.ceil(max_steps * args.save_steps)
+            else:
+                self.state.save_steps = args.save_steps
+
+        # Activate gradient checkpointing if needed
+        # It is handled differently if pipeline parallelism is enabled.
+        if args.gradient_checkpointing and args.pipeline_parallel_size == 1:
+            if args.gradient_checkpointing_kwargs is None:
+                gradient_checkpointing_kwargs = {}
+            else:
+                gradient_checkpointing_kwargs = args.gradient_checkpointing_kwargs
+
+            self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
+
+        self.model = self.accelerator.prepare_model(self.model, full_bf16=args.bf16)
+        self.create_optimizer_and_scheduler(num_training_steps=max_steps)
+
+        if not isinstance(self.model, NxDPPModel):
+            self.model.train()
+
+        if hasattr(self.lr_scheduler, "step"):
+            self.optimizer = self.accelerator.prepare(self.optimizer)
+        else:
+            # to handle cases wherein we pass "DummyScheduler" such as when it is specified in DeepSpeed config.
+            self.optimizer, self.lr_scheduler = self.accelerator.prepare(self.optimizer, self.lr_scheduler)
+
+        # Train!
+        parameter_count = get_model_param_count(self.model, trainable_only=True)
+        logger.info("***** Running training *****")
+        logger.info(f"  Num examples = {num_examples:,}")
+        logger.info(f"  Num Epochs = {num_train_epochs:,}")
+        logger.info(f"  Data Parallel Size: {args.trn_config.data_parallel_size}")
+        logger.info(f"  Tensor Parallel Size: {args.trn_config.tensor_parallel_size}")
+        logger.info(f"  Pipeline Parallel Size: {args.trn_config.pipeline_parallel_size}")
+        logger.info(f"  Instantaneous batch size per data parallel rank = {args.per_device_train_batch_size:,}")
+        logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
+        logger.info(
+            f"  Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size:,}"
+        )
+        logger.info(f"  Total optimization steps = {max_steps:,}")
+        logger.info(f"  Num trainable parameters = {parameter_count:,}")
+
+        self.state.epoch = 0
+
+        # Update the references
+        self.callback_handler.model = self.model
+        self.callback_handler.optimizer = self.optimizer
+        self.callback_handler.lr_scheduler = self.lr_scheduler
+        self.callback_handler.train_dataloader = train_dataloader
+
+        # This should be the same if the state has been saved but in case the training arguments changed, it's safer
+        # to set this after the load.
+        self.state.max_steps = max_steps
+        self.state.num_train_epochs = num_train_epochs
+
+        self.state.is_local_process_zero = self.is_local_process_zero()
+        self.state.is_world_process_zero = is_logging_process()
+
+        self.global_step_last_logged = 0
+
+        self.optimizer.zero_grad()
+        self.control = self.callback_handler.on_train_begin(args, self.state, self.control)
+
+        dtype = torch.bfloat16 if args.bf16 else torch.float32
+        self.loss = torch.tensor(0.0).to(dtype).to(xm.xla_device())
+        self.grad_norm = None
+
+    def train_step(self, model: nn.Module, inputs: dict[str, Any]) -> torch.Tensor:
+        manager = self.autocast_smart_context_manager()
+        pp_size = self.trn_config.pipeline_parallel_size
+
+        # We need to move the inputs to the device only if we are not using pipeline parallelism because the
+        # NxDPPModel class handles the device placement of the inputs.
+        if pp_size == 1:
+            inputs = tree_map(lambda t: t.to(xm.xla_device()) if isinstance(t, torch.Tensor) else t, inputs)
+
+        if isinstance(model, NxDPPModel):
+            with manager:
+                loss = model.run_train(**inputs)
+
+            # When using pipeline parallelism, the loss is only computed on the last stage.
+            # So we set the loss to zero on other stages.
+            if self.pp_rank != self.pp_size - 1:
+                dtype = torch.bfloat16 if self.args.bf16 else torch.float32
+                loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
+
+            if self.model_accepts_loss_kwargs and "labels" in inputs:
+                inputs = dict(**inputs, reduction="sum")
+
+            with manager:
+                outputs = model(**inputs)
+
+            if isinstance(outputs, dict) and "loss" not in outputs:
+                raise ValueError(
+                    "The model did not return a loss from the inputs, only the following keys: "
+                    f"{','.join(outputs.keys())}. For reference, the inputs it received are {','.join(inputs.keys())}."
+                )
+            # We don't use .loss here since the model may return tuples instead of ModelOutput.
+            loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+            return loss
+
+    def _get_last_learning_rate(self):
+        if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            last_lr = self.optimizer.param_groups[0]["lr"]
+        else:
+            last_lr = self.lr_scheduler.get_last_lr()[0]
+
+        if isinstance(last_lr, torch.Tensor):
+            last_lr = last_lr.item()
+
+        return last_lr
+
+    def maybe_log_train_step_metrics(self):
+        if self.global_step_last_logged >= self.state.global_step:
+            return
+        if self.control.should_log:
+            dp_size = self.trn_config.data_parallel_size
+            tr_loss_div = self.loss / dp_size
+            reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_replica_groups())
+            reduced_tr_loss = reduced_tr_loss.detach()
+            self.loss.zero_()
+
+            xm.mark_step()
+
+            def log_closure(self, reduced_tr_loss, grad_norm):
+                # We need to check that self.state.global_step > self._globalstep_last_logged because if two
+                # closures are added in a row (which can happen at the end of the training), then it will fail the
+                # second time because at this point we will have:
+                # self.state.global_step = self._globalstep_last_logged
+                if is_logging_process() and self.state.global_step > self.global_step_last_logged:
+                    logs: dict[str, float] = {}
+                    tr_loss_scalar = reduced_tr_loss.to("cpu").item()
+
+                    logs["loss"] = round(
+                        tr_loss_scalar / (self.state.global_step - self.global_step_last_logged), 4
+                    )
+                    logs["learning_rate"] = self._get_last_learning_rate()
+
+                    if grad_norm is not None:
+                        logs["grad_norm"] = (
+                            grad_norm.detach().to("cpu").item()
+                            if isinstance(grad_norm, torch.Tensor)
+                            else grad_norm
+                        )
+                    self.log(logs)
+
+                self.global_step_last_logged = self.state.global_step
+
+            xm.add_step_closure(log_closure, (self, reduced_tr_loss, self.grad_norm))
+
+    def maybe_save_checkpoint(self):
+        if self.control.should_save:
+            xm.mark_step()
+
+            def save_closure(self, model):
+                self._save_checkpoint(model)
+                self.control = self.callback_handler.on_save(self.args, self.state, self.control)
+
+            xm.add_step_closure(save_closure, (self,))
+
+    def train(
+        self,
+        resume_from_checkpoint: str | bool | None = None,
+    ):
+
+        if resume_from_checkpoint not in [False, None]:
+            raise ValueError("`resume_from_checkpoint` is not supported by the NeuronTrainer.")
+
+        args = self.args
+        
+        # TODO: what's the purpose of this method?
+        self.accelerator.free_memory()
+
+        # Data loader and number of training steps
+        train_dataloader = self.get_train_dataloader()
+
+        total_train_batch_size = self.args.train_batch_size * args.gradient_accumulation_steps
+        (
+            num_train_epochs,
+            num_update_steps_per_epoch,
+            num_examples,
+            num_train_samples,
+            epoch_based,
+            len_dataloader,
+            max_steps,
+        ) = self.set_initial_training_values(args, train_dataloader, total_train_batch_size)
+
+        self.setup_training(train_dataloader, max_steps, num_train_epochs, num_examples, total_train_batch_size)
+
+        for epoch in range(num_train_epochs):
+            steps_in_epoch = (
+                len_dataloader 
+                if len_dataloader is not None
+                else args.max_steps * args.gradient_accumulation_steps
+            )
+
+            self.control = self.callback_handler.on_epoch_begin(args, self.state, self.control)
+
+            step = -1
+            epoch_iterator = iter(train_dataloader)
+
+            num_items_in_batch = 0
+            num_items_in_batch_acc = 0
+
+            for step, inputs in enumerate(epoch_iterator):
+                do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (
+                    step + 1
+                ) == steps_in_epoch  # Since we perform prefetching, we need to manually set sync_gradients
+
+                for name in inputs:
+                    inputs[name] = inputs[name].squeeze(0)
+
+                if self.model_accepts_loss_kwargs and "labels" in inputs:
+                    num_items_in_current_batch = inputs["labels"].ne(-100).sum()
+                    num_items_in_batch_acc += num_items_in_current_batch
+
+                if not do_sync_step:
+                    self.accelerator.gradient_state.sync_gradients = False
+                else:
+                    self.accelerator.gradient_state.sync_gradients = True
+
+                # TODO: when implementing metrics, save this information.
+                main_input_name = getattr(self.model, "main_input_name", "input_ids")
+                if main_input_name in inputs:
+                    input_tokens = inputs[main_input_name].numel()
+                    input_tokens = torch.tensor(input_tokens, device=self.args.device, dtype=torch.int64)
+
+                if step % args.gradient_accumulation_steps == 0:
+                    self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
+
+                # We accumulate the number of items in the batch over gradient accumulation steps.
+                if self.model_accepts_loss_kwargs and "labels" in inputs:
+                    if do_sync_step:
+                        num_items_in_batch = num_items_in_batch_acc 
+                        num_items_in_batch_acc = 0
+                    else:
+                        num_items_in_batch = 1
+                else:
+                    num_items_in_batch = None
+
+                loss_step = self.train_step(self.model, inputs)
+
+                # If we can compute the number of items in the batch, we use it to normalize the loss.
+                # Otherwise, we divide by gradient_accumulation_steps.
+                if num_items_in_batch is None:
+                    # Here the loss reduction is "sum" so we need to normalize by the number of items in the batch.
+                    loss_step = loss_step / num_items_in_batch
+                else:
+                    # In this case loss reduction is "mean" so we just need to devide by gradient_accumulation_steps.
+                    loss_step = loss_step / self.args.gradient_accumulation_steps
+
+                self.loss += loss_step
+
+                if do_sync_step:
+                    xm.mark_step()
+                    # Gradient clipping
+                    if args.max_grad_norm is not None and args.max_grad_norm > 0:
+                        parameters = (
+                            self.model.local_parameters() if isinstance(self.model, NxDPPModel) else self.model.parameters()
+                        )
+                        self.accelerator.clip_grad_norm_(
+                            parameters,
+                            args.max_grad_norm,
+                            postpone_clipping_to_optimizer_step=True,
+                        )
+
+                    self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
+
+                    self.optimizer.step()
+                    self.grad_norm = self.optimizer.grad_norm
+
+                    self.control = self.callback_handler.on_optimizer_step(args, self.state, self.control)
+
+                    # Delay optimizer scheduling until metrics are generated
+                    if not isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                        self.lr_scheduler.step()
+
+                    self.optimizer.zero_grad()
+
+                    self.state.global_step += 1
+                    self.state.epoch = epoch + (step + 1) / steps_in_epoch
+                    self.control = self.callback_handler.on_step_end(args, self.state, self.control)
+                else:
+                    self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
+
+                self.maybe_log_train_step_metrics()
+                self.maybe_save_checkpoint()
+
+                if self.control.should_epoch_stop or self.control.should_training_stop:
+                    # PyTorch/XLA relies on the data loader to insert the mark_step for
+                    # each step. Since we are breaking the loop early, we need to manually
+                    # insert the mark_step here.
+                    xm.mark_step()
+                    break
+
+            # We also need to break out of the nested loop
+            if self.control.should_epoch_stop or self.control.should_training_stop:
+                xm.mark_step()
+                break
+
+            if step < 0:
+                logger.warning(
+                    "There seems to be not a single sample in your epoch_iterator, stopping training at step"
+                    f" {self.state.global_step}! This is expected if you're using an IterableDataset and set"
+                    f" num_steps ({max_steps}) higher than the number of available samples."
+                )
+                self.control.should_training_stop = True
+
+            self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
+            xm.mark_step()
+
+        logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
+        self.control = self.callback_handler.on_train_end(args, self.state, self.control)
+
+    def is_local_process_zero(self) -> bool:
+        """
+        Whether or not this process is the local (e.g., on one machine if training in a distributed fashion on several
+        machines) main process.
+        """
+        return self.args.local_process_index == 0 
+
+    def is_world_process_zero(self) -> bool:
+        """
+        Whether or not this process is the global main process (when training in a distributed fashion on several
+        machines, this is only going to be `True` for one process).
+        """
+        # Special case for SageMaker ModelParallel since there process_index is dp_process_index, not the global
+        # process index.
+        return self.args.process_index == 0
+
+    def log(self, content: dict):
+        print("log", content)
 
 class _TrainerForNeuron:
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        model: PreTrainedModel | nn.Module | None = None,
+        args: TrainingArguments = None,
+        data_collator: DataCollator | None = None,
+        train_dataset: "Dataset | IterableDataset | datasets.Dataset | None" = None,
+        eval_dataset: "Dataset | dict[str, Dataset] | datasets.Dataset | None" = None,
+        processing_class: PreTrainedTokenizerBase | BaseImageProcessor | FeatureExtractionMixin | ProcessorMixin | None = None,
+        model_init: Callable[[], PreTrainedModel] | None = None,
+        compute_loss_func: Callable | None = None,
+        compute_metrics: Callable[[EvalPrediction], dict] | None = None,
+        callbacks: list[TrainerCallback] | None = None,
+        optimizers: tuple[torch.optim.Optimizer | None, torch.optim.lr_scheduler.LambdaLR | None] = (None, None),
+        optimizer_cls_and_kwargs: tuple[type[torch.optim.Optimizer], dict[str, Any]] | None = None,
+        preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+    ):
+        if args is None:
+            output_dir = "tmp_trainer"
+            logger.info(f"No `TrainingArguments` passed, using `output_dir={output_dir}`.")
+            args = NeuronTrainingArguments(output_dir=output_dir)
+        if args.batch_eval_metrics and compute_metrics is not None:
+            if "compute_result" not in inspect.signature(compute_metrics).parameters.keys():
+                raise ValueError(
+                    "When using `batch_eval_metrics`, your `compute_metrics` function must take a `compute_result`"
+                    " boolean argument which will be triggered after the last batch of the eval set to signal that the"
+                    " summary statistics should be returned by the function."
+                )
+        if args.eval_strategy is not None and args.eval_strategy != "no" and eval_dataset is None:
+            raise ValueError(
+                f"You have set `args.eval_strategy` to {args.eval_strategy} but you didn't pass an `eval_dataset` to `Trainer`. Either set `args.eval_strategy` to `no` or pass an `eval_dataset`. "
+            )
+        if args.save_strategy == SaveStrategy.BEST or args.load_best_model_at_end:
+            if args.metric_for_best_model is None:
+                raise ValueError(
+                    "`args.metric_for_best_model` must be provided when using 'best' save_strategy or if `args.load_best_model_at_end` is set to `True`."
+                )
+
+        self.args = args
+        self.compute_loss_func = compute_loss_func
+        # Seed must be set before instantiating the model when using model
+        enable_full_determinism(self.args.seed) if self.args.full_determinism else set_seed(self.args.seed)
+
+        self.hp_name = None
+        self.deepspeed = None
+        self.is_in_train = False
+
+        self.create_accelerator_and_postprocess()
+
+        # memory metrics - must set up as early as possible
+        self._memory_tracker = TrainerMemoryTracker(self.args.skip_memory_metrics)
+        self._memory_tracker.start()
+
+        # set the correct log level depending on the node
+        log_level = args.get_process_log_level()
+        logging.set_verbosity(log_level)
+
+        # force device and distributed setup init explicitly
+        args._setup_devices
+
+        if model is None:
+            if model_init is not None:
+                self.model_init = model_init
+                model = self.call_model_init()
+            else:
+                raise RuntimeError("`Trainer` requires either a `model` or `model_init` argument")
+        else:
+            if model_init is not None:
+                warnings.warn(
+                    "`Trainer` requires either a `model` or `model_init` argument, but not both. `model_init` will"
+                    " overwrite your model when calling the `train` method. This will become a fatal error in the next"
+                    " release.",
+                    FutureWarning,
+                )
+            self.model_init = model_init
+
+        if model.__class__.__name__ in MODEL_MAPPING_NAMES:
+            raise ValueError(
+                f"The model you have picked ({model.__class__.__name__}) cannot be used as is for training: it only "
+                "computes hidden states and does not accept any labels. You should choose a model with a head "
+                "suitable for your task like any of the `AutoModelForXxx` listed at "
+                "https://huggingface.co/docs/transformers/model_doc/auto"
+            )
+
+        if getattr(model, "is_parallelizable", False) and getattr(model, "model_parallel", False):
+            self.is_model_parallel = True
+        else:
+            self.is_model_parallel = False
+
+        if getattr(model, "hf_device_map", None) is not None:
+            devices = [device for device in set(model.hf_device_map.values()) if device not in ["cpu", "disk"]]
+            if len(devices) > 1:
+                self.is_model_parallel = True
+            elif len(devices) == 1:
+                self.is_model_parallel = self.args.device != torch.device(devices[0])
+            else:
+                self.is_model_parallel = False
+
+            # warn users
+            if self.is_model_parallel:
+                logger.info(
+                    "You have loaded a model on multiple GPUs. `is_model_parallel` attribute will be force-set"
+                    " to `True` to avoid any unexpected behavior such as device placement mismatching."
+                )
+
+        if self.args.use_liger_kernel:
+            if is_liger_kernel_available():
+                from liger_kernel.transformers import _apply_liger_kernel_to_instance
+
+                if isinstance(model, PreTrainedModel):
+                    # Patch the model with liger kernels. Use the default kernel configurations.
+                    _apply_liger_kernel_to_instance(model=model)
+                elif hasattr(model, "get_base_model") and isinstance(model.get_base_model(), PreTrainedModel):
+                    # Patch the base model with liger kernels where model is a PeftModel. Use the default kernel configurations.
+                    _apply_liger_kernel_to_instance(model=model.get_base_model())
+                else:
+                    logger.warning(
+                        "The model is not an instance of PreTrainedModel. No liger kernels will be applied."
+                    )
+            else:
+                raise ImportError(
+                    "You have set `use_liger_kernel` to `True` but liger-kernel >= 0.3.0 is not available. "
+                    "Please install it with `pip install liger-kernel`"
+                )
+
+        _is_quantized_and_base_model = getattr(model, "is_quantized", False) and not getattr(
+            model, "_hf_peft_config_loaded", False
+        )
+        _quantization_method_supports_training = (
+            getattr(model, "hf_quantizer", None) is not None and model.hf_quantizer.is_trainable
+        )
+
+        _is_model_quantized_and_qat_trainable = getattr(model, "hf_quantizer", None) is not None and getattr(
+            model.hf_quantizer, "is_qat_trainable", False
+        )
+
+        # Filter out quantized + compiled models
+        if _is_quantized_and_base_model and hasattr(model, "_orig_mod"):
+            raise ValueError(
+                "You cannot fine-tune quantized model with `torch.compile()` make sure to pass a non-compiled model when fine-tuning a quantized model with PEFT"
+            )
+
+        # At this stage the model is already loaded
+        if _is_quantized_and_base_model and not _is_peft_model(model) and not _is_model_quantized_and_qat_trainable:
+            raise ValueError(
+                "You cannot perform fine-tuning on purely quantized models. Please attach trainable adapters on top of"
+                " the quantized model to correctly perform fine-tuning. Please see: https://huggingface.co/docs/transformers/peft"
+                " for more details"
+            )
+        elif _is_quantized_and_base_model and not _quantization_method_supports_training:
+            raise ValueError(
+                f"The model you are trying to fine-tune is quantized with {model.hf_quantizer.quantization_config.quant_method}"
+                " but that quantization method do not support training. Please open an issue on GitHub: https://github.com/huggingface/transformers"
+                f" to request the support for training support for {model.hf_quantizer.quantization_config.quant_method}"
+            )
+
+        self.is_fsdp_xla_enabled = args.fsdp_config["xla"]
+        if len(args.fsdp) > 0:
+            if self.is_deepspeed_enabled:
+                raise ValueError(
+                    "Using --fsdp xxx together with --deepspeed is not possible, deactivate one of those flags."
+                )
+            if not args.fsdp_config["xla"] and args.parallel_mode != ParallelMode.DISTRIBUTED:
+                raise ValueError("Using fsdp only works in distributed training.")
+
+        # one place to sort out whether to place the model on device or not
+        # postpone switching model to cuda when:
+        # 1. MP - since we are trying to fit a much bigger than 1 gpu model
+        # 2. fp16-enabled DeepSpeed loads the model in half the size and it doesn't need .to() anyway,
+        #    and we only use deepspeed for training at the moment
+        # 3. full bf16 or fp16 eval - since the model needs to be cast to the right dtype first
+        # 4. FSDP - same as MP
+        self.place_model_on_device = args.place_model_on_device
+        if (
+            self.is_model_parallel
+            or self.is_deepspeed_enabled
+            or ((args.fp16_full_eval or args.bf16_full_eval) and not args.do_train)
+            or self.is_fsdp_xla_enabled
+            or self.is_fsdp_enabled
+        ):
+            self.place_model_on_device = False
+
+        default_collator = (
+            DataCollatorWithPadding(processing_class)
+            if processing_class is not None
+            and isinstance(processing_class, (PreTrainedTokenizerBase, SequenceFeatureExtractor))
+            else default_data_collator
+        )
+        self.data_collator = data_collator if data_collator is not None else default_collator
+        self.train_dataset = train_dataset
+        self.eval_dataset = eval_dataset
+        self.processing_class = processing_class
+
+        # Bnb Quantized models doesn't support `.to` operation.
+        if (
+            self.place_model_on_device
+            and not getattr(model, "quantization_method", None) == QuantizationMethod.BITS_AND_BYTES
+        ):
+            self._move_model_to_device(model, args.device)
+
+        # Force n_gpu to 1 to avoid DataParallel as MP will manage the GPUs
+        if self.is_model_parallel:
+            self.args._n_gpu = 1
+
+        # later use `self.model is self.model_wrapped` to check if it's wrapped or not
+        self.model_wrapped = model
+        self.model = model
+
+        # Just in case the model was wrapped outside of the `Trainer`
+        unwrapped_model = self.accelerator.unwrap_model(model)
+        model_forward = (
+            unwrapped_model.forward
+            if not _is_peft_model(unwrapped_model)
+            else unwrapped_model.get_base_model().forward
+        )
+        forward_params = inspect.signature(model_forward).parameters
+
+        # Check if the model has explicit setup for loss kwargs,
+        # if not, check if `**kwargs` are in model.forward
+        if hasattr(model, "accepts_loss_kwargs"):
+            self.model_accepts_loss_kwargs = model.accepts_loss_kwargs
+        else:
+            self.model_accepts_loss_kwargs = any(
+                k.kind == inspect.Parameter.VAR_KEYWORD for k in forward_params.values()
+            )
+
+        self.neftune_noise_alpha = args.neftune_noise_alpha
+
+        self.compute_metrics = compute_metrics
+        self.preprocess_logits_for_metrics = preprocess_logits_for_metrics
+        self.optimizer, self.lr_scheduler = optimizers
+        self.optimizer_cls_and_kwargs = optimizer_cls_and_kwargs
+        if self.optimizer_cls_and_kwargs is not None and self.optimizer is not None:
+            raise RuntimeError("Passing both `optimizers` and `optimizer_cls_and_kwargs` arguments is incompatible.")
+        if model_init is not None and (self.optimizer is not None or self.lr_scheduler is not None):
+            raise RuntimeError(
+                "Passing a `model_init` is incompatible with providing the `optimizers` argument. "
+                "You should subclass `Trainer` and override the `create_optimizer_and_scheduler` method."
+            )
+        if is_torch_xla_available() and self.optimizer is not None:
+            for param in self.model.parameters():
+                model_device = param.device
+                break
+            for param_group in self.optimizer.param_groups:
+                if len(param_group["params"]) > 0:
+                    optimizer_device = param_group["params"][0].device
+                    break
+            if model_device != optimizer_device:
+                raise ValueError(
+                    "The model and the optimizer parameters are not on the same device, which probably means you"
+                    " created an optimizer around your model **before** putting on the device and passing it to the"
+                    " `Trainer`. Make sure the lines `import torch_xla.core.xla_model as xm` and"
+                    " `model.to(xm.xla_device())` is performed before the optimizer creation in your script."
+                )
+        if (self.is_fsdp_xla_enabled or self.is_fsdp_enabled) and (
+            self.optimizer is not None or self.lr_scheduler is not None
+        ):
+            raise RuntimeError(
+                "Passing `optimizers` is not allowed if PyTorch FSDP is enabled. "
+                "You should subclass `Trainer` and override the `create_optimizer_and_scheduler` method."
+            )
+        default_callbacks = DEFAULT_CALLBACKS + get_reporting_integration_callbacks(self.args.report_to)
+        callbacks = default_callbacks if callbacks is None else default_callbacks + callbacks
+        self.callback_handler = CallbackHandler(
+            callbacks, self.model, self.processing_class, self.optimizer, self.lr_scheduler
+        )
+        self.add_callback(PrinterCallback if self.args.disable_tqdm else DEFAULT_PROGRESS_CALLBACK)
+
+        # Will be set to True by `self._setup_loggers()` on first call to `self.log()`.
+        self._loggers_initialized = False
+
+        # Create distant repo and output directory if needed
+        self.hub_model_id = None
+        if self.args.push_to_hub:
+            self.init_hf_repo()
+        if self.args.should_save:
+            os.makedirs(self.args.output_dir, exist_ok=True)
+
+        if not callable(self.data_collator) and callable(getattr(self.data_collator, "collate_batch", None)):
+            raise ValueError("The `data_collator` should be a simple callable (function, class with `__call__`).")
+
+        if args.max_steps > 0 and args.num_train_epochs > 0:
+            logger.info("max_steps is given, it will override any value given in num_train_epochs")
+
+        if train_dataset is not None and not has_length(train_dataset) and args.max_steps <= 0:
+            raise ValueError(
+                "The train_dataset does not implement __len__, max_steps has to be specified. "
+                "The number of steps needs to be known in advance for the learning rate scheduler."
+            )
+
+        if (
+            train_dataset is not None
+            and isinstance(train_dataset, torch.utils.data.IterableDataset)
+            and args.group_by_length
+        ):
+            raise ValueError("the `--group_by_length` option is only available for `Dataset`, not `IterableDataset")
+
+        self._signature_columns = None
+
+        # Mixed precision setup
+        self.use_apex = False
+        self.use_cpu_amp = False
+
+        # Mixed precision setup for SageMaker Model Parallel
+        if is_sagemaker_mp_enabled():
+            # BF16 + model parallelism in SageMaker: currently not supported, raise an error
+            if args.bf16:
+                raise ValueError("SageMaker Model Parallelism does not support BF16 yet. Please use FP16 instead ")
+
+            if IS_SAGEMAKER_MP_POST_1_10:
+                # When there's mismatch between SMP config and trainer argument, use SMP config as truth
+                if args.fp16 != smp.state.cfg.fp16:
+                    logger.warning(
+                        f"FP16 provided in SM_HP_MP_PARAMETERS is {smp.state.cfg.fp16}, "
+                        f"but FP16 provided in trainer argument is {args.fp16}, "
+                        f"setting to {smp.state.cfg.fp16}"
+                    )
+                    args.fp16 = smp.state.cfg.fp16
+            else:
+                # smp < 1.10 does not support fp16 in trainer.
+                if hasattr(smp.state.cfg, "fp16"):
+                    logger.warning(
+                        f"FP16 provided in SM_HP_MP_PARAMETERS is {smp.state.cfg.fp16}, "
+                        "but SageMaker Model Parallelism < 1.10 does not support FP16 in trainer."
+                    )
+        if (args.fp16 or args.bf16) and args.half_precision_backend == "auto":
+            if args.device == torch.device("cpu"):
+                if args.fp16:
+                    if not is_torch_greater_or_equal_than_2_3:
+                        raise ValueError("Tried to use `fp16` but it is not supported on cpu")
+                else:
+                    args.half_precision_backend = "cpu_amp"
+            logger.info(f"Using {args.half_precision_backend} half precision backend")
+
+        if (args.fp16 or args.bf16) and not (self.is_deepspeed_enabled or is_sagemaker_mp_enabled()):
+            # deepspeed and SageMaker Model Parallel manage their own half precision
+            if args.half_precision_backend == "cpu_amp":
+                self.use_cpu_amp = True
+                self.amp_dtype = torch.bfloat16
+            elif args.half_precision_backend == "apex":
+                if not is_apex_available():
+                    raise ImportError(
+                        "Using FP16 with APEX but APEX is not installed, please refer to"
+                        " https://www.github.com/nvidia/apex."
+                    )
+                self.use_apex = True
+
+        # Label smoothing
+        if self.args.label_smoothing_factor != 0:
+            self.label_smoother = LabelSmoother(epsilon=self.args.label_smoothing_factor)
+        else:
+            self.label_smoother = None
+
+        self.control = TrainerControl()
+
+        self.state = TrainerState(
+            is_local_process_zero=self.is_local_process_zero(),
+            is_world_process_zero=self.is_world_process_zero(),
+            stateful_callbacks=[
+                cb for cb in self.callback_handler.callbacks + [self.control] if isinstance(cb, ExportableState)
+            ],
+        )
+        # Internal variable to count flos in each process, will be accumulated in `self.state.total_flos` then
+        # returned to 0 every time flos need to be logged
+        self.current_flos = 0
+        self.hp_search_backend = None
+        if _is_peft_model(self.model) and self.args.label_names is None:
+            logger.warning(
+                f"No label_names provided for model class `{self.model.__class__.__name__}`."
+                " Since `PeftModel` hides base models input arguments, if label_names is not given, label_names can't be set automatically within `Trainer`."
+                " Note that empty label_names list will be used instead."
+            )
+        default_label_names = find_labels(self.model.__class__)
+        self.label_names = default_label_names if self.args.label_names is None else self.args.label_names
+        self.can_return_loss = can_return_loss(self.model.__class__)
+        self.control = self.callback_handler.on_init_end(self.args, self.state, self.control)
+
+        # Internal variables to help with automatic batch size reduction
+        self._train_batch_size = args.train_batch_size
+        self._created_lr_scheduler = False
+
+        # very last
+        self._memory_tracker.stop_and_update_metrics()
+
+        # torch.compile
+        if args.torch_compile and not is_torch_compile_available():
+            raise RuntimeError("Using torch.compile requires PyTorch 2.0 or higher.")
+
+        self.is_fsdp_xla_v2_enabled = args.fsdp_config.get("xla_fsdp_v2", False)
+        if self.is_fsdp_xla_v2_enabled:
+            if not IS_XLA_FSDPV2_POST_2_2:
+                raise ValueError("FSDPv2 requires `torch_xla` 2.2 or higher.")
+            # Prepare the SPMD mesh that is going to be used by the data loader and the FSDPv2 wrapper.
+            # Tensor axis is just a placeholder where it will not be used in FSDPv2.
+            num_devices = xr.global_runtime_device_count()
+            xs.set_global_mesh(xs.Mesh(np.array(range(num_devices)), (num_devices, 1), axis_names=("fsdp", "tensor")))
+        self.is_fsdp_xla_v1_enabled = self.is_fsdp_xla_enabled and not self.is_fsdp_xla_v2_enabled
+
+
+        # LIMIT
         if not isinstance(self, Trainer):
             raise TypeError(f"{self.__class__.__name__} can only be mixed with Trainer subclasses.")
 
@@ -124,9 +1586,7 @@ class _TrainerForNeuron:
                 if training_args.half_precision_backend == "amp":
                     self.use_amp = True
 
-        if is_precompilation():
-            self.prepare_for_precompilation(training_args)
-
+        # It is a mixin-in, we call the parent constructor, which is expected to be a children of Trainer.
         super().__init__(*args, **kwargs)
 
         if not isinstance(self.args, NeuronTrainingArguments):
@@ -138,7 +1598,7 @@ class _TrainerForNeuron:
         # (eg.g loss) are logged and sent to the callbacks (for instance WandbCallback).
         self.state = TrainerState(
             is_local_process_zero=self.is_local_process_zero(),
-            is_world_process_zero=is_main_worker_for_metrics(),
+            is_world_process_zero=is_logging_process(),
         )
 
         if self.args.local_rank <= 0:
@@ -150,23 +1610,6 @@ class _TrainerForNeuron:
     @property
     def mp_enabled(self):
         return self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
-
-    def prepare_for_precompilation(self, args: "TrainingArguments"):
-        if not is_precompilation():
-            return
-
-        if args.num_train_epochs != 1:
-            if is_main_worker():
-                logger.info("Setting the number of epochs for precompilation to 1.")
-            args.num_train_epochs = 1
-        if args.do_eval:
-            if is_main_worker():
-                logger.info("Disabling evaluation during precompilation as this is not well supported yet.")
-            args.do_eval = False
-        if args.do_predict:
-            if is_main_worker():
-                logger.info("Disabling prediction during precompilation as this is not well supported yet.")
-            args.do_predict = False
 
     def create_accelerator_and_postprocess(self):
         # We explicitly don't rely on the `Accelerator` to do gradient accumulation
@@ -195,22 +1638,16 @@ class _TrainerForNeuron:
         )
 
         non_blocking = accelerator_config.pop("non_blocking")
-        if not is_accelerate_available("0.30.0"):
-            if non_blocking:
-                raise ImportError(
-                    "`non_blocking` is only supported in accelerate v0.30.0 and above. Please upgrade accelerate to use this feature."
-                )
-        else:
-            if non_blocking and not self.args.dataloader_pin_memory:
-                logger.warning(
-                    "`non_blocking` is enabled but `dataloader_pin_memory` is not. For the best performance, it's recommended to enable both."
-                )
-            dataloader_config.non_blocking = non_blocking
+        if non_blocking and not self.args.dataloader_pin_memory:
+            logger.warning(
+                "`non_blocking` is enabled but `dataloader_pin_memory` is not. For the best performance, it's recommended to enable both."
+            )
+        dataloader_config.non_blocking = non_blocking
 
         args = {
-            "deepspeed_plugin": self.args.deepspeed_plugin,
+            "deepspeed_plugin": None, # We don't use deepspeed plugin in NeuronTrainer
+            "dataloader_config": dataloader_config,
         }
-        args["dataloader_config"] = dataloader_config
 
         # create accelerator object
         self.accelerator = NeuronAccelerator(
@@ -223,54 +1660,6 @@ class _TrainerForNeuron:
 
         # some Trainer classes need to use `gather` instead of `gather_for_metrics`, thus we store a flag
         self.gather_function = self.accelerator.gather_for_metrics
-
-        if "use_gather_object" in inspect.signature(self.gather_function).parameters.keys():
-            self.gather_function = functools.partial(
-                self.gather_function, use_gather_object=self.args.eval_use_gather_object
-            )
-
-        # deepspeed and accelerate flags covering both trainer args and accelerate launcher
-        self.is_deepspeed_enabled = getattr(self.accelerator.state, "deepspeed_plugin", None) is not None
-        self.is_fsdp_enabled = getattr(self.accelerator.state, "fsdp_plugin", None) is not None
-
-        # post accelerator creation setup
-        if self.is_fsdp_enabled:
-            fsdp_plugin = self.accelerator.state.fsdp_plugin
-            fsdp_plugin.limit_all_gathers = self.args.fsdp_config.get(
-                "limit_all_gathers", fsdp_plugin.limit_all_gathers
-            )
-            if is_accelerate_available("0.23.0"):
-                fsdp_plugin.activation_checkpointing = self.args.fsdp_config.get(
-                    "activation_checkpointing", fsdp_plugin.activation_checkpointing
-                )
-                if fsdp_plugin.activation_checkpointing and self.args.gradient_checkpointing:
-                    raise ValueError(
-                        "The activation_checkpointing in FSDP config and the gradient_checkpointing in training arg "
-                        "can't be set to True simultaneously. Please use FSDP's activation_checkpointing logic "
-                        "when using FSDP."
-                    )
-
-        if self.is_deepspeed_enabled and getattr(self.args, "hf_deepspeed_config", None) is None:
-            self.propagate_args_to_deepspeed()
-
-        # `save_only_model` can't be used with DeepSpeed/FSDP along with `load_best_model_at_end`
-        if (
-            self.args.save_only_model
-            and (self.is_deepspeed_enabled or self.is_fsdp_enabled)
-            and self.args.load_best_model_at_end
-        ):
-            wrapper = "DeepSpeed" if self.is_deepspeed_enabled else "FSDP"
-            raise ValueError(f"{wrapper} can't be used with `save_only_model` along with `load_best_model_at_end`.")
-
-        # `auto_find_batch_size` isn't supported yet with DeepSpeed Zero-3
-        if (
-            self.is_deepspeed_enabled
-            and self.accelerator.state.deepspeed_plugin.zero_stage == 3
-            and self.args.auto_find_batch_size
-        ):
-            raise ValueError(
-                "`auto_find_batch_size` isn't supported yet with DeepSpeed Zero-3. Please consider using Zero-2, Zero-1, or FSDP"
-            )
 
     @requires_torch_neuronx
     def synchronize_hub_cache(self):
@@ -285,20 +1674,16 @@ class _TrainerForNeuron:
                     f"compilation caching with the Hugging Face Hub. Error: {e}"
                 )
 
-    def _wrap_model(self, model, training=True, dataloader=None):
-        return super()._wrap_model(
-            self.accelerator.patch_model_for_neuron(model), training=training, dataloader=dataloader
-        )
-
     def _get_train_sampler(self) -> torch.utils.data.Sampler | None:
-        if self.mp_enabled:
-            if self.train_dataset is None or not has_length(self.train_dataset):
-                return None
+        if self.train_dataset is None or not has_length(self.train_dataset):
+            return None
 
+        if self.mp_enabled:
             if self.args.group_by_length:
                 raise ValueError("LengthGroupedSampler is currently not supported with model parallelism.")
 
             return torch.utils.data.RandomSampler(self.train_dataset)
+
         return super()._get_train_sampler()
 
     def _get_eval_sampler(self, eval_dataset: torch.utils.data.Dataset) -> torch.utils.data.Sampler | None:
@@ -465,7 +1850,7 @@ class _TrainerForNeuron:
                     # closures are added in a row (which can happen at the end of the training), then it will fail the
                     # second time because at this point we will have:
                     # self.state.global_step = self._globalstep_last_logged
-                    if is_main_worker_for_metrics() and self.state.global_step > self._globalstep_last_logged:
+                    if is_logging_process() and self.state.global_step > self._globalstep_last_logged:
                         logs: dict[str, float] = {}
                         tr_loss_scalar = reduced_tr_loss.to("cpu").item()
 
@@ -828,7 +2213,7 @@ class _TrainerForNeuron:
         self.state.is_local_process_zero = self.is_local_process_zero()
         # We need to change which process can be seen as "world process zero" to make sure the proper metrics
         # (eg.g loss) are logged and sent to the callbacks (for instance WandbCallback).
-        self.state.is_world_process_zero = is_main_worker_for_metrics()
+        self.state.is_world_process_zero = is_logging_process()
 
         tr_loss = torch.tensor(0.0).to(args.device)
         # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
@@ -1070,7 +2455,7 @@ class _TrainerForNeuron:
 
         self._memory_tracker.stop_and_update_metrics(metrics)
 
-        if is_main_worker_for_metrics():
+        if is_logging_process():
             self.log(metrics)
 
         run_dir = self._get_output_dir(trial)
@@ -1376,11 +2761,11 @@ class _TrainerForNeuron:
             self.synchronize_hub_cache()
         return result
 
-    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics_method))
+    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_logging_process_method))
     def save_metrics(self, split, metrics, combined=True):
         return super().save_metrics(split, metrics, combined=combined)
 
-    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics_method))
+    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_logging_process_method))
     def save_state(self):
         return super().save_state()
 
