@@ -48,7 +48,6 @@ limitations under the License.
 
 # Pipeline usage templates for different tasks
 PIPELINE_TEMPLATES = {
-
     "automatic-speech-recognition": """```python
 from transformers import AutoProcessor
 from optimum.neuron import {model_class}, pipeline
@@ -67,7 +66,6 @@ asr_pipeline = pipeline(
 result = asr_pipeline("https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/mlk.flac")
 print(result)
 ```""",
-
     "feature-extraction": """```python
 from transformers import AutoTokenizer
 from optimum.neuron import {model_class}, pipeline
@@ -82,7 +80,6 @@ text = "Hugging Face makes working with Transformers easy!"
 outputs = feature_pipeline(text)
 print(outputs)
 ```""",
-
     "text-classification": """```python
 from transformers import AutoTokenizer
 from optimum.neuron import {model_class}, pipeline
@@ -97,7 +94,6 @@ text = "Hugging Face makes working with Transformers easy!"
 outputs = classifier_pipeline(text)
 print(outputs)
 ```""",
-
     "token-classification": """```python
 from transformers import AutoTokenizer
 from optimum.neuron import {model_class}, pipeline
@@ -112,7 +108,6 @@ text = "Hugging Face is based in New York City."
 outputs = ner_pipeline(text)
 print(outputs)
 ```""",
-
     "question-answering": """```python
 from transformers import AutoTokenizer
 from optimum.neuron import {model_class}, pipeline
@@ -133,7 +128,6 @@ context = (
 output = qa_pipeline(question=question, context=context)
 print(output)
 ```""",
-
     "fill-mask": """```python
 from transformers import AutoTokenizer
 from optimum.neuron import {model_class}
@@ -194,7 +188,7 @@ neuron_model.push_to_hub(
 
 ## Usage Example
 
-To use the model that we just exported, there are two options. We can eithe use the {model_class} class or use the `Pipeline`. 
+To use the model that we just exported, there are two options. We can eithe use the {model_class} class or use the `Pipeline`.
 
 ### With {model_class}
 
@@ -337,6 +331,7 @@ def infer_task_for_model(model_id: str) -> str:
         logger.error(f"Failed to infer task for model {model_id}: {e}")
         task = "unknown"
     return task
+
 
 def get_pipeline_template(task: str, model_class: str, output_dir: str) -> str:
     """Get the pipeline usage template for a specific task with formatted variables."""
@@ -486,7 +481,9 @@ def generate_model_doc(
             output_dir=f"{model_name}_{task.replace('-', '_')}_neuronx",
             extra_shapes=extra_shapes,
             cli_args=cli_args,
-            pipeline_template=get_pipeline_template(task, model_class, f"{model_name}_{task.replace('-', '_')}_neuronx"),
+            pipeline_template=get_pipeline_template(
+                task, model_class, f"{model_name}_{task.replace('-', '_')}_neuronx"
+            ),
         ),
     ]
 
