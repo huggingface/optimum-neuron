@@ -1,4 +1,4 @@
-name: Optimum neuron / Test INF2 inference & pipelines
+name: Optimum neuron / Test INF2 transformers inference & pipelines
 
 on:
   push:
