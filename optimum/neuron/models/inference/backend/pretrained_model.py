@@ -288,7 +288,9 @@ class NxDPreTrainedModel:
         return model_sd
 
     @staticmethod
-    def convert_hf_to_neuron_state_dict(state_dict: dict, config: PretrainedConfig) -> dict:
+    def convert_hf_to_neuron_state_dict(
+        state_dict: dict, config: PretrainedConfig, neuron_config: NxDNeuronConfig
+    ) -> dict:
         """This function should be over-ridden in child classes as needed"""
         return state_dict
 
