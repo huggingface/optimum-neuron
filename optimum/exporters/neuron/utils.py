@@ -486,14 +486,14 @@ def get_submodels_for_export_diffusion(
             # apply optimized scaled_dot_product_attention
             sdpa_original = torch.nn.functional.scaled_dot_product_attention
 
-            def attention_wrapper(query, key, value, attn_mask=None, dropout_p=None, is_causal=None):
+            def attention_wrapper(query, key, value, attn_mask=None, dropout_p=None, scale=None, is_causal=None):
                 if attn_mask is not None:
                     return sdpa_original(
-                        query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal
+                        query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, scale=scale, is_causal=is_causal
                     )
                 else:
                     return neuron_scaled_dot_product_attention(
-                        query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal
+                        query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, scale=scale, is_causal=is_causal
                     )
 
             torch.nn.functional.scaled_dot_product_attention = attention_wrapper

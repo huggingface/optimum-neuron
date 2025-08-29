@@ -73,7 +73,7 @@ def get_attention_scores_sdxl(self, query, key, attn_mask):
     return attention_probs
 
 
-def neuron_scaled_dot_product_attention(query, key, value, attn_mask=None, dropout_p=None, is_causal=None):
+def neuron_scaled_dot_product_attention(query, key, value, attn_mask=None, dropout_p=None, scale=None, is_causal=None):
     orig_shape = None
     if len(query.shape) == 4:
         orig_shape = query.shape
@@ -82,7 +82,8 @@ def neuron_scaled_dot_product_attention(query, key, value, attn_mask=None, dropo
             return x.reshape(-1, x.shape[2], x.shape[3])
 
         query, key, value = map(to3d, [query, key, value])
-    attention_scores = torch.bmm(key, query.transpose(-1, -2)) * (1 / math.sqrt(query.size(-1)))
+    scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
+    attention_scores = torch.bmm(key, query.transpose(-1, -2)) * scale_factor
     attention_probs = attention_scores.softmax(dim=1)
     if query.size() == key.size():
         attention_probs = attention_probs.permute(0, 2, 1)
