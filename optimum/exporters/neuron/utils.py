@@ -493,7 +493,7 @@ def get_submodels_for_export_diffusion(
                     )
                 else:
                     return neuron_scaled_dot_product_attention(
-                        query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, scale=scale, is_causal=is_causal
+                        query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal
                     )
 
             torch.nn.functional.scaled_dot_product_attention = attention_wrapper
