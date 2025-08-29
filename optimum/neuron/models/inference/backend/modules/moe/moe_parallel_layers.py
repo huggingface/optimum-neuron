@@ -89,9 +89,8 @@ class ExpertFusedLinearWithAsyncCommunication(torch.autograd.Function):
         output = torch.einsum("e...h,ehi->e...i", input, weight)
 
         if bias is not None:
-            # Bias needs to be broadcast to the same shape as output
-            bias = bias.reshape(bias.shape[0], 1, 1, bias.shape[-1])
-            output += bias
+            # Bias needs to be broadcast to the same shape as output.
+            output += bias[..., None, :]
 
         # output: (E, ..., I)
         return output
