@@ -1,4 +1,4 @@
-name: Optimum neuron / Test INF2 diffusers inference
+name: Optimum neuron / Test INF2 Diffusers
 
 on:
   push:
@@ -42,7 +42,7 @@ jobs:
       - name: Run pixart tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/inference/diffusers/test_flux.py
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/inference/diffusers/test_pixart.py
       - name: Run flux tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
