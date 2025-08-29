@@ -35,11 +35,15 @@ jobs:
         uses: ./.github/actions/prepare_venv
       - name: Install optimum-neuron
         uses: ./.github/actions/install_optimum_neuron
-      - name: Run diffusers inference tests - w/. nxd
+      - name: Run stable diffusion tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/inference/diffusers/test_stable_diffusion.py
+      - name: Run pixart tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/inference/diffusers/test_flux.py
+      - name: Run flux tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/inference/diffusers/test_flux.py --forked -q
-      - name: Run diffusers inference tests - w/o nxd
-        run: |
-          source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/inference/diffusers --ignore=tests/inference/diffusers/test_flux.py
