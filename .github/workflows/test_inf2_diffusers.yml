@@ -38,7 +38,7 @@ jobs:
       - name: Run diffusers inference tests - w/. nxd
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/inference/diffusers --forked -q
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/inference/diffusers/test_flux.py --forked -q
       - name: Run diffusers inference tests - w/o nxd
         run: |
           source aws_neuron_venv_pytorch/bin/activate

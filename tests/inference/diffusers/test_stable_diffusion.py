@@ -95,7 +95,7 @@ def test_sd_export_and_inference_non_dyn(neuron_stable_diffusion_num_img_per_pro
 @is_inferentia_test
 @requires_neuronx
 @require_diffusers
-@pytest.mark.skip(reason="Dynamic batching broken.")
+@pytest.mark.skip(reason="Dynamic batching of SD broken.")
 def test_sd_export_and_inference_dyn(neuron_stable_diffusion_dyn_path):
     neuron_pipeline = NeuronStableDiffusionPipeline(neuron_stable_diffusion_dyn_path)
 
