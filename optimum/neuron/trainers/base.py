@@ -13,54 +13,46 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import contextlib
-import functools
-from functools import partial
 import inspect
 import math
 import os
-import shutil
 import sys
-import time
-import warnings
-from typing import Any, Callable, Type, TYPE_CHECKING
+from functools import partial
+from typing import Any, Callable, Type
 
-import numpy as np
-from neuronx_distributed.pipeline import NxDPPModel
+import torch
+import torch.nn as nn
+import torch_xla.core.xla_model as xm
+from accelerate.utils import AutocastKwargs, DataLoaderConfiguration
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_data_parallel_replica_groups,
     get_data_parallel_size,
-    model_parallel_is_initialized,
     get_pipeline_model_parallel_rank,
-    get_pipeline_model_parallel_size,
 )
-import torch
-import torch.nn as nn
-from torch.utils._pytree import tree_map
-from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-import torch_xla.core.xla_model as xm
-import torch_xla.debug.metrics as met
-import torch_xla.runtime as xr
-from torch.utils.data import IterableDataset
-from accelerate import __version__ as accelerate_version
-from accelerate.utils import AutocastKwargs, DataLoaderConfiguration
 from neuronx_distributed.pipeline import NxDPPModel
 from packaging import version
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset, IterableDataset, RandomSampler
 from transformers import (
     PreTrainedModel,
     Trainer,
     TrainingArguments,
 )
-from transformers.training_args import OptimizerNames
-from transformers.debug_utils import DebugOption, DebugUnderflowOverflow
-from transformers.utils import is_datasets_available
 from transformers.data.data_collator import DataCollator, DataCollatorWithPadding, default_data_collator
-from transformers.tokenization_utils import PreTrainedTokenizerBase
-from transformers.image_processing_utils import BaseImageProcessor
 from transformers.feature_extraction_sequence_utils import SequenceFeatureExtractor
 from transformers.feature_extraction_utils import FeatureExtractionMixin
+from transformers.image_processing_utils import BaseImageProcessor
+from transformers.integrations import get_reporting_integration_callbacks
+from transformers.models.auto.modeling_auto import MODEL_MAPPING_NAMES
+from transformers.optimization import get_scheduler
 from transformers.processing_utils import ProcessorMixin
+from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
+from transformers.tokenization_utils import PreTrainedTokenizerBase
+from transformers.trainer import (
+    OPTIMIZER_NAME,
+    SCHEDULER_NAME,
+    TRAINER_STATE_NAME,
+    TRAINING_ARGS_NAME,
+)
 from transformers.trainer_callback import (
     CallbackHandler,
     DefaultFlowCallback,
@@ -71,72 +63,31 @@ from transformers.trainer_callback import (
     TrainerControl,
     TrainerState,
 )
-from transformers.integrations import hp_params, get_reporting_integration_callbacks
-from accelerate.data_loader import SeedableRandomSampler
-from transformers.modeling_utils import unwrap_model
-from transformers.trainer import (
-    OPTIMIZER_NAME,
-    SCHEDULER_NAME,
-    TRAINER_STATE_NAME,
-    TRAINING_ARGS_NAME,
-)
-from transformers.trainer_callback import TrainerState
 from transformers.trainer_pt_utils import (
     IterableDatasetShard,
-    get_parameter_names,
     LabelSmoother,
-    find_batch_size,
-    get_dataloader_sampler,
-    nested_concat,
-    nested_numpify,
-    reissue_pt_warnings,
+    get_parameter_names,
 )
-from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from transformers.trainer_utils import (
-    PREFIX_CHECKPOINT_DIR,
-    seed_worker,
-    get_last_checkpoint,
-    EvalLoopOutput,
-    RemoveColumnsCollator,
     EvalPrediction,
-    HPSearchBackend,
-    PredictionOutput,
-    SaveStrategy,
-    TrainOutput,
-    denumpify_detensorize,
+    RemoveColumnsCollator,
     has_length,
-    speed_metrics,
+    seed_worker,
 )
+from transformers.training_args import OptimizerNames
 from transformers.utils import (
-    WEIGHTS_NAME,
-    is_accelerate_available,
-    find_labels,
     can_return_loss,
+    find_labels,
+    is_datasets_available,
 )
-from transformers.optimization import get_scheduler
-from transformers.models.auto.modeling_auto import MODEL_MAPPING_NAMES, MODEL_FOR_CAUSAL_LM_MAPPING_NAMES
 
 from optimum.utils import logging
 
-from ..accelerate import NeuronAccelerator, NeuronDistributedType
-from ..cache.hub_cache import hub_neuronx_cache, synchronize_hub_cache
-from ..cache.training import patch_neuron_cc_wrapper
-from ..utils import (
-    patch_within_function,
-)
-from ..utils.cache_utils import (
-    get_hf_hub_cache_repos,
-    get_neuron_cache_path,
-)
+from ..accelerate import NeuronAccelerator
 from ..peft import NeuronPeftModel
-from ..utils.misc import is_main_worker, is_precompilation
-from ..utils.require_utils import requires_torch_neuronx
 from ..utils.training_utils import (
     get_model_param_count,
     is_logging_process,
-    is_logging_process_method,
-    patch_generation_mixin_to_neuron_generation_mixin,
-    skip_first_batches,
 )
 from .training_args import NeuronTrainingArguments
 
@@ -223,7 +174,7 @@ class NeuronTrainer:
         self.create_accelerator_and_postprocess()
 
         if self.args.use_liger_kernel:
-            raise RuntimeError(f"Liger kernel is not supported in NeuronTrainer.")
+            raise RuntimeError("Liger kernel is not supported in NeuronTrainer.")
 
         default_collator = (
             DataCollatorWithPadding(processing_class)
@@ -533,7 +484,7 @@ class NeuronTrainer:
                 )
 
         dataloader = DataLoader(dataset, **dataloader_params)
-        
+
         # The NeuronAccelerator will take care of preparing the dataloader, transforming the sampler for distributed
         # training.
         return self.accelerator.prepare_data_loader(dataloader, use_mp_device_loader=True)
@@ -902,18 +853,42 @@ class NeuronTrainer:
         self.optimizer.zero_grad()
         self.control = self.callback_handler.on_train_begin(args, self.state, self.control)
 
-        dtype = torch.bfloat16 if args.bf16 else torch.float32
-        self.loss = torch.tensor(0.0).to(dtype).to(xm.xla_device())
+        self.running_loss = torch.zeros(1, dtype=torch.double, device=xm.xla_device())
         self.grad_norm = None
+        xm.mark_step()
 
-    def train_step(self, model: nn.Module, inputs: dict[str, Any]) -> torch.Tensor:
+    def get_batch_samples(self, epoch_iterator, num_batches) -> tuple[list[dict[str, Any]], int | torch.Tensor | None]:
+        batch_samples = []
+        num_items_in_batch = None
+
+        for _ in range(num_batches):
+            try:
+                batch_samples.append(next(epoch_iterator))
+            except StopIteration:
+                break
+
+        count_num_items_in_batch = (
+            len(batch_samples) > 0
+            and "labels" in batch_samples[0]
+            and self.model_accepts_loss_kwargs
+        )
+
+        if count_num_items_in_batch:
+            # For now we don't support object detection
+            try:
+                num_items_in_batch = sum([(batch["labels"].ne(-100)).sum() for batch in batch_samples])
+            except (TypeError, AttributeError):
+                pass
+
+        # At this point num_items_in_batch is on the host if it's a tensor so calling `.item()` will not trigger
+        # compilation.
+        if isinstance(num_items_in_batch, torch.Tensor):
+            num_items_in_batch = num_items_in_batch.item()
+
+        return batch_samples, num_items_in_batch
+
+    def train_step(self, model: nn.Module, inputs: dict[str, Any], num_items_in_batch: int | torch.Tensor | None  = None) -> torch.Tensor:
         manager = self.autocast_smart_context_manager()
-        pp_size = self.trn_config.pipeline_parallel_size
-
-        # We need to move the inputs to the device only if we are not using pipeline parallelism because the
-        # NxDPPModel class handles the device placement of the inputs.
-        if pp_size == 1:
-            inputs = tree_map(lambda t: t.to(xm.xla_device()) if isinstance(t, torch.Tensor) else t, inputs)
 
         if isinstance(model, NxDPPModel):
             with manager:
@@ -925,7 +900,7 @@ class NeuronTrainer:
                 dtype = torch.bfloat16 if self.args.bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
         else:
-            if self.model_accepts_loss_kwargs and "labels" in inputs:
+            if num_items_in_batch is not None:
                 inputs = dict(**inputs, reduction="sum")
 
             with manager:
@@ -938,6 +913,15 @@ class NeuronTrainer:
                 )
             # We don't use .loss here since the model may return tuples instead of ModelOutput.
             loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+
+            if num_items_in_batch is not None:
+                loss = loss / num_items_in_batch
+            else:
+                loss = loss / self.args.gradient_accumulation_steps
+
+            # Backward pass
+            self.accelerator.backward(loss)
+
         return loss
 
     def _get_last_learning_rate(self):
@@ -954,47 +938,44 @@ class NeuronTrainer:
     def maybe_log_train_step_metrics(self):
         if self.global_step_last_logged >= self.state.global_step:
             return
+
         if self.control.should_log:
-            dp_size = self.trn_config.data_parallel_size
-            tr_loss_div = self.loss / dp_size
-            reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_replica_groups())
-            reduced_tr_loss = reduced_tr_loss.detach()
-            self.loss.zero_()
-
             xm.mark_step()
+            running_loss_div = self.running_loss / self.dp_size
+            reduced_loss = xm.all_reduce(xm.REDUCE_SUM, running_loss_div, groups=get_data_parallel_replica_groups())
+            reduced_loss = reduced_loss.detach()
+            self.running_loss.zero_()
 
-            def log_closure(self, reduced_tr_loss, grad_norm):
+            def log_closure():
                 # We need to check that self.state.global_step > self._globalstep_last_logged because if two
                 # closures are added in a row (which can happen at the end of the training), then it will fail the
                 # second time because at this point we will have:
                 # self.state.global_step = self._globalstep_last_logged
                 if is_logging_process() and self.state.global_step > self.global_step_last_logged:
                     logs: dict[str, float] = {}
-                    tr_loss_scalar = reduced_tr_loss.to("cpu").item()
 
-                    logs["loss"] = round(
-                        tr_loss_scalar / (self.state.global_step - self.global_step_last_logged), 4
-                    )
+                    loss_scalar = reduced_loss.to("cpu").item()
+                    logs["loss"] = round(loss_scalar / (self.state.global_step - self.global_step_last_logged), 4)
                     logs["learning_rate"] = self._get_last_learning_rate()
 
-                    if grad_norm is not None:
+                    if self.grad_norm is not None:
                         logs["grad_norm"] = (
-                            grad_norm.detach().to("cpu").item()
-                            if isinstance(grad_norm, torch.Tensor)
-                            else grad_norm
+                            self.grad_norm.detach().to("cpu").item()
+                            if isinstance(self.grad_norm, torch.Tensor)
+                            else self.grad_norm
                         )
                     self.log(logs)
 
                 self.global_step_last_logged = self.state.global_step
 
-            xm.add_step_closure(log_closure, (self, reduced_tr_loss, self.grad_norm))
+            xm.add_step_closure(log_closure)
 
     def maybe_save_checkpoint(self):
         if self.control.should_save:
             xm.mark_step()
 
-            def save_closure(self, model):
-                self._save_checkpoint(model)
+            def save_closure(self):
+                self._save_checkpoint(self.model)
                 self.control = self.callback_handler.on_save(self.args, self.state, self.control)
 
             xm.add_step_closure(save_closure, (self,))
@@ -1008,7 +989,7 @@ class NeuronTrainer:
             raise ValueError("`resume_from_checkpoint` is not supported by the NeuronTrainer.")
 
         args = self.args
-        
+
         # TODO: what's the purpose of this method?
         self.accelerator.free_memory()
 
@@ -1030,7 +1011,7 @@ class NeuronTrainer:
 
         for epoch in range(num_train_epochs):
             steps_in_epoch = (
-                len_dataloader 
+                len_dataloader
                 if len_dataloader is not None
                 else args.max_steps * args.gradient_accumulation_steps
             )
@@ -1040,116 +1021,103 @@ class NeuronTrainer:
             step = -1
             epoch_iterator = iter(train_dataloader)
 
-            num_items_in_batch = 0
-            num_items_in_batch_acc = 0
+            remainder = steps_in_epoch % args.gradient_accumulation_steps
+            if remainder == 0:
+                remainder = args.gradient_accumulation_steps
+            update_step = -1
 
-            for step, inputs in enumerate(epoch_iterator):
-                xm.mark_step()
-                do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (
-                    step + 1
-                ) == steps_in_epoch  # Since we perform prefetching, we need to manually set sync_gradients
+            total_updates = steps_in_epoch // args.gradient_accumulation_steps + int(
+                remainder < args.gradient_accumulation_steps
+            )
 
-                for name in inputs:
-                    inputs[name] = inputs[name].squeeze(0)
-
-                if self.model_accepts_loss_kwargs and "labels" in inputs:
-                    num_items_in_current_batch = inputs["labels"].ne(-100).sum()
-                    num_items_in_batch_acc += num_items_in_current_batch
-
-                if not do_sync_step:
-                    self.accelerator.gradient_state.sync_gradients = False
-                else:
-                    self.accelerator.gradient_state.sync_gradients = True
-
-                # TODO: when implementing metrics, save this information.
-                main_input_name = getattr(self.model, "main_input_name", "input_ids")
-                if main_input_name in inputs:
-                    input_tokens = inputs[main_input_name].numel()
-                    input_tokens = torch.tensor(input_tokens, device=self.args.device, dtype=torch.int64)
-
-                if step % args.gradient_accumulation_steps == 0:
-                    self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
-
-                # We accumulate the number of items in the batch over gradient accumulation steps.
-                if self.model_accepts_loss_kwargs and "labels" in inputs:
-                    if do_sync_step:
-                        num_items_in_batch = num_items_in_batch_acc 
-                        num_items_in_batch_acc = 0
-                    else:
-                        num_items_in_batch = 1
-                else:
-                    num_items_in_batch = None
-
-                loss_step = self.train_step(self.model, inputs)
-
-                # If we can compute the number of items in the batch, we use it to normalize the loss.
-                # Otherwise, we divide by gradient_accumulation_steps.
-                if num_items_in_batch is None:
-                    # Here the loss reduction is "sum" so we need to normalize by the number of items in the batch.
-                    loss_step = loss_step / num_items_in_batch
-                else:
-                    # In this case loss reduction is "mean" so we just need to devide by gradient_accumulation_steps.
-                    loss_step = loss_step / self.args.gradient_accumulation_steps
-
-                self.loss += loss_step
-
-                if do_sync_step:
+            for _ in range(total_updates):
+                num_batches = args.gradient_accumulation_steps if update_step != (total_updates - 1) else remainder
+                batch_samples, num_items_in_batch = self.get_batch_samples(
+                    epoch_iterator, num_batches
+                )
+                for inputs in batch_samples:
                     xm.mark_step()
-                    # Gradient clipping
-                    if args.max_grad_norm is not None and args.max_grad_norm > 0:
-                        parameters = (
-                            self.model.local_parameters() if isinstance(self.model, NxDPPModel) else self.model.parameters()
-                        )
-                        self.accelerator.clip_grad_norm_(
-                            parameters,
-                            args.max_grad_norm,
-                            postpone_clipping_to_optimizer_step=True,
-                        )
+                    step += 1
+                    do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (
+                        step + 1
+                    ) == steps_in_epoch  # Since we perform prefetching, we need to manually set sync_gradients
 
-                    self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
 
-                    self.optimizer.step()
-                    self.grad_norm = self.optimizer.grad_norm
+                    # TODO: to remove!!
+                    for name in inputs:
+                        inputs[name] = inputs[name].squeeze(0)
 
-                    self.control = self.callback_handler.on_optimizer_step(args, self.state, self.control)
+                    # TODO: when implementing metrics, save this information.
+                    # main_input_name = getattr(self.model, "main_input_name", "input_ids")
+                    # if main_input_name in inputs:
+                    #     input_tokens = inputs[main_input_name].numel()
+                    #     input_tokens = torch.tensor(input_tokens, device=self.args.device, dtype=torch.int64)
 
-                    # Delay optimizer scheduling until metrics are generated
-                    if not isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                        self.lr_scheduler.step()
+                    if step % args.gradient_accumulation_steps == 0:
+                        self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
-                    self.optimizer.zero_grad()
+                    loss_step = self.train_step(self.model, inputs, num_items_in_batch=num_items_in_batch)
+                    self.running_loss += loss_step.detach()
 
-                    self.state.global_step += 1
-                    self.state.epoch = epoch + (step + 1) / steps_in_epoch
-                    self.control = self.callback_handler.on_step_end(args, self.state, self.control)
-                else:
-                    self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
+                    if do_sync_step:
+                        self.accelerator.gradient_state.sync_gradients = True
+                        xm.mark_step()
+                        # Gradient clipping
+                        if args.max_grad_norm is not None and args.max_grad_norm > 0:
+                            parameters = (
+                                self.model.local_parameters() if isinstance(self.model, NxDPPModel) else self.model.parameters()
+                            )
+                            self.accelerator.clip_grad_norm_(
+                                parameters,
+                                args.max_grad_norm,
+                                postpone_clipping_to_optimizer_step=True,
+                            )
 
-                self.maybe_log_train_step_metrics()
-                self.maybe_save_checkpoint()
+                        self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
 
+                        self.optimizer.step()
+                        self.grad_norm = self.optimizer.grad_norm
+
+                        self.control = self.callback_handler.on_optimizer_step(args, self.state, self.control)
+
+                        # Delay optimizer scheduling until metrics are generated
+                        if not isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                            self.lr_scheduler.step()
+
+                        self.optimizer.zero_grad()
+
+                        self.state.global_step += 1
+                        self.state.epoch = epoch + (step + 1) / steps_in_epoch
+                        self.control = self.callback_handler.on_step_end(args, self.state, self.control)
+                    else:
+                        self.accelerator.gradient_state.sync_gradients = False
+                        self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
+
+                    self.maybe_log_train_step_metrics()
+                    self.maybe_save_checkpoint()
+
+                    if self.control.should_epoch_stop or self.control.should_training_stop:
+                        # PyTorch/XLA relies on the data loader to insert the mark_step for
+                        # each step. Since we are breaking the loop early, we need to manually
+                        # insert the mark_step here.
+                        xm.mark_step()
+                        break
+
+                # We also need to break out of the nested loop
                 if self.control.should_epoch_stop or self.control.should_training_stop:
-                    # PyTorch/XLA relies on the data loader to insert the mark_step for
-                    # each step. Since we are breaking the loop early, we need to manually
-                    # insert the mark_step here.
                     xm.mark_step()
                     break
 
-            # We also need to break out of the nested loop
-            if self.control.should_epoch_stop or self.control.should_training_stop:
+                if step < 0:
+                    logger.warning(
+                        "There seems to be not a single sample in your epoch_iterator, stopping training at step"
+                        f" {self.state.global_step}! This is expected if you're using an IterableDataset and set"
+                        f" num_steps ({max_steps}) higher than the number of available samples."
+                    )
+                    self.control.should_training_stop = True
+
+                self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
                 xm.mark_step()
-                break
-
-            if step < 0:
-                logger.warning(
-                    "There seems to be not a single sample in your epoch_iterator, stopping training at step"
-                    f" {self.state.global_step}! This is expected if you're using an IterableDataset and set"
-                    f" num_steps ({max_steps}) higher than the number of available samples."
-                )
-                self.control.should_training_stop = True
-
-            self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-            xm.mark_step()
 
         logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
         self.control = self.callback_handler.on_train_end(args, self.state, self.control)
@@ -1159,7 +1127,7 @@ class NeuronTrainer:
         Whether or not this process is the local (e.g., on one machine if training in a distributed fashion on several
         machines) main process.
         """
-        return self.args.local_process_index == 0 
+        return self.args.local_process_index == 0
 
     def is_world_process_zero(self) -> bool:
         """

@@ -191,7 +191,6 @@ def fixed_cross_entropy(source, target, reduction: str = "mean", ignore_index: i
         loss_function = parallel_cross_entropy
     else:
         loss_function = nn.functional.cross_entropy
-    print("Reduction:", reduction)
     loss = loss_function(source, target, ignore_index=ignore_index, reduction=reduction)
     return loss
 

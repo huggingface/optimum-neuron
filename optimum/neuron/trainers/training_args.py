@@ -13,32 +13,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import math
 import json
-from contextlib import contextmanager
+import math
+import os
 from dataclasses import dataclass, field, fields
-from typing import Any
 from enum import Enum
+from typing import Any
 
 import torch
 import torch_xla.core.xla_model as xm
-
+from transformers.trainer_pt_utils import AcceleratorConfig
 from transformers.trainer_utils import (
-    get_last_checkpoint,
-    EvaluationStrategy,
-    FSDPOption,
     HubStrategy,
     IntervalStrategy,
     SaveStrategy,
     SchedulerType,
+    get_last_checkpoint,
 )
-from transformers.trainer_pt_utils import AcceleratorConfig
-from transformers.training_args import trainer_log_levels, OptimizerNames, default_logdir, _convert_str_dict
-from transformers.training_args_seq2seq import Seq2SeqTrainingArguments
+from transformers.training_args import OptimizerNames, _convert_str_dict, default_logdir, trainer_log_levels
 from transformers.utils import (
     cached_property,
-    is_sagemaker_mp_enabled,
 )
 
 from ...utils import logging
@@ -46,8 +40,6 @@ from ..accelerate import NeuronAcceleratorState, NeuronPartialState
 from ..accelerate.utils import patch_accelerate_is_torch_xla_available
 from ..models.training.config import TrainingNeuronConfig
 from ..utils import is_main_worker
-from ..utils.patching import Patcher, patch_within_function
-from ..utils.torch_xla_and_neuronx_initialization import set_neuron_cc_optlevel
 from ..utils.training_utils import is_logging_process
 
 

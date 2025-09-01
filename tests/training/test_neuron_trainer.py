@@ -13,25 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datasets
 import pytest
-
 import torch
-import torch_xla.core.xla_model as xm
 from neuronx_distributed.parallel_layers.parallel_state import (
-    get_kv_shared_group,
-    get_pipeline_model_parallel_rank,
     get_pipeline_model_parallel_size,
-    get_tensor_model_parallel_group,
     get_tensor_model_parallel_size,
 )
-
-import datasets
 from transformers import AutoTokenizer
 
-from optimum.neuron import NeuronTrainingArguments, NeuronTrainer
+from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.models.training import NeuronModelForCausalLM
 
-from ..distributed_utils import distributed_test, run_distributed_test
+from ..distributed_utils import distributed_test
 
 
 TINY_MODEL_NAME = "michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random"
@@ -102,7 +96,7 @@ def test_autocast_smart_context_manager_no_autocast(train_dataset, tmpdir):
 
     with trainer.autocast_smart_context_manager():
         outputs = model(**inputs)
-    
+
     assert outputs.logits.dtype is torch.float32, f"Expected logits to be float32, got {outputs.logits.dtype}"
 
 @distributed_test(
@@ -137,7 +131,7 @@ def test_autocast_smart_context_manager_enabled(train_dataset, tmpdir):
 
     with trainer.autocast_smart_context_manager():
         outputs = model(**inputs)
-    
+
     assert outputs.logits.dtype is torch.bfloat16, f"Expected logits to be bfloat16, got {outputs.logits.dtype}"
 
 

@@ -52,7 +52,7 @@ from ..utils import (
     Patcher,
     patch_within_function,
 )
-from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
+from ..utils.misc import args_and_kwargs_to_kwargs_only
 from ..utils.training_utils import is_custom_modeling_model, is_logging_process
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
@@ -144,7 +144,7 @@ class NeuronAccelerator(Accelerator):
             super().__init__(**full_kwargs)
 
         self.zero_1 = zero_1
-        
+
         if self.autocast_handler is None:
             enabled = self.state.mixed_precision == "bf16"
             self.autocast_handler = AutocastKwargs(enabled=enabled)
@@ -223,7 +223,7 @@ class NeuronAccelerator(Accelerator):
             )
             # No need to wrap the dataloader if we are using pipeline parallelism.
             if use_mp_device_loader and self.state.trn_config.pipeline_parallel_size == 1:
-                data_loader = MpDeviceLoader(data_loader, self.device)
+                data_loader = MpDeviceLoader(data_loader, self.device, batches_per_execution=8)
         return data_loader
 
     def _prepare_optimizer_for_zero_1(self, optimizer: torch.optim.Optimizer, device_placement=None):
@@ -290,9 +290,9 @@ class NeuronAccelerator(Accelerator):
         return model
 
     def prepare_model(
-        self, 
-        model: torch.nn.Module, 
-        device_placement: bool | None = None, 
+        self,
+        model: torch.nn.Module,
+        device_placement: bool | None = None,
         evaluation_mode: bool = False,
         full_bf16: bool = False,
     ):

@@ -41,7 +41,7 @@ from ..utils import (
     is_trl_available,
 )
 from ..utils.import_utils import is_peft_available
-from .base import TRL_VERSION, _TrainerForNeuron
+from .base import TRL_VERSION, NeuronTrainer
 
 
 if is_trl_available():
@@ -61,7 +61,7 @@ class _ORPOTrainerInit(ORPOTrainer):
         return Trainer.__init__(self, *args, **kwargs)
 
 
-class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
+class NeuronORPOTrainer(NeuronTrainer, _ORPOTrainerInit):
     def __init__(
         self,
         model: PreTrainedModel | nn.Module | str | None = None,

@@ -43,7 +43,7 @@ from ..utils import (
     is_trl_available,
 )
 from ..utils.import_utils import is_peft_available
-from .base import TRL_VERSION, _TrainerForNeuron
+from .base import TRL_VERSION, NeuronTrainer
 from .trl_utils import NeuronSFTConfig
 
 
@@ -71,7 +71,7 @@ class _SFTTrainerTrainerInit(SFTTrainer):
         return Trainer.__init__(self, *args, **kwargs)
 
 
-class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
+class NeuronSFTTrainer(NeuronTrainer, _SFTTrainerTrainerInit):
     """
     `SFTTrainer` adapted for Neuron.
 
@@ -340,7 +340,7 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
                 if callback.__class__.__name__ == "PrinterCallback":
                     self.callback_handler.pop_callback(callback)
 
-    @wraps(_TrainerForNeuron.train)
+    @wraps(NeuronTrainer.train)
     def train(self, *args, **kwargs):
         # Activate neftune right before training.
         if self.neftune_noise_alpha is not None and not self._trainer_supports_neftune:
