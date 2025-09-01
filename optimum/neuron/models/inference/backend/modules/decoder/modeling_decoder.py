@@ -86,7 +86,6 @@ class NxDDecoderModel(nn.Module):
         self.n_positions = neuron_config.sequence_length
         self.vocab_size = config.vocab_size
         self.speculation_length = neuron_config.speculation_length
-        self.padding_side = neuron_config.padding_side
         self.max_length = neuron_config.sequence_length
         self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
         self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
@@ -129,16 +128,7 @@ class NxDDecoderModel(nn.Module):
         # Lower triangle causal mask for classic attention
         mask = torch.full((self.n_positions, self.n_positions), True, device=attention_mask.device).tril(diagonal=0)
         mask = mask[None, None, :, :].expand(self.batch_size, 1, self.n_positions, self.n_positions)
-
-        if self.padding_side == "right":
-            return mask
-        else:
-            expanded_mask = (
-                attention_mask[:, None, None, :]
-                .expand(self.batch_size, 1, self.n_positions, self.n_positions)
-                .to(torch.bool)
-            )
-            return torch.logical_and(mask, expanded_mask)
+        return mask
 
     def _create_chunked_prefill_attn_mask(
         self,
@@ -171,8 +161,8 @@ class NxDDecoderModel(nn.Module):
     def _slice_kv_cache(self, kv_cache, n_positions):
         past_key_values = []
         for idx in range(len(kv_cache)):
-            k_cache = _slice_kv_cacheline(self.neuron_config.padding_side, n_positions, kv_cache[idx][0])
-            v_cache = _slice_kv_cacheline(self.neuron_config.padding_side, n_positions, kv_cache[idx][1])
+            k_cache = _slice_kv_cacheline(n_positions, kv_cache[idx][0])
+            v_cache = _slice_kv_cacheline(n_positions, kv_cache[idx][1])
             past_key_values.append([k_cache, v_cache])
         return past_key_values
 
@@ -260,16 +250,11 @@ class NxDDecoderModel(nn.Module):
         )
 
         batch_size, num_tokens, hidden_size = hidden_states.shape
-        if self.padding_side == "left":
-            index = torch.tensor([num_tokens - 1], device=hidden_states.device)
+        if not (position_ids.shape[-1] == self.speculation_length or position_ids.shape[-1] == 1):
+            # context encoding
+            index = torch.max(position_ids, dim=1, keepdim=True).indices
             index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
             hidden_states = torch.gather(hidden_states, dim=1, index=index)
-        else:
-            if not (position_ids.shape[-1] == self.speculation_length or position_ids.shape[-1] == 1):
-                # context encoding
-                index = torch.max(position_ids, dim=1, keepdim=True).indices
-                index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
-                hidden_states = torch.gather(hidden_states, dim=1, index=index)
 
         logits = self.lm_head(hidden_states)
         logits = logits.float()
@@ -420,7 +405,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
 
         self.text_config = self.config.get_text_config()
         self.vocab_size = self.text_config.vocab_size
-        self.padding_side = self.neuron_config.padding_side
         self.kv_cache_populated = False
 
         # async related

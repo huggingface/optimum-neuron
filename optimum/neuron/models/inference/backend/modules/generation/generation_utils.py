@@ -258,17 +258,11 @@ class NxDGenerationMixin(GenerationMixin):
         if "attention_mask" in model_kwargs:
             attention_mask = model_kwargs["attention_mask"]
             if is_for_token_generation:
-                if self.neuron_config.padding_side == "left":
-                    attention_mask = torch.cat(
-                        [attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))],
-                        dim=-1,
-                    )
-                    attention_mask = attention_mask[:, 1:]
-                else:
-                    attention_mask = torch.cat(
-                        [attention_mask.new_ones((attention_mask.shape[0], 1)), attention_mask],
-                        dim=-1,
-                    )
+                # Prepend 1 to the attention mask (inputs are right padded)
+                attention_mask = torch.cat(
+                    [attention_mask.new_ones((attention_mask.shape[0], 1)), attention_mask],
+                    dim=-1,
+                )
             model_kwargs["attention_mask"] = attention_mask
         return model_kwargs
 

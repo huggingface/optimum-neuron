@@ -68,7 +68,6 @@ class NxDNeuronConfig(NeuronConfig):
         n_active_tokens: int | None = None,
         max_context_length: int | None = None,
         output_logits: bool | None = False,
-        padding_side: str | None = "right",
         fused_qkv: bool | None = False,
         vocab_parallel: bool | None = False,
         sequence_parallel_enabled: bool | None = False,
@@ -114,8 +113,6 @@ class NxDNeuronConfig(NeuronConfig):
             self.torch_dtype = DTYPE_MAPPER.pt(self.torch_dtype)
         self.n_active_tokens = self.sequence_length if n_active_tokens is None else n_active_tokens
         self.output_logits = output_logits
-
-        self.padding_side = padding_side
 
         self.rpl_reduce_dtype = torch_dtype if rpl_reduce_dtype is None else rpl_reduce_dtype
         if isinstance(self.rpl_reduce_dtype, str):
