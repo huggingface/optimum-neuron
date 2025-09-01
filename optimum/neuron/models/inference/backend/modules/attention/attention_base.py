@@ -94,7 +94,6 @@ class NeuronAttentionBase(nn.Module):
             self.tensor_model_parallel_group = nxd.parallel_layers.parallel_state.get_tensor_model_parallel_group()
             self.rank_util = SPMDRank(world_size=self.tensor_model_parallel_group.size())
 
-        self.is_causal = True
         self.hidden_size = config.hidden_size
         self.num_attention_heads = config.num_attention_heads
         self.num_key_value_heads = config.num_key_value_heads
