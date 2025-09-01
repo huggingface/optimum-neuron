@@ -127,8 +127,6 @@ class NxDNeuronConfig(NeuronConfig):
         self.is_chunked_prefill = is_chunked_prefill
 
         # Continuous batching
-        # TODO: Check if we really need different batch size for CTE and TKG, given
-        # that we anyway provide two different config instance for them.
         self.continuous_batching = continuous_batching
         self.max_batch_size = batch_size if max_batch_size is None else max_batch_size
 
