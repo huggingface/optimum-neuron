@@ -109,7 +109,6 @@ class NeuronAttentionBase(nn.Module):
         self.rms_norm_eps = config.rms_norm_eps
         self.tp_degree = neuron_config.tp_degree
         self.fused_qkv = neuron_config.fused_qkv
-        self.clip_qkv = None
         self._qk_scale = qk_scale
 
         self.o_proj_layer_name = "o_proj"
@@ -126,7 +125,6 @@ class NeuronAttentionBase(nn.Module):
             bias=qkv_proj_bias,
             gather_output=False,
             fused_qkv=self.fused_qkv,
-            clip_qkv=self.clip_qkv,
             sequence_parallel_enabled=self.sequence_parallel_enabled,
             sequence_dimension=self.sequence_dimension,
             tensor_model_parallel_group=self.tensor_model_parallel_group,
