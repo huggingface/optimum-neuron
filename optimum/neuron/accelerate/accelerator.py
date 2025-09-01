@@ -199,6 +199,7 @@ class NeuronAccelerator(Accelerator):
         device_placement: bool | None = None,
         slice_fn_for_dispatch: Callable | None = None,
         use_mp_device_loader: bool = False,
+        batches_per_execution: int = 1,
     ):
         if slice_fn_for_dispatch is not None:
             raise NotImplementedError(
@@ -223,7 +224,7 @@ class NeuronAccelerator(Accelerator):
             )
             # No need to wrap the dataloader if we are using pipeline parallelism.
             if use_mp_device_loader and self.state.trn_config.pipeline_parallel_size == 1:
-                data_loader = MpDeviceLoader(data_loader, self.device, batches_per_execution=8)
+                data_loader = MpDeviceLoader(data_loader, self.device, batches_per_execution=batches_per_execution, loader_prefetch_size=2 * batches_per_execution, device_prefetch_size=batches_per_execution)
         return data_loader
 
     def _prepare_optimizer_for_zero_1(self, optimizer: torch.optim.Optimizer, device_placement=None):

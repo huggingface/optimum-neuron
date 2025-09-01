@@ -16,8 +16,10 @@
 import inspect
 import math
 import os
+import re
 import sys
 from functools import partial
+from pathlib import Path
 from typing import Any, Callable, Type
 
 import torch
@@ -69,6 +71,7 @@ from transformers.trainer_pt_utils import (
     get_parameter_names,
 )
 from transformers.trainer_utils import (
+    PREFIX_CHECKPOINT_DIR,
     EvalPrediction,
     RemoveColumnsCollator,
     has_length,
@@ -83,8 +86,15 @@ from transformers.utils import (
 
 from optimum.utils import logging
 
-from ..accelerate import NeuronAccelerator
+from ..accelerate import NeuronAccelerator, NeuronDistributedType
+from ..cache.hub_cache import hub_neuronx_cache
+from ..cache.training import patch_neuron_cc_wrapper
 from ..peft import NeuronPeftModel
+from ..utils.cache_utils import (
+    get_neuron_cache_path,
+)
+from ..utils.import_utils import is_peft_available
+from ..utils.misc import is_main_worker, is_precompilation
 from ..utils.training_utils import (
     get_model_param_count,
     is_logging_process,
@@ -487,7 +497,7 @@ class NeuronTrainer:
 
         # The NeuronAccelerator will take care of preparing the dataloader, transforming the sampler for distributed
         # training.
-        return self.accelerator.prepare_data_loader(dataloader, use_mp_device_loader=True)
+        return self.accelerator.prepare_data_loader(dataloader, use_mp_device_loader=False, batches_per_execution=self.args.gradient_accumulation_steps)
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -975,7 +985,7 @@ class NeuronTrainer:
             xm.mark_step()
 
             def save_closure(self):
-                self._save_checkpoint(self.model)
+                self._save_checkpoint()
                 self.control = self.callback_handler.on_save(self.args, self.state, self.control)
 
             xm.add_step_closure(save_closure, (self,))
@@ -1035,6 +1045,12 @@ class NeuronTrainer:
                 batch_samples, num_items_in_batch = self.get_batch_samples(
                     epoch_iterator, num_batches
                 )
+                for i, batch in enumerate(batch_samples):
+                    batch = {k: v.to(xm.xla_device()) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+                    batch_samples[i] = batch
+
+                # batch_samples = XLAPrefetchIterator(batch_samples, prefetch_size=3)
+
                 for inputs in batch_samples:
                     xm.mark_step()
                     step += 1
@@ -1138,6 +1154,158 @@ class NeuronTrainer:
         # process index.
         return self.args.process_index == 0
 
-    def log(self, content: dict):
-        print("log", content)
+    def save_model(self, output_dir: str | None = None, _internal_call: bool = False):
+        if not is_precompilation():  # Avoid unnecessary model saving during precompilation
+            with patch_neuron_cc_wrapper():
+                with hub_neuronx_cache(cache_dir=get_neuron_cache_path()):
+                    if output_dir is None:
+                        output_dir = self.args.output_dir
 
+                    if is_main_worker():
+                        logger.info(f"Saving model checkpoint to {output_dir}")
+                        os.makedirs(output_dir, exist_ok=True)
+
+                        # First we save the training args.
+                        torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
+
+                    xm.rendezvous("saving_checkpoint")
+                    if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+                        # Case 1: model parallelism, we use the model's `save_pretrained` method which will save the sharded
+                        # state dict.
+                        logger.info(
+                            "Model parallelism is enabled, saving the model sharded state dict instead of the full state dict."
+                        )
+
+                        model_to_save = self.model.original_torch_module if isinstance(self.model, NxDPPModel) else self.model
+                        model_to_save.save_pretrained(
+                            output_dir,
+                            optimizer=self.optimizer if not self.args.save_only_model else None,
+                        )
+                    else:
+                        if is_peft_available():
+                            from peft import PeftModel
+                            supported_classes = (PreTrainedModel, PeftModel)
+                        else:
+                            supported_classes = (PreTrainedModel,)
+                        if isinstance(self.model, supported_classes):
+                            # Case 2: standard Hugging Face model
+                            self.model.save_pretrained(
+                                output_dir,
+                                is_main_process=self.args.should_save,
+                                save_function=xm.save,
+                            )
+                        else:
+                            raise RuntimeError(
+                                "NeuronTrainer.model is not a `PreTrainedModel`, saving this kind of model is not supported."
+                            )
+
+                    if self.processing_class is not None and self.args.should_save:
+                        self.processing_class.save_pretrained(output_dir)
+
+            # Push to the Hub when `save_model` is called by the user.
+            if self.args.push_to_hub and not _internal_call:
+                self.push_to_hub(commit_message="Model save")
+
+        else:
+            logger.info("Skipping trainer.save_model() while running under neuron_parallel_compile")
+
+    def log(self, logs: dict[str, float], start_time: float | None = None) -> None:
+        if self.state.epoch is not None:
+            logs["epoch"] = self.state.epoch
+        output = {**logs, **{"step": self.state.global_step}}
+        self.state.log_history.append(output)
+        self.control = self.callback_handler.on_log(self.args, self.state, self.control, logs)
+
+    def _save_checkpoint(self):
+        # Save model checkpoint
+        checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
+        output_dir = os.path.join(self.args.output_dir, checkpoint_folder)
+
+        if xm.is_master_ordinal():
+            os.makedirs(output_dir, exist_ok=True)
+
+        self.save_model(output_dir, _internal_call=True)
+
+        if not self.args.save_only_model:
+            # The optimizer state is saved in the shard alongside with the model parameters when doing model-parallelism.
+            if self.accelerator.distributed_type is not NeuronDistributedType.MODEL_PARALLELISM:
+                xm.rendezvous("saving_optimizer_states")
+                xm.save(self.optimizer.state_dict(), os.path.join(output_dir, OPTIMIZER_NAME))
+
+            xm.save(self.lr_scheduler.state_dict(), os.path.join(output_dir, SCHEDULER_NAME))
+
+        # Save the Trainer state
+        if self.args.should_save:
+            self.state.save_to_json(os.path.join(output_dir, TRAINER_STATE_NAME))
+
+        # A process can arrive here before the process 0 has a chance to save the model, in which case output_dir may
+        # not yet exist.
+        os.makedirs(output_dir, exist_ok=True)
+
+        if self.args.push_to_hub:
+            self._push_from_checkpoint(output_dir)
+
+        # Maybe delete some older checkpoints.
+        if self.args.should_save:
+            self._rotate_checkpoints(use_mtime=True, output_dir=self.args.output_dir)
+
+    def _sorted_checkpoints(
+        self, output_dir=None, checkpoint_prefix=PREFIX_CHECKPOINT_DIR, use_mtime=False
+    ) -> list[str]:
+        ordering_and_checkpoint_path = []
+
+        glob_checkpoints = [str(x) for x in Path(output_dir).glob(f"{checkpoint_prefix}-*") if os.path.isdir(x)]
+
+        for path in glob_checkpoints:
+            if use_mtime:
+                ordering_and_checkpoint_path.append((os.path.getmtime(path), path))
+            else:
+                regex_match = re.match(f".*{checkpoint_prefix}-([0-9]+)", path)
+                if regex_match is not None and regex_match.groups() is not None:
+                    ordering_and_checkpoint_path.append((int(regex_match.groups()[0]), path))
+
+        checkpoints_sorted = sorted(ordering_and_checkpoint_path)
+        # mtime is not reliable on all filesystems, especially on some fuse fs in cloud environments
+        # so we check if the mtime is fake and fallback to numerical ordering if needed
+        if use_mtime and len(ordering_and_checkpoint_path) > 1:
+            mtime_diff = checkpoints_sorted[-1][0] - checkpoints_sorted[0][0]
+            if mtime_diff < 1.0:  # less than 1 second, which is almost impossible when mtime works fine
+                logger.warning("mtime may not be reliable on this filesystem, falling back to numerical ordering")
+                return self._sorted_checkpoints(
+                    use_mtime=False, output_dir=output_dir, checkpoint_prefix=checkpoint_prefix
+                )
+        checkpoints_sorted = [checkpoint[1] for checkpoint in checkpoints_sorted]
+
+        # Make sure we don't delete the best model.
+        if (
+            self.state.best_model_checkpoint is not None
+            and str(Path(self.state.best_model_checkpoint)) in checkpoints_sorted
+        ):
+            best_model_index = checkpoints_sorted.index(str(Path(self.state.best_model_checkpoint)))
+            for i in range(best_model_index, len(checkpoints_sorted) - 2):
+                checkpoints_sorted[i], checkpoints_sorted[i + 1] = checkpoints_sorted[i + 1], checkpoints_sorted[i]
+        return checkpoints_sorted
+
+    def _rotate_checkpoints(self, use_mtime=False, output_dir=None) -> None:
+        if self.args.save_total_limit is None or self.args.save_total_limit <= 0:
+            return
+
+        # Check if we should delete older checkpoint(s)
+        checkpoints_sorted = self._sorted_checkpoints(use_mtime=use_mtime, output_dir=output_dir)
+        if len(checkpoints_sorted) <= self.args.save_total_limit:
+            return
+
+        # If save_total_limit=1 with load_best_model_at_end=True, we could end up deleting the last checkpoint, which
+        # we don't do to allow resuming.
+        save_total_limit = self.args.save_total_limit
+        if (
+            self.state.best_model_checkpoint is not None
+            and self.args.save_total_limit == 1
+            and checkpoints_sorted[-1] != self.state.best_model_checkpoint
+        ):
+            save_total_limit = 2
+
+        number_of_checkpoints_to_delete = max(0, len(checkpoints_sorted) - save_total_limit)
+        checkpoints_to_be_deleted = checkpoints_sorted[:number_of_checkpoints_to_delete]
+        for checkpoint in checkpoints_to_be_deleted:
+            logger.info(f"Deleting older checkpoint [{checkpoint}] due to args.save_total_limit")
