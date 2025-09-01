@@ -26,4 +26,3 @@ class NeuronDistributedType(str, enum.Enum):
     """
 
     MODEL_PARALLELISM = "MODEL_PARALLELISM"
-

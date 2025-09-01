@@ -270,7 +270,7 @@ class NeuronTrainingArguments:
             )
         },
     )
-    accelerator_config: dict | str | None= field(
+    accelerator_config: dict | str | None = field(
         default=None,
         metadata={
             "help": (
@@ -442,15 +442,15 @@ class NeuronTrainingArguments:
             )
 
         # Parse in args that could be `dict` sent in from the CLI as a string
-        for field in self._VALID_DICT_FIELDS:
-            passed_value = getattr(self, field)
+        for dict_field in self._VALID_DICT_FIELDS:
+            passed_value = getattr(self, dict_field)
             # We only want to do this if the str starts with a bracket to indicate a `dict`
             # else its likely a filename if supported
             if isinstance(passed_value, str) and passed_value.startswith("{"):
                 loaded_dict = json.loads(passed_value)
                 # Convert str values to types if applicable
                 loaded_dict = _convert_str_dict(loaded_dict)
-                setattr(self, field, loaded_dict)
+                setattr(self, dict_field, loaded_dict)
 
         # expand paths, if not os.makedirs("~/bar") will make directory
         # in the current directory instead of the actual home
@@ -755,7 +755,7 @@ class NeuronTrainingArguments:
         return warmup_steps
 
     def _dict_torch_dtype_to_str(self, d: dict[str, Any]) -> None:
-        """ Checks whether the passed dictionary and its nested dicts have a *torch_dtype* key and if it's not None,
+        """Checks whether the passed dictionary and its nested dicts have a *torch_dtype* key and if it's not None,
         converts torch.dtype to a string of just the type. For example, `torch.float32` get converted into *"float32"*
         string, which can then be stored in the json format.
         """
@@ -805,8 +805,5 @@ class NeuronTrainingArguments:
         d = self.to_dict()
         d = {**d, **{"train_batch_size": self.train_batch_size}}
 
-        valid_types = [bool, int, float, str]
-        if is_torch_available():
-            valid_types.append(torch.Tensor)
-
+        valid_types = [bool, int, float, str, torch.Tensor]
         return {k: v if type(v) in valid_types else str(v) for k, v in d.items()}

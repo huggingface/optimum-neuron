@@ -195,9 +195,7 @@ def fixed_cross_entropy(source, target, reduction: str = "mean", ignore_index: i
     return loss
 
 
-def ForCausalLMLoss(
-    logits, labels, vocab_size: int, reduction: str = "mean", ignore_index: int = -100, **kwargs
-):
+def ForCausalLMLoss(logits, labels, vocab_size: int, reduction: str = "mean", ignore_index: int = -100, **kwargs):
     # Upcast to float if we need to compute the loss to avoid potential precision issues
     logits = logits.float()
     labels = labels.to(logits.device)

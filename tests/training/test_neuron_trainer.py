@@ -30,13 +30,17 @@ from ..distributed_utils import distributed_test
 
 TINY_MODEL_NAME = "michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random"
 
+
 @pytest.fixture(scope="module")
 def train_dataset():
     tokenizer = AutoTokenizer.from_pretrained(TINY_MODEL_NAME)
-    inputs = tokenizer("Paris is the most beautiful city in the world.", return_tensors="pt", padding="max_length", max_length=1024)
+    inputs = tokenizer(
+        "Paris is the most beautiful city in the world.", return_tensors="pt", padding="max_length", max_length=1024
+    )
     dataset = datasets.Dataset.from_dict(inputs)
     dataset = dataset.select([0] * 10000)  # 10k samples
     return dataset
+
 
 @distributed_test(
     world_size=8,
@@ -98,6 +102,7 @@ def test_autocast_smart_context_manager_no_autocast(train_dataset, tmpdir):
         outputs = model(**inputs)
 
     assert outputs.logits.dtype is torch.float32, f"Expected logits to be float32, got {outputs.logits.dtype}"
+
 
 @distributed_test(
     world_size=8,
@@ -174,13 +179,19 @@ def test_set_initial_training_values(train_dataset, tmpdir):
     expected_num_update_steps_per_epoch = (10000 + total_batch_size - 1) // total_batch_size
 
     assert num_train_epochs == 3, f"Expected 3 epochs, got {num_train_epochs}"
-    assert num_update_steps_per_epoch == expected_num_update_steps_per_epoch, f"Expected {expected_num_update_steps_per_epoch} update steps per epoch, got {num_update_steps_per_epoch}"
+    assert num_update_steps_per_epoch == expected_num_update_steps_per_epoch, (
+        f"Expected {expected_num_update_steps_per_epoch} update steps per epoch, got {num_update_steps_per_epoch}"
+    )
 
     assert num_examples == 10000, f"Expected 10000 examples, got {num_examples}"
     assert num_train_samples == 10000 * 3, f"Expected 30000 train samples, got {num_train_samples}"
     assert epoch_based is True, f"Expected epoch_based to be True, got {epoch_based}"
-    assert len_dataloader == 10000 // training_args.train_batch_size, f"Expected dataloader length to be {10000 // training_args.train_batch_size}, got {len_dataloader}"
-    assert max_steps == 3 * expected_num_update_steps_per_epoch, f"Expected max_steps to be {3 * expected_num_update_steps_per_epoch}, got {max_steps}"
+    assert len_dataloader == 10000 // training_args.train_batch_size, (
+        f"Expected dataloader length to be {10000 // training_args.train_batch_size}, got {len_dataloader}"
+    )
+    assert max_steps == 3 * expected_num_update_steps_per_epoch, (
+        f"Expected max_steps to be {3 * expected_num_update_steps_per_epoch}, got {max_steps}"
+    )
 
     # Case 2: max_steps
     steps = 500
@@ -211,12 +222,22 @@ def test_set_initial_training_values(train_dataset, tmpdir):
         max_steps,
     ) = trainer.set_initial_training_values(training_args, train_dataloader, total_batch_size)
 
-    expected_num_train_epochs = steps // expected_num_update_steps_per_epoch + int(steps % expected_num_update_steps_per_epoch > 0)
-    assert num_train_epochs == expected_num_train_epochs, f"Expected {expected_num_train_epochs} epochs, got {num_train_epochs}"
-    assert num_update_steps_per_epoch == expected_num_update_steps_per_epoch, f"Expected {expected_num_update_steps_per_epoch} update steps per epoch, got {num_update_steps_per_epoch}"
+    expected_num_train_epochs = steps // expected_num_update_steps_per_epoch + int(
+        steps % expected_num_update_steps_per_epoch > 0
+    )
+    assert num_train_epochs == expected_num_train_epochs, (
+        f"Expected {expected_num_train_epochs} epochs, got {num_train_epochs}"
+    )
+    assert num_update_steps_per_epoch == expected_num_update_steps_per_epoch, (
+        f"Expected {expected_num_update_steps_per_epoch} update steps per epoch, got {num_update_steps_per_epoch}"
+    )
 
     assert num_examples == 10000, f"Expected 10000 examples, got {num_examples}"
-    assert num_train_samples == total_batch_size * steps, f"Expected {total_batch_size * steps}  train samples, got {num_train_samples}"
+    assert num_train_samples == total_batch_size * steps, (
+        f"Expected {total_batch_size * steps}  train samples, got {num_train_samples}"
+    )
     assert epoch_based is False, f"Expected epoch_based to be False, got {epoch_based}"
-    assert len_dataloader == 10000 // training_args.train_batch_size, f"Expected dataloader length to be {10000 // training_args.train_batch_size}, got {len_dataloader}"
+    assert len_dataloader == 10000 // training_args.train_batch_size, (
+        f"Expected dataloader length to be {10000 // training_args.train_batch_size}, got {len_dataloader}"
+    )
     assert max_steps == steps, f"Expected max_steps to be {steps}, got {max_steps}"

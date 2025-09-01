@@ -184,6 +184,7 @@ def is_logging_process() -> bool:
 
     return dp_rank == tp_rank == 0 and pp_rank == pp_size - 1
 
+
 def is_logging_process_method(self) -> bool:
     """
     Method version of `is_logging_process`, useful when this is used to patch a method from the Trainer class.

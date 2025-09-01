@@ -137,9 +137,7 @@ class NeuronAccelerator(Accelerator):
         full_kwargs["gradient_accumulation_plugin"] = gradient_accumulation_plugin
         full_kwargs["gradient_accumulation_steps"] = gradient_accumulation_steps
 
-        patched_accelerator_state = partial(
-            NeuronAcceleratorState, trn_config=trn_config
-        )
+        patched_accelerator_state = partial(NeuronAcceleratorState, trn_config=trn_config)
         with Patcher([("accelerate.accelerator.AcceleratorState", patched_accelerator_state)]):
             super().__init__(**full_kwargs)
 
@@ -224,7 +222,13 @@ class NeuronAccelerator(Accelerator):
             )
             # No need to wrap the dataloader if we are using pipeline parallelism.
             if use_mp_device_loader and self.state.trn_config.pipeline_parallel_size == 1:
-                data_loader = MpDeviceLoader(data_loader, self.device, batches_per_execution=batches_per_execution, loader_prefetch_size=2 * batches_per_execution, device_prefetch_size=batches_per_execution)
+                data_loader = MpDeviceLoader(
+                    data_loader,
+                    self.device,
+                    batches_per_execution=batches_per_execution,
+                    loader_prefetch_size=2 * batches_per_execution,
+                    device_prefetch_size=batches_per_execution,
+                )
         return data_loader
 
     def _prepare_optimizer_for_zero_1(self, optimizer: torch.optim.Optimizer, device_placement=None):

@@ -118,15 +118,6 @@ transformers_get_optimizer_cls_and_kwargs = Trainer.get_optimizer_cls_and_kwargs
 DEFAULT_CALLBACKS = [DefaultFlowCallback]
 DEFAULT_PROGRESS_CALLBACK = ProgressCallback
 
-# Name of the files used for checkpointing
-TRAINING_ARGS_NAME = "training_args.bin"
-TRAINER_STATE_NAME = "trainer_state.json"
-OPTIMIZER_NAME = "optimizer.pt"
-SCALER_NAME = "scaler.pt"
-OPTIMIZER_NAME_BIN = "optimizer.bin"
-SCHEDULER_NAME = "scheduler.pt"
-FSDP_MODEL_NAME = "pytorch_model_fsdp"
-
 
 class NeuronTrainer:
     def __init__(
@@ -136,7 +127,11 @@ class NeuronTrainer:
         data_collator: DataCollator | None = None,
         train_dataset: "Dataset | IterableDataset | datasets.Dataset | None" = None,
         eval_dataset: "Dataset | dict[str, Dataset] | datasets.Dataset | None" = None,
-        processing_class: PreTrainedTokenizerBase | BaseImageProcessor | FeatureExtractionMixin | ProcessorMixin | None = None,
+        processing_class: PreTrainedTokenizerBase
+        | BaseImageProcessor
+        | FeatureExtractionMixin
+        | ProcessorMixin
+        | None = None,
         model_init: Callable[[], PreTrainedModel] | None = None,
         compute_loss_func: Callable | None = None,
         compute_metrics: Callable[[EvalPrediction], dict] | None = None,
@@ -197,11 +192,7 @@ class NeuronTrainer:
         self.eval_dataset = eval_dataset
         self.processing_class = processing_class
 
-        model_forward = (
-            model.forward
-            if not isinstance(model, NeuronPeftModel)
-            else model.get_base_model().forward
-        )
+        model_forward = model.forward if not isinstance(model, NeuronPeftModel) else model.get_base_model().forward
         forward_params = inspect.signature(model_forward).parameters
 
         # Check if the model has explicit setup for loss kwargs,
@@ -244,10 +235,6 @@ class NeuronTrainer:
         )
         self.add_callback(PrinterCallback if self.args.disable_tqdm else DEFAULT_PROGRESS_CALLBACK)
 
-        # Create distant repo and output directory if needed
-        self.hub_model_id = None
-        if self.args.push_to_hub:
-            self.init_hf_repo()
         if self.args.should_save:
             os.makedirs(self.args.output_dir, exist_ok=True)
 
@@ -293,7 +280,6 @@ class NeuronTrainer:
         self.can_return_loss = can_return_loss(self.model.__class__)
         self.control = self.callback_handler.on_init_end(self.args, self.state, self.control)
 
-
     @property
     def tokenizer(self) -> PreTrainedTokenizerBase | None:
         logger.warning(
@@ -329,7 +315,7 @@ class NeuronTrainer:
         )
 
         args = {
-            "deepspeed_plugin": None, # We don't use deepspeed plugin in NeuronTrainer
+            "deepspeed_plugin": None,  # We don't use deepspeed plugin in NeuronTrainer
             "dataloader_config": dataloader_config,
         }
 
@@ -433,9 +419,7 @@ class NeuronTrainer:
         else:
             return dataset.remove_columns(ignored_columns)
 
-    def _get_collator_with_removed_columns(
-        self, data_collator: Callable, description: str | None = None
-    ) -> Callable:
+    def _get_collator_with_removed_columns(self, data_collator: Callable, description: str | None = None) -> Callable:
         """Wrap the data collator in a callable removing unused columns."""
         if not self.args.remove_unused_columns:
             return data_collator
@@ -470,10 +454,9 @@ class NeuronTrainer:
     ) -> DataLoader:
         data_collator = self.data_collator
         if is_datasets_available() and isinstance(dataset, datasets.Dataset):
-                dataset = self._remove_unused_columns(dataset, description=description)
+            dataset = self._remove_unused_columns(dataset, description=description)
         else:
             data_collator = self._get_collator_with_removed_columns(self.data_collator, description=description)
-
 
         dataloader_params = {
             "batch_size": batch_size,
@@ -497,7 +480,9 @@ class NeuronTrainer:
 
         # The NeuronAccelerator will take care of preparing the dataloader, transforming the sampler for distributed
         # training.
-        return self.accelerator.prepare_data_loader(dataloader, use_mp_device_loader=False, batches_per_execution=self.args.gradient_accumulation_steps)
+        return self.accelerator.prepare_data_loader(
+            dataloader, use_mp_device_loader=False, batches_per_execution=self.args.gradient_accumulation_steps
+        )
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -621,9 +606,7 @@ class NeuronTrainer:
         return [group["params"] for group in self.optimizer.param_groups]
 
     @staticmethod
-    def get_optimizer_cls_and_kwargs(
-        args: TrainingArguments, model: PreTrainedModel | None = None
-    ) -> tuple[Any, Any]:
+    def get_optimizer_cls_and_kwargs(args: TrainingArguments, model: PreTrainedModel | None = None) -> tuple[Any, Any]:
         """
         Returns the optimizer class and optimizer parameters based on the training arguments.
 
@@ -782,7 +765,14 @@ class NeuronTrainer:
             max_steps,
         )
 
-    def setup_training(self, train_dataloader: DataLoader, max_steps: int, num_train_epochs: int, num_examples: int, total_train_batch_size: int):
+    def setup_training(
+        self,
+        train_dataloader: DataLoader,
+        max_steps: int,
+        num_train_epochs: int,
+        num_examples: int,
+        total_train_batch_size: int,
+    ):
         """
         Setup everything to prepare for the training loop.
         This methods does not return anything but initializes many attributes of the class for training.
@@ -836,9 +826,7 @@ class NeuronTrainer:
         logger.info(f"  Pipeline Parallel Size: {args.trn_config.pipeline_parallel_size}")
         logger.info(f"  Instantaneous batch size per data parallel rank = {args.per_device_train_batch_size:,}")
         logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
-        logger.info(
-            f"  Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size:,}"
-        )
+        logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size:,}")
         logger.info(f"  Total optimization steps = {max_steps:,}")
         logger.info(f"  Num trainable parameters = {parameter_count:,}")
 
@@ -878,9 +866,7 @@ class NeuronTrainer:
                 break
 
         count_num_items_in_batch = (
-            len(batch_samples) > 0
-            and "labels" in batch_samples[0]
-            and self.model_accepts_loss_kwargs
+            len(batch_samples) > 0 and "labels" in batch_samples[0] and self.model_accepts_loss_kwargs
         )
 
         if count_num_items_in_batch:
@@ -897,7 +883,9 @@ class NeuronTrainer:
 
         return batch_samples, num_items_in_batch
 
-    def train_step(self, model: nn.Module, inputs: dict[str, Any], num_items_in_batch: int | torch.Tensor | None  = None) -> torch.Tensor:
+    def train_step(
+        self, model: nn.Module, inputs: dict[str, Any], num_items_in_batch: int | torch.Tensor | None = None
+    ) -> torch.Tensor:
         manager = self.autocast_smart_context_manager()
 
         if isinstance(model, NxDPPModel):
@@ -994,7 +982,6 @@ class NeuronTrainer:
         self,
         resume_from_checkpoint: str | bool | None = None,
     ):
-
         if resume_from_checkpoint not in [False, None]:
             raise ValueError("`resume_from_checkpoint` is not supported by the NeuronTrainer.")
 
@@ -1021,9 +1008,7 @@ class NeuronTrainer:
 
         for epoch in range(num_train_epochs):
             steps_in_epoch = (
-                len_dataloader
-                if len_dataloader is not None
-                else args.max_steps * args.gradient_accumulation_steps
+                len_dataloader if len_dataloader is not None else args.max_steps * args.gradient_accumulation_steps
             )
 
             self.control = self.callback_handler.on_epoch_begin(args, self.state, self.control)
@@ -1042,9 +1027,7 @@ class NeuronTrainer:
 
             for _ in range(total_updates):
                 num_batches = args.gradient_accumulation_steps if update_step != (total_updates - 1) else remainder
-                batch_samples, num_items_in_batch = self.get_batch_samples(
-                    epoch_iterator, num_batches
-                )
+                batch_samples, num_items_in_batch = self.get_batch_samples(epoch_iterator, num_batches)
                 for i, batch in enumerate(batch_samples):
                     batch = {k: v.to(xm.xla_device()) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
                     batch_samples[i] = batch
@@ -1057,7 +1040,6 @@ class NeuronTrainer:
                     do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (
                         step + 1
                     ) == steps_in_epoch  # Since we perform prefetching, we need to manually set sync_gradients
-
 
                     # TODO: to remove!!
                     for name in inputs:
@@ -1081,7 +1063,9 @@ class NeuronTrainer:
                         # Gradient clipping
                         if args.max_grad_norm is not None and args.max_grad_norm > 0:
                             parameters = (
-                                self.model.local_parameters() if isinstance(self.model, NxDPPModel) else self.model.parameters()
+                                self.model.local_parameters()
+                                if isinstance(self.model, NxDPPModel)
+                                else self.model.parameters()
                             )
                             self.accelerator.clip_grad_norm_(
                                 parameters,
@@ -1176,7 +1160,9 @@ class NeuronTrainer:
                             "Model parallelism is enabled, saving the model sharded state dict instead of the full state dict."
                         )
 
-                        model_to_save = self.model.original_torch_module if isinstance(self.model, NxDPPModel) else self.model
+                        model_to_save = (
+                            self.model.original_torch_module if isinstance(self.model, NxDPPModel) else self.model
+                        )
                         model_to_save.save_pretrained(
                             output_dir,
                             optimizer=self.optimizer if not self.args.save_only_model else None,
@@ -1184,6 +1170,7 @@ class NeuronTrainer:
                     else:
                         if is_peft_available():
                             from peft import PeftModel
+
                             supported_classes = (PreTrainedModel, PeftModel)
                         else:
                             supported_classes = (PreTrainedModel,)
@@ -1201,15 +1188,10 @@ class NeuronTrainer:
 
                     if self.processing_class is not None and self.args.should_save:
                         self.processing_class.save_pretrained(output_dir)
-
-            # Push to the Hub when `save_model` is called by the user.
-            if self.args.push_to_hub and not _internal_call:
-                self.push_to_hub(commit_message="Model save")
-
         else:
             logger.info("Skipping trainer.save_model() while running under neuron_parallel_compile")
 
-    def log(self, logs: dict[str, float], start_time: float | None = None) -> None:
+    def log(self, logs: dict[str, float]) -> None:
         if self.state.epoch is not None:
             logs["epoch"] = self.state.epoch
         output = {**logs, **{"step": self.state.global_step}}
@@ -1241,9 +1223,6 @@ class NeuronTrainer:
         # A process can arrive here before the process 0 has a chance to save the model, in which case output_dir may
         # not yet exist.
         os.makedirs(output_dir, exist_ok=True)
-
-        if self.args.push_to_hub:
-            self._push_from_checkpoint(output_dir)
 
         # Maybe delete some older checkpoints.
         if self.args.should_save:

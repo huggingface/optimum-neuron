@@ -18,7 +18,7 @@ import torch_xla.core.xla_model as xm
 
 
 class XLAPrefetchIterator:
-    def __init__(self, examples: list[dict[str, torch.Tensor]],  prefetch_size: int = 1):
+    def __init__(self, examples: list[dict[str, torch.Tensor]], prefetch_size: int = 1):
         self.examples = examples
         self.prefetch_size = prefetch_size
         self.current_index = 0
@@ -41,6 +41,3 @@ class XLAPrefetchIterator:
         next_example = self.buffer.pop(0)
         self._prefetch()
         return next_example
-
-
-
