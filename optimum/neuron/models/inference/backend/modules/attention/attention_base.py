@@ -104,11 +104,8 @@ class NeuronAttentionBase(nn.Module):
         self.torch_dtype = neuron_config.torch_dtype
         self.flash_decoding_enabled = neuron_config.flash_decoding_enabled
         self.num_cores_per_group = neuron_config.num_cores_per_group
-        self.rpl_reduce_dtype = neuron_config.rpl_reduce_dtype
         self.mlp_kernel_enabled = neuron_config.mlp_kernel_enabled
         self.rms_norm_eps = config.rms_norm_eps
-        self.tp_degree = neuron_config.tp_degree
-        self.fused_qkv = neuron_config.fused_qkv
         self._qk_scale = qk_scale
 
         self.o_proj_layer_name = "o_proj"
@@ -120,11 +117,11 @@ class NeuronAttentionBase(nn.Module):
             head_dim=self.head_dim,
             num_attention_heads=self.num_attention_heads,
             num_key_value_heads=self.num_key_value_heads,
-            tp_degree=self.tp_degree,
+            tp_degree=neuron_config.tp_degree,
             dtype=self.torch_dtype,
             bias=qkv_proj_bias,
             gather_output=False,
-            fused_qkv=self.fused_qkv,
+            fused_qkv=neuron_config.fused_qkv,
             sequence_parallel_enabled=self.sequence_parallel_enabled,
             sequence_dimension=self.sequence_dimension,
             tensor_model_parallel_group=self.tensor_model_parallel_group,
@@ -137,7 +134,7 @@ class NeuronAttentionBase(nn.Module):
             head_dim=self.head_dim,
             num_attention_heads=self.num_attention_heads,
             num_key_value_heads=self.num_key_value_heads,
-            tp_degree=self.tp_degree,
+            tp_degree=neuron_config.tp_degree,
             dtype=self.torch_dtype,
             bias=o_proj_bias,
             input_is_parallel=True,
@@ -145,10 +142,10 @@ class NeuronAttentionBase(nn.Module):
             sequence_parallel_enabled=self.sequence_parallel_enabled,
             sequence_dimension=self.sequence_dimension,
             tensor_model_parallel_group=self.tensor_model_parallel_group,
-            rpl_reduce_dtype=self.rpl_reduce_dtype,
+            rpl_reduce_dtype=neuron_config.rpl_reduce_dtype,
         )
-        self.num_heads = utils.divide(self.qkv_proj.get_num_attention_heads(), self.tp_degree)
-        self.num_key_value_heads = utils.divide(self.qkv_proj.get_num_key_value_heads(), self.tp_degree)
+        self.num_heads = utils.divide(self.qkv_proj.get_num_attention_heads(), neuron_config.tp_degree)
+        self.num_key_value_heads = utils.divide(self.qkv_proj.get_num_key_value_heads(), neuron_config.tp_degree)
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
         # By default we do not use layernorm in q and k projection
         # This can be changed in the subclass if needed: maybe make it a parameter?
