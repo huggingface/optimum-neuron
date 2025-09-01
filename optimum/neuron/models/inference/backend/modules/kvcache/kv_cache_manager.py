@@ -42,11 +42,9 @@ def _reshape_tiled_cache(cache: Tensor):
     return cache
 
 
-def _slice_kv_cacheline(padding_side: str, seq_len: int, cache: Tensor):
-    if padding_side == "right":
-        return torch.ops.aten.slice(cache, dim=2, start=0, end=seq_len)
-    max_idx = cache.shape[2]
-    return torch.ops.aten.slice(cache, dim=2, start=max_idx - seq_len, end=max_idx)
+def _slice_kv_cacheline(seq_len: int, cache: Tensor):
+    # Return the left-most slice (inputs are right padded)
+    return torch.ops.aten.slice(cache, dim=2, start=0, end=seq_len)
 
 
 class KVCacheManager(nn.Module):
@@ -58,7 +56,6 @@ class KVCacheManager(nn.Module):
 
     def __init__(self, config: PretrainedConfig, neuron_config: NxDNeuronConfig, **kwargs):
         super().__init__()
-        self.padding_side = neuron_config.padding_side
         self.is_continuous_batching = neuron_config.continuous_batching
         self.flash_decoding_enabled = neuron_config.flash_decoding_enabled
         self.num_cores_per_group = neuron_config.num_cores_per_group
@@ -155,8 +152,8 @@ class KVCacheManager(nn.Module):
 
             # slice for partial view
             if not skip_slice:
-                k_cache = _slice_kv_cacheline(self.padding_side, seq_len, k_cache)
-                v_cache = _slice_kv_cacheline(self.padding_side, seq_len, v_cache)
+                k_cache = _slice_kv_cacheline(seq_len, k_cache)
+                v_cache = _slice_kv_cacheline(seq_len, v_cache)
 
             past_key_values.append([k_cache, v_cache])
         return past_key_values
@@ -216,25 +213,17 @@ class KVCacheManager(nn.Module):
                     k_cache = fill_prefix(k_cache, latest_k)
                     v_cache = fill_prefix(v_cache, latest_v)
             else:
-                if self.padding_side == "left":
-                    k_cache = k_cache[:, :, 1:, :]
-                    v_cache = v_cache[:, :, 1:, :]
-                    k_cache = torch.cat([k_cache, latest_k], dim=2)
-                    v_cache = torch.cat([v_cache, latest_v], dim=2)
+                # Copy the tensor of the new position into kv cache (no need to align as inputs are right padded)
+                if self.flash_decoding_enabled:
+                    assert active_mask is not None, "active_mask should be specified for flash decoding!"
+                    garbage_pos = seq_len - 1  # treat last pos as garbage
+                    updated_pos_ids = position_ids // self.num_cores_per_group
+                    scatter_index = torch.where(active_mask == 1, updated_pos_ids, garbage_pos)
+                    scatter_index_new = scatter_index.view(-1, 1, scatter_index.shape[-1], 1).expand_as(latest_k)
                 else:
-                    # copy the tensor of the new position into kv cache
-                    if self.flash_decoding_enabled:
-                        assert active_mask is not None, "active_mask should be specified for flash decoding!"
-                        garbage_pos = seq_len - 1  # treat last pos as garbage
-                        updated_pos_ids = position_ids // self.num_cores_per_group
-                        scatter_index = torch.where(active_mask == 1, updated_pos_ids, garbage_pos)
-                        scatter_index_new = scatter_index.view(-1, 1, scatter_index.shape[-1], 1).expand_as(latest_k)
-                    else:
-                        scatter_index_new = self._get_index_to_update_new_position(
-                            scatter_index, position_ids, latest_k
-                        )
-                    k_cache = torch.scatter(input=k_cache, dim=2, index=scatter_index_new, src=latest_k)
-                    v_cache = torch.scatter(input=v_cache, dim=2, index=scatter_index_new, src=latest_v)
+                    scatter_index_new = self._get_index_to_update_new_position(scatter_index, position_ids, latest_k)
+                k_cache = torch.scatter(input=k_cache, dim=2, index=scatter_index_new, src=latest_k)
+                v_cache = torch.scatter(input=v_cache, dim=2, index=scatter_index_new, src=latest_v)
 
             # Retiling
             # TODO once compiler fixes CR 158191111 we can turn back output tiling on

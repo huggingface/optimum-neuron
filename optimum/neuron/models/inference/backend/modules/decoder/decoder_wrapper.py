@@ -52,7 +52,6 @@ def get_bucket_model_config_from_tag(
             bucket_kernel=get_context_encoder_bk,
             bucket_kernel_constant_args=(
                 torch.tensor(buckets),
-                neuron_config.padding_side,
                 pad_token,
             ),
             shared_state_buffer=None,
@@ -63,7 +62,6 @@ def get_bucket_model_config_from_tag(
             bucket_kernel=get_generation_model_bk,
             bucket_kernel_constant_args=(
                 torch.tensor(buckets),
-                neuron_config.padding_side,
                 0,
             ),
             shared_state_buffer=None,

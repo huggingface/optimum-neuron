@@ -100,7 +100,6 @@ class NeuronAttentionBase(nn.Module):
         self.head_dim = getattr(config, "head_dim", self.hidden_size // self.num_attention_heads)
         self.max_position_embeddings = config.max_position_embeddings
         self.rope_theta = config.rope_theta
-        self.padding_side = neuron_config.padding_side
         self.torch_dtype = neuron_config.torch_dtype
         self.flash_decoding_enabled = neuron_config.flash_decoding_enabled
         self.num_cores_per_group = neuron_config.num_cores_per_group
@@ -205,10 +204,6 @@ class NeuronAttentionBase(nn.Module):
 
         if flash_attn_strategy != FlashAttentionStrategy.NONE:
             logger.debug(f"ATTN kernel: logical_nc_config={self.logical_nc_config}")
-            # if we are using left padding, then the bzs needs be 1 (otherwise we get wrong result
-            # because flash attention does not use attention_mask). In practice, we use right
-            # padding so this is unlikely to cause issues
-            assert self.padding_side == "right" or bsz == 1
 
             # original shape of q, k, v is BHSD, and expected output is also BHSD.
             logger.debug(f"Using flash_fwd for Q.shape={Q.shape}")
