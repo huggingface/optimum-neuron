@@ -13,9 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+import os
+
 import datasets
 import pytest
 import torch
+import torch_xla.core.xla_model as xm
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_pipeline_model_parallel_size,
     get_tensor_model_parallel_size,
@@ -299,7 +303,9 @@ def test_basic_training_loop(train_dataset, tmpdir, world_size, tp_size, pp_size
                 final_param = param
 
         assert final_param is not None, "No trainable parameters found in model after training"
-        assert not torch.equal(initial_param, final_param), f"Model parameters were not updated during training, tested on {name}"
+        assert not torch.equal(initial_param, final_param), (
+            f"Model parameters were not updated during training, tested on {name}"
+        )
 
         # Verify training logs exist
         assert len(trainer.state.log_history) > 0, "No training logs found"
@@ -308,5 +314,44 @@ def test_basic_training_loop(train_dataset, tmpdir, world_size, tp_size, pp_size
         loss_logged = any("loss" in log for log in trainer.state.log_history)
         assert loss_logged, "Loss was not logged during training"
 
-    run_distributed_test(test, world_size=world_size, tp_size=tp_size, pp_size=pp_size)
+        # Validate checkpoints were saved correctly
+        xm.rendezvous("wait_for_checkpoints")
 
+        # Expected checkpoints at steps 10 and 20
+        expected_checkpoints = [10, 20]
+
+        for step in expected_checkpoints:
+            checkpoint_dir = os.path.join(tmpdir, f"checkpoint-{step}")
+            assert os.path.exists(checkpoint_dir), f"Checkpoint directory checkpoint-{step} was not created"
+
+            # Validate trainer state file
+            trainer_state_path = os.path.join(checkpoint_dir, "trainer_state.json")
+            assert os.path.exists(trainer_state_path), f"trainer_state.json not found in checkpoint-{step}"
+
+            # Load and validate trainer state
+            with open(trainer_state_path, "r") as f:
+                state_data = json.load(f)
+
+            assert state_data["global_step"] == step, (
+                f"Expected global_step={step} in checkpoint-{step}, got {state_data['global_step']}"
+            )
+
+            # Validate training arguments file
+            training_args_path = os.path.join(checkpoint_dir, "training_args.bin")
+            assert os.path.exists(training_args_path), f"training_args.bin not found in checkpoint-{step}"
+
+            # Validate scheduler file
+            scheduler_path = os.path.join(checkpoint_dir, "scheduler.pt")
+            assert os.path.exists(scheduler_path), f"scheduler.pt not found in checkpoint-{step}"
+
+            # Validate shards directory for distributed checkpoints
+            shards_dir = os.path.join(checkpoint_dir, "shards")
+            assert os.path.exists(shards_dir), f"shards directory not found in checkpoint-{step}"
+
+            # Check for metadata files in shards directory
+            metadata_files = [
+                f for f in os.listdir(shards_dir) if f.startswith("mp_metadata_pp_rank_") and f.endswith(".json")
+            ]
+            assert len(metadata_files) > 0, f"No mp_metadata files found in checkpoint-{step}/shards/"
+
+    run_distributed_test(test, world_size=world_size, tp_size=tp_size, pp_size=pp_size)
