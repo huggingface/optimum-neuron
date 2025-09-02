@@ -84,6 +84,7 @@ if is_diffusers_available():
     from diffusers import (
         DiffusionPipeline,
         FluxPipeline,
+        QwenImagePipeline,
         ModelMixin,
         StableDiffusionPipeline,
         StableDiffusionXLPipeline,
@@ -227,16 +228,19 @@ def infer_shapes_of_diffusers(
     )
     if isinstance(model, FluxPipeline):
         max_sequence_length_2 = input_shapes["text_encoder"].get("sequence_length", None) or max_sequence_length_2
-
-    import pdb
-    pdb.set_trace()
-    vae_encoder_num_channels = model.vae.config.in_channels
-    vae_decoder_num_channels = model.vae.config.latent_channels
-    vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
+        
+    if isinstance(model, QwenImagePipeline):
+        vae_encoder_num_channels = 3
+        vae_decoder_num_channels = model.vae.config.z_dim
+        vae_scale_factor = 2 ** len(model.vae.temperal_downsample) or 8
+    else:
+        vae_encoder_num_channels = model.vae.config.in_channels
+        vae_decoder_num_channels = model.vae.config.latent_channels
+        vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
     height = input_shapes["unet_or_transformer"]["height"]
-    scaled_height = height // vae_scale_factor
     width = input_shapes["unet_or_transformer"]["width"]
-    scaled_width = width // vae_scale_factor
+    scaled_height = 2 * (int(height) // (vae_scale_factor * 2))
+    scaled_width = 2 * (int(width) // (vae_scale_factor * 2))
 
     # Text encoders
     if input_shapes["text_encoder"].get("sequence_length") is None or hasattr(model, "text_encoder_2"):

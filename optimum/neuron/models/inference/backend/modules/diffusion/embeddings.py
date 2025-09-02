@@ -382,6 +382,22 @@ class NeuronTimestepEmbedding(nn.Module):
         return sample
 
 
+class NeuronQwenTimestepProjEmbeddings(nn.Module):
+    def __init__(self, embedding_dim):
+        super().__init__()
+
+        self.time_proj = Timesteps(num_channels=256, flip_sin_to_cos=True, downscale_freq_shift=0, scale=1000)
+        self.timestep_embedder = NeuronTimestepEmbedding(in_channels=256, time_embed_dim=embedding_dim)
+
+    def forward(self, timestep, hidden_states):
+        timesteps_proj = self.time_proj(timestep)
+        timesteps_emb = self.timestep_embedder(timesteps_proj.to(dtype=hidden_states.dtype))  # (N, D)
+
+        conditioning = timesteps_emb
+
+        return conditioning
+
+
 class Timesteps(nn.Module):
     def __init__(self, num_channels: int, flip_sin_to_cos: bool, downscale_freq_shift: float, scale: int = 1):
         super().__init__()

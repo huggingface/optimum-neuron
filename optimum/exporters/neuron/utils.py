@@ -62,6 +62,7 @@ if is_diffusers_available():
         FluxImg2ImgPipeline,
         FluxInpaintPipeline,
         FluxPipeline,
+        QwenImagePipeline,
         ModelMixin,
         StableDiffusionXLImg2ImgPipeline,
         StableDiffusionXLInpaintPipeline,
@@ -423,7 +424,7 @@ def get_submodels_for_export_diffusion(
     is_stable_diffusion_xl = isinstance(
         pipeline, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline, StableDiffusionXLPipeline)
     )
-    is_flux = isinstance(pipeline, (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline))
+    is_flux_or_qwen = isinstance(pipeline, (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline, QwenImagePipeline))
 
     # Lora
     pipeline = _load_lora_weights_to_pipeline(pipeline=pipeline, lora_args=lora_args)
@@ -477,7 +478,7 @@ def get_submodels_for_export_diffusion(
     # Diffusion transformer
     transformer = getattr(pipeline, "transformer", None)
     if transformer is not None:
-        if not is_flux:  # The following will be handled by `ModelBuilder` if `is_flux`.
+        if not is_flux_or_qwen:  # The following will be handled by `ModelBuilder` if `is_flux`.
             transformer.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
             transformer.config.text_encoder_projection_dim = projection_dim
             # apply optimized scaled_dot_product_attention
@@ -576,6 +577,8 @@ _DIFFUSERS_CLASS_NAME_TO_SUBMODEL_TYPE = {
     "UNet2DConditionModel": "unet",
     "PixArtTransformer2DModel": "pixart-transformer-2d",
     "T5EncoderModel": "t5",
+    "Qwen2_5_VLForConditionalGeneration": "qwen2-5-vl",
+    "QwenImageTransformer2DModel": "qwen-image-transformer-2d",
 }
 
 
@@ -687,3 +690,5 @@ def get_encoder_decoder_models_for_export(
             )
 
     return models_for_export
+
+
