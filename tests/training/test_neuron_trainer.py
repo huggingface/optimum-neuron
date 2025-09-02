@@ -24,11 +24,14 @@ from neuronx_distributed.parallel_layers.parallel_state import (
     get_pipeline_model_parallel_size,
     get_tensor_model_parallel_size,
 )
+from peft import LoraConfig, TaskType
 from transformers import AutoTokenizer
 
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.models.training import NeuronModelForCausalLM
+from optimum.neuron.peft import NeuronPeftModel
 from optimum.neuron.utils.testing_utils import is_trainium_test
+from optimum.neuron.utils.training_utils import get_model_param_count
 
 from ..distributed_utils import distributed_test, run_distributed_test
 
@@ -250,7 +253,7 @@ def test_set_initial_training_values(train_dataset, tmpdir):
 
 
 @is_trainium_test
-@pytest.mark.parametrize("world_size, tp_size, pp_size", [[8, 2, 1], [8, 2, 4]], ids=["4_2_1", "4_2_4"])
+@pytest.mark.parametrize("world_size, tp_size, pp_size", [[8, 2, 1], [8, 2, 4]], ids=["8_2_1", "8_2_4"])
 def test_basic_training_loop(train_dataset, tmpdir, world_size, tp_size, pp_size, set_cache_for_ci):
     def test():
         tp_size = get_tensor_model_parallel_size()
@@ -353,5 +356,121 @@ def test_basic_training_loop(train_dataset, tmpdir, world_size, tp_size, pp_size
                 f for f in os.listdir(shards_dir) if f.startswith("mp_metadata_pp_rank_") and f.endswith(".json")
             ]
             assert len(metadata_files) > 0, f"No mp_metadata files found in checkpoint-{step}/shards/"
+
+    run_distributed_test(test, world_size=world_size, tp_size=tp_size, pp_size=pp_size)
+
+
+@is_trainium_test
+@pytest.mark.parametrize("world_size, tp_size, pp_size", [[8, 2, 1]], ids=["8_2_1"])
+def test_peft_training(train_dataset, tmpdir, world_size, tp_size, pp_size, set_cache_for_ci):
+    def test():
+        tp_size = get_tensor_model_parallel_size()
+        pp_size = get_pipeline_model_parallel_size()
+
+        training_args = NeuronTrainingArguments(
+            output_dir=tmpdir,
+            per_device_train_batch_size=1,
+            gradient_accumulation_steps=2,
+            max_steps=10,
+            logging_steps=1,
+            save_steps=5,  # Save at step 5 and 10
+            tensor_parallel_size=tp_size,
+            pipeline_parallel_size=pp_size,
+            learning_rate=1e-3,
+        )
+
+        # Load base model
+        base_model = NeuronModelForCausalLM.from_pretrained(TINY_MODEL_NAME, trn_config=training_args.trn_config)
+
+        # Create LoRA configuration
+        lora_config = LoraConfig(
+            task_type=TaskType.CAUSAL_LM,
+            r=8,  # Low rank
+            lora_alpha=32,
+            lora_dropout=0.1,
+            target_modules=["q_proj", "v_proj"],  # Target attention modules
+        )
+
+        # Create PEFT model
+        model = NeuronPeftModel(base_model, lora_config)
+        orig_params = dict(model.named_parameters())
+
+        # Store initial LoRA parameters for comparison
+        initial_lora_params = {}
+        for name, param in model.named_parameters():
+            if param.requires_grad and "lora" in name:
+                initial_lora_params[name] = param
+
+        assert len(initial_lora_params) > 0, "No LoRA parameters found in model"
+
+        # Verify that only LoRA parameters are trainable
+        trainable_params = get_model_param_count(model, trainable_only=True)
+        total_params = get_model_param_count(model, trainable_only=False)
+
+        # LoRA should significantly reduce trainable parameters
+        assert trainable_params < total_params * 0.1, (
+            f"LoRA should reduce trainable params significantly. Trainable: {trainable_params}, Total: {total_params}"
+        )
+
+        trainer = NeuronTrainer(model, training_args, train_dataset=train_dataset)
+
+        # Verify initial state
+        assert trainer.state.global_step == 0
+
+        # Run training
+        trainer.train()
+
+        # Verify training completed
+        assert trainer.state.global_step == 10
+
+        # Verify LoRA parameters were updated
+        final_lora_params = {name: param.to("cpu") for name, param in model.named_parameters() if "lora" in name}
+        xm.mark_step()
+        lora_params_changed = False
+        for name in initial_lora_params:
+            if not torch.equal(initial_lora_params[name], final_lora_params[name]):
+                lora_params_changed = True
+                break
+        assert lora_params_changed, "LoRA parameters were not updated during training"
+
+        # Verify base model parameters were NOT updated (frozen)
+        base_params = {name: param.to("cpu") for name, param in model.named_parameters() if "lora" not in name}
+        xm.mark_step()
+        base_params_changed = False
+        for name, param in base_params.items():
+            if not torch.equal(orig_params[name], param):
+                base_params_changed = True
+                break
+        assert not base_params_changed, "Base model parameters were updated, but should be frozen"
+
+        # Verify training logs exist
+        assert len(trainer.state.log_history) > 0
+        loss_logged = any("loss" in log for log in trainer.state.log_history)
+        assert loss_logged, "Loss was not logged during PEFT training"
+
+        # Test PEFT model saving
+        xm.rendezvous("wait_for_peft_checkpoints")
+
+        # Validate PEFT checkpoints
+        expected_checkpoints = [5, 10]
+
+        for step in expected_checkpoints:
+            checkpoint_dir = os.path.join(tmpdir, f"checkpoint-{step}")
+            assert os.path.exists(checkpoint_dir), f"PEFT checkpoint directory checkpoint-{step} was not created"
+
+            # Validate adapter-specific files exist
+            shards_dir = os.path.join(checkpoint_dir, "shards")
+            assert os.path.exists(shards_dir), f"shards directory not found in PEFT checkpoint-{step}"
+
+            # Verify trainer state
+            trainer_state_path = os.path.join(checkpoint_dir, "trainer_state.json")
+            assert os.path.exists(trainer_state_path)
+
+            with open(trainer_state_path, "r") as f:
+                state_data = json.load(f)
+
+            assert state_data["global_step"] == step, (
+                f"Expected global_step={step} in PEFT checkpoint-{step}, got {state_data['global_step']}"
+            )
 
     run_distributed_test(test, world_size=world_size, tp_size=tp_size, pp_size=pp_size)

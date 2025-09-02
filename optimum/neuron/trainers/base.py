@@ -828,7 +828,7 @@ class NeuronTrainer:
             self.optimizer, self.lr_scheduler = self.accelerator.prepare(self.optimizer, self.lr_scheduler)
 
         # Train!
-        parameter_count = get_model_param_count(self.model, trainable_only=True)
+        parameter_count = self.get_num_trainable_parameters()
         logger.info("***** Running training *****")
         logger.info(f"  Num examples = {num_examples:,}")
         logger.info(f"  Num Epochs = {num_train_epochs:,}")
