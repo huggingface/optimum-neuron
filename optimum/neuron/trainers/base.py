@@ -20,7 +20,7 @@ import re
 import sys
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Type
+from typing import Any, Callable, Iterator, Type
 
 import torch
 import torch.nn as nn
@@ -36,7 +36,6 @@ from packaging import version
 from torch.utils.data import DataLoader, Dataset, IterableDataset, RandomSampler
 from transformers import (
     PreTrainedModel,
-    Trainer,
     TrainingArguments,
 )
 from transformers.data.data_collator import DataCollator, DataCollatorWithPadding, default_data_collator
@@ -100,6 +99,7 @@ from ..utils.training_utils import (
     is_logging_process,
 )
 from .training_args import NeuronTrainingArguments
+from .utils import XLAPrefetchIterator
 
 
 logger = logging.get_logger()
@@ -107,13 +107,8 @@ logger = logging.get_logger()
 if is_datasets_available():
     import datasets
 
+
 TRL_VERSION = "0.11.4"
-
-KEEP_HF_HUB_PROGRESS_BARS = os.environ.get("KEEP_HF_HUB_PROGRESS_BARS")
-if KEEP_HF_HUB_PROGRESS_BARS is None:
-    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
-
-transformers_get_optimizer_cls_and_kwargs = Trainer.get_optimizer_cls_and_kwargs
 
 DEFAULT_CALLBACKS = [DefaultFlowCallback]
 DEFAULT_PROGRESS_CALLBACK = ProgressCallback
@@ -187,6 +182,7 @@ class NeuronTrainer:
             and isinstance(processing_class, (PreTrainedTokenizerBase, SequenceFeatureExtractor))
             else default_data_collator
         )
+        default_collator = default_data_collator
         self.data_collator = data_collator if data_collator is not None else default_collator
         self.train_dataset = train_dataset
         self.eval_dataset = eval_dataset
@@ -855,7 +851,13 @@ class NeuronTrainer:
         self.grad_norm = None
         xm.mark_step()
 
-    def get_batch_samples(self, epoch_iterator, num_batches) -> tuple[list[dict[str, Any]], int | torch.Tensor | None]:
+    def get_batch_samples(
+        self,
+        epoch_iterator: Iterator,
+        num_batches: int,
+        device: torch.device | None = None,
+        prefetch_size: int | None = None,
+    ) -> tuple[list[dict[str, Any]] | Iterator[dict[str, Any]], int | torch.Tensor | None]:
         batch_samples = []
         num_items_in_batch = None
 
@@ -880,6 +882,15 @@ class NeuronTrainer:
         # compilation.
         if isinstance(num_items_in_batch, torch.Tensor):
             num_items_in_batch = num_items_in_batch.item()
+
+        if device is not None and device.type == "xla":
+            if prefetch_size is None:
+                for idx, batch in enumerate(batch_samples):
+                    batch_samples[idx] = {
+                        k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()
+                    }
+            else:
+                batch_samples = XLAPrefetchIterator(batch_samples, prefetch_size)
 
         return batch_samples, num_items_in_batch
 
@@ -996,10 +1007,10 @@ class NeuronTrainer:
         total_train_batch_size = self.args.train_batch_size * args.gradient_accumulation_steps
         (
             num_train_epochs,
-            num_update_steps_per_epoch,
+            _,
             num_examples,
-            num_train_samples,
-            epoch_based,
+            _,
+            _,
             len_dataloader,
             max_steps,
         ) = self.set_initial_training_values(args, train_dataloader, total_train_batch_size)
@@ -1027,29 +1038,17 @@ class NeuronTrainer:
 
             for _ in range(total_updates):
                 num_batches = args.gradient_accumulation_steps if update_step != (total_updates - 1) else remainder
-                batch_samples, num_items_in_batch = self.get_batch_samples(epoch_iterator, num_batches)
-                for i, batch in enumerate(batch_samples):
-                    batch = {k: v.to(xm.xla_device()) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
-                    batch_samples[i] = batch
-
-                # batch_samples = XLAPrefetchIterator(batch_samples, prefetch_size=3)
+                batch_samples, num_items_in_batch = self.get_batch_samples(
+                    epoch_iterator,
+                    num_batches,
+                    device=xm.xla_device(),
+                    prefetch_size=4,
+                )
 
                 for inputs in batch_samples:
                     xm.mark_step()
                     step += 1
-                    do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (
-                        step + 1
-                    ) == steps_in_epoch  # Since we perform prefetching, we need to manually set sync_gradients
-
-                    # TODO: to remove!!
-                    for name in inputs:
-                        inputs[name] = inputs[name].squeeze(0)
-
-                    # TODO: when implementing metrics, save this information.
-                    # main_input_name = getattr(self.model, "main_input_name", "input_ids")
-                    # if main_input_name in inputs:
-                    #     input_tokens = inputs[main_input_name].numel()
-                    #     input_tokens = torch.tensor(input_tokens, device=self.args.device, dtype=torch.int64)
+                    do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (step + 1) == steps_in_epoch
 
                     if step % args.gradient_accumulation_steps == 0:
                         self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
@@ -1089,6 +1088,7 @@ class NeuronTrainer:
                         self.state.global_step += 1
                         self.state.epoch = epoch + (step + 1) / steps_in_epoch
                         self.control = self.callback_handler.on_step_end(args, self.state, self.control)
+                        xm.mark_step()
                     else:
                         self.accelerator.gradient_state.sync_gradients = False
                         self.control = self.callback_handler.on_substep_end(args, self.state, self.control)

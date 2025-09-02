@@ -38,6 +38,7 @@ class XLAPrefetchIterator:
     def __next__(self):
         if not self.buffer:
             raise StopIteration
+        xm.mark_step()
         next_example = self.buffer.pop(0)
         self._prefetch()
         return next_example
