@@ -349,6 +349,14 @@ class NeuronTrainingArguments:
     )
 
     # Neuron-specific arguments
+    dataloader_prefetch_size: int = field(
+        default=None,
+        metadata={
+            "help": (
+                "The number of batches to prefetch on device."
+            )
+        },
+    )
     skip_cache_push: bool = field(
         default=False, metadata={"help": "Whether to skip pushing Neuron artifacts to hub cache"}
     )

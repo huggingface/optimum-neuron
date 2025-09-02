@@ -127,15 +127,12 @@ class NeuronTrainer:
         | FeatureExtractionMixin
         | ProcessorMixin
         | None = None,
-        model_init: Callable[[], PreTrainedModel] | None = None,
-        compute_loss_func: Callable | None = None,
-        compute_metrics: Callable[[EvalPrediction], dict] | None = None,
         callbacks: list[TrainerCallback] | None = None,
         optimizers: tuple[torch.optim.Optimizer | None, torch.optim.lr_scheduler.LambdaLR | None] = (None, None),
         optimizer_cls_and_kwargs: tuple[type[torch.optim.Optimizer], dict[str, Any]] | None = None,
-        preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
     ):
-        # TODO: filter the args that do not make sense for us and raise error for unsupported features.
+        if eval_dataset is not None:
+            raise RuntimeError("Evaluation is not supported in NeuronTrainer.")
 
         if args is None:
             output_dir = "tmp_trainer"
@@ -151,13 +148,9 @@ class NeuronTrainer:
         self.pp_size = self.trn_config.pipeline_parallel_size
         self.pp_rank = get_pipeline_model_parallel_rank()
 
-        self.compute_loss_func = compute_loss_func
-
         # Set the correct log level depending on the node
         log_level = args.get_process_log_level()
         logging.set_verbosity(log_level)
-
-        # TODO: set seed here?
 
         if model is None:
             raise ValueError("A model must be provided to the Trainer.")
@@ -182,7 +175,6 @@ class NeuronTrainer:
             and isinstance(processing_class, (PreTrainedTokenizerBase, SequenceFeatureExtractor))
             else default_data_collator
         )
-        default_collator = default_data_collator
         self.data_collator = data_collator if data_collator is not None else default_collator
         self.train_dataset = train_dataset
         self.eval_dataset = eval_dataset
@@ -200,7 +192,6 @@ class NeuronTrainer:
                 k.kind == inspect.Parameter.VAR_KEYWORD for k in forward_params.values()
             )
 
-        self.compute_metrics = compute_metrics
         self.optimizer, self.lr_scheduler = optimizers
         self.optimizer_cls_and_kwargs = optimizer_cls_and_kwargs
 
@@ -302,12 +293,38 @@ class NeuronTrainer:
 
         accelerator_config = self.args.accelerator_config.to_dict()
 
-        # TODO: do we support these configurations in the distributed setting?
+        split_batches = accelerator_config.pop("split_batches", False)
+        dispatch_batches = accelerator_config.pop("dispatch_batches", None)
+        even_batches = accelerator_config.pop("even_batches", False)
+        use_seedable_sampler = accelerator_config.pop("use_seedable_sampler", False)
+        if split_batches:
+            logger.warning(
+                "`split_batches` in `AcceleratorConfig` is not supported in NeuronTrainer and will be ignored. Batches "
+                "are already split across data parallel workers."
+            )
+            split_batches = False
+        if dispatch_batches is not None:
+            logger.warning(
+                "`dispatch_batches` in `AcceleratorConfig` is not supported in NeuronTrainer and will be ignored."
+            )
+            dispatch_batches = None
+        if even_batches:
+            logger.warning(
+                "`even_batches` in `AcceleratorConfig` is not supported in NeuronTrainer and will be ignored. "
+                "Make sure that your dataset size is divisible by the train batch size x gradient accumulation steps x data parallel size."
+            )
+            even_batches = False
+        if use_seedable_sampler:
+            logger.warning(
+                "`use_seedable_sampler` in `AcceleratorConfig` is not supported in NeuronTrainer and will be ignored."
+            )
+            use_seedable_sampler = False
+
         dataloader_config = DataLoaderConfiguration(
-            split_batches=accelerator_config.pop("split_batches"),
-            dispatch_batches=accelerator_config.pop("dispatch_batches"),
-            even_batches=accelerator_config.pop("even_batches"),
-            use_seedable_sampler=accelerator_config.pop("use_seedable_sampler"),
+            split_batches=split_batches,
+            dispatch_batches=dispatch_batches,
+            even_batches=even_batches,
+            use_seedable_sampler=use_seedable_sampler,
         )
 
         args = {
@@ -436,7 +453,6 @@ class NeuronTrainer:
             train_dataset = self.train_dataset
         if train_dataset is None or not has_length(train_dataset):
             return None
-        # TODO: should we use DistributedSampler in distributed mode or let the accelerator handle the work?
         return RandomSampler(train_dataset)
 
     def _get_dataloader(
@@ -493,10 +509,10 @@ class NeuronTrainer:
         )
 
     def get_eval_dataloader(self) -> DataLoader:
-        raise NotImplementedError("Evaluation is not supported in NeuronTrainer.")
+        raise RuntimeError("Evaluation is not supported in NeuronTrainer.")
 
     def get_test_dataloader(self) -> DataLoader:
-        raise NotImplementedError("Testing is not supported in NeuronTrainer.")
+        raise RuntimeError("Testing is not supported in NeuronTrainer.")
 
     def create_optimizer_and_scheduler(self, num_training_steps: int):
         """
@@ -682,7 +698,7 @@ class NeuronTrainer:
                     return tokens * max_steps * dp_size
                 train_tokens += tokens
         except KeyError:
-            NeuronTrainer.warning("Cannot get num_tokens from dataloader")
+            logger.warning("Cannot get num_tokens from dataloader")
         train_tokens = train_tokens * dp_size
         return train_tokens
 
@@ -998,7 +1014,6 @@ class NeuronTrainer:
 
         args = self.args
 
-        # TODO: what's the purpose of this method?
         self.accelerator.free_memory()
 
         # Data loader and number of training steps
@@ -1042,7 +1057,7 @@ class NeuronTrainer:
                     epoch_iterator,
                     num_batches,
                     device=xm.xla_device(),
-                    prefetch_size=4,
+                    prefetch_size=args.dataloader_prefetch_size,
                 )
 
                 for inputs in batch_samples:
