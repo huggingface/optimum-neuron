@@ -256,24 +256,20 @@ def test_basic_training_loop(train_dataset, tmpdir, world_size, tp_size, pp_size
             output_dir=tmpdir,
             per_device_train_batch_size=1,
             gradient_accumulation_steps=2,
-            max_steps=2,  # Just 2 training steps for fast execution
+            max_steps=20,
             logging_steps=1,
-            save_steps=10,  # Don't save during this short test
+            save_steps=10,
             tensor_parallel_size=tp_size,
             pipeline_parallel_size=pp_size,
             learning_rate=1e-2,
         )
 
         model = NeuronModelForCausalLM.from_pretrained(TINY_MODEL_NAME, trn_config=training_args.trn_config)
+
+        # Keep a copy of the original model parameters for comparison after training.
+        orig_named_parameters = dict(model.named_parameters())
+
         trainer = NeuronTrainer(model, training_args, train_dataset=train_dataset)
-
-        # Get initial model parameter to check it changes
-        initial_param = None
-        for param in trainer.model.parameters():
-            if param.requires_grad and param.device != torch.device("meta"):
-                initial_param = param.data.clone()
-
-        assert initial_param is not None, "No trainable parameters found in model"
 
         # Verify initial state
         assert trainer.state.global_step == 0, f"Expected global_step=0 initially, got {trainer.state.global_step}"
@@ -283,22 +279,27 @@ def test_basic_training_loop(train_dataset, tmpdir, world_size, tp_size, pp_size
         trainer.train()
 
         # Verify training completed and state updated correctly
-        assert trainer.state.global_step == 2, (
-            f"Expected global_step=2 after training, got {trainer.state.global_step}"
+        assert trainer.state.global_step == 20, (
+            f"Expected global_step=20 after training, got {trainer.state.global_step}"
         )
         assert trainer.state.epoch > 0, f"Expected epoch>0 after training, got {trainer.state.epoch}"
 
         # Verify model parameters were updated (gradients applied)
-        final_param = None
-        for param in trainer.model.parameters():
-            if param.requires_grad and param.device != torch.device("meta"):
-                final_param = param.data
+        if pp_size == 1:
+            trained_named_parameters = dict(trainer.model.named_parameters())
+        else:
+            trained_named_parameters = dict(trainer.model.local_named_parameters())
 
-        if final_param is not None:
-            final_param = final_param.cpu()
+        # We get the "last" parameter, e.g. the less deep in the model, to check if it was updated.
+        name = initial_param = final_param = None
+        for n, param in trained_named_parameters.items():
+            if param.requires_grad:
+                name = n
+                initial_param = orig_named_parameters[name]
+                final_param = param
 
         assert final_param is not None, "No trainable parameters found in model after training"
-        assert not torch.equal(initial_param, final_param), "Model parameters were not updated during training"
+        assert not torch.equal(initial_param, final_param), f"Model parameters were not updated during training, tested on {name}"
 
         # Verify training logs exist
         assert len(trainer.state.log_history) > 0, "No training logs found"
@@ -308,3 +309,4 @@ def test_basic_training_loop(train_dataset, tmpdir, world_size, tp_size, pp_size
         assert loss_logged, "Loss was not logged during training"
 
     run_distributed_test(test, world_size=world_size, tp_size=tp_size, pp_size=pp_size)
+
