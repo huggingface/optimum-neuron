@@ -24,8 +24,9 @@ from transformers import AutoTokenizer
 
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.models.training import NeuronModelForCausalLM
+from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from ..distributed_utils import distributed_test
+from ..distributed_utils import distributed_test, run_distributed_test
 
 
 TINY_MODEL_NAME = "michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random"
@@ -244,64 +245,66 @@ def test_set_initial_training_values(train_dataset, tmpdir):
     assert max_steps == steps, f"Expected max_steps to be {steps}, got {max_steps}"
 
 
-@distributed_test(
-    world_size=8,
-    tp_size=2,
-    pp_size=1,
-)
-def test_basic_training_loop(train_dataset, tmpdir):
-    tp_size = get_tensor_model_parallel_size()
-    pp_size = get_pipeline_model_parallel_size()
+@is_trainium_test
+@pytest.mark.parametrize("world_size, tp_size, pp_size", [[8, 2, 1], [8, 2, 4]], ids=["4_2_1", "4_2_4"])
+def test_basic_training_loop(train_dataset, tmpdir, world_size, tp_size, pp_size, set_cache_for_ci):
+    def test():
+        tp_size = get_tensor_model_parallel_size()
+        pp_size = get_pipeline_model_parallel_size()
 
-    training_args = NeuronTrainingArguments(
-        output_dir=tmpdir,
-        per_device_train_batch_size=1,
-        gradient_accumulation_steps=2,
-        max_steps=2,  # Just 2 training steps for fast execution
-        logging_steps=1,
-        save_steps=10,  # Don't save during this short test
-        tensor_parallel_size=tp_size,
-        pipeline_parallel_size=pp_size,
-        learning_rate=1e-2,
-    )
+        training_args = NeuronTrainingArguments(
+            output_dir=tmpdir,
+            per_device_train_batch_size=1,
+            gradient_accumulation_steps=2,
+            max_steps=2,  # Just 2 training steps for fast execution
+            logging_steps=1,
+            save_steps=10,  # Don't save during this short test
+            tensor_parallel_size=tp_size,
+            pipeline_parallel_size=pp_size,
+            learning_rate=1e-2,
+        )
 
-    model = NeuronModelForCausalLM.from_pretrained(TINY_MODEL_NAME, trn_config=training_args.trn_config)
-    trainer = NeuronTrainer(model, training_args, train_dataset=train_dataset)
+        model = NeuronModelForCausalLM.from_pretrained(TINY_MODEL_NAME, trn_config=training_args.trn_config)
+        trainer = NeuronTrainer(model, training_args, train_dataset=train_dataset)
 
-    # Get initial model parameter to check it changes
-    initial_param = None
-    for param in trainer.model.parameters():
-        if param.requires_grad:
-            initial_param = param.data.clone()
+        # Get initial model parameter to check it changes
+        initial_param = None
+        for param in trainer.model.parameters():
+            if param.requires_grad and param.device != torch.device("meta"):
+                initial_param = param.data.clone()
 
-    assert initial_param is not None, "No trainable parameters found in model"
+        assert initial_param is not None, "No trainable parameters found in model"
 
-    # Verify initial state
-    assert trainer.state.global_step == 0, f"Expected global_step=0 initially, got {trainer.state.global_step}"
-    assert trainer.state.epoch is None, f"Expected epoch=None initially, got {trainer.state.epoch}"
+        # Verify initial state
+        assert trainer.state.global_step == 0, f"Expected global_step=0 initially, got {trainer.state.global_step}"
+        assert trainer.state.epoch is None, f"Expected epoch=None initially, got {trainer.state.epoch}"
 
-    # Run training
-    trainer.train()
+        # Run training
+        trainer.train()
 
-    # Verify training completed and state updated correctly
-    assert trainer.state.global_step == 2, f"Expected global_step=2 after training, got {trainer.state.global_step}"
-    assert trainer.state.epoch > 0, f"Expected epoch>0 after training, got {trainer.state.epoch}"
+        # Verify training completed and state updated correctly
+        assert trainer.state.global_step == 2, (
+            f"Expected global_step=2 after training, got {trainer.state.global_step}"
+        )
+        assert trainer.state.epoch > 0, f"Expected epoch>0 after training, got {trainer.state.epoch}"
 
-    # Verify model parameters were updated (gradients applied)
-    final_param = None
-    for param in trainer.model.parameters():
-        if param.requires_grad:
-            final_param = param.data
+        # Verify model parameters were updated (gradients applied)
+        final_param = None
+        for param in trainer.model.parameters():
+            if param.requires_grad and param.device != torch.device("meta"):
+                final_param = param.data
 
-    if final_param is not None:
-        final_param = final_param.cpu()
+        if final_param is not None:
+            final_param = final_param.cpu()
 
-    assert final_param is not None, "No trainable parameters found in model after training"
-    assert not torch.equal(initial_param, final_param), "Model parameters were not updated during training"
+        assert final_param is not None, "No trainable parameters found in model after training"
+        assert not torch.equal(initial_param, final_param), "Model parameters were not updated during training"
 
-    # Verify training logs exist
-    assert len(trainer.state.log_history) > 0, "No training logs found"
+        # Verify training logs exist
+        assert len(trainer.state.log_history) > 0, "No training logs found"
 
-    # Check that loss was logged
-    loss_logged = any("loss" in log for log in trainer.state.log_history)
-    assert loss_logged, "Loss was not logged during training"
+        # Check that loss was logged
+        loss_logged = any("loss" in log for log in trainer.state.log_history)
+        assert loss_logged, "Loss was not logged during training"
+
+    run_distributed_test(test, world_size=world_size, tp_size=tp_size, pp_size=pp_size)

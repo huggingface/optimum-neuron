@@ -898,7 +898,7 @@ class NeuronTrainer:
         if isinstance(num_items_in_batch, torch.Tensor):
             num_items_in_batch = num_items_in_batch.item()
 
-        if device is not None and device.type == "xla":
+        if self.pp_size == 1 and device is not None and device.type == "xla":
             if prefetch_size is None:
                 for idx, batch in enumerate(batch_samples):
                     batch_samples[idx] = {
