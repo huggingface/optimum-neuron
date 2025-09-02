@@ -71,7 +71,6 @@ from transformers.trainer_pt_utils import (
 )
 from transformers.trainer_utils import (
     PREFIX_CHECKPOINT_DIR,
-    EvalPrediction,
     RemoveColumnsCollator,
     has_length,
     seed_worker,
@@ -976,7 +975,7 @@ class NeuronTrainer:
                 # closures are added in a row (which can happen at the end of the training), then it will fail the
                 # second time because at this point we will have:
                 # self.state.global_step = self._globalstep_last_logged
-                if is_logging_process() and self.state.global_step > self.global_step_last_logged:
+                if self.state.global_step > self.global_step_last_logged:
                     logs: dict[str, float] = {}
 
                     loss_scalar = reduced_loss.to("cpu").item()
