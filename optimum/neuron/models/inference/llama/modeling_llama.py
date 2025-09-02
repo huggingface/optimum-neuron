@@ -71,7 +71,9 @@ class NeuronLlamaMLP(nn.Module):
         super().__init__()
         self.tp_degree = neuron_config.tp_degree
         self.hidden_size = config.hidden_size
-        self.intermediate_size = config.intermediate_size
+        self.intermediate_size = (
+            config.intermediate_size_mlp if hasattr(config, "intermediate_size_mlp") else config.intermediate_size
+        )
         self.act_fn = ACT2FN[config.hidden_act]
 
         self.rms_norm_eps = config.rms_norm_eps
