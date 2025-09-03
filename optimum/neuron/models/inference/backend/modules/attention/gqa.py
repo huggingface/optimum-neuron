@@ -19,7 +19,6 @@ import logging
 import torch
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, RowParallelLinear
-from neuronx_distributed.parallel_layers.mappings import gather_from_sequence_parallel_region
 from neuronx_distributed.parallel_layers.pad import get_number_of_extra_heads
 from torch import nn
 from torch.distributed import ProcessGroup
@@ -238,8 +237,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         gather_output: bool = True,
         fused_qkv: bool = False,
         clip_qkv: float | None = None,
-        sequence_parallel_enabled: bool = False,
-        sequence_dimension: int | None = None,
         tensor_model_parallel_group: ProcessGroup | None = None,
         rms_norm_eps: float = None,
         logical_nc_config: int = 1,
@@ -264,8 +261,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         self.fused_qkv = fused_qkv
         self.clip_qkv = clip_qkv
 
-        self.sequence_parallel_enabled = sequence_parallel_enabled
-        self.sequence_dimension = sequence_dimension
         self.rms_norm_eps = rms_norm_eps
         self.logical_nc_config = logical_nc_config
 
@@ -292,7 +287,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                     bias=self.bias,
                     gather_output=self.gather_output,
                     dtype=dtype,
-                    sequence_parallel_enabled=False,
                     tensor_model_parallel_group=self.tensor_model_parallel_group,
                 )
                 self.k_proj = ColumnParallelLinear(
@@ -301,7 +295,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                     bias=self.bias,
                     gather_output=self.gather_output,
                     dtype=dtype,
-                    sequence_parallel_enabled=False,
                     tensor_model_parallel_group=self.tensor_model_parallel_group,
                 )
                 self.v_proj = ColumnParallelLinear(
@@ -310,7 +303,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                     bias=self.bias,
                     gather_output=self.gather_output,
                     dtype=dtype,
-                    sequence_parallel_enabled=False,
                     tensor_model_parallel_group=self.tensor_model_parallel_group,
                 )
         else:
@@ -326,16 +318,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                 self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=self.bias)
 
     def forward(self, hidden_states: torch.Tensor, rmsnorm=None):
-        if self.sequence_parallel_enabled and self.tensor_model_parallel_group is not None:
-            hidden_states = gather_from_sequence_parallel_region(
-                hidden_states,
-                self.sequence_dimension,
-                process_group=self.tensor_model_parallel_group,
-            )
-
-        return self._native_qkv_forward(hidden_states)
-
-    def _native_qkv_forward(self, hidden_states: torch.Tensor):
         if self.fused_qkv:
             logger.debug("QKV: native compiler")
             QKV = self.Wqkv(hidden_states)
@@ -668,8 +650,6 @@ class GroupQueryAttention_O(BaseGroupQueryAttention):
         desired_sharding_strategy: GQA | None = None,
         input_is_parallel: bool = False,
         layer_name: str = "o_proj",
-        sequence_parallel_enabled: bool = False,
-        sequence_dimension: int | None = None,
         tensor_model_parallel_group: ProcessGroup | None = None,
         rpl_reduce_dtype: torch.dtype = None,
     ):
@@ -694,8 +674,6 @@ class GroupQueryAttention_O(BaseGroupQueryAttention):
                 bias=self.bias,
                 input_is_parallel=self.input_is_parallel,
                 dtype=self.dtype,
-                sequence_parallel_enabled=sequence_parallel_enabled,
-                sequence_dimension=sequence_dimension,
                 tensor_model_parallel_group=self.tensor_model_parallel_group,
                 reduce_dtype=rpl_reduce_dtype,
             )

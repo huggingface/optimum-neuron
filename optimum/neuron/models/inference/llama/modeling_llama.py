@@ -26,9 +26,6 @@ from neuronx_distributed.parallel_layers.layers import (
     ParallelEmbedding,
     RowParallelLinear,
 )
-from neuronx_distributed.parallel_layers.mappings import (
-    gather_from_sequence_parallel_region,
-)
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.models.llama.modeling_llama import LlamaConfig, LlamaRotaryEmbedding
@@ -78,8 +75,6 @@ class NeuronLlamaMLP(nn.Module):
         self.intermediate_size = config.intermediate_size
         self.act_fn = ACT2FN[config.hidden_act]
 
-        self.sequence_parallel_enabled = getattr(neuron_config, "sequence_parallel_enabled", False)
-        self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
         self.rms_norm_eps = config.rms_norm_eps
         self.logical_nc_config = neuron_config.logical_nc_config
         mlp_bias = getattr(config, "mlp_bias", False)
@@ -90,8 +85,6 @@ class NeuronLlamaMLP(nn.Module):
             gather_output=False,
             dtype=neuron_config.torch_dtype,
             pad=True,
-            sequence_parallel_enabled=False,
-            sequence_dimension=None,
         )
         self.up_proj = ColumnParallelLinear(
             self.hidden_size,
@@ -100,8 +93,6 @@ class NeuronLlamaMLP(nn.Module):
             gather_output=False,
             dtype=neuron_config.torch_dtype,
             pad=True,
-            sequence_parallel_enabled=False,
-            sequence_dimension=None,
         )
         self.down_proj = RowParallelLinear(
             self.intermediate_size,
@@ -110,17 +101,10 @@ class NeuronLlamaMLP(nn.Module):
             input_is_parallel=True,
             dtype=neuron_config.torch_dtype,
             pad=True,
-            sequence_parallel_enabled=self.sequence_parallel_enabled,
-            sequence_dimension=self.sequence_dimension,
             reduce_dtype=neuron_config.torch_dtype,
         )
 
     def forward(self, x, rmsnorm=None, residual=None):
-        # all-gather is done here instead of CPL layers to
-        # avoid 2 all-gathers from up and gate projections
-        if self.sequence_parallel_enabled:
-            x = gather_from_sequence_parallel_region(x, self.sequence_dimension)
-
         gate_proj_output = self.gate_proj(x)
         up_proj_output = self.up_proj(x)
         down_proj_input = self.act_fn(gate_proj_output) * up_proj_output
@@ -256,7 +240,6 @@ class NeuronLlamaDecoderLayer(nn.Module):
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
         self.config = config
 
     def forward(
