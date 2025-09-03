@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import json
+import logging
 import os
 
 import datasets
@@ -21,11 +22,13 @@ import pytest
 import torch
 import torch_xla.core.xla_model as xm
 from neuronx_distributed.parallel_layers.parallel_state import (
+    get_data_parallel_rank,
+    get_data_parallel_size,
     get_pipeline_model_parallel_size,
     get_tensor_model_parallel_size,
 )
 from peft import LoraConfig, TaskType
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, BertForSequenceClassification, BertTokenizer
 from transformers.models.auto.modeling_auto import MODEL_MAPPING_NAMES
 from transformers.trainer_pt_utils import AcceleratorConfig
 
@@ -608,28 +611,35 @@ def test_neuron_trainer_error_handling(train_dataset, tmpdir, set_cache_for_ci):
 
 @is_trainium_test
 @distributed_test(world_size=8, tp_size=2, pp_size=1)
-def test_iterable_dataset_training(tmpdir, set_cache_for_ci):
+def test_iterable_dataset_training(tmpdir, set_cache_for_ci, caplog):
+    dp_size = get_data_parallel_size()
     tp_size = get_tensor_model_parallel_size()
     pp_size = get_pipeline_model_parallel_size()
+
+    dp_rank = get_data_parallel_rank()
 
     class SimpleIterableDataset(torch.utils.data.IterableDataset):
         def __init__(self, num_samples=50):
             self.num_samples = num_samples
+            self.examples = {
+                rank: {
+                    "input_ids": rank * torch.ones((1024,), dtype=torch.int),
+                    "attention_mask": torch.ones((1024,), dtype=torch.int),
+                    "labels": rank * torch.ones((1024,), dtype=torch.int),
+                }
+                for rank in range(dp_size)
+            }
 
         def __iter__(self):
-            for i in range(self.num_samples):
-                yield {
-                    "input_ids": torch.randint(1, 1000, (1024,), dtype=torch.long),
-                    "attention_mask": torch.ones(1024, dtype=torch.long),
-                    "labels": torch.randint(1, 1000, (1024,), dtype=torch.long),
-                }
+            for _ in range(self.num_samples):
+                yield self.examples[dp_rank]
 
     iterable_dataset = SimpleIterableDataset()
 
     training_args = NeuronTrainingArguments(
         output_dir=tmpdir,
         per_device_train_batch_size=1,
-        max_steps=5,  # Required for IterableDataset
+        max_steps=10,  # Required for IterableDataset
         tensor_parallel_size=tp_size,
         pipeline_parallel_size=pp_size,
         logging_steps=1,
@@ -639,11 +649,89 @@ def test_iterable_dataset_training(tmpdir, set_cache_for_ci):
     trainer = NeuronTrainer(model, training_args, train_dataset=iterable_dataset)
 
     # Verify initial state
+    assert trainer.state.global_step == 0, f"Expected initial global_step=0, got {trainer.state.global_step}"
+
+    # Run training
+    with caplog.at_level(logging.WARNING):
+        trainer.train()
+
+    assert (
+        "Using an IterableDataset with multiple processes. Make sure that each process loads the correct data"
+        in caplog.text
+    ), f"Expected IterableDataset warning in logs, but got: {caplog.text}"
+
+    # Verify training completed with correct step count
+    assert trainer.state.global_step == 10, f"Expected final global_step=10, got {trainer.state.global_step}"
+    assert len(trainer.state.log_history) > 0, (
+        f"Expected training logs to be recorded, got {len(trainer.state.log_history)} log entries"
+    )
+
+
+@is_trainium_test
+@distributed_test(world_size=2, tp_size=1, pp_size=1)
+def test_no_parallelism_bert_training(tmpdir, set_cache_for_ci):
+    tp_size = get_tensor_model_parallel_size()
+    pp_size = get_pipeline_model_parallel_size()
+
+    # Create sequence classification dataset
+    tokenizer = BertTokenizer.from_pretrained("hf-internal-testing/tiny-random-BertForSequenceClassification")
+    texts = [
+        "This is a positive example.",
+        "This is a negative example.",
+        "Another positive text.",
+        "Another negative text.",
+    ] * 10  # 40 examples total
+
+    labels = [1, 0, 1, 0] * 10  # Binary classification labels
+
+    # Tokenize inputs
+    encoded = tokenizer(texts, return_tensors="pt", padding="max_length", truncation=True, max_length=128)
+
+    # Create dataset
+    dataset_dict = {
+        "input_ids": encoded["input_ids"],
+        "attention_mask": encoded["attention_mask"],
+        "labels": torch.tensor(labels, dtype=torch.long),
+    }
+    dataset = datasets.Dataset.from_dict(dataset_dict)
+
+    # Training arguments without model parallelism
+    training_args = NeuronTrainingArguments(
+        output_dir=tmpdir,
+        per_device_train_batch_size=2,
+        max_steps=5,
+        logging_steps=1,
+        tensor_parallel_size=tp_size,
+        pipeline_parallel_size=pp_size,
+        learning_rate=5e-4,
+    )
+
+    # Use regular transformers BERT model
+    model = BertForSequenceClassification.from_pretrained("prajjwal1/bert-tiny", num_labels=2)
+
+    # Store initial parameters for comparison
+    initial_params = {name: param.clone() for name, param in model.named_parameters()}
+
+    trainer = NeuronTrainer(model, training_args, train_dataset=dataset)
+
+    # Verify initial state
     assert trainer.state.global_step == 0
 
     # Run training
     trainer.train()
 
-    # Verify training completed with correct step count
+    # Verify training completed
     assert trainer.state.global_step == 5
     assert len(trainer.state.log_history) > 0
+
+    # Verify loss was logged
+    loss_logged = any("loss" in log for log in trainer.state.log_history)
+    assert loss_logged, "Loss was not logged during BERT training"
+
+    # Verify parameters were updated
+    params_changed = False
+    for name, param in model.named_parameters():
+        if not torch.equal(initial_params[name], param):
+            params_changed = True
+            break
+    assert params_changed, "Model parameters were not updated during training"

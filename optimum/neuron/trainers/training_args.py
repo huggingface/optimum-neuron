@@ -432,15 +432,11 @@ class NeuronTrainingArguments:
         },
     )
 
-    @staticmethod
-    def info(msg: str):
-        logger.info(msg)
-
     def __post_init__(self):
         # Set default output_dir if not provided
         if self.output_dir is None:
             self.output_dir = "trainer_output"
-            self.info(
+            logger.info(
                 "No output directory specified, defaulting to 'trainer_output'. "
                 "To change this behavior, specify --output_dir when creating TrainingArguments."
             )
@@ -657,7 +653,7 @@ class NeuronTrainingArguments:
 
     @cached_property
     def _setup_devices(self) -> "torch.device":
-        self.info("PyTorch: setting up devices")
+        logger.info("PyTorch: setting up devices")
 
         # Initialize the accelerator state first
         accelerator_state_kwargs: dict[str, Any] = {"enabled": True, "use_configured_state": False}

@@ -1031,7 +1031,13 @@ class NeuronTrainer:
 
         self.setup_training(train_dataloader, max_steps, num_train_epochs, num_examples, total_train_batch_size)
 
+        is_distributed = isinstance(train_dataloader.sampler, torch.utils.data.distributed.DistributedSampler)
         for epoch in range(num_train_epochs):
+            # We need to call set_epoch for distributed samplers to shuffle the ordering between epochs.
+            # See: https://docs.pytorch.org/docs/stable/data.html#torch.utils.data.distributed.DistributedSampler
+            if is_distributed:
+                train_dataloader.sampler.set_epoch(epoch)
+
             steps_in_epoch = (
                 len_dataloader if len_dataloader is not None else args.max_steps * args.gradient_accumulation_steps
             )
@@ -1122,16 +1128,19 @@ class NeuronTrainer:
                     xm.mark_step()
                     break
 
-                if step < 0:
-                    logger.warning(
-                        "There seems to be not a single sample in your epoch_iterator, stopping training at step"
-                        f" {self.state.global_step}! This is expected if you're using an IterableDataset and set"
-                        f" num_steps ({max_steps}) higher than the number of available samples."
-                    )
-                    self.control.should_training_stop = True
+            if step < 0:
+                logger.warning(
+                    "There seems to be not a single sample in your epoch_iterator, stopping training at step"
+                    f" {self.state.global_step}! This is expected if you're using an IterableDataset and set"
+                    f" num_steps ({max_steps}) higher than the number of available samples."
+                )
+                self.control.should_training_stop = True
 
-                self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-                xm.mark_step()
+            self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
+            xm.mark_step()
+
+            if self.control.should_training_stop:
+                break
 
         logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
         self.control = self.callback_handler.on_train_end(args, self.state, self.control)

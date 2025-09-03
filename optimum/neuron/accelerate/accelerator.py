@@ -38,10 +38,11 @@ from neuronx_distributed.parallel_layers.parallel_state import (
     model_parallel_is_initialized,
 )
 from neuronx_distributed.utils.model_utils import move_model_to_device
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, IterableDataset
 from torch.utils.data.distributed import DistributedSampler
 from torch_xla.distributed.parallel_loader import MpDeviceLoader
 from transformers import PreTrainedModel
+from transformers.training_args import trainer_log_levels
 
 from ...utils import logging
 from ..models.neuron_config import TrainingNeuronConfig
@@ -68,7 +69,11 @@ from .utils.misc import (
 from .utils.operations import _xla_gather
 
 
+# Setup logging so that the main process logs at the INFO level and the others are silent.
+log_levels = dict(**trainer_log_levels, silent=100)
 logger = logging.get_logger(__name__)
+log_level = "info" if is_logging_process() else "silent"
+logging.set_verbosity(log_levels[log_level])
 
 
 class NeuronAccelerator(Accelerator):
@@ -188,7 +193,6 @@ class NeuronAccelerator(Accelerator):
             drop_last=data_loader.drop_last or force_drop_last,
         )
 
-        distributed_dataloader._is_accelerate_prepared = True
         return distributed_dataloader
 
     def prepare_data_loader(
@@ -217,9 +221,14 @@ class NeuronAccelerator(Accelerator):
             num_replicas = xr.world_size()
             rank = xr.global_ordinal()
         if self.state.num_processes > 1:
-            data_loader = self._prepare_data_loader_for_distributed(
-                data_loader, num_replicas=num_replicas, rank=rank, force_drop_last=force_drop_last
-            )
+            if isinstance(data_loader.dataset, IterableDataset):
+                logger.warning(
+                    "Using an IterableDataset with multiple processes. Make sure that each process loads the correct data."
+                )
+            if not isinstance(data_loader.dataset, IterableDataset):
+                data_loader = self._prepare_data_loader_for_distributed(
+                    data_loader, num_replicas=num_replicas, rank=rank, force_drop_last=force_drop_last
+                )
             # No need to wrap the dataloader if we are using pipeline parallelism.
             if use_mp_device_loader and self.state.trn_config.pipeline_parallel_size == 1:
                 data_loader = MpDeviceLoader(
@@ -229,6 +238,7 @@ class NeuronAccelerator(Accelerator):
                     loader_prefetch_size=2 * batches_per_execution,
                     device_prefetch_size=batches_per_execution,
                 )
+        data_loader._is_accelerate_prepared = True
         return data_loader
 
     def _prepare_optimizer_for_zero_1(self, optimizer: torch.optim.Optimizer, device_placement=None):
