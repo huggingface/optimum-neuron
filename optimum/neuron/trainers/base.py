@@ -107,8 +107,6 @@ if is_datasets_available():
     import datasets
 
 
-TRL_VERSION = "0.11.4"
-
 DEFAULT_CALLBACKS = [DefaultFlowCallback]
 DEFAULT_PROGRESS_CALLBACK = ProgressCallback
 
@@ -129,6 +127,7 @@ class NeuronTrainer:
         callbacks: list[TrainerCallback] | None = None,
         optimizers: tuple[torch.optim.Optimizer | None, torch.optim.lr_scheduler.LambdaLR | None] = (None, None),
         optimizer_cls_and_kwargs: tuple[type[torch.optim.Optimizer], dict[str, Any]] | None = None,
+        tokenizer: PreTrainedTokenizerBase | None = None,  # deprecated
     ):
         if eval_dataset is not None:
             raise RuntimeError("Evaluation is not supported in NeuronTrainer.")
@@ -177,6 +176,12 @@ class NeuronTrainer:
         self.data_collator = data_collator if data_collator is not None else default_collator
         self.train_dataset = train_dataset
         self.eval_dataset = eval_dataset
+
+        if tokenizer is not None and processing_class is not None:
+            logger.warning(
+                "The `tokenizer` argument is deprecated and will be removed in a future version. Please use `processing_class` instead."
+            )
+            processing_class = tokenizer
         self.processing_class = processing_class
 
         model_forward = model.forward if not isinstance(model, NeuronPeftModel) else model.get_base_model().forward

@@ -20,6 +20,9 @@ from ..utils.import_utils import is_trl_available
 from .training_args import NeuronTrainingArguments
 
 
+TRL_VERSION = "0.11.4"
+
+
 if is_trl_available():
     from trl import ORPOConfig, SFTConfig
 else:
@@ -27,12 +30,12 @@ else:
     @dataclass
     class SFTConfig:
         def __init__(self, *args, **kwargs):
-            raise RuntimeError("You need to install the `trl` library to use the `NeuronSFTConfig`.")
+            raise RuntimeError(f"You need to install the `trl=={TRL_VERSION}` library to use the `NeuronSFTConfig`.")
 
     @dataclass
     class ORPOConfig:
         def __init__(self, *args, **kwargs):
-            raise RuntimeError("You need to install the `trl` library to use the `NeuronORPOConfig`.")
+            raise RuntimeError(f"You need to install the `trl=={TRL_VERSION}` library to use the `NeuronORPOConfig`.")
 
 
 @dataclass

@@ -17,4 +17,4 @@ from .base import NeuronTrainer
 from .orpo_trainer import NeuronORPOTrainer
 from .sft_trainer import NeuronSFTTrainer
 from .training_args import NeuronTrainingArguments
-from .trl_utils import NeuronORPOConfig, NeuronSFTConfig
+from .trl_utils import TRL_VERSION, NeuronORPOConfig, NeuronSFTConfig
