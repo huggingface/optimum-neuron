@@ -815,7 +815,7 @@ class NeuronTrainer:
 
             self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
 
-        self.model = self.accelerator.prepare_model(self.model, full_bf16=args.bf16)
+        self.model = self.accelerator.prepare_model(self.model, full_bf16=args.bf16 and not args.use_autocast)
         self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
         if not isinstance(self.model, NxDPPModel):

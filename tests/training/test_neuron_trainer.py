@@ -90,55 +90,31 @@ def test_num_examples_and_num_tokens(train_dataset, tmpdir):
     tp_size=2,
     pp_size=1,
 )
-def test_autocast_smart_context_manager_no_autocast(train_dataset, tmpdir):
-    tp_size = get_tensor_model_parallel_size()
-    pp_size = get_pipeline_model_parallel_size()
-
-    training_args = NeuronTrainingArguments(
-        output_dir=tmpdir,
-        per_device_train_batch_size=1,
-        per_device_eval_batch_size=1,
-        gradient_accumulation_steps=16,
-        num_train_epochs=3,
-        tensor_parallel_size=tp_size,
-        pipeline_parallel_size=pp_size,
-    )
-    model = NeuronModelForCausalLM.from_pretrained(TINY_MODEL_NAME, trn_config=training_args.trn_config)
-    trainer = NeuronTrainer(model, training_args, train_dataset=train_dataset)
-
-    # This will move the model to the right device.
-    model = trainer.accelerator.prepare(model)
-
-    inputs = next(iter(trainer.get_train_dataloader()))
-    inputs = {k: v.to(training_args.device) for k, v in inputs.items()}
-
-    with trainer.autocast_smart_context_manager():
-        outputs = model(**inputs)
-
-    assert outputs.logits.dtype is torch.float32, f"Expected logits to be float32, got {outputs.logits.dtype}"
-
-
-@distributed_test(
-    world_size=8,
-    tp_size=2,
-    pp_size=1,
+@pytest.mark.parametrize(
+    "bf16,use_autocast,expected_dtype",
+    [
+        (False, False, torch.float32),
+        (True, True, torch.bfloat16),
+    ],
+    ids=["no_autocast", "bf16_autocast"],
 )
-def test_autocast_smart_context_manager_enabled(train_dataset, tmpdir):
+def test_autocast_smart_context_manager(train_dataset, tmpdir, bf16, use_autocast, expected_dtype):
     tp_size = get_tensor_model_parallel_size()
     pp_size = get_pipeline_model_parallel_size()
 
-    training_args = NeuronTrainingArguments(
-        output_dir=tmpdir,
-        per_device_train_batch_size=1,
-        per_device_eval_batch_size=1,
-        gradient_accumulation_steps=16,
-        num_train_epochs=3,
-        tensor_parallel_size=tp_size,
-        pipeline_parallel_size=pp_size,
-        bf16=True,
-        use_autocast=True,
-    )
+    training_args_kwargs = {
+        "output_dir": tmpdir,
+        "per_device_train_batch_size": 1,
+        "per_device_eval_batch_size": 1,
+        "gradient_accumulation_steps": 16,
+        "num_train_epochs": 3,
+        "tensor_parallel_size": tp_size,
+        "pipeline_parallel_size": pp_size,
+        "bf16": bf16,
+        "use_autocast": use_autocast,
+    }
 
+    training_args = NeuronTrainingArguments(**training_args_kwargs)
     model = NeuronModelForCausalLM.from_pretrained(TINY_MODEL_NAME, trn_config=training_args.trn_config)
     trainer = NeuronTrainer(model, training_args, train_dataset=train_dataset)
 
@@ -151,7 +127,9 @@ def test_autocast_smart_context_manager_enabled(train_dataset, tmpdir):
     with trainer.autocast_smart_context_manager():
         outputs = model(**inputs)
 
-    assert outputs.logits.dtype is torch.bfloat16, f"Expected logits to be bfloat16, got {outputs.logits.dtype}"
+    assert outputs.logits.dtype is expected_dtype, (
+        f"Expected logits to be {expected_dtype}, got {outputs.logits.dtype}"
+    )
 
 
 @distributed_test(
@@ -673,8 +651,10 @@ def test_no_parallelism_bert_training(tmpdir, set_cache_for_ci):
     tp_size = get_tensor_model_parallel_size()
     pp_size = get_pipeline_model_parallel_size()
 
+    model_name = "hf-internal-testing/tiny-random-BertForSequenceClassification"
+
     # Create sequence classification dataset
-    tokenizer = BertTokenizer.from_pretrained("hf-internal-testing/tiny-random-BertForSequenceClassification")
+    tokenizer = BertTokenizer.from_pretrained(model_name)
     texts = [
         "This is a positive example.",
         "This is a negative example.",
@@ -699,6 +679,9 @@ def test_no_parallelism_bert_training(tmpdir, set_cache_for_ci):
     training_args = NeuronTrainingArguments(
         output_dir=tmpdir,
         per_device_train_batch_size=2,
+        # This way we also "test" gradient accumulation without `num_items_per_batch`.
+        # We do not test here that normalization is correct (it should), but that it runs fine.
+        gradient_accumulation_steps=2,
         max_steps=5,
         logging_steps=1,
         tensor_parallel_size=tp_size,
@@ -707,31 +690,35 @@ def test_no_parallelism_bert_training(tmpdir, set_cache_for_ci):
     )
 
     # Use regular transformers BERT model
-    model = BertForSequenceClassification.from_pretrained("prajjwal1/bert-tiny", num_labels=2)
+    model = BertForSequenceClassification.from_pretrained(model_name, num_labels=2)
 
     # Store initial parameters for comparison
-    initial_params = {name: param.clone() for name, param in model.named_parameters()}
+    initial_params = dict(model.named_parameters())
 
     trainer = NeuronTrainer(model, training_args, train_dataset=dataset)
 
     # Verify initial state
-    assert trainer.state.global_step == 0
+    assert trainer.state.global_step == 0, f"Expected initial global_step=0, got {trainer.state.global_step}"
 
     # Run training
     trainer.train()
 
     # Verify training completed
-    assert trainer.state.global_step == 5
-    assert len(trainer.state.log_history) > 0
+    assert trainer.state.global_step == 5, f"Expected final global_step=5, got {trainer.state.global_step}"
+    assert len(trainer.state.log_history) > 0, (
+        f"Expected training logs to be recorded, got {len(trainer.state.log_history)} log entries"
+    )
 
     # Verify loss was logged
     loss_logged = any("loss" in log for log in trainer.state.log_history)
-    assert loss_logged, "Loss was not logged during BERT training"
+    assert loss_logged, f"Loss was not logged during BERT training. Log history: {trainer.state.log_history}"
 
     # Verify parameters were updated
     params_changed = False
-    for name, param in model.named_parameters():
+    final_params = {name: param.to("cpu") for name, param in model.named_parameters()}
+    xm.mark_step()
+    for name, param in final_params.items():
         if not torch.equal(initial_params[name], param):
             params_changed = True
             break
-    assert params_changed, "Model parameters were not updated during training"
+    assert params_changed, f"Model parameters were not updated during training. Checked {len(final_params)} parameters"
