@@ -24,7 +24,6 @@ import torch
 import torch_xla.core.xla_model as xm
 from transformers.trainer_pt_utils import AcceleratorConfig
 from transformers.trainer_utils import (
-    HubStrategy,
     IntervalStrategy,
     SaveStrategy,
     SchedulerType,
