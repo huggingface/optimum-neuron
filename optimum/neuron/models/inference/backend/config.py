@@ -68,7 +68,6 @@ class NxDNeuronConfig(NeuronConfig):
         max_context_length: int | None = None,
         output_logits: bool | None = False,
         fused_qkv: bool | None = False,
-        sequence_parallel_enabled: bool | None = False,
         is_chunked_prefill: bool | None = False,
         flash_decoding_enabled: bool | None = False,
         async_mode: bool | None = False,
@@ -114,7 +113,6 @@ class NxDNeuronConfig(NeuronConfig):
         self.fused_qkv = fused_qkv
 
         # Functional parallelism
-        self.sequence_parallel_enabled = sequence_parallel_enabled
         self.is_chunked_prefill = is_chunked_prefill
 
         # Continuous batching

@@ -108,8 +108,6 @@ class NeuronAttentionBase(nn.Module):
 
         self.o_proj_layer_name = "o_proj"
 
-        self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
-        self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
         self.qkv_proj = GroupQueryAttention_QKV(
             hidden_size=self.hidden_size,
             head_dim=self.head_dim,
@@ -120,8 +118,6 @@ class NeuronAttentionBase(nn.Module):
             bias=qkv_proj_bias,
             gather_output=False,
             fused_qkv=neuron_config.fused_qkv,
-            sequence_parallel_enabled=self.sequence_parallel_enabled,
-            sequence_dimension=self.sequence_dimension,
             tensor_model_parallel_group=self.tensor_model_parallel_group,
             rms_norm_eps=self.rms_norm_eps,
             logical_nc_config=neuron_config.logical_nc_config,
@@ -136,8 +132,6 @@ class NeuronAttentionBase(nn.Module):
             bias=o_proj_bias,
             input_is_parallel=True,
             layer_name=self.o_proj_layer_name,
-            sequence_parallel_enabled=self.sequence_parallel_enabled,
-            sequence_dimension=self.sequence_dimension,
             tensor_model_parallel_group=self.tensor_model_parallel_group,
             rpl_reduce_dtype=neuron_config.torch_dtype,
         )
@@ -176,8 +170,6 @@ class NeuronAttentionBase(nn.Module):
         # Divide hidden_dim across heads for MHA
         # Change layout: BSHD -> BHSD
         bsz, q_len, _ = hidden_states.size()
-        if self.sequence_parallel_enabled:
-            q_len *= self.tensor_model_parallel_group.size()
 
         Q = move_heads_front(Q, bsz, q_len, self.num_heads, self.head_dim, layernorm=self.q_layernorm)
         K = move_heads_front(K, bsz, q_len, self.num_key_value_heads, self.head_dim, layernorm=self.k_layernorm)
@@ -370,8 +362,6 @@ class NeuronAttentionBase(nn.Module):
     ) -> tuple[Tensor, tuple[Tensor, Tensor] | None]:
         """Implements each layer's forward pass for the attention block."""
         bsz, q_len, _ = hidden_states.size()
-        if self.sequence_parallel_enabled:
-            q_len *= self.tensor_model_parallel_group.size()
 
         Q, K, V, cos_cache, sin_cache = self.prep_qkv_tensors(
             position_ids,

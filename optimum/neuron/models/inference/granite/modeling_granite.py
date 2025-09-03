@@ -57,7 +57,6 @@ class NeuronGraniteDecoderLayer(nn.Module):
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
         self.config = config
 
     def forward(

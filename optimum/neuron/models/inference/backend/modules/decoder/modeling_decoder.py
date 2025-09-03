@@ -20,14 +20,11 @@ from tempfile import TemporaryDirectory
 
 import neuronx_distributed as nxd
 import torch
-import torch_xla.core.xla_model as xm
 from huggingface_hub import HfApi, snapshot_download
 from neuronx_distributed.operators.argmax import argmax as nxd_argmax
 from neuronx_distributed.parallel_layers.layers import SPMDRank
 from neuronx_distributed.parallel_layers.mappings import (
     _gather_along_dim,
-    _reduce_scatter_along_dim,
-    gather_from_sequence_parallel_region,
 )
 from torch import nn
 from transformers import AutoConfig, PretrainedConfig
@@ -87,8 +84,6 @@ class NxDDecoderModel(nn.Module):
         self.vocab_size = config.vocab_size
         self.speculation_length = neuron_config.speculation_length
         self.max_length = neuron_config.sequence_length
-        self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
-        self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
         self.rank_util = SPMDRank(world_size=neuron_config.tp_degree)
         self.num_cores_per_group = neuron_config.num_cores_per_group
         if neuron_config.on_device_sampling:
@@ -336,15 +331,7 @@ class NxDDecoderModel(nn.Module):
         # )
 
         # embed positions
-        if self.sequence_parallel_enabled:
-            # TODO: Replace this with rankid + scatter call once supported
-            hidden_states = _reduce_scatter_along_dim(
-                inputs_embeds,
-                self.sequence_dimension,
-                xm.REDUCE_MAX,
-            )
-        else:
-            hidden_states = inputs_embeds
+        hidden_states = inputs_embeds
 
         # decoder layers
         next_decoder_cache = ()
@@ -368,12 +355,6 @@ class NxDDecoderModel(nn.Module):
             cos_cache, sin_cache = layer_outputs[2:]
 
         hidden_states = self.norm(hidden_states)
-
-        if self.sequence_parallel_enabled:
-            hidden_states = gather_from_sequence_parallel_region(
-                hidden_states,
-                self.sequence_dimension,
-            )
 
         return (hidden_states, next_decoder_cache)
 
@@ -448,15 +429,11 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         new_neuron_config = copy.deepcopy(neuron_config)
         new_neuron_config.batch_size = neuron_config.tkg_batch_size
         new_neuron_config.n_active_tokens = 1
-        new_neuron_config.sequence_parallel_enabled = False
 
         if new_neuron_config.enable_bucketing:
             buckets = generate_buckets(128, neuron_config.sequence_length)
         else:
             buckets = generate_buckets(neuron_config.sequence_length, neuron_config.sequence_length)
-
-        # shouldn't be used in token gen models
-        new_neuron_config.sequence_parallel_enabled = False
 
         return NxDDecoderWrapper(
             config=config,
@@ -474,8 +451,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         new_neuron_config = copy.deepcopy(neuron_config)
         new_neuron_config.batch_size = neuron_config.tkg_batch_size
         new_neuron_config.n_active_tokens = neuron_config.speculation_length
-
-        new_neuron_config.sequence_parallel_enabled = False
 
         if new_neuron_config.enable_bucketing:
             buckets = generate_buckets(128, neuron_config.sequence_length)
