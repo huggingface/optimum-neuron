@@ -27,19 +27,6 @@ from ..attention.gqa import (
 from .utils import dynamic_update_slice, fill_prefix
 
 
-def _reshape_tiled_cache(cache: Tensor):
-    # We merge the tiles BHS(128 tiled)D -> BHSD
-    cache_shape = cache.shape
-    desired_shape = (
-        cache_shape[0],
-        cache_shape[1],
-        cache_shape[2] * cache_shape[3],
-        cache_shape[4],
-    )
-    cache = cache.reshape(desired_shape)
-    return cache
-
-
 def _slice_kv_cacheline(seq_len: int, cache: Tensor):
     # Return the left-most slice (inputs are right padded)
     return torch.ops.aten.slice(cache, dim=2, start=0, end=seq_len)
@@ -57,8 +44,6 @@ class KVCacheManager(nn.Module):
         self.is_continuous_batching = neuron_config.continuous_batching
         self.num_kv_head = kwargs["num_kv_head"]
 
-        # NOTE: Tiling the sequence dimension of the KV cache enables specific compiler optimizations like cascaded reductions
-        self.is_kv_cache_tiled = False  # TODO: enable this when compiler fixes CR 158191111 (as per NxDI comment)
         self._init_kv_shape(config, neuron_config)
 
         num_layer = config.num_hidden_layers
@@ -85,31 +70,18 @@ class KVCacheManager(nn.Module):
         num_kv_heads_per_rank = self._get_num_kv_heads_per_rank(config, neuron_config)
         hidden_dim_per_head = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
 
-        if self.is_kv_cache_tiled:
-            num_tiles = int(max_len / 128)
-            # KV cache layout : BHS(128 tiled)D
-            self.kv_shape = (
-                max_batch_size,
-                num_kv_heads_per_rank,
-                128,  # Sequence dim is tiled
-                num_tiles,  # max_len = 128 * num_tiles
-                hidden_dim_per_head,
-            )
-        else:
-            # KV cache layout : BHSD
-            self.kv_shape = (
-                max_batch_size,
-                num_kv_heads_per_rank,
-                max_len,
-                hidden_dim_per_head,
-            )
+        # KV cache layout : BHSD
+        self.kv_shape = (
+            max_batch_size,
+            num_kv_heads_per_rank,
+            max_len,
+            hidden_dim_per_head,
+        )
 
     def _fetch_cache(self, idx: int, kvcache_buffer=None):
         if kvcache_buffer is not None:
             return kvcache_buffer[idx][0], kvcache_buffer[idx][1]
         k_cache, v_cache = self.past_key_values[idx * 2], self.past_key_values[idx * 2 + 1]
-        if self.is_kv_cache_tiled:
-            return _reshape_tiled_cache(k_cache), _reshape_tiled_cache(v_cache)
         return k_cache, v_cache
 
     def get_kv_by_layer_id(self, key_layer_idx, gather_index=None, slice_index=None):
@@ -131,10 +103,6 @@ class KVCacheManager(nn.Module):
             k_cache, v_cache = self.get_kv_by_layer_id(
                 key_layer_idx, gather_index=gather_index, slice_index=slice_index
             )
-
-            if self.is_kv_cache_tiled:
-                k_cache = _reshape_tiled_cache(k_cache)
-                v_cache = _reshape_tiled_cache(v_cache)
 
             # slice for partial view
             if not skip_slice:
@@ -203,11 +171,6 @@ class KVCacheManager(nn.Module):
                 scatter_index_new = self._get_index_to_update_new_position(scatter_index, position_ids, latest_k)
                 k_cache = torch.scatter(input=k_cache, dim=2, index=scatter_index_new, src=latest_k)
                 v_cache = torch.scatter(input=v_cache, dim=2, index=scatter_index_new, src=latest_v)
-
-            # Retiling
-            # TODO once compiler fixes CR 158191111 we can turn back output tiling on
-            # k_cache = k_cache.view(cache_shape)
-            # v_cache = v_cache.view(cache_shape)
 
             updated_kv_cache.append(k_cache)
             updated_kv_cache.append(v_cache)
