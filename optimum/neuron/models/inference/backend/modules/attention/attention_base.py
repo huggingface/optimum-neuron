@@ -103,7 +103,6 @@ class NeuronAttentionBase(nn.Module):
         self.torch_dtype = neuron_config.torch_dtype
         self.flash_decoding_enabled = neuron_config.flash_decoding_enabled
         self.num_cores_per_group = neuron_config.num_cores_per_group
-        self.mlp_kernel_enabled = neuron_config.mlp_kernel_enabled
         self.rms_norm_eps = config.rms_norm_eps
         self._qk_scale = qk_scale
 

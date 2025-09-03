@@ -58,8 +58,6 @@ class NeuronGraniteDecoderLayer(nn.Module):
             eps=config.rms_norm_eps,
         )
         self.qkv_kernel_enabled = neuron_config.qkv_kernel_enabled
-        self.mlp_kernel_enabled = neuron_config.mlp_kernel_enabled
-        self.mlp_kernel_fuse_residual_add = neuron_config.mlp_kernel_fuse_residual_add
         self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
         self.config = config
 
@@ -90,26 +88,13 @@ class NeuronGraniteDecoderLayer(nn.Module):
         # Granite specific: attention output is multiplied by residual multiplier
         hidden_states = hidden_states * self.config.residual_multiplier
 
-        if self.mlp_kernel_enabled and self.mlp_kernel_fuse_residual_add:
-            assert not self.sequence_parallel_enabled, (
-                "mlp_kernel_fuse_residual_add should be off when sequence parallelism is enabled"
-            )
-            # First residual add handled in the MLP kernel
-            hidden_states, residual = self.mlp(
-                hidden_states,
-                rmsnorm=self.post_attention_layernorm,
-                residual=residual,
-            )
-        else:
-            hidden_states = residual + hidden_states
-            residual = hidden_states
-            # RMSNorm (fused with QKV kernel when SP is disabled)
-            if not self.mlp_kernel_enabled or self.sequence_parallel_enabled:
-                hidden_states = self.post_attention_layernorm(hidden_states)
-            hidden_states, _ = self.mlp(
-                hidden_states,
-                rmsnorm=self.post_attention_layernorm,
-            )
+        hidden_states = residual + hidden_states
+        residual = hidden_states
+        hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states = self.mlp(
+            hidden_states,
+            rmsnorm=self.post_attention_layernorm,
+        )
 
         # Granite specific: MLP output is multiplied by residual_multiplier
         hidden_states = hidden_states * self.config.residual_multiplier
