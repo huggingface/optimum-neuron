@@ -106,7 +106,6 @@ class NxDDecoderWrapper(NxDModelWrapper):
         self.compiler_workdir = os.path.join(base_compile_work_dir, self.tag)
 
         self.model_init_kwargs = model_init_kwargs
-        self.async_mode = self.neuron_config.async_mode
 
     def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
         self.model = self.model_cls(self.config, self.neuron_config)
@@ -274,10 +273,6 @@ class NxDDecoderWrapper(NxDModelWrapper):
 
             output_logits.append(outputs)
             cur_batch += self.neuron_config.batch_size
-
-        if self.async_mode:
-            # block on all requests here, since this is output manipulation
-            output_logits = [self._get_async_output(ranked_logits) for ranked_logits in output_logits]
 
         return torch.cat(output_logits, dim=0)
 

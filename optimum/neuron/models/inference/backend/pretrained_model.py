@@ -30,7 +30,6 @@ from .model_wrapper import NxDModelWrapper
 from .modules.checkpoint import (
     load_state_dict,
 )
-from .modules.flashdecode.utils import calculate_num_cores_per_group
 
 
 logger = logging.getLogger("Neuron")
@@ -82,7 +81,6 @@ def get_builder(
         checkpoint_loader=checkpoint_loader,
         compiler_workdir=base_compile_work_dir,
         debug=debug,
-        num_cores_per_group=neuron_config.num_cores_per_group,
         logical_nc_config=neuron_config.logical_nc_config,
         weights_to_skip_layout_optimization=neuron_config.weights_to_skip_layout_optimization,
     )
@@ -116,12 +114,6 @@ class NxDPreTrainedModel:
         self.neuron_config = copy.deepcopy(neuron_config)
         # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
         self.config.torch_dtype = self.neuron_config.torch_dtype
-        if neuron_config.flash_decoding_enabled:
-            # FIXME: this should not be part of neuron_config but is used in downstream classes
-            # Could it be deduced from tensor shapes ?
-            self.neuron_config.num_cores_per_group = calculate_num_cores_per_group(
-                config.num_attention_heads, config.num_key_value_heads, neuron_config.tp_degree
-            )
         self._traced_model = traced_model
         self.model_wrappers = model_wrappers  # Required for loading weights
         for model_wrapper in self.model_wrappers:

@@ -68,14 +68,10 @@ class NxDNeuronConfig(NeuronConfig):
         max_context_length: int | None = None,
         output_logits: bool | None = False,
         fused_qkv: bool | None = False,
-        flash_decoding_enabled: bool | None = False,
-        async_mode: bool | None = False,
-        attn_kernel_enabled: bool | None = False,
         enable_bucketing: bool | None = False,
         target: str | None = None,  # set to "trn2" for trn2
         logical_nc_config: int | None = 1,
         cc_pipeline_tiling_factor: int | None = 2,
-        num_cores_per_group: int | None = 1,
         on_device_sampling: bool | None = False,
         max_topk: int | None = 256,
         start_rank_id: int | None = 0,
@@ -83,11 +79,6 @@ class NxDNeuronConfig(NeuronConfig):
         capacity_factor: float = None,
         glu_mlp: bool = True,
     ) -> None:
-        # TODO: these flags are suposed to work in NxDI. Either make them work or remove them
-        if flash_decoding_enabled:
-            raise ValueError("`flash_decoding_enabled` is not supported in optimum-neuron.")
-        if async_mode:
-            raise ValueError("`async_mode` is not supported in optimum-neuron.")
         # Required to retrieve a checkpoint from the hub
         self.checkpoint_id = checkpoint_id
         self.checkpoint_revision = checkpoint_revision
@@ -117,17 +108,12 @@ class NxDNeuronConfig(NeuronConfig):
         self.on_device_sampling = on_device_sampling
         self.max_topk = max_topk
 
-        # async
-        self.async_mode = async_mode
-
         # Bucketing
         self.enable_bucketing = enable_bucketing
 
         # Speculative decoding
         self.speculation_length = speculation_length
         if self.speculation_length > 0:
-            if self.async_mode:
-                raise IncompatibleConfigError("Speculative Decoding is not yet supported with async.")
             if self.on_device_sampling:
                 raise IncompatibleConfigError("Speculative decoding is incompatible with on-device sampling")
 
@@ -142,13 +128,6 @@ class NxDNeuronConfig(NeuronConfig):
         self.local_ranks_size = local_ranks_size
         if self.local_ranks_size is None:
             self.local_ranks_size = self.world_size
-
-        # Flash decoding
-        self.flash_decoding_enabled = flash_decoding_enabled
-        self.num_cores_per_group = num_cores_per_group
-
-        # Kernels
-        self.attn_kernel_enabled = attn_kernel_enabled
 
         # compiler flags
         self.logical_nc_config = logical_nc_config
