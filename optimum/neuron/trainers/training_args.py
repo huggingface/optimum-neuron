@@ -416,6 +416,10 @@ class NeuronTrainingArguments:
     )
 
     def __post_init__(self):
+        # Set the verbosity so that each process logs according to its rank.
+        log_level = self.get_process_log_level()
+        logging.set_verbosity(log_level)
+
         # Set default output_dir if not provided
         if self.output_dir is None:
             self.output_dir = "trainer_output"
