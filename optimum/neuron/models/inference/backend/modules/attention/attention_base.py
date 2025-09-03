@@ -124,7 +124,6 @@ class NeuronAttentionBase(nn.Module):
             sequence_dimension=self.sequence_dimension,
             tensor_model_parallel_group=self.tensor_model_parallel_group,
             rms_norm_eps=self.rms_norm_eps,
-            qkv_kernel_enabled=neuron_config.qkv_kernel_enabled,
             logical_nc_config=neuron_config.logical_nc_config,
         )
         self.o_proj = GroupQueryAttention_O(
