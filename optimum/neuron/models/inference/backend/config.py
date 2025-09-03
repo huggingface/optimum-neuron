@@ -68,7 +68,6 @@ class NxDNeuronConfig(NeuronConfig):
         max_context_length: int | None = None,
         output_logits: bool | None = False,
         fused_qkv: bool | None = False,
-        vocab_parallel: bool | None = False,
         sequence_parallel_enabled: bool | None = False,
         is_chunked_prefill: bool | None = False,
         flash_decoding_enabled: bool | None = False,
@@ -98,8 +97,6 @@ class NxDNeuronConfig(NeuronConfig):
             raise ValueError("`async_mode` is not supported in optimum-neuron.")
         if qkv_kernel_enabled or mlp_kernel_enabled:
             raise ValueError("`qkv_kernel_enabled` and `mlp_kernel_enabled` are not supported for trn1 chips.")
-        if vocab_parallel:
-            raise ValueError("`vocab_parallel` is not supported in optimum-neuron.")
         # Required to retrieve a checkpoint from the hub
         self.checkpoint_id = checkpoint_id
         self.checkpoint_revision = checkpoint_revision
@@ -122,7 +119,6 @@ class NxDNeuronConfig(NeuronConfig):
         self.fused_qkv = fused_qkv
 
         # Functional parallelism
-        self.vocab_parallel = vocab_parallel
         self.sequence_parallel_enabled = sequence_parallel_enabled
         self.is_chunked_prefill = is_chunked_prefill
 

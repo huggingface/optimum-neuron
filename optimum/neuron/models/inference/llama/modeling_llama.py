@@ -445,10 +445,8 @@ class NxDLlamaModel(NxDDecoderModel):
             config.hidden_size,
             config.pad_token_id,
             dtype=neuron_config.torch_dtype,
-            shard_across_embedding=not neuron_config.vocab_parallel,
-            sequence_parallel_enabled=False,
+            shard_across_embedding=True,
             pad=True,
-            use_spmd_rank=neuron_config.vocab_parallel,
         )
 
         self.lm_head = ColumnParallelLinear(
@@ -481,10 +479,6 @@ class LlamaNxDModelForCausalLM(NxDModelForCausalLM):
         """This function should be over-ridden in child classes as needed"""
         if neuron_config.fused_qkv:
             state_dict = convert_state_dict_to_fused_qkv(state_dict, config)
-
-        if neuron_config.vocab_parallel:
-            # TODO: this hack can be removed after replication_id is ready to use
-            state_dict["embed_tokens.rank_util.rank"] = torch.arange(0, neuron_config.local_ranks_size)
 
         # to facilitate rank usage in attention
         num_layers = config.num_hidden_layers
