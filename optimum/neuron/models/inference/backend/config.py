@@ -74,8 +74,6 @@ class NxDNeuronConfig(NeuronConfig):
         async_mode: bool | None = False,
         attn_kernel_enabled: bool | None = False,
         qkv_kernel_enabled: bool | None = False,
-        mlp_kernel_enabled: bool | None = False,
-        mlp_kernel_fuse_residual_add: bool | None = False,
         enable_bucketing: bool | None = False,
         target: str | None = None,  # set to "trn2" for trn2
         logical_nc_config: int | None = 1,
@@ -95,8 +93,8 @@ class NxDNeuronConfig(NeuronConfig):
             raise ValueError("`flash_decoding_enabled` is not supported in optimum-neuron.")
         if async_mode:
             raise ValueError("`async_mode` is not supported in optimum-neuron.")
-        if qkv_kernel_enabled or mlp_kernel_enabled:
-            raise ValueError("`qkv_kernel_enabled` and `mlp_kernel_enabled` are not supported for trn1 chips.")
+        if qkv_kernel_enabled:
+            raise ValueError("`qkv_kernel_enabled` and are not supported for trn1 chips.")
         # Required to retrieve a checkpoint from the hub
         self.checkpoint_id = checkpoint_id
         self.checkpoint_revision = checkpoint_revision
@@ -163,8 +161,6 @@ class NxDNeuronConfig(NeuronConfig):
         # Kernels
         self.attn_kernel_enabled = attn_kernel_enabled
         self.qkv_kernel_enabled = qkv_kernel_enabled
-        self.mlp_kernel_enabled = mlp_kernel_enabled
-        self.mlp_kernel_fuse_residual_add = mlp_kernel_fuse_residual_add
 
         # compiler flags
         self.logical_nc_config = logical_nc_config
