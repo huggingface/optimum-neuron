@@ -147,7 +147,6 @@ class NeuronTrainingArguments:
         default="steps",
         metadata={"help": "The logging strategy to use."},
     )
-    logging_first_step: bool = field(default=False, metadata={"help": "Log the first global_step"})
     logging_steps: float = field(
         default=500,
         metadata={
@@ -202,7 +201,6 @@ class NeuronTrainingArguments:
         },
     )
     seed: int = field(default=42, metadata={"help": "Random seed that will be set at the beginning of training."})
-    data_seed: int | None = field(default=None, metadata={"help": "Random seed to be used with data samplers."})
     bf16: bool = field(
         default=False,
         metadata={
@@ -212,8 +210,6 @@ class NeuronTrainingArguments:
             )
         },
     )
-    local_rank: int = field(default=-1, metadata={"help": "For distributed training: local_rank"})
-
     dataloader_drop_last: bool = field(
         default=False, metadata={"help": "Drop the last incomplete batch if it is not divisible by the batch size."}
     )
@@ -261,15 +257,6 @@ class NeuronTrainingArguments:
     label_names: list[str] | None = field(
         default=None, metadata={"help": "The list of keys in your dictionary of inputs that correspond to the labels."}
     )
-    ignore_data_skip: bool = field(
-        default=False,
-        metadata={
-            "help": (
-                "When resuming training, whether or not to skip the first epochs and batches to get to the same"
-                " training data."
-            )
-        },
-    )
     accelerator_config: dict | str | None = field(
         default=None,
         metadata={
@@ -289,12 +276,8 @@ class NeuronTrainingArguments:
         metadata={"help": "The optimizer to use."},
     )
     optim_args: str | None = field(default=None, metadata={"help": "Optional arguments to supply to optimizer."})
-    adafactor: bool = field(default=False, metadata={"help": "Whether or not to replace AdamW by Adafactor."})
     report_to: None | str | list[str] = field(
         default=None, metadata={"help": "The list of integrations to report the results and logs to."}
-    )
-    skip_memory_metrics: bool = field(
-        default=True, metadata={"help": "Whether or not to skip adding of memory profiler reports to metrics."}
     )
     push_to_hub: bool = field(
         default=False, metadata={"help": "Whether or not to upload the trained model to the model hub after training."}
