@@ -34,8 +34,6 @@ def initialize_moe_module(
         num_experts=num_experts,
         top_k=top_k,
         hidden_size=hidden_size,
-        sequence_parallel_enabled=neuron_config.sequence_parallel_enabled,
-        sequence_dimension=1,
     )
     expert_mlps = ExpertMLPs(
         num_experts=num_experts,
@@ -50,8 +48,6 @@ def initialize_moe_module(
     moe = MoE(
         router=router,
         expert_mlps=expert_mlps,
-        sequence_parallel_enabled=neuron_config.sequence_parallel_enabled,
-        sequence_dimension=1,
     )
     # Set MoE module in eval mode
     moe.eval()
