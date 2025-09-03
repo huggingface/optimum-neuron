@@ -129,10 +129,8 @@ class NxDGraniteEmbedding(ParallelEmbedding):
             config.hidden_size,
             config.pad_token_id,
             dtype=neuron_config.torch_dtype,
-            shard_across_embedding=not neuron_config.vocab_parallel,
-            sequence_parallel_enabled=False,
+            shard_across_embedding=True,
             pad=True,
-            use_spmd_rank=neuron_config.vocab_parallel,
         )
         self.config = config
 
