@@ -27,8 +27,8 @@ from torch import nn
 from transformers.models.granite.configuration_granite import GraniteConfig
 
 from ..backend.config import NxDNeuronConfig
-from ..backend.modules.custom_calls import CustomRMSNorm
 from ..backend.modules.decoder import NxDDecoderModel
+from ..backend.modules.rms_norm import NeuronRMSNorm
 from ..llama.modeling_llama import LlamaNxDModelForCausalLM, NeuronLlamaAttention, NeuronLlamaMLP
 
 
@@ -49,11 +49,11 @@ class NeuronGraniteDecoderLayer(nn.Module):
         logger.debug(
             f"Instantiating RMSNorm modules with hidden size {config.hidden_size} and EPS {config.rms_norm_eps}"
         )
-        self.input_layernorm = CustomRMSNorm(
+        self.input_layernorm = NeuronRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.post_attention_layernorm = CustomRMSNorm(
+        self.post_attention_layernorm = NeuronRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
@@ -158,7 +158,7 @@ class NxDGraniteModel(NxDDecoderModel):
         self.layers = nn.ModuleList(
             [NeuronGraniteDecoderLayer(config, neuron_config) for _ in range(config.num_hidden_layers)]
         )
-        self.norm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = NeuronRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
 
 class GraniteNxDModelForCausalLM(LlamaNxDModelForCausalLM):

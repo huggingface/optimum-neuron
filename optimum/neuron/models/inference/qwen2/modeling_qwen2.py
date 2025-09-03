@@ -26,8 +26,8 @@ from torch import nn
 from transformers.models.qwen2.modeling_qwen2 import Qwen2Config
 
 from ..backend.config import NxDNeuronConfig
-from ..backend.modules.custom_calls import CustomRMSNorm
 from ..backend.modules.decoder import NxDDecoderModel
+from ..backend.modules.rms_norm import NeuronRMSNorm
 from ..llama.modeling_llama import (
     LlamaNxDModelForCausalLM,
     NeuronLlamaAttention,
@@ -52,11 +52,11 @@ class NeuronQwen2DecoderLayer(NeuronLlamaDecoderLayer):
         logger.debug(
             f"Instantiating RMSNorm modules with hidden size {config.hidden_size} and EPS {config.rms_norm_eps}"
         )
-        self.input_layernorm = CustomRMSNorm(
+        self.input_layernorm = NeuronRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.post_attention_layernorm = CustomRMSNorm(
+        self.post_attention_layernorm = NeuronRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
@@ -91,7 +91,7 @@ class NxDQwen2Model(NxDDecoderModel):
         self.layers = nn.ModuleList(
             [NeuronQwen2DecoderLayer(config, neuron_config) for _ in range(config.num_hidden_layers)]
         )
-        self.norm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = NeuronRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
 
 class Qwen2NxDModelForCausalLM(LlamaNxDModelForCausalLM):

@@ -26,8 +26,8 @@ from transformers.models.smollm3.configuration_smollm3 import SmolLM3Config
 from ..backend.config import NxDNeuronConfig  # noqa: E402
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
 from ..backend.modules.attention.utils import RotaryEmbedding
-from ..backend.modules.custom_calls import CustomRMSNorm
 from ..backend.modules.decoder import NxDDecoderModel
+from ..backend.modules.rms_norm import NeuronRMSNorm
 from ..llama.modeling_llama import (
     LlamaNxDModelForCausalLM,
     NeuronLlamaDecoderLayer,
@@ -107,7 +107,7 @@ class NxDSmolLM3Model(NxDDecoderModel):
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
-        self.norm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = NeuronRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
 
 class SmolLM3NxDModelForCausalLM(LlamaNxDModelForCausalLM):
