@@ -273,12 +273,14 @@ class NeuronTrainer:
 
     @property
     def tokenizer(self) -> PreTrainedTokenizerBase | None:
+        """Deprecated: Returns the processing class (tokenizer). Use processing_class instead."""
         logger.warning(
             "NeuronTrainer.tokenizer is now deprecated. You should use NeuronTrainer.processing_class instead."
         )
         return self.processing_class
 
     def create_accelerator_and_postprocess(self):
+        """Creates NeuronAccelerator instance and prepares model for distributed training."""
         # We explicitly don't rely on the `Accelerator` to do gradient accumulation
         grad_acc_kwargs = {}
         if self.args.accelerator_config.gradient_accumulation_kwargs is not None:
@@ -501,6 +503,7 @@ class NeuronTrainer:
         )
 
     def get_train_dataloader(self) -> DataLoader:
+        """Returns the training DataLoader with appropriate sampler and batch size."""
         if self.train_dataset is None:
             raise ValueError("NeuronTrainer: training requires a train_dataset.")
 
@@ -965,6 +968,7 @@ class NeuronTrainer:
         return last_lr
 
     def maybe_log_train_step_metrics(self):
+        """Log training step metrics if logging is due."""
         if self.global_step_last_logged >= self.state.global_step:
             return
 
@@ -1000,6 +1004,7 @@ class NeuronTrainer:
             xm.add_step_closure(log_closure)
 
     def maybe_save_checkpoint(self):
+        """Save checkpoint if saving is due."""
         if self.control.should_save:
             xm.mark_step()
 
@@ -1220,6 +1225,7 @@ class NeuronTrainer:
             logger.info("Skipping trainer.save_model() while running under neuron_parallel_compile")
 
     def log(self, logs: dict[str, float]) -> None:
+        """Log training metrics to the state history and callbacks."""
         if self.state.epoch is not None:
             logs["epoch"] = self.state.epoch
         output = {**logs, **{"step": self.state.global_step}}
