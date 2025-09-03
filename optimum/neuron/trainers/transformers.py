@@ -151,7 +151,7 @@ class NeuronTrainer:
         logging.set_verbosity(log_level)
 
         if model is None:
-            raise ValueError("A model must be provided to the Trainer.")
+            raise ValueError("A model must be provided to the NeuronTrainer.")
 
         if model.__class__.__name__ in MODEL_MAPPING_NAMES:
             raise ValueError(
@@ -215,7 +215,7 @@ class NeuronTrainer:
                 raise ValueError(
                     "The model and the optimizer parameters are not on the same device, which probably means you"
                     " created an optimizer around your model **before** putting on the device and passing it to the"
-                    " `Trainer`. Make sure the lines `import torch_xla.core.xla_model as xm` and"
+                    " `NeuronTrainer`. Make sure the lines `import torch_xla.core.xla_model as xm` and"
                     " `model.to(xm.xla_device())` is performed before the optimizer creation in your script."
                 )
 
@@ -502,7 +502,7 @@ class NeuronTrainer:
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
-            raise ValueError("Trainer: training requires a train_dataset.")
+            raise ValueError("NeuronTrainer: training requires a train_dataset.")
 
         return self._get_dataloader(
             dataset=self.train_dataset,
@@ -523,7 +523,7 @@ class NeuronTrainer:
         Setup the optimizer and the learning rate scheduler.
 
         We provide a reasonable default that works well. If you want to use something else, you can pass a tuple in the
-        Trainer's init through `optimizers`, or subclass and override this method (or `create_optimizer` and/or
+        NeuronTrainer's init through `optimizers`, or subclass and override this method (or `create_optimizer` and/or
         `create_scheduler`) in a subclass.
         """
         self.create_optimizer()
@@ -545,7 +545,7 @@ class NeuronTrainer:
         Setup the optimizer.
 
         We provide a reasonable default that works well. If you want to use something else, you can pass a tuple in the
-        Trainer's init through `optimizers`, or subclass and override this method in a subclass.
+        NeuronTrainer's init through `optimizers`, or subclass and override this method in a subclass.
         """
         if isinstance(self.model, NxDPPModel):
             opt_model = self.model.original_torch_module
@@ -602,7 +602,7 @@ class NeuronTrainer:
         Returns the learning rate of each parameter from self.optimizer.
         """
         if self.optimizer is None:
-            raise ValueError("Trainer optimizer is None, please make sure you have setup the optimizer before.")
+            raise ValueError("NeuronTrainer optimizer is None, please make sure you have setup the optimizer before.")
         return [group["lr"] for group in self.optimizer.param_groups]
 
     def get_optimizer_group(self, param: str | torch.nn.parameter.Parameter | None = None):
@@ -614,7 +614,7 @@ class NeuronTrainer:
                 The parameter for which optimizer group needs to be returned.
         """
         if self.optimizer is None:
-            raise ValueError("Trainer optimizer is None, please make sure you have setup the optimizer before.")
+            raise ValueError("NeuronTrainer optimizer is None, please make sure you have setup the optimizer before.")
         if param is not None:
             for group in self.optimizer.param_groups:
                 if param in group["params"]:
@@ -651,7 +651,7 @@ class NeuronTrainer:
         elif args.optim == OptimizerNames.SGD:
             optimizer_cls = torch.optim.SGD
         else:
-            raise ValueError(f"Trainer cannot instantiate unsupported optimizer: {args.optim}")
+            raise ValueError(f"NeuronTrainer cannot instantiate unsupported optimizer: {args.optim}")
         return optimizer_cls, optimizer_kwargs
 
     def create_scheduler(self, num_training_steps: int, optimizer: torch.optim.Optimizer | None = None):
