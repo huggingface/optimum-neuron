@@ -71,7 +71,6 @@ class NxDNeuronConfig(NeuronConfig):
         enable_bucketing: bool | None = False,
         target: str | None = None,  # set to "trn2" for trn2
         logical_nc_config: int | None = 1,
-        cc_pipeline_tiling_factor: int | None = 2,
         on_device_sampling: bool | None = False,
         max_topk: int | None = 256,
         start_rank_id: int | None = 0,
@@ -131,7 +130,6 @@ class NxDNeuronConfig(NeuronConfig):
 
         # compiler flags
         self.logical_nc_config = logical_nc_config
-        self.cc_pipeline_tiling_factor = cc_pipeline_tiling_factor
         self.target = target
 
         # MoE specific
