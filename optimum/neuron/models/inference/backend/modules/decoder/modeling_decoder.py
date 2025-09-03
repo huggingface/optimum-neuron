@@ -593,11 +593,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
 
     @classmethod
     def get_compiler_args(cls, neuron_config: NxDNeuronConfig) -> str:
-        tensorizer_options = (
-            "--enable-ccop-compute-overlap "
-            f"--cc-pipeline-tiling-factor={neuron_config.cc_pipeline_tiling_factor} "
-            "--vectorize-strided-dma "
-        )
+        tensorizer_options = "--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2 --vectorize-strided-dma "
 
         compiler_args = (
             "--auto-cast=none --model-type=transformer "
