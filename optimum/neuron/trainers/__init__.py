@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .transformers import NeuronTrainer
+from .sft_config import NeuronSFTConfig
 from .sft_trainer import NeuronSFTTrainer
 from .training_args import NeuronTrainingArguments
-from .trl_utils import TRL_VERSION, NeuronSFTConfig
+from .transformers import NeuronTrainer
+from .trl_utils import TRL_VERSION

@@ -37,8 +37,9 @@ from ..utils import (
     is_trl_available,
 )
 from ..utils.import_utils import is_peft_available
+from .sft_config import NeuronSFTConfig
 from .transformers import NeuronTrainer
-from .trl_utils import TRL_VERSION, NeuronSFTConfig
+from .trl_utils import TRL_VERSION
 
 
 if is_trl_available():
