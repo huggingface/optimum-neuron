@@ -68,7 +68,6 @@ class NxDNeuronConfig(NeuronConfig):
         max_context_length: int | None = None,
         output_logits: bool | None = False,
         fused_qkv: bool | None = False,
-        is_chunked_prefill: bool | None = False,
         flash_decoding_enabled: bool | None = False,
         async_mode: bool | None = False,
         attn_kernel_enabled: bool | None = False,
@@ -85,8 +84,6 @@ class NxDNeuronConfig(NeuronConfig):
         glu_mlp: bool = True,
     ) -> None:
         # TODO: these flags are suposed to work in NxDI. Either make them work or remove them
-        if is_chunked_prefill:
-            raise ValueError("`is_chunked_prefill` is not supported in optimum-neuron.")
         if flash_decoding_enabled:
             raise ValueError("`flash_decoding_enabled` is not supported in optimum-neuron.")
         if async_mode:
@@ -111,9 +108,6 @@ class NxDNeuronConfig(NeuronConfig):
 
         # Graph transforms
         self.fused_qkv = fused_qkv
-
-        # Functional parallelism
-        self.is_chunked_prefill = is_chunked_prefill
 
         # Continuous batching
         self.continuous_batching = continuous_batching

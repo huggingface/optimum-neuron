@@ -36,7 +36,6 @@ from ......modeling_decoder import NeuronModelForCausalLM
 from ...config import NxDNeuronConfig
 from ...pretrained_model import NxDPreTrainedModel
 from ...utils.random import set_random_seed
-from ..attention import utils as attn_utils
 from ..autobucketing import generate_buckets
 from ..flashdecode.utils import (
     get_cache_size,
@@ -116,24 +115,10 @@ class NxDDecoderModel(nn.Module):
         return input_ids.shape[-1] == self.speculation_length
 
     def _create_context_attn_mask(self, attention_mask, **kwargs):
-        # Block diagonal causal mask for chunked prefill
-        if self.neuron_config.is_chunked_prefill:
-            return self._create_chunked_prefill_attn_mask(**kwargs)
-
         # Lower triangle causal mask for classic attention
         mask = torch.full((self.n_positions, self.n_positions), True, device=attention_mask.device).tril(diagonal=0)
         mask = mask[None, None, :, :].expand(self.batch_size, 1, self.n_positions, self.n_positions)
         return mask
-
-    def _create_chunked_prefill_attn_mask(
-        self,
-        query_lens: torch.Tensor,
-        key_lens: torch.Tensor,
-        max_query_len: int,
-        max_key_len: int,
-        **kwargs,
-    ) -> torch.Tensor:
-        return attn_utils.create_block_diagonal_attn_mask(query_lens, key_lens, max_query_len, max_key_len, **kwargs)
 
     def _create_spec_attn_mask(self, attention_mask):
         return (
