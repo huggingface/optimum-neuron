@@ -60,7 +60,6 @@ class NeuronQwen2DecoderLayer(NeuronLlamaDecoderLayer):
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.qkv_kernel_enabled = neuron_config.qkv_kernel_enabled
         self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
         self.config = config
 
