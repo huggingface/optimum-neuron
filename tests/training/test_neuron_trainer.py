@@ -480,7 +480,7 @@ def test_peft_training(train_dataset, tmpdir, world_size, tp_size, pp_size, set_
 
 @is_trainium_test
 @distributed_test(world_size=8, tp_size=2, pp_size=1)
-def test_neuron_trainer_error_handling(train_dataset, tmpdir, world_size, tp_size, pp_size, set_cache_for_ci):
+def test_neuron_trainer_error_handling(train_dataset, tmpdir, set_cache_for_ci):
     tp_size = get_tensor_model_parallel_size()
     pp_size = get_pipeline_model_parallel_size()
 
@@ -604,3 +604,46 @@ def test_neuron_trainer_error_handling(train_dataset, tmpdir, world_size, tp_siz
         trainer_with_warnings = NeuronTrainer(model, warn_args, train_dataset=train_dataset)
         # Verify the warnings were handled and config was modified
         assert trainer_with_warnings is not None
+
+
+@is_trainium_test
+@distributed_test(world_size=8, tp_size=2, pp_size=1)
+def test_iterable_dataset_training(tmpdir, set_cache_for_ci):
+    tp_size = get_tensor_model_parallel_size()
+    pp_size = get_pipeline_model_parallel_size()
+
+    class SimpleIterableDataset(torch.utils.data.IterableDataset):
+        def __init__(self, num_samples=50):
+            self.num_samples = num_samples
+
+        def __iter__(self):
+            for i in range(self.num_samples):
+                yield {
+                    "input_ids": torch.randint(1, 1000, (1024,), dtype=torch.long),
+                    "attention_mask": torch.ones(1024, dtype=torch.long),
+                    "labels": torch.randint(1, 1000, (1024,), dtype=torch.long),
+                }
+
+    iterable_dataset = SimpleIterableDataset()
+
+    training_args = NeuronTrainingArguments(
+        output_dir=tmpdir,
+        per_device_train_batch_size=1,
+        max_steps=5,  # Required for IterableDataset
+        tensor_parallel_size=tp_size,
+        pipeline_parallel_size=pp_size,
+        logging_steps=1,
+    )
+    model = NeuronModelForCausalLM.from_pretrained(TINY_MODEL_NAME, trn_config=training_args.trn_config)
+
+    trainer = NeuronTrainer(model, training_args, train_dataset=iterable_dataset)
+
+    # Verify initial state
+    assert trainer.state.global_step == 0
+
+    # Run training
+    trainer.train()
+
+    # Verify training completed with correct step count
+    assert trainer.state.global_step == 5
+    assert len(trainer.state.log_history) > 0
