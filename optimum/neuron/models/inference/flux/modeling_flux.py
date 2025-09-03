@@ -35,7 +35,7 @@ from neuronx_distributed.parallel_layers.layers import (
 from neuronx_distributed.parallel_layers.mappings import reduce_from_tensor_model_parallel_region
 from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
-from ..backend.modules.custom_calls import CustomRMSNorm
+from ..backend.modules.rms_norm import NeuronRMSNorm
 from .modules.activations import NeuronGELU
 from .modules.embeddings import (
     FluxPosEmbed,
@@ -698,8 +698,8 @@ class NeuronAttention(nn.Module):
             self.norm_q = None
             self.norm_k = None
         elif qk_norm == "rms_norm":
-            self.norm_q = CustomRMSNorm(dim_head, eps=eps)
-            self.norm_k = CustomRMSNorm(dim_head, eps=eps)
+            self.norm_q = NeuronRMSNorm(dim_head, eps=eps)
+            self.norm_k = NeuronRMSNorm(dim_head, eps=eps)
         else:
             raise ValueError(f"unknown qk_norm: {qk_norm}. Should be None,'rms_norm'")
 
@@ -787,8 +787,8 @@ class NeuronAttention(nn.Module):
 
         if qk_norm is not None and added_kv_proj_dim is not None:
             if qk_norm == "rms_norm":
-                self.norm_added_q = CustomRMSNorm(dim_head, eps=eps)
-                self.norm_added_k = CustomRMSNorm(dim_head, eps=eps)
+                self.norm_added_q = NeuronRMSNorm(dim_head, eps=eps)
+                self.norm_added_k = NeuronRMSNorm(dim_head, eps=eps)
             else:
                 raise ValueError(
                     f"unknown qk_norm: {qk_norm}. Should be one of `None,'layer_norm','fp32_layer_norm','rms_norm'`"

@@ -25,9 +25,9 @@ from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
 from ..backend.config import NxDNeuronConfig
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
 from ..backend.modules.attention.utils import RotaryEmbedding
-from ..backend.modules.custom_calls import CustomRMSNorm
 from ..backend.modules.decoder import NxDDecoderModel, NxDModelForCausalLM
 from ..backend.modules.moe import initialize_moe_module
+from ..backend.modules.rms_norm import NeuronRMSNorm
 from ..llama.modeling_llama import NeuronLlamaMLP
 from ..mixtral.modeling_mixtral import NeuronMixtralDecoderLayer
 
@@ -125,8 +125,8 @@ class NeuronQwen3MoEAttention(NeuronAttentionBase):
         )
 
         # Qwen3Moe specific: set q_layernorm and k_layernorm
-        self.q_layernorm = CustomRMSNorm(self.head_dim, self.rms_norm_eps)
-        self.k_layernorm = CustomRMSNorm(self.head_dim, self.rms_norm_eps)
+        self.q_layernorm = NeuronRMSNorm(self.head_dim, self.rms_norm_eps)
+        self.k_layernorm = NeuronRMSNorm(self.head_dim, self.rms_norm_eps)
 
 
 class NeuronQwen3MoeDecoderLayer(NeuronMixtralDecoderLayer):
@@ -156,11 +156,11 @@ class NeuronQwen3MoeDecoderLayer(NeuronMixtralDecoderLayer):
             # Dense layer
             self.mlp = NeuronLlamaMLP(config, neuron_config)
 
-        self.input_layernorm = CustomRMSNorm(
+        self.input_layernorm = NeuronRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.post_attention_layernorm = CustomRMSNorm(
+        self.post_attention_layernorm = NeuronRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
@@ -188,7 +188,7 @@ class NxDQwen3MoeModel(NxDDecoderModel):
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
-        self.norm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = NeuronRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.lm_head = ColumnParallelLinear(
             config.hidden_size,
             config.vocab_size,
