@@ -256,7 +256,6 @@ class NeuronLlamaDecoderLayer(nn.Module):
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.qkv_kernel_enabled = neuron_config.qkv_kernel_enabled
         self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
         self.config = config
 
@@ -270,9 +269,7 @@ class NeuronLlamaDecoderLayer(nn.Module):
     ) -> tuple[torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor] | None]:
         residual = hidden_states
 
-        # RMSNorm (fused with QKV kernel when SP is disabled)
-        if (not self.qkv_kernel_enabled or self.sequence_parallel_enabled) and self.input_layernorm:
-            hidden_states = self.input_layernorm(hidden_states)
+        hidden_states = self.input_layernorm(hidden_states)
 
         # Self Attention
         hidden_states, present_key_value, cos_cache, sin_cache = self.self_attn(
