@@ -35,8 +35,8 @@ from ..backend.modules.attention.attention_base import NeuronAttentionBase
 from ..backend.modules.attention.utils import (
     RotaryEmbedding,
 )
-from ..backend.modules.custom_calls import CustomRMSNorm
 from ..backend.modules.decoder import NxDDecoderModel, NxDModelForCausalLM
+from ..backend.modules.rms_norm import NeuronRMSNorm
 
 
 logger = logging.getLogger("Neuron")
@@ -232,11 +232,11 @@ class NeuronLlamaDecoderLayer(nn.Module):
         logger.debug(
             f"Instantiating RMSNorm modules with hidden size {config.hidden_size} and EPS {config.rms_norm_eps}"
         )
-        self.input_layernorm = CustomRMSNorm(
+        self.input_layernorm = NeuronRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.post_attention_layernorm = CustomRMSNorm(
+        self.post_attention_layernorm = NeuronRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
@@ -306,7 +306,7 @@ class NxDLlamaModel(NxDDecoderModel):
         self.layers = nn.ModuleList(
             [NeuronLlamaDecoderLayer(config, neuron_config) for _ in range(config.num_hidden_layers)]
         )
-        self.norm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = NeuronRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
 
 class LlamaNxDModelForCausalLM(NxDModelForCausalLM):
