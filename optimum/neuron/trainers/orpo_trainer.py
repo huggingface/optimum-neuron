@@ -41,7 +41,7 @@ from ..utils import (
     is_trl_available,
 )
 from ..utils.import_utils import is_peft_available
-from .base import NeuronTrainer
+from .transformers import NeuronTrainer
 from .trl_utils import TRL_VERSION
 
 
