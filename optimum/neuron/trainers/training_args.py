@@ -279,30 +279,9 @@ class NeuronTrainingArguments:
     report_to: None | str | list[str] = field(
         default=None, metadata={"help": "The list of integrations to report the results and logs to."}
     )
-    push_to_hub: bool = field(
-        default=False, metadata={"help": "Whether or not to upload the trained model to the model hub after training."}
-    )
     resume_from_checkpoint: str | None = field(
         default=None,
         metadata={"help": "The path to a folder with a valid checkpoint for your model."},
-    )
-    hub_model_id: str | None = field(
-        default=None, metadata={"help": "The name of the repository to keep in sync with the local `output_dir`."}
-    )
-    hub_strategy: HubStrategy | str = field(
-        default="every_save",
-        metadata={"help": "The hub strategy to use when `--push_to_hub` is activated."},
-    )
-    hub_token: str | None = field(default=None, metadata={"help": "The token to use to push to the Model Hub."})
-    hub_private_repo: bool | None = field(
-        default=None,
-        metadata={
-            "help": "Whether to make the repo private. If `None` (default), the repo will be public unless the organization's default is private. This value is ignored if the repo already exists."
-        },
-    )
-    hub_always_push: bool = field(
-        default=False,
-        metadata={"help": "Unless `True`, the Trainer will skip pushes if the previous one wasn't finished yet."},
     )
     gradient_checkpointing: bool = field(
         default=False,
@@ -455,7 +434,6 @@ class NeuronTrainingArguments:
         self.eval_strategy = IntervalStrategy(self.eval_strategy)
         self.logging_strategy = IntervalStrategy(self.logging_strategy)
         self.save_strategy = SaveStrategy(self.save_strategy)
-        self.hub_strategy = HubStrategy(self.hub_strategy)
 
         self.lr_scheduler_type = SchedulerType(self.lr_scheduler_type)
         if self.do_eval is False and self.eval_strategy != IntervalStrategy.NO:
