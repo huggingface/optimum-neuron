@@ -459,7 +459,7 @@ def test_peft_training(train_dataset, tmpdir, world_size, tp_size, pp_size, set_
             assert os.path.exists(checkpoint_dir), f"PEFT checkpoint directory checkpoint-{step} was not created"
 
             # Validate adapter-specific files exist
-            shards_dir = os.path.join(checkpoint_dir, "shards")
+            shards_dir = os.path.join(checkpoint_dir, "adapter_default", "adapter_shards")
             assert os.path.exists(shards_dir), f"shards directory not found in PEFT checkpoint-{step}"
 
             # Verify trainer state
