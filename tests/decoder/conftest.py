@@ -32,7 +32,7 @@ DECODER_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "num_cores": 2,
+            "tensor_parallel_size": 2,
             "auto_cast_type": "fp16",
         },
     },
@@ -41,7 +41,7 @@ DECODER_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "num_cores": 2,
+            "tensor_parallel_size": 2,
             "auto_cast_type": "fp16",
         },
     },
@@ -50,7 +50,7 @@ DECODER_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "num_cores": 2,
+            "tensor_parallel_size": 2,
             "auto_cast_type": "bf16",
         },
     },
@@ -59,7 +59,7 @@ DECODER_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "num_cores": 2,
+            "tensor_parallel_size": 2,
             "auto_cast_type": "bf16",
         },
     },
@@ -68,7 +68,7 @@ DECODER_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "num_cores": 2,
+            "tensor_parallel_size": 2,
             "auto_cast_type": "bf16",
         },
     },
@@ -77,7 +77,7 @@ DECODER_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "num_cores": 2,
+            "tensor_parallel_size": 2,
             "auto_cast_type": "bf16",
         },
     },
@@ -95,7 +95,9 @@ def _get_hub_neuron_model_id(config_name: str, model_config: dict[str, str]):
 
 def _export_model(model_id, export_kwargs, neuron_model_path):
     try:
-        model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, load_weights=False, **export_kwargs)
+        config = AutoConfig.from_pretrained(model_id)
+        neuron_config = NeuronModelForCausalLM.get_neuron_config(model_id, config, **export_kwargs)
+        model = NeuronModelForCausalLM.export(model_id, config=config, neuron_config=neuron_config, load_weights=False)
         model.save_pretrained(neuron_model_path)
         return model
     except Exception as e:
@@ -190,7 +192,7 @@ def base_neuron_decoder_config():
             "export_kwargs": {
                 "batch_size": 1,
                 "sequence_length": 4096,
-                "num_cores": 2,
+                "tensor_parallel_size": 2,
                 "auto_cast_type": "bf16",
             },
         }

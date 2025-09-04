@@ -6,6 +6,7 @@ from transformers import AutoTokenizer
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.pipelines import pipeline
+from optimum.neuron.utils import DTYPE_MAPPER
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -53,6 +54,22 @@ def test_export_no_parameters():
         os.environ.pop("NEURON_RT_NUM_CORES", None)
     else:
         os.environ["NEURON_RT_NUM_CORES"] = visible_cores
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_export_parameters():
+    export_kwargs = {"batch_size": 2, "sequence_length": 1024, "num_cores": 2, "auto_cast_type": "fp16"}
+    p = pipeline("text-generation", "Qwen/Qwen2.5-0.5B", export=True, **export_kwargs)
+    for key, value in export_kwargs.items():
+        if key == "num_cores":
+            key = "tp_degree"
+        if key == "auto_cast_type":
+            key = "torch_dtype"
+            if isinstance(value, str):
+                value = DTYPE_MAPPER.pt(value)
+        assert getattr(p.model.neuron_config, key) == value
+    _test_generation(p)
 
 
 @is_inferentia_test
