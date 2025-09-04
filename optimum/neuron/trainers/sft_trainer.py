@@ -61,6 +61,9 @@ else:
         pass
 
 
+# Create a new class that inherints from NeuronTrainer to use this class instead of the transformers Trainer,
+# but has the same methods and attributes as SFTTrainer.
+# We can then inherint from this class to create our NeuronSFTTrainer.
 _SFTTrainer = type(
     "_SFTTrainer",
     (NeuronTrainer,),
