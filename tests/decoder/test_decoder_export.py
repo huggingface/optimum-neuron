@@ -19,9 +19,7 @@ import torch
 from transformers import AutoConfig, AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.models.auto_model import get_neuron_model_class
 from optimum.neuron.utils import DTYPE_MAPPER
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
 DECODER_MODEL_ARCHITECTURES = ["llama", "granite", "qwen2", "qwen3-moe", "phi3", "mixtral"]
@@ -74,58 +72,17 @@ def check_neuron_model(neuron_model):
     assert outputs is not None, "Model outputs should not be None"
 
 
-@pytest.mark.parametrize(
-    "batch_size, sequence_length, num_cores, auto_cast_type",
-    [
-        [1, 1024, 2, "bf16"],
-        [2, 1024, 2, "fp16"],
-    ],
-)
-@is_inferentia_test
-@requires_neuronx
 @pytest.mark.parametrize("is_local", [True, False], ids=["local", "from_hub"])
-def test_decoder_export_from_pretrained_save_reload(
-    is_local: bool,
+@pytest.mark.parametrize("load_weights", [True, False], ids=["with-weights", "without-weights"])
+def test_decoder_export_save_reload(
     export_decoder_id: str,
-    batch_size: int,
-    sequence_length: int,
-    num_cores: int,
-    auto_cast_type: str,
-):
-    model_id = export_decoder_id
-    export_kwargs = {
-        "batch_size": batch_size,
-        "sequence_length": sequence_length,
-        "num_cores": num_cores,
-        "auto_cast_type": auto_cast_type,
-    }
-    with TemporaryDirectory() as model_path:
-        if is_local:
-            with TemporaryDirectory() as tmpdir:
-                model = AutoModelForCausalLM.from_pretrained(model_id)
-                model.save_pretrained(tmpdir)
-                model = NeuronModelForCausalLM.from_pretrained(tmpdir, export=True, **export_kwargs)
-                model.save_pretrained(model_path)
-        else:
-            model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, **export_kwargs)
-            model.save_pretrained(model_path)
-        check_neuron_config(model.neuron_config, **export_kwargs)
-        check_neuron_model(model)
-        del model
-        model = NeuronModelForCausalLM.from_pretrained(model_path)
-        check_neuron_model(model)
-
-
-@pytest.mark.parametrize("is_local", [True, False], ids=["local", "from_hub"])
-def test_decoder_export_only_save_reload(
     is_local: bool,
-    export_decoder_id: str,
+    load_weights: bool,
 ):
     model_id = export_decoder_id
     model_config = AutoConfig.from_pretrained(export_decoder_id)
-    neuron_cls = get_neuron_model_class(model_config.model_type, task="text-generation", mode="inference")
     export_kwargs = {"batch_size": 1, "sequence_length": 1024, "tensor_parallel_size": 2, "auto_cast_type": "bf16"}
-    neuron_config = neuron_cls.get_neuron_config(
+    neuron_config = NeuronModelForCausalLM.get_neuron_config(
         model_name_or_path=export_decoder_id, config=model_config, **export_kwargs
     )
     with TemporaryDirectory() as model_path:
@@ -133,15 +90,17 @@ def test_decoder_export_only_save_reload(
             with TemporaryDirectory() as tmpdir:
                 model = AutoModelForCausalLM.from_pretrained(model_id)
                 model.save_pretrained(tmpdir)
-                model = neuron_cls.export(
-                    model_id=tmpdir, config=model_config, neuron_config=neuron_config, load_weights=False
+                model = NeuronModelForCausalLM.export(
+                    model_id=tmpdir, config=model_config, neuron_config=neuron_config, load_weights=load_weights
                 )
                 model.save_pretrained(model_path)
         else:
-            model = neuron_cls.export(
-                model_id=model_id, config=model_config, neuron_config=neuron_config, load_weights=False
+            model = NeuronModelForCausalLM.export(
+                model_id=model_id, config=model_config, neuron_config=neuron_config, load_weights=load_weights
             )
             model.save_pretrained(model_path)
         check_neuron_config(model.neuron_config, **export_kwargs)
+        if load_weights:
+            check_neuron_model(model)
         model = NeuronModelForCausalLM.from_pretrained(model_path)
         check_neuron_model(model)

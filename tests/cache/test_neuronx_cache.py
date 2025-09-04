@@ -24,7 +24,7 @@ import PIL
 import pytest
 import torch
 from huggingface_hub import HfApi
-from transformers import AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer
 
 from optimum.neuron import (
     NeuronModelForCausalLM,
@@ -67,15 +67,22 @@ def cache_repos():
 def export_decoder_model(model_id):
     batch_size = 2
     sequence_length = 512
-    num_cores = 2
+    tensor_parallel_size = 2
     auto_cast_type = "bf16"
-    return NeuronModelForCausalLM.from_pretrained(
+    config = AutoConfig.from_pretrained(model_id)
+    neuron_config = NeuronModelForCausalLM.get_neuron_config(
         model_id,
-        export=True,
+        config=config,
         batch_size=batch_size,
         sequence_length=sequence_length,
-        num_cores=num_cores,
+        tensor_parallel_size=tensor_parallel_size,
         auto_cast_type=auto_cast_type,
+    )
+    return NeuronModelForCausalLM.export(
+        model_id,
+        config=config,
+        neuron_config=neuron_config,
+        load_weights=True,
     )
 
 

@@ -54,7 +54,7 @@ def test_vllm_from_hub_model(neuron_decoder_config):
         model=model_id,
         max_num_seqs=export_kwargs["batch_size"],
         max_model_len=export_kwargs["sequence_length"],
-        tensor_parallel_size=export_kwargs["num_cores"],
+        tensor_parallel_size=export_kwargs["tensor_parallel_size"],
         dtype=DTYPE_MAPPER.pt(export_kwargs["auto_cast_type"]),
     )
     _test_vllm_generation(llm)

@@ -19,7 +19,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 from huggingface_hub import HfApi, get_token
-from transformers import AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
@@ -30,16 +30,26 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 @pytest.mark.parametrize("from_local", [False, True], ids=["llama_from_hub", "llama_from_local"])
 def test_decoder_push_to_hub(from_local):
     model_id = "llamafactory/tiny-random-Llama-3"
+    export_kwargs = {"batch_size": 1, "sequence_length": 1024, "tensor_parallel_size": 2, "auto_cast_type": "bf16"}
     with TemporaryDirectory() as model_path:
         if from_local:
             hub_model = AutoModelForCausalLM.from_pretrained(model_id)
             with TemporaryDirectory() as tmpdir:
                 hub_model.save_pretrained(tmpdir)
-                model = NeuronModelForCausalLM.from_pretrained(tmpdir, export=True, num_cores=2)
+                neuron_config = NeuronModelForCausalLM.get_neuron_config(
+                    model_name_or_path=tmpdir, config=hub_model.config, **export_kwargs
+                )
+                model = NeuronModelForCausalLM.export(tmpdir, config=hub_model.config, neuron_config=neuron_config)
                 # Save must happen within the context of the tmpdir or checkpoint dir is lost
                 model.save_pretrained(model_path)
         else:
-            model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, num_cores=2)
+            config = AutoConfig.from_pretrained(model_id)
+            neuron_config = NeuronModelForCausalLM.get_neuron_config(
+                model_name_or_path=model_id, config=config, **export_kwargs
+            )
+            model = NeuronModelForCausalLM.export(
+                model_id, config=config, neuron_config=neuron_config, load_weights=False
+            )
             model.save_pretrained(model_path)
         # The hub model contains the checkpoint only when the model is exported from a local path
         ignore_patterns = [] if from_local else [model.CHECKPOINT_DIR + "/*"]
