@@ -51,12 +51,14 @@ _import_structure = {
         "is_trl_available",
     ],
     "input_generators": [
+        "DTYPE_MAPPER",
         "DummyBeamValuesGenerator",
         "DummyMaskedPosGenerator",
         "DummyControNetInputGenerator",
         "ASTDummyAudioInputGenerator",
         "DummyIPAdapterInputGenerator",
         "DummyFluxTransformerRotaryEmbGenerator",
+        "DummyFluxKontextTransformerRotaryEmbGenerator",
         "DummyTimestepInputGenerator",
         "WhisperDummyTextInputGenerator",
     ],
@@ -67,7 +69,6 @@ _import_structure = {
         "is_main_worker",
         "is_precompilation",
         "replace_weights",
-        "map_torch_dtype",
         "get_checkpoint_shard_files",
     ],
     "model_utils": ["get_tied_parameters_dict", "tie_parameters", "saved_model_in_temporary_directory"],
@@ -124,9 +125,11 @@ if TYPE_CHECKING:
         is_trl_available,
     )
     from .input_generators import (
+        DTYPE_MAPPER,
         ASTDummyAudioInputGenerator,
         DummyBeamValuesGenerator,
         DummyControNetInputGenerator,
+        DummyFluxKontextTransformerRotaryEmbGenerator,
         DummyFluxTransformerRotaryEmbGenerator,
         DummyIPAdapterInputGenerator,
         DummyMaskedPosGenerator,
@@ -140,7 +143,6 @@ if TYPE_CHECKING:
         get_stable_diffusion_configs,
         is_main_worker,
         is_precompilation,
-        map_torch_dtype,
         replace_weights,
     )
     from .model_utils import get_tied_parameters_dict, saved_model_in_temporary_directory, tie_parameters

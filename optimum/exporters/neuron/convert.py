@@ -393,6 +393,8 @@ def export_models(
             config=model_config,
             input_shapes=sub_neuron_config.input_shapes,
             compiler_kwargs=compiler_kwargs,
+            int_dtype=sub_neuron_config.int_dtype,
+            float_dtype=sub_neuron_config.float_dtype,
             input_names=neuron_inputs,
             output_names=neuron_outputs,
             dynamic_batch_size=sub_neuron_config.dynamic_batch_size,

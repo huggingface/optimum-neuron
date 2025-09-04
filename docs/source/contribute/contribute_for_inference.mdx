@@ -16,13 +16,13 @@ specific language governing permissions and limitations under the License.
 
 > **_NOTE:_** ❗This section does not apply to the decoder model’s inference with autoregressive sampling integrated through `transformers-neuronx`. If you want to add support for these models, please open an issue on the Optimum Neuron GitHub repo, and ping maintainers for help.
 
-You want to export and run a new model on AWS Inferentia or Trainium? Check the guideline, and submit a pull request to [🤗 Optimum Neuron's GitHub repo](https://github.com/huggingface/optimum-neuron/)! 
+You want to export and run a new model on AWS Inferentia or Trainium? Check the guideline, and submit a pull request to [🤗 Optimum Neuron's GitHub repo](https://github.com/huggingface/optimum-neuron/)!
 
 To support a new model architecture in the Optimum Neuron library here are some steps to follow:
 
 1. Implement a custom Neuron configuration.
 2. Export and validate the model.
-3. Contribute to the GitHub repo. 
+3. Contribute to the GitHub repo.
 
 ## Implement a custom Neuron configuration
 
@@ -47,7 +47,7 @@ Since many architectures share similar properties for their Neuron configuration
 
 Here we take the support of [ESM models](https://huggingface.co/docs/transformers/model_doc/esm#esm) as an example. Let's create an `EsmNeuronConfig` class in the `optimum/exporters/neuron/model_configs.py`.
 
-When an Esm model interprets as a text encoder, we are able to inherit from the middle-end class [`TextEncoderNeuronConfig`](https://github.com/huggingface/optimum-neuron/blob/v0.0.18/optimum/exporters/neuron/config.py#L36). 
+When an Esm model interprets as a text encoder, we are able to inherit from the middle-end class [`TextEncoderNeuronConfig`](https://github.com/huggingface/optimum-neuron/blob/v0.0.18/optimum/exporters/neuron/config.py#L36).
 Since the modeling and configuration of Esm is almost the same as BERT when it is interpreted as an encoder, we can use the `NormalizedConfigManager` with `model_type=bert` to normalize the configuration to generate dummy inputs for tracing the model.
 
 And one last step, since `optimum-neuron` is an extension of `optimum`, we need to register the Neuron config that we create to the [TasksManager](https://huggingface.co/docs/optimum/main/en/exporters/task_manager#optimum.exporters.TasksManager) with the `register_in_tasks_manager` decorator by specifying the model type and supported tasks.

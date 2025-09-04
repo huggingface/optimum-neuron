@@ -17,7 +17,7 @@
 import torch
 
 from ....configuration_utils import NeuronConfig, register_neuron_config
-from ....utils import map_torch_dtype
+from ....utils import DTYPE_MAPPER
 
 
 NEURON_CONFIG_FILE = "neuron_config.json"
@@ -64,18 +64,15 @@ class NxDNeuronConfig(NeuronConfig):
         ep_degree: int | None = 1,
         pp_degree: int | None = 1,
         torch_dtype: str | torch.dtype | None = torch.bfloat16,
-        rpl_reduce_dtype: str | torch.dtype | None = None,
         n_active_tokens: int | None = None,
         max_context_length: int | None = None,
         output_logits: bool | None = False,
-        padding_side: str | None = "right",
         fused_qkv: bool | None = False,
         vocab_parallel: bool | None = False,
         sequence_parallel_enabled: bool | None = False,
         is_chunked_prefill: bool | None = False,
         flash_decoding_enabled: bool | None = False,
         async_mode: bool | None = False,
-        qk_layernorm: bool | None = False,
         attn_kernel_enabled: bool | None = False,
         qkv_kernel_enabled: bool | None = False,
         mlp_kernel_enabled: bool | None = False,
@@ -103,10 +100,6 @@ class NxDNeuronConfig(NeuronConfig):
             raise ValueError("`qkv_kernel_enabled` and `mlp_kernel_enabled` are not supported for trn1 chips.")
         if vocab_parallel:
             raise ValueError("`vocab_parallel` is not supported in optimum-neuron.")
-        if qk_layernorm:
-            raise ValueError(
-                "`qk_layernorm` is not supported in optimum-neuron. It is actually a modeling flag that affects the attention layer."
-            )
         # Required to retrieve a checkpoint from the hub
         self.checkpoint_id = checkpoint_id
         self.checkpoint_revision = checkpoint_revision
@@ -116,15 +109,9 @@ class NxDNeuronConfig(NeuronConfig):
         self.tp_degree = tp_degree
         self.torch_dtype = torch_dtype
         if isinstance(self.torch_dtype, str):
-            self.torch_dtype = map_torch_dtype(self.torch_dtype)
+            self.torch_dtype = DTYPE_MAPPER.pt(self.torch_dtype)
         self.n_active_tokens = self.sequence_length if n_active_tokens is None else n_active_tokens
         self.output_logits = output_logits
-
-        self.padding_side = padding_side
-
-        self.rpl_reduce_dtype = torch_dtype if rpl_reduce_dtype is None else rpl_reduce_dtype
-        if isinstance(self.rpl_reduce_dtype, str):
-            self.rpl_reduce_dtype = map_torch_dtype(self.rpl_reduce_dtype)
 
         # fallback to sequence_length is for compatibility with vllm
         self.max_context_length = max_context_length
@@ -140,8 +127,6 @@ class NxDNeuronConfig(NeuronConfig):
         self.is_chunked_prefill = is_chunked_prefill
 
         # Continuous batching
-        # TODO: Check if we really need different batch size for CTE and TKG, given
-        # that we anyway provide two different config instance for them.
         self.continuous_batching = continuous_batching
         self.max_batch_size = batch_size if max_batch_size is None else max_batch_size
 
@@ -166,9 +151,6 @@ class NxDNeuronConfig(NeuronConfig):
         # Distributed config
         self.pp_degree = pp_degree
         self.ep_degree = ep_degree
-
-        # QK layer normalization
-        self.qk_layernorm = qk_layernorm
 
         # Multi-node
         # TODO: Check if start_rank_id can be modified dynamically at runtime

@@ -19,17 +19,19 @@ import torch
 from transformers import AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.utils import map_torch_dtype
+from optimum.neuron.utils import DTYPE_MAPPER
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
-DECODER_MODEL_ARCHITECTURES = ["llama", "granite", "qwen2", "phi3", "mixtral"]
+DECODER_MODEL_ARCHITECTURES = ["llama", "granite", "qwen2", "qwen3-moe", "phi3", "mixtral"]
 DECODER_MODEL_NAMES = {
     "llama": "llamafactory/tiny-random-Llama-3",
     "qwen2": "yujiepan/qwen2.5-128k-tiny-random",
+    "qwen3-moe": "optimum-internal-testing/tiny-random-qwen3_moe",
     "granite": "hf-internal-testing/tiny-random-GraniteForCausalLM",
     "phi3": "yujiepan/phi-4-tiny-random",
     "mixtral": "dacorvo/Mixtral-tiny",
+    "smollm3": "HuggingFaceTB/SmolLM3-3B",
 }
 
 
@@ -52,7 +54,7 @@ def check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num_
         if hasattr(neuron_config, "auto_cast_type"):
             assert neuron_config.auto_cast_type == auto_cast_type
         elif hasattr(neuron_config, "torch_dtype"):
-            assert neuron_config.torch_dtype == map_torch_dtype(auto_cast_type)
+            assert neuron_config.torch_dtype == DTYPE_MAPPER.pt(auto_cast_type)
     input_shape = (batch_size, min(10, neuron_config.sequence_length))
     input_ids = torch.ones(input_shape, dtype=torch.int64)
     attention_mask = torch.ones(input_shape, dtype=torch.int64)

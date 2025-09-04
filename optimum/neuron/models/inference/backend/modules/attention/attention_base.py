@@ -94,24 +94,17 @@ class NeuronAttentionBase(nn.Module):
             self.tensor_model_parallel_group = nxd.parallel_layers.parallel_state.get_tensor_model_parallel_group()
             self.rank_util = SPMDRank(world_size=self.tensor_model_parallel_group.size())
 
-        self.is_causal = True
         self.hidden_size = config.hidden_size
         self.num_attention_heads = config.num_attention_heads
         self.num_key_value_heads = config.num_key_value_heads
         self.head_dim = getattr(config, "head_dim", self.hidden_size // self.num_attention_heads)
         self.max_position_embeddings = config.max_position_embeddings
         self.rope_theta = config.rope_theta
-        self.padding_side = neuron_config.padding_side
         self.torch_dtype = neuron_config.torch_dtype
-        self.qk_layernorm = neuron_config.qk_layernorm
         self.flash_decoding_enabled = neuron_config.flash_decoding_enabled
         self.num_cores_per_group = neuron_config.num_cores_per_group
-        self.rpl_reduce_dtype = neuron_config.rpl_reduce_dtype
         self.mlp_kernel_enabled = neuron_config.mlp_kernel_enabled
         self.rms_norm_eps = config.rms_norm_eps
-        self.tp_degree = neuron_config.tp_degree
-        self.fused_qkv = neuron_config.fused_qkv
-        self.clip_qkv = None
         self._qk_scale = qk_scale
 
         self.o_proj_layer_name = "o_proj"
@@ -123,12 +116,11 @@ class NeuronAttentionBase(nn.Module):
             head_dim=self.head_dim,
             num_attention_heads=self.num_attention_heads,
             num_key_value_heads=self.num_key_value_heads,
-            tp_degree=self.tp_degree,
+            tp_degree=neuron_config.tp_degree,
             dtype=self.torch_dtype,
             bias=qkv_proj_bias,
             gather_output=False,
-            fused_qkv=self.fused_qkv,
-            clip_qkv=self.clip_qkv,
+            fused_qkv=neuron_config.fused_qkv,
             sequence_parallel_enabled=self.sequence_parallel_enabled,
             sequence_dimension=self.sequence_dimension,
             tensor_model_parallel_group=self.tensor_model_parallel_group,
@@ -141,7 +133,7 @@ class NeuronAttentionBase(nn.Module):
             head_dim=self.head_dim,
             num_attention_heads=self.num_attention_heads,
             num_key_value_heads=self.num_key_value_heads,
-            tp_degree=self.tp_degree,
+            tp_degree=neuron_config.tp_degree,
             dtype=self.torch_dtype,
             bias=o_proj_bias,
             input_is_parallel=True,
@@ -149,13 +141,15 @@ class NeuronAttentionBase(nn.Module):
             sequence_parallel_enabled=self.sequence_parallel_enabled,
             sequence_dimension=self.sequence_dimension,
             tensor_model_parallel_group=self.tensor_model_parallel_group,
-            rpl_reduce_dtype=self.rpl_reduce_dtype,
+            rpl_reduce_dtype=neuron_config.torch_dtype,
         )
-        self.num_heads = utils.divide(self.qkv_proj.get_num_attention_heads(), self.tp_degree)
-        self.num_key_value_heads = utils.divide(self.qkv_proj.get_num_key_value_heads(), self.tp_degree)
+        self.num_heads = utils.divide(self.qkv_proj.get_num_attention_heads(), neuron_config.tp_degree)
+        self.num_key_value_heads = utils.divide(self.qkv_proj.get_num_key_value_heads(), neuron_config.tp_degree)
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
-        self.q_layernorm = nn.LayerNorm(self.head_dim) if self.qk_layernorm else None
-        self.k_layernorm = nn.LayerNorm(self.head_dim) if self.qk_layernorm else None
+        # By default we do not use layernorm in q and k projection
+        # This can be changed in the subclass if needed: maybe make it a parameter?
+        self.q_layernorm = None
+        self.k_layernorm = None
         self.attn_kernel_enabled = neuron_config.attn_kernel_enabled
         self.logical_nc_config = neuron_config.logical_nc_config
 
@@ -210,10 +204,6 @@ class NeuronAttentionBase(nn.Module):
 
         if flash_attn_strategy != FlashAttentionStrategy.NONE:
             logger.debug(f"ATTN kernel: logical_nc_config={self.logical_nc_config}")
-            # if we are using left padding, then the bzs needs be 1 (otherwise we get wrong result
-            # because flash attention does not use attention_mask). In practice, we use right
-            # padding so this is unlikely to cause issues
-            assert self.padding_side == "right" or bsz == 1
 
             # original shape of q, k, v is BHSD, and expected output is also BHSD.
             logger.debug(f"Using flash_fwd for Q.shape={Q.shape}")

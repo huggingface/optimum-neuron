@@ -16,12 +16,10 @@
 import shutil
 import tempfile
 import unittest
-from io import BytesIO
 from typing import Dict
 
 import huggingface_hub
-import requests
-from PIL import Image
+import torch
 from transformers import set_seed
 
 
@@ -48,7 +46,6 @@ MODEL_NAMES = {
     "flaubert": "flaubert/flaubert_small_cased",
     "hubert": "hf-internal-testing/tiny-random-HubertModel",
     "gpt2": "hf-internal-testing/tiny-random-gpt2",
-    "latent-consistency": "echarlaix/tiny-random-latent-consistency",
     "levit": "hf-internal-testing/tiny-random-LevitModel",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
     "mobilenet-v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
@@ -61,9 +58,6 @@ MODEL_NAMES = {
     # "sew": "hf-internal-testing/tiny-random-SEWModel",  # blocked
     # "sew-d": "hf-internal-testing/tiny-random-SEWDModel",  # blocked
     "swin": "hf-internal-testing/tiny-random-SwinModel",
-    "stable-diffusion": "hf-internal-testing/tiny-stable-diffusion-torch",
-    "stable-diffusion-ip2p": "asntr/tiny-stable-diffusion-pix2pix-torch",
-    "stable-diffusion-xl": "echarlaix/tiny-random-stable-diffusion-xl",
     "unispeech": "hf-internal-testing/tiny-random-unispeech",
     "unispeech-sat": "hf-internal-testing/tiny-random-unispeech-sat",
     "vit": "hf-internal-testing/tiny-random-vit",
@@ -73,10 +67,6 @@ MODEL_NAMES = {
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
     "yolos": "hf-internal-testing/tiny-random-YolosModel",
-}
-
-LORA_WEIGHTS_TINY = {
-    "stable-diffusion": ("Jingya/tiny-stable-diffusion-lora-64", "pytorch_lora_weights.safetensors", "pokemon"),
 }
 
 SENTENCE_TRANSFORMERS_MODEL_NAMES = {
@@ -148,7 +138,12 @@ class NeuronModelTestMixin(unittest.TestCase):
 
             set_seed(SEED)
             neuron_model = self.NEURON_MODEL_CLASS.from_pretrained(
-                model_id, **model_args, export=True, dynamic_batch_size=dynamic_batch_size, **self.STATIC_INPUTS_SHAPES
+                model_id,
+                **model_args,
+                export=True,
+                torch_dtype=torch.float32,
+                dynamic_batch_size=dynamic_batch_size,
+                **self.STATIC_INPUTS_SHAPES,
             )
 
             model_dir = tempfile.mkdtemp(prefix=f"{model_arch_and_params}_{self.TASK}_")
@@ -159,8 +154,3 @@ class NeuronModelTestMixin(unittest.TestCase):
     def tearDownClass(cls):
         for _, dir_path in cls.neuron_model_dirs.items():
             shutil.rmtree(dir_path)
-
-
-def download_image(url):
-    response = requests.get(url)
-    return Image.open(BytesIO(response.content)).convert("RGB")

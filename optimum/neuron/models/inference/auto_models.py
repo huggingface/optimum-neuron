@@ -28,6 +28,8 @@ from .mixtral.modeling_mixtral import MixtralNxDModelForCausalLM
 from .phi3.modeling_phi3 import Phi3NxDModelForCausalLM
 from .qwen2.modeling_qwen2 import Qwen2NxDModelForCausalLM
 from .qwen3.modeling_qwen3 import Qwen3NxDModelForCausalLM
+from .qwen3_moe.modeling_qwen3_moe import Qwen3MoeNxDModelForCausalLM
+from .smollm3.modeling_smollm3 import SmolLM3NxDModelForCausalLM
 
 
 prioritize_hlo_backend = os.environ.get("OPTIMUM_NEURON_PRIORITIZE_HLO_BACKEND", "0") == "1"
@@ -58,6 +60,15 @@ class LLamaModelForCausalLM(LlamaNxDModelForCausalLM):
     pass
 
 
+@register_neuron_model_for_inference("mixtral", "text-generation")
+class MixtralNeuronModelForCausalLM(MixtralNxDModelForCausalLM):
+    """
+    Mixtral model with NxD backend for inference on AWS Neuron.
+    """
+
+    pass
+
+
 @register_neuron_model_for_inference("phi3", "text-generation")
 class Phi3ModelForCausalLM(Phi3NxDModelForCausalLM):
     """
@@ -76,19 +87,28 @@ class Qwen2ModelForCausalLM(Qwen2NxDModelForCausalLM):
     pass
 
 
-@register_neuron_model_for_inference("mixtral", "text-generation")
-class MixtralNeuronModelForCausalLM(MixtralNxDModelForCausalLM):
+@register_neuron_model_for_inference("qwen3", "text-generation")
+class Qwen3NeuronModelForCausalLM(Qwen3NxDModelForCausalLM):
     """
-    Mixtral model with NxD backend for inference on AWS Neuron.
+    Qwen3 model with NxD backend for inference on AWS Neuron.
     """
 
     pass
 
 
-@register_neuron_model_for_inference("qwen3", "text-generation")
-class Qwen3NeuronModelForCausalLM(Qwen3NxDModelForCausalLM):
+@register_neuron_model_for_inference("qwen3_moe", "text-generation")
+class Qwen3MoeNeuronModelForCausalLM(Qwen3MoeNxDModelForCausalLM):
     """
-    Qwen3 model with NxD backend for inference on AWS Neuron.
+    Qwen3Moe model with NxD backend for inference on AWS Neuron.
+    """
+
+    pass
+
+
+@register_neuron_model_for_inference("smollm3", "text-generation")
+class SmolLM3NeuronModelForCausalLM(SmolLM3NxDModelForCausalLM):
+    """
+    SomlLM3 model with NxD backend for inference on AWS Neuron.
     """
 
     pass

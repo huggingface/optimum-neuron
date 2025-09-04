@@ -33,15 +33,12 @@ def generate_buckets(min_length: int, max_length: int):
 
 
 @torch.jit.script
-def generation_model_bk(
-    tensors: list[torch.Tensor], buckets: torch.Tensor, padding_side: str, speculation_length: int
-):
+def generation_model_bk(tensors: list[torch.Tensor], buckets: torch.Tensor, speculation_length: int):
     """
     The Bucket Kernel for Token Generation Models.
 
     1) tensors: A list of torch tensors after running through the flattener
     2) buckets: A torch.tensor of the bucket sizes
-    3) padding_side: A string specifying padding side, must be "left" or "right"
     """
     # assume tensors[1] is either pos id or attention mask (seq dim == 1 => pos id)
     item = tensors[1]
@@ -67,10 +64,7 @@ def generation_model_bk(
         bucket_idx = torch.max(torch.argmin(bucket_mask, dim=1))
         bucket = buckets[bucket_idx]
         # slice the attention mask based on the selected bucket size
-        if padding_side == "right":
-            tensors[1] = torch.ops.aten.slice(attention_mask, dim=1, start=0, end=bucket)
-        else:
-            tensors[1] = torch.ops.aten.slice(attention_mask, dim=1, start=buckets[-1] - bucket, end=buckets[-1])
+        tensors[1] = torch.ops.aten.slice(attention_mask, dim=1, start=0, end=bucket)
 
     return tensors, bucket_idx.to(torch.int)
 
@@ -80,13 +74,12 @@ def get_generation_model_bk():
 
 
 @torch.jit.script
-def context_encoder_bk(tensors: list[torch.Tensor], buckets, padding_side: str, pad_token: int):
+def context_encoder_bk(tensors: list[torch.Tensor], buckets, pad_token: int):
     """
     The Bucket Kernel for Context Encoding Models.
 
     1) tensors: A list of torch tensors after running through the flattener
     2) buckets: A torch.tensor of the bucket sizes
-    3) padding_side: A string specifying padding side, must be "left" or "right"
     4) pad_token: An integer representing the pad token id. Typically this is 0.
     """
     input_ids = tensors[0]
@@ -124,21 +117,12 @@ def context_encoder_bk(tensors: list[torch.Tensor], buckets, padding_side: str, 
     # 1. slice from the opposite side for padding
     # 2. Identify seq_id tensors by shape and don't slice it
     # -------------------------------------------------
-    if padding_side == "right":
-        for i, tens in enumerate(tensors):
-            # identifies the seq_ids, which don't need to be sliced
-            if len(tens.shape) == 1:
-                new_tensors.append(tens)
-            else:  # all other tensors are of shape (batch_size,seq_len) so we slice on seq_len
-                new_tensors.append(torch.ops.aten.slice(tens, dim=1, start=0, end=bucket))
-    else:
-        max_idx = buckets[-1][-1]
-        for i, tens in enumerate(tensors):
-            # identifies the seq_ids, which don't need to be sliced
-            if len(tens.shape) == 1:
-                new_tensors.append(tens)
-            else:
-                new_tensors.append(torch.ops.aten.slice(tens, dim=1, start=max_idx - bucket, end=max_idx))
+    for i, tens in enumerate(tensors):
+        # identifies the seq_ids, which don't need to be sliced
+        if len(tens.shape) == 1:
+            new_tensors.append(tens)
+        else:  # all other tensors are of shape (batch_size,seq_len) so we slice on seq_len
+            new_tensors.append(torch.ops.aten.slice(tens, dim=1, start=0, end=bucket))
 
     return new_tensors, bucket_idx.to(torch.int)
 

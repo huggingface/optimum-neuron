@@ -122,7 +122,7 @@ class NeuronLlamaMLP(nn.Module):
             pad=True,
             sequence_parallel_enabled=self.sequence_parallel_enabled,
             sequence_dimension=self.sequence_dimension,
-            reduce_dtype=neuron_config.rpl_reduce_dtype,
+            reduce_dtype=neuron_config.torch_dtype,
         )
 
         if self.mlp_kernel_enabled:

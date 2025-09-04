@@ -257,7 +257,7 @@ class NeuronT5Attention(T5Attention):
         attn_output = attn_output.view(batch_size, -1, self.hidden_size_per_partition)
         attn_output = self.o(attn_output)
 
-        outputs = (attn_output, past_key_value, position_bias)
+        outputs = (attn_output, position_bias)
 
         if output_attentions:
             outputs = outputs + (attn_weights,)

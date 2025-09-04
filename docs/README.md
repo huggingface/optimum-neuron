@@ -15,7 +15,7 @@ doc-builder preview optimum.neuron docs/source/
 ```
 3. Build Docs
 ```bash
-doc-builder build optimum.neuron docs/source/ --build_dir build/ 
+doc-builder build optimum.neuron docs/source/ --build_dir build/
 ```
 
 ## Add assets/Images
@@ -27,4 +27,3 @@ example
 ```bash
 <img src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/0_login.png" alt="Login" />
 ```
-

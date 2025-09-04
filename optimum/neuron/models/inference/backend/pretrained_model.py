@@ -25,7 +25,6 @@ from neuronx_distributed.trace.model_builder import ModelBuilder
 from safetensors.torch import load_file
 from transformers import AutoModelForCausalLM, PretrainedConfig
 
-from .cache import neff_cache
 from .config import NxDNeuronConfig
 from .model_wrapper import NxDModelWrapper
 from .modules.checkpoint import (
@@ -149,8 +148,7 @@ class NxDPreTrainedModel:
     @staticmethod
     def compile(neuron_config, model_wrappers: list[NxDModelWrapper], compiler_args: str, debug: bool = False):
         builder = get_builder(neuron_config, model_wrappers, debug=debug, compiler_args=compiler_args)
-        with neff_cache():
-            return builder.trace(initialize_model_weights=False)
+        return builder.trace(initialize_model_weights=False)
 
     def save(self, dest_path, weight_path: str | None = None):
         if self._traced_model is None:
@@ -288,7 +286,9 @@ class NxDPreTrainedModel:
         return model_sd
 
     @staticmethod
-    def convert_hf_to_neuron_state_dict(state_dict: dict, config: PretrainedConfig) -> dict:
+    def convert_hf_to_neuron_state_dict(
+        state_dict: dict, config: PretrainedConfig, neuron_config: NxDNeuronConfig
+    ) -> dict:
         """This function should be over-ridden in child classes as needed"""
         return state_dict
 

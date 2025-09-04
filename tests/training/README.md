@@ -83,7 +83,7 @@ Tests cover various combinations of:
 
 Common test configurations:
 - `dp=2`: 2 data parallel workers
-- `tp=2`: 2 tensor parallel workers  
+- `tp=2`: 2 tensor parallel workers
 - `pp=2`: 2 pipeline parallel stages
 - `dp=4,tp=2,pp=4`: Mixed parallelism (32 total workers)
 
