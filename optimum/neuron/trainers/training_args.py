@@ -146,6 +146,7 @@ class NeuronTrainingArguments:
         default="steps",
         metadata={"help": "The logging strategy to use."},
     )
+    logging_first_step: bool = field(default=False, metadata={"help": "Log the first global_step"})
     logging_steps: float = field(
         default=500,
         metadata={
