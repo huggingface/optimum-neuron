@@ -762,14 +762,27 @@ def maybe_export_from_neuron_model_class(
     if not has_neuron_model_class(model_type=config.model_type, task=task, mode="inference"):
         return False
     neuron_model_class = get_neuron_model_class(model_type=config.model_type, task=task, mode="inference")
-    neuron_model = neuron_model_class.from_pretrained(
+    batch_size = kwargs.pop("batch_size", None)
+    sequence_length = kwargs.pop("sequence_length", None)
+    tensor_parallel_size = kwargs.pop("num_cores", None)
+    auto_cast_type = kwargs.pop("auto_cast_type", None)
+    neuron_config = neuron_model_class.get_neuron_config(
+        model_name_or_path=model,
+        config=config,
+        token=kwargs.get("token", None),
+        revision=kwargs.get("revision", "main"),
+        batch_size=batch_size,
+        sequence_length=sequence_length,
+        tensor_parallel_size=tensor_parallel_size,
+        auto_cast_type=auto_cast_type,
+    )
+    neuron_model = neuron_model_class.export(
         model_id=model,
-        export=True,
+        config=config,
+        neuron_config=neuron_config,
         cache_dir=cache_dir,
         subfolder=subfolder,
-        config=config,
         trust_remote_code=trust_remote_code,
-        load_weights=False,  # Reduce model size for nxd models
         **kwargs,
     )
     if not output.parent.exists():
