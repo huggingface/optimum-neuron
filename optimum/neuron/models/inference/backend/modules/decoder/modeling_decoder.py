@@ -618,9 +618,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         token: bool | str | None = None,
         cache_dir: str | None = None,
         force_download: bool | None = False,
-        subfolder: str | None = "",
         local_files_only: bool | None = False,
-        trust_remote_code: bool | None = False,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         if len(kwargs) > 0:
@@ -665,7 +663,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         return model
 
     @classmethod
-    def export(
+    def _export(
         cls,
         model_id: str,
         config: "PretrainedConfig | None",
@@ -674,10 +672,9 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         revision: str | None = None,
         cache_dir: str | None = None,
         force_download: bool | None = False,
-        subfolder: str | None = "",
         local_files_only: bool | None = False,
         trust_remote_code: bool | None = False,
-        load_weights: bool = True,
+        load_weights: bool = False,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         if len(kwargs) > 0:
