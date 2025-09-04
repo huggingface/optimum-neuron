@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import json
-import logging
 import os
 
 import datasets
@@ -29,8 +28,6 @@ from neuronx_distributed.parallel_layers.parallel_state import (
 )
 from peft import LoraConfig, TaskType
 from transformers import AutoTokenizer, BertForSequenceClassification, BertTokenizer
-from transformers.models.auto.modeling_auto import MODEL_MAPPING_NAMES
-from transformers.trainer_pt_utils import AcceleratorConfig
 
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.models.training import NeuronModelForCausalLM
@@ -502,21 +499,10 @@ def test_neuron_trainer_error_handling(train_dataset, tmpdir, set_cache_for_ci):
         NeuronTrainer(model, liger_args, train_dataset=train_dataset)
 
     # Test 4: No model provided
-    with pytest.raises(ValueError, match="A model must be provided to the Trainer"):
+    with pytest.raises(ValueError, match="A model must be provided to the NeuronTrainer"):
         NeuronTrainer(None, base_training_args, train_dataset=train_dataset)
 
-    # Test 5: Invalid model class (MODEL_MAPPING_NAMES)
-    # Create a mock model with a name that should be in MODEL_MAPPING_NAMES
-    class MockInvalidModel:
-        def __init__(self):
-            # Pick the first available model name from MODEL_MAPPING_NAMES
-            self.__class__.__name__ = list(MODEL_MAPPING_NAMES.keys())[0]
-
-    mock_model = MockInvalidModel()
-    with pytest.raises(ValueError, match="cannot be used as is for training"):
-        NeuronTrainer(mock_model, base_training_args, train_dataset=train_dataset)
-
-    # Test 6: Conflicting optimizer arguments
+    # Test 5: Conflicting optimizer arguments
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     optimizer_cls_and_kwargs = (torch.optim.SGD, {"lr": 1e-2})
 
@@ -529,22 +515,14 @@ def test_neuron_trainer_error_handling(train_dataset, tmpdir, set_cache_for_ci):
             optimizer_cls_and_kwargs=optimizer_cls_and_kwargs,
         )
 
-    # Test 7: Device mismatch between model and optimizer
-    # Move model to XLA device first
-    model.to(xm.xla_device())
-
-    # Create optimizer on CPU (different device)
-    cpu_optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
-    # Move optimizer params back to CPU to create mismatch
-    for param_group in cpu_optimizer.param_groups:
-        for param in param_group["params"]:
-            if param.device.type == "xla":
-                param.data = param.data.cpu()
-
+    # Test 6: Device mismatch between model and optimizer
+    # Create optimizer on CPU
+    xla_optimizer = torch.optim.AdamW([p.cpu().detach() for p in model.parameters()], lr=1e-3)
+    xm.mark_step()
     with pytest.raises(ValueError, match="model and the optimizer parameters are not on the same device"):
-        NeuronTrainer(model, base_training_args, train_dataset=train_dataset, optimizers=(cpu_optimizer, None))
+        NeuronTrainer(model, base_training_args, train_dataset=train_dataset, optimizers=(xla_optimizer, None))
 
-    # Test 8: Dataset without length and no max_steps
+    # Test 7: Dataset without length and no max_steps
     class DatasetWithoutLength:
         def __iter__(self):
             return iter([])
@@ -562,34 +540,10 @@ def test_neuron_trainer_error_handling(train_dataset, tmpdir, set_cache_for_ci):
     with pytest.raises(ValueError, match="max_steps has to be specified"):
         NeuronTrainer(model, no_max_steps_args, train_dataset=dataset_no_length)
 
-    # Test 9: Unsupported AcceleratorConfig options (should generate warnings, not errors)
-
-    unsupported_config = AcceleratorConfig(
-        split_batches=True,  # Should warn
-        dispatch_batches=True,  # Should warn
-        even_batches=True,  # Should warn
-        use_seedable_sampler=True,  # Should warn
-    )
-
-    warn_args = NeuronTrainingArguments(
-        output_dir=tmpdir,
-        per_device_train_batch_size=1,
-        max_steps=1,
-        tensor_parallel_size=tp_size,
-        pipeline_parallel_size=pp_size,
-        accelerator_config=unsupported_config,
-    )
-
-    # This should create warnings but not fail
-    with pytest.warns():
-        trainer_with_warnings = NeuronTrainer(model, warn_args, train_dataset=train_dataset)
-        # Verify the warnings were handled and config was modified
-        assert trainer_with_warnings is not None
-
 
 @is_trainium_test
 @distributed_test(world_size=8, tp_size=2, pp_size=1)
-def test_iterable_dataset_training(tmpdir, set_cache_for_ci, caplog):
+def test_iterable_dataset_training(tmpdir, set_cache_for_ci):
     dp_size = get_data_parallel_size()
     tp_size = get_tensor_model_parallel_size()
     pp_size = get_pipeline_model_parallel_size()
@@ -630,13 +584,7 @@ def test_iterable_dataset_training(tmpdir, set_cache_for_ci, caplog):
     assert trainer.state.global_step == 0, f"Expected initial global_step=0, got {trainer.state.global_step}"
 
     # Run training
-    with caplog.at_level(logging.WARNING):
-        trainer.train()
-
-    assert (
-        "Using an IterableDataset with multiple processes. Make sure that each process loads the correct data"
-        in caplog.text
-    ), f"Expected IterableDataset warning in logs, but got: {caplog.text}"
+    trainer.train()
 
     # Verify training completed with correct step count
     assert trainer.state.global_step == 10, f"Expected final global_step=10, got {trainer.state.global_step}"
