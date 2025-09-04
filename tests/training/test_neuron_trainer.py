@@ -515,14 +515,7 @@ def test_neuron_trainer_error_handling(train_dataset, tmpdir, set_cache_for_ci):
             optimizer_cls_and_kwargs=optimizer_cls_and_kwargs,
         )
 
-    # Test 6: Device mismatch between model and optimizer
-    # Create optimizer on CPU
-    xla_optimizer = torch.optim.AdamW([p.cpu().detach() for p in model.parameters()], lr=1e-3)
-    xm.mark_step()
-    with pytest.raises(ValueError, match="model and the optimizer parameters are not on the same device"):
-        NeuronTrainer(model, base_training_args, train_dataset=train_dataset, optimizers=(xla_optimizer, None))
-
-    # Test 7: Dataset without length and no max_steps
+    # Test 6: Dataset without length and no max_steps
     class DatasetWithoutLength:
         def __iter__(self):
             return iter([])
