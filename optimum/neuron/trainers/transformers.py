@@ -145,6 +145,7 @@ class NeuronTrainer:
         self.tp_size = self.trn_config.tensor_parallel_size
         self.pp_size = self.trn_config.pipeline_parallel_size
         self.pp_rank = get_pipeline_model_parallel_rank()
+        self._is_logging_process = is_logging_process()
 
         # Set the correct log level depending on the node
         log_level = args.get_process_log_level()
@@ -253,7 +254,7 @@ class NeuronTrainer:
 
         self.state = TrainerState(
             is_local_process_zero=self.is_local_process_zero(),
-            is_world_process_zero=self.is_world_process_zero(),
+            is_world_process_zero=self.is_logging_process(),
             stateful_callbacks=[
                 cb for cb in self.callback_handler.callbacks + [self.control] if isinstance(cb, ExportableState)
             ],
@@ -863,7 +864,7 @@ class NeuronTrainer:
         self.state.num_train_epochs = num_train_epochs
 
         self.state.is_local_process_zero = self.is_local_process_zero()
-        self.state.is_world_process_zero = is_logging_process()
+        self.state.is_world_process_zero = self.is_logging_process()
 
         self.global_step_last_logged = 0
 
@@ -1167,9 +1168,10 @@ class NeuronTrainer:
         Whether or not this process is the global main process (when training in a distributed fashion on several
         machines, this is only going to be `True` for one process).
         """
-        # Special case for SageMaker ModelParallel since there process_index is dp_process_index, not the global
-        # process index.
         return self.args.process_index == 0
+
+    def is_logging_process(self) -> bool:
+        return self._is_logging_process
 
     def save_model(self, output_dir: str | None = None, _internal_call: bool = False):
         if not is_precompilation():  # Avoid unnecessary model saving during precompilation
@@ -1239,6 +1241,7 @@ class NeuronTrainer:
 
         if xm.is_master_ordinal():
             os.makedirs(output_dir, exist_ok=True)
+        xm.rendezvous("output_dir_created")
 
         self.save_model(output_dir, _internal_call=True)
 
@@ -1250,17 +1253,17 @@ class NeuronTrainer:
 
             xm.save(self.lr_scheduler.state_dict(), os.path.join(output_dir, SCHEDULER_NAME))
 
-        # Save the Trainer state
-        if self.args.should_save:
-            self.state.save_to_json(os.path.join(output_dir, TRAINER_STATE_NAME))
+        if self.is_logging_process():
+            # Save the Trainer state
+            if self.args.should_save:
+                self.state.save_to_json(os.path.join(output_dir, TRAINER_STATE_NAME))
 
-        # A process can arrive here before the process 0 has a chance to save the model, in which case output_dir may
-        # not yet exist.
-        os.makedirs(output_dir, exist_ok=True)
+            # Maybe delete some older checkpoints.
+            if self.args.should_save:
+                self._rotate_checkpoints(use_mtime=True, output_dir=self.args.output_dir)
 
-        # Maybe delete some older checkpoints.
-        if self.args.should_save:
-            self._rotate_checkpoints(use_mtime=True, output_dir=self.args.output_dir)
+        # Waiting for everyone to reach this point before moving on.
+        xm.rendezvous("checkpoint_saved")
 
     def _sorted_checkpoints(
         self, output_dir=None, checkpoint_prefix=PREFIX_CHECKPOINT_DIR, use_mtime=False
