@@ -99,7 +99,7 @@ def _check_output(name: str, original_output, output):
             kv_size_multiplier = len(get_kv_shared_group(as_list=True)[0])
             output = torch.chunk(output, kv_size_multiplier, dim=1)[0]
 
-        torch.testing.assert_close(original_output, output)
+        torch.testing.assert_close(output, original_output)
     else:
         assert original_output == output, f"Output named {name} do not match."
 
