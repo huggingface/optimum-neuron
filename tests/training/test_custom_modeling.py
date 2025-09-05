@@ -99,7 +99,7 @@ def _check_output(name: str, original_output, output):
             kv_size_multiplier = len(get_kv_shared_group(as_list=True)[0])
             output = torch.chunk(output, kv_size_multiplier, dim=1)[0]
 
-        torch.testing.assert_close(original_output, output)
+        torch.testing.assert_close(output, original_output)
     else:
         assert original_output == output, f"Output named {name} do not match."
 
@@ -130,7 +130,11 @@ def _custom_model_matches_original_model(
 
     orig_model_class = getattr(transformers, model_class_name)
     with static_seed_patcher:
-        orig_model = orig_model_class.from_pretrained(model_name_or_path, torch_dtype=torch_dtype)
+        # We need to specify `attn_implementation="eager"` to ensure that the original model does not use
+        # another default such as sdpa or flash attention.
+        orig_model = orig_model_class.from_pretrained(
+            model_name_or_path, torch_dtype=torch_dtype, attn_implementation="eager"
+        )
 
     # It is ok to use this accelerator because `patch_model_for_neuron` does not depend on the TP or PP size.
     orig_model = accelerator.patch_model_for_neuron(orig_model)
