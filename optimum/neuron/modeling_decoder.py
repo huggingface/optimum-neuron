@@ -165,6 +165,8 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
                 sequence_length = config.max_position_embeddings
             else:
                 sequence_length = 1024
+            # Restrict default sequence length, as some models can have very large position embeddings
+            sequence_length = min(sequence_length, 4096)
         if tensor_parallel_size is None:
             # Use all available cores
             tensor_parallel_size = get_available_cores()
