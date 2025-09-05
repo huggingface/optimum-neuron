@@ -175,7 +175,7 @@ class Qwen3DecoderLayer(LlamaDecoderLayer):
 
 class Qwen3Model(LlamaModel):
     config = Qwen3Config
-    _no_split_modules = ["Qwem3DecoderLayer"]
+    _no_split_modules = ["Qwen3DecoderLayer"]
 
     def __init__(self, config: Qwen3Config, trn_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)
@@ -212,7 +212,7 @@ class Qwen3Model(LlamaModel):
 
 class Qwen3ForCausalLM(LlamaForCausalLM):
     config = Qwen3Config
-    _no_split_modules = ["Qwem3DecoderLayer"]
+    _no_split_modules = ["Qwen3DecoderLayer"]
 
     # Pipeline parallelism support
     SUPPORTS_PIPELINE_PARALLELISM = True
