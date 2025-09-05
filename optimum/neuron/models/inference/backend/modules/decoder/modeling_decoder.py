@@ -37,11 +37,6 @@ from ...config import NxDNeuronConfig
 from ...pretrained_model import NxDPreTrainedModel
 from ...utils.random import set_random_seed
 from ..autobucketing import generate_buckets
-from ..flashdecode.utils import (
-    get_cache_size,
-    mask_util,
-    turn_2d_mask_to_4d,
-)
 from ..generation.generation_utils import NxDGenerationMixin
 from ..generation.sampling import (
     Sampler,
@@ -84,7 +79,6 @@ class NxDDecoderModel(nn.Module):
         self.speculation_length = neuron_config.speculation_length
         self.max_length = neuron_config.sequence_length
         self.rank_util = SPMDRank(world_size=neuron_config.tp_degree)
-        self.num_cores_per_group = neuron_config.num_cores_per_group
         if neuron_config.on_device_sampling:
             # Instantiate a multinomial Sampler (it can still be used for greedy by passing topk=1)
             self.sampler = Sampler(neuron_config, do_sample=True)
@@ -164,11 +158,7 @@ class NxDDecoderModel(nn.Module):
         is_for_context_encoding = self._is_context_encoding(input_ids)
         is_for_speculation = self._is_for_speculation(input_ids)
 
-        cache_size = (
-            get_cache_size(self.n_positions, self.num_cores_per_group, is_for_context_encoding)
-            if self.neuron_config.flash_decoding_enabled
-            else self.n_positions
-        )
+        cache_size = self.n_positions
 
         # It is either for context encoding or for token generation
         if is_for_context_encoding:
@@ -198,16 +188,6 @@ class NxDDecoderModel(nn.Module):
 
         # FD masks
         active_mask_2d = None
-        if self.neuron_config.flash_decoding_enabled and not is_for_context_encoding:
-            rank_id = self.rank_util.get_rank()
-            active_mask_2d, attention_mask_2d = mask_util(
-                pos_ids=position_ids,
-                rank_id=rank_id,
-                num_cores_per_group=self.num_cores_per_group,
-                cache_size=cache_size,
-            )
-            active_mask = turn_2d_mask_to_4d(active_mask_2d, n_positions=1, batch_size=self.batch_size)
-            attention_mask = turn_2d_mask_to_4d(attention_mask_2d, n_positions=cache_size, batch_size=self.batch_size)
 
         hidden_states, past_key_values = self.get_model_output(
             input_ids=input_ids,
@@ -372,15 +352,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         self.text_config = self.config.get_text_config()
         self.vocab_size = self.text_config.vocab_size
         self.kv_cache_populated = False
-
-        # async related
-        self.async_mode = self.neuron_config.async_mode
-        self.next_cpu_inputs = None
-        self.prior_outputs = None
-        self.unequal_batching = self.neuron_config.ctx_batch_size != self.neuron_config.tkg_batch_size
-        if self.async_mode:
-            os.environ["NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS"] = "2"
-
         self.sampler = None
 
     @staticmethod
@@ -490,20 +461,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
     ) -> tuple | CausalLMOutputWithPast:
-        if self.async_mode:
-            # derive future cpu inputs from current cpu inputs
-            if position_ids.shape[1] == input_ids.shape[1]:
-                next_position_ids = torch.amax(position_ids, 1, keepdim=True)
-            else:
-                next_position_ids = position_ids
-
-            next_position_ids = next_position_ids + 1
-            next_attention_mask = self._infer_attention_mask(next_position_ids)
-            self.next_cpu_inputs = {
-                "attention_mask": next_attention_mask,
-                "position_ids": next_position_ids,
-            }
-
         # infer attention_mask from position_ids if not provided
         if attention_mask is None:
             attention_mask = self._infer_attention_mask(position_ids)
@@ -591,25 +548,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             )
 
             self.kv_cache_populated = True
-            if self.async_mode:
-                if not self.unequal_batching:
-                    # for now only cte + tkg flow is supported with async (this will be enforced at config level)
-                    next_outputs = self.token_generation_model(
-                        outputs,
-                        self.next_cpu_inputs["attention_mask"],
-                        self.next_cpu_inputs["position_ids"],
-                        seq_ids,
-                        sampling_params,
-                    )
-                    outputs = self._get_async_output(outputs)  # block on cte call
-                    self.prior_outputs = next_outputs
-                else:
-                    if isinstance(
-                        outputs, list
-                    ):  # in case the outputs weren't passed through `torch.cat` in model_wrapper.py
-                        outputs = self._get_async_output(outputs)  # block on cte call
-
-                    self.prior_outputs = None
 
         elif input_ids.shape[-1] == self.neuron_config.speculation_length:
             outputs = self.speculation_model(
@@ -620,43 +558,13 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
                 sampling_params,
             )
         else:
-            if (
-                self.next_cpu_inputs is not None and self.prior_outputs is not None
-            ):  # this is never not None and not in async mode
-                _input_ids = self.prior_outputs
-                _attention_mask = self.next_cpu_inputs["attention_mask"]
-                _position_ids = self.next_cpu_inputs["position_ids"]
-            else:
-                _input_ids = input_ids
-                _attention_mask = attention_mask
-                _position_ids = position_ids
-
-            next_outputs = self.token_generation_model(
-                _input_ids,
-                _attention_mask,
-                _position_ids,
+            outputs = self.token_generation_model(
+                input_ids,
+                attention_mask,
+                position_ids,
                 seq_ids,
                 sampling_params,
             )
-            if self.async_mode:
-                if self.prior_outputs is None:  # this means that next_outputs is processing token to be returned
-                    self.prior_outputs = next_outputs
-                    next_outputs = self.token_generation_model(  # submit future token request
-                        next_outputs,
-                        self.next_cpu_inputs["attention_mask"],
-                        self.next_cpu_inputs["position_ids"],
-                        seq_ids,
-                        sampling_params,
-                    )
-                outputs = self.prior_outputs
-                if isinstance(outputs, list):
-                    outputs = self._get_async_output(
-                        self.prior_outputs
-                    )  # block on prior (sometimes current) token gen request
-
-                self.prior_outputs = next_outputs
-            else:
-                outputs = next_outputs
 
         return outputs
 

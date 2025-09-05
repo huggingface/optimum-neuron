@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/modules/kvcache/kv_cache_manager.py
-import logging
 
 import torch
 from neuronx_distributed.parallel_layers import utils
@@ -25,7 +24,6 @@ from ..attention.gqa import (
     determine_sharding_strategy,
     get_shardable_head_counts,
 )
-from ..flashdecode.utils import get_cache_size
 from .utils import dynamic_update_slice, fill_prefix
 
 
@@ -57,8 +55,6 @@ class KVCacheManager(nn.Module):
     def __init__(self, config: PretrainedConfig, neuron_config: NxDNeuronConfig, **kwargs):
         super().__init__()
         self.is_continuous_batching = neuron_config.continuous_batching
-        self.flash_decoding_enabled = neuron_config.flash_decoding_enabled
-        self.num_cores_per_group = neuron_config.num_cores_per_group
         self.num_kv_head = kwargs["num_kv_head"]
 
         # NOTE: Tiling the sequence dimension of the KV cache enables specific compiler optimizations like cascaded reductions
@@ -88,16 +84,6 @@ class KVCacheManager(nn.Module):
         max_len = neuron_config.sequence_length
         num_kv_heads_per_rank = self._get_num_kv_heads_per_rank(config, neuron_config)
         hidden_dim_per_head = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
-
-        if self.flash_decoding_enabled:
-            padded_max_len = max_len
-            if max_len % self.num_cores_per_group != 0:
-                padded_max_len += self.num_cores_per_group - max_len % self.num_cores_per_group
-                logging.warning(
-                    f"Max length needs to be multiples of num_cores_per_group {self.num_cores_per_group}"
-                    f" but got {max_len}. Padding it to {padded_max_len} meet the requirement."
-                )
-            max_len = get_cache_size(padded_max_len, self.num_cores_per_group)
 
         if self.is_kv_cache_tiled:
             num_tiles = int(max_len / 128)
@@ -214,14 +200,7 @@ class KVCacheManager(nn.Module):
                     v_cache = fill_prefix(v_cache, latest_v)
             else:
                 # Copy the tensor of the new position into kv cache (no need to align as inputs are right padded)
-                if self.flash_decoding_enabled:
-                    assert active_mask is not None, "active_mask should be specified for flash decoding!"
-                    garbage_pos = seq_len - 1  # treat last pos as garbage
-                    updated_pos_ids = position_ids // self.num_cores_per_group
-                    scatter_index = torch.where(active_mask == 1, updated_pos_ids, garbage_pos)
-                    scatter_index_new = scatter_index.view(-1, 1, scatter_index.shape[-1], 1).expand_as(latest_k)
-                else:
-                    scatter_index_new = self._get_index_to_update_new_position(scatter_index, position_ids, latest_k)
+                scatter_index_new = self._get_index_to_update_new_position(scatter_index, position_ids, latest_k)
                 k_cache = torch.scatter(input=k_cache, dim=2, index=scatter_index_new, src=latest_k)
                 v_cache = torch.scatter(input=v_cache, dim=2, index=scatter_index_new, src=latest_v)
 
