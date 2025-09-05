@@ -12,36 +12,5 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Utilities related to the TRL library and support."""
 
-from dataclasses import dataclass
-
-from ..utils.import_utils import is_trl_available
-from .training_args import NeuronTrainingArguments
-
-
-if is_trl_available():
-    from trl import ORPOConfig, SFTConfig
-else:
-
-    @dataclass
-    class SFTConfig:
-        def __init__(self, *args, **kwargs):
-            raise RuntimeError("You need to install the `trl` library to use the `NeuronSFTConfig`.")
-
-    @dataclass
-    class ORPOConfig:
-        def __init__(self, *args, **kwargs):
-            raise RuntimeError("You need to install the `trl` library to use the `NeuronORPOConfig`.")
-
-
-@dataclass
-class NeuronSFTConfig(NeuronTrainingArguments, SFTConfig):
-    pass
-
-
-@dataclass
-class NeuronORPOConfig(NeuronTrainingArguments, ORPOConfig):
-    @property
-    def neuron_cc_flags_model_type(self) -> str | None:
-        return None
+TRL_VERSION = "0.11.4"
