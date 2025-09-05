@@ -96,7 +96,7 @@ def test_decoder_export_save_reload(
                 model.save_pretrained(model_path)
         else:
             model = NeuronModelForCausalLM.export(
-                model_id=model_id, config=model_config, neuron_config=neuron_config, load_weights=False
+                model_id=model_id, config=model_config, neuron_config=neuron_config, load_weights=load_weights
             )
             model.save_pretrained(model_path)
         check_neuron_config(model.neuron_config, **export_kwargs)

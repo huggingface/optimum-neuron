@@ -674,7 +674,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         force_download: bool | None = False,
         local_files_only: bool | None = False,
         trust_remote_code: bool | None = False,
-        load_weights: bool = True,
+        load_weights: bool = False,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         if len(kwargs) > 0:

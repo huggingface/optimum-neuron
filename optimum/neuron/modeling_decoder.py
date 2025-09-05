@@ -231,6 +231,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
             neuron_config,
             token=token,
             revision=revision,
+            load_weights=load_weights,
             **kwargs,
         )
 
@@ -298,7 +299,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         force_download: bool | None = False,
         local_files_only: bool | None = False,
         trust_remote_code: bool | None = False,
-        load_weights: bool | None = True,
+        load_weights: bool | None = False,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         """Export the model to Neuron format.
@@ -315,7 +316,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
                 The token to use for authentication with the Hugging Face Hub.
             revision (`str`, *optional*):
                 The revision of the model to use. If not specified, the latest revision will be used.
-            load_weights (`bool`, *optional*, defaults to `True`):
+            load_weights (`bool`, *optional*, defaults to `False`):
                 Whether to load the model weights after exporting. If `False`, the model will be exported without weights.
         Returns:
             `NeuronModelForCausalLM`: The exported Neuron model.
