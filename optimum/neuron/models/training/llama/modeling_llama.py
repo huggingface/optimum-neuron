@@ -262,7 +262,7 @@ def eager_attention_forward(
     scaling: float,
     dropout: float = 0.0,
     causal: bool = False,
-    **kwargs,
+    **kwargs: Unpack[TransformersKwargs],
 ):
     key_states = repeat_kv(key, module.num_key_value_groups)
     value_states = repeat_kv(value, module.num_key_value_groups)
@@ -550,21 +550,18 @@ class LlamaDecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
         position_ids: torch.LongTensor | None = None,
-        output_attentions: bool | None = False,
         position_embeddings: tuple[torch.Tensor, torch.Tensor] | None = None,  # necessary, but kept here for BC
         **kwargs: Unpack[TransformersKwargs],
-    ) -> tuple[torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor] | None]:
+    ) -> torch.Tensor:
         residual = hidden_states
 
         hidden_states = self.input_layernorm(hidden_states)
 
         # Self Attention
-        hidden_states, self_attn_weights = self.self_attn(
-            hidden_states=hidden_states,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            output_attentions=output_attentions,
-            position_embeddings=position_embeddings,
+        hidden_states, _ = self.self_attn(
+            hidden_states,
+            position_embeddings,
+            attention_mask,
             **kwargs,
         )
         hidden_states = residual + hidden_states
@@ -575,15 +572,11 @@ class LlamaDecoderLayer(nn.Module):
         hidden_states = self.mlp(hidden_states)
         hidden_states = residual + hidden_states
 
-        outputs = (hidden_states,)
-        if output_attentions:
-            outputs += (self_attn_weights,)
-
-        return outputs
+        return hidden_states
 
 
 class LlamaPreTrainedModel(PreTrainedModel):
-    config_class = LlamaConfig
+    config = LlamaConfig
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
     _no_split_modules = ["LlamaDecoderLayer"]
@@ -591,13 +584,10 @@ class LlamaPreTrainedModel(PreTrainedModel):
     _supports_flash_attn = True
     _supports_sdpa = False
     _supports_flex_attn = False
-    _supports_cache_class = False
-    _supports_quantized_cache = False
-    _supports_static_cache = False
-    _supports_attention_backend = False
 
     # Neuron-specific: torch.compile not supported on Trainium/Inferentia hardware
     _can_compile_fullgraph = False
+    _supports_attention_backend = True
     _can_record_outputs = None
 
 
@@ -638,25 +628,10 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         attention_mask: torch.Tensor | None = None,
         position_ids: torch.LongTensor | None = None,
         inputs_embeds: torch.FloatTensor | None = None,
-        use_cache: bool | None = None,
-        output_attentions: bool | None = None,
-        output_hidden_states: bool | None = None,
-        **flash_attn_kwargs: Unpack[TransformersKwargs],
+        **kwargs: Unpack[TransformersKwargs],
     ) -> BaseModelOutputWithPast:
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
-        use_cache = use_cache if use_cache is not None else self.config.use_cache
-
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
-
-        if self.gradient_checkpointing and self.training and use_cache:
-            logger.warning_once(
-                "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`."
-            )
-            use_cache = False
 
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
@@ -686,52 +661,34 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
 
         hidden_states = inputs_embeds
 
-        # create position embeddings to be shared across the decoder layers
+        # Create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
-        # decoder layers
-        all_hidden_states = () if output_hidden_states else None
-        all_self_attns = () if output_attentions else None
-
+        # Decoder layers
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
-            if output_hidden_states:
-                all_hidden_states += (hidden_states,)
-
             if self.gradient_checkpointing and self.training:
-                layer_outputs = checkpoint(
+                hidden_states = checkpoint(
                     decoder_layer.__call__,
                     hidden_states,
                     causal_mask,
                     position_ids,
-                    output_attentions,
                     position_embeddings,
+                    **kwargs,
                 )
             else:
-                layer_outputs = decoder_layer(
+                hidden_states = decoder_layer(
                     hidden_states,
                     attention_mask=causal_mask,
                     position_ids=position_ids,
-                    output_attentions=output_attentions,
                     position_embeddings=position_embeddings,
-                    **flash_attn_kwargs,
+                    **kwargs,
                 )
 
-            hidden_states = layer_outputs[0]
-
-            if output_attentions:
-                all_self_attns += (layer_outputs[1],)
-
         hidden_states = self.norm(hidden_states)
-
-        # add hidden states from the last decoder layer
-        if output_hidden_states:
-            all_hidden_states += (hidden_states,)
 
         output = BaseModelOutputWithPast(
             last_hidden_state=hidden_states,
             past_key_values=None,
-            hidden_states=all_hidden_states,
-            attentions=all_self_attns,
         )
         return output
 
@@ -780,23 +737,14 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
         position_ids: torch.LongTensor | None = None,
         inputs_embeds: torch.FloatTensor | None = None,
         labels: torch.LongTensor | None = None,
-        output_attentions: bool | None = None,
-        output_hidden_states: bool | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> tuple | CausalLMOutputWithPast:
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
-
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
+        # Decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
             inputs_embeds=inputs_embeds,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
             **kwargs,
         )
 

@@ -132,7 +132,9 @@ def _custom_model_matches_original_model(
     with static_seed_patcher:
         # We need to specify `attn_implementation="eager"` to ensure that the original model does not use
         # another default such as sdpa or flash attention.
-        orig_model = orig_model_class.from_pretrained(model_name_or_path, torch_dtype=torch_dtype, attn_implementation="eager")
+        orig_model = orig_model_class.from_pretrained(
+            model_name_or_path, torch_dtype=torch_dtype, attn_implementation="eager"
+        )
 
     # It is ok to use this accelerator because `patch_model_for_neuron` does not depend on the TP or PP size.
     orig_model = accelerator.patch_model_for_neuron(orig_model)
