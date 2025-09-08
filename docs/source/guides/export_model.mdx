@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# Export a model to Inferentia
+# Export a model to Neuron
 
 ## Summary
 
@@ -36,7 +36,7 @@ optimum-cli export neuron --help
 
 ## Why compile to Neuron model?
 
-AWS provides two generations of the Inferentia accelerator built for machine learning inference with higher throughput, lower latency but lower cost: [inf2 (NeuronCore-v2)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/inf2-arch.html) and [inf1 (NeuronCore-v1)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/inf1-arch.html#aws-inf1-arch).
+AWS provides two generations of the Trainium/Inferentia accelerator built for machine learning inference with higher throughput, lower latency but lower cost: [inf2 (NeuronCore-v2)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/inf2-arch.html) and [inf1 (NeuronCore-v1)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/inf1-arch.html#aws-inf1-arch).
 
 In production environments, to deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you need to compile your models and export them to a serialized format before inference. Through Ahead-Of-Time (AOT) compilation with Neuron Compiler( [neuronx-cc](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/compiler/neuronx-cc/index.html) or [neuron-cc](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/compiler/neuron-cc/neuron-cc.html) ), your models will be converted to serialized and optimized [TorchScript modules](https://pytorch.org/docs/stable/generated/torch.jit.ScriptModule.html).
 
@@ -317,9 +317,6 @@ optimum-cli export neuron --model stabilityai/stable-diffusion-xl-base-1.0 \
 
 ### Exporting LLMs to Neuron
 
-LLM models are not exported using Torch tracing, but converted directly to Neuron graphs into which the
-transformers checkpoint weights can be loaded.
-
 Just like the standard NLP models, you need to specify static parameters when exporting an LLM model:
 
 - `batch_size` is the number of input sequences that the model will accept. Defaults to 1,
@@ -329,16 +326,13 @@ Just like the standard NLP models, you need to specify static parameters when ex
 bigger models need to be split on multiple cores. Defaults to 1,
 
 ```bash
-optimum-cli export neuron --model meta-llama/Meta-Llama-3-8B \
+optimum-cli export neuron --model meta-llama/Llama-3.2-1B \
   --batch_size 1 \
   --sequence_length 4096 \
-  --auto_cast_type fp16 `# cast operations from BF16 to FP16` \
+  --auto_cast_type bf16 \
   --num_cores 2 \
   llama3_neuron/
 ```
-
-An important restriction is that LLM models can only be exported on Neuron platforms, as they are tailored
-to fit on the actual devices during export.
 
 <Tip>
 The export of LLM models can take much longer than standard models (sometimes more than one hour).
@@ -351,7 +345,7 @@ This means in particular that during inference:
 - the `length` of the input sequences should be lower than the `sequence_length` used during export,
 - the maximum number of tokens (input + generated) cannot exceed the `sequence_length` used during export.
 
-Once exported, neuron mmodels can simply be reloaded using the `NeuronModelForCausalLM` class.
+Once exported, neuron llm models can simply be reloaded using the `NeuronModelForCausalLM` class.
 As with the original transformers models, use `generate()` instead of `forward()` to generate text sequences.
 
 ```diff
@@ -360,10 +354,10 @@ from transformers import AutoTokenizer
 +from optimum.neuron import NeuronModelForCausalLM
 
 # Instantiate and convert to Neuron a PyTorch checkpoint
--model = AutoModelForCausalLM.from_pretrained("gpt2")
-+model = NeuronModelForCausalLM.from_pretrained("./gpt2-neuron")
+-model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B")
++model = NeuronModelForCausalLM.from_pretrained("./llama3-neuron")
 
-tokenizer = AutoTokenizer.from_pretrained("gpt2")
+tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
 tokenizer.pad_token_id = tokenizer.eos_token_id
 
 tokens = tokenizer("I really wish ", return_tensors="pt")
@@ -371,8 +365,7 @@ with torch.inference_mode():
     sample_output = model.generate(
         **tokens,
         do_sample=True,
-        min_length=128,
-        max_length=256,
+        max_new_tokens=256,
         temperature=0.7,
     )
     outputs = [tokenizer.decode(tok) for tok in sample_output]
@@ -386,33 +379,6 @@ Please be aware that:
 - for each model architecture, default values are provided for all parameters, but values passed to the `generate` method will take precedence,
 - the generation parameters can be stored in a `generation_config.json` file. When such a file is present in model directory,
 it will be parsed to set the default parameters (the values passed to the `generate` method still take precedence).
-
-
-## Exporting a model to Neuron programmatically via NeuronModel
-
-As an alternative to the `optimim-cli`, you will also be able to export your models to Neuron
-inside your own python script or notebook with `optimum.neuron.NeuronModelForXXX` model classes.
-
-Here is an example:
-
-```python
->>> from optimum.neuron import NeuronModelForSequenceClassification
-
->>> input_shapes = {"batch_size": 1, "sequence_length": 64}  # mandatory shapes
->>> model = NeuronModelForSequenceClassification.from_pretrained(
-...   "distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes
-... )
-
-# Save the model
->>> model.save_pretrained("./distilbert-base-uncased-finetuned-sst-2-english_neuron/")
-
-# Push the neuron model to HF Hub
->>> model.push_to_hub(  # doctest: +SKIP
-...     "a_local_path_for_compiled_neuron_model", repository_id="my-neuron-repo"
-... )
-```
-
-This example can be adapted for other model types using the same export parameters as the `optimum-cli`.
 
 ## Exporting neuron models using NeuronX TGI
 
