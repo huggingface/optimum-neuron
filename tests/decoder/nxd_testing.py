@@ -16,6 +16,13 @@ from transformers import set_seed
 logger = logging.getLogger("Neuron")
 
 
+class ModelInstanceWrapper(BaseModelInstance):
+    def load_module(self):
+        self.module = self.module_cls()
+        # set to eval mode, so the model is not in training mode
+        self.module.eval()
+
+
 class FunctionModule(torch.nn.Module):
     """
     A module that wraps a function to run it on Neuron.
@@ -218,7 +225,7 @@ def build_module(
     module_instance_cls = partial(module_cls, **module_init_kwargs)
     model_builder.add(
         key=_get_module_name(module_cls, module_init_kwargs),
-        model_instance=BaseModelInstance(module_instance_cls, input_output_aliases={}),
+        model_instance=ModelInstanceWrapper(module_instance_cls, input_output_aliases={}),
         example_inputs=example_inputs,
         compiler_args=compiler_args,
         priority_model_idx=priority_model_idx,
