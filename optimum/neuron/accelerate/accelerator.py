@@ -281,6 +281,8 @@ class NeuronAccelerator(Accelerator):
 
         if mixed_precision_config.optimizer_use_master_weights:
             zero_1_config["optimizer_dtype"] = torch.float32
+        else:
+            zero_1_config["optimizer_dtype"] = torch.bfloat16
         if mixed_precision_config.optimizer_use_fp32_grad_acc:
             zero_1_config["use_grad_acc_hook"] = True
             zero_1_config["higher_cc_precision"] = True
@@ -586,3 +588,8 @@ class NeuronAccelerator(Accelerator):
         except Exception:
             # Dataset had no length or raised an error
             return data
+
+    @contextlib.contextmanager
+    def accumulate(self):
+        self._do_sync()
+        yield
