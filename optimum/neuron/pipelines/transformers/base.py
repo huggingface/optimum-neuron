@@ -174,14 +174,8 @@ def load_pipeline(
 
         if issubclass(neuronx_model_class, NeuronModelForCausalLM):
             if export:
-                config = AutoConfig.from_pretrained(model, **hub_kwargs)
-                neuron_config = neuronx_model_class.get_neuron_config(
-                    model, config=AutoConfig.from_pretrained(model, **hub_kwargs), **export_kwargs
-                )
-                print(neuron_config)
-                model = neuronx_model_class.export(
-                    model, config=config, neuron_config=neuron_config, load_weights=True, **hub_kwargs
-                )
+                neuron_config = neuronx_model_class.get_neuron_config(model, **export_kwargs)
+                model = neuronx_model_class.export(model, neuron_config=neuron_config, load_weights=True, **hub_kwargs)
             else:
                 model = neuronx_model_class.from_pretrained(model, **hub_kwargs)
         else:

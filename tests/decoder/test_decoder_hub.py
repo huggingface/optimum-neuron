@@ -19,7 +19,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 from huggingface_hub import HfApi, get_token
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers import AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
@@ -43,13 +43,8 @@ def test_decoder_push_to_hub(from_local):
                 # Save must happen within the context of the tmpdir or checkpoint dir is lost
                 model.save_pretrained(model_path)
         else:
-            config = AutoConfig.from_pretrained(model_id)
-            neuron_config = NeuronModelForCausalLM.get_neuron_config(
-                model_name_or_path=model_id, config=config, **export_kwargs
-            )
-            model = NeuronModelForCausalLM.export(
-                model_id, config=config, neuron_config=neuron_config, load_weights=False
-            )
+            neuron_config = NeuronModelForCausalLM.get_neuron_config(model_name_or_path=model_id, **export_kwargs)
+            model = NeuronModelForCausalLM.export(model_id, neuron_config=neuron_config, load_weights=False)
             model.save_pretrained(model_path)
         # The hub model contains the checkpoint only when the model is exported from a local path
         ignore_patterns = [] if from_local else [model.CHECKPOINT_DIR + "/*"]

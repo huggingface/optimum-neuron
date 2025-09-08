@@ -16,7 +16,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers import AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.utils import DTYPE_MAPPER
@@ -80,23 +80,20 @@ def test_decoder_export_save_reload(
     load_weights: bool,
 ):
     model_id = export_decoder_id
-    model_config = AutoConfig.from_pretrained(export_decoder_id)
     export_kwargs = {"batch_size": 1, "sequence_length": 1024, "tensor_parallel_size": 2, "auto_cast_type": "bf16"}
-    neuron_config = NeuronModelForCausalLM.get_neuron_config(
-        model_name_or_path=export_decoder_id, config=model_config, **export_kwargs
-    )
+    neuron_config = NeuronModelForCausalLM.get_neuron_config(model_name_or_path=export_decoder_id, **export_kwargs)
     with TemporaryDirectory() as model_path:
         if is_local:
             with TemporaryDirectory() as tmpdir:
                 model = AutoModelForCausalLM.from_pretrained(model_id)
                 model.save_pretrained(tmpdir)
                 model = NeuronModelForCausalLM.export(
-                    model_id=tmpdir, config=model_config, neuron_config=neuron_config, load_weights=load_weights
+                    model_id=tmpdir, neuron_config=neuron_config, load_weights=load_weights
                 )
                 model.save_pretrained(model_path)
         else:
             model = NeuronModelForCausalLM.export(
-                model_id=model_id, config=model_config, neuron_config=neuron_config, load_weights=load_weights
+                model_id=model_id, neuron_config=neuron_config, load_weights=load_weights
             )
             model.save_pretrained(model_path)
         check_neuron_config(model.neuron_config, **export_kwargs)

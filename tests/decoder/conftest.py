@@ -95,9 +95,8 @@ def _get_hub_neuron_model_id(config_name: str, model_config: dict[str, str]):
 
 def _export_model(model_id, export_kwargs, neuron_model_path):
     try:
-        config = AutoConfig.from_pretrained(model_id)
-        neuron_config = NeuronModelForCausalLM.get_neuron_config(model_id, config, **export_kwargs)
-        model = NeuronModelForCausalLM.export(model_id, config=config, neuron_config=neuron_config, load_weights=False)
+        neuron_config = NeuronModelForCausalLM.get_neuron_config(model_id, **export_kwargs)
+        model = NeuronModelForCausalLM.export(model_id, neuron_config=neuron_config, load_weights=False)
         model.save_pretrained(neuron_model_path)
         return model
     except Exception as e:
