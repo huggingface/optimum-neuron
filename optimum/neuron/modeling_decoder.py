@@ -107,7 +107,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
     def get_neuron_config(
         cls,
         model_name_or_path: str | Path,
-        config: "PretrainedConfig",
+        config: PretrainedConfig | None = None,
         token: bool | str | None = None,
         revision: str | None = None,
         batch_size: int | None = None,
@@ -126,7 +126,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
                 The class of the target neuron model.
             model_name_or_path (`str` or `Path`):
                 The model name or path to the model directory.
-            config (`PretrainedConfig`):
+            config (`PretrainedConfig`, *optional*):
                 The model configuration.
             token (`str`, *optional*):
                 The token to use for authentication with the Hugging Face Hub.
@@ -152,6 +152,12 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
             api = HfApi(token=token)
             model_info = api.repo_info(model_name_or_path, revision=revision)
             checkpoint_revision = model_info.sha
+        if config is None:
+            config = AutoConfig.from_pretrained(
+                model_name_or_path,
+                revision=checkpoint_revision,
+                use_auth_token=token,
+            )
 
         if batch_size is None:
             batch_size = 1
@@ -193,8 +199,8 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
     def export(
         cls,
         model_id: str,
-        config: "PretrainedConfig",
         neuron_config: NeuronConfig,
+        config: PretrainedConfig | None = None,
         token: bool | str | None = None,
         revision: str | None = None,
         load_weights: bool | None = False,
@@ -207,10 +213,10 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         Args:
             model_id (`str`):
                 The model ID or path to the model directory.
-            config (`PretrainedConfig`):
-                The model configuration.
             neuron_config (`NxDNeuronConfig`):
                 The Neuron configuration for the model.
+            config (`PretrainedConfig`, *optional*):
+                The model configuration.
             token (`str`, *optional*):
                 The token to use for authentication with the Hugging Face Hub.
             revision (`str`, *optional*):
@@ -221,6 +227,12 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         Returns:
             `NeuronModelForCausalLM`: The exported Neuron model.
         """
+        if config is None:
+            config = AutoConfig.from_pretrained(
+                model_id,
+                revision=revision,
+                use_auth_token=token,
+            )
         if cls is NeuronModelForCausalLM:
             # Instantiation through the abstract class: find the correct model class
             cls = get_neuron_causal_lm_model_class(config)
@@ -308,10 +320,10 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         Args:
             model_id (`str`):
                 The model ID or path to the model directory.
-            config (`PretrainedConfig`):
-                The model configuration.
             neuron_config (`NeuronConfig`):
                 The Neuron configuration for the model.
+            config (`PretrainedConfig`, *optional*):
+                The model configuration.
             token (`str`, *optional*):
                 The token to use for authentication with the Hugging Face Hub.
             revision (`str`, *optional*):

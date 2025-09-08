@@ -17,7 +17,6 @@ import logging
 
 import torch
 import torch.nn as nn
-from transformers import AutoConfig
 from vllm.config import ModelConfig, ParallelConfig, SchedulerConfig
 from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.layers.sampler import Sampler, SamplerOutput
@@ -258,10 +257,8 @@ def get_optimum_neuron_model(
             )
             raise ValueError(error_msg)
         logger.warning("%s is not a neuron model: it will be exported using cached artifacts.", model_id)
-        config = AutoConfig.from_pretrained(model_id, revision=revision, token=token)
         neuron_config = NeuronModelForCausalLM.get_neuron_config(
             model_name_or_path=model_id,
-            config=config,
             batch_size=batch_size,
             sequence_length=sequence_length,
             tensor_parallel_size=tensor_parallel_size,
@@ -269,7 +266,6 @@ def get_optimum_neuron_model(
         )
         neuron_model = NeuronModelForCausalLM.export(
             model_id,
-            config=config,
             neuron_config=neuron_config,
             token=token,
             revision=revision,
