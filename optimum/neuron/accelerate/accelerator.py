@@ -32,9 +32,20 @@ from accelerate.utils.operations import gather_object, recursively_apply
 from neuronx_distributed import parallel_layers
 from neuronx_distributed.optimizer import NeuronZero1Optimizer
 from neuronx_distributed.parallel_layers.parallel_state import (
+    get_zero1_sharding_groups,
     get_data_parallel_group,
+    get_tensor_model_parallel_replica_groups,
     get_pipeline_model_parallel_size,
     get_tensor_model_parallel_group,
+    model_parallel_is_initialized,
+    get_context_model_parallel_size,
+    get_data_parallel_replica_groups,
+    get_data_parallel_rank,
+    get_expert_data_parallel_replica_groups,
+    get_expert_data_parallel_size,
+    get_expert_model_parallel_size,
+    get_expert_model_parallel_replica_groups,
+    get_tensor_model_parallel_rank,
     model_parallel_is_initialized,
 )
 from neuronx_distributed.utils.model_utils import move_model_to_device
@@ -153,7 +164,7 @@ class NeuronAccelerator(Accelerator):
             self.autocast_handler = AutocastKwargs(enabled=enabled)
 
         if self.process_index == -1 and self.zero_1:
-            raise ValueError("XLA ZeRO Stage 1 can only be enabled in a distributed training setting.")
+            raise ValueError("ZeRO-1 can only be enabled in a distributed training setting.")
 
         if num_steps != 1:
             self.gradient_accumulation_steps = num_steps
@@ -241,20 +252,44 @@ class NeuronAccelerator(Accelerator):
         return data_loader
 
     def _prepare_optimizer_for_zero_1(self, optimizer: torch.optim.Optimizer, device_placement=None):
-        mixed_precision_to_dtype = {
-            "no": torch.float32,
-            "bf16": torch.bfloat16,
-        }
-        optimizer_dtype = mixed_precision_to_dtype.get(self.state.mixed_precision, None)
-        if optimizer_dtype is None:
-            raise ValueError(f"The precision {self.state.mixed_precision} is not supported for ZeRO Stage 1")
-
-        if not model_parallel_is_initialized():
-            sharding_groups = None
-            grad_norm_groups = None
+        context_model_size = get_context_model_parallel_size()
+        if context_model_size > 1:
+            sharding_groups = get_zero1_sharding_groups()
         else:
-            sharding_groups = get_data_parallel_group(as_list=True)
-            grad_norm_groups = get_tensor_model_parallel_group(as_list=True)
+            sharding_groups = get_data_parallel_replica_groups()
+        grad_norm_groups = get_tensor_model_parallel_replica_groups()
+
+        # P148368176: Bucket cap >140MB causes NaN at step 3 (known issue)
+        _ALL_GATHER_REDUCE_SCATTER_BUCKET_CAP_MB = 130
+        if os.getenv("XLA_DOWNCAST_BF16") == "0" and mixed_precision_config["use_master_weights"]:
+            #mixed_precision_config["use_master_weights"]=True and XLA_DOWNCAST_BF16=0
+            #for autocast, this is to differentiate it from fp32 precision scenario.
+            #Bucket size has been halved because in the case where XLA_DOWNCAST_BF16=1,
+            #inside torch_xla.core.xla_model.py in __call__ of CoalescingBuckets
+            #tensor.element_size() is used which uses the tensor's size for determining 
+            #number of buckets. When XLA_DOWNCAST_BF16=1, the tensor in torch land is fp32,
+            #but is actually bf16 in xla device, so the buckets are calculate as per fp32.
+            #When we move to autocast, the dtype in torch land is bf16 and hence the number
+            #of buckets is calculated as per bf16, hence halving the CAP ensures same number 
+            #of buckets in both scenarios and ensures same HLOs as the case where 
+            #XLA_DOWNCAST_BF16=1
+            _ALL_GATHER_REDUCE_SCATTER_BUCKET_CAP_MB = 65
+        bucket_cap = int(
+            os.getenv("ALL_GATHER_REDUCE_SCATTER_BUCKET_CAP_MB", _ALL_GATHER_REDUCE_SCATTER_BUCKET_CAP_MB)
+        )
+        reduce_scatter_bucket_cap = bucket_cap
+        all_gather_bucket_cap = max(1, bucket_cap // parallel_state.get_data_parallel_size())
+        zero1_configs.update({"bucket_cap_mb_all_gather": all_gather_bucket_cap})
+        zero1_configs.update({"bucket_cap_mb_reduce_scatter": reduce_scatter_bucket_cap})
+
+        zero_1_config = {
+            "pin_layout": False,
+            "sharding_groups": sharding_groups,
+            "grad_norm_groups": grad_norm_groups,
+        }
+
+        if self.state.mixed_precision_config.mode == "AUTOCAST_BF16":
+
 
         zero_1_optimizer = NeuronZero1Optimizer(
             optimizer.param_groups,

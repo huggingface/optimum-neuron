@@ -34,7 +34,7 @@ from ..utils.torch_xla_and_neuronx_initialization import (
     set_common_flags,
     set_neuron_cc_flags_for_torch_amp,
 )
-from .utils import NeuronDistributedType
+from .utils.dataclasses import NeuronDistributedType, MixedPrecisionConfig
 
 
 logger = logging.get_logger()
@@ -140,6 +140,7 @@ class NeuronAcceleratorState(AcceleratorState):
                     "FP8 mixed precision is not supported by `optimum-neuron`. Please use `bf16`, or `no` instead."
                 )
 
+
             self.dynamo_plugin = dynamo_plugin
             if not _from_accelerator:
                 raise ValueError(
@@ -148,10 +149,8 @@ class NeuronAcceleratorState(AcceleratorState):
                 )
 
             self._mixed_precision = mixed_precision
+            self._mixed_precision_config = MixedPrecisionConfig(mixed_precision.upper())
             if self.distributed_type == DistributedType.XLA:
-                if mixed_precision == "bf16":
-                    os.environ["NEURON_RT_STOCHASTIC_ROUNDING_EN"] = "1"
-
                 if trn_config is None:
                     trn_config = TrainingNeuronConfig()
 
