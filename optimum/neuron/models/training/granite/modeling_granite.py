@@ -39,6 +39,7 @@ from ..llama.modeling_llama import (
     LlamaRMSNorm,
     LlamaRotaryEmbedding,
 )
+from ..masking_utils import create_causal_mask
 
 
 # Wrap the gather and scatter functions to ensure they are properly traced by `torch.fx`.
@@ -65,19 +66,17 @@ class GraniteDecoderLayer(LlamaDecoderLayer):
         hidden_states: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
         position_ids: torch.LongTensor | None = None,
-        output_attentions: bool | None = False,
         position_embeddings: tuple[torch.Tensor, torch.Tensor] | None = None,  # necessary, but kept here for BC
-        **kwargs,
+        **kwargs: Unpack[TransformersKwargs],
     ) -> tuple[torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor] | None]:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
 
         # Self Attention
-        hidden_states, self_attn_weights = self.self_attn(
+        hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
             position_ids=position_ids,
-            output_attentions=output_attentions,
             position_embeddings=position_embeddings,
             **kwargs,
         )
@@ -89,16 +88,12 @@ class GraniteDecoderLayer(LlamaDecoderLayer):
         hidden_states = self.mlp(hidden_states)
         hidden_states = residual + hidden_states * self.residual_multiplier  # main diff with Llama
 
-        outputs = (hidden_states,)
-
-        if output_attentions:
-            outputs += (self_attn_weights,)
-
-        return outputs
+        return hidden_states
 
 
 class GraniteModel(LlamaModel):
-    config_class = GraniteConfig
+    config = GraniteConfig
+    _no_split_modules = ["GraniteDecoderLayer"]
 
     def __init__(self, config: GraniteConfig, trn_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)
@@ -130,28 +125,14 @@ class GraniteModel(LlamaModel):
         attention_mask: torch.Tensor | None = None,
         position_ids: torch.LongTensor | None = None,
         inputs_embeds: torch.FloatTensor | None = None,
-        use_cache: bool | None = None,
-        output_attentions: bool | None = None,
-        output_hidden_states: bool | None = None,
-        **flash_attn_kwargs,
-    ) -> tuple | BaseModelOutputWithPast:
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
-        use_cache = use_cache if use_cache is not None else self.config.use_cache
-
+        **kwargs: Unpack[TransformersKwargs],
+    ) -> BaseModelOutputWithPast:
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-        if self.gradient_checkpointing and self.training and use_cache:
-            logger.warning_once(
-                "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`."
-            )
-            use_cache = False
-
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
+
         if self.trn_config.sequence_parallel_enabled:
             inputs_embeds = inputs_embeds.transpose(0, 1).contiguous()
             inputs_embeds = scatter_to_sequence_parallel_region(inputs_embeds)
@@ -171,56 +152,45 @@ class GraniteModel(LlamaModel):
         if self.trn_config.recompute_causal_mask:
             causal_mask = None
         else:
-            causal_mask = self._update_causal_mask(attention_mask, inputs_embeds, cache_position)
+            causal_mask = create_causal_mask(
+                config=self.config,
+                trn_config=self.trn_config,
+                input_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                cache_position=cache_position,
+                past_key_values=None,  # Not used in training
+                position_ids=position_ids,
+            )
 
         hidden_states = inputs_embeds
 
         # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
-        # decoder layers
-        all_hidden_states = () if output_hidden_states else None
-        all_self_attns = () if output_attentions else None
-
+        # Decoder layers
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
-            if output_hidden_states:
-                all_hidden_states += (hidden_states,)
-
             if self.gradient_checkpointing and self.training:
-                layer_outputs = checkpoint(
+                hidden_states = checkpoint(
                     decoder_layer.__call__,
                     hidden_states,
                     causal_mask,
                     position_ids,
-                    output_attentions,
                     position_embeddings,
+                    **kwargs,
                 )
             else:
-                layer_outputs = decoder_layer(
+                hidden_states = decoder_layer(
                     hidden_states,
                     attention_mask=causal_mask,
                     position_ids=position_ids,
-                    output_attentions=output_attentions,
                     position_embeddings=position_embeddings,
-                    **flash_attn_kwargs,
                 )
 
-            hidden_states = layer_outputs[0]
-
-            if output_attentions:
-                all_self_attns += (layer_outputs[1],)
-
         hidden_states = self.norm(hidden_states)
-
-        # add hidden states from the last decoder layer
-        if output_hidden_states:
-            all_hidden_states += (hidden_states,)
 
         output = BaseModelOutputWithPast(
             last_hidden_state=hidden_states,
             past_key_values=None,
-            hidden_states=all_hidden_states,
-            attentions=all_self_attns,
         )
         return output
 
@@ -257,7 +227,7 @@ class GraniteForCausalLM(LlamaForCausalLM):
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
         **kwargs: Unpack[KwargsForCausalLM],
-    ) -> tuple | CausalLMOutputWithPast:
+    ) -> CausalLMOutputWithPast:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
