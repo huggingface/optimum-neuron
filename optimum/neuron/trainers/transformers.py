@@ -85,6 +85,7 @@ from transformers.utils import (
 from optimum.utils import logging
 
 from ..accelerate import NeuronAccelerator, NeuronDistributedType
+from ..accelerate.utils.dataclasses import MixedPrecisionConfig
 from ..cache.hub_cache import hub_neuronx_cache
 from ..cache.training import patch_neuron_cc_wrapper
 from ..peft import NeuronPeftModel
@@ -339,12 +340,26 @@ class NeuronTrainer:
             "dataloader_config": dataloader_config,
         }
 
+        if self.args.bf16 and self.args.use_autocast:
+            mode = "AUTOCAST_BF16"
+        elif self.args.bf16:
+            mode = "FULL_BF16"
+        else:
+            mode = "NO"
+        self.mixed_precision_config = MixedPrecisionConfig(
+            mode=mode,
+            stochastic_rounding=self.args.stochastic_rounding_enabled,
+            optimizer_use_master_weights=self.args.optimizer_use_master_weights,
+            optimizer_use_fp32_grad_acc=self.args.optimizer_use_fp32_grad_acc,
+            optimizer_save_master_weights_in_ckpt=self.args.optimizer_save_master_weights_in_ckpt,
+        )
+
         # create accelerator object
         self.accelerator = NeuronAccelerator(
             *args,
             trn_config=self.trn_config,
             zero_1=self.args.zero_1,
-            mixed_precision="bf16" if self.args.bf16 and self.args.use_autocast else "no",
+            mixed_precision_config=self.mixed_precision_config,
         )
 
         # some Trainer classes need to use `gather` instead of `gather_for_metrics`, thus we store a flag

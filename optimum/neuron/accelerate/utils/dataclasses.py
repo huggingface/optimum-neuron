@@ -14,12 +14,15 @@
 # limitations under the License.
 """Custom dataclasses for Neuron."""
 
-import os
-from dataclasses import dataclass, field
-from typing import Literal
 import enum
+import os
+from dataclasses import dataclass
 
-from ..utils.torch_xla_and_neuronx_initialization import set_neuron_cc_flag
+from ....utils import logging
+from ...utils.torch_xla_and_neuronx_initialization import set_neuron_cc_flag
+
+
+logger = logging.get_logger(__name__)
 
 
 class NeuronDistributedType(str, enum.Enum):
@@ -37,63 +40,35 @@ class MixedPrecisionMode(str, enum.Enum):
     NO = "NO"
     FULL_BF16 = "FULL_BF16"
     AUTOCAST_BF16 = "AUTOCAST_BF16"
-    STANDARD = "STANDARD"
+
 
 @dataclass
 class MixedPrecisionConfig:
     mode: MixedPrecisionMode | str
-    stochastic_rounding: bool | Literal["auto"] = "auto"
-    optimizer_use_master_weights: bool | Literal["auto"] = "auto"
-    optimizer_use_fp32_grad_acc: bool | Literal["auto"] = "auto"
+    stochastic_rounding: bool = True
+    optimizer_use_master_weights: bool = False
+    optimizer_use_fp32_grad_acc: bool = False
+    optimizer_save_master_weights_in_ckpt: bool = False
 
     def __post_init__(self):
         if isinstance(self.mode, str):
             self.mode = MixedPrecisionMode(self.mode)
 
         if self.mode is MixedPrecisionMode.FULL_BF16:
-            if self.stochastic_rounding == "auto":
-                self.stochastic_rounding = True
-
-            if self.optimizer_use_master_weights == "auto":
-                self.optimizer_use_master_weights = self.stochastic_rounding is False
-
-            if self.optimizer_use_master_weights:
-                # In full bf16 mode, stochastic rounding must be enabled or we need to use master weights for the 
-                # optimizer. It is not supported for now.
-                raise ValueError("In full bf16 mode, using master weights is not supported.")
+            if not self.stochastic_rounding and not self.optimizer_use_master_weights:
+                logger.warning(
+                    "In full bf16 mode, it is recommended to enable stochastic rounding or use master weights for the "
+                    "optimizer."
+                )
         elif self.mode is MixedPrecisionMode.AUTOCAST_BF16:
             set_neuron_cc_flag("--auto-cast", "none")
-            
-            if self.stochastic_rounding == "auto":
-                self.stochastic_rounding = False
-
-            if self.optimizer_use_master_weights == "auto":
-                self.optimizer_use_master_weights = False
-
-            if self.optimizer_use_master_weights: 
-                raise ValueError("Using master weights is not supported in autocast bf16 mode.")
-        elif self.mode is MixedPrecisionMode.STANDARD: 
-            if self.stochastic_rounding == "auto":
-                self.stochastic_rounding = False
-
-            if self.optimizer_use_master_weights == "auto":
-                self.optimizer_use_master_weights = True
-
-            if self.optimizer_use_fp32_grad_acc == "auto":
-                self.optimizer_use_fp32_grad_acc = True
-        else: # NO
+        else:
             self.stochastic_rounding = False
             self.optimizer_use_master_weights = False
             self.optimizer_use_fp32_grad_acc = False
+            self.optimizer_save_master_weights_in_ckpt = False
 
         if self.stochastic_rounding:
             os.environ["NEURON_RT_STOCHASTIC_ROUNDING_EN"] = "1"
         else:
             os.environ["NEURON_RT_STOCHASTIC_ROUNDING_EN"] = "0"
-
-
-    
-
-
-
-
