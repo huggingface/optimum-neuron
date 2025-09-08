@@ -20,7 +20,7 @@ from transformers import PretrainedConfig
 from transformers.cache_utils import Cache
 
 from ....utils import logging
-from ...utils.training_utils import is_main_worker_for_metrics
+from ...utils.training_utils import is_logging_process
 from .config import TrainingNeuronConfig
 from .pipeline_utils import dynamic_torch_fx_wrap
 
@@ -51,7 +51,7 @@ def create_causal_mask(
         )
 
     if config._attn_implementation == "flash_attention_2":
-        if not _LOGGED_WARNING_FLASH_ATTENTION_2 and is_main_worker_for_metrics():
+        if not _LOGGED_WARNING_FLASH_ATTENTION_2 and is_logging_process():
             _LOGGED_WARNING_FLASH_ATTENTION_2 = True
             logger.warning(
                 "You are using `flash_attention_2` as attention implementation. "
