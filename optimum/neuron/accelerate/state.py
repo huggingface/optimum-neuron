@@ -35,7 +35,6 @@ from ..utils.torch_xla_and_neuronx_initialization import (
     set_neuron_cc_flags_for_torch_amp,
 )
 from .utils import NeuronDistributedType
-from .utils.dataclasses import AutocastBackend
 
 
 logger = logging.get_logger()
@@ -117,7 +116,6 @@ class NeuronAcceleratorState(AcceleratorState):
         torch_tp_plugin=None,
         megatron_lm_plugin=None,
         trn_config: TrainingNeuronConfig | None = None,
-        autocast_backend: str | AutocastBackend | None = None,
         _from_accelerator: bool = False,
         **kwargs,
     ):
@@ -125,17 +123,10 @@ class NeuronAcceleratorState(AcceleratorState):
         if parse_flag_from_env("ACCELERATE_USE_CPU"):
             cpu = True
 
-        if autocast_backend is None:
-            autocast_backend = AutocastBackend.XLA
-        elif not isinstance(autocast_backend, AutocastBackend):
-            autocast_backend = AutocastBackend(autocast_backend)
-
         if NeuronPartialState._shared_state == {}:
-            if autocast_backend is AutocastBackend.AMP:
-                os.environ["ACCELERATE_USE_AMP"] = "true"
             NeuronPartialState(cpu, **kwargs)
         self.__dict__.update(NeuronPartialState._shared_state)
-        self._check_initialized(mixed_precision, cpu, autocast_backend)
+        self._check_initialized(mixed_precision, cpu)
         if not self.initialized:
             self.deepspeed_plugin = None
             self.ipex_plugin = None
@@ -157,7 +148,6 @@ class NeuronAcceleratorState(AcceleratorState):
                 )
 
             self._mixed_precision = mixed_precision
-            self._autocast_backend = autocast_backend
             if self.distributed_type == DistributedType.XLA:
                 if mixed_precision == "bf16":
                     os.environ["NEURON_RT_STOCHASTIC_ROUNDING_EN"] = "1"
@@ -181,21 +171,6 @@ class NeuronAcceleratorState(AcceleratorState):
                 self.use_ipex = False
 
             PartialState._shared_state["distributed_type"] = self.distributed_type
-
-    def _check_initialized(self, mixed_precision=None, cpu=None, autocast_backend=None):
-        "Checks if a modification is trying to be made and the `AcceleratorState` has already been initialized"
-        super()._check_initialized(mixed_precision=mixed_precision, cpu=cpu)
-        err = (
-            "AcceleratorState has already been initialized and cannot be changed, restart your runtime completely and "
-            "pass `{flag}` to `Accelerator()`."
-        )
-        if self.initialized:
-            if autocast_backend is not None and autocast_backend != self.autocast_backend:
-                raise ValueError(err.format(flag=f"autocast_backend='{autocast_backend}'"))
-
-    @property
-    def autocast_backend(self):
-        return self._autocast_backend
 
     @property
     def deepspeed_plugin(self):

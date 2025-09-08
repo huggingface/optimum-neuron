@@ -13,15 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import dataclasses
-import inspect
-import warnings
-from functools import wraps
-from typing import Callable
+from typing import Any, Callable
 
 import datasets
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, IterableDataset
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -29,13 +25,11 @@ from transformers import (
     DataCollatorForLanguageModeling,
     PreTrainedModel,
     PreTrainedTokenizerBase,
-    Trainer,
+    ProcessorMixin,
 )
-from transformers.modeling_utils import unwrap_model
 from transformers.trainer_callback import TrainerCallback
-from transformers.trainer_utils import (
-    EvalPrediction,
-)
+
+from optimum.utils import logging
 
 from ..accelerate import NeuronPartialState
 from ..peft import NeuronPeftModel, get_peft_model
@@ -43,8 +37,9 @@ from ..utils import (
     is_trl_available,
 )
 from ..utils.import_utils import is_peft_available
-from .base import TRL_VERSION, _TrainerForNeuron
-from .trl_utils import NeuronSFTConfig
+from .sft_config import NeuronSFTConfig
+from .transformers import NeuronTrainer
+from .trl_utils import TRL_VERSION
 
 
 if is_trl_available():
@@ -66,12 +61,20 @@ else:
         pass
 
 
-class _SFTTrainerTrainerInit(SFTTrainer):
-    def __init__(self, *args, **kwargs):
-        return Trainer.__init__(self, *args, **kwargs)
+# Create a new class that inherits from NeuronTrainer to use this class instead of the transformers Trainer,
+# but has the same methods and attributes as SFTTrainer.
+# We can then inherit from this class to create our NeuronSFTTrainer.
+_SFTTrainer = type(
+    "_SFTTrainer",
+    (NeuronTrainer,),
+    SFTTrainer.__dict__.copy(),
+)
 
 
-class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
+logger = logging.get_logger()
+
+
+class NeuronSFTTrainer(_SFTTrainer):
     """
     `SFTTrainer` adapted for Neuron.
 
@@ -84,22 +87,21 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
 
     def __init__(
         self,
-        model: PreTrainedModel | torch.nn.Module | str | None = None,
+        model: PreTrainedModel | torch.nn.Module | str,
         args: SFTConfig | None = None,
         data_collator: DataCollator | None = None,  # type: ignore
-        train_dataset: Dataset | None = None,
-        eval_dataset: Dataset | dict[str, Dataset] | None = None,
-        tokenizer: PreTrainedTokenizerBase | None = None,
-        model_init: Callable[[], PreTrainedModel] | None = None,
-        compute_metrics: Callable[[EvalPrediction], dict] | None = None,
+        train_dataset: "Dataset | IterableDataset | datasets.Dataset | None" = None,
+        eval_dataset: "Dataset | dict[str, Dataset] | datasets.Dataset | None" = None,
+        processsing_class: PreTrainedTokenizerBase | ProcessorMixin | None = None,
         callbacks: list[TrainerCallback] | None = None,
         optimizers: tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
-        preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
-        peft_config: "PeftConfig | None" = None,
+        optimizer_cls_and_kwargs: tuple[type[torch.optim.Optimizer], dict[str, Any]] | None = None,
+        tokenizer: PreTrainedTokenizerBase | None = None,  # deprecated
+        peft_config: PeftConfig | None = None,
         formatting_func: Callable | None = None,
     ):
         if not is_trl_available(required_version=TRL_VERSION):
-            raise RuntimeError("Using NeuronSFTTrainer requires the trl library.")
+            raise RuntimeError(f"Using NeuronSFTTrainer requires trl=={TRL_VERSION}.")
 
         from trl.extras.dataset_formatting import get_formatting_func_from_dataset
 
@@ -111,18 +113,25 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
         )
 
         if is_peft_available():
-            from peft import PeftConfig, prepare_model_for_kbit_training
+            from peft import PeftConfig
 
-        # We choose the proper get_peft_model function depending on whether we have a custom modeling or not.
+        args_is_none = args is None
         if args is None:
             output_dir = "tmp_trainer"
-            warnings.warn(f"No `SFTConfig` passed, using `output_dir={output_dir}`.")
             args = NeuronSFTConfig(output_dir=output_dir)
         elif args is not None and args.__class__.__name__ == "NeuronTrainingArguments":
             args_as_dict = args.to_dict()
             # Manually copy token values as TrainingArguments.to_dict() redacts them
             args_as_dict.update({k: getattr(args, k) for k in args_as_dict.keys() if k.endswith("_token")})
             args = NeuronSFTConfig(**args_as_dict)
+
+        # Set the correct log level depending on the node
+        log_level = args.get_process_log_level()
+        logging.set_verbosity(log_level)
+
+        # We wait for the verbosity of the logger to be set before logging the warning below.
+        if args_is_none:
+            logging.warning(f"No `SFTConfig` passed, using `output_dir={args.output_dir}`.")
 
         if getattr(args, "model_init_kwargs", None) is None:
             model_init_kwargs = {}
@@ -142,7 +151,7 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
                 model_init_kwargs["torch_dtype"] = torch_dtype
 
         if isinstance(model, str):
-            warnings.warn(
+            logging.warning(
                 "You passed a model_id to the SFTTrainer. This will automatically create an "
                 "`AutoModelForCausalLM` or a `PeftModel` (if you passed a `peft_config`) for you."
             )
@@ -150,47 +159,19 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
 
         if args.packing and data_collator is not None and isinstance(data_collator, DataCollatorForCompletionOnlyLM):
             raise ValueError(
-                "You passed a `DataCollatorForCompletionOnlyLM` to the SFTTrainer. This is not compatible with the `packing` argument."
+                "You passed a `DataCollatorForCompletionOnlyLM` to the NeuronSFTTrainer. This is not compatible with the `packing` argument."
             )
 
         if is_peft_available() and peft_config is not None:
             if not isinstance(peft_config, PeftConfig):
                 raise ValueError(
-                    "If you want to use the PeftModel, you need to pass a PeftConfig object to the SFTTrainer."
+                    "If you want to use the NeuronPeftModel, you need to pass a PeftConfig object to the NeuronSFTTrainer."
                     f" and you passed a {type(peft_config)}."
                 )
 
             if not isinstance(model, NeuronPeftModel):
-                _support_gc_kwargs = hasattr(
-                    args, "gradient_checkpointing_kwargs"
-                ) and "gradient_checkpointing_kwargs" in list(
-                    inspect.signature(prepare_model_for_kbit_training).parameters
-                )
                 gradient_checkpointing_kwargs = getattr(args, "gradient_checkpointing_kwargs", None) or {}
-                is_sharded_qlora = False
-                # Below is to support QLoRA + FSDP / DS-Zero3 - one should never call
-                # peft_module_casting_to_bf16 or prepare_model_for_kbit_training when doing
-                # QLoRA + FSDP / DS-Zero3
-                if getattr(model, "is_loaded_in_4bit", False):
-                    for _, param in model.named_parameters():
-                        if param.__class__.__name__ == "Params4bit":
-                            is_sharded_qlora = param.data.device.type == "cpu"
-                            break
-                if getattr(model, "is_loaded_in_8bit", False) or (
-                    getattr(model, "is_loaded_in_4bit", False) and not is_sharded_qlora
-                ):
-                    prepare_model_kwargs = {
-                        "use_gradient_checkpointing": getattr(args, "gradient_checkpointing", False)
-                    }
-
-                    if _support_gc_kwargs:
-                        prepare_model_kwargs["gradient_checkpointing_kwargs"] = gradient_checkpointing_kwargs
-
-                    model = prepare_model_for_kbit_training(model, **prepare_model_kwargs)
-
-                    if args is not None:
-                        args = dataclasses.replace(args, gradient_checkpointing=False)
-                elif getattr(args, "gradient_checkpointing", False) and (
+                if getattr(args, "gradient_checkpointing", False) and (
                     "use_reentrant" not in gradient_checkpointing_kwargs
                     or gradient_checkpointing_kwargs["use_reentrant"]
                 ):
@@ -204,20 +185,8 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
 
                         model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
-                if (
-                    "autocast_adapter_dtype" in list(inspect.signature(get_peft_model).parameters)
-                    and getattr(model, "is_loaded_in_4bit", False)
-                    and is_sharded_qlora
-                ):
-                    model = get_peft_model(model, peft_config, autocast_adapter_dtype=False)
-                else:
-                    model = get_peft_model(model, peft_config)
-                if (
-                    args is not None
-                    and args.bf16
-                    and getattr(model, "is_loaded_in_4bit", False)
-                    and not is_sharded_qlora
-                ):
+                model = get_peft_model(model, peft_config)
+                if args is not None and args.bf16:
                     peft_module_casting_to_bf16(model)
 
         if tokenizer is None:
@@ -229,7 +198,7 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
             # to overcome some issues with broken tokenizers
             args.max_seq_length = min(tokenizer.model_max_length, 1024)
 
-            warnings.warn(
+            logger.warning(
                 f"You didn't pass a `max_seq_length` argument to the SFTTrainer, this will default to {args.max_seq_length}"
             )
 
@@ -303,23 +272,22 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
                     eval_dataset = _eval_datasets["singleton"]
 
         if tokenizer.padding_side is not None and tokenizer.padding_side != "right":
-            warnings.warn(
+            logger.warning(
                 "You passed a tokenizer with `padding_side` not equal to `right` to the SFTTrainer. This might lead to some unexpected behaviour due to "
                 "overflow issues when training a model in half-precision. You might consider adding `tokenizer.padding_side = 'right'` to your code."
             )
 
-        super().__init__(
-            model=model,
-            args=args,
+        NeuronTrainer.__init__(
+            self,
+            model,
+            args,
             data_collator=data_collator,
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
             tokenizer=tokenizer,
-            model_init=model_init,
-            compute_metrics=compute_metrics,
             callbacks=callbacks,
             optimizers=optimizers,
-            preprocess_logits_for_metrics=preprocess_logits_for_metrics,
+            optimizer_cls_and_kwargs=optimizer_cls_and_kwargs,
         )
 
         # Add tags for models that have been loaded with the correct transformers version
@@ -327,8 +295,8 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
             self.model.add_model_tags(self._tag_names)
 
         if self.args.max_steps > 0 and args.packing:
-            warnings.warn(
-                "You passed `packing=True` to the SFTTrainer/SFTConfig, and you are training your model with `max_steps` strategy. The dataset will be iterated until the `max_steps` are reached."
+            logger.warning(
+                "You passed `packing=True` to the NeuronSFTTrainer/SFTConfig, and you are training your model with `max_steps` strategy. The dataset will be iterated until the `max_steps` are reached."
             )
             self.train_dataset.infinite = True
         elif self.args.max_steps == -1 and args.packing:
@@ -340,27 +308,11 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
                 if callback.__class__.__name__ == "PrinterCallback":
                     self.callback_handler.pop_callback(callback)
 
-    @wraps(_TrainerForNeuron.train)
-    def train(self, *args, **kwargs):
-        # Activate neftune right before training.
-        if self.neftune_noise_alpha is not None and not self._trainer_supports_neftune:
-            self.model = self._trl_activate_neftune(self.model)
-
-        output = super().train(*args, **kwargs)
-
-        # After training we make sure to retrieve back the original forward pass method
-        # for the embedding layer by removing the forward post hook.
-        if self.neftune_noise_alpha is not None and not self._trainer_supports_neftune:
-            unwrapped_model = unwrap_model(self.model)
-            if is_peft_available() and isinstance(unwrapped_model, NeuronPeftModel):
-                embeddings = unwrapped_model.base_model.model.get_input_embeddings()
-            else:
-                embeddings = unwrapped_model.get_input_embeddings()
-
-            self.neftune_hook_handle.remove()
-            del embeddings.neftune_noise_alpha
-
-        return output
+    def train(
+        self,
+        resume_from_checkpoint: str | bool | None = None,
+    ):
+        return NeuronTrainer.train(self, resume_from_checkpoint=resume_from_checkpoint)
 
     def _prepare_non_packed_dataloader(
         self,
@@ -406,7 +358,7 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
             extra_columns = []
 
         if not remove_unused_columns and len(extra_columns) > 0:
-            warnings.warn(
+            logger.warning(
                 "You passed `remove_unused_columns=False` on a non-packed dataset. This might create some issues with the default collator and yield to errors. If you want to "
                 f"inspect dataset other columns (in this case {extra_columns}), you can subclass `DataCollatorForLanguageModeling` in case you used the default collator and create your own data collator in order to inspect the unused dataset columns."
             )

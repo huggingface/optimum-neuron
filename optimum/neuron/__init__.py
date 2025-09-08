@@ -29,13 +29,9 @@ _import_structure = {
     "hf_argparser": ["NeuronHfArgumentParser"],
     "trainers": [
         "NeuronTrainer",
-        "Seq2SeqNeuronTrainer",
         "NeuronSFTTrainer",
-        "NeuronORPOTrainer",
         "NeuronTrainingArguments",
-        "Seq2SeqNeuronTrainingArguments",
         "NeuronSFTConfig",
-        "NeuronORPOConfig",
     ],
     "modeling_traced": ["NeuronTracedModel"],
     "modeling": [
@@ -153,14 +149,10 @@ if TYPE_CHECKING:
     from .models.inference.yolos import NeuronYolosForObjectDetection
     from .pipelines import pipeline
     from .trainers import (
-        NeuronORPOConfig,
-        NeuronORPOTrainer,
         NeuronSFTConfig,
         NeuronSFTTrainer,
         NeuronTrainer,
         NeuronTrainingArguments,
-        Seq2SeqNeuronTrainer,
-        Seq2SeqNeuronTrainingArguments,
     )
 
 else:

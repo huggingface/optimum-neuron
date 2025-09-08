@@ -10,11 +10,26 @@
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
+# Seg the License for the specific language governing permissions and
 # limitations under the License.
 
-from .sft_config import NeuronSFTConfig
-from .sft_trainer import NeuronSFTTrainer
+from dataclasses import dataclass
+
+from ..utils.import_utils import is_trl_available
 from .training_args import NeuronTrainingArguments
-from .transformers import NeuronTrainer
 from .trl_utils import TRL_VERSION
+
+
+if is_trl_available():
+    from trl import SFTConfig
+else:
+
+    @dataclass
+    class SFTConfig:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError(f"You need to install the `trl=={TRL_VERSION}` library to use the `NeuronSFTConfig`.")
+
+
+@dataclass
+class NeuronSFTConfig(NeuronTrainingArguments, SFTConfig):
+    pass
