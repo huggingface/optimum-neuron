@@ -21,10 +21,9 @@ from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
 from neuronx_distributed.parallel_layers.layers import ParallelEmbedding
 from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 from torch import nn
-from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.models.qwen3.configuration_qwen3 import Qwen3Config
 from transformers.processing_utils import Unpack
-from transformers.utils import logging
+from transformers.utils import TransformersKwargs, logging
 
 from ..config import TrainingNeuronConfig
 from ..llama.modeling_llama import (
@@ -38,7 +37,6 @@ from ..llama.modeling_llama import (
     eager_attention_forward,
     repeat_kv,
 )
-from ..pipeline_utils import dynamic_torch_fx_wrap
 
 
 logger = logging.get_logger(__name__)
@@ -95,7 +93,7 @@ class Qwen3Attention(LlamaAttention):
         hidden_states: torch.Tensor,
         position_embeddings: tuple[torch.Tensor, torch.Tensor],
         attention_mask: torch.Tensor | None,
-        **kwargs: Unpack[FlashAttentionKwargs],
+        **kwargs: Unpack[TransformersKwargs],
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         if self.trn_config.sequence_parallel_enabled:
             q_len, bsz, _ = hidden_states.size()
@@ -176,6 +174,9 @@ class Qwen3DecoderLayer(LlamaDecoderLayer):
 
 
 class Qwen3Model(LlamaModel):
+    config = Qwen3Config
+    _no_split_modules = ["Qwen3DecoderLayer"]
+
     def __init__(self, config: Qwen3Config, trn_config: TrainingNeuronConfig):
         LlamaPreTrainedModel.__init__(self, config)
         # In this Neuron implementation of Qwen3, we do not support sliding window.
@@ -203,54 +204,15 @@ class Qwen3Model(LlamaModel):
         )
         self.norm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
-        self.gradient_checkpointing = False
+        self.gradient_checkpointing = self.trn_config.gradient_checkpointing
 
         # Initialize weights and apply final processing
         self.post_init()
 
-    @staticmethod
-    @dynamic_torch_fx_wrap
-    def _prepare_4d_causal_attention_mask_with_cache_position(
-        attention_mask: torch.Tensor,
-        sequence_length: int,
-        target_length: int,
-        dtype: torch.dtype,
-        device: torch.device,
-        cache_position: torch.Tensor,
-        batch_size: int,
-        **kwargs,
-    ):
-        if attention_mask is not None and attention_mask.dim() == 4:
-            # In this case we assume that the mask comes already in inverted form and requires no inversion or slicing.
-            causal_mask = attention_mask
-        else:
-            min_dtype = torch.finfo(dtype).min
-            causal_mask = torch.full(
-                (sequence_length, target_length), fill_value=min_dtype, dtype=dtype, device=device
-            )
-            diagonal_attend_mask = torch.arange(target_length, device=cache_position.device) > cache_position.reshape(
-                -1, 1
-            )
-            causal_mask *= diagonal_attend_mask
-            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            if attention_mask is not None:
-                causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-                if attention_mask.shape[-1] > target_length:
-                    attention_mask = attention_mask[:, :target_length]
-                mask_length = attention_mask.shape[-1]
-                padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :].to(
-                    causal_mask.device
-                )
-                padding_mask = padding_mask == 0
-                causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
-                    padding_mask, min_dtype
-                )
-
-        return causal_mask
-
 
 class Qwen3ForCausalLM(LlamaForCausalLM):
-    config_class = Qwen3Config
+    config = Qwen3Config
+    _no_split_modules = ["Qwen3DecoderLayer"]
 
     # Pipeline parallelism support
     SUPPORTS_PIPELINE_PARALLELISM = True

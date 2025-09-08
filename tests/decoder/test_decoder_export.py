@@ -23,13 +23,15 @@ from optimum.neuron.utils import DTYPE_MAPPER
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
-DECODER_MODEL_ARCHITECTURES = ["llama", "granite", "qwen2", "phi3", "mixtral"]
+DECODER_MODEL_ARCHITECTURES = ["llama", "granite", "qwen2", "qwen3-moe", "phi3", "mixtral"]
 DECODER_MODEL_NAMES = {
     "llama": "llamafactory/tiny-random-Llama-3",
     "qwen2": "yujiepan/qwen2.5-128k-tiny-random",
+    "qwen3-moe": "optimum-internal-testing/tiny-random-qwen3_moe",
     "granite": "hf-internal-testing/tiny-random-GraniteForCausalLM",
     "phi3": "yujiepan/phi-4-tiny-random",
     "mixtral": "dacorvo/Mixtral-tiny",
+    "smollm3": "HuggingFaceTB/SmolLM3-3B",
 }
 
 

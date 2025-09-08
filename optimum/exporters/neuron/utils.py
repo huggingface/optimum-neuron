@@ -61,6 +61,7 @@ if is_diffusers_available():
         DiffusionPipeline,
         FluxImg2ImgPipeline,
         FluxInpaintPipeline,
+        FluxKontextPipeline,
         FluxPipeline,
         ModelMixin,
         StableDiffusionXLImg2ImgPipeline,
@@ -276,6 +277,8 @@ def get_diffusion_models_for_export(
             float_dtype=transformer.dtype,
             input_shapes=transformer_input_shapes,
         )
+        is_flux_kontext = isinstance(pipeline, FluxKontextPipeline)
+        transformer_neuron_config.is_flux_kontext = is_flux_kontext
         if not tensor_parallel_size > 1:
             models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (transformer, transformer_neuron_config)
         else:
@@ -423,7 +426,7 @@ def get_submodels_for_export_diffusion(
     is_stable_diffusion_xl = isinstance(
         pipeline, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline, StableDiffusionXLPipeline)
     )
-    is_flux = isinstance(pipeline, (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline))
+    is_flux = isinstance(pipeline, (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline, FluxKontextPipeline))
 
     # Lora
     pipeline = _load_lora_weights_to_pipeline(pipeline=pipeline, lora_args=lora_args)
@@ -483,7 +486,7 @@ def get_submodels_for_export_diffusion(
             # apply optimized scaled_dot_product_attention
             sdpa_original = torch.nn.functional.scaled_dot_product_attention
 
-            def attention_wrapper(query, key, value, attn_mask=None, dropout_p=None, is_causal=None):
+            def attention_wrapper(query, key, value, attn_mask=None, dropout_p=None, scale=None, is_causal=None):
                 if attn_mask is not None:
                     return sdpa_original(
                         query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal

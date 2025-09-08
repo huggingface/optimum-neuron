@@ -61,7 +61,7 @@ print(recipes[randrange(dataset_size)])
 
 To tune our model we need to convert our structured examples into a collection of quotes with a given context, so we define our tokenization function that we will be able to map on the dataset.
 
-The dataset should be structured with input-output pairs, where each input is a prompt and the output is the expected response from the model. 
+The dataset should be structured with input-output pairs, where each input is a prompt and the output is the expected response from the model.
 We will make use of the model’s tokenizer chat template and preprocess the dataset to be fed to the trainer.
 
 ```python
@@ -105,7 +105,6 @@ On AWS Trainium, `optimum-neuron` provides `NeuronSFTTrainer` as a drop-in repla
 Since Qwen3 doesn't fit on a single accelerator, we use distributed training techniques:
 - Data Parallel (DDP)
 - Tensor Parallelism  
-- Pipeline Parallelism
 
 Model loading and LoRA configuration work similarly to other accelerators.
 
@@ -124,7 +123,7 @@ training_args = NeuronTrainingArguments(
     per_device_train_batch_size=1,
     gradient_accumulation_steps=8,
     learning_rate=5e-4,
-    bf16=True,  
+    bf16=True,
     tensor_parallel_size=8,
     logging_steps=2,
     lr_scheduler_type="cosine",

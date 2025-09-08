@@ -26,12 +26,14 @@ jobs:
         config: [
           llama,
           qwen,
+          qwen-moe,
           qwen2.5,
           granite,
           phi4,
           llama3.1-70b,
           qwen2.5-large,
           llama-variants,
+          smollm3,
         ]
     steps:
       - name: Checkout

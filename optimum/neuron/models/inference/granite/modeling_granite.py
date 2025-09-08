@@ -27,8 +27,8 @@ from torch import nn
 from transformers.models.granite.configuration_granite import GraniteConfig
 
 from ..backend.config import NxDNeuronConfig
-from ..backend.modules.custom_calls import CustomRMSNorm
 from ..backend.modules.decoder import NxDDecoderModel
+from ..backend.modules.rms_norm import NeuronRMSNorm
 from ..llama.modeling_llama import LlamaNxDModelForCausalLM, NeuronLlamaAttention, NeuronLlamaMLP
 
 
@@ -49,18 +49,14 @@ class NeuronGraniteDecoderLayer(nn.Module):
         logger.debug(
             f"Instantiating RMSNorm modules with hidden size {config.hidden_size} and EPS {config.rms_norm_eps}"
         )
-        self.input_layernorm = CustomRMSNorm(
+        self.input_layernorm = NeuronRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.post_attention_layernorm = CustomRMSNorm(
+        self.post_attention_layernorm = NeuronRMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
         )
-        self.qkv_kernel_enabled = neuron_config.qkv_kernel_enabled
-        self.mlp_kernel_enabled = neuron_config.mlp_kernel_enabled
-        self.mlp_kernel_fuse_residual_add = neuron_config.mlp_kernel_fuse_residual_add
-        self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
         self.config = config
 
     def forward(
@@ -73,9 +69,7 @@ class NeuronGraniteDecoderLayer(nn.Module):
     ) -> tuple[torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor] | None]:
         residual = hidden_states
 
-        # RMSNorm (fused with QKV kernel when SP is disabled)
-        if (not self.qkv_kernel_enabled or self.sequence_parallel_enabled) and self.input_layernorm:
-            hidden_states = self.input_layernorm(hidden_states)
+        hidden_states = self.input_layernorm(hidden_states)
 
         # Self Attention
         hidden_states, present_key_value, cos_cache, sin_cache = self.self_attn(
@@ -90,26 +84,13 @@ class NeuronGraniteDecoderLayer(nn.Module):
         # Granite specific: attention output is multiplied by residual multiplier
         hidden_states = hidden_states * self.config.residual_multiplier
 
-        if self.mlp_kernel_enabled and self.mlp_kernel_fuse_residual_add:
-            assert not self.sequence_parallel_enabled, (
-                "mlp_kernel_fuse_residual_add should be off when sequence parallelism is enabled"
-            )
-            # First residual add handled in the MLP kernel
-            hidden_states, residual = self.mlp(
-                hidden_states,
-                rmsnorm=self.post_attention_layernorm,
-                residual=residual,
-            )
-        else:
-            hidden_states = residual + hidden_states
-            residual = hidden_states
-            # RMSNorm (fused with QKV kernel when SP is disabled)
-            if not self.mlp_kernel_enabled or self.sequence_parallel_enabled:
-                hidden_states = self.post_attention_layernorm(hidden_states)
-            hidden_states, _ = self.mlp(
-                hidden_states,
-                rmsnorm=self.post_attention_layernorm,
-            )
+        hidden_states = residual + hidden_states
+        residual = hidden_states
+        hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states = self.mlp(
+            hidden_states,
+            rmsnorm=self.post_attention_layernorm,
+        )
 
         # Granite specific: MLP output is multiplied by residual_multiplier
         hidden_states = hidden_states * self.config.residual_multiplier
@@ -129,10 +110,8 @@ class NxDGraniteEmbedding(ParallelEmbedding):
             config.hidden_size,
             config.pad_token_id,
             dtype=neuron_config.torch_dtype,
-            shard_across_embedding=not neuron_config.vocab_parallel,
-            sequence_parallel_enabled=False,
+            shard_across_embedding=True,
             pad=True,
-            use_spmd_rank=neuron_config.vocab_parallel,
         )
         self.config = config
 
@@ -179,7 +158,7 @@ class NxDGraniteModel(NxDDecoderModel):
         self.layers = nn.ModuleList(
             [NeuronGraniteDecoderLayer(config, neuron_config) for _ in range(config.num_hidden_layers)]
         )
-        self.norm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = NeuronRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
 
 class GraniteNxDModelForCausalLM(LlamaNxDModelForCausalLM):

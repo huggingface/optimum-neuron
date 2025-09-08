@@ -274,7 +274,8 @@ def pipeline(
     if export:
         if neuron_config is not None:
             raise ValueError("This model has already been exported to Neuron format")
-        if not input_shapes:
+        # Decoder models can select default input shapes from the config
+        if task != "text-generation" and not input_shapes:
             input_shapes = {"batch_size": 1, "sequence_length": 128}
             logger.warning(f"No input shapes provided, using default shapes, {input_shapes}")
     else:

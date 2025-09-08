@@ -19,6 +19,7 @@ import inspect
 import os
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 import neuronx_distributed
 import torch
@@ -31,6 +32,7 @@ from optimum.neuron.utils import (
     ASTDummyAudioInputGenerator,
     DummyBeamValuesGenerator,
     DummyControNetInputGenerator,
+    DummyFluxKontextTransformerRotaryEmbGenerator,
     DummyFluxTransformerRotaryEmbGenerator,
     DummyIPAdapterInputGenerator,
     DummyMaskedPosGenerator,
@@ -352,6 +354,10 @@ class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
             common_outputs.append("hidden_states")
 
         return common_outputs
+
+    @property
+    def values_override(self) -> dict[str, Any] | None:
+        return {"return_dict": False}
 
 
 @register_in_tasks_manager("clip-text-model", *["feature-extraction"], library_name="diffusers")
@@ -816,7 +822,6 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
         DummyTransformerTimestepInputGenerator,
         DummyFluxTransformerVisionInputGenerator,
         DummyFluxTransformerTextInputGenerator,
-        DummyFluxTransformerRotaryEmbGenerator,
     )
 
     @property
@@ -904,6 +909,34 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
             ][:, inner_dim:].contiguous()
 
         return merged_state_dict
+
+    def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
+        if self.is_flux_kontext:
+            self.DUMMY_INPUT_GENERATOR_CLASSES = self.DUMMY_INPUT_GENERATOR_CLASSES + (
+                DummyFluxKontextTransformerRotaryEmbGenerator,
+            )
+            dummy_inputs = super().generate_dummy_inputs(**kwargs)
+            dummy_inputs["hidden_states"] = torch.cat(
+                [dummy_inputs["hidden_states"], dummy_inputs["hidden_states"]], dim=1
+            )
+        else:
+            self.DUMMY_INPUT_GENERATOR_CLASSES = self.DUMMY_INPUT_GENERATOR_CLASSES + (
+                DummyFluxTransformerRotaryEmbGenerator,
+            )
+            dummy_inputs = super().generate_dummy_inputs(**kwargs)
+
+        if return_tuple is True:
+            return tuple(dummy_inputs.values())
+        else:
+            return dummy_inputs
+
+    @property
+    def is_flux_kontext(self) -> bool:
+        return self._is_flux_kontext
+
+    @is_flux_kontext.setter
+    def is_flux_kontext(self, is_flux_kontext: bool):
+        self._is_flux_kontext = is_flux_kontext
 
 
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")

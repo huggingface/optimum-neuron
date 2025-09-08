@@ -76,6 +76,7 @@ if is_diffusers_available():
     from diffusers import (
         ControlNetModel,
         FluxInpaintPipeline,
+        FluxKontextPipeline,
         FluxPipeline,
         LatentConsistencyModelPipeline,
         LCMScheduler,
@@ -648,7 +649,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 revision=revision,
                 force_download=force_download,
                 allow_patterns=allow_patterns,
-                ignore_patterns=["*.msgpack", "*.safetensors", "*.bin"],
+                ignore_patterns=["*.msgpack", "*.bin"],
             )
 
         new_model_save_dir = Path(model_id)
@@ -1617,6 +1618,11 @@ class NeuronStableDiffusionXLControlNetPipeline(
 class NeuronFluxPipeline(NeuronDiffusionPipelineBase, FluxPipeline):
     main_input_name = "prompt"
     auto_model_class = FluxPipeline
+
+
+class NeuronFluxKontextPipeline(NeuronDiffusionPipelineBase, FluxKontextPipeline):
+    main_input_name = "prompt"
+    auto_model_class = FluxKontextPipeline
 
 
 class NeuronFluxInpaintPipeline(NeuronDiffusionPipelineBase, FluxInpaintPipeline):
