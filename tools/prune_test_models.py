@@ -13,7 +13,7 @@ def main():
     parser.add_argument("--version", type=str, default="")
     args = parser.parse_args()
     api = HfApi()
-    model_prefix = f"optimum-internal-testing/neuron-testing-{args.version}"
+    model_prefix = f"{TEST_HUB_ORG}/neuron-testing-{args.version}"
     models = api.list_models(search=model_prefix)
     for model in models:
         if not model.id.startswith(model_prefix):
