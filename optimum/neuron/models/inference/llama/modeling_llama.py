@@ -104,7 +104,7 @@ class NeuronLlamaMLP(nn.Module):
             reduce_dtype=neuron_config.torch_dtype,
         )
 
-    def forward(self, x, rmsnorm=None, residual=None):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         gate_proj_output = self.gate_proj(x)
         up_proj_output = self.up_proj(x)
         down_proj_input = self.act_fn(gate_proj_output) * up_proj_output
@@ -249,7 +249,9 @@ class NeuronLlamaDecoderLayer(nn.Module):
         position_ids: torch.LongTensor | None = None,
         past_key_value: tuple[torch.Tensor] | None = None,
         **kwargs,
-    ) -> tuple[torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor] | None]:
+    ) -> tuple[
+        torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor], torch.Tensor | None, torch.Tensor | None
+    ]:
         residual = hidden_states
 
         hidden_states = self.input_layernorm(hidden_states)
@@ -266,15 +268,11 @@ class NeuronLlamaDecoderLayer(nn.Module):
         hidden_states = residual + hidden_states
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
-        hidden_states = self.mlp(
-            hidden_states,
-            rmsnorm=self.post_attention_layernorm,
-        )
+        hidden_states = self.mlp(hidden_states)
 
         hidden_states = residual + hidden_states
 
-        outputs = (hidden_states, present_key_value, cos_cache, sin_cache)
-        return outputs
+        return hidden_states, present_key_value, cos_cache, sin_cache
 
 
 class NxDLlamaModel(NxDDecoderModel):
