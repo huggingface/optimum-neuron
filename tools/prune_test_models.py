@@ -1,6 +1,10 @@
+import os
 from argparse import ArgumentParser
 
 from huggingface_hub import HfApi
+
+
+TEST_HUB_ORG = os.getenv("TEST_HUB_ORG", "optimum-internal-testing")
 
 
 def main():
