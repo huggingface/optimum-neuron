@@ -317,7 +317,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                 self.k_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=self.bias)
                 self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=self.bias)
 
-    def forward(self, hidden_states: torch.Tensor, rmsnorm=None):
+    def forward(self, hidden_states: torch.Tensor):
         if self.fused_qkv:
             logger.debug("QKV: native compiler")
             QKV = self.Wqkv(hidden_states)

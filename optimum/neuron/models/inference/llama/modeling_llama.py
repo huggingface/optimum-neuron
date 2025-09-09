@@ -260,7 +260,6 @@ class NeuronLlamaDecoderLayer(nn.Module):
             attention_mask=attention_mask,
             position_ids=position_ids,
             past_key_value=past_key_value,
-            rmsnorm=self.input_layernorm,
             **kwargs,
         )
 

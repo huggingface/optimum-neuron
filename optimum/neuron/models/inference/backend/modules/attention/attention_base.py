@@ -327,12 +327,11 @@ class NeuronAttentionBase(nn.Module):
         active_mask: torch.LongTensor | None = None,
         cos_cache: torch.Tensor | None = None,
         sin_cache: torch.Tensor | None = None,
-        rmsnorm=None,
     ) -> tuple[Tensor, tuple[Tensor, Tensor] | None]:
         """Implements each layer's forward pass for the attention block."""
         bsz, q_len, _ = hidden_states.size()
 
-        Q, K, V = self.qkv_proj(hidden_states=hidden_states, rmsnorm=rmsnorm)
+        Q, K, V = self.qkv_proj(hidden_states=hidden_states)
 
         # Divide hidden_dim across heads for MHA
         # Change layout: BSHD -> BHSD
