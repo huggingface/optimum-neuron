@@ -680,6 +680,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         if len(kwargs) > 0:
             logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
         if config is None:
+            # Get the text config if not provided
             config = AutoConfig.from_pretrained(
                 model_id,
                 token=token,
@@ -687,7 +688,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
                 cache_dir=cache_dir,
                 force_download=force_download,
                 trust_remote_code=trust_remote_code,
-            )
+            ).get_text_config()
         # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
         config.torch_dtype = neuron_config.torch_dtype
         # Evaluate head_dim if it is defined but set to null (like in Mixtral for transformers 4.54+)
