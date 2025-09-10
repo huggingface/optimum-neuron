@@ -35,7 +35,9 @@ DECODER_MODEL_NAMES = {
 
 
 @pytest.fixture(
-    scope="session", params=[DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES]
+    scope="session",
+    params=[DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES],
+    ids=DECODER_MODEL_ARCHITECTURES,
 )
 def export_decoder_id(request):
     return request.param
