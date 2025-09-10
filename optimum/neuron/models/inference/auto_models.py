@@ -24,6 +24,7 @@ import os
 from ..auto_model import register_neuron_model
 from .granite.modeling_granite import GraniteNxDModelForCausalLM
 from .llama.modeling_llama import LlamaNxDModelForCausalLM
+from .llama4.modeling_llama4 import Llama4NxDModelForCausalLM
 from .mixtral.modeling_mixtral import MixtralNxDModelForCausalLM
 from .phi3.modeling_phi3 import Phi3NxDModelForCausalLM
 from .qwen2.modeling_qwen2 import Qwen2NxDModelForCausalLM
@@ -55,6 +56,15 @@ class GraniteModelForCausalLM(GraniteNxDModelForCausalLM):
 class LLamaModelForCausalLM(LlamaNxDModelForCausalLM):
     """
     Llama model with NxD backend for inference on AWS Neuron.
+    """
+
+    pass
+
+
+@register_neuron_model_for_inference("llama4_text", "text-generation")
+class LLama4ModelForCausalLM(Llama4NxDModelForCausalLM):
+    """
+    Llama4 model with NxD backend for inference on AWS Neuron.
     """
 
     pass
