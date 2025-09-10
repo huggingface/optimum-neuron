@@ -76,4 +76,9 @@ class SingleModelCacheEntry(ModelCacheEntry):
     @classmethod
     def from_hub(cls, model_id: str, task: str):
         config = AutoConfig.from_pretrained(model_id)
+        if task == "text-generation":
+            # For text-generation, we want the text config if it exists
+            text_config = config.get_text_config()
+            if text_config is not None:
+                config = text_config
         return cls(model_id, task, config)
