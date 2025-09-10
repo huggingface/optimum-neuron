@@ -94,7 +94,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
 
     def __init__(
         self,
-        model: torch.jit._script.ScriptModule,
+        model: torch.jit._script.ScriptModule | None,
         config: "PretrainedConfig",
         model_save_dir: str | Path | TemporaryDirectory | None = None,
         model_file_name: str | None = None,
@@ -102,10 +102,15 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         neuron_config: "NeuronDefaultConfig | None" = None,
         **kwargs,
     ):
-        super().__init__(model, config)
-        if hasattr(model, "device"):
-            self.device = model.device
+        # Handle the case where model is None (cpu_backend compilation without loading)
+        if model is not None:
+            super().__init__(model, config)
+            if hasattr(model, "device"):
+                self.device = model.device
+            else:
+                self.device = torch.device("cpu")
         else:
+            # For cpu_backend models that couldn't be loaded
             self.device = torch.device("cpu")
 
         self.model = model
@@ -176,6 +181,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         local_files_only: bool = False,
         model_save_dir: str | Path | TemporaryDirectory | None = None,
         neuron_config: "NeuronDefaultConfig | None" = None,
+        cpu_backend: bool = False,
         **kwargs,
     ) -> "NeuronTracedModel":
         model_path = Path(model_id)
@@ -211,10 +217,26 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         # reconstruct neuron config
         neuron_config = cls._neuron_config_init(config) if neuron_config is None else neuron_config
         inline_weights_to_neff = config.neuron.get("inline_weights_to_neff", False)
+        
+        # If cpu_backend is not explicitly passed, try to read it from the stored config
+        if not cpu_backend:
+            stored_cpu_backend = config.neuron.get("cpu_backend", False)
+            if stored_cpu_backend:
+                cpu_backend = stored_cpu_backend
 
         preprocessors = None
         if model_path.is_dir():
-            model = NeuronTracedModel.load_model(model_path / file_name, to_neuron=not inline_weights_to_neff)
+            if cpu_backend:
+                # For cpu_backend models, we skip loading since it still requires Neuron hardware
+                # Create a dummy model placeholder that indicates successful compilation
+                model = None
+                logger = logging.get_logger(__name__)
+                logger.warning(
+                    "Model was compiled with cpu_backend=True. Model loading is skipped as it requires Neuron hardware. "
+                    "The model compilation was successful and the artifacts are saved."
+                )
+            else:
+                model = NeuronTracedModel.load_model(model_path / file_name, to_neuron=not inline_weights_to_neff)
             new_model_save_dir = model_path
         else:
             model_cache_path = hf_hub_download(
@@ -228,7 +250,16 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
                 local_files_only=local_files_only,
             )
 
-            model = NeuronTracedModel.load_model(model_cache_path, to_neuron=not inline_weights_to_neff)
+            if cpu_backend:
+                # For cpu_backend models, we skip loading since it still requires Neuron hardware
+                model = None
+                logger = logging.get_logger(__name__)
+                logger.warning(
+                    "Model was compiled with cpu_backend=True. Model loading is skipped as it requires Neuron hardware. "
+                    "The model compilation was successful and the artifacts are saved."
+                )
+            else:
+                model = NeuronTracedModel.load_model(model_cache_path, to_neuron=not inline_weights_to_neff, cpu_backend=cpu_backend)
             new_model_save_dir = Path(model_cache_path).parent
 
         preprocessors = maybe_load_preprocessors(model_id, subfolder=subfolder)
@@ -266,6 +297,8 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         disable_neuron_cache: bool = False,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
+        instance_type: str = "trn1",
+        cpu_backend: bool = False,
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
@@ -318,6 +351,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
                 compiler_version=NEURON_COMPILER_VERSION,
                 inline_weights_to_neff=inline_weights_to_neff,
                 optlevel=optlevel,
+                cpu_backend=cpu_backend,
                 model_type=getattr(config, "model_type", None),
                 task=task,
                 output_attentions=output_attentions,
@@ -375,6 +409,8 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
                 compiler_workdir=compiler_workdir,
                 inline_weights_to_neff=inline_weights_to_neff,
                 optlevel=optlevel,
+                instance_type=instance_type,
+                cpu_backend=cpu_backend,
                 trust_remote_code=trust_remote_code,
                 subfolder=subfolder,
                 revision=revision,
@@ -387,7 +423,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
             )
             config = AutoConfig.from_pretrained(save_dir_path)
 
-        return cls._from_pretrained(save_dir_path, config, model_save_dir=save_dir)
+        return cls._from_pretrained(save_dir_path, config, model_save_dir=save_dir, cpu_backend=cpu_backend)
 
     def push_to_hub(
         self,
