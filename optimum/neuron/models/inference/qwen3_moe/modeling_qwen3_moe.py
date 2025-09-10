@@ -204,10 +204,6 @@ class Qwen3MoeNxDModelForCausalLM(NxDModelForCausalLM):
 
     _model_cls = NxDQwen3MoeModel
 
-    @classmethod
-    def get_neuron_config_cls(cls):
-        return NxDNeuronConfig
-
     @staticmethod
     def convert_hf_to_neuron_state_dict(
         state_dict: dict, config: Qwen3MoeConfig, neuron_config: NxDNeuronConfig

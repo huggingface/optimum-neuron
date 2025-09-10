@@ -18,7 +18,6 @@
 import gc
 import logging
 import math
-from typing import Type
 
 import torch
 from neuronx_distributed.parallel_layers.layers import (
@@ -335,10 +334,6 @@ class LlamaNxDModelForCausalLM(NxDModelForCausalLM):
     @staticmethod
     def update_state_dict_for_tied_weights(state_dict):
         state_dict["lm_head.weight"] = state_dict["embed_tokens.weight"].clone()
-
-    @classmethod
-    def get_neuron_config_cls(cls) -> Type[NxDNeuronConfig]:
-        return NxDNeuronConfig
 
     @classmethod
     def _get_neuron_config(

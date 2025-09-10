@@ -623,7 +623,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     ) -> "NeuronModelForCausalLM":
         if len(kwargs) > 0:
             logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
-        neuron_config = cls.get_neuron_config_cls().from_pretrained(model_id)
+        neuron_config = NxDNeuronConfig.from_pretrained(model_id)
         context_encoding_model, token_generation_model, speculation_model = cls.create_model_wrappers(
             model_cls=cls._model_cls,
             config=config,

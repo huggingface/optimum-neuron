@@ -231,10 +231,6 @@ class MixtralNxDModelForCausalLM(NxDModelForCausalLM):
 
     _model_cls = NxDMixtralModel
 
-    @classmethod
-    def get_neuron_config_cls(cls):
-        return NxDNeuronConfig
-
     @staticmethod
     def convert_hf_to_neuron_state_dict(
         state_dict: dict, config: MixtralConfig, neuron_config: NxDNeuronConfig
