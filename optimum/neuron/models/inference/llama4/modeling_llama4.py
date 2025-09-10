@@ -325,6 +325,7 @@ class Llama4NxDModelForCausalLM(NxDModelForCausalLM):
         tensor_parallel_size: int,
         auto_cast_type: str,
     ):
+        continuous_batching = (batch_size > 1) if batch_size else False
         return NxDNeuronConfig(
             checkpoint_id=checkpoint_id,
             checkpoint_revision=checkpoint_revision,
@@ -332,4 +333,5 @@ class Llama4NxDModelForCausalLM(NxDModelForCausalLM):
             sequence_length=sequence_length,
             tp_degree=tensor_parallel_size,
             torch_dtype=auto_cast_type,
+            continuous_batching=continuous_batching,
         )
