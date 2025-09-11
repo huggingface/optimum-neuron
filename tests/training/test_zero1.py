@@ -284,7 +284,13 @@ def test_zero_1_optimizer_step_and_mixed_precision(world_size, tp_size, pp_size,
         prepared_optimizer.zero_grad()
         xm.mark_step()
 
-        grads = [p.grad.cpu() if not fp32_grad_acc else p.main_grad.cpu() for _, p in named_parameters.items() if p.requires_grad]
+        grads = []
+        for _, p in named_parameters.items():
+            if p.requires_grad:
+                if fp32_grad_acc:
+                    grads.append(p.main_grad.cpu())
+                else:
+                    grads.append(p.grad.cpu() if p.grad is not None else None)
         xm.mark_step()
 
         # Check that all parameters that require grad have no gradient after zero_grad.
