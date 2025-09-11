@@ -225,21 +225,12 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
                 cpu_backend = stored_cpu_backend
 
         preprocessors = None
+        # Handle model loading based on source (local dir vs hub)
         if model_path.is_dir():
-            if cpu_backend:
-                # For cpu_backend models, we skip loading since it still requires Neuron hardware
-                # Create a dummy model placeholder that indicates successful compilation
-                model = None
-                logger = logging.get_logger(__name__)
-                logger.warning(
-                    "Model was compiled with cpu_backend=True. Model loading is skipped as it requires Neuron hardware. "
-                    "The model compilation was successful and the artifacts are saved."
-                )
-            else:
-                model = NeuronTracedModel.load_model(model_path / file_name, to_neuron=not inline_weights_to_neff)
+            model_file_path = model_path / file_name
             new_model_save_dir = model_path
         else:
-            model_cache_path = hf_hub_download(
+            model_file_path = hf_hub_download(
                 repo_id=model_id,
                 filename=file_name,
                 subfolder=subfolder,
@@ -249,18 +240,18 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
                 force_download=force_download,
                 local_files_only=local_files_only,
             )
+            new_model_save_dir = Path(model_file_path).parent
 
-            if cpu_backend:
-                # For cpu_backend models, we skip loading since it still requires Neuron hardware
-                model = None
-                logger = logging.get_logger(__name__)
-                logger.warning(
-                    "Model was compiled with cpu_backend=True. Model loading is skipped as it requires Neuron hardware. "
-                    "The model compilation was successful and the artifacts are saved."
-                )
-            else:
-                model = NeuronTracedModel.load_model(model_cache_path, to_neuron=not inline_weights_to_neff, cpu_backend=cpu_backend)
-            new_model_save_dir = Path(model_cache_path).parent
+        # Load model or skip for cpu_backend
+        if cpu_backend:
+            model = None
+            logger = logging.get_logger(__name__)
+            logger.warning(
+                "Model was compiled with cpu_backend=True. Model loading is skipped as it requires Neuron hardware. "
+                "The model compilation was successful and the artifacts are saved."
+            )
+        else:
+            model = NeuronTracedModel.load_model(model_file_path, to_neuron=not inline_weights_to_neff)
 
         preprocessors = maybe_load_preprocessors(model_id, subfolder=subfolder)
 
