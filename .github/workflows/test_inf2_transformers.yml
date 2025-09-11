@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths:
       - "pyproject.toml"
+      - "optimum/commands/**.py"
       - "optimum/exporters/**.py"
       - "optimum/neuron/cache/**.py"
       - "optimum/neuron/modeling_base.py"
@@ -21,6 +22,7 @@ on:
     branches: [ main ]
     paths:
       - "pyproject.toml"
+      - "optimum/commands/**.py"
       - "optimum/exporters/**.py"
       - "optimum/neuron/cache/**.py"
       - "optimum/neuron/modeling_base.py"
@@ -55,10 +57,15 @@ jobs:
         uses: ./.github/actions/prepare_venv
       - name: Install optimum-neuron
         uses: ./.github/actions/install_optimum_neuron
+      - name: Run transformers export CLI tests
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }
+          pytest -m is_inferentia_test tests/inference/transformers/test_export_cli.py
       - name: Run transformers inference tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/inference/transformers
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }
+          pytest -m is_inferentia_test --ignore=tests/inference/transformers/test_export_cli.py tests/inference/transformers
       - name: Run pipelines tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
