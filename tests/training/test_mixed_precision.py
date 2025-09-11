@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 import datasets
 import pytest
 import torch
@@ -34,10 +36,10 @@ from ..distributed_utils import distributed_test
 
 TINY_MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
 
-
 @pytest.fixture(scope="module")
 def inputs():
     tokenizer = AutoTokenizer.from_pretrained(TINY_MODEL_NAME)
+    tokenizer.pad_token = tokenizer.eos_token
     inputs = tokenizer(
         "Paris is the most beautiful city in the world.", return_tensors="pt", padding="max_length", max_length=1024
     )
@@ -50,6 +52,75 @@ def train_dataset(inputs):
     dataset = datasets.Dataset.from_dict(inputs)
     dataset = dataset.select([0] * 10000)  # 10k samples
     return dataset
+
+@is_trainium_test
+@distributed_test(world_size=1, tp_size=1, pp_size=1)
+def test_mixed_precision_config_invalid_fp32_grad_acc():
+    with pytest.raises(
+        ValueError, match="optimizer_use_fp32_grad_acc requires optimizer_use_master_weights to be True"
+    ):
+        MixedPrecisionConfig(
+            mode="FULL_BF16",
+            optimizer_use_master_weights=False,
+            optimizer_use_fp32_grad_acc=True,
+        )
+
+
+@is_trainium_test
+@distributed_test(world_size=1, tp_size=1, pp_size=1)
+def test_mixed_precision_config_invalid_save_master_weights():
+    with pytest.raises(
+        ValueError, match="optimizer_save_master_weights_in_ckpt requires optimizer_use_master_weights to be True"
+    ):
+        MixedPrecisionConfig(
+            mode="FULL_BF16",
+            optimizer_use_master_weights=False,
+            optimizer_save_master_weights_in_ckpt=True,
+        )
+
+
+@is_trainium_test
+@distributed_test(world_size=1, tp_size=1, pp_size=1)
+def test_mixed_precision_config_stochastic_rounding_env_var():
+    # Test stochastic rounding enabled
+    MixedPrecisionConfig(mode="FULL_BF16", stochastic_rounding=True)
+    assert os.environ.get("NEURON_RT_STOCHASTIC_ROUNDING_EN") == "1"
+
+    # Test stochastic rounding disabled
+    MixedPrecisionConfig(mode="FULL_BF16", stochastic_rounding=False)
+    assert os.environ.get("NEURON_RT_STOCHASTIC_ROUNDING_EN") == "0"
+
+    # Test that NO mode disables stochastic rounding regardless of setting
+    config_no_mode = MixedPrecisionConfig(mode="NO", stochastic_rounding=True)
+    assert config_no_mode.stochastic_rounding is False
+    assert os.environ.get("NEURON_RT_STOCHASTIC_ROUNDING_EN") == "0"
+
+
+@distributed_test(world_size=8, tp_size=2, pp_size=1)
+@is_trainium_test
+def test_accelerator_model_preparation_fp32():
+    tp_size = get_tensor_model_parallel_size()
+    pp_size = get_pipeline_model_parallel_size()
+
+    trn_config = TrainingNeuronConfig(tensor_parallel_size=tp_size, pipeline_parallel_size=pp_size)
+    mixed_precision_config = MixedPrecisionConfig("NO")
+
+    accelerator = NeuronAccelerator(trn_config=trn_config, mixed_precision_config=mixed_precision_config)
+
+    model = NeuronLlamaForCausalLM.from_pretrained(
+        TINY_MODEL_NAME,
+        trn_config=trn_config,
+    )
+
+    # Model should be in float32 before preparation
+    first_param = next(model.parameters())
+    assert first_param.dtype == torch.float32
+
+    prepared_model = accelerator.prepare(model)
+
+    # Model should still be in float32 after preparation
+    first_param_after = next(prepared_model.parameters())
+    assert first_param_after.dtype == torch.float32
 
 
 @distributed_test(world_size=8, tp_size=2, pp_size=1)
@@ -104,7 +175,7 @@ def test_accelerator_model_preparation_autocast():
 
 @distributed_test(world_size=8, tp_size=2, pp_size=1)
 @is_trainium_test
-def test_trainer_autocast(tmpdir, set_cache_for_ci):
+def test_trainer_autocast(train_dataset, tmpdir, set_cache_for_ci):
     tp_size = get_tensor_model_parallel_size()
     pp_size = get_pipeline_model_parallel_size()
 
@@ -143,7 +214,7 @@ def test_trainer_autocast(tmpdir, set_cache_for_ci):
 
 @distributed_test(world_size=32, tp_size=2, pp_size=4)
 @is_trainium_test
-def test_trainer_full_bf16(tmpdir, set_cache_for_ci):
+def test_trainer_full_bf16(train_dataset, tmpdir, set_cache_for_ci):
     tp_size = get_tensor_model_parallel_size()
     pp_size = get_pipeline_model_parallel_size()
 
