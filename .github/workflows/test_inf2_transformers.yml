@@ -5,14 +5,34 @@ on:
     branches: [ main ]
     paths:
       - "pyproject.toml"
-      - "optimum/**.py"
-      - ".github/workflows/test_inf2_inference.yml"
+      - "optimum/exporters/**.py"
+      - "optimum/neuron/cache/**.py"
+      - "optimum/neuron/modeling_base.py"
+      - "optimum/neuron/modeling_traced.py"
+      - "optimum/neuron/models/inference/bert/**.py"
+      - "optimum/neuron/models/inference/clip/**.py"
+      - "optimum/neuron/models/inference/t5/**.py"
+      - "optimum/neuron/models/inference/whisper/**.py"
+      - "optimum/neuron/models/inference/yolos/**.py"
+      - "optimum/neuron/pipelines/transformers/**.py"
+      - "optimum/neuron/utils/**.py"
+      - ".github/workflows/test_inf2_transformers.yml"
   pull_request:
     branches: [ main ]
     paths:
       - "pyproject.toml"
-      - "optimum/**.py"
-      - ".github/workflows/test_inf2_inference.yml"
+      - "optimum/exporters/**.py"
+      - "optimum/neuron/cache/**.py"
+      - "optimum/neuron/modeling_base.py"
+      - "optimum/neuron/modeling_traced.py"
+      - "optimum/neuron/models/inference/bert/**.py"
+      - "optimum/neuron/models/inference/clip/**.py"
+      - "optimum/neuron/models/inference/t5/**.py"
+      - "optimum/neuron/models/inference/whisper/**.py"
+      - "optimum/neuron/models/inference/yolos/**.py"
+      - "optimum/neuron/pipelines/transformers/**.py"
+      - "optimum/neuron/utils/**.py"
+      - ".github/workflows/test_inf2_transformers.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
