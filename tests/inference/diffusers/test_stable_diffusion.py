@@ -23,6 +23,8 @@ import requests
 from compel import Compel, ReturnedEmbeddingsType
 from diffusers import UniPCMultistepScheduler
 from diffusers.utils import load_image
+from optimum.utils import logging
+from optimum.utils.testing_utils import require_diffusers
 from PIL import Image
 
 from optimum.neuron import (
@@ -45,8 +47,6 @@ from optimum.neuron.modeling_diffusion import (
     NeuronMultiControlNetModel,
 )
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
-from optimum.utils import logging
-from optimum.utils.testing_utils import require_diffusers
 
 
 logger = logging.get_logger()

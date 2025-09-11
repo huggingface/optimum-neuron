@@ -26,13 +26,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import torch
-from requests.exceptions import ConnectionError as RequestsConnectionError
-from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
-
 from optimum.exporters.error_utils import AtolError, OutputMatchError, ShapeError
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import is_diffusers_available, logging
 from optimum.utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
 
 from ...neuron.models.auto_model import get_neuron_model_class, has_neuron_model_class
 from ...neuron.utils import (

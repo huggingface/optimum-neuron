@@ -19,7 +19,6 @@ import re
 
 import torch
 import torch_xla.distributed.xla_backend as xbn
-
 from optimum.utils import logging
 
 from ..cache.training import patch_neuron_cc_wrapper
