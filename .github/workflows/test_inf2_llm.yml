@@ -49,6 +49,7 @@ jobs:
           pytest -sv tests/decoder/test_decoder_pipelines.py
           pytest -sv tests/decoder/test_modules.py tests/decoder/test_attention.py
           pytest -sv tests/decoder/test_cache.py
+          pytest -sv tests/decoder/test_cli.py
       - name: Install vLLM
         run: |
           source aws_neuron_venv_pytorch/bin/activate
