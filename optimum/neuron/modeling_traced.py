@@ -217,7 +217,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         # reconstruct neuron config
         neuron_config = cls._neuron_config_init(config) if neuron_config is None else neuron_config
         inline_weights_to_neff = config.neuron.get("inline_weights_to_neff", False)
-        
+
         # If cpu_backend is not explicitly passed, try to read it from the stored config
         if not cpu_backend:
             stored_cpu_backend = config.neuron.get("cpu_backend", False)
