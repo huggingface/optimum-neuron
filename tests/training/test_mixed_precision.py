@@ -175,7 +175,7 @@ def test_accelerator_model_preparation_autocast():
 
 @distributed_test(world_size=8, tp_size=2, pp_size=1)
 @is_trainium_test
-def test_trainer_autocast(train_dataset, tmpdir, set_cache_for_ci):
+def test_trainer_autocast(train_dataset, inputs, tmpdir, set_cache_for_ci):
     tp_size = get_tensor_model_parallel_size()
     pp_size = get_pipeline_model_parallel_size()
 
