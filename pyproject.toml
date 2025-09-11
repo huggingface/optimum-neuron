@@ -79,7 +79,7 @@ tests = [
 ]
 quality = [
     "pre-commit",
-    "ruff",
+    "ruff==0.13.0",
     "isort",
 ]
 training = [
