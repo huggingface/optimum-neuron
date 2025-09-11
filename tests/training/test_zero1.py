@@ -87,17 +87,14 @@ def test_zero1_optimizer_creation(set_cache_for_ci):
     optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
     prepared_optimizer = accelerator.prepare(optimizer)
 
-    assert isinstance(prepared_optimizer, NeuronZero1Optimizer)
-
-    # Check that sharding and gradient norm groups are properly set
-    assert prepared_optimizer.sharding_groups is not None
-    assert prepared_optimizer.grad_norm_groups is not None
+    assert isinstance(prepared_optimizer, NeuronAcceleratedOptimizer)
+    assert isinstance(prepared_optimizer.optimizer, NeuronZero1Optimizer)
 
     expected_sharding_groups = get_data_parallel_replica_groups()
     expected_grad_norm_groups = get_tensor_model_parallel_replica_groups()
 
-    assert prepared_optimizer.sharding_groups == expected_sharding_groups
-    assert prepared_optimizer.grad_norm_groups == expected_grad_norm_groups
+    assert prepared_optimizer.optimizer._sharding_groups == expected_sharding_groups
+    assert prepared_optimizer.optimizer._grad_norm_groups == expected_grad_norm_groups
 
 
 @distributed_test(world_size=8, tp_size=2, pp_size=1)
@@ -124,10 +121,9 @@ def test_zero1_master_weights_configuration(set_cache_for_ci):
     optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
     prepared_optimizer = accelerator.prepare(optimizer)
 
-    assert isinstance(prepared_optimizer, NeuronZero1Optimizer)
-    assert prepared_optimizer.optimizer_dtype == torch.float32  # Master weights
-    assert prepared_optimizer.use_grad_acc_hook is True  # FP32 grad accumulation
-    assert prepared_optimizer.higher_cc_precision is True
+    assert prepared_optimizer.optimizer.optimizer_dtype == torch.float32  # Master weights
+    assert prepared_optimizer.optimizer.use_grad_acc_hook is True  # FP32 grad accumulation
+    assert prepared_optimizer.optimizer.higher_cc_precision is True
 
 
 @distributed_test(world_size=16, tp_size=2, pp_size=1)
