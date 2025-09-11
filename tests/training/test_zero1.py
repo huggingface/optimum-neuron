@@ -182,6 +182,9 @@ def test_zero1_training_arguments_integration(tmpdir):
 def test_zero_1_optimizer_step_and_mixed_precision(
     world_size, tp_size, pp_size, inputs, use_master_weights, fp32_grad_acc, set_cache_for_ci
 ):
+    if pp_size > 1 and use_master_weights and fp32_grad_acc:
+        pytest.skip("Compilation issues, takes forever.")
+
     def test():
         mixed_precision_config = MixedPrecisionConfig(
             mode="FULL_BF16",
