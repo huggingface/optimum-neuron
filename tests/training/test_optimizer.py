@@ -37,12 +37,14 @@ from .utils import create_accelerator, get_model_inputs
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"
 MODEL_NAME_WITH_4_KV_HEADS = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
 
+
 def move_params_to_cpu(parameters):
     parameters = list(parameters)
     xm.mark_step()
     # `move_all_tensor_to_cpu` only selects `torch.Tensor`, so we need to move the parameters' data.
     cpu_params = move_all_tensor_to_cpu([p.data for p in parameters])
     return cpu_params
+
 
 @pytest.mark.parametrize(
     "gradient_accumulation_steps,max_grad_norm",
@@ -64,7 +66,6 @@ def move_params_to_cpu(parameters):
 def test_optimizer_step(gradient_accumulation_steps, max_grad_norm, set_cache_for_ci):
     tp_size = get_tensor_model_parallel_size()
     pp_size = get_pipeline_model_parallel_size()
-
 
     accelerator = create_accelerator(
         tp_size, pp_size, zero_1=False, gradient_accumulation_steps=gradient_accumulation_steps

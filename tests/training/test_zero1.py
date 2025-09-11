@@ -48,6 +48,7 @@ def move_params_to_cpu(parameters):
     cpu_params = move_all_tensor_to_cpu([p.data for p in parameters])
     return cpu_params
 
+
 @pytest.fixture(scope="module")
 def inputs():
     tokenizer = AutoTokenizer.from_pretrained(TINY_MODEL_NAME)
@@ -56,6 +57,7 @@ def inputs():
     )
     inputs["labels"] = inputs["input_ids"].clone()
     return inputs
+
 
 @pytest.fixture(scope="module")
 def train_dataset(inputs):
@@ -72,16 +74,9 @@ def test_zero1_optimizer_creation(set_cache_for_ci):
 
     mixed_precision_config = MixedPrecisionConfig(mode="NO")
 
-    trn_config = TrainingNeuronConfig(
-        tensor_parallel_size=tp_size,
-        pipeline_parallel_size=pp_size
-    )
+    trn_config = TrainingNeuronConfig(tensor_parallel_size=tp_size, pipeline_parallel_size=pp_size)
 
-    accelerator = NeuronAccelerator(
-        trn_config=trn_config,
-        zero_1=True,
-        mixed_precision_config=mixed_precision_config
-    )
+    accelerator = NeuronAccelerator(trn_config=trn_config, zero_1=True, mixed_precision_config=mixed_precision_config)
 
     model = NeuronModelForCausalLM.from_pretrained(
         TINY_MODEL_NAME,
@@ -113,21 +108,12 @@ def test_zero1_master_weights_configuration(set_cache_for_ci):
 
     # Test with master weights enabled
     mixed_precision_config = MixedPrecisionConfig(
-        mode="FULL_BF16",
-        optimizer_use_master_weights=True,
-        optimizer_use_fp32_grad_acc=True
+        mode="FULL_BF16", optimizer_use_master_weights=True, optimizer_use_fp32_grad_acc=True
     )
 
-    trn_config = TrainingNeuronConfig(
-        tensor_parallel_size=tp_size,
-        pipeline_parallel_size=pp_size
-    )
+    trn_config = TrainingNeuronConfig(tensor_parallel_size=tp_size, pipeline_parallel_size=pp_size)
 
-    accelerator = NeuronAccelerator(
-        trn_config=trn_config,
-        zero_1=True,
-        mixed_precision_config=mixed_precision_config
-    )
+    accelerator = NeuronAccelerator(trn_config=trn_config, zero_1=True, mixed_precision_config=mixed_precision_config)
 
     model = NeuronModelForCausalLM.from_pretrained(
         TINY_MODEL_NAME,
@@ -177,7 +163,7 @@ def test_zero1_training_arguments_integration(tmpdir):
         bf16=True,
         zero_1=False,
         optimizer_use_master_weights=True,  # Should be disabled automatically
-        optimizer_use_fp32_grad_acc=True,   # Should be disabled automatically
+        optimizer_use_fp32_grad_acc=True,  # Should be disabled automatically
     )
 
     # These should be automatically disabled when zero_1=False
@@ -185,14 +171,17 @@ def test_zero1_training_arguments_integration(tmpdir):
     assert training_args_no_zero1.optimizer_use_master_weights is False
     assert training_args_no_zero1.optimizer_use_fp32_grad_acc is False
 
+
 @is_trainium_test
 @pytest.mark.parametrize(
     "use_master_weights,fp32_grad_acc",
     [(True, True), (True, False), (False, False)],
-    ids=["master_weights-fp32_grad_acc", "master_weights-no_fp32_grad_acc", "no_master_weights-no_fp32_grad_acc"]
+    ids=["master_weights-fp32_grad_acc", "master_weights-no_fp32_grad_acc", "no_master_weights-no_fp32_grad_acc"],
 )
 @pytest.mark.parametrize("world_size,tp_size,pp_size", [(8, 2, 1), (32, 2, 4)], ids=["8_2_1", "32_2_4"])
-def test_zero_1_optimizer_step_and_mixed_precision(world_size, tp_size, pp_size, inputs, use_master_weights, fp32_grad_acc, set_cache_for_ci):
+def test_zero_1_optimizer_step_and_mixed_precision(
+    world_size, tp_size, pp_size, inputs, use_master_weights, fp32_grad_acc, set_cache_for_ci
+):
     def test():
         mixed_precision_config = MixedPrecisionConfig(
             mode="FULL_BF16",
@@ -200,10 +189,7 @@ def test_zero_1_optimizer_step_and_mixed_precision(world_size, tp_size, pp_size,
             optimizer_use_fp32_grad_acc=fp32_grad_acc,
         )
 
-        trn_config = TrainingNeuronConfig(
-            tensor_parallel_size=tp_size,
-            pipeline_parallel_size=pp_size
-        )
+        trn_config = TrainingNeuronConfig(tensor_parallel_size=tp_size, pipeline_parallel_size=pp_size)
 
         accelerator = NeuronAccelerator(
             trn_config=trn_config,
@@ -222,15 +208,19 @@ def test_zero_1_optimizer_step_and_mixed_precision(world_size, tp_size, pp_size,
         prepared_optimizer = accelerator.prepare(optimizer)
 
         # Check that the classes are correct
-        assert isinstance(prepared_optimizer, NeuronAcceleratedOptimizer), "Optimizer is not a NeuronAcceleratedOptimizer."
-        assert isinstance(prepared_optimizer.optimizer, NeuronZero1Optimizer), "Optimizer.optimizer is not a NeuronZero1Optimizer."
+        assert isinstance(prepared_optimizer, NeuronAcceleratedOptimizer), (
+            "Optimizer is not a NeuronAcceleratedOptimizer."
+        )
+        assert isinstance(prepared_optimizer.optimizer, NeuronZero1Optimizer), (
+            "Optimizer.optimizer is not a NeuronZero1Optimizer."
+        )
 
         if pp_size == 1:
             model.train()
             xla_inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
             xm.mark_step()
         else:
-            xla_inputs = inputs # NxDPPModel will move the inputs.
+            xla_inputs = inputs  # NxDPPModel will move the inputs.
 
         orig_named_parameters = {n: p.cpu() for n, p in named_parameters.items()}
         xm.mark_step()
@@ -256,7 +246,11 @@ def test_zero_1_optimizer_step_and_mixed_precision(world_size, tp_size, pp_size,
         xm.mark_step()
 
         current_named_parameters = {n: p.cpu() for n, p in named_parameters.items()}
-        grads = [p.grad.cpu() if not fp32_grad_acc else p.main_grad.cpu() for _, p in named_parameters.items() if p.requires_grad]
+        grads = [
+            p.grad.cpu() if not fp32_grad_acc else p.main_grad.cpu()
+            for _, p in named_parameters.items()
+            if p.requires_grad
+        ]
         xm.mark_step()
 
         # Check that all parameters that require grad have a gradient after backward
@@ -283,7 +277,10 @@ def test_zero_1_optimizer_step_and_mixed_precision(world_size, tp_size, pp_size,
 
         # Check that optimizer parameters are in the correct dtype.
         optimizer_param_dtype = torch.float32 if use_master_weights else torch.bfloat16
-        assert all(p.dtype is optimizer_param_dtype for p in prepared_optimizer.optimizer.base_optimizer.param_groups[0]["params"]), f"Not all optimizer parameters are in {optimizer_param_dtype}."
+        assert all(
+            p.dtype is optimizer_param_dtype
+            for p in prepared_optimizer.optimizer.base_optimizer.param_groups[0]["params"]
+        ), f"Not all optimizer parameters are in {optimizer_param_dtype}."
 
         prepared_optimizer.zero_grad()
         xm.mark_step()
