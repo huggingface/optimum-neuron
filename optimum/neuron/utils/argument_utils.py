@@ -266,7 +266,7 @@ def store_compilation_config(
     compiler_version: str,
     inline_weights_to_neff: bool,
     optlevel: str,
-    cpu_backend: bool,
+    cpu_backend: bool = False,
     int_dtype: str | torch.dtype = "int64",
     tensor_parallel_size: int = 1,
     model_type: str | None = None,
