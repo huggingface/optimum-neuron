@@ -36,6 +36,7 @@ from ..distributed_utils import distributed_test
 
 TINY_MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
 
+
 @pytest.fixture(scope="module")
 def inputs():
     tokenizer = AutoTokenizer.from_pretrained(TINY_MODEL_NAME)
@@ -52,6 +53,7 @@ def train_dataset(inputs):
     dataset = datasets.Dataset.from_dict(inputs)
     dataset = dataset.select([0] * 10000)  # 10k samples
     return dataset
+
 
 @is_trainium_test
 @distributed_test(world_size=1, tp_size=1, pp_size=1)
