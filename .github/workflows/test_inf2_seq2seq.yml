@@ -12,6 +12,7 @@ on:
       - "optimum/neuron/modeling_seq2seq.py"
       - "optimum/neuron/models/inference/t5/**.py"
       - "optimum/neuron/utils/**.py"
+      - "tests/inference/seq2seq/**.py"
       - ".github/workflows/test_inf2_seq2seq.yml"
   pull_request:
     branches: [ main ]
@@ -24,6 +25,7 @@ on:
       - "optimum/neuron/modeling_seq2seq.py"
       - "optimum/neuron/models/inference/t5/**.py"
       - "optimum/neuron/utils/**.py"
+      - "tests/inference/seq2seq/**.py"
       - ".github/workflows/test_inf2_seq2seq.yml"
 
 concurrency:
