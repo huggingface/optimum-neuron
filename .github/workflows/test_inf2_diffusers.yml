@@ -5,14 +5,28 @@ on:
     branches: [ main ]
     paths:
       - "pyproject.toml"
-      - "optimum/**.py"
-      - ".github/workflows/test_inf2_inference.yml"
+      - "optimum/exporters/**.py"
+      - "optimum/neuron/cache/**.py"
+      - "optimum/neuron/modeling_base.py"
+      - "optimum/neuron/modeling_traced.py"
+      - "optimum/neuron/modeling_diffusion.py"
+      - "optimum/neuron/models/inference/flux/**.py"
+      - "optimum/neuron/pipelines/diffusers/**.py"
+      - "optimum/neuron/utils/**.py"
+      - ".github/workflows/test_inf2_diffusers.yml"
   pull_request:
     branches: [ main ]
     paths:
       - "pyproject.toml"
-      - "optimum/**.py"
-      - ".github/workflows/test_inf2_inference.yml"
+      - "optimum/exporters/**.py"
+      - "optimum/neuron/cache/**.py"
+      - "optimum/neuron/modeling_base.py"
+      - "optimum/neuron/modeling_traced.py"
+      - "optimum/neuron/modeling_diffusion.py"
+      - "optimum/neuron/models/inference/flux/**.py"
+      - "optimum/neuron/pipelines/diffusers/**.py"
+      - "optimum/neuron/utils/**.py"
+      - ".github/workflows/test_inf2_diffusers.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
