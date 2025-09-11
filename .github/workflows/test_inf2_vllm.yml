@@ -1,4 +1,4 @@
-name: Optimum neuron / Test INF2 LLM
+name: Optimum neuron / Test INF2 vLLM
 
 on:
   push:
@@ -21,10 +21,10 @@ on:
       - "optimum/neuron/models/inference/qwen2/**.py"
       - "optimum/neuron/models/inference/qwen3/**.py"
       - "optimum/neuron/models/inference/qwen3_moe/**.py"
-      - "optimum/neuron/pipelines/transformers/base.py"
+      - "optimum/neuron/vllm/**.py"
       - "optimum/neuron/utils/**.py"
       - "optimum/neuron/version.py"
-      - ".github/workflows/test_inf2_llm.yml"
+      - ".github/workflows/test_inf2_vllm.yml"
   pull_request:
     branches: [ main ]
     paths:
@@ -73,16 +73,12 @@ jobs:
       - name: Install cv2 dependencies
         run: |
           sudo apt-get install python3-opencv -y
-      - name: Run base LLM tests
+      - name: Install vLLM
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          pip install .[vllm]
+      - name: Run vLLM tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
-          pytest -sv tests/decoder/test_decoder_config.py
-          pytest -sv tests/decoder/test_fused_logits_warper.py
-          pytest -sv tests/decoder/test_decoder_export.py
-          pytest -sv tests/decoder/test_decoder_generation.py
-          pytest -sv tests/decoder/test_decoder_hub.py
-          pytest -sv tests/decoder/test_decoder_pipelines.py
-          pytest -sv tests/decoder/test_modules.py tests/decoder/test_attention.py
-          pytest -sv tests/decoder/test_cache.py
-          pytest -sv tests/decoder/test_cli.py
+          pytest -sv tests/decoder/test_vllm.py
