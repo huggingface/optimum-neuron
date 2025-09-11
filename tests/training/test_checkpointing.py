@@ -21,10 +21,6 @@ import torch
 import torch_xla.core.xla_model as xm
 import torch_xla.runtime as xr
 from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
-from neuronx_distributed.parallel_layers.parallel_state import (
-    get_pipeline_model_parallel_size,
-    get_tensor_model_parallel_size,
-)
 from peft import PeftModelForCausalLM
 from transformers import LlamaForCausalLM
 
@@ -36,7 +32,6 @@ from optimum.neuron.peft import NeuronPeftModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from ..distributed_utils import distributed_test
-from .utils import create_accelerator
 
 
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"

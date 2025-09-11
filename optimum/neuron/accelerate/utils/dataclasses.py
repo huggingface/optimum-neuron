@@ -68,6 +68,12 @@ class MixedPrecisionConfig:
             self.optimizer_use_fp32_grad_acc = False
             self.optimizer_save_master_weights_in_ckpt = False
 
+        if not self.optimizer_use_master_weights and self.optimizer_use_fp32_grad_acc:
+            raise ValueError("optimizer_use_fp32_grad_acc requires optimizer_use_master_weights to be True.")
+
+        if not self.optimizer_use_master_weights and self.optimizer_save_master_weights_in_ckpt:
+            raise ValueError("optimizer_save_master_weights_in_ckpt requires optimizer_use_master_weights to be True.")
+
         if self.stochastic_rounding:
             os.environ["NEURON_RT_STOCHASTIC_ROUNDING_EN"] = "1"
         else:

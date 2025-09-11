@@ -283,11 +283,15 @@ class NeuronAccelerator(Accelerator):
             zero_1_config["optimizer_dtype"] = torch.float32
         else:
             zero_1_config["optimizer_dtype"] = torch.bfloat16
-        if mixed_precision_config.optimizer_use_fp32_grad_acc:
-            zero_1_config["use_grad_acc_hook"] = True
-            zero_1_config["higher_cc_precision"] = True
-        if mixed_precision_config.optimizer_save_master_weights_in_ckpt:
-            zero_1_config["use_master_weights_in_ckpt"] = True
+
+        # use_fp32_grad_acc cannot be True if use_master_weights is False
+        # It is already checked in MixedPrecisionConfig
+        zero_1_config["use_grad_acc_hook"] = mixed_precision_config.optimizer_use_fp32_grad_acc
+        zero_1_config["higher_cc_precision"] = mixed_precision_config.optimizer_use_fp32_grad_acc
+
+        # save_master_weights_in_ckpt cannot be True if use_master_weights is False
+        # It is already checked in MixedPrecisionConfig
+        zero_1_config["save_master_weights"] = mixed_precision_config.optimizer_save_master_weights_in_ckpt
 
         zero_1_optimizer = NeuronZero1Optimizer(
             optimizer.param_groups,
