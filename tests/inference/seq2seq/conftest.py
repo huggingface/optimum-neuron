@@ -15,11 +15,11 @@
 from tempfile import TemporaryDirectory
 
 import pytest
+from optimum.utils.testing_utils import USER
 from transformers import T5ForConditionalGeneration
 
 from optimum.neuron import NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import requires_neuronx
-from optimum.utils.testing_utils import USER
 
 
 SEQ2SEQ_MODEL_NAMES = {

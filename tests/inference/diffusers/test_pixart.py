@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import PIL
+from optimum.utils.testing_utils import require_diffusers
 
 from optimum.neuron import NeuronPixArtAlphaPipeline
 from optimum.neuron.modeling_diffusion import (
@@ -23,7 +24,6 @@ from optimum.neuron.modeling_diffusion import (
     NeuronModelVaeEncoder,
 )
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
-from optimum.utils.testing_utils import require_diffusers
 
 
 @is_inferentia_test

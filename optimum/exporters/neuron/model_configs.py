@@ -24,23 +24,7 @@ from typing import Any
 import neuronx_distributed
 import torch
 from neuronx_distributed.trace.model_builder import BaseModelInstance
-from safetensors.torch import load_file
-
 from optimum.exporters.tasks import TasksManager
-from optimum.neuron.utils import (
-    SAFE_WEIGHTS_INDEX_NAME,
-    ASTDummyAudioInputGenerator,
-    DummyBeamValuesGenerator,
-    DummyControNetInputGenerator,
-    DummyFluxKontextTransformerRotaryEmbGenerator,
-    DummyFluxTransformerRotaryEmbGenerator,
-    DummyIPAdapterInputGenerator,
-    DummyMaskedPosGenerator,
-    DummyTimestepInputGenerator,
-    WhisperDummyTextInputGenerator,
-    get_checkpoint_shard_files,
-    saved_model_in_temporary_directory,
-)
 from optimum.utils import (
     DummyFluxTransformerTextInputGenerator,
     DummyFluxTransformerVisionInputGenerator,
@@ -57,6 +41,22 @@ from optimum.utils import (
     NormalizedVisionConfig,
     is_diffusers_available,
     logging,
+)
+from safetensors.torch import load_file
+
+from optimum.neuron.utils import (
+    SAFE_WEIGHTS_INDEX_NAME,
+    ASTDummyAudioInputGenerator,
+    DummyBeamValuesGenerator,
+    DummyControNetInputGenerator,
+    DummyFluxKontextTransformerRotaryEmbGenerator,
+    DummyFluxTransformerRotaryEmbGenerator,
+    DummyIPAdapterInputGenerator,
+    DummyMaskedPosGenerator,
+    DummyTimestepInputGenerator,
+    WhisperDummyTextInputGenerator,
+    get_checkpoint_shard_files,
+    saved_model_in_temporary_directory,
 )
 
 from .config import (

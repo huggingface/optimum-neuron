@@ -31,6 +31,8 @@ import neuronx_distributed
 import torch
 import torch_neuronx
 from huggingface_hub import snapshot_download
+from optimum.exporters.tasks import TasksManager
+from optimum.utils import is_diffusers_available, logging
 from safetensors.torch import load_file
 from torch.nn import ModuleList
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig, T5Tokenizer
@@ -43,8 +45,6 @@ from optimum.exporters.neuron import (
     replace_stable_diffusion_submodels,
 )
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
-from optimum.exporters.tasks import TasksManager
-from optimum.utils import is_diffusers_available, logging
 
 from .cache.entries.multi_model import MultiModelCacheEntry
 from .cache.hub_cache import create_hub_compile_cache_proxy

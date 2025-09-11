@@ -32,6 +32,7 @@ from neuronx_distributed.parallel_layers.parallel_state import (
     get_pipeline_model_parallel_rank,
 )
 from neuronx_distributed.pipeline import NxDPPModel
+from optimum.utils import logging
 from packaging import version
 from torch.utils.data import DataLoader, Dataset, IterableDataset, RandomSampler
 from transformers import (
@@ -81,8 +82,6 @@ from transformers.utils import (
     find_labels,
     is_datasets_available,
 )
-
-from optimum.utils import logging
 
 from ..accelerate import NeuronAccelerator, NeuronDistributedType
 from ..cache.hub_cache import hub_neuronx_cache

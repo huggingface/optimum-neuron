@@ -30,7 +30,6 @@ from neuronx_distributed.parallel_layers.parallel_state import (
     get_tensor_model_parallel_rank,
     get_tensor_model_parallel_size,
 )
-
 from optimum.utils import logging
 
 from ...utils.import_utils import is_peft_available
