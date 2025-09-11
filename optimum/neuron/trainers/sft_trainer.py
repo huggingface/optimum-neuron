@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 import datasets
 import torch
+from optimum.utils import logging
 from torch.utils.data import Dataset, IterableDataset
 from transformers import (
     AutoModelForCausalLM,
@@ -28,8 +29,6 @@ from transformers import (
     ProcessorMixin,
 )
 from transformers.trainer_callback import TrainerCallback
-
-from optimum.utils import logging
 
 from ..accelerate import NeuronPartialState
 from ..peft import NeuronPeftModel, get_peft_model

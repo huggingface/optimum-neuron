@@ -18,8 +18,9 @@ import random
 from typing import Dict
 
 from optimum.exporters.tasks import TasksManager
-from optimum.neuron.utils import InputShapesArguments
 from optimum.utils import DEFAULT_DUMMY_SHAPES, logging
+
+from optimum.neuron.utils import InputShapesArguments
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
