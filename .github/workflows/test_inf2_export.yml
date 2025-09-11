@@ -18,6 +18,7 @@ on:
       - "optimum/neuron/models/inference/whisper/**.py"
       - "optimum/neuron/models/inference/yolos/**.py"
       - "optimum/neuron/utils/**.py"
+      - "tests/exporters/**.py"
       - ".github/workflows/test_inf2_export.yml"
   pull_request:
     branches: [ main ]
@@ -36,6 +37,7 @@ on:
       - "optimum/neuron/models/inference/whisper/**.py"
       - "optimum/neuron/models/inference/yolos/**.py"
       - "optimum/neuron/utils/**.py"
+      - "tests/exporters/**.py"
       - ".github/workflows/test_inf2_export.yml"
 
 concurrency:

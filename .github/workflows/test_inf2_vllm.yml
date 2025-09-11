@@ -24,6 +24,7 @@ on:
       - "optimum/neuron/vllm/**.py"
       - "optimum/neuron/utils/**.py"
       - "optimum/neuron/version.py"
+      - "tests/decoder/test_vllm.py"
       - ".github/workflows/test_inf2_vllm.yml"
   pull_request:
     branches: [ main ]
@@ -48,6 +49,7 @@ on:
       - "optimum/neuron/pipelines/transformers/base.py"
       - "optimum/neuron/utils/**.py"
       - "optimum/neuron/version.py"
+      - "tests/decoder/test_vllm.py"
       - ".github/workflows/test_inf2_llm.yml"
 
 concurrency:
