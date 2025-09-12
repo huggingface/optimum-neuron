@@ -67,3 +67,11 @@ pypi_upload: ${PACKAGE_DIST} ${PACKAGE_WHEEL}
 test_installs:
 	python -m pip install .[tests]
 	python -m pip install git+https://github.com/huggingface/transformers.git
+
+# Docker images
+
+optimum-neuron-vllm: docker/vllm/Dockerfile ${PACKAGE_FILES}
+	docker build --rm \
+		-f docker/vllm/Dockerfile \
+		-t optimum-neuron-vllm:${VERSION} .
+	docker tag optimum-neuron-vllm:${VERSION} optimum-neuron-vllm:latest
