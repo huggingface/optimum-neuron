@@ -20,7 +20,6 @@ from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 
 import torch
-
 from optimum.utils import logging
 
 from ...exporters.base import ExportConfig
@@ -28,9 +27,8 @@ from ...neuron.utils import DTYPE_MAPPER, ImageEncoderArguments, InputShapesArgu
 
 
 if TYPE_CHECKING:
-    from transformers import PretrainedConfig, PreTrainedModel
-
     from optimum.utils import DummyInputGenerator
+    from transformers import PretrainedConfig, PreTrainedModel
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name

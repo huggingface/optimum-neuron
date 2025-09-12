@@ -20,9 +20,6 @@ from optimum.neuron import NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
-@pytest.mark.skip(
-    "T5 compilation broken since neuron sdk 2.20, wait for the fix: https://github.com/aws-neuron/aws-neuron-sdk/issues/1013."
-)
 @pytest.mark.parametrize(
     "batch_size, sequence_length, num_beams",
     [
@@ -43,9 +40,6 @@ def test_seq2seq_export(export_seq2seq_id, batch_size, sequence_length, num_beam
     return model
 
 
-@pytest.mark.skip(
-    "T5 compilation broken since neuron sdk 2.20, wait for the fix: https://github.com/aws-neuron/aws-neuron-sdk/issues/1013."
-)
 @is_inferentia_test
 @requires_neuronx
 def test_seq2seq_model_from_path(neuron_seq2seq_greedy_path):

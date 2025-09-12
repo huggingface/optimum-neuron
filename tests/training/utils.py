@@ -24,6 +24,7 @@ from typing import Callable, Type
 import torch
 from datasets import Dataset, DatasetDict
 from neuronx_distributed.pipeline import NxDPPModel
+from optimum.utils import logging
 from transformers import AutoConfig, AutoTokenizer, PreTrainedModel
 from transformers.models.auto import get_values
 from transformers.models.auto.modeling_auto import (
@@ -47,7 +48,6 @@ from transformers.models.auto.modeling_auto import (
 from optimum.neuron import NeuronAccelerator
 from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.utils.patching import DynamicPatch, Patcher
-from optimum.utils import logging
 
 
 logger = logging.get_logger(__name__)
