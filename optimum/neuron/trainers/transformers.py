@@ -131,6 +131,13 @@ class NeuronTrainer:
         if eval_dataset is not None:
             raise RuntimeError("Evaluation is not supported in NeuronTrainer.")
 
+        if tokenizer is not None and processing_class is not None:
+            logger.warning(
+                "The `tokenizer` argument is deprecated and will be removed in a future version. Please use `processing_class` instead."
+            )
+            processing_class = tokenizer
+        self.processing_class = processing_class
+
         if args is None:
             output_dir = "tmp_trainer"
             logger.info(f"No `TrainingArguments` passed, using `output_dir={output_dir}`.")
@@ -176,13 +183,6 @@ class NeuronTrainer:
         self.data_collator = data_collator if data_collator is not None else default_collator
         self.train_dataset = train_dataset
         self.eval_dataset = eval_dataset
-
-        if tokenizer is not None and processing_class is not None:
-            logger.warning(
-                "The `tokenizer` argument is deprecated and will be removed in a future version. Please use `processing_class` instead."
-            )
-            processing_class = tokenizer
-        self.processing_class = processing_class
 
         model_forward = model.forward if not isinstance(model, NeuronPeftModel) else model.get_base_model().forward
         forward_params = inspect.signature(model_forward).parameters

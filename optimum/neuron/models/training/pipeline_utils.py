@@ -19,6 +19,7 @@ Utilities for Pipeline Parallelism model setup and parameter management.
 import contextlib
 import functools
 import logging as python_logging
+from inspect import signature
 from collections.abc import Iterable
 
 import torch
@@ -74,6 +75,7 @@ def create_nxdpp_model(model) -> NxDPPModel:
     Returns:
         NxDPPModel: The wrapped model ready for pipeline parallelism
     """
+    from ...peft import NeuronPeftModel
 
     if not model.supports_pipeline_parallelism():
         raise NotImplementedError(f"The model {model.__class__.__name__} does not support pipeline parallelism.")
@@ -87,14 +89,15 @@ def create_nxdpp_model(model) -> NxDPPModel:
         # If the forward method is wrapped, it was wrapped by the `can_return_tuple` decorator, we need to
         # unwrap it first.
         model.__class__.forward = orig_class_forward.__wrapped__
-
+    
+    model_to_trace = model.get_base_model() if isinstance(model, NeuronPeftModel) else model
     model = NxDPPModel(
-        model,
+        model_to_trace,
         transformer_layer_cls=model.PIPELINE_TRANSFORMER_LAYER_CLS,
         num_microbatches=model.trn_config.pipeline_parallel_num_microbatches,
         virtual_pipeline_size=model.trn_config.virtual_pipeline_parallel_size,
         output_loss_value_spec=(True, False),
-        input_names=model.PIPELINE_INPUT_NAMES,
+        input_names=model.PIPELINE_INPUT_NAMES, 
         leaf_module_cls=model.PIPELINE_LEAF_MODULE_CLASSE_NAMES,
         use_zero1_optimizer=model.trn_config.pipeline_parallel_use_zero1_optimizer,
         tracer_cls=OptimumNeuronFXTracer,
@@ -154,14 +157,17 @@ def get_pipeline_parameters_for_current_stage(model) -> set[str]:
     Returns:
         Set of parameter names needed for the current pipeline stage
     """
+    from ...peft import NeuronPeftModel
     with suppress_logging():
         if get_pipeline_model_parallel_size() <= 1 or not model.supports_pipeline_parallelism():
             # Return all parameters if no pipeline parallelism
             parameter_names = set(model.state_dict().keys())
+        elif isinstance(model, NeuronPeftModel):
+            parameter_names = model.parameters_for_current_stage
         else:
             with torch.device("meta"):
                 meta_model = model.__class__(model.config, model.trn_config)
-            meta_nxdpp_model = create_nxdpp_model(meta_model)
+                meta_nxdpp_model = create_nxdpp_model(meta_model)
             parameter_names = set(meta_nxdpp_model.local_state_dict().keys())
 
     return parameter_names
