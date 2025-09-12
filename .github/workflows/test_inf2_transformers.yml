@@ -60,13 +60,14 @@ jobs:
       - name: Install optimum-neuron
         uses: ./.github/actions/install_optimum_neuron
       - name: Run transformers export CLI tests
+        run: |
           source aws_neuron_venv_pytorch/bin/activate
-          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -m is_inferentia_test tests/inference/transformers/test_export_cli.py
       - name: Run transformers inference tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -m is_inferentia_test --ignore=tests/inference/transformers/test_export_cli.py tests/inference/transformers
       - name: Run pipelines tests
         run: |
