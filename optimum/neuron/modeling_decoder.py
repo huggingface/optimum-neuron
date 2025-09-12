@@ -157,7 +157,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
                 model_name_or_path,
                 revision=checkpoint_revision,
                 use_auth_token=token,
-            )
+            ).get_text_config()
 
         if batch_size is None:
             batch_size = 1
@@ -232,7 +232,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
                 model_id,
                 revision=revision,
                 use_auth_token=token,
-            )
+            ).get_text_config()
         if cls is NeuronModelForCausalLM:
             # Instantiation through the abstract class: find the correct model class
             cls = get_neuron_causal_lm_model_class(config)

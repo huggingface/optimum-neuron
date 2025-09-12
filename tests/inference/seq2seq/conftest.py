@@ -22,25 +22,12 @@ from optimum.neuron import NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import requires_neuronx
 
 
-TRN_DECODER_MODEL_ARCHITECTURES = ["bloom", "llama", "opt"]
-TRN_DECODER_MODEL_NAMES = {
-    "bloom": "bigscience/bloom-560m",
-    "llama": "dacorvo/tiny-random-llama",
-    "opt": "facebook/opt-125m",
-}
 SEQ2SEQ_MODEL_NAMES = {
     "t5": "hf-internal-testing/tiny-random-t5",
 }
 SEQ2SEQ_MODEL_CLASSES = {
     "t5": T5ForConditionalGeneration,
 }
-
-
-@pytest.fixture(
-    scope="module", params=[TRN_DECODER_MODEL_NAMES[model_arch] for model_arch in TRN_DECODER_MODEL_ARCHITECTURES]
-)
-def export_trn_decoder_id(request):
-    return request.param
 
 
 @pytest.fixture(scope="module", params=[SEQ2SEQ_MODEL_NAMES[model_arch] for model_arch in SEQ2SEQ_MODEL_NAMES])

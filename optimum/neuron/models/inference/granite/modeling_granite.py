@@ -77,7 +77,6 @@ class NeuronGraniteDecoderLayer(nn.Module):
             attention_mask=attention_mask,
             position_ids=position_ids,
             past_key_value=past_key_value,
-            rmsnorm=self.input_layernorm,
             **kwargs,
         )
 
@@ -87,18 +86,14 @@ class NeuronGraniteDecoderLayer(nn.Module):
         hidden_states = residual + hidden_states
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
-        hidden_states = self.mlp(
-            hidden_states,
-            rmsnorm=self.post_attention_layernorm,
-        )
+        hidden_states = self.mlp(hidden_states)
 
         # Granite specific: MLP output is multiplied by residual_multiplier
         hidden_states = hidden_states * self.config.residual_multiplier
 
         hidden_states = residual + hidden_states
 
-        outputs = (hidden_states, present_key_value, cos_cache, sin_cache)
-        return outputs
+        return hidden_states, present_key_value, cos_cache, sin_cache
 
 
 class NxDGraniteEmbedding(ParallelEmbedding):

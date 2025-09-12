@@ -22,9 +22,10 @@ from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.utils import DTYPE_MAPPER
 
 
-DECODER_MODEL_ARCHITECTURES = ["llama", "granite", "qwen2", "qwen3-moe", "phi3", "mixtral"]
+DECODER_MODEL_ARCHITECTURES = ["llama", "llama4_text", "granite", "qwen2", "qwen3-moe", "phi3", "mixtral"]
 DECODER_MODEL_NAMES = {
     "llama": "llamafactory/tiny-random-Llama-3",
+    "llama4_text": "tiny-random/llama-4",
     "qwen2": "yujiepan/qwen2.5-128k-tiny-random",
     "qwen3-moe": "optimum-internal-testing/tiny-random-qwen3_moe",
     "granite": "hf-internal-testing/tiny-random-GraniteForCausalLM",
@@ -35,7 +36,9 @@ DECODER_MODEL_NAMES = {
 
 
 @pytest.fixture(
-    scope="session", params=[DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES]
+    scope="session",
+    params=[DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES],
+    ids=DECODER_MODEL_ARCHITECTURES,
 )
 def export_decoder_id(request):
     return request.param

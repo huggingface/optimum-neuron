@@ -23,7 +23,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__file__)
 
-OPTIMUM_CACHE_REPO_ID = "optimum-internal-testing/neuron-testing-cache"
+TEST_HUB_ORG = os.getenv("TEST_HUB_ORG", "optimum-internal-testing")
+OPTIMUM_CACHE_REPO_ID = f"{TEST_HUB_ORG}/neuron-testing-cache"
 
 # All model configurations below will be added to the neuron_model_config fixture
 DECODER_MODEL_CONFIGURATIONS = {
@@ -86,7 +87,7 @@ DECODER_MODEL_CONFIGURATIONS = {
 
 def _get_hub_neuron_model_prefix():
     """Get the prefix for the neuron model id on the hub"""
-    return f"optimum-internal-testing/neuron-testing-{version}-{sdk_version}"
+    return f"{TEST_HUB_ORG}/neuron-testing-{version}-{sdk_version}"
 
 
 def _get_hub_neuron_model_id(config_name: str, model_config: dict[str, str]):

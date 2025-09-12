@@ -26,7 +26,6 @@ from transformers import PretrainedConfig
 from .utils import (
     apply_rotary_pos_emb,
     manual_softmax,
-    move_heads_front,
     repeat_kv,
 )
 
@@ -94,7 +93,10 @@ class NeuronAttentionBase(nn.Module):
         self.hidden_size = config.hidden_size
         self.num_attention_heads = config.num_attention_heads
         self.num_key_value_heads = config.num_key_value_heads
-        self.head_dim = getattr(config, "head_dim", self.hidden_size // self.num_attention_heads)
+        self.head_dim = getattr(config, "head_dim", None)
+        # Head dim could be present but set to None in some models
+        if self.head_dim is None:
+            self.head_dim = self.hidden_size // self.num_attention_heads
         self.max_position_embeddings = config.max_position_embeddings
         self.rope_theta = config.rope_theta
         self.torch_dtype = neuron_config.torch_dtype
@@ -149,34 +151,36 @@ class NeuronAttentionBase(nn.Module):
         QK = torch.where(attention_mask, QK, torch.finfo(QK.dtype).min)
         return QK
 
-    def prep_qkv_tensors(
+    def rotate_qkv_tensors(
         self,
-        position_ids,
-        hidden_states,
-        past_key_value,
+        position_ids: torch.LongTensor,
+        Q: torch.Tensor,
+        K: torch.Tensor,
         cos_cache=None,
         sin_cache=None,
-        rmsnorm=None,
     ):
-        """take care of the shape, layout, group query, custom position encoding, etc."""
-        Q, K, V = self.qkv_proj(hidden_states=hidden_states, rmsnorm=rmsnorm)
+        """
+        Apply rotary embedding to Q and K.
 
-        # Divide hidden_dim across heads for MHA
-        # Change layout: BSHD -> BHSD
-        bsz, q_len, _ = hidden_states.size()
-
-        Q = move_heads_front(Q, bsz, q_len, self.num_heads, self.head_dim, layernorm=self.q_layernorm)
-        K = move_heads_front(K, bsz, q_len, self.num_key_value_heads, self.head_dim, layernorm=self.k_layernorm)
-        V = move_heads_front(V, bsz, q_len, self.num_key_value_heads, self.head_dim, layernorm=None)
-
+        The input tensors have shape (batch_size, seq_length, num_heads, head_dim).
+        The resulting tensors have shape (batch_size, num_heads, seq_length, head_dim).
+        """
+        # Apply layernorm to Q and K if needed BEFORE the rotation
+        if self.q_layernorm is not None:
+            Q = self.q_layernorm(Q)
+        if self.k_layernorm is not None:
+            K = self.k_layernorm(K)
+        # Move heads to front for rotary embedding
+        Q = Q.permute(0, 2, 1, 3).contiguous()
+        K = K.permute(0, 2, 1, 3).contiguous()
         # Rotate Q and K
         if self.rotary_emb is not None:
             if cos_cache is None or sin_cache is None:
-                cos_cache, sin_cache = self.rotary_emb(V, position_ids)
+                cos_cache, sin_cache = self.rotary_emb(Q, position_ids)
 
             Q, K = apply_rotary_pos_emb(Q, K, cos_cache, sin_cache)
 
-        return Q, K, V, cos_cache, sin_cache
+        return Q, K, cos_cache, sin_cache
 
     def perform_prefill(self, Q, K, V, q_len, bsz, attention_mask) -> Tensor:
         """attention computation at prefilling (context encoding) phase"""
@@ -306,7 +310,7 @@ class NeuronAttentionBase(nn.Module):
         active_scores = active_scores.to(torch.float32)
 
         # iii. attention scores
-        softmax_prior, softmax_active = manual_softmax(prior_scores, active_scores, is_speculation)
+        softmax_prior, softmax_active = manual_softmax(prior_scores, active_scores)
         softmax_prior, softmax_active = softmax_prior.to(Q.dtype), softmax_active.to(Q.dtype)
         attn_prior = torch.matmul(softmax_prior, V_prior)
         attn_active = torch.matmul(softmax_active, V_active)
@@ -323,18 +327,26 @@ class NeuronAttentionBase(nn.Module):
         active_mask: torch.LongTensor | None = None,
         cos_cache: torch.Tensor | None = None,
         sin_cache: torch.Tensor | None = None,
-        rmsnorm=None,
     ) -> tuple[Tensor, tuple[Tensor, Tensor] | None]:
         """Implements each layer's forward pass for the attention block."""
         bsz, q_len, _ = hidden_states.size()
 
-        Q, K, V, cos_cache, sin_cache = self.prep_qkv_tensors(
+        Q, K, V = self.qkv_proj(hidden_states=hidden_states)
+
+        # Divide hidden_dim across heads for MHA
+        # Change layout: BSHD -> BHSD
+        bsz, q_len, _ = hidden_states.size()
+
+        Q = Q.view(bsz, q_len, self.num_heads, self.head_dim)
+        K = K.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
+        V = V.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2).contiguous()
+
+        Q, K, cos_cache, sin_cache = self.rotate_qkv_tensors(
             position_ids,
-            hidden_states,
-            past_key_value,
+            Q,
+            K,
             cos_cache=cos_cache,
             sin_cache=sin_cache,
-            rmsnorm=rmsnorm,
         )
 
         flash_attn_strategy = FlashAttentionStrategy.NONE

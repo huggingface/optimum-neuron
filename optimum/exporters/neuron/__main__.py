@@ -757,6 +757,9 @@ def maybe_export_from_neuron_model_class(
     kwargs.pop("tensor_parallel_size", None)
     # Fetch the model config
     config = AutoConfig.from_pretrained(model)
+    if task == "text-generation":
+        # In case a multi-modal model is being exported, extract the text model config
+        config = config.get_text_config()
     # Check if we have an auto-model class for the model_type and task
     if not has_neuron_model_class(model_type=config.model_type, task=task, mode="inference"):
         return False

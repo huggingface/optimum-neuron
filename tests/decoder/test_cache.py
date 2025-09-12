@@ -20,18 +20,11 @@ import subprocess
 from tempfile import TemporaryDirectory
 from time import time
 
-import PIL
 import pytest
 import torch
 from huggingface_hub import HfApi
-from transformers import AutoTokenizer
 
-from optimum.neuron import (
-    NeuronModelForCausalLM,
-    NeuronModelForSequenceClassification,
-    NeuronStableDiffusionPipeline,
-    NeuronStableDiffusionXLPipeline,
-)
+from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.cache import get_hub_cached_entries, get_hub_cached_models, synchronize_hub_cache
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
@@ -83,72 +76,12 @@ def export_decoder_model(model_id):
     )
 
 
-def export_encoder_model(model_id):
-    batch_size = 1
-    sequence_length = 64
-    return NeuronModelForSequenceClassification.from_pretrained(
-        model_id,
-        export=True,
-        dynamic_batch_size=False,
-        batch_size=batch_size,
-        sequence_length=sequence_length,
-        inline_weights_to_neff=False,
-    )
-
-
-def export_stable_diffusion_model(model_id):
-    batch_size = 1
-    height = 64
-    width = 64
-    num_images_per_prompt = 1
-    return NeuronStableDiffusionPipeline.from_pretrained(
-        model_id,
-        export=True,
-        batch_size=batch_size,
-        height=height,
-        width=width,
-        num_images_per_prompt=num_images_per_prompt,
-        inline_weights_to_neff=False,
-        data_parallel_mode="none",  # TODO: Remove when weights separated makesits way to a neuron sdk release.
-    )
-
-
-def export_stable_diffusion_xl_model(model_id):
-    batch_size = 1
-    height = 64
-    width = 64
-    num_images_per_prompt = 1
-    return NeuronStableDiffusionXLPipeline.from_pretrained(
-        model_id,
-        export=True,
-        batch_size=batch_size,
-        height=height,
-        width=width,
-        num_images_per_prompt=num_images_per_prompt,
-        inline_weights_to_neff=False,
-        data_parallel_mode="none",  # TODO: Remove when weights separated makesits way to a neuron sdk release.
-    )
-
-
 def check_decoder_generation(model):
     batch_size = model.neuron_config.batch_size
     input_ids = torch.ones((batch_size, 20), dtype=torch.int64)
     with torch.inference_mode():
         sample_output = model.generate(input_ids)
         assert sample_output.shape[0] == batch_size
-
-
-def check_encoder_inference(model, tokenizer):
-    text = ["This is a sample output"]
-    tokens = tokenizer(text, return_tensors="pt")
-    outputs = model(**tokens)
-    assert "logits" in outputs
-
-
-def check_stable_diffusion_inference(model):
-    prompts = ["sailing ship in storm by Leonardo da Vinci"]
-    image = model(prompts, num_images_per_prompt=1).images[0]
-    assert isinstance(image, PIL.Image.Image)
 
 
 def get_local_cached_files(cache_path, extension="*"):
@@ -161,17 +94,6 @@ def check_decoder_cache_entry(model, cache_path):
     model_id = model.neuron_config.checkpoint_id
     model_configurations = [path for path in local_files if model_id in path]
     assert len(model_configurations) > 0
-
-
-def check_traced_cache_entry(cache_path):
-    local_files = get_local_cached_files(cache_path, "json")
-    registry_path = [path for path in local_files if "REGISTRY" in path][0]
-    registry_key = registry_path.split("/")[-1].replace(".json", "")
-    local_files.remove(registry_path)
-    local_hash_keys = []
-    for local_file in local_files:
-        local_hash_keys.append(local_file.split("/")[-2].replace("MODULE_", ""))
-    assert registry_key in local_hash_keys
 
 
 def assert_local_and_hub_cache_sync(cache_path, cache_repo_id):
@@ -219,97 +141,6 @@ def test_decoder_cache(cache_repos):
     check_decoder_generation(model)
     # Verify the local cache directory has not been populated
     assert len(get_local_cached_files(cache_path, "neff")) == 0
-
-
-@is_inferentia_test
-@requires_neuronx
-def test_encoder_cache(cache_repos):
-    cache_path, cache_repo_id = cache_repos
-    model_id = "hf-internal-testing/tiny-random-BertModel"
-    # Export the model a first time to populate the local cache
-    model = export_encoder_model(model_id)
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-    check_encoder_inference(model, tokenizer)
-    # check registry
-    check_traced_cache_entry(cache_path)
-    # Synchronize the hub cache with the local cache
-    synchronize_hub_cache(cache_repo_id=cache_repo_id)
-    assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
-    # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(model_id, task="text-classification", cache_repo_id=cache_repo_id)
-    assert len(model_entries) == 1
-    # Clear the local cache
-    for root, dirs, files in os.walk(cache_path):
-        for f in files:
-            os.unlink(os.path.join(root, f))
-        for d in dirs:
-            shutil.rmtree(os.path.join(root, d))
-    assert local_cache_size(cache_path) == 0
-    # Export the model again: the compilation artifacts should be fetched from the Hub
-    model = export_encoder_model(model_id)
-    check_encoder_inference(model, tokenizer)
-    # Verify the local cache directory has not been populated
-    assert len(get_local_cached_files(cache_path, ".neuron")) == 0
-
-
-@is_inferentia_test
-@requires_neuronx
-def test_stable_diffusion_cache(cache_repos):
-    cache_path, cache_repo_id = cache_repos
-    model_id = "hf-internal-testing/tiny-stable-diffusion-torch"
-    # Export the model a first time to populate the local cache
-    model = export_stable_diffusion_model(model_id)
-    check_stable_diffusion_inference(model)
-    # check registry
-    check_traced_cache_entry(cache_path)
-    # Synchronize the hub cache with the local cache
-    synchronize_hub_cache(cache_repo_id=cache_repo_id)
-    assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
-    # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(model_id, cache_repo_id=cache_repo_id)
-    assert len(model_entries) == 1
-    # Clear the local cache
-    for root, dirs, files in os.walk(cache_path):
-        for f in files:
-            os.unlink(os.path.join(root, f))
-        for d in dirs:
-            shutil.rmtree(os.path.join(root, d))
-    assert local_cache_size(cache_path) == 0
-    # Export the model again: the compilation artifacts should be fetched from the Hub
-    model = export_stable_diffusion_model(model_id)
-    check_stable_diffusion_inference(model)
-    # Verify the local cache directory has not been populated
-    assert len(get_local_cached_files(cache_path, ".neuron")) == 0
-
-
-@is_inferentia_test
-@requires_neuronx
-def test_stable_diffusion_xl_cache(cache_repos):
-    cache_path, cache_repo_id = cache_repos
-    model_id = "echarlaix/tiny-random-stable-diffusion-xl"
-    # Export the model a first time to populate the local cache
-    model = export_stable_diffusion_xl_model(model_id)
-    check_stable_diffusion_inference(model)
-    # check registry
-    check_traced_cache_entry(cache_path)
-    # Synchronize the hub cache with the local cache
-    synchronize_hub_cache(cache_repo_id=cache_repo_id)
-    assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
-    # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(model_id, cache_repo_id=cache_repo_id)
-    assert len(model_entries) == 1
-    # Clear the local cache
-    for root, dirs, files in os.walk(cache_path):
-        for f in files:
-            os.unlink(os.path.join(root, f))
-        for d in dirs:
-            shutil.rmtree(os.path.join(root, d))
-    assert local_cache_size(cache_path) == 0
-    # Export the model again: the compilation artifacts should be fetched from the Hub
-    model = export_stable_diffusion_xl_model(model_id)
-    check_stable_diffusion_inference(model)
-    # Verify the local cache directory has not been populated
-    assert len(get_local_cached_files(cache_path, ".neuron")) == 0
 
 
 @is_inferentia_test
