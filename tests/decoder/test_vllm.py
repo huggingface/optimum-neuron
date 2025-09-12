@@ -40,16 +40,16 @@ def _test_vllm_generation(llm):
     assert first_token_ids != third_token_ids
 
 
-def test_vllm_from_neuron_model(base_neuron_decoder_path):
+def test_vllm_from_neuron_model(base_neuron_llm_path):
     """Test vLLm generation on a single model exported locally."""
-    llm = LLM(model=base_neuron_decoder_path)
+    llm = LLM(model=base_neuron_llm_path)
     _test_vllm_generation(llm)
 
 
-def test_vllm_from_hub_model(neuron_decoder_config):
+def test_vllm_from_hub_model(neuron_llm_config):
     """Test vLLm generation on all cached test models from the hub."""
-    model_id = neuron_decoder_config["model_id"]
-    export_kwargs = neuron_decoder_config["export_kwargs"]
+    model_id = neuron_llm_config["model_id"]
+    export_kwargs = neuron_llm_config["export_kwargs"]
     llm = LLM(
         model=model_id,
         max_num_seqs=export_kwargs["batch_size"],
@@ -60,13 +60,13 @@ def test_vllm_from_hub_model(neuron_decoder_config):
     _test_vllm_generation(llm)
 
 
-def test_vllm_greedy_expectations(neuron_decoder_config):
+def test_vllm_greedy_expectations(neuron_llm_config):
     """Test vLLm generation on all test model types."""
-    if neuron_decoder_config["name"] == "qwen3":
+    if neuron_llm_config["name"] == "qwen3":
         pytest.xfail("Qwen3 outputs are not deterministic with greedy sampling")
     llm = LLM(
-        model=neuron_decoder_config["neuron_model_path"],
-        max_num_seqs=neuron_decoder_config["export_kwargs"]["batch_size"],
+        model=neuron_llm_config["neuron_model_path"],
+        max_num_seqs=neuron_llm_config["export_kwargs"]["batch_size"],
     )
     # Send more prompts than the compiled batch size (4) and request
     # varying generation lengths to test continuous batching.
@@ -139,7 +139,7 @@ def test_vllm_greedy_expectations(neuron_decoder_config):
             " blue because of Rayleigh scattering. This is the",
             " of my grandmother, who was a wonderful cook, making a delicious chicken and dumplings soup. She",
         ],
-    }[neuron_decoder_config["name"]]
+    }[neuron_llm_config["name"]]
 
     for expected_output, output in zip(expected_outputs, outputs):
         generated_text = output.outputs[0].text
