@@ -39,6 +39,7 @@ import optimum
 import optimum.neuron.models.training
 from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.models.training.llama.modeling_llama import LlamaForCausalLM
+from optimum.neuron.models.training.modeling_auto import NeuronModelForCausalLM
 from optimum.neuron.models.training.transformations_utils import GQAQKVColumnParallelLinearSpec
 from optimum.neuron.utils.import_utils import (
     is_neuronx_available,
@@ -601,3 +602,65 @@ def test_each_pp_rank_only_loads_relevant_parameters(set_cache_for_ci):
     assert diff != {}, (
         f"Expected that the parameters of the other PP ranks are on the meta device. Got {diff} instead."
     )
+
+
+@pytest.mark.parametrize(
+    "attn_implementation,expected_attn_implementation",
+    [
+        ("flash_attention_2", "flash_attention_2"),
+        ("eager", "eager"),
+        (None, "eager"),
+        # Unsupported attention implementation - should default to eager
+        ("sdpa", "eager"),
+    ],
+)
+@distributed_test(world_size=8, tp_size=2, pp_size=1)
+@is_trainium_test
+def test_attention_implementation_validation(
+    attn_implementation,
+    expected_attn_implementation,
+    set_cache_for_ci,
+):
+    tp_size = get_tensor_model_parallel_size()
+    pp_size = get_pipeline_model_parallel_size()
+
+    trn_config = TrainingNeuronConfig(
+        tensor_parallel_size=tp_size,
+        pipeline_parallel_size=pp_size,
+        sequence_parallel_enabled=True,
+    )
+
+    # Case 1: Test using from_pretrained with config
+    config = AutoConfig.from_pretrained(LLAMA_V2_MODEL_NAME)
+    config._attn_implementation = attn_implementation
+
+    model = NeuronModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, trn_config, config=config)
+    assert model.config._attn_implementation == expected_attn_implementation, (
+        f"Expected attn_implementation to be {expected_attn_implementation}, but got {model.config._attn_implementation}"
+    )
+
+    # Case 2: Test using from_pretrained with explicit attn_implementation argument
+    model = NeuronModelForCausalLM.from_pretrained(
+        LLAMA_V2_MODEL_NAME, trn_config, attn_implementation=attn_implementation
+    )
+    assert model.config._attn_implementation == expected_attn_implementation, (
+        f"Expected attn_implementation to be {expected_attn_implementation}, but got {model.config._attn_implementation}"
+    )
+
+    # Case 3: Test using from_pretrained with mismatched config and argument
+    # In this case, the argument should take precedence over the config value.
+    config._attn_implementation = "blabla"
+    model = NeuronModelForCausalLM.from_pretrained(
+        LLAMA_V2_MODEL_NAME, trn_config, config=config, attn_implementation=attn_implementation
+    )
+    assert model.config._attn_implementation == expected_attn_implementation, (
+        f"Expected attn_implementation to be {expected_attn_implementation}, but got {model.config._attn_implementation}"
+    )
+
+    # Case 4 (only for flash attention): Model does not support flash attention
+    if attn_implementation == "flash_attention_2":
+        model.__class__._supports_flash_attn = False
+        with pytest.raises(ValueError):
+            model = NeuronModelForCausalLM.from_pretrained(
+                LLAMA_V2_MODEL_NAME, trn_config, attn_implementation=attn_implementation
+            )
