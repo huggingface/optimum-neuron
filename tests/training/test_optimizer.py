@@ -30,7 +30,7 @@ from optimum.neuron.models.training import LlamaForCausalLM as NeuronLlamaForCau
 from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from ..distributed_utils import distributed_test
+from .distributed_utils import distributed_test
 from .utils import create_accelerator, get_model_inputs
 
 

@@ -46,7 +46,7 @@ from optimum.neuron.utils.import_utils import (
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from ..distributed_utils import distributed_test, run_distributed_test
+from .distributed_utils import distributed_test, run_distributed_test
 from .utils import SEED, StaticSeedPatcher, create_accelerator, get_model_inputs
 
 

@@ -37,7 +37,7 @@ from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.training_utils import is_logging_process
 from optimum.neuron.version import __sdk_version__ as sdk_version
 
-from ..distributed_utils import EarlyExit, distributed_test
+from .distributed_utils import EarlyExit, distributed_test
 
 
 def get_model_class_from_name(model_class_name: str, use_custom_modeling: bool) -> Type[PreTrainedModel]:
