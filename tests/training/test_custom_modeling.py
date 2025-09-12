@@ -639,13 +639,13 @@ def _test_attention_implementation_validation(
 
 
 @pytest.mark.parametrize(
-    "attn_implementation,expected_attn_implementation,should_succeed",
+    "attn_implementation,expected_attn_implementation",
     [
-        ("flash_attention_2", "flash_attention_2", True),
-        ("eager", "eager", True),
-        (None, "eager", True),
-        # Unsupported attention implementation - should fail gracefully
-        ("sdpa", "sdpa", False),
+        ("flash_attention_2", "flash_attention_2"),
+        ("eager", "eager"),
+        (None, "eager"),
+        # Unsupported attention implementation - should default to eager 
+        ("sdpa", "eager"),
     ],
 )
 @distributed_test(world_size=8, tp_size=2, pp_size=1)
@@ -653,7 +653,6 @@ def _test_attention_implementation_validation(
 def test_attention_implementation_validation(
     attn_implementation,
     expected_attn_implementation,
-    should_succeed,
     set_cache_for_ci,
 ):
     tp_size = get_tensor_model_parallel_size()
@@ -669,51 +668,28 @@ def test_attention_implementation_validation(
     config = AutoConfig.from_pretrained(LLAMA_V2_MODEL_NAME)
     config._attn_implementation = attn_implementation
 
-    if should_succeed:
-        model = NeuronModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, trn_config, config=config)
-        assert model.config._attn_implementation == expected_attn_implementation, (
-            f"Expected attn_implementation to be {expected_attn_implementation}, but got {model.config._attn_implementation}"
-        )
-
-    else:
-        # Test should fail - expect an exception
-        # with pytest.raises(ValueError):
-        model = NeuronModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, trn_config, config=config)
-    return
+    model = NeuronModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, trn_config, config=config)
+    assert model.config._attn_implementation == expected_attn_implementation, (
+        f"Expected attn_implementation to be {expected_attn_implementation}, but got {model.config._attn_implementation}"
+    )
 
     # Case 2: Test using from_pretrained with explicit attn_implementation argument
-    if should_succeed:
-        model = NeuronModelForCausalLM.from_pretrained(
-            LLAMA_V2_MODEL_NAME, trn_config, attn_implementation=attn_implementation
-        )
-        assert model.config._attn_implementation == expected_attn_implementation, (
-            f"Expected attn_implementation to be {expected_attn_implementation}, but got {model.config._attn_implementation}"
-        )
-
-    else:
-        # Test should fail - expect an exception
-        with pytest.raises(ValueError):
-            model = NeuronModelForCausalLM.from_pretrained(
-                LLAMA_V2_MODEL_NAME, trn_config, attn_implementation=attn_implementation
-            )
+    model = NeuronModelForCausalLM.from_pretrained(
+        LLAMA_V2_MODEL_NAME, trn_config, attn_implementation=attn_implementation
+    )
+    assert model.config._attn_implementation == expected_attn_implementation, (
+        f"Expected attn_implementation to be {expected_attn_implementation}, but got {model.config._attn_implementation}"
+    )
 
     # Case 3: Test using from_pretrained with mismatched config and argument
     # In this case, the argument should take precedence over the config value.
     config._attn_implementation = "blabla"
-    if should_succeed:
-        model = NeuronModelForCausalLM.from_pretrained(
-            LLAMA_V2_MODEL_NAME, trn_config, config=config, attn_implementation=attn_implementation
-        )
-        assert model.config._attn_implementation == expected_attn_implementation, (
-            f"Expected attn_implementation to be {expected_attn_implementation}, but got {model.config._attn_implementation}"
-        )
-
-    else:
-        # Test should fail - expect an exception
-        with pytest.raises(ValueError):
-            model = NeuronModelForCausalLM.from_pretrained(
-                LLAMA_V2_MODEL_NAME, trn_config, config=config, attn_implementation=attn_implementation
-            )
+    model = NeuronModelForCausalLM.from_pretrained(
+        LLAMA_V2_MODEL_NAME, trn_config, config=config, attn_implementation=attn_implementation
+    )
+    assert model.config._attn_implementation == expected_attn_implementation, (
+        f"Expected attn_implementation to be {expected_attn_implementation}, but got {model.config._attn_implementation}"
+    )
 
     # Case 4 (only for flash attention): Model does not support flash attention
     if attn_implementation == "flash_attention_2":
