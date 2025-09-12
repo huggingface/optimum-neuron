@@ -39,6 +39,7 @@ import optimum
 import optimum.neuron.models.training
 from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.models.training.llama.modeling_llama import LlamaForCausalLM
+from optimum.neuron.models.training.modeling_auto import NeuronModelForCausalLM
 from optimum.neuron.models.training.transformations_utils import GQAQKVColumnParallelLinearSpec
 from optimum.neuron.utils.import_utils import (
     is_neuronx_available,
@@ -572,3 +573,152 @@ def test_custom_model_tie_weights(tmpdir, set_cache_for_ci):
     output_emb_untied = model_untied.get_output_embeddings()
 
     assert input_emb_untied.weight.storage().data_ptr() != output_emb_untied.weight.storage().data_ptr()
+
+
+def _test_attention_implementation_validation(
+    model_class_name,
+    model_name_or_path,
+    attn_implementation,
+    expected_attn_implementation,
+    should_succeed,
+    monkeypatch,
+):
+    """
+    Helper function to test attention implementation validation in distributed setting.
+    """
+    import importlib
+
+    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+    from optimum.neuron.models.training.config import TrainingNeuronConfig
+
+    tp_size = get_tensor_model_parallel_size()
+    pp_size = 1  # Not testing pipeline parallelism for this specific test
+
+    static_seed_patcher = StaticSeedPatcher(SEED)
+
+    trn_config = TrainingNeuronConfig(
+        tensor_parallel_size=tp_size,
+        pipeline_parallel_size=pp_size,
+        sequence_parallel_enabled=True,
+    )
+
+    config = AutoConfig.from_pretrained(model_name_or_path)
+    config.attn_implementation = attn_implementation
+
+    training_mod = importlib.import_module("optimum.neuron.models.training")
+    custom_model_class = getattr(training_mod, model_class_name)
+
+    if should_succeed:
+        with static_seed_patcher:
+            model = custom_model_class.from_pretrained(model_name_or_path, trn_config, config=config)
+
+        # Verify the actual attention implementation matches expectations
+        assert model.config.attn_implementation == expected_attn_implementation
+
+        # Ensure model can be prepared and used for basic operations
+        accelerator = create_accelerator(tp_size, pp_size, sequence_parallel_enabled=True)
+        model = accelerator.prepare(model)
+
+        # Test basic forward pass to ensure attention implementation works
+        inputs = get_model_inputs(model_name_or_path, custom_model_class, batch_size=1)
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            output = model(**inputs)
+
+        # Basic validation that we got some output
+        assert output.logits is not None
+        assert output.logits.shape[0] == 1  # batch_size
+
+    else:
+        # Test should fail - expect an exception
+        with pytest.raises((ValueError, RuntimeError, NotImplementedError)):
+            with static_seed_patcher:
+                model = custom_model_class.from_pretrained(model_name_or_path, trn_config, config=config)
+
+
+@pytest.mark.parametrize(
+    "attn_implementation,expected_attn_implementation,should_succeed",
+    [
+        ("flash_attention_2", "flash_attention_2", True),
+        ("eager", "eager", True),
+        (None, "eager", True),
+        # Unsupported attention implementation - should fail gracefully
+        ("sdpa", "sdpa", False),
+    ],
+)
+@distributed_test(world_size=8, tp_size=2, pp_size=1)
+@is_trainium_test
+def test_attention_implementation_validation(
+    attn_implementation,
+    expected_attn_implementation,
+    should_succeed,
+    set_cache_for_ci,
+):
+    tp_size = get_tensor_model_parallel_size()
+    pp_size = get_pipeline_model_parallel_size()
+
+    trn_config = TrainingNeuronConfig(
+        tensor_parallel_size=tp_size,
+        pipeline_parallel_size=pp_size,
+        sequence_parallel_enabled=True,
+    )
+
+    # Case 1: Test using from_pretrained with config
+    config = AutoConfig.from_pretrained(LLAMA_V2_MODEL_NAME)
+    config._attn_implementation = attn_implementation
+
+    if should_succeed:
+        model = NeuronModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, trn_config, config=config)
+        assert model.config._attn_implementation == expected_attn_implementation, (
+            f"Expected attn_implementation to be {expected_attn_implementation}, but got {model.config._attn_implementation}"
+        )
+
+    else:
+        # Test should fail - expect an exception
+        # with pytest.raises(ValueError):
+        model = NeuronModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, trn_config, config=config)
+    return
+
+    # Case 2: Test using from_pretrained with explicit attn_implementation argument
+    if should_succeed:
+        model = NeuronModelForCausalLM.from_pretrained(
+            LLAMA_V2_MODEL_NAME, trn_config, attn_implementation=attn_implementation
+        )
+        assert model.config._attn_implementation == expected_attn_implementation, (
+            f"Expected attn_implementation to be {expected_attn_implementation}, but got {model.config._attn_implementation}"
+        )
+
+    else:
+        # Test should fail - expect an exception
+        with pytest.raises(ValueError):
+            model = NeuronModelForCausalLM.from_pretrained(
+                LLAMA_V2_MODEL_NAME, trn_config, attn_implementation=attn_implementation
+            )
+
+    # Case 3: Test using from_pretrained with mismatched config and argument
+    # In this case, the argument should take precedence over the config value.
+    config._attn_implementation = "blabla"
+    if should_succeed:
+        model = NeuronModelForCausalLM.from_pretrained(
+            LLAMA_V2_MODEL_NAME, trn_config, config=config, attn_implementation=attn_implementation
+        )
+        assert model.config._attn_implementation == expected_attn_implementation, (
+            f"Expected attn_implementation to be {expected_attn_implementation}, but got {model.config._attn_implementation}"
+        )
+
+    else:
+        # Test should fail - expect an exception
+        with pytest.raises(ValueError):
+            model = NeuronModelForCausalLM.from_pretrained(
+                LLAMA_V2_MODEL_NAME, trn_config, config=config, attn_implementation=attn_implementation
+            )
+
+    # Case 4 (only for flash attention): Model does not support flash attention
+    if attn_implementation == "flash_attention_2":
+        model.__class__._supports_flash_attn = False
+        with pytest.raises(ValueError):
+            model = NeuronModelForCausalLM.from_pretrained(
+                LLAMA_V2_MODEL_NAME, trn_config, attn_implementation=attn_implementation
+            )
