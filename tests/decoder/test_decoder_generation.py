@@ -27,9 +27,9 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 
 
 @pytest.fixture(scope="module")
-def model_and_tokenizer(neuron_decoder_path):
-    model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
-    tokenizer = AutoTokenizer.from_pretrained(neuron_decoder_path)
+def model_and_tokenizer(neuron_llm_path):
+    model = NeuronModelForCausalLM.from_pretrained(neuron_llm_path)
+    tokenizer = AutoTokenizer.from_pretrained(neuron_llm_path)
     yield (model, tokenizer)
 
 
@@ -92,10 +92,10 @@ def test_decoder_generation_custom_stopping_criteria(model_and_tokenizer):
 
 @is_inferentia_test
 @requires_neuronx
-def test_decoder_generation_greedy_expectations(neuron_decoder_config):
-    neuron_decoder_path = neuron_decoder_config["neuron_model_path"]
-    model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
-    tokenizer = AutoTokenizer.from_pretrained(neuron_decoder_path)
+def test_decoder_generation_greedy_expectations(neuron_llm_config):
+    neuron_llm_path = neuron_llm_config["neuron_model_path"]
+    model = NeuronModelForCausalLM.from_pretrained(neuron_llm_path)
+    tokenizer = AutoTokenizer.from_pretrained(neuron_llm_path)
     prompt = "What is Deep Learning?"
     inputs = tokenizer(prompt, return_tensors="pt")
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17)
@@ -107,7 +107,7 @@ def test_decoder_generation_greedy_expectations(neuron_decoder_config):
         "phi": "\n\nDeep learning is a subfield of machine learning that focuses on creating",
         "smollm3": " Deep learning is a subset of machine learning that uses neural networks with many layers to learn",
     }
-    config_name = neuron_decoder_config["name"]
+    config_name = neuron_llm_config["name"]
     generated_text = tokenizer.decode(outputs[0])
     expected_text = expectations[config_name]
     assert generated_text.endswith(expected_text)
