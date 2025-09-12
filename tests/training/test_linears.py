@@ -31,7 +31,7 @@ from transformers import set_seed
 
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from ..distributed_utils import distributed_test
+from .distributed_utils import distributed_test
 from .utils import assert_close
 
 

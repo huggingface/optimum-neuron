@@ -21,7 +21,7 @@ from optimum.neuron.models.training import NeuronModel, NeuronModelForCausalLM, 
 from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.training_utils import is_custom_modeling_model
 
-from ..distributed_utils import distributed_test
+from .distributed_utils import distributed_test
 
 
 @pytest.mark.parametrize("from_pretrained", [False, True], ids=["from_config", "from_pretrained"])

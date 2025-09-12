@@ -31,7 +31,7 @@ from optimum.neuron.models.training.pipeline_utils import create_nxdpp_model
 from optimum.neuron.peft import NeuronPeftModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from ..distributed_utils import distributed_test
+from .distributed_utils import distributed_test
 
 
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"

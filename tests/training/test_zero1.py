@@ -36,7 +36,7 @@ from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.trainers import NeuronTrainingArguments
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from ..distributed_utils import distributed_test, run_distributed_test
+from .distributed_utils import distributed_test, run_distributed_test
 
 
 TINY_MODEL_NAME = "michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random"
