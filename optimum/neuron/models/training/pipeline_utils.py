@@ -19,7 +19,6 @@ Utilities for Pipeline Parallelism model setup and parameter management.
 import contextlib
 import functools
 import logging as python_logging
-from inspect import signature
 from collections.abc import Iterable
 
 import torch
@@ -89,7 +88,7 @@ def create_nxdpp_model(model) -> NxDPPModel:
         # If the forward method is wrapped, it was wrapped by the `can_return_tuple` decorator, we need to
         # unwrap it first.
         model.__class__.forward = orig_class_forward.__wrapped__
-    
+
     model_to_trace = model.get_base_model() if isinstance(model, NeuronPeftModel) else model
     model = NxDPPModel(
         model_to_trace,
@@ -97,7 +96,7 @@ def create_nxdpp_model(model) -> NxDPPModel:
         num_microbatches=model.trn_config.pipeline_parallel_num_microbatches,
         virtual_pipeline_size=model.trn_config.virtual_pipeline_parallel_size,
         output_loss_value_spec=(True, False),
-        input_names=model.PIPELINE_INPUT_NAMES, 
+        input_names=model.PIPELINE_INPUT_NAMES,
         leaf_module_cls=model.PIPELINE_LEAF_MODULE_CLASSE_NAMES,
         use_zero1_optimizer=model.trn_config.pipeline_parallel_use_zero1_optimizer,
         tracer_cls=OptimumNeuronFXTracer,
@@ -158,6 +157,7 @@ def get_pipeline_parameters_for_current_stage(model) -> set[str]:
         Set of parameter names needed for the current pipeline stage
     """
     from ...peft import NeuronPeftModel
+
     with suppress_logging():
         if get_pipeline_model_parallel_size() <= 1 or not model.supports_pipeline_parallelism():
             # Return all parameters if no pipeline parallelism
