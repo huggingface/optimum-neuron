@@ -575,76 +575,13 @@ def test_custom_model_tie_weights(tmpdir, set_cache_for_ci):
     assert input_emb_untied.weight.storage().data_ptr() != output_emb_untied.weight.storage().data_ptr()
 
 
-def _test_attention_implementation_validation(
-    model_class_name,
-    model_name_or_path,
-    attn_implementation,
-    expected_attn_implementation,
-    should_succeed,
-    monkeypatch,
-):
-    """
-    Helper function to test attention implementation validation in distributed setting.
-    """
-    import importlib
-
-    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
-
-    from optimum.neuron.models.training.config import TrainingNeuronConfig
-
-    tp_size = get_tensor_model_parallel_size()
-    pp_size = 1  # Not testing pipeline parallelism for this specific test
-
-    static_seed_patcher = StaticSeedPatcher(SEED)
-
-    trn_config = TrainingNeuronConfig(
-        tensor_parallel_size=tp_size,
-        pipeline_parallel_size=pp_size,
-        sequence_parallel_enabled=True,
-    )
-
-    config = AutoConfig.from_pretrained(model_name_or_path)
-    config.attn_implementation = attn_implementation
-
-    training_mod = importlib.import_module("optimum.neuron.models.training")
-    custom_model_class = getattr(training_mod, model_class_name)
-
-    if should_succeed:
-        with static_seed_patcher:
-            model = custom_model_class.from_pretrained(model_name_or_path, trn_config, config=config)
-
-        # Verify the actual attention implementation matches expectations
-        assert model.config.attn_implementation == expected_attn_implementation
-
-        # Ensure model can be prepared and used for basic operations
-        accelerator = create_accelerator(tp_size, pp_size, sequence_parallel_enabled=True)
-        model = accelerator.prepare(model)
-
-        # Test basic forward pass to ensure attention implementation works
-        inputs = get_model_inputs(model_name_or_path, custom_model_class, batch_size=1)
-        inputs = {k: v.to(model.device) for k, v in inputs.items()}
-
-        with torch.no_grad():
-            output = model(**inputs)
-
-        # Basic validation that we got some output
-        assert output.logits is not None
-        assert output.logits.shape[0] == 1  # batch_size
-
-    else:
-        # Test should fail - expect an exception
-        with pytest.raises((ValueError, RuntimeError, NotImplementedError)):
-            with static_seed_patcher:
-                model = custom_model_class.from_pretrained(model_name_or_path, trn_config, config=config)
-
-
 @pytest.mark.parametrize(
     "attn_implementation,expected_attn_implementation",
     [
         ("flash_attention_2", "flash_attention_2"),
         ("eager", "eager"),
         (None, "eager"),
-        # Unsupported attention implementation - should default to eager 
+        # Unsupported attention implementation - should default to eager
         ("sdpa", "eager"),
     ],
 )
