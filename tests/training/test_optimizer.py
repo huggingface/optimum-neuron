@@ -102,7 +102,7 @@ def test_optimizer_step(gradient_accumulation_steps, max_grad_norm, set_cache_fo
 
     for step in range(int(1.5 * gradient_accumulation_steps)):
         is_optimizer_update_step = (step + 1) % gradient_accumulation_steps == 0
-        with accelerator.accumulate(model):
+        with accelerator.accumulate():
             if pp_size > 1:
                 orig_parameters = current_parameters
                 loss = model.run_train(**inputs)
