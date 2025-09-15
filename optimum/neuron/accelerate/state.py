@@ -155,7 +155,7 @@ class NeuronAcceleratorState(AcceleratorState):
                 if trn_config is None:
                     trn_config = TrainingNeuronConfig()
 
-                if trn_config.should_parallelize:
+                if trn_config.model_parallelism_enabled:
                     self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
 
                 self.trn_config = trn_config

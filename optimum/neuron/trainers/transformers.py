@@ -83,7 +83,7 @@ from transformers.utils import (
     is_datasets_available,
 )
 
-from ..accelerate import NeuronAccelerator, NeuronDistributedType
+from ..accelerate import NeuronAccelerator
 from ..cache.hub_cache import hub_neuronx_cache
 from ..cache.training import patch_neuron_cc_wrapper
 from ..peft import NeuronPeftModel
@@ -1187,7 +1187,7 @@ class NeuronTrainer:
                         torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
 
                     xm.rendezvous("saving_checkpoint")
-                    if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+                    if self.trn_config.model_parallelism_enabled:
                         # Case 1: model parallelism, we use the model's `save_pretrained` method which will save the sharded
                         # state dict.
                         logger.info(
@@ -1246,7 +1246,7 @@ class NeuronTrainer:
 
         if not self.args.save_only_model:
             # The optimizer state is saved in the shard alongside with the model parameters when doing model-parallelism.
-            if self.accelerator.distributed_type is not NeuronDistributedType.MODEL_PARALLELISM:
+            if not self.trn_config.model_parallelism_enabled:
                 xm.rendezvous("saving_optimizer_states")
                 xm.save(self.optimizer.state_dict(), os.path.join(output_dir, OPTIMIZER_NAME))
 

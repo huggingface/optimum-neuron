@@ -59,7 +59,6 @@ from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
 from .utils import (
-    NeuronDistributedType,
     patch_accelerate_is_torch_xla_available,
 )
 from .utils.misc import (
@@ -208,7 +207,7 @@ class NeuronAccelerator(Accelerator):
                 "The `slice_fn_for_dispatch` argument is not supported in `NeuronAccelerator.prepare_data_loader`."
             )
         force_drop_last = False
-        if self.state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+        if self.state.trn_config.model_parallelism_enabled:
             num_replicas = parallel_layers.parallel_state.get_data_parallel_size()
             rank = parallel_layers.parallel_state.get_data_parallel_rank()
             force_drop_last = parallel_layers.parallel_state.get_pipeline_model_parallel_size() > 1
@@ -314,7 +313,7 @@ class NeuronAccelerator(Accelerator):
         if model in self._models:
             return model
 
-        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM and not is_custom_modeling_model(model):
+        if self.state.trn_config.model_parallelism_enabled and not is_custom_modeling_model(model):
             raise NotImplementedError(
                 "Model parallelism is only supported for models with a custom modeling implementation."
             )
@@ -505,7 +504,7 @@ class NeuronAccelerator(Accelerator):
     def save_state(
         self, output_dir: str | None = None, safe_serialization: bool = True, **save_model_func_kwargs
     ) -> str:
-        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+        if self.state.trn_config.model_parallelism_enabled:
             return self.save_state_for_mp(output_dir=output_dir, **save_model_func_kwargs)
         return super().save_state(
             output_dir=output_dir, safe_serialization=safe_serialization, **save_model_func_kwargs

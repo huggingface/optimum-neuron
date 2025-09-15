@@ -17,13 +17,10 @@ import accelerate
 import torch
 import torch_xla.core.xla_model as xm
 from accelerate.optimizer import AcceleratedOptimizer
-from accelerate.utils import DistributedType
 from neuronx_distributed import parallel_layers
 from neuronx_distributed.parallel_layers.grads import bucket_allreduce_gradients
 from neuronx_distributed.parallel_layers.mappings import reduce_from_tensor_model_parallel_region
 from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
-
-from .utils.dataclasses import NeuronDistributedType
 
 
 accelerate.optimizer.xm = xm
@@ -57,6 +54,9 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
         device_placement: bool = True,
         scaler: torch.amp.GradScaler | None = None,
     ):
+        if scaler is not None:
+            raise ValueError("NeuronAcceleratedOptimizer does not support `scaler`.")
+
         super().__init__(optimizer, device_placement=device_placement, scaler=scaler)
 
         self.clip_grad_norm_to_perform = None
@@ -72,7 +72,7 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
     def step(self, closure=None):
         if self.gradient_state.sync_gradients:
             # For sequence-parallel, we have to explicitly all-reduce the layernorm gradients.
-            if self.accelerator_state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+            if self.accelerator_state.trn_config.sequence_parallel_enabled:
                 allreduce_sequence_parallel_gradients(self.optimizer)
 
             if isinstance(self.optimizer, ZeroRedundancyOptimizer):
@@ -88,10 +88,7 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                 # Resetting everything.
                 self.optimizer.grad_clipping = False
                 self.clip_grad_norm_to_perform = None
-            elif (
-                self.accelerator_state.distributed_type is DistributedType.XLA
-                or self.accelerator_state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
-            ):
+            else:
                 if parallel_layers.parallel_state.get_data_parallel_size() > 1:
                     bucket_allreduce_gradients(xm._fetch_gradients(self.optimizer))
                 if self.clip_grad_norm_to_perform is not None:
@@ -100,15 +97,6 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                         self.grad_norm = parallel_layers.clip_grad_norm(parameters, **self.clip_grad_norm_to_perform)
                     self.clip_grad_norm_to_perform = None
                 self.optimizer.step(closure=closure)
-            elif self.scaler is not None:
-                scale_before = self.scaler.get_scale()
-                self.scaler.step(self.optimizer, closure)
-                self.scaler.update()
-                scale_after = self.scaler.get_scale()
-                # If we reduced the loss scale, it means the optimizer step was skipped because of gradient overflow.
-                self._is_overflow = scale_after < scale_before
-            else:
-                self.optimizer.step(closure)
 
     def __getstate__(self):
         return {
