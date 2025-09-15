@@ -178,6 +178,9 @@ def test_zero1_training_arguments_integration(tmpdir):
 def test_zero_1_optimizer_step_and_mixed_precision(
     world_size, tp_size, pp_size, inputs, use_master_weights, fp32_grad_acc, set_cache_for_ci
 ):
+    # NOTE: We do not test gradient clipping here because it seems to not work properly with ZeRO-1.
+    # We should investigate this further in the future if we see training instability.
+
     if pp_size > 1 and use_master_weights and fp32_grad_acc:
         pytest.skip("Compilation issues, takes forever.")
 
@@ -232,15 +235,6 @@ def test_zero_1_optimizer_step_and_mixed_precision(
             loss = model.run_train(**xla_inputs)
         xm.mark_step()
 
-        # Gradient clipping seems to not work properly with ZeRO-1.
-        # max_grad_norm = 0.01
-        # accelerator.clip_grad_norm_(
-        #     model.parameters(), # This is not used when using ZeRO-1 but we need to pass something.
-        #     max_norm=max_grad_norm,
-        #     norm_type=2,
-        #     postpone_clipping_to_optimizer_step=True,
-        # )
-
         prepared_optimizer.step()
         xm.mark_step()
 
@@ -257,14 +251,6 @@ def test_zero_1_optimizer_step_and_mixed_precision(
         grad_dtype = torch.float32 if fp32_grad_acc else torch.bfloat16
         assert any(torch.any(grad != 0) for grad in grads), "Expected some gradients to be non-zero."
         assert all(grad.dtype is grad_dtype for grad in grads), f"Not all gradients are in {grad_dtype}."
-
-        # Gradient clipping seems to not work properly with ZeRO-1.
-        # prepared_optimizer.step()
-        # assert prepared_optimizer.grad_norm is not None, "Expected grad_norm to be set after optimizer step."
-        # grad_norm = prepared_optimizer.grad_norm.to("cpu")
-        # xm.mark_step()
-        # grad_norm = grad_norm.item()
-        # assert grad_norm <= max_grad_norm, "Expected the total norm to be clipped."
 
         # Check that at least some parameters have changed after optimizer step.
         param_changed = False
