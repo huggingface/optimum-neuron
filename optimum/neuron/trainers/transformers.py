@@ -835,6 +835,10 @@ class NeuronTrainer:
             # to handle cases wherein we pass "DummyScheduler" such as when it is specified in DeepSpeed config.
             self.optimizer, self.lr_scheduler = self.accelerator.prepare(self.optimizer, self.lr_scheduler)
 
+        # Enable gradient clipping
+        if args.max_grad_norm is not None and args.max_grad_norm > 0:
+            self.optimizer.set_permanent_clip_grad_norm(args.max_grad_norm)
+
         # Train!
         parameter_count = self.get_num_trainable_parameters()
         logger.info("***** Running training *****")
@@ -1090,17 +1094,6 @@ class NeuronTrainer:
                         self.accelerator.gradient_state.sync_gradients = True
                         xm.mark_step()
                         # Gradient clipping
-                        if args.max_grad_norm is not None and args.max_grad_norm > 0:
-                            parameters = (
-                                self.model.local_parameters()
-                                if isinstance(self.model, NxDPPModel)
-                                else self.model.parameters()
-                            )
-                            self.accelerator.clip_grad_norm_(
-                                parameters,
-                                args.max_grad_norm,
-                                postpone_clipping_to_optimizer_step=True,
-                            )
 
                         self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
 

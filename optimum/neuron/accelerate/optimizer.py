@@ -60,6 +60,8 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
         super().__init__(optimizer, device_placement=device_placement, scaler=scaler)
 
         self.clip_grad_norm_to_perform = None
+        self.permanent_clip_grad_norm = None
+        self.permanent_parameters = []
         self.grad_norm = None
 
     # TODO: might be needed to override this soon.
@@ -68,6 +70,16 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
 
     def prepare_clip_grad_norm(self, parameters, max_norm, norm_type=2):
         self.clip_grad_norm_to_perform = {"parameters": parameters, "max_norm": max_norm, "norm_type": norm_type}
+
+    def set_permanent_clip_grad_norm(self, max_norm, norm_type=2):
+        self.permanent_clip_grad_norm = {"max_norm": max_norm, "norm_type": norm_type}
+        self.permanent_parameters = []
+        for param_group in self.optimizer.__getstate__()["param_groups"]:
+            for group, params in param_group.items():
+                if group == "params":
+                    for p in params:
+                        if isinstance(p, torch.Tensor) and p.requires_grad:
+                            self.permanent_parameters.append(p)
 
     def step(self, closure=None):
         if self.gradient_state.sync_gradients:
@@ -81,6 +93,9 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                     # now.
                     self.optimizer.grad_clipping = True
                     self.optimizer.max_norm = self.clip_grad_norm_to_perform["max_norm"]
+                elif self.permanent_clip_grad_norm is not None:
+                    self.optimizer.grad_clipping = True
+                    self.optimizer.max_norm = self.permanent_clip_grad_norm["max_norm"]
                 else:
                     self.optimizer.grad_clipping = False
                 self.optimizer.step(closure=closure)
@@ -88,14 +103,28 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                 # Resetting everything.
                 self.optimizer.grad_clipping = False
                 self.clip_grad_norm_to_perform = None
+
             else:
-                if parallel_layers.parallel_state.get_data_parallel_size() > 1:
+                # NxDPPModel already reduces gradients across data parallel ranks so we do not do it here.
+                if (
+                    self.accelerator_state.trn_config.data_parallel_size > 1
+                    and self.accelerator_state.trn_config.pipeline_parallel_size == 1
+                ):
                     bucket_allreduce_gradients(xm._fetch_gradients(self.optimizer))
                 if self.clip_grad_norm_to_perform is not None:
                     parameters = self.clip_grad_norm_to_perform.pop("parameters", None)
-                    if parameters is not None:
-                        self.grad_norm = parallel_layers.clip_grad_norm(parameters, **self.clip_grad_norm_to_perform)
+                    kwargs = self.clip_grad_norm_to_perform
+                elif self.permanent_clip_grad_norm is not None:
+                    parameters = self.permanent_parameters
+                    kwargs = self.permanent_clip_grad_norm
+                else:
+                    parameters = None
+                    kwargs = {}
+
+                if parameters is not None:
+                    self.grad_norm = parallel_layers.clip_grad_norm(parameters, **kwargs)
                     self.clip_grad_norm_to_perform = None
+
                 self.optimizer.step(closure=closure)
 
     def __getstate__(self):
