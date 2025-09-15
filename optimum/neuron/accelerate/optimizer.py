@@ -17,8 +17,7 @@ import accelerate
 import torch
 import torch_xla.core.xla_model as xm
 from accelerate.optimizer import AcceleratedOptimizer
-from neuronx_distributed import parallel_layers
-from neuronx_distributed.parallel_layers.grads import bucket_allreduce_gradients
+from neuronx_distributed.parallel_layers.grads import bucket_allreduce_gradients, clip_grad_norm
 from neuronx_distributed.parallel_layers.mappings import reduce_from_tensor_model_parallel_region
 from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
 
@@ -81,6 +80,27 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                         if isinstance(p, torch.Tensor) and p.requires_grad:
                             self.permanent_parameters.append(p)
 
+    def _fetch_gradients(self):
+        gradients = []
+        ep_gradients = []
+        for param_group in self.optimizer.__getstate__()["param_groups"]:
+            for group, params in param_group.items():
+                if group == "params":
+                    for p in params:
+                        if isinstance(p, torch.Tensor):
+                            if p.grad is not None:
+                                if hasattr(p, "expert_model_parallel") and p.expert_model_parallel:
+                                    ep_gradients.append(p.grad.data)
+                                else:
+                                    gradients.append(p.grad.data)
+                            elif hasattr(p, "main_grad"):
+                                if hasattr(p, "expert_model_parallel") and p.expert_model_parallel:
+                                    ep_gradients.append(p.main_grad.data)
+                                else:
+                                    gradients.append(p.main_grad.data)
+
+        return gradients, ep_gradients
+
     def step(self, closure=None):
         if self.gradient_state.sync_gradients:
             # For sequence-parallel, we have to explicitly all-reduce the layernorm gradients.
@@ -105,12 +125,11 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                 self.clip_grad_norm_to_perform = None
 
             else:
-                # NxDPPModel already reduces gradients across data parallel ranks so we do not do it here.
-                if (
-                    self.accelerator_state.trn_config.data_parallel_size > 1
-                    and self.accelerator_state.trn_config.pipeline_parallel_size == 1
-                ):
-                    bucket_allreduce_gradients(xm._fetch_gradients(self.optimizer))
+                non_ep_gradients, ep_gradients = self._fetch_gradients()
+                bucket_allreduce_gradients(non_ep_gradients + ep_gradients)
+                if len(ep_gradients) > 0:
+                    bucket_allreduce_gradients(non_ep_gradients, reduce_over_ep_group=True)
+
                 if self.clip_grad_norm_to_perform is not None:
                     parameters = self.clip_grad_norm_to_perform.pop("parameters", None)
                     kwargs = self.clip_grad_norm_to_perform
@@ -122,7 +141,7 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                     kwargs = {}
 
                 if parameters is not None:
-                    self.grad_norm = parallel_layers.clip_grad_norm(parameters, **kwargs)
+                    self.grad_norm = clip_grad_norm(parameters, **kwargs)
                     self.clip_grad_norm_to_perform = None
 
                 self.optimizer.step(closure=closure)
