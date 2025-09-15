@@ -34,7 +34,6 @@ from ..utils.torch_xla_and_neuronx_initialization import (
     set_common_flags,
     set_neuron_cc_flags_for_torch_amp,
 )
-from .utils import NeuronDistributedType
 
 
 logger = logging.get_logger()
@@ -154,9 +153,6 @@ class NeuronAcceleratorState(AcceleratorState):
 
                 if trn_config is None:
                     trn_config = TrainingNeuronConfig()
-
-                if trn_config.model_parallelism_enabled:
-                    self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
 
                 self.trn_config = trn_config
 
