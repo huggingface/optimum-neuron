@@ -141,13 +141,9 @@ def test_zero1_training_arguments_integration(tmpdir):
         pipeline_parallel_size=pp_size,
         bf16=True,
         zero_1=True,  # Explicitly enabled
-        optimizer_use_master_weights=True,
-        optimizer_use_fp32_grad_acc=True,
     )
 
     assert training_args.zero_1 is True
-    assert training_args.optimizer_use_master_weights is True
-    assert training_args.optimizer_use_fp32_grad_acc is True
 
     # Test ZeRO-1 disabled
     training_args_no_zero1 = NeuronTrainingArguments(
@@ -158,14 +154,10 @@ def test_zero1_training_arguments_integration(tmpdir):
         pipeline_parallel_size=pp_size,
         bf16=True,
         zero_1=False,
-        optimizer_use_master_weights=True,  # Should be disabled automatically
-        optimizer_use_fp32_grad_acc=True,  # Should be disabled automatically
     )
 
     # These should be automatically disabled when zero_1=False
     assert training_args_no_zero1.zero_1 is False
-    assert training_args_no_zero1.optimizer_use_master_weights is False
-    assert training_args_no_zero1.optimizer_use_fp32_grad_acc is False
 
 
 @is_trainium_test
