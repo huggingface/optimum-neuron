@@ -248,7 +248,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
             logger = logging.get_logger(__name__)
             logger.warning(
                 "Model was compiled with cpu_backend=True. Model loading is skipped as it requires Neuron hardware. "
-                "The model compilation was successful and the artifacts are saved."
+                "The model compilation was successful and the artifacts were saved."
             )
         else:
             model = NeuronTracedModel.load_model(model_file_path, to_neuron=not inline_weights_to_neff)
