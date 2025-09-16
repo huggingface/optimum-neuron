@@ -5,13 +5,39 @@ on:
     branches: [ main ]
     paths:
       - "pyproject.toml"
-      - "optimum/**.py"
+      - "optimum/commands/**.py"
+      - "optimum/exporters/**.py"
+      - "optimum/neuron/modeling_base.py"
+      - "optimum/neuron/modeling_diffusion.py"
+      - "optimum/neuron/modeling_traced.py"
+      - "optimum/neuron/modeling_seq2seq.py"
+      - "optimum/neuron/models/inference/bert/**.py"
+      - "optimum/neuron/models/inference/clip/**.py"
+      - "optimum/neuron/models/inference/flux/**.py"
+      - "optimum/neuron/models/inference/t5/**.py"
+      - "optimum/neuron/models/inference/whisper/**.py"
+      - "optimum/neuron/models/inference/yolos/**.py"
+      - "optimum/neuron/utils/**.py"
+      - "tests/exporters/**.py"
       - ".github/workflows/test_inf2_export.yml"
   pull_request:
     branches: [ main ]
     paths:
       - "pyproject.toml"
-      - "optimum/**.py"
+      - "optimum/commands/**.py"
+      - "optimum/exporters/**.py"
+      - "optimum/neuron/modeling_base.py"
+      - "optimum/neuron/modeling_diffusion.py"
+      - "optimum/neuron/modeling_traced.py"
+      - "optimum/neuron/modeling_seq2seq.py"
+      - "optimum/neuron/models/inference/bert/**.py"
+      - "optimum/neuron/models/inference/clip/**.py"
+      - "optimum/neuron/models/inference/flux/**.py"
+      - "optimum/neuron/models/inference/t5/**.py"
+      - "optimum/neuron/models/inference/whisper/**.py"
+      - "optimum/neuron/models/inference/yolos/**.py"
+      - "optimum/neuron/utils/**.py"
+      - "tests/exporters/**.py"
       - ".github/workflows/test_inf2_export.yml"
 
 concurrency:

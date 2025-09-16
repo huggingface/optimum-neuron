@@ -34,7 +34,12 @@ Currently the supported tasks are:
 * `text-classification`
 * `token-classification`
 * `question-answering`
-* `zero-shot-classification`
+* `text-generation`
+* `image-classification`
+* `image-segmentation`
+* `object-detection`
+* `automatic-speech-recognition`
+* `audio-classification`
 
 ## Optimum pipeline usage
 
@@ -110,15 +115,15 @@ For example, here is how you can load the [`~neuron.NeuronModelForQuestionAnswer
 >>> pred = neuron_qa(question=question, context=context)
 ```
 
-### Defining Input Shapes 
+### Defining Input Shapes
 
-NeuronModels currently require static `input_shapes` to run inference. The default input shapes will be used if you are not providing input shapes when providing the `export=True` parameter. 
-Below is an example of how to specify the input shapes for the sequence length and batch size. 
+NeuronModels currently require static `input_shapes` to run inference. The default input shapes will be used if you are not providing input shapes when providing the `export=True` parameter.
+Below is an example of how to specify the input shapes for the sequence length and batch size.
 
 ```python
 >>> from optimum.neuron.pipelines import pipeline
 
->>> input_shapes = {"batch_size": 1, "sequence_length": 64} 
+>>> input_shapes = {"batch_size": 1, "sequence_length": 64}
 >>> clt = pipeline("token-classification", model="dslim/bert-base-NER", export=True,input_shapes=input_shapes)
 >>> context = "My name is Philipp and I live in Nuremberg."
 

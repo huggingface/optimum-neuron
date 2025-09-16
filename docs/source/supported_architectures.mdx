@@ -43,7 +43,7 @@ If you need to add support for a custom model not listed above, check out our [c
 
 ## Inference
 
-The following table lists the architectures and tasks that Optimum Neuron supports for inference on Amazon EC2 Inf2 instances. 
+The following table lists the architectures and tasks that Optimum Neuron supports for inference on Amazon EC2 Inf2 instances.
 
 <Tip>
 
@@ -78,6 +78,7 @@ If a LLM is listed, e.g. a model with a `text-generation` task, it means that th
 | Hubert                    | feature-extraction, automatic-speech-recognition, audio-classification                                                                        |
 | Levit                     | feature-extraction, image-classification                                                                                                      |
 | Llama, Llama 2, Llama 3   | text-generation                                                                                                                               |
+| Llama 4                   | text-generation                                                                                                                               |
 | Mixtral                   | text-generation                                                                                                                               |
 | MobileBERT                | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | MobileNetV2               | feature-extraction, image-classification, semantic-segmentation                                                                               |
@@ -86,9 +87,10 @@ If a LLM is listed, e.g. a model with a `text-generation` task, it means that th
 | MPNet                     | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | Phi3                      | text-generation                                                                                 |
 | Phi                       | feature-extraction, text-classification, token-classification                                                                                 |
-| Qwen2, Qwen 3                     | text-generation                                                                                 |
+| Qwen2, Qwen3, Qwen3Moe    | text-generation                                                                                 |
 | RoBERTa                   | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | RoFormer                  | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| SmolLM3                   | text-generation                                                                                                                               |
 | Swin                      | feature-extraction, image-classification                                                                                                      |
 | T5                        | text2text-generation                                                                                                                          |
 | UniSpeech                 | feature-extraction, automatic-speech-recognition, audio-classification                                                                        |
@@ -113,7 +115,8 @@ If a LLM is listed, e.g. a model with a `text-generation` task, it means that th
 | LCM                           | text-to-image                                                                                                                          |
 | PixArt-α                      | text-to-image                                                                                                                          |
 | PixArt-Σ                      | text-to-image                                                                                                                          |
-| Flux                          | text-to-image                                                                                                                          |
+| Flux                          | text-to-image, inpaint                                                                                                                 |
+| Flux Kontext                  | text-to-image, image-to-image                                                                                                          |
 
 ### Sentence Transformers
 

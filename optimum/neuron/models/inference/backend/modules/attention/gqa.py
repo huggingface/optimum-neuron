@@ -19,21 +19,13 @@ import logging
 import torch
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, RowParallelLinear
-from neuronx_distributed.parallel_layers.mappings import gather_from_sequence_parallel_region
 from neuronx_distributed.parallel_layers.pad import get_number_of_extra_heads
-from neuronxcc.nki._private_kernels.qkv import rmsnorm_qkv_isa_kernel
-from neuronxcc.nki.language import nc
 from torch import nn
 from torch.distributed import ProcessGroup
 from torch.nn import functional as F
-from torch_neuronx.xla_impl.ops import nki_jit  # noqa: E402
-
-from .utils import transpose_parallel_linear_layer
 
 
 logger = logging.getLogger("Neuron")
-
-_traced_qkv_kernel = nki_jit()(rmsnorm_qkv_isa_kernel)
 
 
 class GQA(enum.Enum):
@@ -245,11 +237,8 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         gather_output: bool = True,
         fused_qkv: bool = False,
         clip_qkv: float | None = None,
-        sequence_parallel_enabled: bool = False,
-        sequence_dimension: int | None = None,
         tensor_model_parallel_group: ProcessGroup | None = None,
         rms_norm_eps: float = None,
-        qkv_kernel_enabled: bool = False,
         logical_nc_config: int = 1,
     ):
         super().__init__(
@@ -272,10 +261,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         self.fused_qkv = fused_qkv
         self.clip_qkv = clip_qkv
 
-        self.sequence_parallel_enabled = sequence_parallel_enabled
-        self.sequence_dimension = sequence_dimension
         self.rms_norm_eps = rms_norm_eps
-        self.qkv_kernel_enabled = qkv_kernel_enabled
         self.logical_nc_config = logical_nc_config
 
         if self.tensor_model_parallel_group is not None:
@@ -288,11 +274,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                     dtype=dtype,
                     tensor_model_parallel_group=self.tensor_model_parallel_group,
                 )
-                if self.qkv_kernel_enabled:
-                    # we need to transpose the weights on the CPU side to avoid
-                    # needing to transpose on the device when using QKV kernel
-                    self.Wqkv.weight = transpose_parallel_linear_layer(self.Wqkv.weight)
-
                 # Set heads info as weight parameter attributes to be used in weights sharding
                 setattr(self.Wqkv.weight, "fused_qkv", True)
                 setattr(self.Wqkv.weight, "num_attention_heads", self.num_attention_heads)
@@ -306,7 +287,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                     bias=self.bias,
                     gather_output=self.gather_output,
                     dtype=dtype,
-                    sequence_parallel_enabled=False,
                     tensor_model_parallel_group=self.tensor_model_parallel_group,
                 )
                 self.k_proj = ColumnParallelLinear(
@@ -315,7 +295,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                     bias=self.bias,
                     gather_output=self.gather_output,
                     dtype=dtype,
-                    sequence_parallel_enabled=False,
                     tensor_model_parallel_group=self.tensor_model_parallel_group,
                 )
                 self.v_proj = ColumnParallelLinear(
@@ -324,7 +303,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                     bias=self.bias,
                     gather_output=self.gather_output,
                     dtype=dtype,
-                    sequence_parallel_enabled=False,
                     tensor_model_parallel_group=self.tensor_model_parallel_group,
                 )
         else:
@@ -339,22 +317,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                 self.k_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=self.bias)
                 self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=self.bias)
 
-    def forward(self, hidden_states: torch.Tensor, rmsnorm=None):
-        if self.sequence_parallel_enabled and self.tensor_model_parallel_group is not None:
-            hidden_states = gather_from_sequence_parallel_region(
-                hidden_states,
-                self.sequence_dimension,
-                process_group=self.tensor_model_parallel_group,
-            )
-
-        if self.qkv_kernel_enabled:
-            assert self.fused_qkv, "QKV kernel only supported when fused_qkv is TRUE"
-            fused_rmsnorm = not self.sequence_parallel_enabled
-            return self._kernel_qkv_forward(hidden_states, fused_rmsnorm, rmsnorm)
-        else:
-            return self._native_qkv_forward(hidden_states)
-
-    def _native_qkv_forward(self, hidden_states: torch.Tensor):
+    def forward(self, hidden_states: torch.Tensor):
         if self.fused_qkv:
             logger.debug("QKV: native compiler")
             QKV = self.Wqkv(hidden_states)
@@ -400,45 +363,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         logger.debug(f"K shape after tensor_split: {K.shape}")
         logger.debug(f"V shape after tensor_split: {V.shape}")
         return Q, K, V
-
-    def _kernel_qkv_forward(self, hidden_states, fused_rmsnorm, rmsnorm):
-        logger.debug(f"QKV kernel: fused_rmsnorm={fused_rmsnorm} logical_nc_config={self.logical_nc_config}")
-        bs, seqlen, h = hidden_states.shape
-
-        h2, fused_qkv_size = self.Wqkv.weight.shape
-        logger.debug(f"fused QKV projection weight - shape: {self.Wqkv.weight.shape}, dtype: {self.Wqkv.weight.dtype}")
-
-        # shape checks
-        assert (
-            fused_qkv_size
-            == (self.num_attention_heads + 2 * self.num_key_value_heads) * self.head_dim // self.tp_degree
-        )
-        assert h == h2
-
-        QKV = torch.zeros(
-            bs,
-            seqlen,
-            fused_qkv_size,
-            dtype=hidden_states.dtype,
-            device=hidden_states.device,
-        )
-
-        grid = (nc(self.logical_nc_config),)
-
-        # the QKV kernel will automatically switch to the TKG QKV if seqlen==1
-        _traced_qkv_kernel[grid](
-            hidden_states,
-            self.Wqkv.weight,
-            # unsqueeze so that shape of RMS gamma weight is [1, hidden] instead of [hidden]
-            # should be fine to pass this is as a dummy even if not using fused rmsnorm
-            rmsnorm.weight.unsqueeze(0) if rmsnorm else torch.ones((1, h), device=hidden_states.device),
-            QKV,
-            eps=self.rms_norm_eps,
-            kernel_name="QKV",
-            # Run RMSNorm inside the kernel if NOT using SP norm
-            fused_rmsnorm=(fused_rmsnorm and rmsnorm is not None),
-        )
-        return self._split_fused_qkv(QKV)
 
     def get_weight(
         self, prefix: str, layer: torch.nn.Module, layer_name, model_state_dict: dict
@@ -726,8 +650,6 @@ class GroupQueryAttention_O(BaseGroupQueryAttention):
         desired_sharding_strategy: GQA | None = None,
         input_is_parallel: bool = False,
         layer_name: str = "o_proj",
-        sequence_parallel_enabled: bool = False,
-        sequence_dimension: int | None = None,
         tensor_model_parallel_group: ProcessGroup | None = None,
         rpl_reduce_dtype: torch.dtype = None,
     ):
@@ -752,8 +674,6 @@ class GroupQueryAttention_O(BaseGroupQueryAttention):
                 bias=self.bias,
                 input_is_parallel=self.input_is_parallel,
                 dtype=self.dtype,
-                sequence_parallel_enabled=sequence_parallel_enabled,
-                sequence_dimension=sequence_dimension,
                 tensor_model_parallel_group=self.tensor_model_parallel_group,
                 reduce_dtype=rpl_reduce_dtype,
             )

@@ -42,7 +42,7 @@ def _test_vllm_generation(llm):
 
 def test_vllm_from_neuron_model(base_neuron_decoder_path):
     """Test vLLm generation on a single model exported locally."""
-    llm = LLM(model=base_neuron_decoder_path, device="neuron")
+    llm = LLM(model=base_neuron_decoder_path)
     _test_vllm_generation(llm)
 
 
@@ -54,9 +54,8 @@ def test_vllm_from_hub_model(neuron_decoder_config):
         model=model_id,
         max_num_seqs=export_kwargs["batch_size"],
         max_model_len=export_kwargs["sequence_length"],
-        tensor_parallel_size=export_kwargs["num_cores"],
+        tensor_parallel_size=export_kwargs["tensor_parallel_size"],
         dtype=DTYPE_MAPPER.pt(export_kwargs["auto_cast_type"]),
-        device="neuron",
     )
     _test_vllm_generation(llm)
 
@@ -68,7 +67,6 @@ def test_vllm_greedy_expectations(neuron_decoder_config):
     llm = LLM(
         model=neuron_decoder_config["neuron_model_path"],
         max_num_seqs=neuron_decoder_config["export_kwargs"]["batch_size"],
-        device="neuron",
     )
     # Send more prompts than the compiled batch size (4) and request
     # varying generation lengths to test continuous batching.
@@ -132,6 +130,14 @@ def test_vllm_greedy_expectations(neuron_decoder_config):
             " to find a balance between the two things that are important to me. I want to find a balance between the two things that are important to me. I want to find a balance between the two things",
             " due to the absorption of light by the atmosphere.",
             " the time I was in the first grade. I remember the day I got the first grade, the",
+        ],
+        "smollm3": [
+            " the head of state and government of the United States",
+            " Paris. The Eiffel Tower is in Paris. The Eiffel Tower is a famous landmark",
+            " It was a special day, for it was the first of April, and people were putting the finishing touches to their April Fools' Day pranks",
+            " to be happy. I believe that happiness is the most important thing in life. I believe that happiness is not just a feeling, but a state of being. I believe that happiness is not something that",
+            " blue because of Rayleigh scattering. This is the",
+            " of my grandmother, who was a wonderful cook, making a delicious chicken and dumplings soup. She",
         ],
     }[neuron_decoder_config["name"]]
 

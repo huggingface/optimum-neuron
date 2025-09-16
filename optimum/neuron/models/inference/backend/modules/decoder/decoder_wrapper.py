@@ -52,7 +52,6 @@ def get_bucket_model_config_from_tag(
             bucket_kernel=get_context_encoder_bk,
             bucket_kernel_constant_args=(
                 torch.tensor(buckets),
-                neuron_config.padding_side,
                 pad_token,
             ),
             shared_state_buffer=None,
@@ -63,7 +62,6 @@ def get_bucket_model_config_from_tag(
             bucket_kernel=get_generation_model_bk,
             bucket_kernel_constant_args=(
                 torch.tensor(buckets),
-                neuron_config.padding_side,
                 0,
             ),
             shared_state_buffer=None,
@@ -108,7 +106,6 @@ class NxDDecoderWrapper(NxDModelWrapper):
         self.compiler_workdir = os.path.join(base_compile_work_dir, self.tag)
 
         self.model_init_kwargs = model_init_kwargs
-        self.async_mode = self.neuron_config.async_mode
 
     def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
         self.model = self.model_cls(self.config, self.neuron_config)
@@ -276,10 +273,6 @@ class NxDDecoderWrapper(NxDModelWrapper):
 
             output_logits.append(outputs)
             cur_batch += self.neuron_config.batch_size
-
-        if self.async_mode:
-            # block on all requests here, since this is output manipulation
-            output_logits = [self._get_async_output(ranked_logits) for ranked_logits in output_logits]
 
         return torch.cat(output_logits, dim=0)
 

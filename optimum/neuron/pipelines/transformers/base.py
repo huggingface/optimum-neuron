@@ -159,16 +159,10 @@ def load_pipeline(
     revision: str = "main",
     compiler_args: dict[str, Any] | None = {},
     hub_kwargs: dict[str, Any] | None = {},
-    **kwargs,
+    **export_kwargs,
 ):
-    # loads default model
-    if model is None:
-        model_id = supported_tasks[targeted_task]["default"]
-        model = supported_tasks[targeted_task]["class"][0].from_pretrained(
-            model_id, export=True, **compiler_args, **input_shapes, **hub_kwargs, **kwargs
-        )
     # loads model from model id and converts it to neuronx optionally
-    elif isinstance(model, str):
+    if isinstance(model, str):
         model_id = model
         neuronx_model_class = supported_tasks[targeted_task]["class"][0]
         # Try to determine the correct feature extraction class to use.
@@ -178,9 +172,16 @@ def load_pipeline(
             logger.info("Using Sentence Transformers compatible Feature extraction pipeline")
             neuronx_model_class = NeuronModelForSentenceTransformers
 
-        model = neuronx_model_class.from_pretrained(
-            model, export=export, **compiler_args, **input_shapes, **hub_kwargs, **kwargs
-        )
+        if issubclass(neuronx_model_class, NeuronModelForCausalLM):
+            if export:
+                neuron_config = neuronx_model_class.get_neuron_config(model, **export_kwargs)
+                model = neuronx_model_class.export(model, neuron_config=neuron_config, load_weights=True, **hub_kwargs)
+            else:
+                model = neuronx_model_class.from_pretrained(model, **hub_kwargs)
+        else:
+            model = neuronx_model_class.from_pretrained(
+                model, export=export, **compiler_args, **input_shapes, **hub_kwargs
+            )
     # uses neuron model
     elif isinstance(model, NeuronModel):
         if tokenizer is None and load_tokenizer:
@@ -239,6 +240,9 @@ def pipeline(
         raise ValueError(
             f"Task {task} is not supported for the optimum neuron pipeline. Supported tasks are {list(NEURONX_SUPPORTED_TASKS.keys())}"
         )
+    # loads default model
+    if model is None:
+        model = NEURONX_SUPPORTED_TASKS[task]["default"]
 
     # copied from transformers.pipelines.__init__.py
     commit_hash = kwargs.pop("_commit_hash", None)
@@ -248,6 +252,7 @@ def pipeline(
         "trust_remote_code": trust_remote_code,
         "_commit_hash": commit_hash,
     }
+    batch_size = kwargs.pop("batch_size", None)
 
     config = kwargs.get("config", None)
     if config is None:
@@ -271,12 +276,21 @@ def pipeline(
         elif isinstance(model, NeuronModel):
             neuron_config = getattr(model, "neuron_config", None)
 
+    export_kwargs = {}
     if export:
         if neuron_config is not None:
             raise ValueError("This model has already been exported to Neuron format")
-        if not input_shapes:
+        # Decoder models can select default input shapes from the config
+        if task != "text-generation" and not input_shapes:
             input_shapes = {"batch_size": 1, "sequence_length": 128}
             logger.warning(f"No input shapes provided, using default shapes, {input_shapes}")
+        else:
+            export_kwargs = {
+                "batch_size": batch_size,
+                "sequence_length": kwargs.pop("sequence_length", None),
+                "tensor_parallel_size": kwargs.pop("num_cores", None),
+                "auto_cast_type": kwargs.pop("auto_cast_type", None),
+            }
     else:
         if neuron_config is None:
             raise ValueError("The model must be exported to Neuron format first")
@@ -334,6 +348,7 @@ def pipeline(
         supported_tasks=NEURONX_SUPPORTED_TASKS,
         hub_kwargs=hub_kwargs,
         token=token,
+        **export_kwargs,
     )
 
     if tokenizer is None and load_tokenizer:
@@ -343,19 +358,21 @@ def pipeline(
     if image_processor is None and load_image_processor:
         image_processor = get_preprocessor(model_id)
 
-    # If we don't specify a batch_size, the pipeline will assume batch_size 1
-    # and it will process the inputs one by one instead of processing them in parallel
-    batch_size = 1
-    neuron_config = (
-        getattr(config, "neuron", None)
-        or getattr(model.config, "neuron", None)
-        or getattr(model, "neuron_config", None)
-    )
-    if isinstance(neuron_config, NeuronConfig):
-        batch_size = neuron_config.batch_size
-    elif isinstance(neuron_config, dict):
-        for attr in ["batch_size", "static_batch_size"]:
-            batch_size = neuron_config.get(attr, batch_size)
+    if batch_size is None:
+        # If we don't specify a batch_size, the pipeline will assume batch_size 1
+        # and it will process the inputs one by one instead of processing them in parallel
+        neuron_config = (
+            getattr(config, "neuron", None)
+            or getattr(model.config, "neuron", None)
+            or getattr(model, "neuron_config", None)
+        )
+        if isinstance(neuron_config, NeuronConfig):
+            batch_size = neuron_config.batch_size
+        elif isinstance(neuron_config, dict):
+            for attr in ["batch_size", "static_batch_size"]:
+                batch_size = neuron_config.get(attr, batch_size)
+        else:
+            batch_size = 1
     if batch_size > 1 and tokenizer is not None and tokenizer.pad_token_id is None:
         # The pipeline needs a pad token to be able to batch
         if isinstance(model.config.eos_token_id, list):

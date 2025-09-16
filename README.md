@@ -19,7 +19,7 @@ limitations under the License.
 🤗 Optimum Neuron is the interface between the 🤗 Transformers library and AWS Accelerators including [AWS Trainium](https://aws.amazon.com/machine-learning/trainium/?nc1=h_ls) and [AWS Inferentia](https://aws.amazon.com/machine-learning/inferentia/?nc1=h_ls).
 **Key Features:**
 - 🔄 **Drop-in replacement** for standard Transformers training and inference
-- ⚡ **Distributed training** support with minimal code changes  
+- ⚡ **Distributed training** support with minimal code changes
 - 🎯 **Optimized models** for AWS accelerators
 - 📈 **Production-ready** inference with compiled models
 
@@ -71,7 +71,7 @@ def format_dolly_dataset(example):
     instruction = f"### Instruction\n{example['instruction']}"
     context = f"### Context\n{example['context']}" if example["context"] else None
     response = f"### Answer\n{example['response']}"
-    
+
     # Combine all parts with double newlines
     parts = [instruction, context, response]
     return "\n\n".join(part for part in parts if part)
@@ -80,15 +80,15 @@ def format_dolly_dataset(example):
 def main():
     # Load instruction-following dataset
     dataset = load_dataset("databricks/databricks-dolly-15k", split="train")
-    
+
     # Model configuration
     model_id = "Qwen/Qwen3-1.7B"
     output_dir = "qwen3-1.7b-finetuned"
-    
+
     # Setup tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
-    
+
     # Configure training for Trainium
     training_args = NeuronTrainingArguments(
         learning_rate=1e-4,
@@ -98,7 +98,7 @@ def main():
         logging_steps=1,
         output_dir=output_dir,
     )
-    
+
     # Load model optimized for Trainium
     model = NeuronModelForCausalLM.from_pretrained(
         model_id,
@@ -106,14 +106,14 @@ def main():
         torch_dtype=torch.bfloat16,
         use_flash_attention_2=True,  # Enable fast attention
     )
-    
+
     # Setup supervised fine-tuning
     sft_config = NeuronSFTConfig(
         max_seq_length=2048,
         packing=True,  # Pack multiple samples for efficiency
         **training_args.to_dict(),
     )
-    
+
     # Initialize trainer and start training
     trainer = NeuronSFTTrainer(
         model=model,
@@ -122,16 +122,16 @@ def main():
         train_dataset=dataset,
         formatting_func=format_dolly_dataset,
     )
-    
+
     trainer.train()
-    
+
     # Share your model with the community
     trainer.push_to_hub(
         commit_message="Fine-tuned on Databricks Dolly dataset",
         blocking=True,
         model_name=output_dir,
     )
-    
+
     if xr.local_ordinal() == 0:
         print(f"Training complete! Model saved to {output_dir}")
 

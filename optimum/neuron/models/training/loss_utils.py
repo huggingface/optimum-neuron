@@ -183,8 +183,7 @@ def parallel_cross_entropy(vocab_parallel_logits, target, ignore_index=-100, red
 
 
 @torch.fx.wrap
-def fixed_cross_entropy(source, target, num_items_in_batch: int | None = None, ignore_index: int = -100, **kwargs):
-    reduction = "sum" if num_items_in_batch is not None else "mean"
+def fixed_cross_entropy(source, target, reduction: str = "mean", ignore_index: int = -100, **kwargs):
     tp_size = get_tensor_model_parallel_size()
     if tp_size > 1:
         if _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT:
@@ -193,14 +192,10 @@ def fixed_cross_entropy(source, target, num_items_in_batch: int | None = None, i
     else:
         loss_function = nn.functional.cross_entropy
     loss = loss_function(source, target, ignore_index=ignore_index, reduction=reduction)
-    if reduction == "sum":
-        loss = loss / num_items_in_batch
     return loss
 
 
-def ForCausalLMLoss(
-    logits, labels, vocab_size: int, num_items_in_batch: int | None = None, ignore_index: int = -100, **kwargs
-):
+def ForCausalLMLoss(logits, labels, vocab_size: int, reduction: str = "mean", ignore_index: int = -100, **kwargs):
     # Upcast to float if we need to compute the loss to avoid potential precision issues
     logits = logits.float()
     labels = labels.to(logits.device)
@@ -213,5 +208,5 @@ def ForCausalLMLoss(
     shift_labels = shift_labels.view(-1)
     # Enable model parallelism
     shift_labels = shift_labels.to(shift_logits.device)
-    loss = fixed_cross_entropy(shift_logits, shift_labels, num_items_in_batch, ignore_index, **kwargs)
+    loss = fixed_cross_entropy(shift_logits, shift_labels, reduction=reduction, ignore_index=ignore_index, **kwargs)
     return loss

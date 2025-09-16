@@ -17,7 +17,6 @@
 from typing import TYPE_CHECKING
 
 import torch
-
 from optimum.utils import (
     DummyAudioInputGenerator,
     DummyInputGenerator,
@@ -380,6 +379,21 @@ class DummyTransformerRotaryEmbGenerator(DummyInputGenerator):
         if input_name == "image_rotary_emb":
             shape = [
                 self.sequence_length + (self.height // 2) * (self.width // 2),
+                self.rotary_axes_dim,
+                2,  # freqs_cos, freqs_sin
+            ]
+            return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
+
+
+class DummyFluxKontextTransformerRotaryEmbGenerator(DummyTransformerRotaryEmbGenerator):
+    """
+    Generates dummy image rotary embedding for Flux Kontext.
+    """
+
+    def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
+        if input_name == "image_rotary_emb":
+            shape = [
+                self.sequence_length + (self.height // 2) * (self.width // 2) * 2,
                 self.rotary_axes_dim,
                 2,  # freqs_cos, freqs_sin
             ]

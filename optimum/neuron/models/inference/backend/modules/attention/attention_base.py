@@ -25,9 +25,7 @@ from transformers import PretrainedConfig
 
 from .utils import (
     apply_rotary_pos_emb,
-    distributed_softmax,
     manual_softmax,
-    move_heads_front,
     repeat_kv,
 )
 
@@ -39,15 +37,13 @@ except ImportError:
     from neuronxcc.nki.kernels.attention import attention_isa_kernel  # noqa: E402
 
 import neuronx_distributed as nxd
-import torch_xla.core.xla_model as xm
 from neuronx_distributed.parallel_layers import parallel_state, utils  # noqa: E402
 from neuronx_distributed.parallel_layers.layers import SPMDRank
-from neuronx_distributed.parallel_layers.parallel_state import get_kv_shared_group
 from neuronxcc.nki.language import nc
 from torch_neuronx.xla_impl.ops import nki_jit  # noqa: E402
 
 from ...config import NxDNeuronConfig
-from .gqa import GQA, GroupQueryAttention_O, GroupQueryAttention_QKV  # noqa: E402
+from .gqa import GroupQueryAttention_O, GroupQueryAttention_QKV  # noqa: E402
 
 
 logger = logging.getLogger("Neuron")
@@ -94,46 +90,33 @@ class NeuronAttentionBase(nn.Module):
             self.tensor_model_parallel_group = nxd.parallel_layers.parallel_state.get_tensor_model_parallel_group()
             self.rank_util = SPMDRank(world_size=self.tensor_model_parallel_group.size())
 
-        self.is_causal = True
         self.hidden_size = config.hidden_size
         self.num_attention_heads = config.num_attention_heads
         self.num_key_value_heads = config.num_key_value_heads
-        self.head_dim = getattr(config, "head_dim", self.hidden_size // self.num_attention_heads)
+        self.head_dim = getattr(config, "head_dim", None)
+        # Head dim could be present but set to None in some models
+        if self.head_dim is None:
+            self.head_dim = self.hidden_size // self.num_attention_heads
         self.max_position_embeddings = config.max_position_embeddings
         self.rope_theta = config.rope_theta
-        self.padding_side = neuron_config.padding_side
         self.torch_dtype = neuron_config.torch_dtype
-        self.qk_layernorm = neuron_config.qk_layernorm
-        self.flash_decoding_enabled = neuron_config.flash_decoding_enabled
-        self.num_cores_per_group = neuron_config.num_cores_per_group
-        self.rpl_reduce_dtype = neuron_config.rpl_reduce_dtype
-        self.mlp_kernel_enabled = neuron_config.mlp_kernel_enabled
         self.rms_norm_eps = config.rms_norm_eps
-        self.tp_degree = neuron_config.tp_degree
-        self.fused_qkv = neuron_config.fused_qkv
-        self.clip_qkv = None
         self._qk_scale = qk_scale
 
         self.o_proj_layer_name = "o_proj"
 
-        self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
-        self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
         self.qkv_proj = GroupQueryAttention_QKV(
             hidden_size=self.hidden_size,
             head_dim=self.head_dim,
             num_attention_heads=self.num_attention_heads,
             num_key_value_heads=self.num_key_value_heads,
-            tp_degree=self.tp_degree,
+            tp_degree=neuron_config.tp_degree,
             dtype=self.torch_dtype,
             bias=qkv_proj_bias,
             gather_output=False,
-            fused_qkv=self.fused_qkv,
-            clip_qkv=self.clip_qkv,
-            sequence_parallel_enabled=self.sequence_parallel_enabled,
-            sequence_dimension=self.sequence_dimension,
+            fused_qkv=neuron_config.fused_qkv,
             tensor_model_parallel_group=self.tensor_model_parallel_group,
             rms_norm_eps=self.rms_norm_eps,
-            qkv_kernel_enabled=neuron_config.qkv_kernel_enabled,
             logical_nc_config=neuron_config.logical_nc_config,
         )
         self.o_proj = GroupQueryAttention_O(
@@ -141,22 +124,21 @@ class NeuronAttentionBase(nn.Module):
             head_dim=self.head_dim,
             num_attention_heads=self.num_attention_heads,
             num_key_value_heads=self.num_key_value_heads,
-            tp_degree=self.tp_degree,
+            tp_degree=neuron_config.tp_degree,
             dtype=self.torch_dtype,
             bias=o_proj_bias,
             input_is_parallel=True,
             layer_name=self.o_proj_layer_name,
-            sequence_parallel_enabled=self.sequence_parallel_enabled,
-            sequence_dimension=self.sequence_dimension,
             tensor_model_parallel_group=self.tensor_model_parallel_group,
-            rpl_reduce_dtype=self.rpl_reduce_dtype,
+            rpl_reduce_dtype=neuron_config.torch_dtype,
         )
-        self.num_heads = utils.divide(self.qkv_proj.get_num_attention_heads(), self.tp_degree)
-        self.num_key_value_heads = utils.divide(self.qkv_proj.get_num_key_value_heads(), self.tp_degree)
+        self.num_heads = utils.divide(self.qkv_proj.get_num_attention_heads(), neuron_config.tp_degree)
+        self.num_key_value_heads = utils.divide(self.qkv_proj.get_num_key_value_heads(), neuron_config.tp_degree)
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
-        self.q_layernorm = nn.LayerNorm(self.head_dim) if self.qk_layernorm else None
-        self.k_layernorm = nn.LayerNorm(self.head_dim) if self.qk_layernorm else None
-        self.attn_kernel_enabled = neuron_config.attn_kernel_enabled
+        # By default we do not use layernorm in q and k projection
+        # This can be changed in the subclass if needed: maybe make it a parameter?
+        self.q_layernorm = None
+        self.k_layernorm = None
         self.logical_nc_config = neuron_config.logical_nc_config
 
     @property
@@ -169,36 +151,36 @@ class NeuronAttentionBase(nn.Module):
         QK = torch.where(attention_mask, QK, torch.finfo(QK.dtype).min)
         return QK
 
-    def prep_qkv_tensors(
+    def rotate_qkv_tensors(
         self,
-        position_ids,
-        hidden_states,
-        past_key_value,
+        position_ids: torch.LongTensor,
+        Q: torch.Tensor,
+        K: torch.Tensor,
         cos_cache=None,
         sin_cache=None,
-        rmsnorm=None,
     ):
-        """take care of the shape, layout, group query, custom position encoding, etc."""
-        Q, K, V = self.qkv_proj(hidden_states=hidden_states, rmsnorm=rmsnorm)
+        """
+        Apply rotary embedding to Q and K.
 
-        # Divide hidden_dim across heads for MHA
-        # Change layout: BSHD -> BHSD
-        bsz, q_len, _ = hidden_states.size()
-        if self.sequence_parallel_enabled:
-            q_len *= self.tensor_model_parallel_group.size()
-
-        Q = move_heads_front(Q, bsz, q_len, self.num_heads, self.head_dim, layernorm=self.q_layernorm)
-        K = move_heads_front(K, bsz, q_len, self.num_key_value_heads, self.head_dim, layernorm=self.k_layernorm)
-        V = move_heads_front(V, bsz, q_len, self.num_key_value_heads, self.head_dim, layernorm=None)
-
+        The input tensors have shape (batch_size, seq_length, num_heads, head_dim).
+        The resulting tensors have shape (batch_size, num_heads, seq_length, head_dim).
+        """
+        # Apply layernorm to Q and K if needed BEFORE the rotation
+        if self.q_layernorm is not None:
+            Q = self.q_layernorm(Q)
+        if self.k_layernorm is not None:
+            K = self.k_layernorm(K)
+        # Move heads to front for rotary embedding
+        Q = Q.permute(0, 2, 1, 3).contiguous()
+        K = K.permute(0, 2, 1, 3).contiguous()
         # Rotate Q and K
         if self.rotary_emb is not None:
             if cos_cache is None or sin_cache is None:
-                cos_cache, sin_cache = self.rotary_emb(V, position_ids)
+                cos_cache, sin_cache = self.rotary_emb(Q, position_ids)
 
             Q, K = apply_rotary_pos_emb(Q, K, cos_cache, sin_cache)
 
-        return Q, K, V, cos_cache, sin_cache
+        return Q, K, cos_cache, sin_cache
 
     def perform_prefill(self, Q, K, V, q_len, bsz, attention_mask) -> Tensor:
         """attention computation at prefilling (context encoding) phase"""
@@ -210,10 +192,6 @@ class NeuronAttentionBase(nn.Module):
 
         if flash_attn_strategy != FlashAttentionStrategy.NONE:
             logger.debug(f"ATTN kernel: logical_nc_config={self.logical_nc_config}")
-            # if we are using left padding, then the bzs needs be 1 (otherwise we get wrong result
-            # because flash attention does not use attention_mask). In practice, we use right
-            # padding so this is unlikely to cause issues
-            assert self.padding_side == "right" or bsz == 1
 
             # original shape of q, k, v is BHSD, and expected output is also BHSD.
             logger.debug(f"Using flash_fwd for Q.shape={Q.shape}")
@@ -307,36 +285,7 @@ class NeuronAttentionBase(nn.Module):
         if q_len >= 4096:
             return FlashAttentionStrategy.UNSHARDED_KERNEL
 
-        # At lower seq lens, enable only if explicitly enabled.
-        if self.attn_kernel_enabled and q_len >= 512:
-            return FlashAttentionStrategy.UNSHARDED_KERNEL
-
         return FlashAttentionStrategy.NONE
-
-    def compute_for_flash_decoding(self, Q, K, V, past_key_value, attention_mask, active_mask) -> Tensor:
-        # TODO: refactor/decompose this to reduce duplication with compute_for_token_gen
-        # active attention
-        n_repeat = Q.shape[1]
-        K_active = repeat_kv(K, n_repeat)
-        V_active = repeat_kv(V, n_repeat)
-        active_scores = (torch.matmul(Q, K_active.transpose(2, 3)) * self.qk_scale).to(torch.float32)
-        active_scores = torch.where(active_mask, active_scores, torch.finfo(active_scores.dtype).min)
-
-        # prior attention
-        K_prior = repeat_kv(past_key_value[0], n_repeat)
-        V_prior = repeat_kv(past_key_value[1], n_repeat)
-        prior_scores = torch.matmul(Q, K_prior.transpose(2, 3)) * self.qk_scale
-        prior_scores = torch.where(attention_mask, prior_scores, torch.finfo(prior_scores.dtype).min)
-        prior_scores = prior_scores.to(torch.float32)
-
-        # attention scores
-        softmax_prior, softmax_active = distributed_softmax(prior_scores, active_scores)
-        softmax_prior, softmax_active = softmax_prior.to(Q.dtype), softmax_active.to(Q.dtype)
-        attn_prior = torch.matmul(softmax_prior, V_prior)
-        attn_active = torch.matmul(softmax_active, V_active)
-        attn_output = attn_prior + attn_active
-
-        return attn_output
 
     def compute_for_token_gen(self, Q, K, V, position_ids, past_key_value, attention_mask, active_mask) -> Tensor:
         """attention computation at token generation phase"""
@@ -361,7 +310,7 @@ class NeuronAttentionBase(nn.Module):
         active_scores = active_scores.to(torch.float32)
 
         # iii. attention scores
-        softmax_prior, softmax_active = manual_softmax(prior_scores, active_scores, is_speculation)
+        softmax_prior, softmax_active = manual_softmax(prior_scores, active_scores)
         softmax_prior, softmax_active = softmax_prior.to(Q.dtype), softmax_active.to(Q.dtype)
         attn_prior = torch.matmul(softmax_prior, V_prior)
         attn_active = torch.matmul(softmax_active, V_active)
@@ -378,60 +327,35 @@ class NeuronAttentionBase(nn.Module):
         active_mask: torch.LongTensor | None = None,
         cos_cache: torch.Tensor | None = None,
         sin_cache: torch.Tensor | None = None,
-        rmsnorm=None,
     ) -> tuple[Tensor, tuple[Tensor, Tensor] | None]:
         """Implements each layer's forward pass for the attention block."""
         bsz, q_len, _ = hidden_states.size()
-        if self.sequence_parallel_enabled:
-            q_len *= self.tensor_model_parallel_group.size()
 
-        Q, K, V, cos_cache, sin_cache = self.prep_qkv_tensors(
+        Q, K, V = self.qkv_proj(hidden_states=hidden_states)
+
+        # Divide hidden_dim across heads for MHA
+        # Change layout: BSHD -> BHSD
+        bsz, q_len, _ = hidden_states.size()
+
+        Q = Q.view(bsz, q_len, self.num_heads, self.head_dim)
+        K = K.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
+        V = V.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2).contiguous()
+
+        Q, K, cos_cache, sin_cache = self.rotate_qkv_tensors(
             position_ids,
-            hidden_states,
-            past_key_value,
+            Q,
+            K,
             cos_cache=cos_cache,
             sin_cache=sin_cache,
-            rmsnorm=rmsnorm,
         )
 
         flash_attn_strategy = FlashAttentionStrategy.NONE
         if past_key_value is None:
             attn_output, flash_attn_strategy = self.perform_prefill(Q, K, V, q_len, bsz, attention_mask)
-            if self.flash_decoding_enabled:
-                assert self.qkv_proj.sharding_strategy == GQA.REPLICATE_TO_TP_DEGREE, (
-                    "Flash decoding lives in the context of GQA (grouped query attention) and traditional MHA "
-                    "multi-head attention) won't work!"
-                )
-                rank_id = self.rank_util.get_rank()
-                rank_id_in_kv_group = torch.remainder(rank_id, self.num_cores_per_group).to(torch.int64)
-                # shard KV by seq len and pick the values based on rank
-                assert q_len == Q.shape[2], f"Q shape is {Q.shape}"
-                # selecting positions (on S dim) that belongs to the current rank
-                offset = torch.arange(0, q_len, self.num_cores_per_group, dtype=torch.int64, device=Q.device)
-                selected_seq_pos = offset + rank_id_in_kv_group
-                K = torch.index_select(input=K, dim=2, index=selected_seq_pos)
-                V = torch.index_select(input=V, dim=2, index=selected_seq_pos)
         else:
-            if self.flash_decoding_enabled:
-                assert active_mask is not None, "Flash decoding requires active mask is not None!"
-                # gather Q from all cores in its KV group
-                groups = get_kv_shared_group(as_list=True)
-                Q = xm.all_gather(Q, dim=1, groups=groups, pin_layout=False)
-
-                attn_output = self.compute_for_flash_decoding(Q, K, V, past_key_value, attention_mask, active_mask)
-                attn_output = xm.reduce_scatter(
-                    xm.REDUCE_SUM,
-                    attn_output,
-                    scale=1,
-                    scatter_dim=1,
-                    shard_count=len(groups[0]),
-                    groups=groups,
-                    pin_layout=False,
-                )
-            else:
-                attn_output = self.compute_for_token_gen(
-                    Q, K, V, position_ids, past_key_value, attention_mask, active_mask
-                )
+            attn_output = self.compute_for_token_gen(
+                Q, K, V, position_ids, past_key_value, attention_mask, active_mask
+            )
 
         if flash_attn_strategy != FlashAttentionStrategy.NONE:
             # transpose BHDS -> BSHD

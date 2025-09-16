@@ -28,8 +28,8 @@ from transformers.models.qwen3.configuration_qwen3 import Qwen3Config
 
 from ..backend.config import NxDNeuronConfig
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
-from ..backend.modules.custom_calls import CustomRMSNorm
 from ..backend.modules.decoder import NxDDecoderModel
+from ..backend.modules.rms_norm import NeuronRMSNorm
 from ..llama.modeling_llama import (
     LlamaNxDModelForCausalLM,
     LlamaRotaryEmbedding,
@@ -43,14 +43,15 @@ logger = logging.getLogger("Neuron")
 
 class NeuronQwen3Attention(NeuronAttentionBase):
     """
-    Compared with NeuronLLamaAttention, this class uses CustomRMSNorm after the the query and key projections.
+    Compared with NeuronLLamaAttention, this class uses NeuronRMSNorm after the the query and key projections.
     """
 
     def __init__(self, config: Qwen3Config, neuron_config: NxDNeuronConfig):
         super().__init__(config, neuron_config)
-        self.q_layernorm = CustomRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
-        self.k_layernorm = CustomRMSNorm(self.head_dim, eps=config.rms_norm_eps)
         self.rotary_emb = LlamaRotaryEmbedding(config)
+        # Qwen3 specific: set q_layernorm and k_layernorm
+        self.q_layernorm = NeuronRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
+        self.k_layernorm = NeuronRMSNorm(self.head_dim, eps=config.rms_norm_eps)
 
 
 class NeuronQwen3DecoderLayer(NeuronLlamaDecoderLayer):
@@ -76,10 +77,8 @@ class NxDQwen3Model(NxDDecoderModel):
             config.hidden_size,
             config.pad_token_id,
             dtype=neuron_config.torch_dtype,
-            shard_across_embedding=not neuron_config.vocab_parallel,
-            sequence_parallel_enabled=False,
+            shard_across_embedding=True,
             pad=True,
-            use_spmd_rank=neuron_config.vocab_parallel,
         )
 
         self.lm_head = ColumnParallelLinear(
@@ -93,7 +92,7 @@ class NxDQwen3Model(NxDDecoderModel):
         self.layers = nn.ModuleList(
             [NeuronQwen3DecoderLayer(config, neuron_config) for _ in range(config.num_hidden_layers)]
         )
-        self.norm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = NeuronRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
 
 class Qwen3NxDModelForCausalLM(LlamaNxDModelForCausalLM):
@@ -116,10 +115,6 @@ class Qwen3NxDModelForCausalLM(LlamaNxDModelForCausalLM):
 
         if neuron_config.fused_qkv:
             state_dict = convert_state_dict_to_fused_qkv(state_dict, config)
-
-        if neuron_config.vocab_parallel:
-            # TODO: this hack can be removed after replication_id is ready to use
-            state_dict["embed_tokens.rank_util.rank"] = torch.arange(0, neuron_config.local_ranks_size)
 
         # to facilitate rank usage in attention
         num_layers = config.num_hidden_layers

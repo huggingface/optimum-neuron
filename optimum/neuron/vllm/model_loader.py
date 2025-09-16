@@ -231,7 +231,6 @@ def get_optimum_neuron_model(
             model_id,
             revision=revision,
             token=token,
-            export=False,
         )
     else:
         # Model needs to be exported: look for compatible hub cached configs
@@ -258,14 +257,18 @@ def get_optimum_neuron_model(
             )
             raise ValueError(error_msg)
         logger.warning("%s is not a neuron model: it will be exported using cached artifacts.", model_id)
-        neuron_model = NeuronModelForCausalLM.from_pretrained(
-            model_id,
-            revision=revision,
-            token=token,
-            export=True,
+        neuron_config = NeuronModelForCausalLM.get_neuron_config(
+            model_name_or_path=model_id,
             batch_size=batch_size,
             sequence_length=sequence_length,
-            num_cores=tensor_parallel_size,
+            tensor_parallel_size=tensor_parallel_size,
             auto_cast_type=torch_dtype,
+        )
+        neuron_model = NeuronModelForCausalLM.export(
+            model_id,
+            neuron_config=neuron_config,
+            token=token,
+            revision=revision,
+            load_weights=True,
         )
     return OptimumNeuronModelForCausalLM(neuron_model)

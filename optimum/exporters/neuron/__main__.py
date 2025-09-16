@@ -26,13 +26,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import torch
-from requests.exceptions import ConnectionError as RequestsConnectionError
-from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
-
 from optimum.exporters.error_utils import AtolError, OutputMatchError, ShapeError
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import is_diffusers_available, logging
 from optimum.utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
 
 from ...neuron.models.auto_model import get_neuron_model_class, has_neuron_model_class
 from ...neuron.utils import (
@@ -83,6 +82,7 @@ if is_neuronx_available():
 if is_diffusers_available():
     from diffusers import (
         DiffusionPipeline,
+        FluxKontextPipeline,
         FluxPipeline,
         QwenImagePipeline,
         ModelMixin,
@@ -219,14 +219,14 @@ def normalize_diffusers_input_shapes(
 
 def infer_shapes_of_diffusers(
     input_shapes: dict[str, dict[str, int]],
-    model: "StableDiffusionPipeline | StableDiffusionXLPipeline | FluxPipeline",
+    model: "StableDiffusionPipeline | StableDiffusionXLPipeline | FluxPipeline | FluxKontextPipeline",
     has_controlnets: bool,
 ):
     max_sequence_length_1 = model.tokenizer.model_max_length if model.tokenizer is not None else None
     max_sequence_length_2 = (
         model.tokenizer_2.model_max_length if hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None else None
     )
-    if isinstance(model, FluxPipeline):
+    if isinstance(model, (FluxPipeline, FluxKontextPipeline)):
         max_sequence_length_2 = input_shapes["text_encoder"].get("sequence_length", None) or max_sequence_length_2
         
     if isinstance(model, QwenImagePipeline):
@@ -763,18 +763,34 @@ def maybe_export_from_neuron_model_class(
     kwargs.pop("tensor_parallel_size", None)
     # Fetch the model config
     config = AutoConfig.from_pretrained(model)
+    if task == "text-generation":
+        # In case a multi-modal model is being exported, extract the text model config
+        config = config.get_text_config()
     # Check if we have an auto-model class for the model_type and task
     if not has_neuron_model_class(model_type=config.model_type, task=task, mode="inference"):
         return False
     neuron_model_class = get_neuron_model_class(model_type=config.model_type, task=task, mode="inference")
-    neuron_model = neuron_model_class.from_pretrained(
+    batch_size = kwargs.pop("batch_size", None)
+    sequence_length = kwargs.pop("sequence_length", None)
+    tensor_parallel_size = kwargs.pop("num_cores", None)
+    auto_cast_type = kwargs.pop("auto_cast_type", None)
+    neuron_config = neuron_model_class.get_neuron_config(
+        model_name_or_path=model,
+        config=config,
+        token=kwargs.get("token", None),
+        revision=kwargs.get("revision", "main"),
+        batch_size=batch_size,
+        sequence_length=sequence_length,
+        tensor_parallel_size=tensor_parallel_size,
+        auto_cast_type=auto_cast_type,
+    )
+    neuron_model = neuron_model_class.export(
         model_id=model,
-        export=True,
+        config=config,
+        neuron_config=neuron_config,
         cache_dir=cache_dir,
         subfolder=subfolder,
-        config=config,
         trust_remote_code=trust_remote_code,
-        load_weights=False,  # Reduce model size for nxd models
         **kwargs,
     )
     if not output.parent.exists():

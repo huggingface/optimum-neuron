@@ -51,6 +51,11 @@ class TrainingNeuronConfig(NeuronConfig):
                 pipeline_model_parallel_size=self.pipeline_parallel_size,
             )
 
+        # Here we override the values with the ones actually set by NxD so we can use them interchangeably.
+        self.data_parallel_size = parallel_state.get_data_parallel_size()
+        self.tensor_parallel_size = parallel_state.get_tensor_model_parallel_size()
+        self.pipeline_parallel_size = parallel_state.get_pipeline_model_parallel_size()
+
     def auto_kv_size_multiplier(self, num_key_value_heads: int) -> int:
         kv_size_multiplier = max(1, self.tensor_parallel_size // num_key_value_heads)
         if self.kv_size_multiplier is not None and self.kv_size_multiplier != kv_size_multiplier:

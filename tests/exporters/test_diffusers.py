@@ -17,6 +17,8 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from optimum.utils import is_diffusers_available
+from optimum.utils.testing_utils import require_diffusers
 from parameterized import parameterized
 from transformers import set_seed
 from transformers.testing_utils import require_vision
@@ -30,8 +32,6 @@ from optimum.exporters.neuron.__main__ import get_submodels_and_neuron_configs
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.neuron.utils import LoRAAdapterArguments
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
-from optimum.utils import is_diffusers_available
-from optimum.utils.testing_utils import require_diffusers
 
 from .exporters_utils import (
     LORA_WEIGHTS_TINY,

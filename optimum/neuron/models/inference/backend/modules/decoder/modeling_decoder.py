@@ -20,14 +20,11 @@ from tempfile import TemporaryDirectory
 
 import neuronx_distributed as nxd
 import torch
-import torch_xla.core.xla_model as xm
 from huggingface_hub import HfApi, snapshot_download
 from neuronx_distributed.operators.argmax import argmax as nxd_argmax
 from neuronx_distributed.parallel_layers.layers import SPMDRank
 from neuronx_distributed.parallel_layers.mappings import (
     _gather_along_dim,
-    _reduce_scatter_along_dim,
-    gather_from_sequence_parallel_region,
 )
 from torch import nn
 from transformers import AutoConfig, PretrainedConfig
@@ -39,13 +36,7 @@ from ......modeling_decoder import NeuronModelForCausalLM
 from ...config import NxDNeuronConfig
 from ...pretrained_model import NxDPreTrainedModel
 from ...utils.random import set_random_seed
-from ..attention import utils as attn_utils
 from ..autobucketing import generate_buckets
-from ..flashdecode.utils import (
-    get_cache_size,
-    mask_util,
-    turn_2d_mask_to_4d,
-)
 from ..generation.generation_utils import NxDGenerationMixin
 from ..generation.sampling import (
     Sampler,
@@ -86,12 +77,8 @@ class NxDDecoderModel(nn.Module):
         self.n_positions = neuron_config.sequence_length
         self.vocab_size = config.vocab_size
         self.speculation_length = neuron_config.speculation_length
-        self.padding_side = neuron_config.padding_side
         self.max_length = neuron_config.sequence_length
-        self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
-        self.sequence_dimension = 1 if self.sequence_parallel_enabled else None
         self.rank_util = SPMDRank(world_size=neuron_config.tp_degree)
-        self.num_cores_per_group = neuron_config.num_cores_per_group
         if neuron_config.on_device_sampling:
             # Instantiate a multinomial Sampler (it can still be used for greedy by passing topk=1)
             self.sampler = Sampler(neuron_config, do_sample=True)
@@ -122,33 +109,10 @@ class NxDDecoderModel(nn.Module):
         return input_ids.shape[-1] == self.speculation_length
 
     def _create_context_attn_mask(self, attention_mask, **kwargs):
-        # Block diagonal causal mask for chunked prefill
-        if self.neuron_config.is_chunked_prefill:
-            return self._create_chunked_prefill_attn_mask(**kwargs)
-
         # Lower triangle causal mask for classic attention
         mask = torch.full((self.n_positions, self.n_positions), True, device=attention_mask.device).tril(diagonal=0)
         mask = mask[None, None, :, :].expand(self.batch_size, 1, self.n_positions, self.n_positions)
-
-        if self.padding_side == "right":
-            return mask
-        else:
-            expanded_mask = (
-                attention_mask[:, None, None, :]
-                .expand(self.batch_size, 1, self.n_positions, self.n_positions)
-                .to(torch.bool)
-            )
-            return torch.logical_and(mask, expanded_mask)
-
-    def _create_chunked_prefill_attn_mask(
-        self,
-        query_lens: torch.Tensor,
-        key_lens: torch.Tensor,
-        max_query_len: int,
-        max_key_len: int,
-        **kwargs,
-    ) -> torch.Tensor:
-        return attn_utils.create_block_diagonal_attn_mask(query_lens, key_lens, max_query_len, max_key_len, **kwargs)
+        return mask
 
     def _create_spec_attn_mask(self, attention_mask):
         return (
@@ -171,8 +135,8 @@ class NxDDecoderModel(nn.Module):
     def _slice_kv_cache(self, kv_cache, n_positions):
         past_key_values = []
         for idx in range(len(kv_cache)):
-            k_cache = _slice_kv_cacheline(self.neuron_config.padding_side, n_positions, kv_cache[idx][0])
-            v_cache = _slice_kv_cacheline(self.neuron_config.padding_side, n_positions, kv_cache[idx][1])
+            k_cache = _slice_kv_cacheline(n_positions, kv_cache[idx][0])
+            v_cache = _slice_kv_cacheline(n_positions, kv_cache[idx][1])
             past_key_values.append([k_cache, v_cache])
         return past_key_values
 
@@ -194,11 +158,7 @@ class NxDDecoderModel(nn.Module):
         is_for_context_encoding = self._is_context_encoding(input_ids)
         is_for_speculation = self._is_for_speculation(input_ids)
 
-        cache_size = (
-            get_cache_size(self.n_positions, self.num_cores_per_group, is_for_context_encoding)
-            if self.neuron_config.flash_decoding_enabled
-            else self.n_positions
-        )
+        cache_size = self.n_positions
 
         # It is either for context encoding or for token generation
         if is_for_context_encoding:
@@ -228,16 +188,6 @@ class NxDDecoderModel(nn.Module):
 
         # FD masks
         active_mask_2d = None
-        if self.neuron_config.flash_decoding_enabled and not is_for_context_encoding:
-            rank_id = self.rank_util.get_rank()
-            active_mask_2d, attention_mask_2d = mask_util(
-                pos_ids=position_ids,
-                rank_id=rank_id,
-                num_cores_per_group=self.num_cores_per_group,
-                cache_size=cache_size,
-            )
-            active_mask = turn_2d_mask_to_4d(active_mask_2d, n_positions=1, batch_size=self.batch_size)
-            attention_mask = turn_2d_mask_to_4d(attention_mask_2d, n_positions=cache_size, batch_size=self.batch_size)
 
         hidden_states, past_key_values = self.get_model_output(
             input_ids=input_ids,
@@ -260,16 +210,11 @@ class NxDDecoderModel(nn.Module):
         )
 
         batch_size, num_tokens, hidden_size = hidden_states.shape
-        if self.padding_side == "left":
-            index = torch.tensor([num_tokens - 1], device=hidden_states.device)
+        if not (position_ids.shape[-1] == self.speculation_length or position_ids.shape[-1] == 1):
+            # context encoding
+            index = torch.max(position_ids, dim=1, keepdim=True).indices
             index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
             hidden_states = torch.gather(hidden_states, dim=1, index=index)
-        else:
-            if not (position_ids.shape[-1] == self.speculation_length or position_ids.shape[-1] == 1):
-                # context encoding
-                index = torch.max(position_ids, dim=1, keepdim=True).indices
-                index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
-                hidden_states = torch.gather(hidden_states, dim=1, index=index)
 
         logits = self.lm_head(hidden_states)
         logits = logits.float()
@@ -351,15 +296,7 @@ class NxDDecoderModel(nn.Module):
         # )
 
         # embed positions
-        if self.sequence_parallel_enabled:
-            # TODO: Replace this with rankid + scatter call once supported
-            hidden_states = _reduce_scatter_along_dim(
-                inputs_embeds,
-                self.sequence_dimension,
-                xm.REDUCE_MAX,
-            )
-        else:
-            hidden_states = inputs_embeds
+        hidden_states = inputs_embeds
 
         # decoder layers
         next_decoder_cache = ()
@@ -383,12 +320,6 @@ class NxDDecoderModel(nn.Module):
             cos_cache, sin_cache = layer_outputs[2:]
 
         hidden_states = self.norm(hidden_states)
-
-        if self.sequence_parallel_enabled:
-            hidden_states = gather_from_sequence_parallel_region(
-                hidden_states,
-                self.sequence_dimension,
-            )
 
         return (hidden_states, next_decoder_cache)
 
@@ -420,17 +351,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
 
         self.text_config = self.config.get_text_config()
         self.vocab_size = self.text_config.vocab_size
-        self.padding_side = self.neuron_config.padding_side
         self.kv_cache_populated = False
-
-        # async related
-        self.async_mode = self.neuron_config.async_mode
-        self.next_cpu_inputs = None
-        self.prior_outputs = None
-        self.unequal_batching = self.neuron_config.ctx_batch_size != self.neuron_config.tkg_batch_size
-        if self.async_mode:
-            os.environ["NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS"] = "2"
-
         self.sampler = None
 
     @staticmethod
@@ -464,15 +385,11 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         new_neuron_config = copy.deepcopy(neuron_config)
         new_neuron_config.batch_size = neuron_config.tkg_batch_size
         new_neuron_config.n_active_tokens = 1
-        new_neuron_config.sequence_parallel_enabled = False
 
         if new_neuron_config.enable_bucketing:
             buckets = generate_buckets(128, neuron_config.sequence_length)
         else:
             buckets = generate_buckets(neuron_config.sequence_length, neuron_config.sequence_length)
-
-        # shouldn't be used in token gen models
-        new_neuron_config.sequence_parallel_enabled = False
 
         return NxDDecoderWrapper(
             config=config,
@@ -490,8 +407,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         new_neuron_config = copy.deepcopy(neuron_config)
         new_neuron_config.batch_size = neuron_config.tkg_batch_size
         new_neuron_config.n_active_tokens = neuron_config.speculation_length
-
-        new_neuron_config.sequence_parallel_enabled = False
 
         if new_neuron_config.enable_bucketing:
             buckets = generate_buckets(128, neuron_config.sequence_length)
@@ -546,20 +461,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
     ) -> tuple | CausalLMOutputWithPast:
-        if self.async_mode:
-            # derive future cpu inputs from current cpu inputs
-            if position_ids.shape[1] == input_ids.shape[1]:
-                next_position_ids = torch.amax(position_ids, 1, keepdim=True)
-            else:
-                next_position_ids = position_ids
-
-            next_position_ids = next_position_ids + 1
-            next_attention_mask = self._infer_attention_mask(next_position_ids)
-            self.next_cpu_inputs = {
-                "attention_mask": next_attention_mask,
-                "position_ids": next_position_ids,
-            }
-
         # infer attention_mask from position_ids if not provided
         if attention_mask is None:
             attention_mask = self._infer_attention_mask(position_ids)
@@ -647,25 +548,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             )
 
             self.kv_cache_populated = True
-            if self.async_mode:
-                if not self.unequal_batching:
-                    # for now only cte + tkg flow is supported with async (this will be enforced at config level)
-                    next_outputs = self.token_generation_model(
-                        outputs,
-                        self.next_cpu_inputs["attention_mask"],
-                        self.next_cpu_inputs["position_ids"],
-                        seq_ids,
-                        sampling_params,
-                    )
-                    outputs = self._get_async_output(outputs)  # block on cte call
-                    self.prior_outputs = next_outputs
-                else:
-                    if isinstance(
-                        outputs, list
-                    ):  # in case the outputs weren't passed through `torch.cat` in model_wrapper.py
-                        outputs = self._get_async_output(outputs)  # block on cte call
-
-                    self.prior_outputs = None
 
         elif input_ids.shape[-1] == self.neuron_config.speculation_length:
             outputs = self.speculation_model(
@@ -676,43 +558,13 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
                 sampling_params,
             )
         else:
-            if (
-                self.next_cpu_inputs is not None and self.prior_outputs is not None
-            ):  # this is never not None and not in async mode
-                _input_ids = self.prior_outputs
-                _attention_mask = self.next_cpu_inputs["attention_mask"]
-                _position_ids = self.next_cpu_inputs["position_ids"]
-            else:
-                _input_ids = input_ids
-                _attention_mask = attention_mask
-                _position_ids = position_ids
-
-            next_outputs = self.token_generation_model(
-                _input_ids,
-                _attention_mask,
-                _position_ids,
+            outputs = self.token_generation_model(
+                input_ids,
+                attention_mask,
+                position_ids,
                 seq_ids,
                 sampling_params,
             )
-            if self.async_mode:
-                if self.prior_outputs is None:  # this means that next_outputs is processing token to be returned
-                    self.prior_outputs = next_outputs
-                    next_outputs = self.token_generation_model(  # submit future token request
-                        next_outputs,
-                        self.next_cpu_inputs["attention_mask"],
-                        self.next_cpu_inputs["position_ids"],
-                        seq_ids,
-                        sampling_params,
-                    )
-                outputs = self.prior_outputs
-                if isinstance(outputs, list):
-                    outputs = self._get_async_output(
-                        self.prior_outputs
-                    )  # block on prior (sometimes current) token gen request
-
-                self.prior_outputs = next_outputs
-            else:
-                outputs = next_outputs
 
         return outputs
 
@@ -741,11 +593,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
 
     @classmethod
     def get_compiler_args(cls, neuron_config: NxDNeuronConfig) -> str:
-        tensorizer_options = (
-            "--enable-ccop-compute-overlap "
-            f"--cc-pipeline-tiling-factor={neuron_config.cc_pipeline_tiling_factor} "
-            "--vectorize-strided-dma "
-        )
+        tensorizer_options = "--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2 --vectorize-strided-dma "
 
         compiler_args = (
             "--auto-cast=none --model-type=transformer "
@@ -770,14 +618,12 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         token: bool | str | None = None,
         cache_dir: str | None = None,
         force_download: bool | None = False,
-        subfolder: str | None = "",
         local_files_only: bool | None = False,
-        trust_remote_code: bool | None = False,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         if len(kwargs) > 0:
             logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
-        neuron_config = cls.get_neuron_config_cls().from_pretrained(model_id)
+        neuron_config = NxDNeuronConfig.from_pretrained(model_id)
         context_encoding_model, token_generation_model, speculation_model = cls.create_model_wrappers(
             model_cls=cls._model_cls,
             config=config,
@@ -817,7 +663,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         return model
 
     @classmethod
-    def export(
+    def _export(
         cls,
         model_id: str,
         config: "PretrainedConfig | None",
@@ -826,15 +672,15 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         revision: str | None = None,
         cache_dir: str | None = None,
         force_download: bool | None = False,
-        subfolder: str | None = "",
         local_files_only: bool | None = False,
         trust_remote_code: bool | None = False,
-        load_weights: bool = True,
+        load_weights: bool = False,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         if len(kwargs) > 0:
             logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
         if config is None:
+            # Get the text config if not provided
             config = AutoConfig.from_pretrained(
                 model_id,
                 token=token,
@@ -842,9 +688,12 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
                 cache_dir=cache_dir,
                 force_download=force_download,
                 trust_remote_code=trust_remote_code,
-            )
+            ).get_text_config()
         # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
         config.torch_dtype = neuron_config.torch_dtype
+        # Evaluate head_dim if it is defined but set to null (like in Mixtral for transformers 4.54+)
+        if hasattr(config, "head_dim") and config.head_dim is None:
+            config.head_dim = config.hidden_size // config.num_attention_heads
         context_encoding_model, token_generation_model, speculation_model = cls.create_model_wrappers(
             model_cls=cls._model_cls,
             config=config,

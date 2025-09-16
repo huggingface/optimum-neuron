@@ -5,13 +5,51 @@ on:
     branches: [ main ]
     paths:
       - "pyproject.toml"
-      - "optimum/**.py"
+      - "optimum/commands/**.py"
+      - "optimum/exporters/neuron/__main__.py"
+      - "optimum/neuron/configuration_utils.py"
+      - "optimum/neuron/modeling_base.py"
+      - "optimum/neuron/modeling_decoder.py"
+      - "optimum/neuron/models/*.py"
+      - "optimum/neuron/models/inference/auto_models.py"
+      - "optimum/neuron/models/inference/backend/**.py"
+      - "optimum/neuron/models/inference/granite/**.py"
+      - "optimum/neuron/models/inference/llama/**.py"
+      - "optimum/neuron/models/inference/llama4/**.py"
+      - "optimum/neuron/models/inference/mixtral/**.py"
+      - "optimum/neuron/models/inference/phi3/**.py"
+      - "optimum/neuron/models/inference/qwen2/**.py"
+      - "optimum/neuron/models/inference/qwen3/**.py"
+      - "optimum/neuron/models/inference/qwen3_moe/**.py"
+      - "optimum/neuron/pipelines/transformers/base.py"
+      - "optimum/neuron/utils/**.py"
+      - "optimum/neuron/version.py"
+      - "tests/decoder/**.py"
       - ".github/workflows/test_inf2_llm.yml"
   pull_request:
     branches: [ main ]
     paths:
       - "pyproject.toml"
-      - "optimum/**.py"
+      - "optimum/commands/**.py"
+      - "optimum/exporters/neuron/__main__.py"
+      - "optimum/neuron/configuration_utils.py"
+      - "optimum/neuron/modeling_base.py"
+      - "optimum/neuron/modeling_decoder.py"
+      - "optimum/neuron/models/*.py"
+      - "optimum/neuron/models/inference/auto_models.py"
+      - "optimum/neuron/models/inference/backend/**.py"
+      - "optimum/neuron/models/inference/granite/**.py"
+      - "optimum/neuron/models/inference/llama/**.py"
+      - "optimum/neuron/models/inference/llama4/**.py"
+      - "optimum/neuron/models/inference/mixtral/**.py"
+      - "optimum/neuron/models/inference/phi3/**.py"
+      - "optimum/neuron/models/inference/qwen2/**.py"
+      - "optimum/neuron/models/inference/qwen3/**.py"
+      - "optimum/neuron/models/inference/qwen3_moe/**.py"
+      - "optimum/neuron/pipelines/transformers/base.py"
+      - "optimum/neuron/utils/**.py"
+      - "optimum/neuron/version.py"
+      - "tests/decoder/**.py"
       - ".github/workflows/test_inf2_llm.yml"
 
 concurrency:
@@ -47,12 +85,6 @@ jobs:
           pytest -sv tests/decoder/test_decoder_generation.py
           pytest -sv tests/decoder/test_decoder_hub.py
           pytest -sv tests/decoder/test_decoder_pipelines.py
-      - name: Install vLLM
-        run: |
-          source aws_neuron_venv_pytorch/bin/activate
-          pip install .[vllm]
-      - name: Run vLLM tests
-        run: |
-          source aws_neuron_venv_pytorch/bin/activate
-          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
-          pytest -sv tests/decoder/test_vllm.py
+          pytest -sv tests/decoder/test_modules.py tests/decoder/test_attention.py
+          pytest -sv tests/decoder/test_cache.py
+          pytest -sv tests/decoder/test_cli.py

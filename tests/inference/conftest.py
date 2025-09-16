@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The HuggingFace Team. All rights reserved.
+# Copyright 2024 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,39 +12,38 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import os
+import socket
 from tempfile import TemporaryDirectory
+from time import time
 
 import pytest
-import torch
-
-from optimum.neuron import NeuronFluxPipeline
-from optimum.neuron.utils.testing_utils import requires_neuronx
+from huggingface_hub import HfApi
 
 
-@pytest.fixture(scope="module")
-@requires_neuronx
-def neuron_flux_tp2_path():
-    compiler_args = {"auto_cast": "none"}
-    input_shapes = {
-        "batch_size": 1,
-        "height": 8,
-        "width": 8,
-        "num_images_per_prompt": 1,
-        "sequence_length": 256,
-    }
-
-    neuron_pipeline = NeuronFluxPipeline.from_pretrained(
-        "hf-internal-testing/tiny-flux-pipe-gated-silu",
-        export=True,
-        torch_dtype=torch.bfloat16,
-        tensor_parallel_size=2,
-        dynamic_batch_size=False,
-        disable_neuron_cache=True,
-        **input_shapes,
-        **compiler_args,
-    )
-    model_dir = TemporaryDirectory()
-    model_path = model_dir.name
-    neuron_pipeline.save_pretrained(model_path)
-    del neuron_pipeline
-    yield model_path
+@pytest.fixture
+def cache_repos():
+    # Setup: create temporary Hub repository and local cache directory
+    api = HfApi()
+    hostname = socket.gethostname()
+    cache_repo_id = f"{hostname}-{time()}-optimum-neuron-cache"
+    cache_repo_id = api.create_repo(cache_repo_id, private=True).repo_id
+    cache_dir = TemporaryDirectory()
+    cache_path = cache_dir.name
+    # Modify environment to force neuronx cache to use temporary caches
+    previous_env = {}
+    env_vars = ["NEURON_COMPILE_CACHE_URL", "CUSTOM_CACHE_REPO"]
+    for var in env_vars:
+        previous_env[var] = os.environ.get(var)
+    os.environ["NEURON_COMPILE_CACHE_URL"] = cache_path
+    os.environ["CUSTOM_CACHE_REPO"] = cache_repo_id
+    try:
+        yield (cache_path, cache_repo_id)
+    finally:
+        # Teardown
+        api.delete_repo(cache_repo_id)
+        for var in env_vars:
+            if previous_env[var] is None:
+                os.environ.pop(var)
+            else:
+                os.environ[var] = previous_env[var]

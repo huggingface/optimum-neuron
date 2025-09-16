@@ -21,7 +21,7 @@ from pathlib import Path
 
 import torch
 from huggingface_hub import HfApi
-from transformers import GenerationConfig, PretrainedConfig
+from transformers import AutoConfig, GenerationConfig, PretrainedConfig
 from transformers.file_utils import add_start_docstrings
 from transformers.generation import StoppingCriteriaList
 
@@ -103,20 +103,18 @@ def get_neuron_causal_lm_model_class(config: PretrainedConfig):
     NEURON_CAUSALLM_MODEL_START_DOCSTRING,
 )
 class NeuronModelForCausalLM(NeuronModel, ABC):
-    preprocessors = []  # Required by optimum OptimizedModel
-
     @classmethod
     def get_neuron_config(
         cls,
         model_name_or_path: str | Path,
-        config: "PretrainedConfig",
+        config: PretrainedConfig | None = None,
         token: bool | str | None = None,
         revision: str | None = None,
         batch_size: int | None = None,
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
         auto_cast_type: str | None = None,
-    ):
+    ) -> NeuronConfig:
         """
         Get the Neuron configuration for the target model class.
 
@@ -128,7 +126,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
                 The class of the target neuron model.
             model_name_or_path (`str` or `Path`):
                 The model name or path to the model directory.
-            config (`PretrainedConfig`):
+            config (`PretrainedConfig`, *optional*):
                 The model configuration.
             token (`str`, *optional*):
                 The token to use for authentication with the Hugging Face Hub.
@@ -154,6 +152,12 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
             api = HfApi(token=token)
             model_info = api.repo_info(model_name_or_path, revision=revision)
             checkpoint_revision = model_info.sha
+        if config is None:
+            config = AutoConfig.from_pretrained(
+                model_name_or_path,
+                revision=checkpoint_revision,
+                use_auth_token=token,
+            ).get_text_config()
 
         if batch_size is None:
             batch_size = 1
@@ -165,6 +169,8 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
                 sequence_length = config.max_position_embeddings
             else:
                 sequence_length = 1024
+            # Restrict default sequence length, as some models can have very large position embeddings
+            sequence_length = min(sequence_length, 4096)
         if tensor_parallel_size is None:
             # Use all available cores
             tensor_parallel_size = get_available_cores()
@@ -175,7 +181,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
             elif config.torch_dtype == "bfloat16":
                 auto_cast_type = "bf16"
 
-        if type(cls) is NeuronModelForCausalLM:
+        if cls is NeuronModelForCausalLM:
             # Instantiation through the abstract class: find the correct model class
             cls = get_neuron_causal_lm_model_class(config)
 
@@ -190,81 +196,68 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         )
 
     @classmethod
-    def _from_transformers(cls, *args, **kwargs):
-        # Deprecate it when optimum uses `_export` as from_pretrained_method in a stable release.
-        return cls._export(*args, **kwargs)
-
-    @classmethod
-    def _export(
+    def export(
         cls,
         model_id: str,
-        config: "PretrainedConfig",
+        neuron_config: NeuronConfig,
+        config: PretrainedConfig | None = None,
         token: bool | str | None = None,
         revision: str | None = None,
-        batch_size: int | None = None,
-        sequence_length: int | None = None,
-        num_cores: int | None = None,
-        auto_cast_type: str | None = "bf16",
-        task: str | None = "text-generation",
+        load_weights: bool | None = False,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
-        """Implementation of the `optimum.OptimizedModel._export` method.
+        """Export a Decoder model to Neuron.
 
-        It accepts simplified parameters and converts them to a NeuronConfig object.
-        This NeuronConfig object is then passed to the `export` method that is in charge
-        of exporting the model to Neuron format.
+        It requires a NeuronConfig object that can be created for instance by the get_neuron_config class method.
 
         Args:
             model_id (`str`):
                 The model ID or path to the model directory.
-            config (`PretrainedConfig`):
+            neuron_config (`NxDNeuronConfig`):
+                The Neuron configuration for the model.
+            config (`PretrainedConfig`, *optional*):
                 The model configuration.
             token (`str`, *optional*):
                 The token to use for authentication with the Hugging Face Hub.
             revision (`str`, *optional*):
                 The revision of the model to use. If not specified, the latest revision will be used.
-            batch_size (`int`, *optional*):
-                The batch size to use for inference. If not specified, defaults to 1.
-            sequence_length (`int`, *optional*):
-                The sequence length to use for inference. If not specified, defaults to the model's maximum sequence length.
-            num_cores (`int`, *optional*):
-                The number of cores to use for tensor parallelism. If not specified, all available cores will be used.
-            auto_cast_type (`str`, *optional*):
-                The data type to use for automatic casting. If not specified, defaults to the model's data type.
-            task (`str`, *optional*):
-                The task for which the model is being exported. Defaults to "text-generation".
+            load_weights (`bool`, *optional*, defaults to `False`):
+                Whether to load the model weights after exporting. If `False`, the model will be exported
 
         Returns:
             `NeuronModelForCausalLM`: The exported Neuron model.
         """
-        if task != "text-generation":
-            raise ValueError(
-                f"Task {task} is not supported for causal language models. Please use another base model."
-            )
+        if config is None:
+            config = AutoConfig.from_pretrained(
+                model_id,
+                revision=revision,
+                use_auth_token=token,
+            ).get_text_config()
         if cls is NeuronModelForCausalLM:
             # Instantiation through the abstract class: find the correct model class
             cls = get_neuron_causal_lm_model_class(config)
 
-        # Create the neuron config for the specified parameters
-        neuron_config = cls.get_neuron_config(
-            model_id,
-            config,
-            token=token,
-            revision=revision,
-            batch_size=batch_size,
-            sequence_length=sequence_length,
-            tensor_parallel_size=num_cores,
-            auto_cast_type=auto_cast_type,
-        )
-
-        return cls.export(
+        return cls._export(
             model_id,
             config,
             neuron_config,
             token=token,
             revision=revision,
+            load_weights=load_weights,
             **kwargs,
         )
+
+    @classmethod
+    def from_pretrained(
+        cls,
+        model_id: "str | Path",
+        **kwargs,
+    ) -> "NeuronModelForCausalLM":
+        config = AutoConfig.from_pretrained(model_id, **kwargs)
+        if cls is NeuronModelForCausalLM:
+            # Find the correct model class
+            cls = get_neuron_causal_lm_model_class(config)
+        return cls._from_pretrained(model_id, config, **kwargs)
 
     @classmethod
     def _from_pretrained(
@@ -273,9 +266,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         config: "PretrainedConfig",
         **kwargs,
     ) -> "NeuronModelForCausalLM":
-        # Find the correct model class
-        cls = get_neuron_causal_lm_model_class(config)
-        return cls._from_pretrained(model_id, config, **kwargs)
+        raise NotImplementedError("The _from_pretrained method must be implemented in the subclass.")
 
     @add_start_docstrings(
         NEURON_CAUSALLM_MODEL_GENERATE_DOCSTRING
@@ -306,17 +297,21 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         tensor_parallel_size: int,
         auto_cast_type: str,
     ):
-        raise NotImplementedError("The `get_neuron_config` method must be implemented in the subclass.")
+        raise NotImplementedError("The `_get_neuron_config` method must be implemented in the subclass.")
 
     @classmethod
-    def export(
+    def _export(
         cls,
         model_id: str,
         config: "PretrainedConfig",
         neuron_config: "NeuronConfig",
         token: bool | str | None = None,
         revision: str | None = None,
-        load_weights: bool | None = True,
+        cache_dir: str | None = None,
+        force_download: bool | None = False,
+        local_files_only: bool | None = False,
+        trust_remote_code: bool | None = False,
+        load_weights: bool | None = False,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         """Export the model to Neuron format.
@@ -325,19 +320,48 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         Args:
             model_id (`str`):
                 The model ID or path to the model directory.
-            config (`PretrainedConfig`):
-                The model configuration.
             neuron_config (`NeuronConfig`):
                 The Neuron configuration for the model.
+            config (`PretrainedConfig`, *optional*):
+                The model configuration.
             token (`str`, *optional*):
                 The token to use for authentication with the Hugging Face Hub.
             revision (`str`, *optional*):
                 The revision of the model to use. If not specified, the latest revision will be used.
-            load_weights (`bool`, *optional*, defaults to `True`):
+            load_weights (`bool`, *optional*, defaults to `False`):
                 Whether to load the model weights after exporting. If `False`, the model will be exported without weights.
         Returns:
             `NeuronModelForCausalLM`: The exported Neuron model.
         """
         raise NotImplementedError(
-            "The `export` method must be implemented in the subclass. It should handle the export of the model to Neuron format."
+            "The `_export` method must be implemented in the subclass. It should handle the export of the model to Neuron format."
         )
+
+    def save_pretrained(self, save_directory: str, **kwargs):
+        """
+        Save a Neuron model and its configuration file to a directory, so that it can be re-loaded using the
+        [`~NeuronModelForCausalLM.from_pretrained`] class method.
+
+        Args:
+            save_directory (`str`):
+                The directory where the model and its configuration files will be saved.
+        """
+        if not os.path.exists(save_directory):
+            os.makedirs(save_directory)
+        # Save the Neuron configuration
+        neuron_config = self.neuron_config
+        neuron_config.save_pretrained(save_directory)
+        # Save the model configuration
+        self.config.save_pretrained(save_directory)
+        logger.info(f"Model and configuration files saved in {save_directory}")
+        self._save_pretrained(save_directory, **kwargs)
+
+    def _save_pretrained(self, save_directory: str, **kwargs):
+        """
+        Save the model to a directory. This method should be implemented by the subclass.
+
+        Args:
+            save_directory (`str`):
+                The directory where the model weights will be saved.
+        """
+        raise NotImplementedError("The `_save_pretrained` method must be implemented in the subclass.")

@@ -20,40 +20,50 @@ from transformers import AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.utils import DTYPE_MAPPER
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
-DECODER_MODEL_ARCHITECTURES = ["llama", "granite", "qwen2", "phi3", "mixtral"]
+DECODER_MODEL_ARCHITECTURES = ["llama", "llama4_text", "granite", "qwen2", "qwen3-moe", "phi3", "mixtral"]
 DECODER_MODEL_NAMES = {
     "llama": "llamafactory/tiny-random-Llama-3",
+    "llama4_text": "tiny-random/llama-4",
     "qwen2": "yujiepan/qwen2.5-128k-tiny-random",
+    "qwen3-moe": "optimum-internal-testing/tiny-random-qwen3_moe",
     "granite": "hf-internal-testing/tiny-random-GraniteForCausalLM",
     "phi3": "yujiepan/phi-4-tiny-random",
     "mixtral": "dacorvo/Mixtral-tiny",
+    "smollm3": "HuggingFaceTB/SmolLM3-3B",
 }
 
 
 @pytest.fixture(
-    scope="session", params=[DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES]
+    scope="session",
+    params=[DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES],
+    ids=DECODER_MODEL_ARCHITECTURES,
 )
 def export_decoder_id(request):
     return request.param
 
 
-def check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num_cores=None, auto_cast_type=None):
-    neuron_config = neuron_model.neuron_config
-    if batch_size:
-        assert neuron_config.batch_size == batch_size
-    if sequence_length:
-        assert neuron_config.sequence_length == sequence_length
-    if num_cores:
-        assert neuron_config.tp_degree == num_cores
-    if auto_cast_type:
-        if hasattr(neuron_config, "auto_cast_type"):
-            assert neuron_config.auto_cast_type == auto_cast_type
-        elif hasattr(neuron_config, "torch_dtype"):
-            assert neuron_config.torch_dtype == DTYPE_MAPPER.pt(auto_cast_type)
-    input_shape = (batch_size, min(10, neuron_config.sequence_length))
+def check_neuron_config(neuron_config, **kwargs):
+    for key, value in kwargs.items():
+        aliases = {
+            "num_cores": "tp_degree",
+            "tensor_parallel_size": "tp_degree",
+            "auto_cast_type": "torch_dtype",
+        }
+        if key in aliases:
+            key = aliases[key]
+        if value is not None:
+            if key == "torch_dtype" and isinstance(value, str):
+                value = DTYPE_MAPPER.pt(value)
+            assert getattr(neuron_config, key) == value, (
+                f"Expected {key} to be {value}, but got {getattr(neuron_config, key)}"
+            )
+
+
+def check_neuron_model(neuron_model):
+    batch_size = neuron_model.neuron_config.batch_size
+    input_shape = (batch_size, min(10, neuron_model.neuron_config.sequence_length))
     input_ids = torch.ones(input_shape, dtype=torch.int64)
     attention_mask = torch.ones(input_shape, dtype=torch.int64)
     on_device_sampling = getattr(neuron_model.neuron_config, "on_device_sampling", False)
@@ -65,43 +75,32 @@ def check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num_
     assert outputs is not None, "Model outputs should not be None"
 
 
-@pytest.mark.parametrize(
-    "batch_size, sequence_length, num_cores, auto_cast_type",
-    [
-        [1, 100, 2, "bf16"],
-        [1, 100, 2, "fp16"],
-        [2, 100, 2, "fp16"],
-    ],
-)
-@is_inferentia_test
-@requires_neuronx
 @pytest.mark.parametrize("is_local", [True, False], ids=["local", "from_hub"])
+@pytest.mark.parametrize("load_weights", [True, False], ids=["with-weights", "without-weights"])
 def test_decoder_export_save_reload(
-    is_local: bool,
     export_decoder_id: str,
-    batch_size: int,
-    sequence_length: int,
-    num_cores: int,
-    auto_cast_type: str,
+    is_local: bool,
+    load_weights: bool,
 ):
     model_id = export_decoder_id
-    export_kwargs = {
-        "batch_size": batch_size,
-        "sequence_length": sequence_length,
-        "num_cores": num_cores,
-        "auto_cast_type": auto_cast_type,
-    }
+    export_kwargs = {"batch_size": 1, "sequence_length": 1024, "tensor_parallel_size": 2, "auto_cast_type": "bf16"}
+    neuron_config = NeuronModelForCausalLM.get_neuron_config(model_name_or_path=export_decoder_id, **export_kwargs)
     with TemporaryDirectory() as model_path:
         if is_local:
             with TemporaryDirectory() as tmpdir:
                 model = AutoModelForCausalLM.from_pretrained(model_id)
                 model.save_pretrained(tmpdir)
-                model = NeuronModelForCausalLM.from_pretrained(tmpdir, export=True, **export_kwargs)
+                model = NeuronModelForCausalLM.export(
+                    model_id=tmpdir, neuron_config=neuron_config, load_weights=load_weights
+                )
                 model.save_pretrained(model_path)
         else:
-            model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, **export_kwargs)
+            model = NeuronModelForCausalLM.export(
+                model_id=model_id, neuron_config=neuron_config, load_weights=load_weights
+            )
             model.save_pretrained(model_path)
-        check_neuron_model(model, **export_kwargs)
-        del model
+        check_neuron_config(model.neuron_config, **export_kwargs)
+        if load_weights:
+            check_neuron_model(model)
         model = NeuronModelForCausalLM.from_pretrained(model_path)
-        check_neuron_model(model, **export_kwargs)
+        check_neuron_model(model)

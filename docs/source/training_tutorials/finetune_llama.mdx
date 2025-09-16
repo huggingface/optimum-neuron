@@ -1,0 +1,313 @@
+<!---
+Copyright 2025 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# 🚀 Instruction Fine-Tuning of Llama 3.1 8B with LoRA
+
+This tutorial shows how to fine-tune the Llama 3.1 model on AWS Trainium accelerators using optimum-neuron.
+
+**This is based on the [Llama 3.1 fine-tuning example script](https://github.com/huggingface/optimum-neuron/tree/main/examples/training/llama).**
+
+## 1. 🛠️ Setup AWS Environment
+
+We'll use a `trn1.32xlarge` instance with 16 Trainium Accelerators (32 Neuron Cores) and the Hugging Face Neuron Deep Learning AMI.
+
+The Hugging Face AMI includes all required libraries pre-installed:
+- `datasets`, `transformers`, `optimum-neuron`
+- Neuron SDK packages
+- No additional environment setup needed
+
+To create your instance, follow the guide [here](https://huggingface.co/docs/optimum-neuron/ec2-setup).
+
+**Model Access:** The Llama 3.1 model is gated and requires access approval. You can request access at [meta-llama/Llama-3.1-8B](https://huggingface.co/meta-llama/Llama-3.1-8B). Once approved, make sure to authenticate with the Hugging Face Hub:
+
+```bash
+huggingface-cli login
+```
+
+## 2. 📊 Load and Prepare the Dataset
+
+We'll use the [Dolly](https://huggingface.co/datasets/databricks/databricks-dolly-15k) dataset, an open source dataset of instruction-following records on categories outlined in the [InstructGPT paper](https://arxiv.org/abs/2203.02155), including brainstorming, classification, closed QA, generation, information extraction, open QA, and summarization.
+
+```
+{
+  "instruction": "What is world of warcraft",
+  "context": "",
+  "response": (
+        "World of warcraft is a massive online multi player role playing game. "
+        "It was released in 2004 by bizarre entertainment"
+    )
+}
+```
+
+To load the dataset we use the `load_dataset()` method from the `datasets` library.
+
+```python
+from random import randrange
+
+from datasets import load_dataset
+
+
+# Load dataset from the hub
+dataset_id = "databricks/databricks-dolly-15k"
+dataset = load_dataset(dataset_id, split="train")
+
+dataset_size = len(dataset)
+print(f"dataset size: {dataset_size}")
+# dataset size: 15011
+```
+
+To instruct fine-tune our model we need to convert our structured examples into collection of tasks described via instructions. We define our formatting function to preprocess the dataset.
+
+The dataset should be structured with input-output pairs, where each input is a prompt and the output is the expected response from the model.
+
+```python
+def format_dolly(example, tokenizer):
+    """Format Dolly dataset examples using the tokenizer's chat template."""
+    user_content = example["instruction"]
+    if len(example["context"]) > 0:
+        user_content += f"\n\nContext: {example['context']}"
+
+    messages = [
+        {
+            "role": "system",
+            "content": "Cutting Knowledge Date: December 2023\nToday Date: 29 Jul 2025\n\nYou are a helpful assistant",
+        },
+        {"role": "user", "content": user_content},
+        {"role": "assistant", "content": example["response"]},
+    ]
+
+    return tokenizer.apply_chat_template(messages, tokenize=False)
+```
+
+Note: this function is well-defined in the [Python script](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/llama/finetune_llama.py) to run this tutorial.
+
+
+## 3. 🎯 Fine-tune Llama 3.1 with NeuronSFTTrainer and PEFT
+
+For standard PyTorch fine-tuning, you'd typically use [PEFT](https://github.com/huggingface/peft) with LoRA adapters and the [`SFTTrainer`](https://huggingface.co/docs/trl/en/sft_trainer).
+
+On AWS Trainium, `optimum-neuron` provides `NeuronSFTTrainer` as a drop-in replacement.
+
+**Distributed Training on Trainium:**
+Since Llama 3.1 8B doesn't fit on a single accelerator, we use distributed training techniques:
+- Data Parallel (DDP)
+- Tensor Parallelism  
+
+Model loading and LoRA configuration work similarly to other accelerators.
+
+Combining all the pieces together, and assuming the dataset has already been loaded, we can write the following code to fine-tune Llama 3.1 on AWS Trainium:
+
+```python
+model_id = "meta-llama/Llama-3.1-8B"
+
+# Define the training arguments
+output_dir = "Llama-3.1-8B-finetuned"
+training_args = NeuronTrainingArguments(
+    output_dir=output_dir,
+    num_train_epochs=3,
+    do_train=True,
+    max_steps=-1,  # -1 means train until the end of the dataset
+    per_device_train_batch_size=1,
+    gradient_accumulation_steps=16,
+    learning_rate=1e-4,
+    bf16=True,  
+    tensor_parallel_size=8,
+    logging_steps=1,
+    warmup_steps=5,
+    async_save=True,
+    overwrite_output_dir=True,
+)
+
+# Load the model with the NeuronModelForCausalLM class.
+# It will load the model with a custom modeling specifically designed for AWS Trainium.
+trn_config = training_args.trn_config
+dtype = torch.bfloat16 if training_args.bf16 else torch.float32
+model = NeuronModelForCausalLM.from_pretrained(
+    model_id,
+    trn_config,
+    torch_dtype=dtype,
+    # Use FlashAttention2 for better performance and to be able to use larger sequence lengths.
+    use_flash_attention_2=True,
+)
+
+lora_config = LoraConfig(
+    r=64,
+    lora_alpha=128,
+    lora_dropout=0.05,
+    target_modules=["embed_tokens", "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+    bias="none",
+    task_type="CAUSAL_LM",
+)
+
+# Converting the NeuronTrainingArguments to a dictionary to feed them to the NeuronSFTConfig.
+args = training_args.to_dict()
+
+sft_config = NeuronSFTConfig(
+    max_seq_length=2048,
+    packing=True,
+    **args,
+)
+
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+tokenizer.pad_token = "<|finetune_right_pad_id|>"
+
+# Set chat template for Llama 3.1 format
+tokenizer.chat_template = (
+    "{% for message in messages %}"
+    "{% if message['role'] == 'system' %}"
+    "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{{ message['content'] }}<|eot_id|>"
+    "{% elif message['role'] == 'user' %}"
+    "<|start_header_id|>user<|end_header_id|>\n\n{{ message['content'] }}<|eot_id|>"
+    "{% elif message['role'] == 'assistant' %}"
+    "<|start_header_id|>assistant<|end_header_id|>\n\n{{ message['content'] }}<|eot_id|>"
+    "{% endif %}"
+    "{% endfor %}"
+    "{% if add_generation_prompt %}"
+    "<|start_header_id|>assistant<|end_header_id|>\n\n"
+    "{% endif %}"
+)
+
+# The NeuronSFTTrainer will use `format_dolly` to format the dataset and `lora_config` to apply LoRA on the
+# model.
+trainer = NeuronSFTTrainer(
+    args=sft_config,
+    model=model,
+    peft_config=lora_config,
+    tokenizer=tokenizer,
+    train_dataset=dataset,
+    formatting_func=lambda example: format_dolly(example, tokenizer),
+)
+trainer.train()
+```
+
+📝 **Complete script available:** All steps above are combined in a ready-to-use script [finetune_llama.py](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/llama/finetune_llama.py).
+
+
+To launch training, just run the following command in your AWS Trainium instance:
+
+```bash
+# Flags for Neuron compilation
+export NEURON_CC_FLAGS="--model-type transformer --retry_failed_compilation"
+export NEURON_FUSE_SOFTMAX=1
+export NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS=3 # Async Runtime
+export MALLOC_ARENA_MAX=64 # Host OOM mitigation
+
+# Variables for training
+PROCESSES_PER_NODE=32
+NUM_EPOCHS=3
+TP_DEGREE=8
+BS=1
+GRADIENT_ACCUMULATION_STEPS=16
+LOGGING_STEPS=1
+MODEL_NAME="meta-llama/Llama-3.1-8B" # Change this to the desired model name
+OUTPUT_DIR="$(echo $MODEL_NAME | cut -d'/' -f2)-finetuned"
+DISTRIBUTED_ARGS="--nproc_per_node $PROCESSES_PER_NODE"
+
+if [ "$NEURON_EXTRACT_GRAPHS_ONLY" = "1" ]; then
+    MAX_STEPS=5
+else
+    MAX_STEPS=-1
+fi
+
+torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_llama.py \
+  --model_id $MODEL_NAME \
+  --num_train_epochs $NUM_EPOCHS \
+  --do_train \
+  --max_steps $MAX_STEPS \
+  --per_device_train_batch_size $BS \
+  --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
+  --learning_rate 1e-4 \
+  --bf16 \
+  --tensor_parallel_size $TP_DEGREE \
+  --async_save \
+  --warmup_steps 5 \
+  --logging_steps $LOGGING_STEPS \
+  --output_dir $OUTPUT_DIR \
+  --overwrite_output_dir
+```
+
+🔧 **Single command execution:** The complete bash training script [finetune_llama.sh](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/llama/finetune_llama.sh) is available:
+
+```bash
+./finetune_llama.sh
+```
+
+## 4. 🔄 Consolidate and Test the Fine-Tuned Model
+
+Optimum Neuron saves model shards separately during distributed training. These need to be consolidated before use.
+
+Use the Optimum CLI to consolidate:
+
+```bash
+optimum-cli neuron consolidate Llama-3.1-8B-finetuned Llama-3.1-8B-finetuned/adapter_default
+```
+
+This will create an `adapter_model.safetensors` file, the LoRA adapter weights that we trained in the previous step. We can now reload the model and merge it, so it can be loaded for evaluation:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel, PeftConfig
+
+
+MODEL_NAME = "meta-llama/Llama-3.1-8B"
+ADAPTER_PATH = "Llama-3.1-8B-finetuned/adapter_default"
+MERGED_MODEL_PATH = "Llama-3.1-8B-dolly"
+
+# Load base model
+model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+
+# Load adapter configuration and model
+adapter_config = PeftConfig.from_pretrained(ADAPTER_PATH)
+finetuned_model = PeftModel.from_pretrained(model, ADAPTER_PATH, config=adapter_config)
+
+print("Saving tokenizer")
+tokenizer.save_pretrained(MERGED_MODEL_PATH)
+print("Saving model")
+finetuned_model = finetuned_model.merge_and_unload()
+finetuned_model.save_pretrained(MERGED_MODEL_PATH)
+```
+
+Once this step is done, it is possible to test the model with a new prompt.
+
+You have successfully created a fine-tuned model from Llama 3.1!
+
+## 5. 🤗 Push to Hugging Face Hub
+
+Share your fine-tuned model with the community by uploading it to the Hugging Face Hub.
+
+**Step 1: Authentication**
+```bash
+huggingface-cli login
+```
+
+**Step 2: Upload your model**
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+MERGED_MODEL_PATH = "Llama-3.1-8B-dolly"
+HUB_MODEL_NAME = "your-username/llama3.1-8b-dolly"
+
+# Load and push tokenizer
+tokenizer = AutoTokenizer.from_pretrained(MERGED_MODEL_PATH)
+tokenizer.push_to_hub(HUB_MODEL_NAME)
+
+# Load and push model
+model = AutoModelForCausalLM.from_pretrained(MERGED_MODEL_PATH)
+model.push_to_hub(HUB_MODEL_NAME)
+```
+
+🎉 **Your fine-tuned Llama 3.1 model is now available on the Hub for others to use!**

@@ -31,6 +31,8 @@ import neuronx_distributed
 import torch
 import torch_neuronx
 from huggingface_hub import snapshot_download
+from optimum.exporters.tasks import TasksManager
+from optimum.utils import is_diffusers_available, logging
 from safetensors.torch import load_file
 from torch.nn import ModuleList
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig, T5Tokenizer
@@ -43,8 +45,6 @@ from optimum.exporters.neuron import (
     replace_stable_diffusion_submodels,
 )
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
-from optimum.exporters.tasks import TasksManager
-from optimum.utils import is_diffusers_available, logging
 
 from .cache.entries.multi_model import MultiModelCacheEntry
 from .cache.hub_cache import create_hub_compile_cache_proxy
@@ -76,6 +76,7 @@ if is_diffusers_available():
     from diffusers import (
         ControlNetModel,
         FluxInpaintPipeline,
+        FluxKontextPipeline,
         FluxPipeline,
         LatentConsistencyModelPipeline,
         LCMScheduler,
@@ -650,7 +651,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 revision=revision,
                 force_download=force_download,
                 allow_patterns=allow_patterns,
-                ignore_patterns=["*.msgpack", "*.safetensors", "*.bin"],
+                ignore_patterns=["*.msgpack", "*.bin"],
             )
 
         new_model_save_dir = Path(model_id)
@@ -948,6 +949,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 ip_adapter_args=ip_adapter_args,
                 output_hidden_states=output_hidden_states,
                 torch_dtype=torch_dtype,
+                tensor_parallel_size=tensor_parallel_size,
                 controlnet_ids=controlnet_ids,
                 **input_shapes_copy,
             )
@@ -957,7 +959,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             for name, (model, neuron_config) in models_and_neuron_configs.items():
                 if "vae" in name:  # vae configs are not cached.
                     continue
-                model_config = model.config
+                model_config = getattr(model, "config", None) or neuron_config._config
                 if isinstance(model_config, FrozenDict):
                     model_config = OrderedDict(model_config)
                     model_config = DiffusersPretrainedConfig.from_dict(model_config)
@@ -971,7 +973,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                     input_names=neuron_config.inputs,
                     output_names=neuron_config.outputs,
                     dynamic_batch_size=neuron_config.dynamic_batch_size,
-                    tensor_parallel_size=tensor_parallel_size,
+                    tensor_parallel_size=neuron_config.tensor_parallel_size,
                     compiler_type=NEURON_COMPILER_TYPE,
                     compiler_version=NEURON_COMPILER_VERSION,
                     inline_weights_to_neff=inline_weights_to_neff,
@@ -993,6 +995,9 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         if cache_exist:
             # load cache
+            logger.info(
+                f"Neuron cache found at {model_cache_dir}. If you want to recompile the model, please set `disable_neuron_cache=True`."
+            )
             neuron_model = cls.from_pretrained(model_cache_dir, data_parallel_mode=data_parallel_mode)
             # replace weights
             if not inline_weights_to_neff:
@@ -1615,6 +1620,16 @@ class NeuronStableDiffusionXLControlNetPipeline(
 class NeuronFluxPipeline(NeuronDiffusionPipelineBase, FluxPipeline):
     main_input_name = "prompt"
     auto_model_class = FluxPipeline
+
+
+class NeuronFluxKontextPipeline(NeuronDiffusionPipelineBase, FluxKontextPipeline):
+    main_input_name = "prompt"
+    auto_model_class = FluxKontextPipeline
+
+
+class NeuronFluxInpaintPipeline(NeuronDiffusionPipelineBase, FluxInpaintPipeline):
+    main_input_name = "prompt"
+    auto_model_class = FluxInpaintPipeline
 
 
 class NeuronQwenImagePipeline(NeuronDiffusionPipelineBase, QwenImagePipeline):
