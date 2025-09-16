@@ -1,0 +1,43 @@
+name: Build and push optimum-neuron-vllm docker image to ghcr.io
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  docker:
+    runs-on:
+      group: aws-general-8-plus
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      -
+        name: Checkout sources
+        uses: actions/checkout@v4
+      -
+        name: Extract version
+        run: |
+          sudo apt-get install -y gawk
+          export ON_VERSION=$(make version)
+          echo "ON_VERSION=${ON_VERSION}">> $GITHUB_ENV
+      -
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      -
+        name: Login to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      -
+        name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/vllm/Dockerfile
+          push: true
+          tags: ghcr.io/huggingface/optimum-neuron-vllm:${{ env.ON_VERSION }}, ghcr.io/huggingface/optimum-neuron-vllm:latest
