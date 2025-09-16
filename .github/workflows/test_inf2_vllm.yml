@@ -58,7 +58,7 @@ concurrency:
 
 jobs:
   do-the-job:
-    name: Run INF2 LLM tests
+    name: Run INF2 vLLM tests
     runs-on:
       group: aws-inf2-8xlarge
     env:
@@ -84,3 +84,12 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/vllm/engine
+      - name: Build docker image
+        run: |
+          sudo apt-get install -y gawk
+          make optimum-neuron-vllm
+      - name: Run vLLM docker tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
+          pytest -sv tests/vllm/docker
