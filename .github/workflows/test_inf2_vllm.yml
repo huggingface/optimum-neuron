@@ -79,8 +79,8 @@ jobs:
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           pip install .[vllm]
-      - name: Run vLLM tests
+      - name: Run vLLM engine tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
-          pytest -sv tests/decoder/test_vllm.py
+          pytest -sv tests/vllm/engine
