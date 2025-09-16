@@ -17,9 +17,8 @@ import accelerate
 import torch
 import torch_xla.core.xla_model as xm
 from accelerate.optimizer import AcceleratedOptimizer
-from neuronx_distributed.parallel_layers.grads import bucket_allreduce_gradients, clip_grad_norm
 from neuronx_distributed.optimizer import NeuronZero1Optimizer
-from neuronx_distributed.parallel_layers.grads import bucket_allreduce_gradients
+from neuronx_distributed.parallel_layers.grads import bucket_allreduce_gradients, clip_grad_norm
 from neuronx_distributed.parallel_layers.mappings import reduce_from_tensor_model_parallel_region
 
 
