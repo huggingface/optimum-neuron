@@ -5,6 +5,7 @@ from typing import Callable
 
 import pytest
 import torch
+from neuronx_distributed.parallel_layers.layers import ParallelEmbedding
 from nxd_testing import build_module, validate_accuracy
 from transformers import AutoConfig, set_seed
 from transformers.models.gpt_oss.modeling_gpt_oss import GptOssDecoderLayer, GptOssRotaryEmbedding
@@ -359,5 +360,57 @@ def test_decoder_layer(test_config: DecoderLayerTestConfig):
         neuron_module,
         inputs,
         cpu_callable=cpu_module_wrapper,
+        assert_close_kwargs={"atol": torch.finfo(torch.bfloat16).resolution, "rtol": 1e-1},
+    )
+
+
+@is_inferentia_test
+@requires_neuronx
+@pytest.mark.parametrize("config_id", ["unsloth/Llama-3.2-1B-Instruct", "tengomucho/tiny-random-gpt-oss"])
+def test_embedding(config_id):
+    set_seed(42)
+    config = AutoConfig.from_pretrained(config_id)
+    vocab_size = config.vocab_size
+    hidden_size = config.hidden_size
+    dtype = torch.bfloat16
+    seq_len = 1024
+    batch_size = 1
+
+    # Generate random input token IDs
+    input_ids = torch.randint(0, vocab_size, (batch_size, seq_len), dtype=torch.long)
+    inputs = [(input_ids,)]
+
+    example_inputs = [
+        tuple([torch.zeros_like(input_element) for input_element in input_elements]) for input_elements in inputs
+    ]
+
+    # Create CPU embedding layer
+    cpu_module = torch.nn.Embedding(vocab_size, hidden_size, dtype=dtype)
+    _set_weights(cpu_module)
+
+    # Create Neuron parallel embedding layer
+    neuron_module = build_module(
+        ParallelEmbedding,
+        example_inputs,
+        module_init_kwargs={
+            "num_embeddings": vocab_size,
+            "embedding_dim": hidden_size,
+            "dtype": dtype,
+            "shard_across_embedding": True,
+            "pad": True,
+        },
+    )
+
+    # Initialize the neuron module with the same weights as CPU module
+    state_dict = cpu_module.state_dict()
+    weights = [state_dict]
+    start_rank_tensor = torch.tensor([0], dtype=torch.int32, device="cpu")
+    neuron_module.nxd_model.initialize(weights, start_rank_tensor)
+
+    # Validate the accuracy of the model
+    validate_accuracy(
+        neuron_module,
+        inputs,
+        cpu_callable=cpu_module,
         assert_close_kwargs={"atol": torch.finfo(torch.bfloat16).resolution, "rtol": 1e-1},
     )

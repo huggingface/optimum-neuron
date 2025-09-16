@@ -395,7 +395,8 @@ class NeuronGptOssModel(NxDDecoderModel):
             config.vocab_size,
             config.hidden_size,
             config.pad_token_id,
-            dtype=neuron_config.torch_dtype,
+            # dtype=neuron_config.torch_dtype,
+            dtype=torch.float32,
             shard_across_embedding=True,
         )
         self.layers = nn.ModuleList(
