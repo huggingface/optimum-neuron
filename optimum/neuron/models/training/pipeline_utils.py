@@ -88,7 +88,7 @@ def create_nxdpp_model(model) -> NxDPPModel:
         # unwrap it first.
         model.__class__.forward = orig_class_forward.__wrapped__
 
-    model = NxDPPModel(
+    nxd_model = NxDPPModel(
         model,
         transformer_layer_cls=model.PIPELINE_TRANSFORMER_LAYER_CLS,
         num_microbatches=model.trn_config.pipeline_parallel_num_microbatches,
@@ -106,7 +106,8 @@ def create_nxdpp_model(model) -> NxDPPModel:
 
     # Setting it back to the original forward.
     model.__class__.forward = orig_class_forward
-    return model
+
+    return nxd_model
 
 
 @contextlib.contextmanager

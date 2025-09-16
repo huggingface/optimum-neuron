@@ -27,17 +27,21 @@ End-to-end training validation through overfitting tests:
 - **LoRA training**: Validates Parameter-Efficient Fine-Tuning
 - **Monitoring integration**: Uses Weights & Biases for training tracking
 
-#### `test_common.py`
-Tests fundamental training features across different parallelization strategies:
-- **Optimizer validation**: Tests gradient accumulation, clipping, and ZeRO-1 optimization
+#### `test_checkpointing.py`
+Tests checkpoint consolidation and distributed checkpoint handling:
 - **Checkpoint consolidation**: Validates model parallel checkpoint merging for both regular and LoRA models
 - **Parameter loading**: Ensures pipeline parallel ranks only load relevant parameters
+- **Weight averaging**: Tests LoRA checkpoint consolidation with proper weight averaging
 
 Key test scenarios:
-- `test_optimizer_step`: Validates optimizer behavior with gradient accumulation and clipping
 - `test_consolidate_custom_model_parallel_checkpoints`: Tests checkpoint consolidation across parallel ranks
-- `test_consolidate_custom_lora_model_parallel_checkpoints`: Tests LoRA checkpoint consolidation with weight averaging
+- `test_consolidate_custom_lora_model_parallel_checkpoints`: Tests LoRA checkpoint consolidation
 
+#### `test_optimizer.py`
+Tests optimizer behavior across different parallelization strategies:
+- **Gradient accumulation**: Validates gradient accumulation with different accumulation steps
+- **Gradient clipping**: Tests gradient clipping behavior with model parallelism
+- **Optimizer step**: Validates optimizer behavior with various configurations
 
 These series of tests cover most of the training features we support and want to validate:
 
@@ -47,7 +51,7 @@ These series of tests cover most of the training features we support and want to
 
 ### Specialized Component Tests
 
-These tests focus on specfic Neuronx-distributed compotents and utilities, ensuring they work correctly in distributed training scenarios.
+These tests focus on specific Neuronx-distributed components and utilities, ensuring they work correctly in distributed training scenarios.
 
 #### `test_flash_attn.py`
 Tests the NKI (Neuron Kernel Interface) flash attention implementation:
@@ -62,11 +66,37 @@ Validates parallel linear layer implementations:
 - **Data type support**: Tests float32, bfloat16, and mixed precision scenarios
 - **Numerical accuracy**: Ensures parallel outputs match sequential linear layers
 
+#### `test_zero1.py`
+Tests ZeRO-1 optimizer integration and mixed precision:
+- **ZeRO-1 creation**: Validates ZeRO-1 optimizer setup with proper sharding groups
+- **Master weights**: Tests master weight configuration and FP32 gradient accumulation
+- **Training integration**: Tests ZeRO-1 with NeuronTrainingArguments
+- **Mixed precision**: Validates ZeRO-1 behavior with different mixed precision modes
 
-### Other Tests
+#### `test_mixed_precision.py`
+Tests mixed precision training capabilities:
+- **Configuration validation**: Tests MixedPrecisionConfig validation and error handling
+- **Model preparation**: Validates model dtype handling for different precision modes (NO, FULL_BF16, AUTOCAST_BF16)
+- **Trainer integration**: Tests mixed precision with NeuronTrainer and autocast context managers
+- **Environment setup**: Validates stochastic rounding environment variable handling
 
-#### `test_trainers.py`
-Tests the various `NeuronTrainer`s implementation. It needs to be reworked.
+### Trainer Implementation Tests
+
+#### `test_neuron_trainer.py`
+Tests the core `NeuronTrainer` implementation:
+- **Basic training**: Validates fundamental training loop functionality
+- **Distributed training**: Tests trainer behavior across different parallelization strategies
+- **Configuration handling**: Tests training argument processing and validation
+
+#### `test_neuron_sft_trainer.py`
+Tests the specialized `NeuronSFTTrainer` for supervised fine-tuning:
+- **SFT-specific features**: Validates supervised fine-tuning specific functionality
+- **Integration testing**: Tests SFT trainer with various model configurations
+
+#### `test_modeling_auto.py`
+Tests automatic model loading and configuration:
+- **Auto model selection**: Validates automatic model class selection for training
+- **Configuration compatibility**: Tests model configuration handling across different architectures
 
 
 ## Test Infrastructure
