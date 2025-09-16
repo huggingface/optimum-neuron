@@ -219,14 +219,18 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         encoder_path: str | Path,
         decoder_path: str | Path,
         tensor_parallel_size: int,
+        cpu_backend: bool,
     ):
+        if cpu_backend:
+            return None, None
+
         if tensor_parallel_size == 1:
             # Initialize Neuron Runtime before loading models
             runtime = torch.classes.neuron.Runtime()
             runtime.initialize()
             runtime.set_default_neuron_cores(0, 1)
-            encoder = NeuronTracedModel.load_model(encoder_path)
-            decoder = NeuronTracedModel.load_model(decoder_path)
+            encoder = NeuronTracedModel.load_model(encoder_path, cpu_backend=cpu_backend)
+            decoder = NeuronTracedModel.load_model(decoder_path, cpu_backend=cpu_backend)
             torch_neuronx.move_trace_to_device(decoder, 0)
         else:
             encoder = neuronx_distributed.trace.parallel_model_load(encoder_path)
@@ -247,6 +251,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         subfolder: str = "",
         local_files_only: bool = False,
         model_save_dir: str | Path | TemporaryDirectory | None = None,
+        cpu_backend: bool = False,
         **kwargs,
     ):
         model_id = str(model_id)
@@ -290,6 +295,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             encoder_path=model_and_config_save_paths[ENCODER_NAME][0],
             decoder_path=model_and_config_save_paths[DECODER_NAME][0],
             tensor_parallel_size=configs["decoder"].neuron.get("tensor_parallel_size", 1),
+            cpu_backend=cpu_backend,
         )
 
         if model_save_dir is None:
@@ -339,6 +345,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         tensor_parallel_size: int | None = 1,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
+        cpu_backend: bool = False,
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
@@ -383,6 +390,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             compiler_workdir=compiler_workdir,
             inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
+            cpu_backend=cpu_backend,
             trust_remote_code=trust_remote_code,
             subfolder=subfolder,
             revision=revision,
@@ -399,6 +407,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             model_id=save_dir_path,
             config=config,
             model_save_dir=save_dir,
+            cpu_backend=cpu_backend,
         )
 
     def _save_config(self, save_directory):
