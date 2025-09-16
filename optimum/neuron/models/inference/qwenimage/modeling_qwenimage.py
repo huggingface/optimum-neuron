@@ -18,35 +18,9 @@ Adapted from `neuronx_distributed_inference/models/diffusers/flux/modeling_flux.
 """
 
 import logging
-import math
-import os
-from types import SimpleNamespace
-from typing import Any
 
-import numpy as np
 import torch
 import torch.nn as nn
-from neuronx_distributed.parallel_layers.layer_norm import LayerNorm
-from neuronx_distributed.parallel_layers.layers import (
-    ColumnParallelLinear,
-    RowParallelLinear,
-)
-from neuronx_distributed.parallel_layers.mappings import reduce_from_tensor_model_parallel_region
-from diffusers.models.transformers.transformer_qwenimage import QwenEmbedRope
-
-from ..backend.modules.diffusion.embeddings import (
-    FluxPosEmbed,
-    NeuronCombinedTimestepGuidanceTextProjEmbeddings,
-    NeuronCombinedTimestepTextProjEmbeddings,
-    apply_rotary_emb as apply_rotary_emb_qwen,
-    NeuronQwenTimestepProjEmbeddings,
-)
-from ..backend.modules.diffusion.normalization import (
-    NeuronAdaLayerNormContinuous,
-    NeuronAdaLayerNormZero,
-    NeuronAdaLayerNormZeroSingle,
-)
-from ..backend.modules.diffusion.attention import NeuronAttention, NeuronFeedForward
 
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name

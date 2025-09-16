@@ -18,15 +18,12 @@ Adapted from `neuronx_distributed_inference/models/diffusers/flux/modeling_flux.
 """
 
 import logging
-import math
-import os
 from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from neuronx_distributed.parallel_layers.layer_norm import LayerNorm
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
@@ -34,7 +31,7 @@ from neuronx_distributed.parallel_layers.layers import (
 )
 from neuronx_distributed.parallel_layers.mappings import reduce_from_tensor_model_parallel_region
 
-from ..backend.modules.diffusion.attention import NeuronFeedForward, NeuronAttention
+from ..backend.modules.diffusion.attention import NeuronAttention, NeuronFeedForward
 from ..backend.modules.diffusion.embeddings import (
     FluxPosEmbed,
     NeuronCombinedTimestepGuidanceTextProjEmbeddings,

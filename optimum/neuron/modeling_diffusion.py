@@ -83,7 +83,6 @@ if is_diffusers_available():
         PixArtAlphaPipeline,
         PixArtSigmaPipeline,
         QwenImagePipeline,
-        QwenImageEditPipeline,
         StableDiffusionControlNetPipeline,
         StableDiffusionImg2ImgPipeline,
         StableDiffusionInpaintPipeline,

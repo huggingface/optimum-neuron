@@ -17,22 +17,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import math
+import os
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
     RowParallelLinear,
 )
+from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 from neuronxcc.nki.language import nc
-from .embeddings import apply_rotary_emb
+
 from ..custom_calls import CustomRMSNorm
 from .activations import NeuronGELU
+from .embeddings import apply_rotary_emb
+
 
 try:
     from neuronxcc.nki._private_kernels.attention import attention_isa_kernel  # noqa: E402
@@ -40,6 +41,7 @@ except ImportError:
     from neuronxcc.nki.kernels.attention import attention_isa_kernel  # noqa: E402
 
 from torch_neuronx.xla_impl.ops import nki_jit  # noqa: E402
+
 
 _flash_fwd_call = nki_jit()(attention_isa_kernel)
 

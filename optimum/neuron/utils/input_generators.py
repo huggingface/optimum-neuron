@@ -411,7 +411,7 @@ class DummyQwenImageTransformerInputGenerator(DummyInputGenerator):
         "encoder_hidden_states",
         "encoder_hidden_states_mask",
     )
-    
+
     def __init__(
         self,
         task: str,
@@ -428,7 +428,7 @@ class DummyQwenImageTransformerInputGenerator(DummyInputGenerator):
         self.width = width
         self.rotary_axes_dim = rotary_axes_dim
         self.normalized_config = normalized_config
-    
+
     def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
         if input_name == "hidden_states":
             shape = []

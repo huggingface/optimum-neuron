@@ -25,20 +25,6 @@ import neuronx_distributed
 import torch
 from neuronx_distributed.trace.model_builder import BaseModelInstance
 from optimum.exporters.tasks import TasksManager
-from optimum.neuron.utils import (
-    SAFE_WEIGHTS_INDEX_NAME,
-    ASTDummyAudioInputGenerator,
-    DummyBeamValuesGenerator,
-    DummyControNetInputGenerator,
-    DummyTransformerRotaryEmbGenerator,
-    DummyQwenImageTransformerInputGenerator,
-    DummyIPAdapterInputGenerator,
-    DummyMaskedPosGenerator,
-    DummyTimestepInputGenerator,
-    WhisperDummyTextInputGenerator,
-    get_checkpoint_shard_files,
-    saved_model_in_temporary_directory,
-)
 from optimum.utils import (
     DummyFluxTransformerTextInputGenerator,
     DummyFluxTransformerVisionInputGenerator,
@@ -64,10 +50,11 @@ from optimum.neuron.utils import (
     DummyBeamValuesGenerator,
     DummyControNetInputGenerator,
     DummyFluxKontextTransformerRotaryEmbGenerator,
-    DummyTransformerRotaryEmbGenerator,
     DummyIPAdapterInputGenerator,
     DummyMaskedPosGenerator,
+    DummyQwenImageTransformerInputGenerator,
     DummyTimestepInputGenerator,
+    DummyTransformerRotaryEmbGenerator,
     WhisperDummyTextInputGenerator,
     get_checkpoint_shard_files,
     saved_model_in_temporary_directory,
@@ -84,9 +71,9 @@ from .model_wrappers import (
     CLIPVisionWithProjectionNeuronWrapper,
     ControlNetNeuronWrapper,
     FluxTransformerNeuronWrapper,
-    QwenImageTransformerNeuronWrapper,
     NoCacheModelWrapper,
     PixartTransformerNeuronWrapper,
+    QwenImageTransformerNeuronWrapper,
     SentenceTransformersCLIPNeuronWrapper,
     SentenceTransformersTransformerNeuronWrapper,
     T5DecoderWrapper,
@@ -1190,7 +1177,7 @@ class Qwen2_5_VLEncoderNeuronConfig(TextEncoderNeuronConfig):
     @property
     def inputs(self) -> list[str]:
         return ["input_ids", "attention_mask"]
-    
+
 
 class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3

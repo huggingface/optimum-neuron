@@ -84,8 +84,8 @@ if is_diffusers_available():
         DiffusionPipeline,
         FluxKontextPipeline,
         FluxPipeline,
-        QwenImagePipeline,
         ModelMixin,
+        QwenImagePipeline,
         StableDiffusionPipeline,
         StableDiffusionXLPipeline,
     )
@@ -228,7 +228,7 @@ def infer_shapes_of_diffusers(
     )
     if isinstance(model, (FluxPipeline, FluxKontextPipeline)):
         max_sequence_length_2 = input_shapes["text_encoder"].get("sequence_length", None) or max_sequence_length_2
-        
+
     if isinstance(model, QwenImagePipeline):
         vae_encoder_num_channels = 3
         vae_decoder_num_channels = model.vae.config.z_dim

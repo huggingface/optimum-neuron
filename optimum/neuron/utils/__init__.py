@@ -130,11 +130,11 @@ if TYPE_CHECKING:
         ASTDummyAudioInputGenerator,
         DummyBeamValuesGenerator,
         DummyControNetInputGenerator,
-        DummyTransformerRotaryEmbGenerator,
         DummyFluxKontextTransformerRotaryEmbGenerator,
         DummyIPAdapterInputGenerator,
         DummyMaskedPosGenerator,
         DummyTimestepInputGenerator,
+        DummyTransformerRotaryEmbGenerator,
         WhisperDummyTextInputGenerator,
     )
     from .misc import (
