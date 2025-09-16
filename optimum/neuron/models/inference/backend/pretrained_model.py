@@ -129,10 +129,6 @@ class NxDPreTrainedModel:
         raise NotImplementedError("get_config_cls is not implemented")
 
     @classmethod
-    def get_neuron_config_cls(cls) -> NxDNeuronConfig:
-        raise NotImplementedError("get_neuron_config_cls is not implemented")
-
-    @classmethod
     def get_compiler_args(cls, neuron_config) -> str:
         """Gets the Neuron compiler arguments to use when compiling this model."""
         return None

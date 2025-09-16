@@ -19,7 +19,6 @@ from dataclasses import asdict, dataclass, fields, is_dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
 import torch
-
 from optimum.utils import logging
 
 from .input_generators import DTYPE_MAPPER

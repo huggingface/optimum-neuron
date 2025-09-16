@@ -26,13 +26,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import torch
-from requests.exceptions import ConnectionError as RequestsConnectionError
-from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
-
 from optimum.exporters.error_utils import AtolError, OutputMatchError, ShapeError
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import is_diffusers_available, logging
 from optimum.utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
 
 from ...neuron.models.auto_model import get_neuron_model_class, has_neuron_model_class
 from ...neuron.utils import (
@@ -762,6 +761,9 @@ def maybe_export_from_neuron_model_class(
     kwargs.pop("tensor_parallel_size", None)
     # Fetch the model config
     config = AutoConfig.from_pretrained(model)
+    if task == "text-generation":
+        # In case a multi-modal model is being exported, extract the text model config
+        config = config.get_text_config()
     # Check if we have an auto-model class for the model_type and task
     if not has_neuron_model_class(model_type=config.model_type, task=task, mode="inference"):
         return False

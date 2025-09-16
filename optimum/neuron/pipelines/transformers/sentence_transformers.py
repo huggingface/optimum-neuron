@@ -1,6 +1,5 @@
-from transformers.pipelines.base import GenericTensor, Pipeline
-
 from optimum.utils import is_sentence_transformers_available
+from transformers.pipelines.base import GenericTensor, Pipeline
 
 
 if is_sentence_transformers_available():

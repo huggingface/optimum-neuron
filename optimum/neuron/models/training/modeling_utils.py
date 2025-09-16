@@ -191,138 +191,38 @@ class NeuronModelMixin:
             self._parameter_names_for_current_pp_rank = get_pipeline_parameters_for_current_stage(self)
         return self._parameter_names_for_current_pp_rank
 
-    @classmethod
-    @classmethod
-    def _check_and_enable_flash_attn_2(
-        cls,
-        config,
-        torch_dtype: torch.dtype | None = None,
-        device_map: str | dict[str, int] | None = None,
-        check_device_map: bool = True,
-        hard_check_only: bool = False,
-    ) -> PretrainedConfig:
-        """
-        Checks the availability of Flash Attention 2 and compatibility with the current model.
+    def _check_and_adjust_attn_implementation(
+        self, attn_implementation: str | None, is_init_check: bool = False
+    ) -> str:
+        attn_implementation = attn_implementation or "eager"
+        attn_implementation: str = self.get_correct_attn_implementation(attn_implementation, is_init_check)
+        return attn_implementation
 
-        If all checks pass and `hard_check_only` is False, the method will set the config attribute `attn_implementation` to "flash_attention_2" so that the model can initialize the correct attention module.
-        """
-        if not cls._supports_flash_attn_2:
+    def _flash_attn_2_can_dispatch(self, is_init_check: bool = False) -> bool:
+        torch_dtype = self.config.torch_dtype
+
+        if not self._supports_flash_attn:
             raise ValueError(
-                f"{cls.__name__} does not support Flash Attention 2.0 yet. Please request to add support where"
-                f" the model is hosted, on its model hub page: https://huggingface.co/{config._name_or_path}/discussions/new"
-                " or in the Transformers GitHub repo: https://github.com/huggingface/transformers/issues/new"
+                f"{self.__class__.__name__} does not support Flash Attention 2.0 yet. Please request to add support here: "
+                "https://github.com/huggingface/optimum-neuron/issues"
             )
 
         if torch_dtype is None:
             logger.warning_once(
-                "You are attempting to use Flash Attention 2.0 without specifying a torch dtype. This might lead to unexpected behaviour"
-            )
-        elif torch_dtype is not None and torch_dtype not in [torch.float16, torch.bfloat16]:
-            logger.warning_once(
-                "Flash Attention 2.0 only supports torch.float16 and torch.bfloat16 dtypes, but"
-                f" the current dype in {cls.__name__} is {torch_dtype}. You should run training or inference using Automatic Mixed-Precision via the `with torch.autocast(device_type='torch_device'):` decorator,"
-                ' or load the model with the `torch_dtype` argument. Example: `model = AutoModel.from_pretrained("openai/whisper-tiny", attn_implementation="flash_attention_2", torch_dtype=torch.float16)`'
+                "You are attempting to use Flash Attention 2 without specifying a torch dtype. This might lead to unexpected behaviour"
             )
 
-        # The check `torch.empty(0).device.type != "xla"` is needed as the model may be initialized after `torch.set_default_device` has been called,
-        # or the model may be initialized under the context manager `with torch.device("cuda"):`.
-        if check_device_map and device_map is None and torch.empty(0).device.type != "xla":
-            logger.warning_once(
-                "You are attempting to use Flash Attention 2.0 with a model not initialized on XLA. Make sure to move the model to XLA"
-                " after initializing it on CPU with `model.to('xla')`."
-            )
-        elif (
-            check_device_map
-            and device_map is not None
-            and isinstance(device_map, dict)
-            and ("cpu" in device_map.values() or "disk" in device_map.values())
-        ):
-            raise ValueError(
-                "You are attempting to use Flash Attention 2.0 with a model dispatched on CPU or disk. This is not supported. Please make sure to "
-                "initialise the model on XLA by passing a device_map that contains only GPU devices as keys."
-            )
-        if not hard_check_only:
-            config._attn_implementation = "flash_attention_2"
-        return config
+        # If no error raise by this point, we can return `True`
+        return True
 
-    @classmethod
-    def _autoset_attn_implementation(
-        cls,
-        config,
-        use_flash_attention_2: bool = False,
-        torch_dtype: torch.dtype | None = None,
-        device_map: str | dict[str, int] | None = None,
-        check_device_map: bool = True,
-    ):
-        """
-        Automatically checks and dispatches to a default attention implementation. In order of priority:
-            1. An implementation specified in `config._attn_implementation` (due for example to the argument attn_implementation="sdpa" in from_pretrained).
-            2. DEPRECATED: if use_flash_attention_2 is set to `True` and `flash_attn` is available, flash attention. (`LlamaFlashAttention` for example)
-            3. SDPA implementation, if available and supported by the model type. (`LlamaSdpaAttention` for example)
-            4. The default model's implementation otherwise (`LlamaAttention` for example) .
-        """
-        # Here we use config._attn_implementation_internal to check whether the attention implementation was explicitely set by the user.
-        # The property `PretrainedConfig._attn_implementation` is never `None`, for backward compatibility (always fall back on "eager").
-        # The `hasattr` here is used as some Transformers tests for some reason do not call PretrainedConfig __init__ (e.g. test_no_super_init_config_and_model)
-        requested_attn_implementation = None
-        if hasattr(config, "_attn_implementation_internal") and config._attn_implementation_internal is not None:
-            if config._attn_implementation != "flash_attention_2" and use_flash_attention_2:
-                raise ValueError(
-                    f'Both attn_implementation="{config._attn_implementation}" and `use_flash_attention_2=True` were used when loading the model, which are not compatible.'
-                    ' We recommend to just use `attn_implementation="flash_attention_2"` when loading the model.'
-                )
+    def _flash_attn_3_can_dispatch(self, is_init_check: bool = False) -> bool:
+        raise ValueError("Flash Attention 3.0 is not supported in optimum-neuron.")
 
-            if not isinstance(config._attn_implementation, dict) and config._attn_implementation not in [
-                "eager"
-            ] + list(ALL_ATTENTION_FUNCTIONS.keys()):
-                message = f'Specified `attn_implementation="{config._attn_implementation}"` is not supported. The only possible arguments are `attn_implementation="eager"` (manual attention implementation)'
-                if cls._supports_flash_attn_2:
-                    message += (
-                        ', `"attn_implementation=flash_attention_2"` (implementation using nki flash attention 2)'
-                    )
-                raise ValueError(message + ".")
+    def _sdpa_can_dispatch(self, is_init_check: bool = False) -> bool:
+        raise ValueError("SDPA is not supported in optimum-neuron.")
 
-            # If a config is passed with a preset attn_implementation, we skip the automatic dispatch and use the user-provided config, with hard checks that the requested attention implementation is available.
-            requested_attn_implementation = config._attn_implementation_internal
-
-        # Composite models consisting of several PretrainedModels have to specify attention impl as a dict
-        # where keys are sub-config names. But most people will specify one `str` which means that should dispatch it
-        # for all sub-models.
-        # Below we check if a config is composite and manually prepare a dict of attn impl if not already passed as a dict.
-        # Later each sub-module will dispatch with its own attn impl, by calling `XXXModel._from_config(config.text_config)`
-        # If any of sub-modules doesn't support requested attn, an error will be raised. See https://github.com/huggingface/transformers/pull/32238
-        for key in config.sub_configs.keys():
-            sub_config = getattr(config, key)
-            curr_attn_implementation = (
-                requested_attn_implementation
-                if not isinstance(requested_attn_implementation, dict)
-                else requested_attn_implementation.get(key, None)
-            )
-            sub_config._attn_implementation_internal = curr_attn_implementation
-
-        if use_flash_attention_2:
-            logger.warning_once(
-                'The model was loaded with use_flash_attention_2=True, which is deprecated and may be removed in a future release. Please use `attn_implementation="flash_attention_2"` instead.'
-            )
-            config._attn_implementation = "flash_attention_2"
-
-        if config._attn_implementation == "flash_attention_2":
-            cls._check_and_enable_flash_attn_2(
-                config,
-                torch_dtype=torch_dtype,
-                device_map=device_map,
-                hard_check_only=False,
-                check_device_map=check_device_map,
-            )
-        elif requested_attn_implementation in list(ALL_ATTENTION_FUNCTIONS.keys()):
-            config._attn_implementation = requested_attn_implementation
-        elif isinstance(requested_attn_implementation, dict):
-            config._attn_implementation = None
-        else:
-            config._attn_implementation = "eager"
-
-        config._attn_implementation_autoset = True
-        return config
+    def _flex_attn_can_dispatch(self, is_init_check: bool = False) -> bool:
+        raise ValueError("Flex Attention is not supported in optimum-neuron.")
 
     # This method uses `torch.xla.utils.checkpoint.checkpoint` instead of the torch one.
     def _set_gradient_checkpointing(self, enable: bool = True, gradient_checkpointing_func: Callable = checkpoint):
@@ -431,7 +331,10 @@ class NeuronModelMixin:
         # We load dynamically a fake model on the meta device with the original implementation to get the keys.
         orig_transformers_cls = getattr(transformers, cls.__name__, None)
         with torch.device("meta"):
-            meta_orig_model = orig_transformers_cls(model.config)
+            # We must set the attention implementation to eager to avoid transformers checks which will fail on Neuron cores.
+            clone_config = copy.deepcopy(model.config)
+            clone_config._attn_implementation = "eager"
+            meta_orig_model = orig_transformers_cls(clone_config)
         model_state_dict = meta_orig_model.state_dict()
         expected_keys = list(model_state_dict.keys())
         prefix = model.base_model_prefix
@@ -801,7 +704,7 @@ class NeuronModelMixin:
         variant = kwargs.pop("variant", None)
         adapter_kwargs = kwargs.pop("adapter_kwargs", None)
         adapter_name = kwargs.pop("adapter_name", None)
-        use_flash_attention_2 = kwargs.pop("use_flash_attention_2", False)
+        kwargs.pop("use_flash_attention_2", False)
         kwargs.pop("generation_config", None)
         gguf_file = kwargs.pop("gguf_file", None)
 
@@ -938,20 +841,11 @@ class NeuronModelMixin:
                 **kwargs,
             )
         else:
-            # In case one passes a config to `from_pretrained` + "attn_implementation"
-            # override the `_attn_implementation` attribute to `attn_implementation` of the kwargs
-            # Please see: https://github.com/huggingface/transformers/issues/28038
-
-            # Overwrite `config._attn_implementation` by the one from the kwargs --> in auto-factory
-            # we pop attn_implementation from the kwargs but this handles the case where users
-            # passes manually the config to `from_pretrained`.
             config = copy.deepcopy(config)
-
-            kwarg_attn_imp = kwargs.pop("attn_implementation", None)
-            if kwarg_attn_imp is not None:
-                config._attn_implementation = kwarg_attn_imp
-
             model_kwargs = kwargs
+
+        if "attn_implementation" in kwargs:
+            config._attn_implementation = kwargs.pop("attn_implementation")
 
         # ** Difference from original from_pretrained **
         # In the original from_pretrained, here there was some initialization to support quantization.
@@ -1354,12 +1248,6 @@ class NeuronModelMixin:
         # We make sure that config.torch_dtype is of type torch.dtype.
         # We do not change the config inplace since we are working from a deepcopy.
         config.torch_dtype = torch_dtype
-
-        if not getattr(config, "_attn_implementation_autoset", False):
-            # We do not check for the device_map because we are going to move the model to XLA anyway on our own.
-            config = cls._autoset_attn_implementation(
-                config, use_flash_attention_2=use_flash_attention_2, torch_dtype=torch_dtype, device_map=device_map
-            )
 
         # ** Difference from original from_pretrained **
         # We do not support the `tie_word_embeddings` feature in pipeline parallelism.

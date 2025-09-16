@@ -23,14 +23,14 @@ from typing import TYPE_CHECKING, Literal
 
 import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download
-from transformers import AutoConfig, AutoModel, GenerationMixin
-
-from optimum.exporters.neuron import main_export
-from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
 from optimum.modeling_base import OptimizedModel
 from optimum.utils import logging
 from optimum.utils.save_utils import maybe_load_preprocessors
+from transformers import AutoConfig, AutoModel, GenerationMixin
+
+from optimum.exporters.neuron import main_export
+from optimum.exporters.neuron.model_configs import *  # noqa: F403
 
 from .cache.entries.single_model import SingleModelCacheEntry
 from .cache.hub_cache import create_hub_compile_cache_proxy

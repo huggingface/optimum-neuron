@@ -18,7 +18,6 @@
 import gc
 import logging
 import math
-from typing import Type
 
 import torch
 from neuronx_distributed.parallel_layers.layers import (
@@ -72,7 +71,9 @@ class NeuronLlamaMLP(nn.Module):
         super().__init__()
         self.tp_degree = neuron_config.tp_degree
         self.hidden_size = config.hidden_size
-        self.intermediate_size = config.intermediate_size
+        self.intermediate_size = (
+            config.intermediate_size_mlp if hasattr(config, "intermediate_size_mlp") else config.intermediate_size
+        )
         self.act_fn = ACT2FN[config.hidden_act]
 
         self.rms_norm_eps = config.rms_norm_eps
@@ -104,7 +105,7 @@ class NeuronLlamaMLP(nn.Module):
             reduce_dtype=neuron_config.torch_dtype,
         )
 
-    def forward(self, x, rmsnorm=None, residual=None):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         gate_proj_output = self.gate_proj(x)
         up_proj_output = self.up_proj(x)
         down_proj_input = self.act_fn(gate_proj_output) * up_proj_output
@@ -249,7 +250,9 @@ class NeuronLlamaDecoderLayer(nn.Module):
         position_ids: torch.LongTensor | None = None,
         past_key_value: tuple[torch.Tensor] | None = None,
         **kwargs,
-    ) -> tuple[torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor] | None]:
+    ) -> tuple[
+        torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor], torch.Tensor | None, torch.Tensor | None
+    ]:
         residual = hidden_states
 
         hidden_states = self.input_layernorm(hidden_states)
@@ -260,22 +263,17 @@ class NeuronLlamaDecoderLayer(nn.Module):
             attention_mask=attention_mask,
             position_ids=position_ids,
             past_key_value=past_key_value,
-            rmsnorm=self.input_layernorm,
             **kwargs,
         )
 
         hidden_states = residual + hidden_states
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
-        hidden_states = self.mlp(
-            hidden_states,
-            rmsnorm=self.post_attention_layernorm,
-        )
+        hidden_states = self.mlp(hidden_states)
 
         hidden_states = residual + hidden_states
 
-        outputs = (hidden_states, present_key_value, cos_cache, sin_cache)
-        return outputs
+        return hidden_states, present_key_value, cos_cache, sin_cache
 
 
 class NxDLlamaModel(NxDDecoderModel):
@@ -338,10 +336,6 @@ class LlamaNxDModelForCausalLM(NxDModelForCausalLM):
     @staticmethod
     def update_state_dict_for_tied_weights(state_dict):
         state_dict["lm_head.weight"] = state_dict["embed_tokens.weight"].clone()
-
-    @classmethod
-    def get_neuron_config_cls(cls) -> Type[NxDNeuronConfig]:
-        return NxDNeuronConfig
 
     @classmethod
     def _get_neuron_config(

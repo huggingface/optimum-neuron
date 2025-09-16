@@ -32,6 +32,9 @@ import unittest
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
+from optimum.exporters.tasks import TasksManager
+from optimum.utils import DEFAULT_DUMMY_SHAPES
+from optimum.utils.testing_utils import require_sentence_transformers
 from parameterized import parameterized
 from transformers import AutoConfig, AutoModelForSeq2SeqLM, set_seed
 from transformers import __version__ as transformers_version
@@ -46,11 +49,8 @@ from optimum.exporters.neuron import (
 )
 from optimum.exporters.neuron.__main__ import get_submodels_and_neuron_configs
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
-from optimum.exporters.tasks import TasksManager
 from optimum.neuron.utils import InputShapesArguments, is_neuron_available
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
-from optimum.utils import DEFAULT_DUMMY_SHAPES
-from optimum.utils.testing_utils import require_sentence_transformers
 
 from .exporters_utils import (
     ENCODER_DECODER_MODELS_TINY,
