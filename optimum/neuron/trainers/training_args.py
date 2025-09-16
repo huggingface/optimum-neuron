@@ -324,7 +324,20 @@ class NeuronTrainingArguments:
             "help": "Whether to use torch autocast to perform mixed precision training.",
         },
     )
-    zero_1: bool = field(default=False, metadata={"help": "Whether to use  ZeRO Stage 1 Optimization."})
+    zero_1: bool = field(default=True, metadata={"help": "Whether to use  ZeRO Stage 1 Optimization."})
+    stochastic_rounding_enabled: bool = field(
+        default=True,
+        metadata={"help": "Whether to enable stochastic rounding when using bf16 training."},
+    )
+    optimizer_save_master_weights_in_ckpt: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to save the FP32 master weights in the checkpoint when using bf16 training with "
+                "optimizer_use_master_weights. Set it to true to enable."
+            )
+        },
+    )
     tensor_parallel_size: int = field(
         default=1, metadata={"help": "The number of replicas the model will be sharded on."}
     )
@@ -506,12 +519,6 @@ class NeuronTrainingArguments:
                 self.average_tokens_across_devices = False
 
         # if training args is specified, it will override the one specified in the accelerate config
-        if self.use_autocast:
-            mixed_precision_dtype = os.environ.get("ACCELERATE_MIXED_PRECISION", "no")
-            if self.bf16:
-                mixed_precision_dtype = "bf16"
-            os.environ["ACCELERATE_MIXED_PRECISION"] = mixed_precision_dtype
-
         if self.report_to is None:
             logger.info(
                 "The default value for the training argument `--report_to` will change in v5 (from all installed "
@@ -591,6 +598,10 @@ class NeuronTrainingArguments:
                     f"The number of pipeline microbatches ({self.pipeline_parallel_num_microbatches}) divide the total "
                     f"per-device eval batch size ({self.per_device_eval_batch_size})."
                 )
+
+        # It is not supported so disabling it
+        if not self.zero_1:
+            self.optimizer_save_master_weights_in_ckpt = False
 
         self.trn_config = TrainingNeuronConfig(
             self.tensor_parallel_size,

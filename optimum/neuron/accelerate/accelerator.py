@@ -32,10 +32,11 @@ from accelerate.utils.operations import gather_object, recursively_apply
 from neuronx_distributed import parallel_layers
 from neuronx_distributed.optimizer import NeuronZero1Optimizer
 from neuronx_distributed.parallel_layers.parallel_state import (
-    get_data_parallel_group,
+    get_context_model_parallel_size,
+    get_data_parallel_replica_groups,
+    get_data_parallel_size,
     get_pipeline_model_parallel_size,
-    get_tensor_model_parallel_group,
-    model_parallel_is_initialized,
+    get_tensor_model_parallel_replica_groups,
 )
 from neuronx_distributed.utils.model_utils import move_model_to_device
 from torch.utils.data import DataLoader, IterableDataset
@@ -61,6 +62,7 @@ from .state import NeuronAcceleratorState
 from .utils import (
     patch_accelerate_is_torch_xla_available,
 )
+from .utils.dataclasses import MixedPrecisionConfig, MixedPrecisionMode
 from .utils.misc import (
     apply_activation_checkpointing,
     create_patched_save_pretrained,
@@ -81,6 +83,7 @@ class NeuronAccelerator(Accelerator):
         *args,
         trn_config: TrainingNeuronConfig | None = None,
         zero_1: bool = False,
+        mixed_precision_config: MixedPrecisionConfig | str | None = None,
         **kwargs,
     ):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
@@ -141,6 +144,15 @@ class NeuronAccelerator(Accelerator):
         full_kwargs["gradient_accumulation_plugin"] = gradient_accumulation_plugin
         full_kwargs["gradient_accumulation_steps"] = gradient_accumulation_steps
 
+        if isinstance(mixed_precision_config, str):
+            mixed_precision_config = MixedPrecisionConfig(mixed_precision_config)
+        elif mixed_precision_config is None:
+            mixed_precision_config = MixedPrecisionConfig("NO")
+        self.mixed_precision_config = mixed_precision_config
+        full_kwargs["mixed_precision"] = (
+            "bf16" if self.mixed_precision_config.mode is MixedPrecisionMode.AUTOCAST_BF16 else "no"
+        )
+
         patched_accelerator_state = partial(NeuronAcceleratorState, trn_config=trn_config)
         with Patcher([("accelerate.accelerator.AcceleratorState", patched_accelerator_state)]):
             super().__init__(**full_kwargs)
@@ -152,7 +164,7 @@ class NeuronAccelerator(Accelerator):
             self.autocast_handler = AutocastKwargs(enabled=enabled)
 
         if self.process_index == -1 and self.zero_1:
-            raise ValueError("XLA ZeRO Stage 1 can only be enabled in a distributed training setting.")
+            raise ValueError("ZeRO-1 can only be enabled in a distributed training setting.")
 
         if num_steps != 1:
             self.gradient_accumulation_steps = num_steps
@@ -240,28 +252,50 @@ class NeuronAccelerator(Accelerator):
         return data_loader
 
     def _prepare_optimizer_for_zero_1(self, optimizer: torch.optim.Optimizer, device_placement=None):
-        mixed_precision_to_dtype = {
-            "no": torch.float32,
-            "bf16": torch.bfloat16,
-        }
-        optimizer_dtype = mixed_precision_to_dtype.get(self.state.mixed_precision, None)
-        if optimizer_dtype is None:
-            raise ValueError(f"The precision {self.state.mixed_precision} is not supported for ZeRO Stage 1")
+        mixed_precision_config = self.mixed_precision_config
 
-        if not model_parallel_is_initialized():
-            sharding_groups = None
-            grad_norm_groups = None
+        context_model_size = get_context_model_parallel_size()
+        if context_model_size > 1:
+            raise RuntimeError(
+                "Context model parallelism is not supported with ZeRO-1. Please set `trn_config.context_model_parallel_size=1`."
+            )
+        sharding_groups = get_data_parallel_replica_groups()
+        grad_norm_groups = get_tensor_model_parallel_replica_groups()
+
+        zero_1_config = {
+            "pin_layout": False,
+            "sharding_groups": sharding_groups,
+            "grad_norm_groups": grad_norm_groups,
+        }
+
+        # P148368176: Bucket cap >140MB causes NaN at step 3 (known issue)
+        _ALL_GATHER_REDUCE_SCATTER_BUCKET_CAP_MB = 130
+        bucket_cap = int(
+            os.getenv("ALL_GATHER_REDUCE_SCATTER_BUCKET_CAP_MB", _ALL_GATHER_REDUCE_SCATTER_BUCKET_CAP_MB)
+        )
+        reduce_scatter_bucket_cap = bucket_cap
+        all_gather_bucket_cap = max(1, bucket_cap // get_data_parallel_size())
+        zero_1_config["bucket_cap_mb_all_gather"] = all_gather_bucket_cap
+        zero_1_config["bucket_cap_mb_reduce_scatter"] = reduce_scatter_bucket_cap
+
+        if mixed_precision_config.optimizer_use_master_weights:
+            zero_1_config["optimizer_dtype"] = torch.float32
         else:
-            sharding_groups = get_data_parallel_group(as_list=True)
-            grad_norm_groups = get_tensor_model_parallel_group(as_list=True)
+            zero_1_config["optimizer_dtype"] = torch.bfloat16
+
+        # use_fp32_grad_acc cannot be True if use_master_weights is False
+        # It is already checked in MixedPrecisionConfig
+        zero_1_config["use_grad_acc_hook"] = mixed_precision_config.optimizer_use_fp32_grad_acc
+        zero_1_config["higher_cc_precision"] = mixed_precision_config.optimizer_use_fp32_grad_acc
+
+        # save_master_weights_in_ckpt cannot be True if use_master_weights is False
+        # It is already checked in MixedPrecisionConfig
+        zero_1_config["save_master_weights"] = mixed_precision_config.optimizer_save_master_weights_in_ckpt
 
         zero_1_optimizer = NeuronZero1Optimizer(
             optimizer.param_groups,
             optimizer.__class__,
-            optimizer_dtype=optimizer_dtype,
-            pin_layout=False,
-            sharding_groups=sharding_groups,
-            grad_norm_groups=grad_norm_groups,
+            **zero_1_config,
         )
 
         return zero_1_optimizer
@@ -307,7 +341,6 @@ class NeuronAccelerator(Accelerator):
         model: torch.nn.Module,
         device_placement: bool | None = None,
         evaluation_mode: bool = False,
-        full_bf16: bool = False,
     ):
         # If the model was already prepared, we skip.
         if model in self._models:
@@ -326,11 +359,17 @@ class NeuronAccelerator(Accelerator):
         model.config.output_attentions = False
         model.config.output_hidden_states = False
 
+        full_bf16 = self.mixed_precision_config.mode is MixedPrecisionMode.FULL_BF16
+
         if is_custom_modeling_model(model):
             if get_pipeline_model_parallel_size() > 1:
                 model = create_nxdpp_model(model)
+                if full_bf16:
+                    model = model.to(torch.bfloat16)
                 model.move_model_to_device()
             else:
+                if full_bf16:
+                    model = model.to(torch.bfloat16)
                 move_model_to_device(model, self.device)
                 model.tie_weights()
             model = super().prepare_model(model, device_placement=False, evaluation_mode=evaluation_mode)
@@ -552,3 +591,8 @@ class NeuronAccelerator(Accelerator):
         except Exception:
             # Dataset had no length or raised an error
             return data
+
+    @contextlib.contextmanager
+    def accumulate(self):
+        self._do_sync()
+        yield

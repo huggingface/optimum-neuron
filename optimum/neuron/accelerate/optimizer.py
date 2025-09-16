@@ -18,8 +18,9 @@ import torch
 import torch_xla.core.xla_model as xm
 from accelerate.optimizer import AcceleratedOptimizer
 from neuronx_distributed.parallel_layers.grads import bucket_allreduce_gradients, clip_grad_norm
+from neuronx_distributed.optimizer import NeuronZero1Optimizer
+from neuronx_distributed.parallel_layers.grads import bucket_allreduce_gradients
 from neuronx_distributed.parallel_layers.mappings import reduce_from_tensor_model_parallel_region
-from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
 
 
 accelerate.optimizer.xm = xm
@@ -107,10 +108,8 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
             if self.accelerator_state.trn_config.sequence_parallel_enabled:
                 allreduce_sequence_parallel_gradients(self.optimizer)
 
-            if isinstance(self.optimizer, ZeroRedundancyOptimizer):
+            if isinstance(self.optimizer, NeuronZero1Optimizer):
                 if self.clip_grad_norm_to_perform is not None:
-                    # `ZeroRedundancyOptimizer` does not allow to pass a norm type, it could be done but postponing for
-                    # now.
                     self.optimizer.grad_clipping = True
                     self.optimizer.max_norm = self.clip_grad_norm_to_perform["max_norm"]
                 elif self.permanent_clip_grad_norm is not None:

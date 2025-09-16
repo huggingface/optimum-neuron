@@ -35,6 +35,28 @@ def init_process_group():
                 raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
 
 
+def set_neuron_cc_flag(flag_name: str, flag_value: str):
+    """
+    Sets a specific Neuron compiler flag in the `NEURON_CC_FLAGS` environment variable.
+    If the flag is already present, its value is updated.
+
+    Args:
+        flag_name (`str`):
+            The name of the flag to set (e.g., `--auto-cast`).
+        flag_value (`str`):
+            The value to set for the flag (e.g., `none`, `bf16`, etc.).
+    """
+    neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
+    match_ = re.search(rf"{re.escape(flag_name)}\s?\=?\s?\w+", neuron_cc_flags)
+    if match_ is not None:
+        neuron_cc_flags = (
+            neuron_cc_flags[: match_.start(0)] + f"{flag_name}={flag_value}" + neuron_cc_flags[match_.end(0) :]
+        )
+    else:
+        neuron_cc_flags += f" {flag_name}={flag_value}"
+    os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
+
+
 def set_common_flags():
     """
     Sets environment variables for transformer-based models training with AWS Neuron.
@@ -48,29 +70,3 @@ def set_common_flags():
     os.environ["MALLOC_ARENA_MAX"] = "64"
     # Setting the path to use our patched version of the `neuron_cc_wrapper`.
     patch_neuron_cc_wrapper(restore_path=False).__enter__()
-
-
-def set_neuron_cc_flags_for_torch_amp():
-    """
-    Sets the proper compiler flags needed when using PyTorch Autocast.
-    """
-    torch.cuda.is_bf16_supported = lambda: True
-    neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
-    match_ = re.search(r"--auto-cast\s?\=?\s?\w+", neuron_cc_flags)
-    if match_ is not None:
-        neuron_cc_flags = neuron_cc_flags[: match_.start(0)] + neuron_cc_flags[match_.end(0) :]
-    os.environ["NEURON_CC_FLAGS"] = f"{neuron_cc_flags} --auto-cast=none"
-
-
-def set_neuron_cc_optlevel(optlevel: int = 2):
-    """
-    Sets the Neuron compiler optimization level.
-    """
-    assert 1 <= optlevel <= 3
-    neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
-    match_ = re.search(r"-(O|optlevel)[123]", neuron_cc_flags)
-    if match_:
-        neuron_cc_flags = neuron_cc_flags[: match_.start(0)] + f"-O{optlevel} " + neuron_cc_flags[match_.end(0) + 1 :]
-    else:
-        neuron_cc_flags += f" -O{optlevel}"
-    os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
