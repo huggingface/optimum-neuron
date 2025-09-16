@@ -19,7 +19,9 @@ from optimum.neuron.cache import synchronize_hub_cache
 from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
 from optimum.neuron.models.inference.gpt_oss.modeling_gpt_oss import (
     NeuronGptOssDecoderLayer,
+    NeuronGptOssModel,
     NeuronRMSNorm,
+    ParallelEmbedding,
     convert_gptoss_to_neuron_state_dict,
 )
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
@@ -181,7 +183,8 @@ def _attention_mask_functions(attention_mask, index, config):
 
 
 class GptOssModelWrapper(GptOssModel):
-    def forward(self, input_ids, attention_mask, position_ids):
+    def forward(self, input_ids, attention_mask, position_ids, seq_ids, sampling_params):
+        # seq_ids and sampling_params are ignored
         outputs = super().forward(
             input_ids,
             attention_mask=attention_mask,
@@ -190,24 +193,34 @@ class GptOssModelWrapper(GptOssModel):
         return outputs.last_hidden_state
 
 
-class NeuronDecoderLayersWrapper(torch.nn.ModuleList):
+class NeuronDecoderLayersWrapper_(torch.nn.Module):
     def __init__(self, config, neuron_config):
         super().__init__()
         self.config = config
         self.neuron_config = neuron_config
 
-        self.embed_tokens = torch.nn.Embedding(config.vocab_size, config.hidden_size, config.pad_token_id)
+        # self.embed_tokens = torch.nn.Embedding(config.vocab_size, config.hidden_size, config.pad_token_id)
+        self.embed_tokens = ParallelEmbedding(
+            config.vocab_size,
+            config.hidden_size,
+            config.pad_token_id,
+            # dtype=neuron_config.torch_dtype,
+            dtype=torch.float32,
+            shard_across_embedding=True,
+            pad=True,
+        )
+
         self.layers = torch.nn.ModuleList(
             [NeuronGptOssDecoderLayer(config, neuron_config) for layer_idx in range(config.num_hidden_layers)]
         )
         self.norm = NeuronRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
-    def forward(self, input_ids, attention_mask, position_ids):
+    def forward(self, input_ids, attention_mask, position_ids, seq_ids, sampling_params):
+        # seq_ids and sampling_params are ignored
         cos_cache = None
         sin_cache = None
 
         hidden_states = self.embed_tokens(input_ids)
-
         for layer_idx in range(self.config.num_hidden_layers):
             layer = self.layers[layer_idx]
             attention_mask_layer = _attention_mask_functions(attention_mask, layer_idx, self.config)
@@ -222,13 +235,18 @@ class NeuronDecoderLayersWrapper(torch.nn.ModuleList):
         return hidden_states
 
 
+class NeuronGptOssModelWrapper(NeuronGptOssModel):
+    def forward(self, input_ids, attention_mask, position_ids, seq_ids, sampling_params):
+        return self.get_model_output(input_ids, attention_mask, position_ids)[0]
+
+
 @is_inferentia_test
 @requires_neuronx
 def test_gpt_oss_model():
     set_seed(42)
     config_id = "tengomucho/tiny-random-gpt-oss"
     config = AutoConfig.from_pretrained(config_id)
-    seq_len = 2048
+    seq_len = 128
     # Initialize hidden states to random values between -3 and 3
     prompt = "Gravity is"
     tokenizer = AutoTokenizer.from_pretrained(config_id)
@@ -238,15 +256,17 @@ def test_gpt_oss_model():
     attention_mask = inputs.attention_mask
     seq_len = input_ids.shape[-1]
     position_ids = (attention_mask.cumsum(-1) - 1).masked_fill(attention_mask == 0, 0)
+    seq_ids = torch.arange(input_ids.shape[0])
+    sampling_params = torch.tensor([1.0, 1.0, 1.0])  # This is ignored in the model
 
     if getattr(config, "sliding_window", False):
         # If model config supports sliding window, test it, and set it to a value that can be tested with the given
         # sequence length.
         config.sliding_window = min(seq_len // 4, config.sliding_window)
 
-    inputs = [(input_ids, attention_mask, position_ids)]
+    inputs = [(input_ids, attention_mask, position_ids, seq_ids, sampling_params)]
     example_inputs = [
-        tuple([torch.zeros_like(input_element) for input_element in input_elements]) for input_elements in inputs
+        tuple([torch.zeros_like(input_element, dtype=input_element.dtype) for input_element in inputs[0]])
     ]
 
     config._attn_implementation = "eager"  # Force eager attention in cpu
@@ -268,7 +288,7 @@ def test_gpt_oss_model():
         torch.save(state_dict, checkpoint_path)
 
         neuron_module = build_module(
-            NeuronDecoderLayersWrapper,
+            NeuronGptOssModelWrapper,
             example_inputs,
             module_init_kwargs={"config": config, "neuron_config": neuron_config},
             checkpoint_path=checkpoint_path,
