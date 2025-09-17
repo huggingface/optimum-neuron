@@ -218,7 +218,6 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         neuron_config = cls._neuron_config_init(config) if neuron_config is None else neuron_config
         inline_weights_to_neff = config.neuron.get("inline_weights_to_neff", False)
 
-
         preprocessors = None
         # Handle model loading based on source (local dir vs hub)
         if model_path.is_dir():
