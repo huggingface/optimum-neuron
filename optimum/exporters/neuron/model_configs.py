@@ -913,6 +913,14 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
 
         return merged_state_dict
 
+    @property
+    def is_flux_kontext(self) -> bool:
+        return self._is_flux_kontext
+
+    @is_flux_kontext.setter
+    def is_flux_kontext(self, is_flux_kontext: bool):
+        self._is_flux_kontext = is_flux_kontext
+
 
 @register_in_tasks_manager("qwen-image-transformer-2d", *["semantic-segmentation"], library_name="diffusers")
 class QwenImageTransformerNeuronConfig(FluxTransformerNeuronConfig):
@@ -1050,14 +1058,6 @@ class QwenImageTransformerNeuronConfig(FluxTransformerNeuronConfig):
             return tuple(dummy_inputs.values())
         else:
             return dummy_inputs
-
-    @property
-    def is_flux_kontext(self) -> bool:
-        return self._is_flux_kontext
-
-    @is_flux_kontext.setter
-    def is_flux_kontext(self, is_flux_kontext: bool):
-        self._is_flux_kontext = is_flux_kontext
 
 
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")

@@ -1634,8 +1634,3 @@ class NeuronFluxInpaintPipeline(NeuronDiffusionPipelineBase, FluxInpaintPipeline
 class NeuronQwenImagePipeline(NeuronDiffusionPipelineBase, QwenImagePipeline):
     main_input_name = "prompt"
     auto_model_class = QwenImagePipeline
-
-
-# class NeuronQwenImageEditPipeline(NeuronDiffusionPipelineBase, QwenImageEditPipeline):
-#     main_input_name = "prompt"
-#     auto_model_class = QwenImageEditPipeline
