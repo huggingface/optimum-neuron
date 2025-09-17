@@ -222,6 +222,11 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         cpu_backend: bool,
     ):
         if cpu_backend:
+            logger = logging.get_logger(__name__)
+            logger.warning(
+                "Model was compiled with cpu_backend=True. Model loading is skipped as it requires Neuron hardware."
+                "The model compilation was successful and the artifacts were saved."
+            )
             return None, None
 
         if tensor_parallel_size == 1:
@@ -229,8 +234,8 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             runtime = torch.classes.neuron.Runtime()
             runtime.initialize()
             runtime.set_default_neuron_cores(0, 1)
-            encoder = NeuronTracedModel.load_model(encoder_path, cpu_backend=cpu_backend)
-            decoder = NeuronTracedModel.load_model(decoder_path, cpu_backend=cpu_backend)
+            encoder = NeuronTracedModel.load_model(encoder_path)
+            decoder = NeuronTracedModel.load_model(decoder_path)
             torch_neuronx.move_trace_to_device(decoder, 0)
         else:
             encoder = neuronx_distributed.trace.parallel_model_load(encoder_path)
