@@ -219,16 +219,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         encoder_path: str | Path,
         decoder_path: str | Path,
         tensor_parallel_size: int,
-        cpu_backend: bool,
     ):
-        if cpu_backend:
-            logger = logging.get_logger(__name__)
-            logger.warning(
-                "Model was compiled with cpu_backend=True. Model loading is skipped as it requires Neuron hardware."
-                "The model compilation was successful and the artifacts were saved."
-            )
-            return None, None
-
         if tensor_parallel_size == 1:
             # Initialize Neuron Runtime before loading models
             runtime = torch.classes.neuron.Runtime()
@@ -256,7 +247,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         subfolder: str = "",
         local_files_only: bool = False,
         model_save_dir: str | Path | TemporaryDirectory | None = None,
-        cpu_backend: bool = False,
         **kwargs,
     ):
         model_id = str(model_id)
@@ -300,7 +290,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             encoder_path=model_and_config_save_paths[ENCODER_NAME][0],
             decoder_path=model_and_config_save_paths[DECODER_NAME][0],
             tensor_parallel_size=configs["decoder"].neuron.get("tensor_parallel_size", 1),
-            cpu_backend=cpu_backend,
         )
 
         if model_save_dir is None:
@@ -408,12 +397,17 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             **kwargs_shapes,
         )
 
-        return cls._from_pretrained(
-            model_id=save_dir_path,
-            config=config,
-            model_save_dir=save_dir,
-            cpu_backend=cpu_backend,
-        )
+        if cpu_backend:
+            logger.warning(
+                "Model was compiled with cpu_backend=True. Model loading is skipped as it requires Neuron hardware."
+                "The model compilation was successful and the artifacts were saved."
+            )
+        else:
+            return cls._from_pretrained(
+                model_id=save_dir_path,
+                config=config,
+                model_save_dir=save_dir,
+            )
 
     def _save_config(self, save_directory):
         save_directory = Path(save_directory)
