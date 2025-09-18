@@ -60,7 +60,6 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
     def test_cpu_backend_encoder_export(self, model_name, model_id):
         """
         Test CPU backend compilation for encoder models using _export method.
-        
         This test verifies that encoder models can be compiled with cpu_backend=True
         and that the compilation artifacts are created successfully.
         """
@@ -187,7 +186,6 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
     def test_cpu_backend_seq2seq_export(self, model_name, model_id):
         """
         Test CPU backend compilation for seq2seq models using _export method.
-        
         This test verifies that seq2seq models can be compiled with cpu_backend=True
         and that the compilation artifacts are created successfully.
         """
