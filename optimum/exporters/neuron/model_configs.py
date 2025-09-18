@@ -50,10 +50,11 @@ from optimum.neuron.utils import (
     DummyBeamValuesGenerator,
     DummyControNetInputGenerator,
     DummyFluxKontextTransformerRotaryEmbGenerator,
-    DummyFluxTransformerRotaryEmbGenerator,
     DummyIPAdapterInputGenerator,
     DummyMaskedPosGenerator,
+    DummyQwenImageTransformerInputGenerator,
     DummyTimestepInputGenerator,
+    DummyTransformerRotaryEmbGenerator,
     WhisperDummyTextInputGenerator,
     get_checkpoint_shard_files,
     saved_model_in_temporary_directory,
@@ -72,6 +73,7 @@ from .model_wrappers import (
     FluxTransformerNeuronWrapper,
     NoCacheModelWrapper,
     PixartTransformerNeuronWrapper,
+    QwenImageTransformerNeuronWrapper,
     SentenceTransformersCLIPNeuronWrapper,
     SentenceTransformersTransformerNeuronWrapper,
     T5DecoderWrapper,
@@ -822,6 +824,133 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
         DummyTransformerTimestepInputGenerator,
         DummyFluxTransformerVisionInputGenerator,
         DummyFluxTransformerTextInputGenerator,
+        DummyTransformerRotaryEmbGenerator,
+    )
+
+    @property
+    def inputs(self) -> list[str]:
+        common_inputs = [
+            "hidden_states",
+            "encoder_hidden_states",
+            "pooled_projections",
+            "timestep",
+            # Q: Why `image_rotary_emb` but not `txt_ids` and `img_ids`? We compute the rotary positional embeddings in CPU to save Neuron memory.
+            # shape: [txt_ids.shape(0)+img_ids.shape(0), sum(axes_dim), 2]
+            "image_rotary_emb",
+        ]
+        if getattr(self._config, "guidance_embeds", False):
+            common_inputs.append("guidance")
+
+        return common_inputs
+
+    @property
+    def outputs(self) -> list[str]:
+        return ["out_hidden_states"]
+
+    def patch_model_and_prepare_aliases(self, model_or_path, *args):
+        base_model_instance = BaseModelInstance(
+            partial(self.get_parallel_callable, self._config),
+            input_output_aliases={},
+        )
+        return base_model_instance, None
+
+    def get_parallel_callable(self, config):
+        from optimum.neuron.models.inference.flux.modeling_flux import NeuronFluxTransformer2DModel
+
+        # Parallelize Flux transformer with NxD backend modeling
+        valid_params = inspect.signature(NeuronFluxTransformer2DModel.__init__).parameters
+        model_config = {k: v for k, v in config.items() if k in valid_params and k != "self"}
+        model = NeuronFluxTransformer2DModel(**model_config)
+        model.eval()
+        if self.float_dtype == torch.bfloat16:
+            model.bfloat16()
+
+        return model
+
+    # Adapted from diffusers.models.modeling_utils.ModelMixin.from_pretrained, this is a helper function for loading checkpoints required by `ModelBuilder`.
+    def get_checkpoint_loader_fn(self):
+        is_local = os.path.isdir(self.pretrained_model_name_or_path)
+        subfolder = getattr(self, "subfolder", "transformer")
+        if is_local:
+            index_file = Path(
+                self.pretrained_model_name_or_path,
+                subfolder or "",
+                SAFE_WEIGHTS_INDEX_NAME,
+            )
+        else:
+            index_file_in_repo = Path(
+                subfolder or "",
+                SAFE_WEIGHTS_INDEX_NAME,
+            ).as_posix()
+            index_file = _get_model_file(
+                self.pretrained_model_name_or_path,
+                weights_name=index_file_in_repo,
+                # TODO: add extra args, eg. revision, trust_remote_code, etc.
+            )
+
+        model_shards_file_paths, _ = get_checkpoint_shard_files(
+            pretrained_model_name_or_path=self.pretrained_model_name_or_path,
+            index_filename=index_file,
+            subfolder=subfolder,
+        )
+
+        merged_state_dict = {}
+        for shard_file in model_shards_file_paths:
+            state_dict = load_file(shard_file)
+            merged_state_dict.update(state_dict)
+
+        inner_dim = self._config.num_attention_heads * self._config.attention_head_dim
+        for i in range(self._config.num_single_layers):
+            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_attn.weight"] = merged_state_dict[
+                f"single_transformer_blocks.{i}.proj_out.weight"
+            ][:, :inner_dim].contiguous()
+            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_attn.bias"] = (
+                merged_state_dict[f"single_transformer_blocks.{i}.proj_out.bias"].clone().detach().contiguous()
+            )
+            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_mlp.weight"] = merged_state_dict[
+                f"single_transformer_blocks.{i}.proj_out.weight"
+            ][:, inner_dim:].contiguous()
+
+        return merged_state_dict
+
+    @property
+    def is_flux_kontext(self) -> bool:
+        return self._is_flux_kontext
+
+    @is_flux_kontext.setter
+    def is_flux_kontext(self, is_flux_kontext: bool):
+        self._is_flux_kontext = is_flux_kontext
+
+
+@register_in_tasks_manager("qwen-image-transformer-2d", *["semantic-segmentation"], library_name="diffusers")
+class QwenImageTransformerNeuronConfig(FluxTransformerNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    INPUT_ARGS = (
+        "batch_size",
+        "sequence_length",
+        "num_channels",
+        "width",
+        "height",
+        "vae_scale_factor",
+        "encoder_hidden_size",
+        "rotary_axes_dim",
+    )
+    MODEL_TYPE = "qwen-image-transformer-2d"
+    CUSTOM_MODEL_WRAPPER = QwenImageTransformerNeuronWrapper
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        height="height",
+        width="width",
+        num_channels="in_channels",
+        vocab_size="attention_head_dim",
+        hidden_size="joint_attention_dim",
+        projection_size="pooled_projection_dim",
+        allow_new=True,
+    )
+
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        DummyTransformerTimestepInputGenerator,
+        DummyQwenImageTransformerInputGenerator,
+        DummyTransformerRotaryEmbGenerator,
     )
 
     @property
@@ -921,7 +1050,7 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
             )
         else:
             self.DUMMY_INPUT_GENERATOR_CLASSES = self.DUMMY_INPUT_GENERATOR_CLASSES + (
-                DummyFluxTransformerRotaryEmbGenerator,
+                DummyTransformerRotaryEmbGenerator,
             )
             dummy_inputs = super().generate_dummy_inputs(**kwargs)
 
@@ -929,14 +1058,6 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
             return tuple(dummy_inputs.values())
         else:
             return dummy_inputs
-
-    @property
-    def is_flux_kontext(self) -> bool:
-        return self._is_flux_kontext
-
-    @is_flux_kontext.setter
-    def is_flux_kontext(self, is_flux_kontext: bool):
-        self._is_flux_kontext = is_flux_kontext
 
 
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")
@@ -1036,6 +1157,26 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
         **kwargs,
     ):
         return super().patch_model_and_prepare_aliases(model=model, input_names=input_names, forward_with_tuple=True)
+
+
+@register_in_tasks_manager("qwen-image-vae-encoder", *["semantic-segmentation"], library_name="diffusers")
+class QwenImageVaeEncoderNeuronConfig(VaeEncoderNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("qwen-image-vae-decoder", *["semantic-segmentation"], library_name="diffusers")
+class QwenImageVaeDecoderNeuronConfig(VaeDecoderNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("qwen2-5-vl", *["feature-extraction"], library_name="diffusers")
+class Qwen2_5_VLEncoderNeuronConfig(TextEncoderNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    NORMALIZED_CONFIG_CLASS = NormalizedTextConfig
+
+    @property
+    def inputs(self) -> list[str]:
+        return ["input_ids", "attention_mask"]
 
 
 class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
