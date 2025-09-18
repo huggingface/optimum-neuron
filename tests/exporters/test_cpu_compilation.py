@@ -45,7 +45,6 @@ CPU_BACKEND_SEQ2SEQ_MODELS = {
 class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
     """
     Tests for CPU backend compilation of encoder models.
-    
     This class tests both the export functionality and integration aspects
     for encoder models (DistilBERT, BERT, RoBERTa) using cpu_backend=True.
     """
@@ -89,7 +88,6 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
     def test_cpu_backend_encoder_artifacts_creation(self):
         """
         Integration test to verify encoder model compilation creates proper artifacts.
-        
         This test compiles a model and verifies the directory structure and files
         are created as expected.
         """
@@ -124,7 +122,6 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
     def test_cpu_backend_compilation_with_compiler_options(self):
         """
         Test CPU backend compilation with different compiler options.
-        
         This test verifies that CPU backend compilation works with various
         compiler settings like auto_cast, optlevel, etc. for encoder models.
         """
@@ -147,10 +144,12 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
                         batch_size=1,
                         sequence_length=128,
                         cpu_backend=True,
-                        **compiler_opts
+                        **compiler_opts,
                     )
 
-                    self.assertIsNone(result, f"CPU backend export should return None for compiler opts {compiler_opts}")
+                    self.assertIsNone(
+                        result, f"CPU backend export should return None for compiler opts {compiler_opts}"
+                    )
 
                 except Exception as e:
                     self.fail(f"CPU backend compilation failed for compiler opts {compiler_opts}: {e}")
@@ -174,7 +173,6 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
 class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
     """
     Tests for CPU backend compilation of seq2seq models.
-    
     This class tests both the export functionality and integration aspects
     for seq2seq models (T5) using cpu_backend=True.
     """
@@ -218,7 +216,6 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
     def test_cpu_backend_seq2seq_artifacts_creation(self):
         """
         Integration test to verify seq2seq model compilation creates proper artifacts.
-        
         This test compiles a seq2seq model and verifies the directory structure and files
         are created as expected.
         """
@@ -254,7 +251,6 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
     def test_cpu_backend_seq2seq_with_compiler_options(self):
         """
         Test CPU backend compilation with different compiler options for seq2seq models.
-        
         This test verifies that CPU backend compilation works with various
         compiler settings for seq2seq models.
         """
@@ -278,10 +274,12 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
                         sequence_length=64,
                         num_beams=4,
                         cpu_backend=True,
-                        **compiler_opts
+                        **compiler_opts,
                     )
 
-                    self.assertIsNone(result, f"CPU backend export should return None for compiler opts {compiler_opts}")
+                    self.assertIsNone(
+                        result, f"CPU backend export should return None for compiler opts {compiler_opts}"
+                    )
 
                 except Exception as e:
                     self.fail(f"CPU backend seq2seq compilation failed for compiler opts {compiler_opts}: {e}")
