@@ -63,7 +63,7 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
         This test verifies that encoder models can be compiled with cpu_backend=True
         and that the compilation artifacts are created successfully.
         """
-        with TemporaryDirectory() as tmp_dir:
+        with TemporaryDirectory():
             try:
                 # Load model config
                 config = AutoConfig.from_pretrained(model_id)
@@ -189,7 +189,7 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
         This test verifies that seq2seq models can be compiled with cpu_backend=True
         and that the compilation artifacts are created successfully.
         """
-        with TemporaryDirectory() as tmp_dir:
+        with TemporaryDirectory():
             try:
                 # Load model config
                 config = AutoConfig.from_pretrained(model_id)
