@@ -27,18 +27,13 @@ from optimum.neuron import (
 )
 from optimum.neuron.utils.testing_utils import requires_neuronx
 
-from .exporters_utils import (
-    ENCODER_DECODER_MODELS_TINY,
-    EXPORT_MODELS_TINY,
-)
-
 
 SEED = 42
 
 # Models to test for CPU backend compilation
 CPU_BACKEND_ENCODER_MODELS = {
     "distilbert": "hf-internal-testing/tiny-random-DistilBertModel",
-    "bert": "hf-internal-testing/tiny-random-BertModel", 
+    "bert": "hf-internal-testing/tiny-random-BertModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
 }
 
@@ -74,7 +69,7 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
             try:
                 # Load model config
                 config = AutoConfig.from_pretrained(model_id)
-                
+
                 # Export model with CPU backend
                 result = NeuronModelForFeatureExtraction._export(
                     model_id=model_id,
@@ -83,10 +78,10 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
                     sequence_length=128,
                     cpu_backend=True,
                 )
-                
+
                 # For cpu_backend=True, _export returns None but saves artifacts
                 self.assertIsNone(result, "CPU backend export should return None")
-                
+
             except Exception as e:
                 self.fail(f"CPU backend compilation failed for {model_name} ({model_id}): {e}")
 
@@ -99,15 +94,15 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
         are created as expected.
         """
         model_id = CPU_BACKEND_ENCODER_MODELS["distilbert"]
-        
+
         with TemporaryDirectory() as tmp_dir:
             save_dir = Path(tmp_dir) / "test_encoder_export"
             save_dir.mkdir(parents=True, exist_ok=True)
-            
+
             try:
                 # Use the main_export function directly to have more control over the process
                 from optimum.exporters.neuron import main_export
-                
+
                 main_export(
                     model_name_or_path=model_id,
                     output=save_dir,
@@ -118,10 +113,10 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
                     do_validation=False,  # Skip validation as it requires Neuron hardware
                     compiler_kwargs={},  # Empty compiler kwargs for basic test
                 )
-                
+
                 # Verify artifacts were created
                 self._verify_encoder_artifacts(save_dir)
-                
+
             except Exception as e:
                 self.fail(f"CPU backend integration test failed for encoder: {e}")
 
@@ -135,14 +130,14 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
         """
         model_id = CPU_BACKEND_ENCODER_MODELS["distilbert"]
         config = AutoConfig.from_pretrained(model_id)
-        
+
         # Test different compiler configurations
         compiler_configs = [
             {"auto_cast": "matmul", "auto_cast_type": "bf16", "optlevel": "1"},
             {"auto_cast": "all", "auto_cast_type": "fp16", "optlevel": "2"},
             {"auto_cast": None, "optlevel": "3"},
         ]
-        
+
         for compiler_opts in compiler_configs:
             with self.subTest(compiler_opts=compiler_opts):
                 try:
@@ -154,9 +149,9 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
                         cpu_backend=True,
                         **compiler_opts
                     )
-                    
+
                     self.assertIsNone(result, f"CPU backend export should return None for compiler opts {compiler_opts}")
-                    
+
                 except Exception as e:
                     self.fail(f"CPU backend compilation failed for compiler opts {compiler_opts}: {e}")
 
@@ -165,11 +160,11 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
         # Check main config file
         config_file = save_dir / "config.json"
         self.assertTrue(config_file.exists(), f"Main config file {config_file} not found")
-        
+
         # Check for neuron files
         neuron_files = list(save_dir.glob("*.neuron"))
         self.assertGreaterEqual(len(neuron_files), 1, f"No .neuron files found in {save_dir}")
-        
+
         # Verify neuron files are not empty
         for neuron_file in neuron_files:
             self.assertGreater(neuron_file.stat().st_size, 0, f"Neuron file {neuron_file} is empty")
@@ -190,7 +185,7 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
         set_seed(SEED)
 
     @parameterized.expand(CPU_BACKEND_SEQ2SEQ_MODELS.items())
-    @requires_neuronx  
+    @requires_neuronx
     def test_cpu_backend_seq2seq_export(self, model_name, model_id):
         """
         Test CPU backend compilation for seq2seq models using _export method.
@@ -202,7 +197,7 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
             try:
                 # Load model config
                 config = AutoConfig.from_pretrained(model_id)
-                
+
                 # Export model with CPU backend
                 result = NeuronModelForSeq2SeqLM._export(
                     model_id=model_id,
@@ -212,10 +207,10 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
                     num_beams=4,
                     cpu_backend=True,
                 )
-                
-                # For cpu_backend=True, _export returns None but saves artifacts  
+
+                # For cpu_backend=True, _export returns None but saves artifacts
                 self.assertIsNone(result, "CPU backend export should return None")
-                
+
             except Exception as e:
                 self.fail(f"CPU backend compilation failed for {model_name} ({model_id}): {e}")
 
@@ -228,15 +223,15 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
         are created as expected.
         """
         model_id = CPU_BACKEND_SEQ2SEQ_MODELS["t5"]
-        
+
         with TemporaryDirectory() as tmp_dir:
             save_dir = Path(tmp_dir) / "test_seq2seq_export"
             save_dir.mkdir(parents=True, exist_ok=True)
-            
+
             try:
                 # Use the main_export function directly
                 from optimum.exporters.neuron import main_export
-                
+
                 main_export(
                     model_name_or_path=model_id,
                     output=save_dir,
@@ -248,10 +243,10 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
                     do_validation=False,  # Skip validation as it requires Neuron hardware
                     compiler_kwargs={},  # Empty compiler kwargs for basic test
                 )
-                
+
                 # Verify artifacts were created
                 self._verify_seq2seq_artifacts(save_dir)
-                
+
             except Exception as e:
                 self.fail(f"CPU backend integration test failed for seq2seq: {e}")
 
@@ -265,14 +260,14 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
         """
         model_id = CPU_BACKEND_SEQ2SEQ_MODELS["t5"]
         config = AutoConfig.from_pretrained(model_id)
-        
+
         # Test different compiler configurations for seq2seq
         compiler_configs = [
             {"auto_cast": "matmul", "auto_cast_type": "bf16", "optlevel": "1"},
             {"auto_cast": "all", "auto_cast_type": "fp16", "optlevel": "2"},
             {"auto_cast": None, "optlevel": "3"},
         ]
-        
+
         for compiler_opts in compiler_configs:
             with self.subTest(compiler_opts=compiler_opts):
                 try:
@@ -285,9 +280,9 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
                         cpu_backend=True,
                         **compiler_opts
                     )
-                    
+
                     self.assertIsNone(result, f"CPU backend export should return None for compiler opts {compiler_opts}")
-                    
+
                 except Exception as e:
                     self.fail(f"CPU backend seq2seq compilation failed for compiler opts {compiler_opts}: {e}")
 
@@ -296,27 +291,27 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
         # Check main config file
         config_file = save_dir / "config.json"
         self.assertTrue(config_file.exists(), f"Main config file {config_file} not found")
-        
+
         # Check encoder directory and artifacts
         encoder_dir = save_dir / "encoder"
         self.assertTrue(encoder_dir.exists(), f"Encoder directory {encoder_dir} not found")
-        
+
         encoder_config = encoder_dir / "config.json"
         self.assertTrue(encoder_config.exists(), f"Encoder config {encoder_config} not found")
-        
+
         encoder_neuron_files = list(encoder_dir.glob("*.neuron"))
         self.assertGreaterEqual(len(encoder_neuron_files), 1, f"No encoder .neuron files found in {encoder_dir}")
-        
-        # Check decoder directory and artifacts  
+
+        # Check decoder directory and artifacts
         decoder_dir = save_dir / "decoder"
         self.assertTrue(decoder_dir.exists(), f"Decoder directory {decoder_dir} not found")
-        
+
         decoder_config = decoder_dir / "config.json"
         self.assertTrue(decoder_config.exists(), f"Decoder config {decoder_config} not found")
-        
+
         decoder_neuron_files = list(decoder_dir.glob("*.neuron"))
         self.assertGreaterEqual(len(decoder_neuron_files), 1, f"No decoder .neuron files found in {decoder_dir}")
-        
+
         # Verify files are not empty
         for neuron_file in encoder_neuron_files + decoder_neuron_files:
             self.assertGreater(neuron_file.stat().st_size, 0, f"Neuron file {neuron_file} is empty")
