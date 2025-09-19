@@ -163,7 +163,20 @@ def get_pipeline_parameters_for_current_stage(model) -> set[str]:
             # Return all parameters if no pipeline parallelism
             parameter_names = set(model.state_dict().keys())
         elif isinstance(model, NeuronPeftModel):
-            parameter_names = model.parameters_for_current_stage
+            base_model = model.get_base_model()
+            with torch.device("meta"):
+                meta_model = base_model.__class__(base_model.config, base_model.trn_config)
+                meta_nxdpp_model = create_nxdpp_model(meta_model)
+
+            local_parameter_substrings = list(meta_nxdpp_model.local_state_dict().keys())
+            for idx, name in enumerate(local_parameter_substrings):
+                local_parameter_substrings[idx] = name.rsplit(".", 1)[0]
+
+            parameter_names = []
+            for name in model.state_dict().keys():
+                if any(substring in name for substring in local_parameter_substrings):
+                    parameter_names.append(name)
+            parameter_names = set(parameter_names)
         else:
             with torch.device("meta"):
                 meta_model = model.__class__(model.config, model.trn_config)

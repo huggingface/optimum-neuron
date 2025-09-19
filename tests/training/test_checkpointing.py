@@ -24,6 +24,7 @@ from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
 from peft import PeftModelForCausalLM
 from transformers import LlamaForCausalLM
 
+from optimum.neuron.accelerate.accelerator import NeuronAccelerator
 from optimum.neuron.models.training import LlamaForCausalLM as NeuronLlamaForCausalLM
 from optimum.neuron.models.training.checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
 from optimum.neuron.models.training.config import TrainingNeuronConfig
@@ -108,19 +109,21 @@ def test_consolidate_custom_model_parallel_checkpoints(
     "world_size,tp_size,pp_size,kv_size_multiplier,fuse_qkv",
     [
         [8, 2, 1, None, False],
+        [2, 1, 2, None, False],
         [8, 8, 1, 4, False],
         [8, 8, 1, 4, True],
     ],
     ids=[
-        "dp=4,tp=2",
-        "dp=1,tp=8,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
-        "dp=1,tp=8,kv_size_multiplier=4,GQAQKVColumnParallelLinear,fuse_qkv",
+        "8_2_1",
+        "32_2_4",
+        "8_8_1-kv_size_multiplier_4-GQAQKVColumnParallelLinear",
+        "8_8_1,kv_size_multiplier_4-GQAQKVColumnParallelLinear-fuse_qkv",
     ],
 )
 @pytest.mark.parametrize(
     "use_xser",
     [True, False],
-    ids=["use_xser=True", "use_xser=False"],
+    ids=["xser", "no_xser"],
 )
 @distributed_test()
 @is_trainium_test
@@ -169,6 +172,14 @@ def test_consolidate_custom_lora_model_parallel_checkpoints(
         adapter_name="test",
     )
 
+    accelerator = NeuronAccelerator(trn_config=trn_config)
+    custom_model = accelerator.prepare_model(custom_model)
+
+    if pp_size > 1:
+        model_to_save = custom_model.original_torch_module
+    else:
+        model_to_save = custom_model
+
     has_gqa_qkv_column_parallel_linear = any(isinstance(m, GQAQKVColumnParallelLinear) for m in custom_model.modules())
 
     # Some weights need to be averaged before comparing them.
@@ -189,7 +200,7 @@ def test_consolidate_custom_lora_model_parallel_checkpoints(
             }
         )
 
-    custom_model.save_pretrained(tmpdir / "custom_model")
+    model_to_save.save_pretrained(tmpdir / "custom_model")
     xm.rendezvous("Saving done.")
 
     if xr.global_ordinal() == 0:
