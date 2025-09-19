@@ -64,8 +64,6 @@ CUSTOM_MODELINGS_TO_TEST = [
     ("Qwen3ForCausalLM", "michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random"),
 ]
 LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
-LLAMA_V2_MODEL_NAME ="meta-llama/Llama-3.2-1B"
-LLAMA_V2_MODEL_NAME ="Qwen/Qwen3-0.6B"
 
 
 OUTPUTS_TO_IGNORE = {
@@ -675,7 +673,6 @@ def test_attention_implementation_validation(
 @distributed_test(world_size=8, tp_size=2, pp_size=4)
 def test_peft_adapters_distribution_across_pipeline_stages(set_cache_for_ci):
     tp_size = get_tensor_model_parallel_size()
-    pp_size = get_pipeline_model_parallel_size()
     pp_rank = get_pipeline_model_parallel_rank()
 
     trn_config = TrainingNeuronConfig(
@@ -702,8 +699,6 @@ def test_peft_adapters_distribution_across_pipeline_stages(set_cache_for_ci):
     model = get_peft_model(model, peft_config)
     model = accelerator.prepare_model(model)
 
-    opt = torch.optim.AdamW(model.local_parameters(), lr=1e-3)
-
     # Collect adapter parameters on this pipeline stage
     stage_lora_params = {}
     stage_base_params = {}
@@ -718,23 +713,14 @@ def test_peft_adapters_distribution_across_pipeline_stages(set_cache_for_ci):
             # Base model parameters should be frozen
             assert not param.requires_grad, f"Base parameter {name} should not require gradients on PP rank {pp_rank}"
 
-    for _ in range(100):
-        loss = model.run_train(**inputs)
-        xm.mark_step()
+    model.run_train(**inputs)
+    xm.mark_step()
 
-        opt.step()
-
-        named_stage_lora_grads = {
-            name: param.grad.detach().cpu() if param.grad is not None else None
-            for name, param in stage_lora_params.items()
-        }
-
-        opt.zero_grad()
-        xm.mark_step()
-
-        if pp_rank == pp_size - 1:
-            print(loss)
-            # print(named_stage_lora_grads)
+    named_stage_lora_grads = {
+        name: param.grad.detach().cpu() if param.grad is not None else None
+        for name, param in stage_lora_params.items()
+    }
+    xm.mark_step()
 
     # Verify gradients exist for LoRA parameters
     for name, grad in named_stage_lora_grads.items():
