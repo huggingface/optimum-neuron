@@ -90,7 +90,7 @@ def create_nxdpp_model(model) -> NxDPPModel:
         model.__class__.forward = orig_class_forward.__wrapped__
 
     model_to_trace = model.get_base_model() if isinstance(model, NeuronPeftModel) else model
-    nxd_model = NxDPPModel(
+    model = NxDPPModel(
         model_to_trace,
         transformer_layer_cls=model.PIPELINE_TRANSFORMER_LAYER_CLS,
         num_microbatches=model.trn_config.pipeline_parallel_num_microbatches,
@@ -108,8 +108,7 @@ def create_nxdpp_model(model) -> NxDPPModel:
 
     # Setting it back to the original forward.
     model.__class__.forward = orig_class_forward
-
-    return nxd_model
+    return model
 
 
 @contextlib.contextmanager

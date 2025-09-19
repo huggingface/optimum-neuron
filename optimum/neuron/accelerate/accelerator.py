@@ -35,7 +35,6 @@ from neuronx_distributed.parallel_layers.parallel_state import (
     get_context_model_parallel_size,
     get_data_parallel_replica_groups,
     get_data_parallel_size,
-    get_pipeline_model_parallel_size,
     get_tensor_model_parallel_replica_groups,
 )
 from neuronx_distributed.utils.model_utils import move_model_to_device
@@ -362,17 +361,16 @@ class NeuronAccelerator(Accelerator):
         full_bf16 = self.mixed_precision_config.mode is MixedPrecisionMode.FULL_BF16
 
         if is_custom_modeling_model(model):
-            if get_pipeline_model_parallel_size() > 1:
-                model = create_nxdpp_model(model)
+            if self.state.trn_config.pipeline_parallel_size > 1:
                 if full_bf16:
-                    model = model.to(torch.bfloat16)
+                    model.to(torch.bfloat16)
+                model = create_nxdpp_model(model)
                 model.move_model_to_device()
             else:
                 if full_bf16:
-                    model = model.to(torch.bfloat16)
+                    model.to(torch.bfloat16)
                 move_model_to_device(model, self.device)
                 model.tie_weights()
-            model = super().prepare_model(model, device_placement=False, evaluation_mode=evaluation_mode)
         else:
             should_apply_activation_checkpointing = False
             for mod in model.modules():
@@ -390,13 +388,15 @@ class NeuronAccelerator(Accelerator):
             if should_apply_activation_checkpointing:
                 apply_activation_checkpointing(model)
             if full_bf16:
-                model = model.to(torch.bfloat16)
+                model.to(torch.bfloat16)
             move_model_to_device(model, xm.xla_device())
             model.tie_weights()
-            device_placement = False
-            model = super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
 
         xm.mark_step()
+
+        # Adding the model to the list of prepared models.
+        self._models.append(model)
+
         return model
 
     def backward(self, loss, **kwargs):
