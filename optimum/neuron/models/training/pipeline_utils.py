@@ -74,6 +74,7 @@ def create_nxdpp_model(model) -> NxDPPModel:
     Returns:
         NxDPPModel: The wrapped model ready for pipeline parallelism
     """
+    from ...peft import NeuronPeftModel
 
     if not model.supports_pipeline_parallelism():
         raise NotImplementedError(f"The model {model.__class__.__name__} does not support pipeline parallelism.")
@@ -88,8 +89,9 @@ def create_nxdpp_model(model) -> NxDPPModel:
         # unwrap it first.
         model.__class__.forward = orig_class_forward.__wrapped__
 
-    nxd_model = NxDPPModel(
-        model,
+    model_to_trace = model.get_base_model() if isinstance(model, NeuronPeftModel) else model
+    model = NxDPPModel(
+        model_to_trace,
         transformer_layer_cls=model.PIPELINE_TRANSFORMER_LAYER_CLS,
         num_microbatches=model.trn_config.pipeline_parallel_num_microbatches,
         virtual_pipeline_size=model.trn_config.virtual_pipeline_parallel_size,
@@ -106,8 +108,7 @@ def create_nxdpp_model(model) -> NxDPPModel:
 
     # Setting it back to the original forward.
     model.__class__.forward = orig_class_forward
-
-    return nxd_model
+    return model
 
 
 @contextlib.contextmanager
@@ -155,14 +156,31 @@ def get_pipeline_parameters_for_current_stage(model) -> set[str]:
     Returns:
         Set of parameter names needed for the current pipeline stage
     """
+    from ...peft import NeuronPeftModel
+
     with suppress_logging():
         if get_pipeline_model_parallel_size() <= 1 or not model.supports_pipeline_parallelism():
             # Return all parameters if no pipeline parallelism
             parameter_names = set(model.state_dict().keys())
+        elif isinstance(model, NeuronPeftModel):
+            base_model = model.get_base_model()
+            with torch.device("meta"):
+                meta_model = base_model.__class__(base_model.config, base_model.trn_config)
+                meta_nxdpp_model = create_nxdpp_model(meta_model)
+
+            local_parameter_substrings = list(meta_nxdpp_model.local_state_dict().keys())
+            for idx, name in enumerate(local_parameter_substrings):
+                local_parameter_substrings[idx] = name.rsplit(".", 1)[0]
+
+            parameter_names = []
+            for name in model.state_dict().keys():
+                if any(substring in name for substring in local_parameter_substrings):
+                    parameter_names.append(name)
+            parameter_names = set(parameter_names)
         else:
             with torch.device("meta"):
                 meta_model = model.__class__(model.config, model.trn_config)
-            meta_nxdpp_model = create_nxdpp_model(meta_model)
+                meta_nxdpp_model = create_nxdpp_model(meta_model)
             parameter_names = set(meta_nxdpp_model.local_state_dict().keys())
 
     return parameter_names

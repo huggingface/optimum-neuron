@@ -25,17 +25,6 @@ from ...utils.torch_xla_and_neuronx_initialization import set_neuron_cc_flag
 logger = logging.get_logger(__name__)
 
 
-class NeuronDistributedType(str, enum.Enum):
-    """
-    Represents a type of distributed environment specific to Neuron.
-
-    Values:
-        - **MODEL_PARALLELISM** -- Tensor and Pipeline Parallelisms using `torch_xla` and `neuronx_distributed`.
-    """
-
-    MODEL_PARALLELISM = "MODEL_PARALLELISM"
-
-
 class MixedPrecisionMode(str, enum.Enum):
     NO = "NO"
     FULL_BF16 = "FULL_BF16"
