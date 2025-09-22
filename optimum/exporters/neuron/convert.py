@@ -15,7 +15,6 @@
 """Neuron compiled model check and export functions."""
 
 import copy
-import os
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -68,8 +67,7 @@ if is_diffusers_available():
 if is_sentence_transformers_available():
     from sentence_transformers import SentenceTransformer
 
-import neuronx_distributed
-from neuronx_distributed.trace.model_builder import BaseModelInstance, ModelBuilder
+from neuronx_distributed.trace.model_builder import ModelBuilder
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -655,42 +653,28 @@ def trace_neuronx(
 ):
     if tensor_parallel_size > 1:
         # Tensor Parallelism
-        if isinstance(model, BaseModelInstance):
-            # Case 1: Using `neuronx_distributed.trace.model_builder`
-            model_builder = ModelBuilder(
-                router=None,
-                debug=False,
-                tp_degree=tensor_parallel_size,
-                checkpoint_loader=config.get_checkpoint_loader_fn,
-                compiler_workdir=compiler_workdir,
-            )
-            subfolder = output.parts[1]
-            model_builder.add(
-                key=subfolder,
-                model_instance=model,
-                example_inputs=[dummy_inputs],
-                priority_model_idx=0,
-                compiler_args=compiler_args,
-            )
-            neuron_model = model_builder.trace(initialize_model_weights=False)
+        # Case 1: Using ModelBuilderV2 API
+        model_builder = ModelBuilder(
+            router=None,
+            debug=False,
+            tp_degree=tensor_parallel_size,
+            checkpoint_loader=config.get_checkpoint_loader_fn,
+            compiler_workdir=compiler_workdir,
+        )  # I/O aliases included
+        subfolder = output.parts[1]
+        model_builder.add(
+            key=subfolder,
+            model_instance=model,
+            example_inputs=[dummy_inputs],
+            priority_model_idx=0,
+            compiler_args=compiler_args,
+        )
+        neuron_model = model_builder.trace(initialize_model_weights=False)
 
-            model_builder.shard_checkpoint(serialize_path=output.parent / "weights/")
-            torch.jit.save(neuron_model, output)
-        else:
-            # Case 2: Using `neuronx_distributed.trace.parallel_model_trace`
-            os.environ["LOCAL_WORLD_SIZE"] = str(tensor_parallel_size)
-            with torch.no_grad():
-                neuron_model = neuronx_distributed.trace.parallel_model_trace(
-                    model,
-                    dummy_inputs,
-                    compiler_args=compiler_args,
-                    inline_weights_to_neff=inline_weights_to_neff,
-                    compiler_workdir=compiler_workdir,
-                    tp_degree=tensor_parallel_size,
-                )
-            neuronx_distributed.trace.parallel_model_save(neuron_model, output)
+        model_builder.shard_checkpoint(serialize_path=output.parent / "weights/")
+        torch.jit.save(neuron_model, output)
     else:
-        # Case 3: Using `torch_neuronx.trace`
+        # Case 2: Using `torch_neuronx.trace`
         neuron_model = neuronx.trace(
             model,
             dummy_inputs,
