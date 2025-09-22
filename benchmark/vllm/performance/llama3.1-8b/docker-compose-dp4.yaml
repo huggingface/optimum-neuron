@@ -52,16 +52,34 @@ services:
       - "/dev/neuron10"
       - "/dev/neuron11"
 
+  vllm-4:
+    image: optimum-neuron-vllm:latest
+    ports:
+      - "8084:8084"
+    environment:
+      - SM_VLLM_PORT=8084
+      - SM_VLLM_MODEL=${MODEL_ID}
+      - SM_VLLM_TENSOR_PARALLEL_SIZE=8
+      - SM_VLLM_MAX_NUM_SEQS=${MAX_BATCH_SIZE}
+      - SM_VLLM_MAX_MODEL_LEN=${MAX_TOTAL_TOKENS}
+      - HF_TOKEN=${HF_TOKEN}
+    devices:
+      - "/dev/neuron12"
+      - "/dev/neuron13"
+      - "/dev/neuron14"
+      - "/dev/neuron15"
+
   loadbalancer:
     image: nginx:alpine
     ports:
       - "8080:80"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx-dp4.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - vllm-1
       - vllm-2
       - vllm-3
+      - vllm-4
     deploy:
       placement:
         constraints: [node.role == manager]
