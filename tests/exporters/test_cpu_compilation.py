@@ -343,9 +343,9 @@ class NeuronCPUBackendDecoderTestCase(unittest.TestCase):
         with TemporaryDirectory():
             try:
                 export_kwargs = {
-                    "batch_size": 1, 
-                    "sequence_length": 128, 
-                    "tensor_parallel_size": 1, 
+                    "batch_size": 1,
+                    "sequence_length": 128,
+                    "tensor_parallel_size": 1,
                     "auto_cast_type": "bf16",
                 }
                 neuron_config = NeuronModelForCausalLM.get_neuron_config(model_name_or_path=model_id, **export_kwargs)
@@ -370,9 +370,9 @@ class NeuronCPUBackendDecoderTestCase(unittest.TestCase):
 
             try:
                 export_kwargs = {
-                    "batch_size": 1, 
-                    "sequence_length": 128, 
-                    "tensor_parallel_size": 1, 
+                    "batch_size": 1,
+                    "sequence_length": 128,
+                    "tensor_parallel_size": 1,
                     "auto_cast_type": "bf16",
                 }
                 neuron_config = NeuronModelForCausalLM.get_neuron_config(model_name_or_path=model_id, **export_kwargs)
