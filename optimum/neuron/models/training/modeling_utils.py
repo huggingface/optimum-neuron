@@ -1233,7 +1233,7 @@ class NeuronModelMixin:
         init_contexts = [no_init_weights()]
 
         # If we are using pipeline parallelism, we need to use the meta device for parameters only while keeping buffers on CPU.
-        if get_pipeline_model_parallel_size() > 1:
+        if trn_config.pipeline_parallel_size > 1:
             init_contexts.append(MetaParametersOnly())
 
         # ** Difference from original from_pretrained **
@@ -1257,7 +1257,7 @@ class NeuronModelMixin:
             # Let's make sure we don't run the init function of buffer modules
             model = cls(config, trn_config, *model_args, **model_kwargs)
 
-        if get_pipeline_model_parallel_size() > 1:
+        if trn_config.pipeline_parallel_size > 1:
             move_params_to_cpu(model, model.parameters_for_current_stage)
 
         # make sure we use the model's config since the __init__ call might have copied it

@@ -20,13 +20,15 @@ import contextlib
 import functools
 import logging as python_logging
 from collections.abc import Iterable
+from types import ModuleType
+from typing import Any, Callable
 
+import neuronx_distributed
 import torch
-from neuronx_distributed.parallel_layers.parallel_state import (
-    get_pipeline_model_parallel_size,
-)
+from neuronx_distributed.parallel_layers.parallel_state import get_pipeline_model_parallel_size
 from neuronx_distributed.pipeline import NxDPPModel
 from neuronx_distributed.pipeline.trace import HFTracerWrapper, NxDTracer
+from neuronx_distributed.pipeline.trace import trace_model as orig_trace_model
 from torch import nn
 from transformers.utils.fx import HFTracer, create_wrapper
 
@@ -38,6 +40,70 @@ class OptimumNeuronFXTracer(HFTracerWrapper):
         return NxDTracer.is_leaf_module(self, m, module_qualified_name) or HFTracer.is_leaf_module(
             self, m, module_qualified_name
         )
+
+
+class NxDPPModelWithPeftSupport(NxDPPModel):
+    def cut_pipeline_stage(self, cut_point):
+        from ...peft import NeuronPeftModel
+
+        prefix = ""
+        if isinstance(self.original_torch_module, NeuronPeftModel):
+            prefix = self.original_torch_module.get_base_model_prefix()
+
+        cut_point = cut_point[len(prefix) + 1 :] if prefix and cut_point.startswith(prefix + ".") else cut_point
+
+        return super().cut_pipeline_stage(cut_point)
+
+    def _build_parameter_buffer_name_mapping(self, qualname_map):
+        from ...peft import NeuronPeftModel
+
+        orig_module = self.original_torch_module
+        module = orig_module
+        if isinstance(module, NeuronPeftModel):
+            module = orig_module.get_base_model()
+        self.original_torch_module = module
+        super()._build_parameter_buffer_name_mapping(qualname_map)
+        self.original_torch_module = orig_module
+
+
+# def get_concrete_args(
+#     model: nn.Module,
+#     input_names: list[str] | None = None,
+#     args: list[Any] | None = None,
+#     kwargs: dict[Any, Any] | None = None,
+# ):
+#     from ...peft import NeuronPeftModel
+#     if isinstance(model, NeuronPeftModel):
+#         model = model.get_base_model()
+#     return orig_get_concrete_args(model, input_names, args, kwargs)
+
+
+def trace_model(
+    model: nn.Module,
+    args: list[Any] | None = None,
+    kwargs: dict[Any, Any] | None = None,
+    input_names: list[str] | None = None,
+    tracer_cls: Any | str = None,
+    leaf_modules: list[Any] | None = None,
+    autowrap_functions: list[Callable] | None = None,
+    autowrap_modules: list[ModuleType] | None = None,
+    autowrap_obj_methods: dict[Any, list[Callable]] | None = None,
+):
+    from ...peft import NeuronPeftModel
+
+    if isinstance(model, NeuronPeftModel):
+        model = model.get_base_model()
+    return orig_trace_model(
+        model,
+        args=args,
+        kwargs=kwargs,
+        input_names=input_names,
+        tracer_cls=tracer_cls,
+        leaf_modules=leaf_modules,
+        autowrap_functions=autowrap_functions,
+        autowrap_modules=autowrap_modules,
+        autowrap_obj_methods=autowrap_obj_methods,
+    )
 
 
 class MetaParametersOnly:
@@ -74,7 +140,6 @@ def create_nxdpp_model(model) -> NxDPPModel:
     Returns:
         NxDPPModel: The wrapped model ready for pipeline parallelism
     """
-    from ...peft import NeuronPeftModel
 
     if not model.supports_pipeline_parallelism():
         raise NotImplementedError(f"The model {model.__class__.__name__} does not support pipeline parallelism.")
@@ -89,9 +154,12 @@ def create_nxdpp_model(model) -> NxDPPModel:
         # unwrap it first.
         model.__class__.forward = orig_class_forward.__wrapped__
 
-    model_to_trace = model.get_base_model() if isinstance(model, NeuronPeftModel) else model
-    model = NxDPPModel(
-        model_to_trace,
+    # It is important to use this modified version for PEFT models.
+    # neuronx_distributed.pipeline.trace.get_concrete_args = get_concrete_args
+    neuronx_distributed.pipeline.model.trace_model = trace_model
+
+    model = NxDPPModelWithPeftSupport(
+        model,
         transformer_layer_cls=model.PIPELINE_TRANSFORMER_LAYER_CLS,
         num_microbatches=model.trn_config.pipeline_parallel_num_microbatches,
         virtual_pipeline_size=model.trn_config.virtual_pipeline_parallel_size,
