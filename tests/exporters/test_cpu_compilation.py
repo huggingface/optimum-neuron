@@ -22,9 +22,9 @@ from parameterized import parameterized
 from transformers import AutoConfig, set_seed
 
 from optimum.neuron import (
+    NeuronModelForCausalLM,
     NeuronModelForFeatureExtraction,
     NeuronModelForSeq2SeqLM,
-    NeuronModelForCausalLM,
 )
 from optimum.neuron.utils.testing_utils import requires_neuronx
 
@@ -343,17 +343,17 @@ class NeuronCPUBackendDecoderTestCase(unittest.TestCase):
         with TemporaryDirectory():
             try:
                 export_kwargs = {
-                    "batch_size": 1, 
-                    "sequence_length": 128, 
-                    "tensor_parallel_size": 1, 
+                    "batch_size": 1,
+                    "sequence_length": 128,
+                    "tensor_parallel_size": 1,
                     "auto_cast_type": "bf16"
                 }
                 neuron_config = NeuronModelForCausalLM.get_neuron_config(
-                    model_name_or_path=model_id, 
+                    model_name_or_path=model_id,
                     **export_kwargs
-                )                
+                )
                 model = NeuronModelForCausalLM.export(
-                    model_id=model_id, 
+                    model_id=model_id,
                     neuron_config=neuron_config,
                 )
                 self.assertIsNotNone(model, "CPU backend export should return a model instance")
@@ -376,19 +376,19 @@ class NeuronCPUBackendDecoderTestCase(unittest.TestCase):
 
             try:
                 export_kwargs = {
-                    "batch_size": 1, 
-                    "sequence_length": 128, 
-                    "tensor_parallel_size": 1, 
+                    "batch_size": 1,
+                    "sequence_length": 128,
+                    "tensor_parallel_size": 1,
                     "auto_cast_type": "bf16"
                 }
                 neuron_config = NeuronModelForCausalLM.get_neuron_config(
-                    model_name_or_path=model_id, 
+                    model_name_or_path=model_id,
                     **export_kwargs
                 )
                 model = NeuronModelForCausalLM.export(
-                    model_id=model_id, 
+                    model_id=model_id,
                     neuron_config=neuron_config,
-                )                
+                )
                 model.save_pretrained(save_dir)
                 self._verify_decoder_artifacts(save_dir)
 
@@ -414,16 +414,16 @@ class NeuronCPUBackendDecoderTestCase(unittest.TestCase):
             with self.subTest(compiler_opts=compiler_opts):
                 try:
                     export_kwargs = {
-                        "batch_size": 1, 
-                        "sequence_length": 128, 
+                        "batch_size": 1,
+                        "sequence_length": 128,
                         **compiler_opts
-                    }                    
+                    }
                     neuron_config = NeuronModelForCausalLM.get_neuron_config(
-                        model_name_or_path=model_id, 
+                        model_name_or_path=model_id,
                         **export_kwargs
-                    )                    
+                    )
                     model = NeuronModelForCausalLM.export(
-                        model_id=model_id, 
+                        model_id=model_id,
                         neuron_config=neuron_config,
                     )
                     self.assertIsNotNone(
