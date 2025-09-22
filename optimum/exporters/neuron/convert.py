@@ -328,6 +328,10 @@ def export_models(
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
                 2: provides the best balance between model performance and compile time.
                 3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
+        instance_type (`str`, defaults to `"trn1"`):
+            The instance type to use for the Neuron device.
+        cpu_backend (`bool`, defaults to `False`):
+            Whether to compile the model with CPU backend.
         output_file_names (`dict[str, str] | None`, defaults to `None`):
             The names to use for the exported Neuron files. The order must be the same as the order of submodels in the ordered dict `models_and_neuron_configs`.
             If None, will use the keys from `models_and_neuron_configs` as names.
@@ -513,10 +517,14 @@ def export_neuronx(
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
                 2: provides the best balance between model performance and compile time.
                 3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
+        instance_type (`str`, defaults to `"trn1"`):
+            The instance type to use for the Neuron device.
         auto_cast (`str | None`, defaults to `None`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`str`, defaults to `"bf16"`):
             The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
+        cpu_backend (`bool`, defaults to `False`):
+            Whether to compile the model with CPU backend.
 
     Returns:
         `tuple[list[str], list[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
