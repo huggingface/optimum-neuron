@@ -24,6 +24,7 @@ from transformers import AutoConfig, set_seed
 from optimum.neuron import (
     NeuronModelForFeatureExtraction,
     NeuronModelForSeq2SeqLM,
+    NeuronModelForCausalLM,
 )
 from optimum.neuron.utils.testing_utils import requires_neuronx
 
@@ -39,6 +40,11 @@ CPU_BACKEND_ENCODER_MODELS = {
 
 CPU_BACKEND_SEQ2SEQ_MODELS = {
     "t5": "hf-internal-testing/tiny-random-t5",
+}
+
+CPU_BACKEND_DECODER_MODELS = {
+    "smollm3": "optimum-internal-testing/tiny-random-SmolLM3ForCausalLM",
+    "llama": "hf-internal-testing/tiny-random-LlamaForCausalLM",
 }
 
 
@@ -311,3 +317,132 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
         # Verify files are not empty
         for neuron_file in encoder_neuron_files + decoder_neuron_files:
             self.assertGreater(neuron_file.stat().st_size, 0, f"Neuron file {neuron_file} is empty")
+
+
+@requires_neuronx
+class NeuronCPUBackendDecoderTestCase(unittest.TestCase):
+    """
+    Tests for CPU backend compilation of decoder models.
+    This class tests both the export functionality and integration aspects
+    for decoder models (SmolLM3, LLaMA) using cpu_backend=True.
+    """
+
+    def setUp(self):
+        """Set up test environment for CPU backend decoder tests."""
+        os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = "inf2"
+        set_seed(SEED)
+
+    @parameterized.expand(CPU_BACKEND_DECODER_MODELS.items())
+    @requires_neuronx
+    def test_cpu_backend_decoder_export(self, model_name, model_id):
+        """
+        Test CPU backend compilation for decoder models using export method.
+        This test verifies that decoder models can be compiled with cpu_backend=True
+        and that the compilation artifacts are created successfully.
+        """
+        with TemporaryDirectory():
+            try:
+                export_kwargs = {
+                    "batch_size": 1, 
+                    "sequence_length": 128, 
+                    "tensor_parallel_size": 1, 
+                    "auto_cast_type": "bf16"
+                }
+                neuron_config = NeuronModelForCausalLM.get_neuron_config(
+                    model_name_or_path=model_id, 
+                    **export_kwargs
+                )                
+                model = NeuronModelForCausalLM.export(
+                    model_id=model_id, 
+                    neuron_config=neuron_config,
+                )
+                self.assertIsNotNone(model, "CPU backend export should return a model instance")
+
+            except Exception as e:
+                self.fail(f"CPU backend compilation failed for {model_name} ({model_id}): {e}")
+
+    @requires_neuronx
+    def test_cpu_backend_decoder_artifacts_creation(self):
+        """
+        Integration test to verify decoder model compilation creates proper artifacts.
+        This test compiles a decoder model and verifies the directory structure and files
+        are created as expected.
+        """
+        model_id = CPU_BACKEND_DECODER_MODELS["smollm3"]
+
+        with TemporaryDirectory() as tmp_dir:
+            save_dir = Path(tmp_dir) / "test_decoder_export"
+            save_dir.mkdir(parents=True, exist_ok=True)
+
+            try:
+                export_kwargs = {
+                    "batch_size": 1, 
+                    "sequence_length": 128, 
+                    "tensor_parallel_size": 1, 
+                    "auto_cast_type": "bf16"
+                }
+                neuron_config = NeuronModelForCausalLM.get_neuron_config(
+                    model_name_or_path=model_id, 
+                    **export_kwargs
+                )
+                model = NeuronModelForCausalLM.export(
+                    model_id=model_id, 
+                    neuron_config=neuron_config,
+                )                
+                model.save_pretrained(save_dir)
+                self._verify_decoder_artifacts(save_dir)
+
+            except Exception as e:
+                self.fail(f"CPU backend integration test failed for decoder: {e}")
+
+    @requires_neuronx
+    def test_cpu_backend_decoder_with_compiler_options(self):
+        """
+        Test CPU backend compilation with different compiler options for decoder models.
+        This test verifies that CPU backend compilation works with various
+        compiler settings for decoder models.
+        """
+        model_id = CPU_BACKEND_DECODER_MODELS["smollm3"]
+
+        # Test different compiler configurations for decoder
+        compiler_configs = [
+            {"auto_cast_type": "bf16", "tensor_parallel_size": 2},
+            {"auto_cast_type": "fp16", "tensor_parallel_size": 2},
+        ]
+
+        for compiler_opts in compiler_configs:
+            with self.subTest(compiler_opts=compiler_opts):
+                try:
+                    export_kwargs = {
+                        "batch_size": 1, 
+                        "sequence_length": 128, 
+                        **compiler_opts
+                    }                    
+                    neuron_config = NeuronModelForCausalLM.get_neuron_config(
+                        model_name_or_path=model_id, 
+                        **export_kwargs
+                    )                    
+                    model = NeuronModelForCausalLM.export(
+                        model_id=model_id, 
+                        neuron_config=neuron_config,
+                    )
+                    self.assertIsNotNone(
+                        model, f"CPU backend export should return model instance for compiler opts {compiler_opts}"
+                    )
+
+                except Exception as e:
+                    self.fail(f"CPU backend decoder compilation failed for compiler opts {compiler_opts}: {e}")
+
+    def _verify_decoder_artifacts(self, save_dir: Path):
+        """Verify that decoder compilation artifacts are created properly."""
+        # Check main config file
+        config_file = save_dir / "config.json"
+        self.assertTrue(config_file.exists(), f"Main config file {config_file} not found")
+
+        # Check for pt files
+        pt_files = list(save_dir.glob("*.pt"))
+        self.assertGreaterEqual(len(pt_files), 1, f"No .pt files found in {save_dir}")
+
+        # Verify .pt files are not empty
+        for pt_file in pt_files:
+            self.assertGreater(pt_file.stat().st_size, 0, f"Neuron file {pt_file} is empty")
