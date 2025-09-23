@@ -25,10 +25,10 @@ RUN wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEU
 # Install neuronx packages
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends \
-    aws-neuronx-dkms=2.22.2.0 \
-    aws-neuronx-collectives=2.26.43.0-47cc904ea \
-    aws-neuronx-runtime-lib=2.26.42.0-2ff3b5c7d \
-    aws-neuronx-tools=2.24.54.0 \
+    aws-neuronx-dkms=2.24.7.0 \
+    aws-neuronx-collectives=2.28.27.0-bc30ece58 \
+    aws-neuronx-runtime-lib=2.28.23.0-dd5879008 \
+    aws-neuronx-tools=2.26.14.0 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -40,8 +40,8 @@ RUN pip3 install \
 
 # Install manually torch CPU version to avoid pulling CUDA
 RUN pip3 install \
-    torch==2.7.1 \
-    torchvision==0.22.1 \
+    torch==2.8.0 \
+    torchvision==0.23.0 \
     --index-url https://download.pytorch.org/whl/cpu
 
 # Install optimum-neuron
