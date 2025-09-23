@@ -272,6 +272,7 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
         for neuron_file in encoder_neuron_files + decoder_neuron_files:
             self.assertGreater(neuron_file.stat().st_size, 0, f"Neuron file {neuron_file} is empty")
 
+
 @requires_neuronx
 class NeuronCPUBackendDiffusionTestCase(unittest.TestCase):
     """
