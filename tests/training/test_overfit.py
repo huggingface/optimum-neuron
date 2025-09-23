@@ -166,15 +166,17 @@ def _overfit_causal_lm(
     # The master worker checks the logs, since it is the only worker to have access to them, to retrieve the last logged
     # loss. It then checks if it is lower or equal to max_expected_loss.
     if is_logging_process():
-        last_loss = None
-        for logs in reversed(stored_logs):
+        losses = []
+        for idx, logs in enumerate(reversed(stored_logs)):
             if "loss" in logs:
-                last_loss = logs["loss"]
+                losses.append(logs["loss"])
+            if idx == 2:
                 break
-        if last_loss is None:
+        if len(losses) == 0:
             raise ValueError("No loss found in the logs.")
-        print("Last loss", last_loss)
-        assert last_loss <= max_expected_loss, "The model did not overfit the dataset."
+        mean_losses = sum(losses) / len(losses)
+        print("Last loss mean", mean_losses)
+        assert mean_losses <= max_expected_loss, "The model did not overfit the dataset."
 
 
 @pytest.mark.parametrize(
