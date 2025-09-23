@@ -41,7 +41,7 @@ dependencies = [
     "accelerate == 1.8.1",
     "optimum ~= 1.24.0",
     "huggingface_hub >= 0.29.0",
-    "numpy>=1.22.2, <=1.25.2",
+    "numpy>=1.22.2, <=1.26.4",
     "protobuf>=3.20.3, <4",
 ]
 
@@ -95,12 +95,12 @@ neuron = [
 ]
 neuronx = [
     "wheel",
-    "neuronx-cc==2.19.8089.0",
-    "torch-neuronx==2.7.0.2.8.6734+ac864f72",
-    "torch==2.7.1.*",
-    "torchvision==0.22.*",
-    "neuronx_distributed==0.13.14393",
-    "libneuronxla==2.2.4410.0",
+    "neuronx-cc==2.21.18209.0",
+    "torch-neuronx==2.8.0.2.10.13553",
+    "torch==2.8.0.*",
+    "torchvision==0.23.*",
+    "neuronx_distributed==0.15.22404",
+    "libneuronxla==2.2.12677.0",
 ]
 diffusers = [
     "diffusers==0.35.*",
