@@ -127,13 +127,12 @@ def _overfit_causal_lm(
             model_name_or_path,
             training_args.trn_config,
             torch_dtype=torch.bfloat16,
-            use_flash_attention_2=use_flash_attention_2,
+            attn_implementation="flash_attention_2" if use_flash_attention_2 else None,
         )
     else:
         model = model_class.from_pretrained(
             model_name_or_path,
             torch_dtype=torch.bfloat16,
-            use_flash_attention_2=use_flash_attention_2,
         )
 
     if peft_config is not None:

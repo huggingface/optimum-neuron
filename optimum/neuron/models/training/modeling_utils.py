@@ -703,7 +703,7 @@ class NeuronModelMixin:
         variant = kwargs.pop("variant", None)
         adapter_kwargs = kwargs.pop("adapter_kwargs", None)
         adapter_name = kwargs.pop("adapter_name", None)
-        kwargs.pop("use_flash_attention_2", False)
+        use_flash_attention_2 = kwargs.pop("use_flash_attention_2", False)
         kwargs.pop("generation_config", None)
         gguf_file = kwargs.pop("gguf_file", None)
 
@@ -719,6 +719,11 @@ class NeuronModelMixin:
 
         if low_cpu_mem_usage is not None:
             raise NotImplementedError("`low_cpu_mem_usage` is not supported in optimum-neuron.")
+
+        if use_flash_attention_2:
+            raise ValueError(
+                '`use_flash_attention_2` is deprecated, use `attn_implementation="flash_attention_2". instead'
+            )
 
         # We support less features from the device_map since moving to device is handled by the compiler.
         # Only `None`, "xla" and "cpu" as device_map values are supported.

@@ -382,8 +382,6 @@ class NeuronAccelerator(Accelerator):
             for module in model.modules():
                 if getattr(module, "_use_sdpa", False):
                     module._use_sdpa = False
-                if getattr(module, "_use_flash_attention_2", False):
-                    module._use_flash_attention_2 = False
 
             if should_apply_activation_checkpointing:
                 apply_activation_checkpointing(model)
