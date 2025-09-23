@@ -331,7 +331,7 @@ def export_models(
         instance_type (`str`, defaults to `"trn1"`):
             The instance type to use for the Neuron device.
         cpu_backend (`bool`, defaults to `False`):
-            Whether to compile the model with CPU backend.
+            Whether to trace the model completely on CPU.
         output_file_names (`dict[str, str] | None`, defaults to `None`):
             The names to use for the exported Neuron files. The order must be the same as the order of submodels in the ordered dict `models_and_neuron_configs`.
             If None, will use the keys from `models_and_neuron_configs` as names.
