@@ -28,7 +28,6 @@ from optimum.exporters.neuron import (
 )
 from optimum.exporters.neuron.__main__ import get_submodels_and_neuron_configs
 from optimum.neuron import (
-    NeuronModelForCausalLM,
     NeuronModelForFeatureExtraction,
     NeuronModelForSeq2SeqLM,
 )
@@ -44,10 +43,6 @@ CPU_BACKEND_ENCODER_MODELS = {
 
 CPU_BACKEND_SEQ2SEQ_MODELS = {
     "t5": "hf-internal-testing/tiny-random-t5",
-}
-
-CPU_BACKEND_DECODER_MODELS = {
-    "llama": "hf-internal-testing/tiny-random-LlamaForCausalLM",
 }
 
 CPU_BACKEND_DIFFUSION_MODELS = {
