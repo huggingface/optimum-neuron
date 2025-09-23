@@ -75,6 +75,11 @@ jobs:
       - name: Install cv2 dependencies
         run: |
           sudo apt-get install python3-opencv -y
+      - name: Export test models
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
+          python tests/fixtures/llm/export_models.py
       - name: Run base LLM tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
