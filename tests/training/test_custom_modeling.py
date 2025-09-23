@@ -671,7 +671,7 @@ def test_attention_implementation_validation(
 
 
 @distributed_test(world_size=8, tp_size=2, pp_size=4)
-def test_peft_adapters_distribution_across_pipeline_stages(set_cache_for_ci):
+def test_peft_adapters_with_pp(set_cache_for_ci):
     tp_size = get_tensor_model_parallel_size()
     pp_rank = get_pipeline_model_parallel_rank()
 
@@ -703,7 +703,6 @@ def test_peft_adapters_distribution_across_pipeline_stages(set_cache_for_ci):
     stage_lora_params = {}
     stage_base_params = {}
     for name, param in model.local_named_parameters():
-        # for name, param in model.named_parameters():
         if "lora" in name.lower():
             stage_lora_params[name] = param
             # All LoRA parameters should be trainable

@@ -43,6 +43,10 @@ class OptimumNeuronFXTracer(HFTracerWrapper):
 
 
 class NxDPPModelWithPeftSupport(NxDPPModel):
+    """
+    Subclass of NxDPPModel that adds support for PEFT models by handling prefixed module names.
+    """
+
     def cut_pipeline_stage(self, cut_point):
         from ...peft import NeuronPeftModel
 
@@ -57,25 +61,16 @@ class NxDPPModelWithPeftSupport(NxDPPModel):
     def _build_parameter_buffer_name_mapping(self, qualname_map):
         from ...peft import NeuronPeftModel
 
+        # Temporarily set original_torch_module to the base model for correct name mapping
         orig_module = self.original_torch_module
         module = orig_module
         if isinstance(module, NeuronPeftModel):
             module = orig_module.get_base_model()
         self.original_torch_module = module
         super()._build_parameter_buffer_name_mapping(qualname_map)
+
+        # Restore original_torch_module
         self.original_torch_module = orig_module
-
-
-# def get_concrete_args(
-#     model: nn.Module,
-#     input_names: list[str] | None = None,
-#     args: list[Any] | None = None,
-#     kwargs: dict[Any, Any] | None = None,
-# ):
-#     from ...peft import NeuronPeftModel
-#     if isinstance(model, NeuronPeftModel):
-#         model = model.get_base_model()
-#     return orig_get_concrete_args(model, input_names, args, kwargs)
 
 
 def trace_model(
@@ -155,7 +150,6 @@ def create_nxdpp_model(model) -> NxDPPModel:
         model.__class__.forward = orig_class_forward.__wrapped__
 
     # It is important to use this modified version for PEFT models.
-    # neuronx_distributed.pipeline.trace.get_concrete_args = get_concrete_args
     neuronx_distributed.pipeline.model.trace_model = trace_model
 
     model = NxDPPModelWithPeftSupport(
@@ -236,10 +230,12 @@ def get_pipeline_parameters_for_current_stage(model) -> set[str]:
                 meta_model = base_model.__class__(base_model.config, base_model.trn_config)
                 meta_nxdpp_model = create_nxdpp_model(meta_model)
 
+            # Get local parameter substrings from the base model's NxDPPModel
             local_parameter_substrings = list(meta_nxdpp_model.local_state_dict().keys())
             for idx, name in enumerate(local_parameter_substrings):
                 local_parameter_substrings[idx] = name.rsplit(".", 1)[0]
 
+            # Match local parameter substrings to full parameter names in the PEFT model
             parameter_names = []
             for name in model.state_dict().keys():
                 if any(substring in name for substring in local_parameter_substrings):
