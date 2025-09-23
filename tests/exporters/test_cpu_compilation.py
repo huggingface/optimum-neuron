@@ -465,9 +465,7 @@ class NeuronCPUBackendDiffusionTestCase(unittest.TestCase):
                             cpu_backend=True,
                         )
 
-                        self.assertIsNotNone(
-                            neuron_outputs, f"CPU backend export should return neuron outputs for compiler opts {compiler_opts}"
-                        )
+                        self.assertIsNotNone(neuron_outputs, f"CPU backend export should return neuron outputs for compiler opts {compiler_opts}")
 
                     except Exception as e:
                         self.fail(f"CPU backend diffusion compilation failed for compiler opts {compiler_opts}: {e}")
