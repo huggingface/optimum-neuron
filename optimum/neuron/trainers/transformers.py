@@ -1202,10 +1202,7 @@ class NeuronTrainer:
                             "Model parallelism is enabled, saving the model sharded state dict instead of the full state dict."
                         )
 
-                        model_to_save = (
-                            self.model.original_torch_module if isinstance(self.model, NxDPPModel) else self.model
-                        )
-                        model_to_save.save_pretrained(
+                        self.model.save_pretrained(
                             output_dir,
                             optimizer=self.optimizer if not self.args.save_only_model else None,
                         )
