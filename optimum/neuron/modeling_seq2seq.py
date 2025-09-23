@@ -399,7 +399,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
 
         if cpu_backend:
             logger.warning(
-                "Model was compiled with cpu_backend=True. Model loading is skipped as it requires Neuron hardware."
+                "Since `cpu_backend` is set to `True` during compilation, model loading is skipped."
                 "The model compilation was successful and the artifacts were saved."
             )
             return None
