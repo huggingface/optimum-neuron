@@ -48,14 +48,9 @@ jobs:
       - name: Set environment variables for CPU backend
         run: |
           echo "NEURON_PLATFORM_TARGET_OVERRIDE=inf2" >> $GITHUB_ENV
-      - name: Run CPU compilation encoder tests
+      - name: Run CPU compilation tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
-          pytest tests/exporters/test_cpu_compilation.py::NeuronCPUBackendEncoderTestCase -v --tb=short
-      - name: Run CPU compilation seq2seq tests
-        run: |
-          source aws_neuron_venv_pytorch/bin/activate
-          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
-          pytest tests/exporters/test_cpu_compilation.py::NeuronCPUBackendSeq2SeqTestCase -v --tb=short
+          pytest tests/exporters/test_cpu_compilation.py -v --tb=short
 

@@ -91,6 +91,7 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
                     batch_size=1,
                     sequence_length=128,
                     cpu_backend=True,
+                    do_validation=False,
                     compiler_kwargs={},
                 )
 
@@ -191,6 +192,7 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
                     sequence_length=64,
                     num_beams=4,
                     cpu_backend=True,
+                    do_validation=False,
                     compiler_kwargs={},
                 )
 
