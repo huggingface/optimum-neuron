@@ -6,17 +6,22 @@ export NEURON_FUSE_SOFTMAX=1
 export NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS=3 # Async Runtime
 export MALLOC_ARENA_MAX=64 # Host OOM mitigation
 
+if [ "$#" -ne 3 ]; then
+    echo "Usage: $0 <model_name> <processes_per_node> <tensor_parallel_degree>"
+fi
+
 # Variables for training
-PROCESSES_PER_NODE=32
+MODEL_NAME=${1:-"Qwen/Qwen3-8B"}
+PROCESSES_PER_NODE=${2:-32}
 NUM_EPOCHS=3
-TP_DEGREE=8
+TP_DEGREE=${3:-8}
 BS=1
-GRADIENT_ACCUMULATION_STEPS=8
+GRADIENT_ACCUMULATION_STEPS=2
 LOGGING_STEPS=2
-MODEL_NAME="Qwen/Qwen3-8B" # Change this to the desired model name
 OUTPUT_DIR="$(echo $MODEL_NAME | cut -d'/' -f2)-finetuned"
 DISTRIBUTED_ARGS="--nproc_per_node $PROCESSES_PER_NODE"
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+cd $SCRIPT_DIR
 
 if [ "$NEURON_EXTRACT_GRAPHS_ONLY" = "1" ]; then
     MAX_STEPS=5
