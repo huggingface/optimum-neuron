@@ -11,13 +11,15 @@ from conftest import OPTIMUM_CACHE_REPO_ID, _get_hub_neuron_model_id
 from nxd_testing import build_module, validate_accuracy
 from transformers import AutoConfig, AutoTokenizer, set_seed
 from transformers.models.gpt_oss.modeling_gpt_oss import (
+    GptOssForCausalLM,
     GptOssModel,
 )
 
-from optimum.neuron import NeuronModelForCausalLM
+# from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.cache import synchronize_hub_cache
 from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
 from optimum.neuron.models.inference.gpt_oss.modeling_gpt_oss import (
+    GptOssNxdForCausalLM,
     NeuronGptOssDecoderLayer,
     NeuronGptOssModel,
     NeuronRMSNorm,
@@ -58,8 +60,8 @@ DECODER_MODEL_CONFIGURATIONS = {
 
 def _export_gpt_oss_model(model_id, export_kwargs, neuron_model_path):
     try:
-        neuron_config = NeuronModelForCausalLM.get_neuron_config(model_id, **export_kwargs)
-        model = NeuronModelForCausalLM.export(model_id, neuron_config=neuron_config, export=True, load_weights=False)
+        neuron_config = GptOssNxdForCausalLM.get_neuron_config(model_id, **export_kwargs)
+        model = GptOssNxdForCausalLM.export(model_id, neuron_config=neuron_config, export=True, load_weights=False)
         model.save_pretrained(neuron_model_path)
         return model
     except Exception as e:
@@ -143,7 +145,7 @@ def neuron_oai_decoder_path(neuron_decoder_oai_config):
 
 @pytest.fixture(scope="module")
 def model_and_tokenizer(neuron_oai_decoder_path):
-    model = NeuronModelForCausalLM.from_pretrained(neuron_oai_decoder_path)
+    model = GptOssNxdForCausalLM.from_pretrained(neuron_oai_decoder_path)
     tokenizer = AutoTokenizer.from_pretrained(neuron_oai_decoder_path)
     yield (model, tokenizer)
 
@@ -183,6 +185,10 @@ def _attention_mask_functions(attention_mask, index, config):
 
 
 class GptOssModelWrapper(GptOssModel):
+    def __init__(self, config):
+        super().__init__(config)
+        self.lm_head = torch.nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+
     def forward(self, input_ids, attention_mask, position_ids, seq_ids, sampling_params):
         # seq_ids and sampling_params are ignored
         outputs = super().forward(
@@ -190,10 +196,15 @@ class GptOssModelWrapper(GptOssModel):
             attention_mask=attention_mask,
             position_ids=position_ids,
         )
-        return outputs.last_hidden_state
+        hidden_states = outputs.last_hidden_state
+        logits_to_keep = 0
+        slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
+        logits = self.lm_head(hidden_states[:, slice_indices, :])
+        logits = logits.float()
+        return outputs.last_hidden_state, logits
 
 
-class NeuronDecoderLayersWrapper_(torch.nn.Module):
+class NeuronDecoderLayersWrapper_(NeuronGptOssModel):
     def __init__(self, config, neuron_config):
         super().__init__()
         self.config = config
@@ -237,7 +248,20 @@ class NeuronDecoderLayersWrapper_(torch.nn.Module):
 
 class NeuronGptOssModelWrapper(NeuronGptOssModel):
     def forward(self, input_ids, attention_mask, position_ids, seq_ids, sampling_params):
-        return self.get_model_output(input_ids, attention_mask, position_ids)[0]
+        # return self.get_model_output(input_ids, attention_mask, position_ids)[0]
+
+        hidden_states, _past_key_values = self.get_model_output(input_ids, attention_mask, position_ids)
+
+        batch_size, num_tokens, hidden_size = hidden_states.shape
+        if not (position_ids.shape[-1] == self.speculation_length or position_ids.shape[-1] == 1):
+            # context encoding
+            index = torch.max(position_ids, dim=1, keepdim=True).indices
+            index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
+            hidden_states = torch.gather(hidden_states, dim=1, index=index)
+        logits = self.lm_head(hidden_states)
+        logits = logits.float()
+
+        return hidden_states, logits
 
 
 @is_inferentia_test
@@ -246,6 +270,9 @@ def test_gpt_oss_model():
     set_seed(42)
     config_id = "tengomucho/tiny-random-gpt-oss"
     config = AutoConfig.from_pretrained(config_id)
+    # Reduce vocab_size
+    config.vocab_size = 6284
+
     seq_len = 128
     # Initialize hidden states to random values between -3 and 3
     prompt = "Gravity is"
@@ -253,6 +280,9 @@ def test_gpt_oss_model():
     tokenizer.pad_token = "!"
     inputs = tokenizer(prompt, return_tensors="pt", padding="max_length", max_length=seq_len)
     input_ids = inputs.input_ids
+    # reduce input_ids to the new vocab size
+    input_ids = input_ids.masked_fill(input_ids > config.vocab_size - 1, config.vocab_size - 1)
+
     attention_mask = inputs.attention_mask
     seq_len = input_ids.shape[-1]
     position_ids = (attention_mask.cumsum(-1) - 1).masked_fill(attention_mask == 0, 0)
@@ -301,3 +331,55 @@ def test_gpt_oss_model():
         cpu_callable=cpu_module,
         assert_close_kwargs={"atol": torch.finfo(torch.bfloat16).resolution, "rtol": 1e-1},
     )
+
+
+# def test_gpt_oss_vs_cpu_v2(model_and_tokenizer: tuple[GptOssNxdForCausalLM, AutoTokenizer]):
+@is_inferentia_test
+@requires_neuronx
+def _test_gpt_oss_vs_cpu_v2():
+    prompt = "Gravity is"
+    checkpoint = "tengomucho/tiny-random-gpt-oss"
+    device = "cpu"
+    tokenizer = AutoTokenizer.from_pretrained(checkpoint)
+
+    model_cpu = GptOssForCausalLM.from_pretrained(checkpoint).to(device)
+    config = model_cpu.config
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    input_ids = inputs.input_ids
+    attention_mask = inputs.attention_mask
+    seq_len = input_ids.shape[-1]
+    position_ids = torch.arange(seq_len, dtype=torch.int64).view(1, -1)
+    # outputs = model_cpu(input_ids, attention_mask, position_ids, use_cache=False)
+    # # Extract next logits
+    # next_logits_cpu = outputs.logits[:, -1, :]
+    # model, tokenizer = model_and_tokenizer
+    # outputs = model(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids)
+    # next_logits_neuron = outputs.logits[:, -1, :]
+    # torch.testing.assert_close(
+    #     next_logits_cpu, next_logits_neuron, atol=torch.finfo(torch.bfloat16).resolution, rtol=1e-1
+    # )
+    inputs = [(input_ids, attention_mask, position_ids)]
+    example_inputs = [
+        tuple([torch.zeros_like(input_element, dtype=input_element.dtype) for input_element in inputs[0]])
+    ]
+    neuron_config = NxDNeuronConfig(
+        batch_size=1,
+        sequence_length=seq_len,
+    )
+    state_dict = model_cpu.state_dict()
+    breakpoint()
+    state_dict = convert_gptoss_to_neuron_state_dict(state_dict, config, neuron_config)
+
+    with TemporaryDirectory() as tmpdir:
+        # There are many quirks in the neuron attention implementation, so we will just save the state dict and load it
+        # again to build the module.
+        checkpoint_path = os.path.join(tmpdir, "checkpoint.pt")
+        torch.save(state_dict, checkpoint_path)
+        breakpoint()
+
+        neuron_module = build_module(
+            NeuronGptOssModelWrapper,
+            example_inputs,
+            module_init_kwargs={"config": config, "neuron_config": neuron_config},
+            checkpoint_path=checkpoint_path,
+        )
