@@ -91,8 +91,7 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
                     batch_size=1,
                     sequence_length=128,
                     cpu_backend=True,
-                    do_validation=False,  # Skip validation as it requires Neuron hardware
-                    compiler_kwargs={},  # Empty compiler kwargs for basic test
+                    compiler_kwargs={},
                 )
 
                 # For cpu_backend=True, main_export returns None but saves artifacts
@@ -192,8 +191,7 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
                     sequence_length=64,
                     num_beams=4,
                     cpu_backend=True,
-                    do_validation=False,  # Skip validation as it requires Neuron hardware
-                    compiler_kwargs={},  # Empty compiler kwargs for basic test
+                    compiler_kwargs={},
                 )
 
                 # For cpu_backend=True, main_export returns None but saves artifacts
