@@ -109,7 +109,7 @@ def test_consolidate_custom_model_parallel_checkpoints(
     "world_size,tp_size,pp_size,kv_size_multiplier,fuse_qkv",
     [
         [8, 2, 1, None, False],
-        [2, 1, 2, None, False],
+        [32, 2, 4, None, False],
         [8, 8, 1, 4, False],
         [8, 8, 1, 4, True],
     ],
@@ -158,6 +158,7 @@ def test_consolidate_custom_lora_model_parallel_checkpoints(
         use_xser=use_xser,
         async_save=False,
         fuse_qkv=fuse_qkv,
+        kv_size_multiplier=kv_size_multiplier,
     )
     custom_model = NeuronLlamaForCausalLM.from_pretrained(MODEL_NAME_WITH_4_KV_HEADS, trn_config)
 
@@ -171,14 +172,8 @@ def test_consolidate_custom_lora_model_parallel_checkpoints(
         second_lora_adapter_model_name_or_path,
         adapter_name="test",
     )
-
     accelerator = NeuronAccelerator(trn_config=trn_config)
     custom_model = accelerator.prepare_model(custom_model)
-
-    if pp_size > 1:
-        model_to_save = custom_model.original_torch_module
-    else:
-        model_to_save = custom_model
 
     has_gqa_qkv_column_parallel_linear = any(isinstance(m, GQAQKVColumnParallelLinear) for m in custom_model.modules())
 
@@ -200,7 +195,7 @@ def test_consolidate_custom_lora_model_parallel_checkpoints(
             }
         )
 
-    model_to_save.save_pretrained(tmpdir / "custom_model")
+    custom_model.save_pretrained(tmpdir / "custom_model")
     xm.rendezvous("Saving done.")
 
     if xr.global_ordinal() == 0:
