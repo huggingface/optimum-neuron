@@ -402,6 +402,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
                 "Model was compiled with cpu_backend=True. Model loading is skipped as it requires Neuron hardware."
                 "The model compilation was successful and the artifacts were saved."
             )
+            return None
         else:
             return cls._from_pretrained(
                 model_id=save_dir_path,
