@@ -94,7 +94,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
 
     def __init__(
         self,
-        model: torch.jit._script.ScriptModule | None,
+        model: torch.jit._script.ScriptModule,
         config: "PretrainedConfig",
         model_save_dir: str | Path | TemporaryDirectory | None = None,
         model_file_name: str | None = None,
@@ -102,15 +102,10 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         neuron_config: "NeuronDefaultConfig | None" = None,
         **kwargs,
     ):
-        # Handle the case where model is None (cpu_backend compilation without loading)
-        if model is not None:
-            super().__init__(model, config)
-            if hasattr(model, "device"):
-                self.device = model.device
-            else:
-                self.device = torch.device("cpu")
+        super().__init__(model, config)
+        if hasattr(model, "device"):
+            self.device = model.device
         else:
-            # For cpu_backend models that couldn't be loaded
             self.device = torch.device("cpu")
 
         self.model = model
