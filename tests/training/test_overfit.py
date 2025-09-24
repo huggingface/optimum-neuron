@@ -127,13 +127,12 @@ def _overfit_causal_lm(
             model_name_or_path,
             training_args.trn_config,
             torch_dtype=torch.bfloat16,
-            use_flash_attention_2=use_flash_attention_2,
+            attn_implementation="flash_attention_2" if use_flash_attention_2 else None,
         )
     else:
         model = model_class.from_pretrained(
             model_name_or_path,
             torch_dtype=torch.bfloat16,
-            use_flash_attention_2=use_flash_attention_2,
         )
 
     if peft_config is not None:
@@ -167,15 +166,17 @@ def _overfit_causal_lm(
     # The master worker checks the logs, since it is the only worker to have access to them, to retrieve the last logged
     # loss. It then checks if it is lower or equal to max_expected_loss.
     if is_logging_process():
-        last_loss = None
-        for logs in reversed(stored_logs):
+        losses = []
+        for idx, logs in enumerate(reversed(stored_logs)):
             if "loss" in logs:
-                last_loss = logs["loss"]
+                losses.append(logs["loss"])
+            if idx == 2:
                 break
-        if last_loss is None:
+        if len(losses) == 0:
             raise ValueError("No loss found in the logs.")
-        print("Last loss", last_loss)
-        assert last_loss <= max_expected_loss, "The model did not overfit the dataset."
+        mean_losses = sum(losses) / len(losses)
+        print("Last loss mean", mean_losses)
+        assert mean_losses <= max_expected_loss, "The model did not overfit the dataset."
 
 
 @pytest.mark.parametrize(
@@ -268,12 +269,14 @@ def test_overfit_custom_modeling_causal_lm(
     "world_size,tp_size,pp_size",
     [
         [8, 8, 1],
+        [32, 2, 4],
         [32, 32, 1],
     ],
     ids=[
-        "dp=1,tp=8",
+        "8_1",
+        "32_2_4",
         # This is to test the case where we have more than 8 TP workers, which will use GQAGQAColumnParallelLinear.
-        "dp=1,tp=32",
+        "32_32_1",
     ],
 )
 @pytest.mark.flagship_model
