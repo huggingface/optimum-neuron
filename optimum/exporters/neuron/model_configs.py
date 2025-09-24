@@ -849,7 +849,7 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
             partial(self.get_parallel_callable, self._config),
             input_output_aliases={},
         )
-        return base_model_instance, None
+        return base_model_instance
 
     def get_parallel_callable(self, config):
         from optimum.neuron.models.inference.flux.modeling_flux import NeuronFluxTransformer2DModel
@@ -1077,15 +1077,18 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
         batch_size = input_shapes.pop("batch_size", None)
         sequence_length = input_shapes.pop("sequence_length", None)
         if self.tensor_parallel_size > 1:
-            # `torch.nn.modules` objects not eligible for pickling, the model needs to be loaded within the func.
-            return partial(
-                self.get_parallel_callable,
-                model_or_path,
-                sequence_length,
-                batch_size,
-                device,
-                self.tensor_parallel_size,
-            ), None
+            base_model_instance = BaseModelInstance(
+                partial(
+                    self.get_parallel_callable,
+                    model_or_path,
+                    sequence_length,
+                    batch_size,
+                    device,
+                    self.tensor_parallel_size,
+                ),
+                input_output_aliases={},
+            )
+            return base_model_instance, None
         else:
             return self.CUSTOM_MODEL_WRAPPER(
                 model_or_path,
@@ -1144,18 +1147,20 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
         num_beams = kwargs.pop("num_beams", 1)
         sequence_length = kwargs.pop("sequence_length", None)
         batch_size = kwargs.pop("batch_size", None)
-
         if self.tensor_parallel_size > 1:
-            # `torch.nn.modules` objects not eligible for pickling, the model needs to be loaded within the func.
-            return partial(
-                self.get_parallel_callable,
-                model_or_path,
-                sequence_length,
-                batch_size,
-                num_beams,
-                device,
-                self.tensor_parallel_size,
-            ), None
+            base_model_instance = BaseModelInstance(
+                partial(
+                    self.get_parallel_callable,
+                    model_or_path,
+                    sequence_length,
+                    batch_size,
+                    num_beams,
+                    device,
+                    self.tensor_parallel_size,
+                ),
+                input_output_aliases={},
+            )
+            return base_model_instance, None
         else:
             # Override T5 encoder and build aliases
             checked_model = self.CUSTOM_MODEL_WRAPPER(
@@ -1295,17 +1300,21 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             "tensor_parallel_size": self.tensor_parallel_size,
         }
         if self.tensor_parallel_size > 1:
-            return partial(
-                self.get_parallel_callable,
-                model,
-                batch_size,
-                sequence_length,
-                num_beams,
-                self.output_hidden_states,
-                self.output_attentions,
-                device,
-                self.tensor_parallel_size,
-            ), None
+            base_model_instance = BaseModelInstance(
+                partial(
+                    self.get_parallel_callable,
+                    model,
+                    batch_size,
+                    sequence_length,
+                    num_beams,
+                    self.output_hidden_states,
+                    self.output_attentions,
+                    device,
+                    self.tensor_parallel_size,
+                ),
+                input_output_aliases={},
+            )
+            return base_model_instance, None
         else:
             # Override T5 encoder and build aliases
             checked_model = self.CUSTOM_MODEL_WRAPPER(**trace_args)
