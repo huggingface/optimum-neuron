@@ -43,6 +43,13 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         ),
     )
     optional_group.add_argument(
+        "--instance_type",
+        type=str,
+        default=None,
+        choices=["inf2", "trn1", "trn1n", "trn2"],
+        help=("Target Neuron instance type on which the compiled model will be run."),
+    )
+    optional_group.add_argument(
         "--subfolder",
         type=str,
         default="",
@@ -98,8 +105,8 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         "--auto_cast_type",
         type=str,
         default="bf16",
-        choices=["bf16", "fp16", "tf32"],
-        help='The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.',
+        choices=["bf16", "fp16", "tf32", "fp8_e4m3"],
+        help='The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"`, `"tf32"` or "fp8_e4m3".',
     )
     optional_group.add_argument(
         "--torch_dtype",

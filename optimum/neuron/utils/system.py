@@ -21,6 +21,7 @@ import re
 NEURON_DEV_PATTERN = re.compile(r"^neuron\d+$", re.IGNORECASE)
 MAJORS_FILE = "/proc/devices"
 NEURON_MAJOR_LINE = re.compile(r"^\s*(\d+)\s+neuron\s*$")
+SUPPORTED_INSTANCE_TYPES = ["trn1", "inf2", "trn1n", "trn2"]
 
 logger = logging.getLogger(__name__)
 
@@ -76,3 +77,29 @@ def get_available_cores() -> int:
             visible_cores = 1
     visible_cores = min(visible_cores, num_cores)
     return visible_cores
+
+
+# Adapted from `torch_neuronx.utils.utils.get_platform_target()`
+def get_neuron_instance_type(instance_type: str | None):
+    if "NEURON_PLATFORM_TARGET_OVERRIDE" in os.environ:
+        instance_type = os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"]
+
+    # Autodetect the platform
+    if instance_type is None:
+        fpath = "/sys/devices/virtual/dmi/id/product_name"
+        try:
+            with open(fpath, "r") as f:
+                fc = f.readline()
+        except IOError:
+            raise RuntimeError(
+                "Unable to read platform target. If running on CPU, please supply \
+                target instance type, with one of options trn1, inf2, trn1n, or trn2."
+            )
+        instance_type = fc.split(".")[0]
+
+    if instance_type not in SUPPORTED_INSTANCE_TYPES:
+        raise ValueError(
+            f"{instance_type} is not a valid instance type, supported instance types are: {SUPPORTED_INSTANCE_TYPES}."
+        )
+
+    return instance_type

@@ -789,6 +789,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         tensor_parallel_size: int | None = 1,
         disable_neuron_cache: bool = False,
         inline_weights_to_neff: bool = True,
+        instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
@@ -836,11 +837,13 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 Whether to disable automatic caching of compiled models. If set to True, will not load neuron cache nor cache the compiled artifacts.
             inline_weights_to_neff (`bool`, defaults to `True`):
                 Whether to inline the weights to the neff graph. If set to False, weights will be separated from the neff.
+            instance_type (`Literal["trn1", "inf2", "trn1n", "trn2"] | None`, defaluts to `None`):
+                Target Neuron instance type on which the compiled model will be run, valid values are: "trn1", "inf2", "trn1n", "trn2".
             optlevel (`str`, defaults to `"2"`):
-            The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
-                1: enables the core performance optimizations in the compiler, while also minimizing compile time.
-                2: provides the best balance between model performance and compile time.
-                3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
+                The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
+                    1: enables the core performance optimizations in the compiler, while also minimizing compile time.
+                    2: provides the best balance between model performance and compile time.
+                    3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
             subfolder (`str`, defaults to `""`):
                 In case the relevant files are located inside a subfolder of the model repo either locally or on huggingface.co, you can
                 specify the folder name here.
@@ -903,6 +906,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
+            "instance_type": instance_type,
         }
 
         pipe = TasksManager.get_model_from_task(

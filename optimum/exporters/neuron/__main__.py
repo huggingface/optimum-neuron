@@ -50,6 +50,7 @@ from ...neuron.utils import (
     InputShapesArguments,
     IPAdapterArguments,
     LoRAAdapterArguments,
+    get_neuron_instance_type,
     is_neuron_available,
     is_neuronx_available,
 )
@@ -98,10 +99,13 @@ logger.setLevel(logging.INFO)
 
 
 def infer_compiler_kwargs(args: argparse.Namespace) -> dict[str, Any]:
-    # infer compiler kwargs
+    # infer instance type
+    instance_type = get_neuron_instance_type(args.instance_type)
     auto_cast = None if args.auto_cast == "none" else args.auto_cast
     auto_cast_type = None if auto_cast is None else args.auto_cast_type
-    compiler_kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type}
+    compiler_kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type, "instance_type": instance_type}
+
+    # Inf1 specific compiler args
     if hasattr(args, "disable_fast_relayout"):
         compiler_kwargs["disable_fast_relayout"] = getattr(args, "disable_fast_relayout")
     if hasattr(args, "disable_fallback"):
@@ -626,7 +630,6 @@ def main_export(
     compiler_workdir: str | Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
-    instance_type: str = "trn1",
     cpu_backend: bool = False,
     trust_remote_code: bool = False,
     subfolder: str = "",
@@ -688,7 +691,6 @@ def main_export(
         compiler_workdir=compiler_workdir,
         inline_weights_to_neff=inline_weights_to_neff,
         optlevel=optlevel,
-        instance_type=instance_type,
         cpu_backend=cpu_backend,
         output_file_names=output_model_names,
         compiler_kwargs=compiler_kwargs,

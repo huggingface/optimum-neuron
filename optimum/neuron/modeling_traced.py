@@ -269,7 +269,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         disable_neuron_cache: bool = False,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
-        instance_type: str = "trn1",
+        instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
         cpu_backend: bool = False,
         subfolder: str = "",
         local_files_only: bool = False,
@@ -304,6 +304,8 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
+            "instance_type": instance_type,
+            # Inf1 specific compiler args
             "disable_fast_relayout": disable_fast_relayout,
             "disable_fallback": disable_fallback,
         }
@@ -381,7 +383,6 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
                 compiler_workdir=compiler_workdir,
                 inline_weights_to_neff=inline_weights_to_neff,
                 optlevel=optlevel,
-                instance_type=instance_type,
                 cpu_backend=cpu_backend,
                 trust_remote_code=trust_remote_code,
                 subfolder=subfolder,

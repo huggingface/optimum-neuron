@@ -19,7 +19,7 @@ import os
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import torch
@@ -301,7 +301,6 @@ def export_models(
     compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
-    instance_type: str = "trn1",
     cpu_backend: bool = False,
     output_file_names: dict[str, str] | None = None,
     compiler_kwargs: dict[str, Any] | None = {},
@@ -328,8 +327,6 @@ def export_models(
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
                 2: provides the best balance between model performance and compile time.
                 3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
-        instance_type (`str`, defaults to `"trn1"`):
-            The instance type to use for the Neuron device.
         cpu_backend (`bool`, defaults to `False`):
             Whether to trace the model completely on CPU.
         output_file_names (`dict[str, str] | None`, defaults to `None`):
@@ -381,7 +378,6 @@ def export_models(
             compiler_workdir=compiler_workdir,
             inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
-            instance_type=instance_type,
             cpu_backend=cpu_backend,
             **compiler_kwargs,
         )
@@ -445,10 +441,10 @@ def export(
     model_or_path: "PreTrainedModel | str | Path",
     config: "NeuronDefaultConfig",
     output: Path,
+    instance_type: Literal["trn1", "inf2", "trn1n", "trn2"],
     compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
-    instance_type: str = "trn1",
     auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
     cpu_backend: bool = False,
@@ -490,10 +486,10 @@ def export_neuronx(
     model_or_path: "PreTrainedModel | str | Path",
     config: "NeuronDefaultConfig",
     output: Path,
+    instance_type: Literal["trn1", "inf2", "trn1n", "trn2"],
     compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
-    instance_type: str = "trn1",
     auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
     cpu_backend: bool = False,
@@ -508,6 +504,8 @@ def export_neuronx(
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
+        instance_type (`Literal["trn1", "inf2", "trn1n", "trn2"]`):
+            Target Neuron instance type on which the compiled model will be run, valid values are: "trn1", "inf2", "trn1n", "trn2".
         compiler_workdir (`Path | None`, defaults to `None`):
             The directory used by neuronx-cc, where you can find intermediary outputs (neff, weight, hlo...).
         inline_weights_to_neff (`bool`, defaults to `True`):
@@ -517,8 +515,6 @@ def export_neuronx(
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
                 2: provides the best balance between model performance and compile time.
                 3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
-        instance_type (`str`, defaults to `"trn1"`):
-            The instance type to use for the Neuron device.
         auto_cast (`str | None`, defaults to `None`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`str`, defaults to `"bf16"`):
@@ -565,10 +561,10 @@ def export_neuronx(
     # Construct compiler configurations
     compiler_args = prepare_compiler_flags(
         config=config,
+        instance_type=instance_type,
         auto_cast=auto_cast,
         auto_cast_type=auto_cast_type,
         optlevel=optlevel,
-        instance_type=instance_type,
     )
 
     # Incompatibility between dynamic batching and uninlined weights/neff
@@ -612,10 +608,10 @@ def prepare_dummy_inputs(config: "NeuronDefaultConfig", input_shapes: dict[str, 
 
 def prepare_compiler_flags(
     config: "NeuronDefaultConfig",
+    instance_type: Literal["trn1", "inf2", "trn1n", "trn2"],
     auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
     optlevel: str = "2",
-    instance_type: str = "trn1",
 ):
     if auto_cast is not None:
         logger.info(f"Using Neuron: --auto-cast {auto_cast}")
@@ -630,10 +626,7 @@ def prepare_compiler_flags(
     compiler_args.extend(["--optlevel", optlevel])
     logger.info(f"Using Neuron: --optlevel {optlevel}")
 
-    if instance_type == "trn2":
-        compiler_args.extend(["--target", "trn2"])
-    elif instance_type == "trn1":
-        compiler_args.extend(["--target", "trn1"])
+    compiler_args.extend(["--target", instance_type])
 
     # `--model-type=transformer`` is now required for all models except those explicitly listed, based on our observations.
     exception_models = {
