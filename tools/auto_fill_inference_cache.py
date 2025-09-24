@@ -33,12 +33,12 @@ from optimum.neuron.utils.version_utils import get_neuronxcc_version
 
 # Example usage:
 # huggingface-cli login --token hf_xxx # access to cache repo
-# python tools/auto_fill_inference_cache.py --hf_model_id "HuggingFaceH4/zephyr-7b-beta" --batch_size 1 --sequence_length 2048 --num_cores 2 --auto_cast_type fp16
+# python tools/auto_fill_inference_cache.py --hf_model_id "HuggingFaceH4/zephyr-7b-beta" --batch_size 1 --sequence_length 2048 --tensor_parallel_size 2 --auto_cast_type fp16
 # Alternative provide json config file as local file or remote file (https://) with the following formwat
 # {
 #    "meta-llama/Llama-2-7b-chat-hf": [
-#        {  "batch_size": 1, "sequence_length": 2048, "num_cores": 2, "auto_cast_type": "fp16" },
-#        {  "batch_size": 2, "sequence_length": 2048, "num_cores": 2, "auto_cast_type": "bf16" }
+#        {  "batch_size": 1, "sequence_length": 2048, "tensor_parallel_size": 2, "auto_cast_type": "fp16" },
+#        {  "batch_size": 2, "sequence_length": 2048, "tensor_parallel_size": 2, "auto_cast_type": "bf16" }
 #    ]
 # }
 # Local file Example usage:
@@ -62,10 +62,10 @@ def get_aws_neuronx_tools_version():
         raise ValueError("Version information not found in the output")
 
 
-def build_decoder_command(hf_model_id, batch_size, sequence_length, num_cores, auto_cast_type, output_dir):
-    if None in [batch_size, sequence_length, num_cores, auto_cast_type]:
+def build_decoder_command(hf_model_id, batch_size, sequence_length, tensor_parallel_size, auto_cast_type, output_dir):
+    if None in [batch_size, sequence_length, tensor_parallel_size, auto_cast_type]:
         raise ValueError(
-            "You must provide --batch_size, --sequence_length, --num_cores and --auto_cast_type for compiling decoder models."
+            "You must provide --batch_size, --sequence_length, --tensor_parallel_size and --auto_cast_type for compiling decoder models."
         )
     compile_command = [
         "optimum-cli",
@@ -77,8 +77,8 @@ def build_decoder_command(hf_model_id, batch_size, sequence_length, num_cores, a
         str(batch_size),
         "--sequence_length",
         str(sequence_length),
-        "--num_cores",
-        str(num_cores),
+        "--tensor_parallel_size",
+        str(tensor_parallel_size),
         "--auto_cast_type",
         auto_cast_type,
         "--task",
@@ -181,7 +181,7 @@ def compile_and_cache_model(
     height: int | None = None,
     width: int | None = None,
     num_images_per_prompt: int | None = None,
-    num_cores: int | None = None,
+    tensor_parallel_size: int | None = None,
     task: str | None = None,
     auto_cast: str | None = None,
     auto_cast_type: str | None = None,
@@ -194,7 +194,7 @@ def compile_and_cache_model(
         # Compile model with Optimum for specific configurations
         if task == "text-generation":
             compile_command = build_decoder_command(
-                hf_model_id, batch_size, sequence_length, num_cores, auto_cast_type, temp_dir
+                hf_model_id, batch_size, sequence_length, tensor_parallel_size, auto_cast_type, temp_dir
             )
         elif "stable-diffusion" in task:
             compile_command = build_stable_diffusion_command(
@@ -277,7 +277,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num_images_per_prompt", type=int, default=1, help="Number of images to generate per prompt."
     )
-    parser.add_argument("--num_cores", type=int, help="Number of cores for compilation.")
+    parser.add_argument(
+        "--tensor_parallel_size", type=int, help="Number of cores on which the model is split for compilation."
+    )
     parser.add_argument(
         "--auto_cast", type=str, choices=["none", "matmul", "all"], help="Operations to cast to lower precision."
     )
@@ -328,7 +330,7 @@ if __name__ == "__main__":
                     height=model_config.get("height", None),
                     width=model_config.get("width", None),
                     num_images_per_prompt=model_config.get("num_images_per_prompt", 1),
-                    num_cores=model_config.get("num_cores", None),
+                    tensor_parallel_size=model_config.get("tensor_parallel_size", model_config.get("num_cores", None)),
                     task=model_config.get("task", None),
                     auto_cast=model_config.get("auto_cast", None),
                     auto_cast_type=model_config.get("auto_cast_type", None),
@@ -344,7 +346,7 @@ if __name__ == "__main__":
             height=args.height,
             width=args.width,
             num_images_per_prompt=args.width,
-            num_cores=args.num_cores,
+            tensor_parallel_size=args.tensor_parallel_size,
             task=args.task,
             auto_cast=args.auto_cast,
             auto_cast_type=args.auto_cast_type,
