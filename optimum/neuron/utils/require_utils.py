@@ -22,6 +22,7 @@ from transformers.utils import is_safetensors_available
 from .import_utils import (
     is_peft_available,
     is_torch_neuronx_available,
+    is_vllm_available,
 )
 
 
@@ -29,6 +30,7 @@ _AVAILABILITIES: dict[str, Callable] = {
     "safetensors": is_safetensors_available,
     "torch_neuronx": is_torch_neuronx_available,
     "peft": is_peft_available,
+    "vllm": is_vllm_available,
 }
 
 
@@ -53,3 +55,4 @@ def _create_requires_function(package_name: str) -> Callable[..., Any]:
 requires_safetensors = _create_requires_function("safetensors")
 requires_torch_neuronx = _create_requires_function("torch_neuronx")
 requires_peft = _create_requires_function("peft")
+requires_vllm = _create_requires_function("vllm")
