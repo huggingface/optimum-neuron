@@ -16,7 +16,7 @@ build {
   provisioner "shell" {
     inline = [
       "echo 'export HF_HUB_ENABLE_HF_TRANSFER=1' | sudo tee -a /home/ubuntu/.bashrc",
-      "echo 'source /opt/aws_neuronx_venv_pytorch_2_7/bin/activate' | sudo tee -a /home/ubuntu/.bashrc"
+      "echo 'source /opt/aws_neuronx_venv_pytorch_2_8/bin/activate' | sudo tee -a /home/ubuntu/.bashrc"
     ]
   }
   provisioner "file" {
