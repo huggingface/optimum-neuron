@@ -285,10 +285,14 @@ def pipeline(
             input_shapes = {"batch_size": 1, "sequence_length": 128}
             logger.warning(f"No input shapes provided, using default shapes, {input_shapes}")
         else:
+            num_cores = None
+            # We still support this deprecated argument for backward compatibility
+            if "num_cores" in kwargs:
+                num_cores = kwargs.pop("num_cores")
             export_kwargs = {
                 "batch_size": batch_size,
                 "sequence_length": kwargs.pop("sequence_length", None),
-                "tensor_parallel_size": kwargs.pop("num_cores", None),
+                "tensor_parallel_size": kwargs.pop("tensor_parallel_size", num_cores),
                 "auto_cast_type": kwargs.pop("auto_cast_type", None),
             }
     else:
