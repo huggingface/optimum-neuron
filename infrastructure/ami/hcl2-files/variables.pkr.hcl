@@ -42,7 +42,7 @@ variable "transformers_version" {
 }
 
 variable "ami_users" {
-  default     = ["754289655784", "558105141721"]
+  default     = ["754289655784"]
   description = "AWS accounts to share AMI with"
   type        = list(string)
 }
