@@ -2,19 +2,19 @@ import pytest
 
 
 @pytest.fixture
-async def multi_model_vllm_service(neuron_launcher, neuron_llm_config):
+async def multi_model_vllm_service(vllm_docker_launcher, neuron_llm_config):
     model_name_or_path = neuron_llm_config["neuron_model_path"]
     service_name = neuron_llm_config["name"]
-    with neuron_launcher(service_name, model_name_or_path) as vllm_service:
+    with vllm_docker_launcher(service_name, model_name_or_path) as vllm_service:
         await vllm_service.health(600)
         yield vllm_service
 
 
 @pytest.fixture
-async def base_vllm_service(neuron_launcher, base_neuron_llm_config):
+async def base_vllm_service(vllm_docker_launcher, base_neuron_llm_config):
     model_name_or_path = base_neuron_llm_config["neuron_model_path"]
     service_name = base_neuron_llm_config["name"]
-    with neuron_launcher(service_name, model_name_or_path) as vllm_service:
+    with vllm_docker_launcher(service_name, model_name_or_path) as vllm_service:
         await vllm_service.health(600)
         yield vllm_service
 
