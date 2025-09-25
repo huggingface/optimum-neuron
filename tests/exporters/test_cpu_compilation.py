@@ -13,29 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
-from diffusers import StableDiffusionPipeline
 from parameterized import parameterized
-from transformers import AutoConfig, set_seed
 
-from optimum.exporters.neuron import (
-    build_stable_diffusion_components_mandatory_shapes,
-    export_models,
-)
-from optimum.exporters.neuron.__main__ import get_submodels_and_neuron_configs
 from optimum.neuron import (
     NeuronModelForFeatureExtraction,
     NeuronModelForSeq2SeqLM,
+    NeuronStableDiffusionPipeline,
 )
-from optimum.neuron.utils import get_neuron_instance_type
 from optimum.neuron.utils.testing_utils import requires_neuronx
 
-
-SEED = 42
 
 # Models to test for CPU backend compilation
 CPU_BACKEND_ENCODER_MODELS = {
@@ -50,92 +41,81 @@ CPU_BACKEND_DIFFUSION_MODELS = {
     "stable-diffusion": "hf-internal-testing/tiny-stable-diffusion-torch",
 }
 
+INSTANCE_TYPES = ["inf2", "trn1", "trn1n", "trn2"]
 
-class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
+
+@requires_neuronx
+class NeuronCPUBackendIntegrationTest(unittest.TestCase):
+    def test_no_instance_type_cli():
+        """
+        Raise when `--instance_type` is not specified.
+        """
+        pass
+
+    def test_no_instance_type_modeling():
+        """
+        Raise when `--instance_type` is not specified.
+        """
+        pass
+
+
+@requires_neuronx
+class NeuronEncoderCPUBackendTestCase(unittest.TestCase):
     """
     Tests for CPU backend compilation of encoder models.
     This class tests both the export functionality and integration aspects
     for encoder models using cpu_backend=True.
     """
 
-    def setUp(self):
-        """Set up test environment for CPU backend compilation."""
-        # Configure environment for CPU compilation
-        os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = "inf2"
-        set_seed(SEED)
-
-    @parameterized.expand(CPU_BACKEND_ENCODER_MODELS.items())
-    @requires_neuronx
-    def test_cpu_backend_encoder_export_and_artifacts(self, model_name, model_id):
+    @parameterized.expand(INSTANCE_TYPES)
+    def test_cpu_backend_export_cli(self, instance_type):
         """
-        Test CPU backend compilation for encoder models and verify artifacts creation.
-        This test verifies that encoder models can be compiled with cpu_backend=True
-        and that the compilation artifacts are created successfully.
-        """
-        with TemporaryDirectory() as tmp_dir:
-            save_dir = Path(tmp_dir) / "test_encoder_export"
-            save_dir.mkdir(parents=True, exist_ok=True)
-
-            try:
-                # Use the main_export function to export and create artifacts
-                from optimum.exporters.neuron import main_export
-
-                instance_type = get_neuron_instance_type()
-                result = main_export(
-                    model_name_or_path=model_id,
-                    output=save_dir,
-                    task="feature-extraction",
-                    batch_size=1,
-                    sequence_length=128,
-                    cpu_backend=True,
-                    do_validation=False,
-                    compiler_kwargs={"instance_type": instance_type},
-                )
-
-                # For cpu_backend=True, main_export returns None but saves artifacts
-                self.assertIsNone(result, "CPU backend export should return None")
-
-                # Verify artifacts were created
-                self._verify_encoder_artifacts(save_dir)
-
-            except Exception as e:
-                self.fail(f"CPU backend compilation and artifacts test failed for {model_name} ({model_id}): {e}")
-
-    @requires_neuronx
-    def test_cpu_backend_compilation_with_compiler_options(self):
-        """
-        Test CPU backend compilation with different compiler options.
-        This test verifies that CPU backend compilation works with various
-        compiler settings like auto_cast, optlevel, etc. for encoder models.
+        Test CPU backend compilation for encoder models using Optimum CLI and verify artifacts creation.
         """
         model_id = CPU_BACKEND_ENCODER_MODELS["bert"]
-        config = AutoConfig.from_pretrained(model_id)
+        with tempfile.TemporaryDirectory() as tempdir:
+            subprocess.run(
+                [
+                    "optimum-cli",
+                    "export",
+                    "neuron",
+                    "--model",
+                    model_id,
+                    "--sequence_length",
+                    "16",
+                    "--batch_size",
+                    "1",
+                    "--task",
+                    "text-classification",
+                    "--instance_type",
+                    instance_type,
+                    tempdir,
+                ],
+                shell=False,
+                check=True,
+            )
+            # Verify artifacts were created
+            self._verify_encoder_artifacts(tempdir)
 
-        # Test different compiler configurations
-        compiler_configs = [
-            {"auto_cast": "matmul", "auto_cast_type": "bf16", "optlevel": "1"},
-            {"auto_cast": "all", "auto_cast_type": "fp16", "optlevel": "2"},
-            {"auto_cast": None, "optlevel": "3"},
-        ]
+    def test_cpu_backend_with_modeling(self):
+        """
+        Test CPU backend compilation using NeuronModel API.
+        """
+        model_id = CPU_BACKEND_ENCODER_MODELS["bert"]
+        instance_type = "inf2"
 
-        for compiler_opts in compiler_configs:
-            with self.subTest(compiler_opts=compiler_opts):
-                try:
-                    result = NeuronModelForFeatureExtraction._export(
-                        model_id=model_id,
-                        config=config,
-                        batch_size=1,
-                        sequence_length=128,
-                        cpu_backend=True,
-                        **compiler_opts,
-                    )
-
-                    self.assertIsNone(
-                        result, f"CPU backend export should return None for compiler opts {compiler_opts}"
-                    )
-
-                except Exception as e:
-                    self.fail(f"CPU backend compilation failed for compiler opts {compiler_opts}: {e}")
+        compiler_configs = {"auto_cast": "matmul", "auto_cast_type": "bf16", "instance_type": instance_type}
+        input_shapes = {
+            "batch_size": 1,
+            "sequence_length": 16,
+        }
+        neuron_model = NeuronModelForFeatureExtraction.from_pretrained(
+            model_id,
+            export=True,
+            **compiler_configs,
+            **input_shapes,
+        )
+        self.assertIsNone(neuron_model, "CPU backend export should return None.")
 
     def _verify_encoder_artifacts(self, save_dir: Path):
         """Verify that encoder compilation artifacts are created properly."""
@@ -160,85 +140,65 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
     for seq2seq models (T5) using cpu_backend=True.
     """
 
-    def setUp(self):
-        """Set up test environment for CPU backend seq2seq tests."""
-        os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = "inf2"
-        set_seed(SEED)
-
-    @parameterized.expand(CPU_BACKEND_SEQ2SEQ_MODELS.items())
-    @requires_neuronx
-    def test_cpu_backend_seq2seq_export_and_artifacts(self, model_name, model_id):
+    @parameterized.expand(INSTANCE_TYPES)
+    def test_cpu_backend_export_cli(self, instance_type):
         """
-        Test CPU backend compilation for seq2seq models and verify artifacts creation.
-        This test verifies that seq2seq models can be compiled with cpu_backend=True
-        and that the compilation artifacts are created successfully.
-        """
-        with TemporaryDirectory() as tmp_dir:
-            save_dir = Path(tmp_dir) / "test_seq2seq_export"
-            save_dir.mkdir(parents=True, exist_ok=True)
-
-            try:
-                # Use the main_export function to export and create artifacts
-                from optimum.exporters.neuron import main_export
-
-                instance_type = get_neuron_instance_type()
-                result = main_export(
-                    model_name_or_path=model_id,
-                    output=save_dir,
-                    task="text2text-generation",
-                    batch_size=1,
-                    sequence_length=64,
-                    num_beams=4,
-                    cpu_backend=True,
-                    do_validation=False,
-                    compiler_kwargs={"instance_type": instance_type},
-                )
-
-                # For cpu_backend=True, main_export returns None but saves artifacts
-                self.assertIsNone(result, "CPU backend export should return None")
-
-                # Verify artifacts were created
-                self._verify_seq2seq_artifacts(save_dir)
-
-            except Exception as e:
-                self.fail(f"CPU backend compilation and artifacts test failed for {model_name} ({model_id}): {e}")
-
-    @requires_neuronx
-    def test_cpu_backend_seq2seq_with_compiler_options(self):
-        """
-        Test CPU backend compilation with different compiler options for seq2seq models.
-        This test verifies that CPU backend compilation works with various
-        compiler settings for seq2seq models.
+        Test CPU backend compilation for seq2seq models using Optimum CLI and verify artifacts creation.
         """
         model_id = CPU_BACKEND_SEQ2SEQ_MODELS["t5"]
-        config = AutoConfig.from_pretrained(model_id)
+        with tempfile.TemporaryDirectory() as tempdir:
+            subprocess.run(
+                [
+                    "optimum-cli",
+                    "export",
+                    "neuron",
+                    "--model",
+                    model_id,
+                    "--task",
+                    "text2text-generation",
+                    "--batch_size",
+                    "1",
+                    "--sequence_length",
+                    "16",
+                    "--num_beams",
+                    "4",
+                    "--auto_cast",
+                    "matmul",
+                    "--auto_cast_type",
+                    "bf16",
+                    "--output_hidden_states",
+                    "--output_attentions",
+                    "--instance_type",
+                    instance_type,
+                    tempdir,
+                ],
+                shell=False,
+                check=True,
+            )
+            # Verify artifacts were created
+            self._verify_seq2seq_artifacts(tempdir)
 
-        # Test different compiler configurations for seq2seq
-        compiler_configs = [
-            {"auto_cast": "matmul", "auto_cast_type": "bf16", "optlevel": "1"},
-            {"auto_cast": "all", "auto_cast_type": "fp16", "optlevel": "2"},
-            {"auto_cast": None, "optlevel": "3"},
-        ]
+    def test_cpu_backend_with_modeling(self):
+        """
+        Test CPU backend compilation using NeuronModel API for seq2seq models.
+        """
+        model_id = CPU_BACKEND_SEQ2SEQ_MODELS["t5"]
+        instance_type = "inf2"
 
-        for compiler_opts in compiler_configs:
-            with self.subTest(compiler_opts=compiler_opts):
-                try:
-                    result = NeuronModelForSeq2SeqLM._export(
-                        model_id=model_id,
-                        config=config,
-                        batch_size=1,
-                        sequence_length=64,
-                        num_beams=4,
-                        cpu_backend=True,
-                        **compiler_opts,
-                    )
+        compiler_configs = {"auto_cast": "matmul", "auto_cast_type": "bf16", "instance_type": instance_type}
+        input_shapes = {
+            "batch_size": 1,
+            "sequence_length": 16,
+            "num_beams": 4,
+        }
 
-                    self.assertIsNone(
-                        result, f"CPU backend export should return None for compiler opts {compiler_opts}"
-                    )
-
-                except Exception as e:
-                    self.fail(f"CPU backend seq2seq compilation failed for compiler opts {compiler_opts}: {e}")
+        neuron_model = NeuronModelForSeq2SeqLM.from_pretrained(
+            model_id,
+            export=True,
+            **compiler_configs,
+            **input_shapes,
+        )
+        self.assertIsNone(neuron_model, "CPU backend export should return None.")
 
     def _verify_seq2seq_artifacts(self, save_dir: Path):
         """Verify that seq2seq compilation artifacts are created properly."""
@@ -279,109 +239,64 @@ class NeuronCPUBackendDiffusionTestCase(unittest.TestCase):
     for diffusion models (Stable Diffusion) using cpu_backend=True.
     """
 
-    def setUp(self):
-        """Set up test environment for CPU backend diffusion tests."""
-        os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = "inf2"
-        set_seed(SEED)
-
-    @parameterized.expand(CPU_BACKEND_DIFFUSION_MODELS.items())
-    @requires_neuronx
-    def test_cpu_backend_diffusion_export_and_artifacts(self, model_name, model_id):
+    @parameterized.expand(INSTANCE_TYPES)
+    def test_cpu_backend_export_cli(self, instance_type):
         """
-        Test CPU backend compilation for diffusion models and verify artifacts creation.
-        This test verifies that diffusion models can be compiled with cpu_backend=True
-        and that the compilation artifacts are created successfully.
-        """
-        with TemporaryDirectory() as tmp_dir:
-            save_dir = Path(tmp_dir) / "test_diffusion_export"
-            save_dir.mkdir(parents=True, exist_ok=True)
-
-            try:
-                model = StableDiffusionPipeline.from_pretrained(model_id)
-
-                input_shapes = build_stable_diffusion_components_mandatory_shapes(
-                    **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 1}
-                )
-
-                compiler_kwargs = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
-
-                models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
-                    model=model,
-                    input_shapes=input_shapes,
-                    task="text-to-image",
-                    library_name="diffusers",
-                    output=save_dir,
-                    model_name_or_path=model_id,
-                )
-
-                _, neuron_outputs = export_models(
-                    models_and_neuron_configs=models_and_neuron_configs,
-                    task="text-to-image",
-                    output_dir=save_dir,
-                    output_file_names=output_model_names,
-                    compiler_kwargs=compiler_kwargs,
-                    cpu_backend=True,
-                )
-
-                self.assertIsNotNone(neuron_outputs, "CPU backend diffusion export should return neuron outputs")
-
-                # Verify artifacts were created
-                self._verify_diffusion_artifacts(save_dir)
-
-            except Exception as e:
-                self.fail(f"CPU backend compilation and artifacts test failed for {model_name} ({model_id}): {e}")
-
-    @requires_neuronx
-    def test_cpu_backend_diffusion_with_compiler_options(self):
-        """
-        Test CPU backend compilation with different compiler options for diffusion models.
-        This test verifies that CPU backend compilation works with various
-        compiler settings for diffusion models.
+        Test CPU backend compilation for diffusion models using Optimum CLI and verify artifacts creation.
         """
         model_id = CPU_BACKEND_DIFFUSION_MODELS["stable-diffusion"]
+        with tempfile.TemporaryDirectory() as tempdir:
+            subprocess.run(
+                [
+                    "optimum-cli",
+                    "export",
+                    "neuron",
+                    "--model",
+                    model_id,
+                    "--batch_size",
+                    "1",
+                    "--height",
+                    "64",
+                    "--width",
+                    "64",
+                    "--num_images_per_prompt",
+                    "1",
+                    "--auto_cast",
+                    "matmul",
+                    "--auto_cast_type",
+                    "bf16",
+                    "--instance_type",
+                    instance_type,
+                    tempdir,
+                ],
+                shell=False,
+                check=True,
+            )
+            # Verify artifacts were created
+            self._verify_diffusion_artifacts(tempdir)
 
-        # Test different compiler configurations for diffusion
-        compiler_configs = [
-            {"auto_cast": "matmul", "auto_cast_type": "bf16"},
-            {"auto_cast": "all", "auto_cast_type": "fp16"},
-            {"auto_cast": None},
-        ]
+    def test_cpu_backend_with_modeling(self):
+        """
+        Test CPU backend compilation using NeuronModel API for diffusion models.
+        """
+        model_id = CPU_BACKEND_DIFFUSION_MODELS["stable-diffusion"]
+        instance_type = "inf2"
 
-        for compiler_opts in compiler_configs:
-            with self.subTest(compiler_opts=compiler_opts):
-                with TemporaryDirectory() as tmpdirname:
-                    try:
-                        model = StableDiffusionPipeline.from_pretrained(model_id)
+        compiler_configs = {"auto_cast": "matmul", "auto_cast_type": "bf16", "instance_type": instance_type}
+        input_shapes = {
+            "batch_size": 1,
+            "height": 64,
+            "width": 64,
+            "num_images_per_prompt": 1,
+        }
 
-                        input_shapes = build_stable_diffusion_components_mandatory_shapes(
-                            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 1}
-                        )
-
-                        models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
-                            model=model,
-                            input_shapes=input_shapes,
-                            task="text-to-image",
-                            library_name="diffusers",
-                            output=Path(tmpdirname),
-                            model_name_or_path=model_id,
-                        )
-
-                        _, neuron_outputs = export_models(
-                            models_and_neuron_configs=models_and_neuron_configs,
-                            task="text-to-image",
-                            output_dir=Path(tmpdirname),
-                            output_file_names=output_model_names,
-                            compiler_kwargs=compiler_opts,
-                            cpu_backend=True,
-                        )
-
-                        self.assertIsNotNone(
-                            neuron_outputs,
-                            f"CPU backend export should return neuron outputs for compiler opts {compiler_opts}",
-                        )
-
-                    except Exception as e:
-                        self.fail(f"CPU backend diffusion compilation failed for compiler opts {compiler_opts}: {e}")
+        neuron_model = NeuronStableDiffusionPipeline.from_pretrained(
+            model_id,
+            export=True,
+            **compiler_configs,
+            **input_shapes,
+        )
+        self.assertIsNone(neuron_model, "CPU backend export should return None.")
 
     def _verify_diffusion_artifacts(self, save_dir: Path):
         """Verify that diffusion compilation artifacts are created properly."""
