@@ -791,6 +791,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         disable_neuron_cache: bool = False,
         inline_weights_to_neff: bool = True,
         instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
+        cpu_backend: bool = False,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
@@ -982,6 +983,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                     compiler_version=NEURON_COMPILER_VERSION,
                     inline_weights_to_neff=inline_weights_to_neff,
                     optlevel=optlevel,
+                    cpu_backend=cpu_backend,
                     model_type=getattr(neuron_config, "MODEL_TYPE", None),
                     task=getattr(neuron_config, "task", None),
                     output_attentions=output_attentions,
@@ -1027,6 +1029,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 compiler_workdir=compiler_workdir,
                 inline_weights_to_neff=inline_weights_to_neff,
                 optlevel=optlevel,
+                cpu_backend=cpu_backend,
                 trust_remote_code=trust_remote_code,
                 subfolder=subfolder,
                 revision=revision,
@@ -1040,13 +1043,19 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 library_name=cls.library_name,
                 **input_shapes,
             )
-
-        return cls._from_pretrained(
-            model_id=save_dir_path,
-            config=config,
-            model_save_dir=save_dir,
-            data_parallel_mode=data_parallel_mode,
-        )
+        if cpu_backend:
+            logger.warning(
+                "Model was compiled with cpu_backend=True. Model loading is skipped as it requires Neuron hardware."
+                "The model compilation was successful and the artifacts were saved."
+            )
+            return None
+        else:
+            return cls._from_pretrained(
+                model_id=save_dir_path,
+                config=config,
+                model_save_dir=save_dir,
+                data_parallel_mode=data_parallel_mode,
+            )
 
     @classmethod
     def _load_config(cls, config_name_or_path: str | os.PathLike, **kwargs):

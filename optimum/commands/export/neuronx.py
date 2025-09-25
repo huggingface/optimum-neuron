@@ -43,6 +43,11 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         ),
     )
     optional_group.add_argument(
+        "--cpu_backend",
+        action="store_true",
+        help="Whether to trace the model completely on CPU.",
+    )
+    optional_group.add_argument(
         "--instance_type",
         type=str,
         default=None,

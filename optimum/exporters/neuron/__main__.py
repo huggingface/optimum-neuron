@@ -698,12 +698,17 @@ def main_export(
     )
 
     # Validate compiled model
-    if do_validation and tensor_parallel_size > 1:
-        # TODO: support the validation of tp models.
-        logger.warning(
-            "The validation is not yet supported for tensor parallel model, the validation will be turned off."
-        )
-        do_validation = False
+    if do_validation:
+        if tensor_parallel_size > 1:
+            # TODO: support the validation of tp models.
+            logger.warning(
+                "The validation is not yet supported for tensor parallel model, the validation will be turned off."
+            )
+            do_validation = False
+        elif cpu_backend:
+            logger.info("The validation is diabled since you are using CPU backend for the compilation.")
+            do_validation = False
+
     if do_validation is True:
         try:
             validate_models_outputs(
@@ -834,6 +839,7 @@ def main():
     compiler_kwargs = infer_compiler_kwargs(args)
     optional_outputs = customize_optional_outputs(args)
     optlevel = parse_optlevel(args)
+    cpu_backend = args.cpu_backend
     lora_args = LoRAAdapterArguments(
         model_ids=getattr(args, "lora_model_ids", None),
         weight_names=getattr(args, "lora_weight_names", None),
@@ -861,6 +867,7 @@ def main():
         compiler_workdir=args.compiler_workdir,
         inline_weights_to_neff=args.inline_weights_neff,
         optlevel=optlevel,
+        cpu_backend=cpu_backend,
         trust_remote_code=args.trust_remote_code,
         subfolder=args.subfolder,
         do_validation=not args.disable_validation,
