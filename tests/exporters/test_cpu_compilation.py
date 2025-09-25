@@ -31,6 +31,7 @@ from optimum.neuron import (
     NeuronModelForFeatureExtraction,
     NeuronModelForSeq2SeqLM,
 )
+from optimum.neuron.utils import get_neuron_instance_type
 from optimum.neuron.utils.testing_utils import requires_neuronx
 
 
@@ -79,6 +80,7 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
                 # Use the main_export function to export and create artifacts
                 from optimum.exporters.neuron import main_export
 
+                instance_type = get_neuron_instance_type()
                 result = main_export(
                     model_name_or_path=model_id,
                     output=save_dir,
@@ -87,7 +89,7 @@ class NeuronCPUBackendEncoderTestCase(unittest.TestCase):
                     sequence_length=128,
                     cpu_backend=True,
                     do_validation=False,
-                    compiler_kwargs={},
+                    compiler_kwargs={"instance_type": instance_type},
                 )
 
                 # For cpu_backend=True, main_export returns None but saves artifacts
@@ -179,6 +181,7 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
                 # Use the main_export function to export and create artifacts
                 from optimum.exporters.neuron import main_export
 
+                instance_type = get_neuron_instance_type()
                 result = main_export(
                     model_name_or_path=model_id,
                     output=save_dir,
@@ -188,7 +191,7 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
                     num_beams=4,
                     cpu_backend=True,
                     do_validation=False,
-                    compiler_kwargs={},
+                    compiler_kwargs={"instance_type": instance_type},
                 )
 
                 # For cpu_backend=True, main_export returns None but saves artifacts

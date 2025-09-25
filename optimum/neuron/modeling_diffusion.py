@@ -62,6 +62,7 @@ from .utils import (
     DiffusersPretrainedConfig,
     NeuronArgumentParser,
     check_if_weights_replacable,
+    get_neuron_instance_type,
     replace_weights,
     store_compilation_config,
 )
@@ -903,6 +904,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
+        instance_type = get_neuron_instance_type(instance_type)
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,

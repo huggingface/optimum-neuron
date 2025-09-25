@@ -40,6 +40,7 @@ from .utils import (
     NEURON_FILE_NAME,
     InputShapesArguments,
     check_if_weights_replacable,
+    get_neuron_instance_type,
     is_neuron_available,
     replace_weights,
     store_compilation_config,
@@ -301,6 +302,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
             kwargs_shapes["batch_size"] = 1
             disable_fallback = True  # Turn off the fallback for neuron, otherwise dynamic batching will still fail
         auto_cast_type = None if auto_cast is None else auto_cast_type
+        instance_type = get_neuron_instance_type(instance_type)
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,

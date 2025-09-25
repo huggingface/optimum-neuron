@@ -43,6 +43,7 @@ from .utils import (
     DECODER_NAME,
     ENCODER_NAME,
     NEURON_FILE_NAME,
+    get_neuron_instance_type,
 )
 from .utils.doc import (
     _TOKENIZER_FOR_DOC,
@@ -364,6 +365,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
+        instance_type = get_neuron_instance_type(instance_type)
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
