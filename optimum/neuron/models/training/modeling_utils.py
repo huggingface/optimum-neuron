@@ -1422,6 +1422,19 @@ class NeuronModelMixin:
         model_to_save.config._attn_implementation_autoset = False
 
         # Save the model
+
+        # Async save: wait for the previous async save to finish before
+        # There is this mechanism in neuronx_distributed already, but it breaks when we change the name of the
+        # directory between saves, which we done (checkpoint-10, checkpoint-20, etc).
+        # So we add this extra wait here that uses the same mechanism but prior to calling the save function.
+        if self.trn_config.async_save:
+            g_iostate = neuronx_distributed.trainer.checkpoint.g_iostate
+            if g_iostate is not None:
+                g_iostate.wait_save(async_remove=True)
+                if xr.global_ordinal() == 0:
+                    (save_directory / MODEL_PARALLEL_SHARDS_DIR_NAME).mkdir(parents=True, exist_ok=True)
+                    (save_directory / MODEL_PARALLEL_SHARDS_DIR_NAME / "done").touch(exist_ok=True)
+
         neuronx_distributed.trainer.save_checkpoint(
             save_directory.as_posix(),
             tag=MODEL_PARALLEL_SHARDS_DIR_NAME,
