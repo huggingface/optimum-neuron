@@ -14,6 +14,7 @@
 # limitations under the License.
 pytest_plugins = [
     "fixtures.llm.vllm_docker_service",
+    "fixtures.llm.vllm_service",
     "fixtures.llm.export_models",
 ]
 # ruff: noqa: E402

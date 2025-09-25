@@ -1,4 +1,3 @@
-import asyncio
 import contextlib
 import logging
 import os
@@ -7,14 +6,14 @@ import shutil
 import sys
 import tempfile
 import time
-from typing import List
 
 import huggingface_hub
 import pytest
 from docker.errors import NotFound
-from openai import APIConnectionError, AsyncOpenAI
 
 import docker
+
+from .vllm_service import LauncherHandle
 
 
 OPTIMUM_CACHE_REPO_ID = "optimum-internal-testing/neuron-testing-cache"
@@ -42,63 +41,6 @@ def get_docker_image():
     return docker_image
 
 
-class TestClient(AsyncOpenAI):
-    def __init__(self, service_name: str, model_name: str, port: int):
-        super().__init__(api_key="EMPTY", base_url=f"http://localhost:{port}/v1")
-        self.model_name: str = model_name
-        self.service_name: str = service_name
-
-    async def sample(
-        self,
-        prompt: str,
-        max_output_tokens: int,
-        temperature: float | None = None,
-        top_p: float | None = None,
-        stop: List[str] | None = None,
-    ):
-        response = await self.chat.completions.create(
-            model=self.model_name,
-            messages=[{"role": "user", "content": prompt}],
-            max_completion_tokens=max_output_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            stop=stop,
-        )
-        generated_tokens = response.usage.completion_tokens
-        generated_text = response.choices[0].message.content
-        return generated_tokens, generated_text
-
-    async def greedy(self, prompt: str, max_output_tokens: int, stop: List[str] | None = None):
-        return await self.sample(prompt, max_output_tokens=max_output_tokens, temperature=0, stop=stop)
-
-
-class LauncherHandle:
-    def __init__(self, service_name: str, model_name: str, port: int):
-        self.client = TestClient(service_name, model_name, port)
-
-    def _inner_health(self):
-        raise NotImplementedError
-
-    async def health(self, timeout: int = 60):
-        assert timeout > 0
-        for i in range(timeout):
-            if not self._inner_health():
-                raise RuntimeError(f"Service crashed after {i} seconds.")
-
-            try:
-                models = await self.client.models.list()
-                model_name = models.data[0].id
-                if self.client.model_name != model_name:
-                    raise ValueError(f"The service exposes {model_name} but {self.client.service_name} was expected.")
-                logger.info(f"Service started after {i} seconds")
-                return
-            except APIConnectionError:
-                time.sleep(1)
-            except Exception as e:
-                raise RuntimeError(f"Querying container model failed with: {e}")
-        raise RuntimeError(f"Service failed to start after {i} seconds.")
-
-
 class ContainerLauncherHandle(LauncherHandle):
     def __init__(self, service_name, model_name, docker_client, container_name, port: int):
         super(ContainerLauncherHandle, self).__init__(service_name, model_name, port)
@@ -116,15 +58,8 @@ class ContainerLauncherHandle(LauncherHandle):
 
 
 @pytest.fixture(scope="module")
-def event_loop():
-    loop = asyncio.get_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture(scope="module")
-def neuron_launcher(event_loop):
-    """Utility fixture to expose an inference service.
+def vllm_docker_launcher(event_loop):
+    """Utility fixture to expose a vLLM inference service.
 
     The fixture uses a single event loop for each module, but it can create multiple
     docker services with different parameters using the parametrized inner context.
@@ -138,7 +73,7 @@ def neuron_launcher(event_loop):
             Must be set to True for gated models.
 
     Returns:
-        A `ContainerLauncherHandle` containing both a TGI server and client.
+        A `ContainerLauncherHandle` containing both a vLLM server and OpenAI client.
     """
 
     @contextlib.contextmanager
