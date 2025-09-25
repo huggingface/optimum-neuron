@@ -9,6 +9,7 @@ import time
 
 import huggingface_hub
 import pytest
+import torch
 from docker.errors import NotFound
 
 import docker
@@ -80,7 +81,10 @@ def vllm_docker_launcher(event_loop):
     def docker_launcher(
         service_name: str,
         model_name_or_path: str,
-        trust_remote_code: bool = False,
+        batch_size: int | None = None,
+        sequence_length: int | None = None,
+        tensor_parallel_size: int | None = None,
+        dtype: str | None = None,
     ):
         port = random.randint(8000, 10_000)
 
@@ -104,13 +108,17 @@ def vllm_docker_launcher(event_loop):
             env["HUGGING_FACE_HUB_TOKEN"] = HF_TOKEN
             env["HF_TOKEN"] = HF_TOKEN
 
-        for var in [
-            "SM_VLLM_MAX_NUM_SEQS",
-            "SM_VLLM_TENSOR_PARALLEL_SIZE",
-            "SM_VLLM_MAX_MODEL_LEN",
-        ]:
-            if var in os.environ:
-                env[var] = os.environ[var]
+        if batch_size is not None:
+            env["SM_VLLM_MAX_NUM_SEQS"] = str(batch_size)
+        if sequence_length is not None:
+            env["SM_VLLM_MAX_MODEL_LEN"] = str(sequence_length)
+        if tensor_parallel_size is not None:
+            env["SM_VLLM_TENSOR_PARALLEL_SIZE"] = str(tensor_parallel_size)
+        if dtype is not None:
+            if isinstance(dtype, torch.dtype):
+                # vLLM does not accept torch dtype, convert to string
+                dtype = str(dtype).split(".")[-1]
+            env["SM_VLLM_DTYPE"] = dtype
 
         base_image = get_docker_image()
         if os.path.isdir(model_name_or_path):
@@ -137,7 +145,6 @@ def vllm_docker_launcher(event_loop):
                     f.write(docker_content.encode("utf-8"))
                     f.flush()
                 image, logs = client.images.build(path=context_dir, dockerfile=f.name, tag=test_image)
-                env["SM_VLLM_MODEL"] = container_model_id
             logger.info("Successfully built image %s", image.id)
             logger.debug("Build logs %s", logs)
         else:
@@ -145,14 +152,9 @@ def vllm_docker_launcher(event_loop):
             image = None
             container_model_id = model_name_or_path
 
-        args = ["--env"]
-
-        if trust_remote_code:
-            args.append("--trust-remote-code")
-
+        env["SM_VLLM_MODEL"] = container_model_id
         container = client.containers.run(
             test_image,
-            command=args,
             name=container_name,
             environment=env,
             auto_remove=False,
