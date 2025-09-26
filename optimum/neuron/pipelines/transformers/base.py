@@ -15,6 +15,7 @@
 """Pipelines running different Neuron Accelerators."""
 
 import logging
+import warnings
 from typing import Any
 
 from transformers import (
@@ -288,6 +289,10 @@ def pipeline(
             num_cores = None
             # We still support this deprecated argument for backward compatibility
             if "num_cores" in kwargs:
+                warnings.warn(
+                    "The num_cores argument is deprecated and will be removed in a future version. Please use tensor_parallel_size instead.",
+                    category=DeprecationWarning,
+                )
                 num_cores = kwargs.pop("num_cores")
             export_kwargs = {
                 "batch_size": batch_size,
