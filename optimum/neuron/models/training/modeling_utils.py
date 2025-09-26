@@ -29,6 +29,7 @@ from typing import Callable, Literal, Type
 import neuronx_distributed
 import torch
 import torch_xla.core.xla_model as xm
+import torch_xla.runtime as xr
 import transformers
 from accelerate.utils import find_tied_parameters
 from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
