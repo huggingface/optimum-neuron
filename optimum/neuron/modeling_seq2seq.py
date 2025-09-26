@@ -339,6 +339,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         tensor_parallel_size: int | None = 1,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
+        cpu_backend: bool = False,
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
@@ -383,6 +384,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             compiler_workdir=compiler_workdir,
             inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
+            cpu_backend=cpu_backend,
             trust_remote_code=trust_remote_code,
             subfolder=subfolder,
             revision=revision,
@@ -395,11 +397,18 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             **kwargs_shapes,
         )
 
-        return cls._from_pretrained(
-            model_id=save_dir_path,
-            config=config,
-            model_save_dir=save_dir,
-        )
+        if cpu_backend:
+            logger.warning(
+                "Since `cpu_backend` is set to `True` during compilation, model loading is skipped."
+                "The model compilation was successful and the artifacts were saved."
+            )
+            return None
+        else:
+            return cls._from_pretrained(
+                model_id=save_dir_path,
+                config=config,
+                model_save_dir=save_dir,
+            )
 
     def _save_config(self, save_directory):
         save_directory = Path(save_directory)
