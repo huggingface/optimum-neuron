@@ -14,6 +14,7 @@
 # limitations under the License.
 """Import utilities."""
 
+import importlib.metadata
 import importlib.util
 
 from packaging import version
@@ -21,6 +22,17 @@ from packaging import version
 
 MIN_ACCELERATE_VERSION = "0.20.1"
 MIN_PEFT_VERSION = "0.14.0"
+
+
+def _get_package_version(package_name: str) -> str | None:
+    package_exists = importlib.util.find_spec(package_name) is not None
+    if package_exists:
+        try:
+            package_version = importlib.metadata.version(package_name)
+        except importlib.metadata.PackageNotFoundError:
+            return None
+        return package_version
+    return None
 
 
 def is_neuron_available() -> bool:
@@ -74,3 +86,7 @@ def is_peft_available(min_version: str | None = MIN_PEFT_VERSION) -> bool:
         else:
             return False
     return _peft_available
+
+
+def is_vllm_available() -> bool:
+    return _get_package_version("vllm") is not None
