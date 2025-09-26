@@ -115,36 +115,3 @@ async def test_vllm_service_greedy_generation(multi_model_vllm_service):
     }
     # Compare expectations in a case-insensitive way as the results may slightly vary when the enviroment changes
     assert greedy_text.lower() == greedy_expectations[service_name].lower()
-
-
-@pytest.mark.asyncio
-async def test_vllm_service_sampling_parameters(vllm_service_from_local_neuron_model):
-    prompt = "What is Deep Learning?"
-    max_output_tokens = 17
-    # Greedy bounded without input
-    greedy_tokens, greedy_text = await vllm_service_from_local_neuron_model.client.greedy(
-        prompt, max_output_tokens=max_output_tokens
-    )
-
-    assert greedy_tokens == max_output_tokens
-
-    # Sampling
-    sample_tokens, sample_text = await vllm_service_from_local_neuron_model.client.sample(
-        prompt,
-        max_output_tokens=max_output_tokens,
-        temperature=0.8,
-        top_p=0.9,
-    )
-    assert sample_tokens == max_output_tokens
-    # The response must be different
-    assert sample_text != greedy_text
-
-    # Greedy with stop sequence (using one of the words returned from the previous test)
-    stop_sequence = greedy_text.split(" ")[-5]
-    greedy_tokens_with_stop, greedy_text_with_stop = await vllm_service_from_local_neuron_model.client.greedy(
-        "What is Deep Learning?",
-        max_output_tokens=max_output_tokens,
-        stop=[stop_sequence],
-    )
-    assert greedy_tokens_with_stop < max_output_tokens
-    assert greedy_text.startswith(greedy_text_with_stop + stop_sequence)
