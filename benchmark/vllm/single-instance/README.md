@@ -2,7 +2,7 @@
 
 ## Setup the serving environment
 
-This step can be omitted if you are using the Hugging Face Neuron DLAMI.
+This step can be omitted if you are using the [Hugging Face Neuron DLAMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2).
 
 ```shell
 pip install .[neuronx,vllm]
