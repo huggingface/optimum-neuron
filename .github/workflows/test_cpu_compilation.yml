@@ -45,9 +45,6 @@ jobs:
         uses: ./.github/actions/install_optimum_neuron
       - name: Setup PATH
         run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
-      - name: Set environment variables for CPU backend
-        run: |
-          echo "NEURON_PLATFORM_TARGET_OVERRIDE=inf2" >> $GITHUB_ENV
       - name: Run CPU compilation tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate

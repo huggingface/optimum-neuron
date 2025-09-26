@@ -52,7 +52,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         type=str,
         default=None,
         choices=["inf2", "trn1", "trn1n", "trn2"],
-        help=("Target Neuron instance type on which the compiled model will be run."),
+        help="Target Neuron instance type on which the compiled model will be run.",
     )
     optional_group.add_argument(
         "--subfolder",

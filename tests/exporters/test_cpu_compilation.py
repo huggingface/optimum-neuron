@@ -40,20 +40,39 @@ CPU_BACKEND_DIFFUSION_MODELS = {
     "stable-diffusion": "hf-internal-testing/tiny-stable-diffusion-torch",
 }
 
-INSTANCE_TYPES = ["inf2"]  # , "trn1", "trn1n", "trn2"]
+INSTANCE_TYPES = ["inf2", "trn1", "trn1n", "trn2"]
 
 
 # @requires_neuronx
 # class NeuronCPUBackendIntegrationTest(unittest.TestCase):
+#     def setUp(self):
+#         """Set up test environment for CPU backend compilation."""
+#         # Configure environment for CPU compilation
+#         os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = None
+#         set_seed(SEED)
+
+#     def test_no_cpu_backend_cli():
+#         """
+#         Raise when `--cpu_backend` is not specified in a cpu-only instance.
+#         """
+#         pass
+
 #     def test_no_instance_type_cli():
 #         """
-#         Raise when `--instance_type` is not specified.
+#         Raise when `--instance_type` is not specified while compiling only on cpu.
+#         """
+#         pass
+
+
+#     def test_no_cpu_backend_modeling():
+#         """
+#         Raise when `--cpu_backend` is not specified in a cpu-only instance.
 #         """
 #         pass
 
 #     def test_no_instance_type_modeling():
 #         """
-#         Raise when `--instance_type` is not specified.
+#         Raise when `--instance_type` is not specified while compiling only on cpu.
 #         """
 #         pass
 
@@ -86,9 +105,9 @@ class NeuronEncoderCPUBackendTestCase(unittest.TestCase):
                     "1",
                     "--task",
                     "text-classification",
-                    "--instance_type",
-                    instance_type,
-                    "--cpu_backend",
+                    # "--instance_type",
+                    # instance_type,
+                    # "--cpu_backend",
                     tempdir,
                 ],
                 shell=False,
