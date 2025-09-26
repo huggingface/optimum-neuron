@@ -143,16 +143,3 @@ def neuron_push_seq2seq_id(export_seq2seq_id):
     model_name = export_seq2seq_id.split("/")[-1]
     repo_id = f"{USER}/{model_name}-neuronx"
     return repo_id
-
-
-def check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num_cores=None, auto_cast_type=None):
-    neuron_config = getattr(neuron_model.config, "neuron", None)
-    assert neuron_config
-    if batch_size:
-        assert neuron_config["batch_size"] == batch_size
-    if sequence_length:
-        assert neuron_config["sequence_length"] == sequence_length
-    if num_cores:
-        assert neuron_config["num_cores"] == num_cores
-    if auto_cast_type:
-        assert neuron_config["auto_cast_type"] == auto_cast_type

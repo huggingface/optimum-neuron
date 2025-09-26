@@ -29,7 +29,6 @@ from typing import Callable, Literal, Type
 import neuronx_distributed
 import torch
 import torch_xla.core.xla_model as xm
-import torch_xla.runtime as xr
 import transformers
 from accelerate.utils import find_tied_parameters
 from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
@@ -704,7 +703,7 @@ class NeuronModelMixin:
         variant = kwargs.pop("variant", None)
         adapter_kwargs = kwargs.pop("adapter_kwargs", None)
         adapter_name = kwargs.pop("adapter_name", None)
-        kwargs.pop("use_flash_attention_2", False)
+        use_flash_attention_2 = kwargs.pop("use_flash_attention_2", False)
         kwargs.pop("generation_config", None)
         gguf_file = kwargs.pop("gguf_file", None)
 
@@ -720,6 +719,11 @@ class NeuronModelMixin:
 
         if low_cpu_mem_usage is not None:
             raise NotImplementedError("`low_cpu_mem_usage` is not supported in optimum-neuron.")
+
+        if use_flash_attention_2:
+            raise ValueError(
+                '`use_flash_attention_2` is deprecated, use `attn_implementation="flash_attention_2". instead'
+            )
 
         # We support less features from the device_map since moving to device is handled by the compiler.
         # Only `None`, "xla" and "cpu" as device_map values are supported.
@@ -1234,7 +1238,7 @@ class NeuronModelMixin:
         init_contexts = [no_init_weights()]
 
         # If we are using pipeline parallelism, we need to use the meta device for parameters only while keeping buffers on CPU.
-        if get_pipeline_model_parallel_size() > 1:
+        if trn_config.pipeline_parallel_size > 1:
             init_contexts.append(MetaParametersOnly())
 
         # ** Difference from original from_pretrained **
@@ -1253,21 +1257,12 @@ class NeuronModelMixin:
         # We do not support the `tie_word_embeddings` feature in pipeline parallelism.
         # Instead when `config.tie_word_embeddings` is set to True, we set it to False and simply clone the data between
         # the tied weights.
-        should_soft_tie = False
-        if config.get_text_config(decoder=True).tie_word_embeddings and get_pipeline_model_parallel_size() > 1:
-            if xr.local_ordinal() == 0:
-                logger.warning(
-                    "`config.tie_word_embeddings` is set to True, but it is not supported in pipeline parallelism. Setting "
-                    "it to `False`."
-                )
-            config.get_text_config(decoder=True).tie_word_embeddings = False
-            should_soft_tie = True
 
         with ContextManagers(init_contexts):
             # Let's make sure we don't run the init function of buffer modules
             model = cls(config, trn_config, *model_args, **model_kwargs)
 
-        if get_pipeline_model_parallel_size() > 1:
+        if trn_config.pipeline_parallel_size > 1:
             move_params_to_cpu(model, model.parameters_for_current_stage)
 
         # make sure we use the model's config since the __init__ call might have copied it
@@ -1317,10 +1312,6 @@ class NeuronModelMixin:
 
         # Set model in evaluation mode to deactivate DropOut modules by default
         model.eval()
-
-        if should_soft_tie:
-            with torch.no_grad():
-                model.get_output_embeddings().weight.data = model.get_input_embeddings().weight.data.clone()
 
         # ** Difference from original from_pretrained **
         # We skip the code about generation since we do not support this.

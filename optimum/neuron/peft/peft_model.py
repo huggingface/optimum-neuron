@@ -48,6 +48,7 @@ if is_peft_available():
     from peft.mapping import PEFT_TYPE_TO_CONFIG_MAPPING, PEFT_TYPE_TO_PREFIX_MAPPING
     from peft.tuners import XLoraModel
     from peft.utils import (
+        PeftType,
         load_peft_weights,
         set_peft_model_state_dict,
     )
@@ -61,6 +62,9 @@ else:
         pass
 
     class XLoraModel:
+        pass
+
+    class PeftType:
         pass
 
     def load_peft_weights(*args, **kwargs):
@@ -109,6 +113,12 @@ class NeuronPeftModel(PeftModel):
         # We need to update the names of the parameters for the current stage after initialization because we have
         # added the `default` adapter.
         self.recompute_parameters_for_current_stage()
+
+    def get_base_model_prefix(self) -> str:
+        if self.active_peft_config.is_prompt_learning or self.peft_type == PeftType.POLY:
+            return "base_model.model.model"
+        else:
+            return "base_model.model"
 
     def recompute_parameters_for_current_stage(self):
         self._parameter_names_for_current_pp_rank = get_pipeline_parameters_for_current_stage(self)
@@ -420,6 +430,8 @@ class NeuronPeftModel(PeftModel):
 
         # Filter missing keys specific to the current adapter and tuner prefix.
         for key in load_result.missing_keys:
+            if key not in self.parameters_for_current_stage:
+                continue
             if tuner_prefix in key and adapter_name in key:
                 adapter_missing_keys.append(key)
 

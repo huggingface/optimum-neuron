@@ -1,18 +1,6 @@
-# NeuronX vLLM benchmark using multiple replicas
-
-## Local environment setup
-
-These configurations are tested and run on an inf2.48xlarge with the Hugging Face Deep Learning AMI from the AWS Marketplace.
-
-Copy the configurations down using
-
-```shell
-$ git clone https://github.com/huggingface/optimum-neuron.git
-$ cd optimum-neuron/benchmark/vllm/
-```
+# Serve a neuron model using multiple replicas
 
 ## Build the optimum-neuron vLLM image
-
 
 ```shell
 $ make optimum-neuron-vllm

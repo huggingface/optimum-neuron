@@ -32,15 +32,19 @@ from neuronx_distributed.parallel_layers.parallel_state import (
 )
 from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
 from neuronx_distributed.utils.model_utils import move_model_to_device
+from peft import LoraConfig
 from transformers import AutoConfig, AutoTokenizer
 from transformers import LlamaForCausalLM as OriginalLlamaForCausalLM
 
 import optimum
 import optimum.neuron.models.training
+from optimum.neuron.accelerate import NeuronAccelerator
+from optimum.neuron.accelerate.utils.dataclasses import MixedPrecisionConfig
 from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.models.training.llama.modeling_llama import LlamaForCausalLM
 from optimum.neuron.models.training.modeling_auto import NeuronModelForCausalLM
 from optimum.neuron.models.training.transformations_utils import GQAQKVColumnParallelLinearSpec
+from optimum.neuron.peft import get_peft_model
 from optimum.neuron.utils.import_utils import (
     is_neuronx_available,
 )
@@ -664,3 +668,69 @@ def test_attention_implementation_validation(
             model = NeuronModelForCausalLM.from_pretrained(
                 LLAMA_V2_MODEL_NAME, trn_config, attn_implementation=attn_implementation
             )
+
+
+@distributed_test(world_size=8, tp_size=2, pp_size=4)
+def test_peft_adapters_with_pp(set_cache_for_ci):
+    tp_size = get_tensor_model_parallel_size()
+    pp_rank = get_pipeline_model_parallel_rank()
+
+    trn_config = TrainingNeuronConfig(
+        tensor_parallel_size=tp_size,
+    )
+    mixed_precision = MixedPrecisionConfig(mode="FULL_BF16")
+    accelerator = NeuronAccelerator(trn_config=trn_config, mixed_precision_config=mixed_precision)
+
+    tok = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
+    inputs = tok("Hello, my dog is cute", return_tensors="pt")
+    inputs["labels"] = inputs["input_ids"].clone()
+
+    model = NeuronModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, trn_config, torch_dtype=torch.bfloat16)
+
+    peft_config = LoraConfig(
+        r=8,
+        lora_alpha=32,
+        lora_dropout=0.1,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        bias="none",
+        task_type="CAUSAL_LM",
+    )
+
+    model = get_peft_model(model, peft_config)
+    model = accelerator.prepare_model(model)
+
+    # Collect adapter parameters on this pipeline stage
+    stage_lora_params = {}
+    stage_base_params = {}
+    for name, param in model.local_named_parameters():
+        if "lora" in name.lower():
+            stage_lora_params[name] = param
+            # All LoRA parameters should be trainable
+            assert param.requires_grad, f"LoRA parameter {name} should require gradients on PP rank {pp_rank}"
+        else:
+            stage_base_params[name] = param
+            # Base model parameters should be frozen
+            assert not param.requires_grad, f"Base parameter {name} should not require gradients on PP rank {pp_rank}"
+
+    model.run_train(**inputs)
+    xm.mark_step()
+
+    named_stage_lora_grads = {
+        name: param.grad.detach().cpu() if param.grad is not None else None
+        for name, param in stage_lora_params.items()
+    }
+    xm.mark_step()
+
+    # Verify gradients exist for LoRA parameters
+    for name, grad in named_stage_lora_grads.items():
+        assert grad is not None, f"LoRA parameter {name} should have gradients after backward pass"
+        assert grad.dtype == torch.bfloat16, f"Gradient for {name} should be bfloat16, got {grad.dtype}"
+
+        if "lora_B" in name:
+            assert not torch.all(grad == 0), f"Gradient for {name} should not be all zeros"
+
+    # Verify base parameters don't have gradients
+    for name, param in stage_base_params.items():
+        if param.requires_grad:  # Skip parameters that might be trainable (like embeddings)
+            continue
+        assert param.grad is None, f"Base parameter {name} should not have gradients"

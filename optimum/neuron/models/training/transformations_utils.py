@@ -1555,6 +1555,7 @@ def adapt_state_dict(
     for name, param in model.named_parameters():
         name_without_adapter_name = remove_adapter_name(name)
         if name not in model.parameters_for_current_stage:
+            state_dict.pop(name_without_adapter_name, None)
             continue
         if is_base_layer(name_without_adapter_name):
             # In this case, it was already handled when loading the base layer weights in

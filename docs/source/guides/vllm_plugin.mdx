@@ -17,7 +17,7 @@ Notes
 ## Setup
 
 The easiest way to use the `optimum-neuron` vLLM platform is to launch an Amazon ec2 instance using
- the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2).
+ the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2).  If you decide NOT to make your life easier by using [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2), you can install this functionality into your Neuron environment with ```pip install optimum-neuron[neuronx,vllm]```.
 
 Note: Trn2 instances are not supported by the `optimum-neuron` platform yet.
 
@@ -28,7 +28,7 @@ Note: Trn2 instances are not supported by the `optimum-neuron` platform yet.
 source /opt/aws_neuronx_venv_pytorch_2_7/bin/activate
 ```
 
-## Offline inference example
+## Generating content programmatically
 
 The easiest way to test a model is to use the python API:
 
@@ -46,8 +46,7 @@ sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 llm = LLM(model="unsloth/Llama-3.2-1B-Instruct",
           max_num_seqs=4,
           max_model_len=4096,
-          tensor_parallel_size=2,
-          device="neuron")
+          tensor_parallel_size=2)
 
 outputs = llm.generate(prompts, sampling_params)
 
@@ -57,9 +56,20 @@ for output in outputs:
     print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
 ```
 
-## Online inference example
+## Serving a model
 
-You can also launch an Open AI compatible inference server.
+The easiest way to serve a model is to use the `optimum-cli`:
+
+```console
+optimum-cli serve \
+    --model="unsloth/Llama-3.2-1B-Instruct" \
+    --batch_size=4 \
+    --sequence_length=4096 \
+    --tensor_parallel_size=2 \
+    --port=8080
+```
+
+You can also launch an Open AI compatible inference server directly using vLLM entry points:
 
 ```console
 python -m vllm.entrypoints.openai.api_server \
@@ -67,8 +77,7 @@ python -m vllm.entrypoints.openai.api_server \
     --max-num-seqs=4 \
     --max-model-len=4096 \
     --tensor-parallel-size=2 \
-    --port=8080 \
-    --device "neuron"
+    --port=8080
 ```
 
 Use the following command to test the model:

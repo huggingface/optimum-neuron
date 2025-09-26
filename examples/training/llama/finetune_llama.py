@@ -64,7 +64,7 @@ def train(model_id, tokenizer, dataset, training_args):
         trn_config,
         torch_dtype=dtype,
         # Use FlashAttention2 for better performance and to be able to use larger sequence lengths.
-        use_flash_attention_2=True,
+        attn_implementation="flash_attention_2",
     )
 
     lora_config = LoraConfig(
