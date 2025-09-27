@@ -89,7 +89,11 @@ _import_structure = {
         "is_model_officially_supported",
         "patch_transformers_for_neuron_sdk",
     ],
-    "system": ["get_neuron_instance_type"],
+    "system": [
+        "SUPPORTED_INSTANCE_TYPES",
+        "auto_detect_platform",
+        "get_neuron_instance_type",
+    ],
 }
 
 if TYPE_CHECKING:
@@ -159,7 +163,11 @@ if TYPE_CHECKING:
         patch_within_function,
         replace_class_in_inheritance_hierarchy,
     )
-    from .system import get_neuron_instance_type
+    from .system import (
+        SUPPORTED_INSTANCE_TYPES,
+        auto_detect_platform,
+        get_neuron_instance_type,
+    )
     from .training_utils import (
         is_model_officially_supported,
         patch_transformers_for_neuron_sdk,

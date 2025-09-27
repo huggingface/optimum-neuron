@@ -13,12 +13,15 @@
 # limitations under the License.
 """Defines the command line for the export with Neuronx compiler."""
 
+import os
+import shlex
 import subprocess
 import sys
 from argparse import SUPPRESS, ArgumentParser, Namespace, _SubParsersAction
 from pathlib import Path
 
 from ...exporters import TasksManager
+from ...neuron.utils import SUPPORTED_INSTANCE_TYPES, auto_detect_platform
 from ..base import BaseOptimumCLICommand, CommandInfo
 
 
@@ -336,5 +339,31 @@ class NeuronxExportCommand(BaseOptimumCLICommand):
         return parse_args_neuronx(parser)
 
     def run(self):
+        self.cpu_only_check(self.args_string)
         full_command = f"python3 -m optimum.exporters.neuron {self.args_string}"
         subprocess.run(full_command, shell=True, check=True)
+
+    @staticmethod
+    def cpu_only_check(args_string: str):
+        instance_type = auto_detect_platform()
+        if instance_type not in SUPPORTED_INSTANCE_TYPES:
+            if "--cpu_backend" not in args_string:
+                # `--cpu_backend` is mandary when no neuron device is available
+                raise RuntimeError(
+                    f"You are using {instance_type} instance, please add the flag `--cpu_backend` for cpu-only compilation"
+                )
+            else:
+                # `--instance_type` is mandary when we compile with cpu backend
+                compiler_args = shlex.split(args_string)
+                if "--instance_type" not in args_string:
+                    raise RuntimeError(
+                        f"You are using {instance_type} instance, please supply target instance type among {SUPPORTED_INSTANCE_TYPES} for cpu-only compilation"
+                    )
+                else:
+                    index = compiler_args.index("--instance_type")
+                    target_instance_type = compiler_args[index + 1]
+                    assert target_instance_type in SUPPORTED_INSTANCE_TYPES, (
+                        f"{target_instance_type} is not a supported platform. \
+                    Please choose from options trn1, inf2, trn1n, or trn2."
+                    )
+                    os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = target_instance_type
