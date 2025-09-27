@@ -57,6 +57,8 @@ _import_structure = {
         "DummyControNetInputGenerator",
         "ASTDummyAudioInputGenerator",
         "DummyIPAdapterInputGenerator",
+        "DummyQwenImageTransformerInputGenerator",
+        "DummyTransformerRotaryEmbGenerator",
         "DummyFluxTransformerRotaryEmbGenerator",
         "DummyFluxKontextTransformerRotaryEmbGenerator",
         "DummyTimestepInputGenerator",
@@ -130,10 +132,11 @@ if TYPE_CHECKING:
         DummyBeamValuesGenerator,
         DummyControNetInputGenerator,
         DummyFluxKontextTransformerRotaryEmbGenerator,
-        DummyFluxTransformerRotaryEmbGenerator,
         DummyIPAdapterInputGenerator,
         DummyMaskedPosGenerator,
+        DummyQwenImageTransformerInputGenerator,
         DummyTimestepInputGenerator,
+        DummyTransformerRotaryEmbGenerator,
         WhisperDummyTextInputGenerator,
     )
     from .misc import (
