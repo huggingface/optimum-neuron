@@ -21,7 +21,7 @@ import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import torch
 from huggingface_hub import snapshot_download
@@ -43,6 +43,7 @@ from .utils import (
     DECODER_NAME,
     ENCODER_NAME,
     NEURON_FILE_NAME,
+    get_neuron_instance_type,
 )
 from .utils.doc import (
     _TOKENIZER_FOR_DOC,
@@ -339,6 +340,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         tensor_parallel_size: int | None = 1,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
+        instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
         cpu_backend: bool = False,
         subfolder: str = "",
         local_files_only: bool = False,
@@ -363,9 +365,12 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
+        instance_type = get_neuron_instance_type(instance_type)
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
+            "instance_type": instance_type,
+            # Inf1 specific compiler args
             "disable_fast_relayout": disable_fast_relayout,
             "disable_fallback": disable_fallback,
         }

@@ -114,6 +114,18 @@ optimum-cli export neuron --model distilbert-base-uncased-distilled-squad \
 Here the model was exported with a static input shape of `(1, 16)`, and with compiler arguments specifying
 that matmul operation must be performed with `float16` precision for faster inference.
 
+<Tip>
+
+You can also compile the model on a CPU-only instance. In this case, pass the `--cpu_backend` flag and specify the target `--instance_type` from `{inf2, trn1, trn1n, trn2}`. 
+
+If you are using a `NeuronModelForXXX` class to export the model on a CPU-only instance, set the target instance type through the environment variable, e.g.:
+
+```bash
+export NEURON_PLATFORM_TARGET_OVERRIDE=inf2
+```
+
+</Tip>
+
 After export, you should see the following logs which validate the model on Neuron devices by comparing with PyTorch model on CPU:
 
 ```bash
