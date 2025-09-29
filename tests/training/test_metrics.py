@@ -19,9 +19,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
-from transformers import AutoConfig, AutoTokenizer
 
-from optimum.neuron.trainers.metrics import TrainingMetricsCollector, MetricsClock, MovingAverageWindow
+from optimum.neuron.trainers.metrics import MetricsClock, MovingAverageWindow, TrainingMetricsCollector
 from optimum.neuron.trainers.training_args import NeuronTrainingArguments
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
@@ -71,11 +70,12 @@ class TestTrainingMetricsCollector:
         model = create_mock_model()
         args = create_test_training_args()
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=2), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=2), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_model_param_count', return_value=1000000):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=2),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=2),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_model_param_count", return_value=1000000),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             assert collector.dp_size == 2
@@ -92,10 +92,11 @@ class TestTrainingMetricsCollector:
 
         # This should not cause any issues even if metrics are disabled
         # The actual disabling happens at the trainer level, but the collector should handle gracefully
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
             assert collector is not None
 
@@ -104,10 +105,11 @@ class TestTrainingMetricsCollector:
         model = create_mock_model()
         args = create_test_training_args()
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Record some batches
@@ -124,10 +126,11 @@ class TestTrainingMetricsCollector:
         model = create_mock_model()
         args = create_test_training_args()
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Record multiple batches
@@ -150,10 +153,11 @@ class TestTrainingMetricsCollector:
         model = create_mock_model()
         args = create_test_training_args(enable_throughput_metrics=True)
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=2), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=2), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=2),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=2),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Simulate some processing
@@ -166,9 +170,9 @@ class TestTrainingMetricsCollector:
 
             # Expected values
             expected_tokens_per_sec = 1000 / 2.0  # 500
-            expected_samples_per_sec = 10 / 2.0   # 5
+            expected_samples_per_sec = 10 / 2.0  # 5
             expected_tokens_per_core = 1000 / (2.0 * 4)  # 125 (4 cores total)
-            expected_samples_per_core = 10 / (2.0 * 4)    # 1.25
+            expected_samples_per_core = 10 / (2.0 * 4)  # 1.25
 
             assert metrics["tokens_per_sec"] == expected_tokens_per_sec
             assert metrics["samples_per_sec"] == expected_samples_per_sec
@@ -180,11 +184,12 @@ class TestTrainingMetricsCollector:
         model = create_mock_model()
         args = create_test_training_args(enable_mfu_metrics=True, peak_tflops_per_core=100.0)
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_model_param_count', return_value=1000000):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_model_param_count", return_value=1000000),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Simulate processing
@@ -207,28 +212,30 @@ class TestTrainingMetricsCollector:
         model = create_mock_model()
         args = create_test_training_args(logging_steps=5, metrics_logging_steps=None)
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Test various steps
             assert not collector.should_calculate_metrics(0)  # Step 0 should not calculate
             assert not collector.should_calculate_metrics(1)  # Step 1, not divisible by 5
             assert not collector.should_calculate_metrics(4)  # Step 4, not divisible by 5
-            assert collector.should_calculate_metrics(5)     # Step 5, divisible by 5
-            assert collector.should_calculate_metrics(10)    # Step 10, divisible by 5
+            assert collector.should_calculate_metrics(5)  # Step 5, divisible by 5
+            assert collector.should_calculate_metrics(10)  # Step 10, divisible by 5
 
     def test_should_calculate_metrics_custom_logging_steps(self):
         """Test metrics calculation with custom metrics_logging_steps."""
         model = create_mock_model()
         args = create_test_training_args(logging_steps=5, metrics_logging_steps=3)
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Should use metrics_logging_steps=3 instead of logging_steps=5
@@ -243,10 +250,11 @@ class TestTrainingMetricsCollector:
         model = create_mock_model()
         args = create_test_training_args()
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Record some metrics
@@ -270,16 +278,15 @@ class TestTrainingMetricsCollector:
         """Test end-to-end metrics calculation."""
         model = create_mock_model()
         args = create_test_training_args(
-            enable_throughput_metrics=True,
-            enable_mfu_metrics=True,
-            enable_efficiency_metrics=True
+            enable_throughput_metrics=True, enable_mfu_metrics=True, enable_efficiency_metrics=True
         )
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=2), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_model_param_count', return_value=500000):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=2),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_model_param_count", return_value=500000),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Simulate batch processing
@@ -353,7 +360,7 @@ class TestMetricsConfiguration:
                 enable_mfu_metrics=True,
                 enable_efficiency_metrics=True,
                 metrics_logging_steps=20,
-                peak_tflops_per_core=150.0
+                peak_tflops_per_core=150.0,
             )
 
             assert args.enable_training_metrics is False
@@ -369,8 +376,8 @@ class TestMetricsClock:
 
     def test_wall_time_clock(self):
         """Test wall time clock functionality."""
-        clock = MetricsClock('wall_time')
-        assert clock.clock_type == 'wall_time'
+        clock = MetricsClock("wall_time")
+        assert clock.clock_type == "wall_time"
 
         # Test initial state
         assert clock.elapsed() is None
@@ -388,8 +395,8 @@ class TestMetricsClock:
 
     def test_process_time_clock(self):
         """Test process time clock functionality."""
-        clock = MetricsClock('process_time')
-        assert clock.clock_type == 'process_time'
+        clock = MetricsClock("process_time")
+        assert clock.clock_type == "process_time"
 
         clock.start()
         # Do some CPU work
@@ -400,8 +407,8 @@ class TestMetricsClock:
 
     def test_perf_counter_clock(self):
         """Test performance counter clock functionality."""
-        clock = MetricsClock('perf_counter')
-        assert clock.clock_type == 'perf_counter'
+        clock = MetricsClock("perf_counter")
+        assert clock.clock_type == "perf_counter"
 
         clock.start()
         time.sleep(0.01)
@@ -412,7 +419,7 @@ class TestMetricsClock:
     def test_invalid_clock_type(self):
         """Test that invalid clock types raise an error."""
         with pytest.raises(ValueError, match="Unsupported clock type"):
-            MetricsClock('invalid_clock')
+            MetricsClock("invalid_clock")
 
 
 class TestMovingAverageWindow:
@@ -449,13 +456,13 @@ class TestMovingAverageWindow:
 
         stats = window.get_window_stats()
 
-        assert stats['total_tokens'] == 600
-        assert stats['total_samples'] == 12
-        assert stats['total_time'] == 1.8
-        assert stats['window_steps'] == 3
-        assert stats['avg_tokens_per_step'] == 200.0
-        assert stats['avg_samples_per_step'] == 4.0
-        assert stats['avg_time_per_step'] == 0.6
+        assert stats["total_tokens"] == 600
+        assert stats["total_samples"] == 12
+        assert stats["total_time"] == 1.8
+        assert stats["window_steps"] == 3
+        assert stats["avg_tokens_per_step"] == 200.0
+        assert stats["avg_samples_per_step"] == 4.0
+        assert stats["avg_time_per_step"] == 0.6
 
     def test_window_overflow(self):
         """Test that window properly handles overflow with maxlen."""
@@ -471,8 +478,8 @@ class TestMovingAverageWindow:
 
         stats = window.get_window_stats()
         # Should only contain steps 2 and 3
-        assert stats['total_tokens'] == 500  # 200 + 300
-        assert stats['total_samples'] == 10  # 4 + 6
+        assert stats["total_tokens"] == 500  # 200 + 300
+        assert stats["total_samples"] == 10  # 4 + 6
 
     def test_window_clear(self):
         """Test window clearing functionality."""
@@ -497,10 +504,11 @@ class TestTrainingMetricsCollectorEnhanced:
         model = create_mock_model()
         args = create_test_training_args(metrics_window_size=25)
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             assert collector.window_size == 25
@@ -512,20 +520,21 @@ class TestTrainingMetricsCollectorEnhanced:
         model = create_mock_model()
         args = create_test_training_args()
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Check default clocks
-            assert 'throughput' in collector.clocks
-            assert 'mfu' in collector.clocks
-            assert 'efficiency' in collector.clocks
+            assert "throughput" in collector.clocks
+            assert "mfu" in collector.clocks
+            assert "efficiency" in collector.clocks
 
-            assert collector.clocks['throughput'].clock_type == 'perf_counter'
-            assert collector.clocks['mfu'].clock_type == 'wall_time'
-            assert collector.clocks['efficiency'].clock_type == 'process_time'
+            assert collector.clocks["throughput"].clock_type == "perf_counter"
+            assert collector.clocks["mfu"].clock_type == "wall_time"
+            assert collector.clocks["efficiency"].clock_type == "process_time"
 
     def test_custom_clocks_configuration(self):
         """Test custom clock configuration."""
@@ -533,31 +542,32 @@ class TestTrainingMetricsCollectorEnhanced:
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             args = NeuronTrainingArguments(
-                output_dir=tmp_dir,
-                metrics_clocks={'custom_clock': 'wall_time', 'another_clock': 'process_time'}
+                output_dir=tmp_dir, metrics_clocks={"custom_clock": "wall_time", "another_clock": "process_time"}
             )
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Check that custom clocks are added
-            assert 'custom_clock' in collector.clocks
-            assert 'another_clock' in collector.clocks
-            assert collector.clocks['custom_clock'].clock_type == 'wall_time'
-            assert collector.clocks['another_clock'].clock_type == 'process_time'
+            assert "custom_clock" in collector.clocks
+            assert "another_clock" in collector.clocks
+            assert collector.clocks["custom_clock"].clock_type == "wall_time"
+            assert collector.clocks["another_clock"].clock_type == "process_time"
 
     def test_step_timing_and_finalization(self):
         """Test step timing and finalization process."""
         model = create_mock_model()
         args = create_test_training_args()
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Record metrics for step 1
@@ -566,7 +576,7 @@ class TestTrainingMetricsCollectorEnhanced:
 
             # Should have started timing for step 1
             assert collector.last_step_number == 1
-            assert hasattr(collector, 'current_step_tokens')
+            assert hasattr(collector, "current_step_tokens")
             assert collector.current_step_tokens == 2 * 64
 
             # Small delay to ensure measurable timing
@@ -583,15 +593,13 @@ class TestTrainingMetricsCollectorEnhanced:
     def test_moving_average_metrics_calculation(self):
         """Test metrics calculation using moving averages."""
         model = create_mock_model()
-        args = create_test_training_args(
-            enable_throughput_metrics=True,
-            metrics_window_size=3
-        )
+        args = create_test_training_args(enable_throughput_metrics=True, metrics_window_size=3)
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=2), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=2),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Record several steps
@@ -621,16 +629,14 @@ class TestTrainingMetricsCollectorEnhanced:
     def test_mfu_calculation_with_moving_window(self):
         """Test MFU calculation using moving averages."""
         model = create_mock_model()
-        args = create_test_training_args(
-            enable_mfu_metrics=True,
-            metrics_window_size=2
-        )
+        args = create_test_training_args(enable_mfu_metrics=True, metrics_window_size=2)
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_model_param_count', return_value=1000000):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_model_param_count", return_value=1000000),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Record steps
@@ -655,13 +661,14 @@ class TestTrainingMetricsCollectorEnhanced:
             enable_efficiency_metrics=True,
             enable_throughput_metrics=True,
             metrics_window_size=5,
-            expected_tokens_per_core=1000.0
+            expected_tokens_per_core=1000.0,
         )
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Record steps with varying timing (to test consistency)
@@ -688,10 +695,11 @@ class TestTrainingMetricsCollectorEnhanced:
         model = create_mock_model()
         args = create_test_training_args(metrics_window_size=3)
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Record some metrics
@@ -716,12 +724,12 @@ class TestTrainingMetricsCollectorEnhanced:
                 output_dir=tmp_dir,
                 metrics_window_size=25,
                 expected_tokens_per_core=750.0,
-                metrics_clocks={'test_clock': 'perf_counter'}
+                metrics_clocks={"test_clock": "perf_counter"},
             )
 
             assert args.metrics_window_size == 25
             assert args.expected_tokens_per_core == 750.0
-            assert args.metrics_clocks == {'test_clock': 'perf_counter'}
+            assert args.metrics_clocks == {"test_clock": "perf_counter"}
 
     def test_individual_metric_control(self):
         """Test individual metric start/stop control."""
@@ -730,56 +738,55 @@ class TestTrainingMetricsCollectorEnhanced:
             enable_throughput_metrics=True,
             enable_mfu_metrics=True,
             enable_efficiency_metrics=True,
-            metrics_window_size=3
+            metrics_window_size=3,
         )
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_model_param_count', return_value=1000000):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_model_param_count", return_value=1000000),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Test starting and stopping individual metrics
             batch = create_sample_batch(batch_size=2, seq_length=128)
 
             # Start throughput timing
-            collector.start_metric('throughput', batch)
-            assert collector.metric_start_times['throughput'] is not None
-            assert collector.current_batch_data['throughput']['tokens'] == 2 * 128
+            collector.start_metric("throughput", batch)
+            assert collector.metric_start_times["throughput"] is not None
+            assert collector.current_batch_data["throughput"]["tokens"] == 2 * 128
 
             time.sleep(0.01)  # Small delay
 
             # Stop throughput timing
-            collector.stop_metric('throughput', step_number=1)
-            assert collector.metric_start_times['throughput'] is None
-            assert collector.metric_windows['throughput'].size == 1
+            collector.stop_metric("throughput", step_number=1)
+            assert collector.metric_start_times["throughput"] is None
+            assert collector.metric_windows["throughput"].size == 1
 
             # Start MFU timing separately
-            collector.start_metric('mfu', batch)
+            collector.start_metric("mfu", batch)
             time.sleep(0.01)
-            collector.stop_metric('mfu', step_number=1)
+            collector.stop_metric("mfu", step_number=1)
 
             # Calculate individual metrics
-            throughput_metrics = collector.finalize_metric('throughput')
-            assert 'tokens_per_sec' in throughput_metrics
-            assert 'samples_per_sec' in throughput_metrics
+            throughput_metrics = collector.finalize_metric("throughput")
+            assert "tokens_per_sec" in throughput_metrics
+            assert "samples_per_sec" in throughput_metrics
 
-            mfu_metrics = collector.finalize_metric('mfu')
-            assert 'model_flops_utilization' in mfu_metrics
+            mfu_metrics = collector.finalize_metric("mfu")
+            assert "model_flops_utilization" in mfu_metrics
 
     def test_start_stop_metric_workflow(self):
         """Test complete start/stop workflow for metrics."""
         model = create_mock_model()
-        args = create_test_training_args(
-            enable_throughput_metrics=True,
-            metrics_window_size=2
-        )
+        args = create_test_training_args(enable_throughput_metrics=True, metrics_window_size=2)
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=2), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=2),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Simulate multiple training steps with individual metric control
@@ -787,22 +794,22 @@ class TestTrainingMetricsCollectorEnhanced:
                 batch = create_sample_batch(batch_size=4, seq_length=64)
 
                 # Start throughput metric
-                collector.start_metric('throughput', batch)
+                collector.start_metric("throughput", batch)
 
                 # Simulate processing time
                 time.sleep(0.005)
 
                 # Stop throughput metric
-                collector.stop_metric('throughput', step_number=step)
+                collector.stop_metric("throughput", step_number=step)
 
             # Should have 2 measurements (window size = 2, so oldest evicted)
-            assert collector.metric_windows['throughput'].size == 2
+            assert collector.metric_windows["throughput"].size == 2
 
             # Calculate final metrics
-            metrics = collector.finalize_metric('throughput')
-            assert metrics['tokens_per_sec'] > 0
-            assert metrics['tokens_per_sec_per_neuron_core'] > 0
-            assert metrics['metrics_window_steps'] == 2
+            metrics = collector.finalize_metric("throughput")
+            assert metrics["tokens_per_sec"] > 0
+            assert metrics["tokens_per_sec_per_neuron_core"] > 0
+            assert metrics["metrics_window_steps"] == 2
 
     def test_finalize_metric_custom_clock(self):
         """Test finalizing metrics with custom clock names."""
@@ -810,15 +817,14 @@ class TestTrainingMetricsCollectorEnhanced:
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             args = NeuronTrainingArguments(
-                output_dir=tmp_dir,
-                enable_throughput_metrics=True,
-                metrics_clocks={'custom_timer': 'wall_time'}
+                output_dir=tmp_dir, enable_throughput_metrics=True, metrics_clocks={"custom_timer": "wall_time"}
             )
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Record some steps
@@ -827,46 +833,46 @@ class TestTrainingMetricsCollectorEnhanced:
             time.sleep(0.01)
 
             # Should be able to use custom clock name
-            custom_metrics = collector.finalize_metric('custom_timer')
-            assert 'tokens_per_sec' in custom_metrics  # Should fall back to throughput calculation
+            custom_metrics = collector.finalize_metric("custom_timer")
+            assert "tokens_per_sec" in custom_metrics  # Should fall back to throughput calculation
 
     def test_finalize_metric_invalid_name(self):
         """Test that invalid metric names raise appropriate errors."""
         model = create_mock_model()
         args = create_test_training_args()
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             with pytest.raises(ValueError, match="Unsupported metric name"):
-                collector.finalize_metric('invalid_metric_name')
+                collector.finalize_metric("invalid_metric_name")
 
     def test_finalize_metric_disabled_metrics(self):
         """Test finalizing metrics when they are disabled."""
         model = create_mock_model()
         args = create_test_training_args(
-            enable_throughput_metrics=False,
-            enable_mfu_metrics=False,
-            enable_efficiency_metrics=False
+            enable_throughput_metrics=False, enable_mfu_metrics=False, enable_efficiency_metrics=False
         )
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Should return empty dict when metrics are disabled
-            throughput_metrics = collector.finalize_metric('throughput')
+            throughput_metrics = collector.finalize_metric("throughput")
             assert throughput_metrics == {}
 
-            mfu_metrics = collector.finalize_metric('mfu')
+            mfu_metrics = collector.finalize_metric("mfu")
             assert mfu_metrics == {}
 
-            efficiency_metrics = collector.finalize_metric('efficiency')
+            efficiency_metrics = collector.finalize_metric("efficiency")
             assert efficiency_metrics == {}
 
     def test_update_metric_batch_data(self):
@@ -874,76 +880,80 @@ class TestTrainingMetricsCollectorEnhanced:
         model = create_mock_model()
         args = create_test_training_args()
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Start a metric
             batch1 = create_sample_batch(batch_size=2, seq_length=64)
-            collector.start_metric('throughput', batch1)
+            collector.start_metric("throughput", batch1)
 
             # Update with more batch data (simulating gradient accumulation)
             batch2 = create_sample_batch(batch_size=3, seq_length=64)
-            collector.update_metric_batch_data('throughput', batch2)
+            collector.update_metric_batch_data("throughput", batch2)
 
             # Should have accumulated both batches
-            assert collector.current_batch_data['throughput']['tokens'] == (2 * 64) + (3 * 64)
-            assert collector.current_batch_data['throughput']['samples'] == 2 + 3
+            assert collector.current_batch_data["throughput"]["tokens"] == (2 * 64) + (3 * 64)
+            assert collector.current_batch_data["throughput"]["samples"] == 2 + 3
 
     def test_start_metric_errors(self):
         """Test error handling in start_metric."""
         model = create_mock_model()
         args = create_test_training_args()
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Should raise error for unknown metric
             with pytest.raises(ValueError, match="Unknown metric"):
-                collector.start_metric('unknown_metric')
+                collector.start_metric("unknown_metric")
 
     def test_stop_metric_without_start(self):
         """Test stopping a metric that wasn't started."""
         model = create_mock_model()
         args = create_test_training_args()
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Should not raise error, should just ignore
-            collector.stop_metric('throughput')  # Should not crash
+            collector.stop_metric("throughput")  # Should not crash
 
     def test_metric_initialization(self):
         """Test that metrics are properly initialized with individual windows."""
         model = create_mock_model()
         args = create_test_training_args(metrics_window_size=10)
 
-        with patch('optimum.neuron.trainers.metrics.get_data_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_tensor_model_parallel_size', return_value=1), \
-             patch('optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size', return_value=1):
-
+        with (
+            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
+            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
+        ):
             collector = TrainingMetricsCollector(model, args)
 
             # Check that individual metric systems are initialized
-            assert 'throughput' in collector.metric_windows
-            assert 'mfu' in collector.metric_windows
-            assert 'efficiency' in collector.metric_windows
+            assert "throughput" in collector.metric_windows
+            assert "mfu" in collector.metric_windows
+            assert "efficiency" in collector.metric_windows
 
-            assert 'throughput' in collector.metric_clocks
-            assert 'mfu' in collector.metric_clocks
-            assert 'efficiency' in collector.metric_clocks
+            assert "throughput" in collector.metric_clocks
+            assert "mfu" in collector.metric_clocks
+            assert "efficiency" in collector.metric_clocks
 
             # Check window sizes
-            assert collector.metric_windows['throughput'].window_size == 10
-            assert collector.metric_windows['mfu'].window_size == 10
+            assert collector.metric_windows["throughput"].window_size == 10
+            assert collector.metric_windows["mfu"].window_size == 10
 
 
 if __name__ == "__main__":

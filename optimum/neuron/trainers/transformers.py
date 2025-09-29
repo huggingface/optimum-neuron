@@ -97,9 +97,9 @@ from ..utils.training_utils import (
     get_model_param_count,
     is_logging_process,
 )
+from .metrics import TrainingMetricsCollector
 from .training_args import NeuronTrainingArguments
 from .utils import XLAPrefetchIterator
-from .metrics import TrainingMetricsCollector
 
 
 logger = logging.get_logger()
@@ -1025,8 +1025,9 @@ class NeuronTrainer:
                         )
 
                     # Add training metrics if available and should be calculated
-                    if (self.metrics_collector is not None and
-                        self.metrics_collector.should_calculate_metrics(self.state.global_step)):
+                    if self.metrics_collector is not None and self.metrics_collector.should_calculate_metrics(
+                        self.state.global_step
+                    ):
                         try:
                             metrics = self.metrics_collector.calculate_metrics()
                             logs.update(metrics)
@@ -1114,6 +1115,9 @@ class NeuronTrainer:
                     prefetch_size=args.dataloader_prefetch_size,
                 )
 
+                if self.metrics_collector is not None:
+                    self.metrics_collector.start_metric("throughput")
+
                 for inputs in batch_samples:
                     xm.mark_step()
                     step += 1
@@ -1122,12 +1126,16 @@ class NeuronTrainer:
                     if step % args.gradient_accumulation_steps == 0:
                         self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
-                    loss_step = self.train_step(self.model, inputs, num_items_in_batch=num_items_in_batch)
-                    self.running_loss += loss_step.detach()
+                    if self.metrics_collector is not None:
+                        self.metrics_collector.update_metric_batch_data("throughput", inputs)
+                        self.metrics_collector.start_metric("mfu", inputs=inputs)
 
-                    # Record metrics for this batch (only on sync steps to avoid double counting during gradient accumulation)
-                    if do_sync_step and self.metrics_collector is not None:
-                        self.metrics_collector.record_batch_metrics(inputs, self.state.global_step + 1)
+                    loss_step = self.train_step(self.model, inputs, num_items_in_batch=num_items_in_batch)
+
+                    if self.metrics_collector is not None:
+                        self.metrics_collector.stop_metric("mfu")
+
+                    self.running_loss += loss_step.detach()
 
                     if do_sync_step:
                         self.accelerator.gradient_state.sync_gradients = True
@@ -1151,6 +1159,9 @@ class NeuronTrainer:
                         self.state.epoch = epoch + (step + 1) / steps_in_epoch
                         self.control = self.callback_handler.on_step_end(args, self.state, self.control)
                         xm.mark_step()
+
+                        if self.metrics_collector is not None:
+                            self.metrics_collector.stop_metric("throughput")
                     else:
                         self.accelerator.gradient_state.sync_gradients = False
                         self.control = self.callback_handler.on_substep_end(args, self.state, self.control)

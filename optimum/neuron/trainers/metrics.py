@@ -37,15 +37,15 @@ class MetricsClock:
     - 'perf_counter': High-resolution performance counter
     """
 
-    def __init__(self, clock_type: str = 'wall_time'):
+    def __init__(self, clock_type: str = "wall_time"):
         self.clock_type = clock_type
         self.start_time = None
 
-        if clock_type == 'wall_time':
+        if clock_type == "wall_time":
             self.time_func = time.time
-        elif clock_type == 'process_time':
+        elif clock_type == "process_time":
             self.time_func = time.process_time
-        elif clock_type == 'perf_counter':
+        elif clock_type == "perf_counter":
             self.time_func = time.perf_counter
         else:
             raise ValueError(f"Unsupported clock type: {clock_type}")
@@ -98,13 +98,13 @@ class MovingAverageWindow:
         window_steps = len(self.step_times)
 
         return {
-            'total_tokens': total_tokens,
-            'total_samples': total_samples,
-            'total_time': total_time,
-            'window_steps': window_steps,
-            'avg_tokens_per_step': total_tokens / window_steps if window_steps > 0 else 0,
-            'avg_samples_per_step': total_samples / window_steps if window_steps > 0 else 0,
-            'avg_time_per_step': total_time / window_steps if window_steps > 0 else 0,
+            "total_tokens": total_tokens,
+            "total_samples": total_samples,
+            "total_time": total_time,
+            "window_steps": window_steps,
+            "avg_tokens_per_step": total_tokens / window_steps if window_steps > 0 else 0,
+            "avg_samples_per_step": total_samples / window_steps if window_steps > 0 else 0,
+            "avg_time_per_step": total_time / window_steps if window_steps > 0 else 0,
         }
 
     def clear(self):
@@ -156,10 +156,10 @@ class TrainingMetricsCollector:
             self.model_params = get_model_param_count(model, trainable_only=False)
 
         # Hardware specs (TFLOPS per core for bf16)
-        self.peak_tflops_per_core = getattr(self.args, 'peak_tflops_per_core', 100.0)
+        self.peak_tflops_per_core = getattr(self.args, "peak_tflops_per_core", 100.0)
 
         # Moving average window configuration
-        self.window_size = getattr(self.args, 'metrics_window_size', 50)  # Default 50 steps
+        self.window_size = getattr(self.args, "metrics_window_size", 50)  # Default 50 steps
 
         # Per-metric moving windows and clocks
         self.metric_windows = {}
@@ -173,13 +173,13 @@ class TrainingMetricsCollector:
         """Initialize per-metric moving windows and clocks."""
         # Define available metrics with their default clock types
         metric_configs = {
-            'throughput': 'perf_counter',  # High-resolution for throughput
-            'mfu': 'wall_time',            # Wall time for MFU calculations
-            'efficiency': 'process_time',  # Process time for efficiency
+            "throughput": "perf_counter",  # High-resolution for throughput
+            "mfu": "wall_time",  # Wall time for MFU calculations
+            "efficiency": "process_time",  # Process time for efficiency
         }
 
         # Add custom metrics from config
-        custom_clocks = getattr(self.args, 'metrics_clocks', {})
+        custom_clocks = getattr(self.args, "metrics_clocks", {})
         metric_configs.update(custom_clocks)
 
         # Initialize per-metric systems
@@ -187,9 +187,9 @@ class TrainingMetricsCollector:
             self.metric_windows[metric_name] = MovingAverageWindow(self.window_size)
             self.metric_clocks[metric_name] = MetricsClock(clock_type)
             self.metric_start_times[metric_name] = None
-            self.current_batch_data[metric_name] = {'tokens': 0, 'samples': 0}
+            self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
 
-    def start_metric(self, metric_name: str, inputs: dict[str, Any] = None):
+    def start_metric(self, metric_name: str, inputs: dict[str, Any] | None = None):
         """
         Start timing for a specific metric.
 
@@ -205,7 +205,7 @@ class TrainingMetricsCollector:
         self.metric_start_times[metric_name] = self.metric_clocks[metric_name].time_func()
 
         # Reset batch data accumulator for this metric
-        self.current_batch_data[metric_name] = {'tokens': 0, 'samples': 0}
+        self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
 
         # Count tokens and samples if inputs provided
         if inputs is not None:
@@ -235,8 +235,8 @@ class TrainingMetricsCollector:
                 batch_tokens = input_ids.numel()
                 batch_samples = input_ids.size(0)
 
-        self.current_batch_data[metric_name]['tokens'] += batch_tokens
-        self.current_batch_data[metric_name]['samples'] += batch_samples
+        self.current_batch_data[metric_name]["tokens"] += batch_tokens
+        self.current_batch_data[metric_name]["samples"] += batch_samples
 
     def stop_metric(self, metric_name: str, step_number: int = None):
         """
@@ -262,15 +262,15 @@ class TrainingMetricsCollector:
 
         # Add to moving window
         self.metric_windows[metric_name].add_step(
-            tokens=batch_data['tokens'],
-            samples=batch_data['samples'],
+            tokens=batch_data["tokens"],
+            samples=batch_data["samples"],
             step_time=elapsed_time,
-            step_number=step_number or 0
+            step_number=step_number or 0,
         )
 
         # Reset the metric state
         self.metric_start_times[metric_name] = None
-        self.current_batch_data[metric_name] = {'tokens': 0, 'samples': 0}
+        self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
 
     def finalize_metric(self, metric_name: str) -> dict[str, float]:
         """
@@ -282,16 +282,16 @@ class TrainingMetricsCollector:
         Returns:
             Dictionary containing the calculated metrics for the specified type.
         """
-        if metric_name == 'throughput':
+        if metric_name == "throughput":
             if self.args.enable_throughput_metrics:
-                return self._calculate_throughput_metrics_from_window('throughput')
-        elif metric_name == 'mfu':
+                return self._calculate_throughput_metrics_from_window("throughput")
+        elif metric_name == "mfu":
             if self.args.enable_mfu_metrics:
-                return self._calculate_mfu_metrics_from_window('mfu')
-        elif metric_name == 'efficiency':
+                return self._calculate_mfu_metrics_from_window("mfu")
+        elif metric_name == "efficiency":
             if self.args.enable_efficiency_metrics:
-                return self._calculate_efficiency_metrics_from_window('efficiency')
-        elif metric_name == 'all':
+                return self._calculate_efficiency_metrics_from_window("efficiency")
+        elif metric_name == "all":
             return self.calculate_all_metrics()
         else:
             # Check if it's a custom metric name
@@ -300,8 +300,7 @@ class TrainingMetricsCollector:
                 return self._calculate_throughput_metrics_from_window(metric_name)
 
             raise ValueError(
-                f"Unknown metric: '{metric_name}'. "
-                f"Available metrics: {list(self.metric_windows.keys())} or 'all'"
+                f"Unknown metric: '{metric_name}'. Available metrics: {list(self.metric_windows.keys())} or 'all'"
             )
 
         return {}
@@ -312,23 +311,23 @@ class TrainingMetricsCollector:
             return {}
 
         window_stats = self.metric_windows[metric_name].get_window_stats()
-        if not window_stats or window_stats['total_time'] <= 0:
+        if not window_stats or window_stats["total_time"] <= 0:
             return {}
 
-        total_tokens = window_stats['total_tokens']
-        total_samples = window_stats['total_samples']
-        total_time = window_stats['total_time']
+        total_tokens = window_stats["total_tokens"]
+        total_samples = window_stats["total_samples"]
+        total_time = window_stats["total_time"]
 
         metrics = {}
 
         # General throughput metrics (for training performance comparison)
         if total_tokens > 0:
             metrics["tokens_per_sec"] = total_tokens / total_time
-            metrics["avg_tokens_per_step"] = window_stats['avg_tokens_per_step']
+            metrics["avg_tokens_per_step"] = window_stats["avg_tokens_per_step"]
 
         if total_samples > 0:
             metrics["samples_per_sec"] = total_samples / total_time
-            metrics["avg_samples_per_step"] = window_stats['avg_samples_per_step']
+            metrics["avg_samples_per_step"] = window_stats["avg_samples_per_step"]
 
         # Per-neuron-core metrics (for hardware utilization analysis)
         if self.total_neuron_cores > 0:
@@ -338,8 +337,8 @@ class TrainingMetricsCollector:
                 metrics["samples_per_sec_per_neuron_core"] = total_samples / (total_time * self.total_neuron_cores)
 
         # Additional window information
-        metrics["metrics_window_steps"] = window_stats['window_steps']
-        metrics["avg_step_time"] = window_stats['avg_time_per_step']
+        metrics["metrics_window_steps"] = window_stats["window_steps"]
+        metrics["avg_step_time"] = window_stats["avg_time_per_step"]
         metrics["metrics_window_size"] = self.window_size
         metrics["window_is_full"] = self.metric_windows[metric_name].is_full
 
@@ -347,17 +346,19 @@ class TrainingMetricsCollector:
 
     def _calculate_mfu_metrics_from_window(self, metric_name: str) -> dict[str, float]:
         """Calculate MFU metrics from a specific metric window."""
-        if (metric_name not in self.metric_windows or
-            self.model_params is None or
-            self.metric_windows[metric_name].size == 0):
+        if (
+            metric_name not in self.metric_windows
+            or self.model_params is None
+            or self.metric_windows[metric_name].size == 0
+        ):
             return {}
 
         window_stats = self.metric_windows[metric_name].get_window_stats()
-        if not window_stats or window_stats['total_time'] <= 0 or window_stats['total_tokens'] == 0:
+        if not window_stats or window_stats["total_time"] <= 0 or window_stats["total_tokens"] == 0:
             return {}
 
-        total_tokens = window_stats['total_tokens']
-        total_time = window_stats['total_time']
+        total_tokens = window_stats["total_tokens"]
+        total_time = window_stats["total_time"]
 
         # Theoretical FLOPs calculation for transformers
         # Forward pass: ~6 * params * tokens (rough approximation)
@@ -395,18 +396,18 @@ class TrainingMetricsCollector:
         # Simple efficiency based on tokens per second per core vs expected
         if "tokens_per_sec_per_neuron_core" in throughput_metrics:
             tokens_per_core = throughput_metrics["tokens_per_sec_per_neuron_core"]
-            expected_tokens_per_core = getattr(self.args, 'expected_tokens_per_core', 500.0)
+            expected_tokens_per_core = getattr(self.args, "expected_tokens_per_core", 500.0)
             efficiency = (tokens_per_core / expected_tokens_per_core) * 100
             metrics["training_efficiency"] = round(min(efficiency, 100.0), 2)
 
         # Consistency metric: coefficient of variation of step times
         window_stats = self.metric_windows[metric_name].get_window_stats()
-        if window_stats['window_steps'] > 1:
+        if window_stats["window_steps"] > 1:
             step_times = list(self.metric_windows[metric_name].step_times)
             if len(step_times) > 1:
                 mean_time = sum(step_times) / len(step_times)
                 variance = sum((t - mean_time) ** 2 for t in step_times) / len(step_times)
-                std_dev = variance ** 0.5
+                std_dev = variance**0.5
                 cv = (std_dev / mean_time) * 100 if mean_time > 0 else 0
                 metrics["step_time_consistency"] = round(100 - min(cv, 100), 2)  # Higher is better
 
@@ -417,13 +418,13 @@ class TrainingMetricsCollector:
         metrics = {}
 
         if self.args.enable_throughput_metrics:
-            metrics.update(self._calculate_throughput_metrics_from_window('throughput'))
+            metrics.update(self._calculate_throughput_metrics_from_window("throughput"))
 
         if self.args.enable_mfu_metrics:
-            metrics.update(self._calculate_mfu_metrics_from_window('mfu'))
+            metrics.update(self._calculate_mfu_metrics_from_window("mfu"))
 
         if self.args.enable_efficiency_metrics:
-            metrics.update(self._calculate_efficiency_metrics_from_window('efficiency'))
+            metrics.update(self._calculate_efficiency_metrics_from_window("efficiency"))
 
         return metrics
 
@@ -433,7 +434,7 @@ class TrainingMetricsCollector:
             self.metric_windows[metric_name].clear()
             self.metric_clocks[metric_name].reset()
             self.metric_start_times[metric_name] = None
-            self.current_batch_data[metric_name] = {'tokens': 0, 'samples': 0}
+            self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
 
     def should_calculate_metrics(self, step: int) -> bool:
         """
@@ -445,15 +446,15 @@ class TrainingMetricsCollector:
         Returns:
             True if metrics should be calculated and logged
         """
-        if not any([self.args.enable_throughput_metrics,
-                   self.args.enable_mfu_metrics,
-                   self.args.enable_efficiency_metrics]):
+        if not any(
+            [self.args.enable_throughput_metrics, self.args.enable_mfu_metrics, self.args.enable_efficiency_metrics]
+        ):
             return False
 
         # Use metrics_logging_steps if specified, otherwise fall back to logging_steps
-        metrics_logging_steps = getattr(self.args, 'metrics_logging_steps', None)
+        metrics_logging_steps = getattr(self.args, "metrics_logging_steps", None)
         if metrics_logging_steps is None:
-            if hasattr(self.args, 'logging_steps') and self.args.logging_steps > 0:
+            if hasattr(self.args, "logging_steps") and self.args.logging_steps > 0:
                 metrics_logging_steps = self.args.logging_steps
             else:
                 return False
