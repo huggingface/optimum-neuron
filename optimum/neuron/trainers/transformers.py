@@ -99,6 +99,7 @@ from ..utils.training_utils import (
 )
 from .training_args import NeuronTrainingArguments
 from .utils import XLAPrefetchIterator
+from .metrics import TrainingMetricsCollector
 
 
 logger = logging.get_logger()
@@ -259,6 +260,12 @@ class NeuronTrainer:
                 cb for cb in self.callback_handler.callbacks + [self.control] if isinstance(cb, ExportableState)
             ],
         )
+
+        # Initialize training metrics collector
+        if args.enable_training_metrics:
+            self.metrics_collector = TrainingMetricsCollector(self.model, args)
+        else:
+            self.metrics_collector = None
 
         if isinstance(self.model, NeuronPeftModel) and self.args.label_names is None:
             logger.warning(
@@ -1016,6 +1023,19 @@ class NeuronTrainer:
                             if isinstance(self.grad_norm, torch.Tensor)
                             else self.grad_norm
                         )
+
+                    # Add training metrics if available and should be calculated
+                    if (self.metrics_collector is not None and
+                        self.metrics_collector.should_calculate_metrics(self.state.global_step)):
+                        try:
+                            metrics = self.metrics_collector.calculate_metrics()
+                            logs.update(metrics)
+                            # Reset the metrics window after calculation
+                            self.metrics_collector.reset_window()
+                        except Exception as e:
+                            # Log error but don't fail training
+                            logger.warning(f"Failed to calculate training metrics: {e}")
+
                     self.log(logs)
 
                 self.global_step_last_logged = self.state.global_step
@@ -1104,6 +1124,10 @@ class NeuronTrainer:
 
                     loss_step = self.train_step(self.model, inputs, num_items_in_batch=num_items_in_batch)
                     self.running_loss += loss_step.detach()
+
+                    # Record metrics for this batch (only on sync steps to avoid double counting during gradient accumulation)
+                    if do_sync_step and self.metrics_collector is not None:
+                        self.metrics_collector.record_batch_metrics(inputs, self.state.global_step + 1)
 
                     if do_sync_step:
                         self.accelerator.gradient_state.sync_gradients = True
