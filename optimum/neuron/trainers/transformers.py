@@ -1199,6 +1199,32 @@ class NeuronTrainer:
             if self.control.should_training_stop:
                 break
 
+        # Log summary metrics at the end of training
+        if self.metrics_collector is not None:
+            try:
+                summary_metrics = self.metrics_collector.calculate_summary_metrics()
+                if summary_metrics:
+                    logger.info("=" * 80)
+                    logger.info("TRAINING SUMMARY METRICS")
+                    logger.info("=" * 80)
+
+                    # Group and format metrics for better readability
+                    for metric_name, value in summary_metrics.items():
+                        if isinstance(value, float):
+                            if "time" in metric_name:
+                                logger.info(f"{metric_name}: {value:.4f}s")
+                            elif "per_sec" in metric_name:
+                                logger.info(f"{metric_name}: {value:.2f}")
+                            elif "mfu" in metric_name or "efficiency" in metric_name or "consistency" in metric_name:
+                                logger.info(f"{metric_name}: {value:.2f}%")
+                            else:
+                                logger.info(f"{metric_name}: {value:.2f}")
+                        else:
+                            logger.info(f"{metric_name}: {value}")
+                    logger.info("=" * 80)
+            except Exception as e:
+                logger.warning(f"Failed to calculate training summary metrics: {e}")
+
         logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
         self.control = self.callback_handler.on_train_end(args, self.state, self.control)
 

@@ -161,6 +161,9 @@ class TrainingMetricsCollector:
         self.metric_start_times = {}
         self.current_batch_data = {}  # Store batch data for current metric timing
 
+        # Summary metrics collection (for end-of-training statistics)
+        self.summary_metrics = {}  # Store all measurements for summary statistics
+
         self._initialize_metric_systems()
 
     def _initialize_metric_systems(self):
@@ -174,6 +177,13 @@ class TrainingMetricsCollector:
             self.metric_clocks[metric_name] = MetricsClock()
             self.metric_start_times[metric_name] = None
             self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
+            # Initialize summary metrics storage
+            self.summary_metrics[metric_name] = {
+                "step_times": [],
+                "tokens_per_step": [],
+                "samples_per_step": [],
+                "step_numbers": [],
+            }
 
     def start_metric(self, metric_name: str, inputs: dict[str, Any] | None = None):
         """
@@ -254,6 +264,12 @@ class TrainingMetricsCollector:
             step_number=step_number or 0,
         )
 
+        # Add to summary metrics for end-of-training statistics
+        self.summary_metrics[metric_name]["step_times"].append(elapsed_time)
+        self.summary_metrics[metric_name]["tokens_per_step"].append(batch_data["tokens"])
+        self.summary_metrics[metric_name]["samples_per_step"].append(batch_data["samples"])
+        self.summary_metrics[metric_name]["step_numbers"].append(step_number or 0)
+
         # Reset the metric state
         self.metric_start_times[metric_name] = None
         self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
@@ -280,10 +296,166 @@ class TrainingMetricsCollector:
                 metrics.update(self._calculate_efficiency_metrics_from_window("efficiency"))
         return metrics
 
+    def calculate_summary_metrics(self) -> dict[str, float]:
+        """
+        Calculate comprehensive summary metrics across all training steps.
+
+        Returns:
+            Dictionary containing summary statistics (avg, min, max, etc.) for all metrics.
+        """
+        summary = {}
+
+        # Calculate throughput summary if enabled
+        if self.args.enable_throughput_metrics and self.summary_metrics["throughput"]["step_times"]:
+            summary.update(self._calculate_throughput_summary())
+
+        # Calculate MFU summary if enabled
+        if self.args.enable_mfu_metrics and self.summary_metrics["mfu"]["step_times"]:
+            summary.update(self._calculate_mfu_summary())
+
+        # Calculate efficiency summary if enabled
+        if self.args.enable_efficiency_metrics and self.summary_metrics["efficiency"]["step_times"]:
+            summary.update(self._calculate_efficiency_summary())
+
+        return summary
+
+    def _calculate_throughput_summary(self) -> dict[str, float]:
+        """Calculate summary statistics for throughput metrics."""
+        summary = {}
+        metric_data = self.summary_metrics["throughput"]
+
+        if not metric_data["step_times"]:
+            return summary
+
+        step_times = metric_data["step_times"]
+        tokens_per_step = metric_data["tokens_per_step"]
+        samples_per_step = metric_data["samples_per_step"]
+
+        # Calculate per-step throughput rates
+        tokens_per_sec_values = [tokens / time if time > 0 else 0 for tokens, time in zip(tokens_per_step, step_times)]
+        samples_per_sec_values = [
+            samples / time if time > 0 else 0 for samples, time in zip(samples_per_step, step_times)
+        ]
+        tokens_per_sec_per_core_values = [rate / self.total_neuron_cores for rate in tokens_per_sec_values]
+        samples_per_sec_per_core_values = [rate / self.total_neuron_cores for rate in samples_per_sec_values]
+
+        # Summary statistics for throughput
+        if tokens_per_sec_values:
+            summary.update(
+                {
+                    "summary_tokens_per_sec_avg": sum(tokens_per_sec_values) / len(tokens_per_sec_values),
+                    "summary_tokens_per_sec_min": min(tokens_per_sec_values),
+                    "summary_tokens_per_sec_max": max(tokens_per_sec_values),
+                    "summary_tokens_per_sec_per_core_avg": sum(tokens_per_sec_per_core_values)
+                    / len(tokens_per_sec_per_core_values),
+                    "summary_tokens_per_sec_per_core_min": min(tokens_per_sec_per_core_values),
+                    "summary_tokens_per_sec_per_core_max": max(tokens_per_sec_per_core_values),
+                }
+            )
+
+        if samples_per_sec_values:
+            summary.update(
+                {
+                    "summary_samples_per_sec_avg": sum(samples_per_sec_values) / len(samples_per_sec_values),
+                    "summary_samples_per_sec_min": min(samples_per_sec_values),
+                    "summary_samples_per_sec_max": max(samples_per_sec_values),
+                    "summary_samples_per_sec_per_core_avg": sum(samples_per_sec_per_core_values)
+                    / len(samples_per_sec_per_core_values),
+                    "summary_samples_per_sec_per_core_min": min(samples_per_sec_per_core_values),
+                    "summary_samples_per_sec_per_core_max": max(samples_per_sec_per_core_values),
+                }
+            )
+
+        # Step timing statistics
+        summary.update(
+            {
+                "summary_step_time_avg": sum(step_times) / len(step_times),
+                "summary_step_time_min": min(step_times),
+                "summary_step_time_max": max(step_times),
+                "summary_total_training_steps": len(step_times),
+                "summary_total_tokens_processed": sum(tokens_per_step),
+                "summary_total_samples_processed": sum(samples_per_step),
+            }
+        )
+
+        return summary
+
+    def _calculate_mfu_summary(self) -> dict[str, float]:
+        """Calculate summary statistics for MFU metrics."""
+        summary = {}
+        metric_data = self.summary_metrics["mfu"]
+
+        if not metric_data["step_times"] or self.model_params is None:
+            return summary
+
+        step_times = metric_data["step_times"]
+        tokens_per_step = metric_data["tokens_per_step"]
+
+        # Calculate MFU for each step
+        mfu_values = []
+        for tokens, t in zip(tokens_per_step, step_times):
+            if t > 0 and tokens > 0:
+                theoretical_flops = 18 * self.model_params * tokens
+                actual_flops_per_sec = theoretical_flops / t
+                peak_flops_per_sec = self.peak_tflops_per_core * 1e12 * self.total_neuron_cores
+                mfu_percentage = (actual_flops_per_sec / peak_flops_per_sec) * 100
+                mfu_values.append(mfu_percentage)
+
+        if mfu_values:
+            summary.update(
+                {
+                    "summary_mfu_avg": sum(mfu_values) / len(mfu_values),
+                    "summary_mfu_min": min(mfu_values),
+                    "summary_mfu_max": max(mfu_values),
+                }
+            )
+
+        return summary
+
+    def _calculate_efficiency_summary(self) -> dict[str, float]:
+        """Calculate summary statistics for efficiency metrics."""
+        summary = {}
+        metric_data = self.summary_metrics["efficiency"]
+
+        if not metric_data["step_times"]:
+            return summary
+
+        step_times = metric_data["step_times"]
+        tokens_per_step = metric_data["tokens_per_step"]
+
+        # Calculate efficiency for each step
+        efficiency_values = []
+        expected_tokens_per_core = getattr(self.args, "expected_tokens_per_core", 500.0)
+
+        for tokens, t in zip(tokens_per_step, step_times):
+            if t > 0 and tokens > 0:
+                tokens_per_sec = tokens / t
+                tokens_per_core = tokens_per_sec / self.total_neuron_cores
+                efficiency = (tokens_per_core / expected_tokens_per_core) * 100
+                efficiency_values.append(min(efficiency, 100.0))
+
+        if efficiency_values:
+            summary.update(
+                {
+                    "summary_efficiency_avg": sum(efficiency_values) / len(efficiency_values),
+                    "summary_efficiency_min": min(efficiency_values),
+                    "summary_efficiency_max": max(efficiency_values),
+                }
+            )
+
+        # Step time consistency over entire training
+        if len(step_times) > 1:
+            mean_time = sum(step_times) / len(step_times)
+            variance = sum((t - mean_time) ** 2 for t in step_times) / len(step_times)
+            std_dev = variance**0.5
+            cv = (std_dev / mean_time) * 100 if mean_time > 0 else 0
+            summary["summary_step_time_consistency"] = round(100 - min(cv, 100), 2)
+
+        return summary
+
     def _calculate_throughput_metrics_from_window(self, metric_name: str) -> dict[str, float]:
         """Calculate throughput metrics from a specific metric window."""
         if metric_name not in self.metric_windows or self.metric_windows[metric_name].size == 0:
-            print(self.metric_windows[metric_name])
             return {}
 
         window_stats = self.metric_windows[metric_name].get_window_stats()
@@ -390,12 +562,23 @@ class TrainingMetricsCollector:
         return metrics
 
     def reset_window(self):
-        """Reset all metric windows and clocks."""
+        """Reset moving average windows and clocks (but preserve summary metrics)."""
         for metric_name in self.metric_windows:
             self.metric_windows[metric_name].clear()
             self.metric_clocks[metric_name].reset()
             self.metric_start_times[metric_name] = None
             self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
+
+    def reset_all_metrics(self):
+        """Reset all metrics including summary metrics (for training restart)."""
+        self.reset_window()
+        for metric_name in self.summary_metrics:
+            self.summary_metrics[metric_name] = {
+                "step_times": [],
+                "tokens_per_step": [],
+                "samples_per_step": [],
+                "step_numbers": [],
+            }
 
     def should_calculate_metrics(self, step: int) -> bool:
         """
