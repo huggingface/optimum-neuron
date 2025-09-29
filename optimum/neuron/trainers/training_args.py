@@ -430,7 +430,7 @@ class NeuronTrainingArguments:
         },
     )
     enable_mfu_metrics: bool = field(
-        default=False,
+        default=True,
         metadata={
             "help": (
                 "Whether to calculate and log Model FLOPs Utilization (MFU) metrics. "
@@ -439,20 +439,11 @@ class NeuronTrainingArguments:
         },
     )
     enable_efficiency_metrics: bool = field(
-        default=False,
+        default=True,
         metadata={
             "help": (
                 "Whether to calculate and log training efficiency metrics. "
                 "This requires additional computation and is disabled by default."
-            )
-        },
-    )
-    peak_tflops_per_core: float = field(
-        default=100.0,
-        metadata={
-            "help": (
-                "Peak TFLOPS per Neuron core for MFU calculation (bf16). "
-                "Default: 100.0 for Trainium v1. Adjust for different hardware generations."
             )
         },
     )
@@ -462,17 +453,6 @@ class NeuronTrainingArguments:
             "help": (
                 "Size of the moving average window for metrics calculation. "
                 "Larger windows provide more stable metrics but react slower to changes."
-            )
-        },
-    )
-    metrics_clocks: dict[str, str] | None = field(
-        default=None,
-        metadata={
-            "help": (
-                "Custom clock configurations for different metrics timing. "
-                "Format: {'clock_name': 'clock_type'}. "
-                "Supported clock types: 'wall_time', 'process_time', 'perf_counter'. "
-                "Default clocks: throughput='perf_counter', mfu='wall_time', efficiency='process_time'."
             )
         },
     )

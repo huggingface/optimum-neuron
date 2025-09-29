@@ -1029,7 +1029,7 @@ class NeuronTrainer:
                         self.state.global_step
                     ):
                         try:
-                            metrics = self.metrics_collector.calculate_metrics()
+                            metrics = self.metrics_collector.calculate_metric("all")
                             logs.update(metrics)
                             # Reset the metrics window after calculation
                             self.metrics_collector.reset_window()

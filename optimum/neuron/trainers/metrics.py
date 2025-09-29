@@ -18,6 +18,7 @@ from collections import deque
 from typing import Any, Dict, Optional
 
 import torch
+import torch_xla.runtime as xr
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_data_parallel_size,
     get_pipeline_model_parallel_size,
@@ -26,6 +27,13 @@ from neuronx_distributed.parallel_layers.parallel_state import (
 
 from ..utils.training_utils import get_model_param_count
 
+
+HARDWARE_TFLOPS = {
+    # Ref: https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/trainium.html#trainium-arch
+
+    "trn1": 190 / 2,
+    "trn2": 667 / 2,
+}
 
 class MetricsClock:
     """
@@ -147,7 +155,7 @@ class TrainingMetricsCollector:
         self.dp_size = get_data_parallel_size()
         self.tp_size = get_tensor_model_parallel_size()
         self.pp_size = get_pipeline_model_parallel_size()
-        self.total_neuron_cores = self.dp_size * self.tp_size * self.pp_size
+        self.total_neuron_cores = xr.world_size()
 
         # Model parameters (cached for MFU calculation)
         self.model_params = None
@@ -156,7 +164,7 @@ class TrainingMetricsCollector:
             self.model_params = get_model_param_count(model, trainable_only=False)
 
         # Hardware specs (TFLOPS per core for bf16)
-        self.peak_tflops_per_core = getattr(self.args, "peak_tflops_per_core", 100.0)
+        self.peak_tflops_per_core = HARDWARE_TFLOPS.get("trn1", 0.0)
 
         # Moving average window configuration
         self.window_size = getattr(self.args, "metrics_window_size", 50)  # Default 50 steps
@@ -177,10 +185,6 @@ class TrainingMetricsCollector:
             "mfu": "wall_time",  # Wall time for MFU calculations
             "efficiency": "process_time",  # Process time for efficiency
         }
-
-        # Add custom metrics from config
-        custom_clocks = getattr(self.args, "metrics_clocks", {})
-        metric_configs.update(custom_clocks)
 
         # Initialize per-metric systems
         for metric_name, clock_type in metric_configs.items():
@@ -272,7 +276,7 @@ class TrainingMetricsCollector:
         self.metric_start_times[metric_name] = None
         self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
 
-    def finalize_metric(self, metric_name: str) -> dict[str, float]:
+    def calculate_metric(self, metric_name: str) -> dict[str, float]:
         """
         Calculate a specific metric using its moving window data.
 
@@ -282,28 +286,17 @@ class TrainingMetricsCollector:
         Returns:
             Dictionary containing the calculated metrics for the specified type.
         """
-        if metric_name == "throughput":
+        metrics = {}
+        if metric_name in ["throughput", "all"]:
             if self.args.enable_throughput_metrics:
-                return self._calculate_throughput_metrics_from_window("throughput")
-        elif metric_name == "mfu":
+                metrics.update(self._calculate_throughput_metrics_from_window("throughput"))
+        if metric_name in ["mfu", "all"]:
             if self.args.enable_mfu_metrics:
-                return self._calculate_mfu_metrics_from_window("mfu")
-        elif metric_name == "efficiency":
+                metrics.update(self._calculate_mfu_metrics_from_window("mfu"))
+        if metric_name in ["efficiency", "all"]:
             if self.args.enable_efficiency_metrics:
-                return self._calculate_efficiency_metrics_from_window("efficiency")
-        elif metric_name == "all":
-            return self.calculate_all_metrics()
-        else:
-            # Check if it's a custom metric name
-            if metric_name in self.metric_windows:
-                # Default to throughput calculation for custom metrics
-                return self._calculate_throughput_metrics_from_window(metric_name)
-
-            raise ValueError(
-                f"Unknown metric: '{metric_name}'. Available metrics: {list(self.metric_windows.keys())} or 'all'"
-            )
-
-        return {}
+                metrics.update(self._calculate_efficiency_metrics_from_window("efficiency"))
+        return metrics
 
     def _calculate_throughput_metrics_from_window(self, metric_name: str) -> dict[str, float]:
         """Calculate throughput metrics from a specific metric window."""
@@ -410,21 +403,6 @@ class TrainingMetricsCollector:
                 std_dev = variance**0.5
                 cv = (std_dev / mean_time) * 100 if mean_time > 0 else 0
                 metrics["step_time_consistency"] = round(100 - min(cv, 100), 2)  # Higher is better
-
-        return metrics
-
-    def calculate_all_metrics(self) -> dict[str, float]:
-        """Calculate all enabled metrics and combine them."""
-        metrics = {}
-
-        if self.args.enable_throughput_metrics:
-            metrics.update(self._calculate_throughput_metrics_from_window("throughput"))
-
-        if self.args.enable_mfu_metrics:
-            metrics.update(self._calculate_mfu_metrics_from_window("mfu"))
-
-        if self.args.enable_efficiency_metrics:
-            metrics.update(self._calculate_efficiency_metrics_from_window("efficiency"))
 
         return metrics
 
