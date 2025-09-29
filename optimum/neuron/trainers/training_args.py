@@ -456,6 +456,35 @@ class NeuronTrainingArguments:
             )
         },
     )
+    metrics_window_size: int = field(
+        default=50,
+        metadata={
+            "help": (
+                "Size of the moving average window for metrics calculation. "
+                "Larger windows provide more stable metrics but react slower to changes."
+            )
+        },
+    )
+    metrics_clocks: dict[str, str] | None = field(
+        default=None,
+        metadata={
+            "help": (
+                "Custom clock configurations for different metrics timing. "
+                "Format: {'clock_name': 'clock_type'}. "
+                "Supported clock types: 'wall_time', 'process_time', 'perf_counter'. "
+                "Default clocks: throughput='perf_counter', mfu='wall_time', efficiency='process_time'."
+            )
+        },
+    )
+    expected_tokens_per_core: float = field(
+        default=500.0,
+        metadata={
+            "help": (
+                "Expected tokens per core per second for efficiency calculation baseline. "
+                "This should be calibrated based on your model size and hardware setup."
+            )
+        },
+    )
 
     def __post_init__(self):
         # Set the verbosity so that each process logs according to its rank.
