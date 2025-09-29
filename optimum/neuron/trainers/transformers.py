@@ -14,6 +14,9 @@
 # limitations under the License.
 
 import inspect
+import json
+import os
+from datetime import datetime
 import math
 import os
 import re
@@ -1199,31 +1202,8 @@ class NeuronTrainer:
             if self.control.should_training_stop:
                 break
 
-        # Log summary metrics at the end of training
-        if self.metrics_collector is not None:
-            try:
-                summary_metrics = self.metrics_collector.calculate_summary_metrics()
-                if summary_metrics:
-                    logger.info("=" * 80)
-                    logger.info("TRAINING SUMMARY METRICS")
-                    logger.info("=" * 80)
-
-                    # Group and format metrics for better readability
-                    for metric_name, value in summary_metrics.items():
-                        if isinstance(value, float):
-                            if "time" in metric_name:
-                                logger.info(f"{metric_name}: {value:.4f}s")
-                            elif "per_sec" in metric_name:
-                                logger.info(f"{metric_name}: {value:.2f}")
-                            elif "mfu" in metric_name or "efficiency" in metric_name or "consistency" in metric_name:
-                                logger.info(f"{metric_name}: {value:.2f}%")
-                            else:
-                                logger.info(f"{metric_name}: {value:.2f}")
-                        else:
-                            logger.info(f"{metric_name}: {value}")
-                    logger.info("=" * 80)
-            except Exception as e:
-                logger.warning(f"Failed to calculate training summary metrics: {e}")
+        # Report and save training summary metrics
+        self.report_and_save_summary_metrics()
 
         logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
         self.control = self.callback_handler.on_train_end(args, self.state, self.control)
@@ -1302,6 +1282,63 @@ class NeuronTrainer:
         output = {**logs, **{"step": self.state.global_step}}
         self.state.log_history.append(output)
         self.control = self.callback_handler.on_log(self.args, self.state, self.control, logs)
+
+    def report_and_save_summary_metrics(self):
+        """Report and save comprehensive training summary metrics at the end of training."""
+        if self.metrics_collector is None:
+            return
+
+        try:
+            summary_metrics = self.metrics_collector.calculate_summary_metrics()
+            if not summary_metrics:
+                return
+
+            # Save summary metrics to file
+            summary_file_path = os.path.join(self.args.output_dir, "training_summary_metrics.json")
+
+            # Add metadata to the summary
+            summary_with_metadata = {
+                "metadata": {
+                    "timestamp": datetime.now().isoformat(),
+                    "total_training_steps": self.state.global_step,
+                    "total_epochs": self.state.epoch,
+                    "model_name": getattr(self.model, "_name_or_path", "unknown"),
+                    "gradient_accumulation_steps": self.args.gradient_accumulation_steps,
+                    "per_device_train_batch_size": self.args.per_device_train_batch_size,
+                    "learning_rate": self.args.learning_rate,
+                    "tensor_parallel_size": getattr(self.args, "tensor_parallel_size", 1),
+                    "pipeline_parallel_size": getattr(self.args, "pipeline_parallel_size", 1),
+                    "total_neuron_cores": self.metrics_collector.total_neuron_cores,
+                },
+                "metrics": summary_metrics
+            }
+
+            with open(summary_file_path, "w") as f:
+                json.dump(summary_with_metadata, f, indent=2)
+
+            logger.info("=" * 80)
+            logger.info("TRAINING SUMMARY METRICS")
+            logger.info("=" * 80)
+
+            # Group and format metrics for better readability
+            for metric_name, value in summary_metrics.items():
+                if isinstance(value, float):
+                    if "time" in metric_name:
+                        logger.info(f"{metric_name}: {value:.4f}s")
+                    elif "per_sec" in metric_name:
+                        logger.info(f"{metric_name}: {value:.2f}")
+                    elif "mfu" in metric_name or "efficiency" in metric_name or "consistency" in metric_name:
+                        logger.info(f"{metric_name}: {value:.2f}%")
+                    else:
+                        logger.info(f"{metric_name}: {value:.2f}")
+                else:
+                    logger.info(f"{metric_name}: {value}")
+            logger.info("=" * 80)
+            logger.info(f"Summary metrics saved to: {summary_file_path}")
+            logger.info("=" * 80)
+
+        except Exception as e:
+            logger.warning(f"Failed to calculate training summary metrics: {e}")
 
     def _save_checkpoint(self):
         # Save model checkpoint
