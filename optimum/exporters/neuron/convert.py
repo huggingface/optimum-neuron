@@ -16,6 +16,7 @@
 
 import copy
 import os
+import re
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -694,6 +695,9 @@ def trace_neuronx(
         else:
             # Case 2: Using `neuronx_distributed.trace.parallel_model_trace`
             os.environ["LOCAL_WORLD_SIZE"] = str(tensor_parallel_size)
+            # TODO: To remove when migrating from `parallel_model_trace` to ModelBuilderV2. `parallel_model_trace` doesn't support custom target.
+            if "--target" in compiler_args:
+                compiler_args = re.sub(r"--target\s+\S+", "", compiler_args).strip()
             with torch.no_grad():
                 neuron_model = neuronx_distributed.trace.parallel_model_trace(
                     model,
