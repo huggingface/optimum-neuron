@@ -374,10 +374,9 @@ class TestMetricsConfiguration:
 class TestMetricsClock:
     """Test suite for MetricsClock class."""
 
-    def test_wall_time_clock(self):
-        """Test wall time clock functionality."""
-        clock = MetricsClock("wall_time")
-        assert clock.clock_type == "wall_time"
+    def test_perf_counter_clock(self):
+        """Test performance counter clock functionality."""
+        clock = MetricsClock()
 
         # Test initial state
         assert clock.elapsed() is None
@@ -392,34 +391,6 @@ class TestMetricsClock:
         # Test reset
         clock.reset()
         assert clock.elapsed() is None
-
-    def test_process_time_clock(self):
-        """Test process time clock functionality."""
-        clock = MetricsClock("process_time")
-        assert clock.clock_type == "process_time"
-
-        clock.start()
-        # Do some CPU work
-        _ = sum(range(1000))
-        elapsed = clock.elapsed()
-        assert elapsed is not None
-        assert elapsed >= 0
-
-    def test_perf_counter_clock(self):
-        """Test performance counter clock functionality."""
-        clock = MetricsClock("perf_counter")
-        assert clock.clock_type == "perf_counter"
-
-        clock.start()
-        time.sleep(0.01)
-        elapsed = clock.elapsed()
-        assert elapsed is not None
-        assert elapsed >= 0.01
-
-    def test_invalid_clock_type(self):
-        """Test that invalid clock types raise an error."""
-        with pytest.raises(ValueError, match="Unsupported clock type"):
-            MetricsClock("invalid_clock")
 
 
 class TestMovingAverageWindow:
@@ -528,22 +499,19 @@ class TestTrainingMetricsCollectorEnhanced:
             collector = TrainingMetricsCollector(model, args)
 
             # Check default clocks
-            assert "throughput" in collector.clocks
-            assert "mfu" in collector.clocks
-            assert "efficiency" in collector.clocks
+            assert "throughput" in collector.metric_clocks
+            assert "mfu" in collector.metric_clocks
+            assert "efficiency" in collector.metric_clocks
 
-            assert collector.clocks["throughput"].clock_type == "perf_counter"
-            assert collector.clocks["mfu"].clock_type == "wall_time"
-            assert collector.clocks["efficiency"].clock_type == "process_time"
+            # All clocks should use perf_counter now
+            assert collector.metric_clocks["throughput"].time_func == time.perf_counter
+            assert collector.metric_clocks["mfu"].time_func == time.perf_counter
+            assert collector.metric_clocks["efficiency"].time_func == time.perf_counter
 
-    def test_custom_clocks_configuration(self):
-        """Test custom clock configuration."""
+    def test_metric_clocks_all_use_perf_counter(self):
+        """Test that all metric clocks use perf_counter."""
         model = create_mock_model()
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            args = NeuronTrainingArguments(
-                output_dir=tmp_dir, metrics_clocks={"custom_clock": "wall_time", "another_clock": "process_time"}
-            )
+        args = create_test_training_args()
 
         with (
             patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
@@ -552,11 +520,9 @@ class TestTrainingMetricsCollectorEnhanced:
         ):
             collector = TrainingMetricsCollector(model, args)
 
-            # Check that custom clocks are added
-            assert "custom_clock" in collector.clocks
-            assert "another_clock" in collector.clocks
-            assert collector.clocks["custom_clock"].clock_type == "wall_time"
-            assert collector.clocks["another_clock"].clock_type == "process_time"
+            # Check that all clocks use perf_counter
+            for metric_name, clock in collector.metric_clocks.items():
+                assert clock.time_func == time.perf_counter
 
     def test_step_timing_and_finalization(self):
         """Test step timing and finalization process."""
@@ -724,12 +690,10 @@ class TestTrainingMetricsCollectorEnhanced:
                 output_dir=tmp_dir,
                 metrics_window_size=25,
                 expected_tokens_per_core=750.0,
-                metrics_clocks={"test_clock": "perf_counter"},
             )
 
             assert args.metrics_window_size == 25
             assert args.expected_tokens_per_core == 750.0
-            assert args.metrics_clocks == {"test_clock": "perf_counter"}
 
     def test_individual_metric_control(self):
         """Test individual metric start/stop control."""
@@ -770,11 +734,11 @@ class TestTrainingMetricsCollectorEnhanced:
             collector.stop_metric("mfu", step_number=1)
 
             # Calculate individual metrics
-            throughput_metrics = collector.finalize_metric("throughput")
+            throughput_metrics = collector.calculate_metric("throughput")
             assert "tokens_per_sec" in throughput_metrics
             assert "samples_per_sec" in throughput_metrics
 
-            mfu_metrics = collector.finalize_metric("mfu")
+            mfu_metrics = collector.calculate_metric("mfu")
             assert "model_flops_utilization" in mfu_metrics
 
     def test_start_stop_metric_workflow(self):
@@ -806,38 +770,14 @@ class TestTrainingMetricsCollectorEnhanced:
             assert collector.metric_windows["throughput"].size == 2
 
             # Calculate final metrics
-            metrics = collector.finalize_metric("throughput")
+            metrics = collector.calculate_metric("throughput")
             assert metrics["tokens_per_sec"] > 0
             assert metrics["tokens_per_sec_per_neuron_core"] > 0
             assert metrics["metrics_window_steps"] == 2
 
-    def test_finalize_metric_custom_clock(self):
-        """Test finalizing metrics with custom clock names."""
-        model = create_mock_model()
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            args = NeuronTrainingArguments(
-                output_dir=tmp_dir, enable_throughput_metrics=True, metrics_clocks={"custom_timer": "wall_time"}
-            )
-
-        with (
-            patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=1),
-            patch("optimum.neuron.trainers.metrics.get_tensor_model_parallel_size", return_value=1),
-            patch("optimum.neuron.trainers.metrics.get_pipeline_model_parallel_size", return_value=1),
-        ):
-            collector = TrainingMetricsCollector(model, args)
-
-            # Record some steps
-            batch = create_sample_batch(batch_size=2, seq_length=128)
-            collector.record_batch_metrics(batch, step=1)
-            time.sleep(0.01)
-
-            # Should be able to use custom clock name
-            custom_metrics = collector.finalize_metric("custom_timer")
-            assert "tokens_per_sec" in custom_metrics  # Should fall back to throughput calculation
-
-    def test_finalize_metric_invalid_name(self):
-        """Test that invalid metric names raise appropriate errors."""
+    def test_calculate_metric_invalid_name(self):
+        """Test that invalid metric names return empty dict."""
         model = create_mock_model()
         args = create_test_training_args()
 
@@ -848,11 +788,12 @@ class TestTrainingMetricsCollectorEnhanced:
         ):
             collector = TrainingMetricsCollector(model, args)
 
-            with pytest.raises(ValueError, match="Unsupported metric name"):
-                collector.finalize_metric("invalid_metric_name")
+            # Should return empty dict for invalid metric names
+            metrics = collector.calculate_metric("invalid_metric_name")
+            assert metrics == {}
 
-    def test_finalize_metric_disabled_metrics(self):
-        """Test finalizing metrics when they are disabled."""
+    def test_calculate_metric_disabled_metrics(self):
+        """Test calculating metrics when they are disabled."""
         model = create_mock_model()
         args = create_test_training_args(
             enable_throughput_metrics=False, enable_mfu_metrics=False, enable_efficiency_metrics=False
@@ -866,13 +807,13 @@ class TestTrainingMetricsCollectorEnhanced:
             collector = TrainingMetricsCollector(model, args)
 
             # Should return empty dict when metrics are disabled
-            throughput_metrics = collector.finalize_metric("throughput")
+            throughput_metrics = collector.calculate_metric("throughput")
             assert throughput_metrics == {}
 
-            mfu_metrics = collector.finalize_metric("mfu")
+            mfu_metrics = collector.calculate_metric("mfu")
             assert mfu_metrics == {}
 
-            efficiency_metrics = collector.finalize_metric("efficiency")
+            efficiency_metrics = collector.calculate_metric("efficiency")
             assert efficiency_metrics == {}
 
     def test_update_metric_batch_data(self):

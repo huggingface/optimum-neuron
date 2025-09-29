@@ -37,26 +37,12 @@ HARDWARE_TFLOPS = {
 
 class MetricsClock:
     """
-    A clock for measuring elapsed time with different timing mechanisms.
-
-    Supports multiple timing methods:
-    - 'wall_time': Standard wall clock time
-    - 'process_time': Process CPU time
-    - 'perf_counter': High-resolution performance counter
+    A high-resolution clock for measuring elapsed time using perf_counter.
     """
 
-    def __init__(self, clock_type: str = "wall_time"):
-        self.clock_type = clock_type
+    def __init__(self):
         self.start_time = None
-
-        if clock_type == "wall_time":
-            self.time_func = time.time
-        elif clock_type == "process_time":
-            self.time_func = time.process_time
-        elif clock_type == "perf_counter":
-            self.time_func = time.perf_counter
-        else:
-            raise ValueError(f"Unsupported clock type: {clock_type}")
+        self.time_func = time.perf_counter
 
     def start(self):
         """Start the clock."""
@@ -179,17 +165,13 @@ class TrainingMetricsCollector:
 
     def _initialize_metric_systems(self):
         """Initialize per-metric moving windows and clocks."""
-        # Define available metrics with their default clock types
-        metric_configs = {
-            "throughput": "perf_counter",  # High-resolution for throughput
-            "mfu": "wall_time",  # Wall time for MFU calculations
-            "efficiency": "process_time",  # Process time for efficiency
-        }
+        # Define available metrics
+        metric_names = ["throughput", "mfu", "efficiency"]
 
         # Initialize per-metric systems
-        for metric_name, clock_type in metric_configs.items():
+        for metric_name in metric_names:
             self.metric_windows[metric_name] = MovingAverageWindow(self.window_size)
-            self.metric_clocks[metric_name] = MetricsClock(clock_type)
+            self.metric_clocks[metric_name] = MetricsClock()
             self.metric_start_times[metric_name] = None
             self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
 
