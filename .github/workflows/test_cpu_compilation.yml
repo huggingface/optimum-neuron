@@ -1,0 +1,56 @@
+name: Optimum Neuron / Test CPU Compilation
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "pyproject.toml"
+      - "optimum/neuron/modeling_traced.py"
+      - "optimum/neuron/modeling_seq2seq.py"
+      - "optimum/exporters/neuron/**.py"
+      - "tests/exporters/test_cpu_compilation.py"
+      - ".github/workflows/test_cpu_compilation.yml"
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "pyproject.toml"
+      - "optimum/neuron/modeling_traced.py"
+      - "optimum/neuron/modeling_seq2seq.py"
+      - "optimum/exporters/neuron/**.py"
+      - "tests/exporters/test_cpu_compilation.py"
+      - ".github/workflows/test_cpu_compilation.yml"
+  schedule:
+    - cron: "0 8 * * 1-5"  # 8 AM UTC, Monday-Friday
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  test-cpu-compilation:
+    name: Run CPU Compilation Tests
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+      - name: Install Neuronx runtime
+        uses: ./.github/actions/install_neuronx_runtime
+      - name: Prepare virtual environment
+        uses: ./.github/actions/prepare_venv
+      - name: Install optimum-neuron
+        uses: ./.github/actions/install_optimum_neuron
+      - name: Setup PATH
+        run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
+      - name: Set environment variables for CPU backend
+        run: |
+          echo "NEURON_PLATFORM_TARGET_OVERRIDE=inf2" >> $GITHUB_ENV
+      - name: Run CPU compilation tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
+          pytest tests/exporters/test_cpu_compilation.py -v --tb=short
+

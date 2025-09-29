@@ -219,13 +219,16 @@ class NxDDecoderModel(nn.Module):
         logits = self.lm_head(hidden_states)
         logits = logits.float()
 
+        # rank_id and world_size are required for padding and sampling
+        # TODO: check if both code paths below are used and when
+        if self.lm_head.gather_output:
+            rank_id = torch.tensor(0, device=logits.device, dtype=torch.int32)
+            world_size = 1
+        else:
+            rank_id = self.rank_util.get_rank()
+            world_size = torch.distributed.get_world_size(group=self.lm_head.tensor_parallel_group)
+
         if hasattr(self.lm_head, "pad_size"):
-            if self.lm_head.gather_output:
-                rank_id = torch.tensor(0, device=logits.device, dtype=torch.int32)
-                world_size = 1
-            else:
-                rank_id = self.rank_util.get_rank()
-                world_size = torch.distributed.get_world_size(group=self.lm_head.tensor_parallel_group)
             logits = mask_padded_logits(logits, rank_id, world_size, pad_size=self.lm_head.pad_size)
 
         res = logits
@@ -235,7 +238,7 @@ class NxDDecoderModel(nn.Module):
             if is_for_speculation:
                 res = nxd_argmax(tensor=logits, dim=2, gather_dim=2, keepdim=False)
             else:
-                res = self.sampler(logits[:, -1, :], sampling_params)
+                res = self.sampler(logits[:, -1, :], sampling_params, rank_id=rank_id)
 
         outputs = [res]
         if self.neuron_config.output_logits:

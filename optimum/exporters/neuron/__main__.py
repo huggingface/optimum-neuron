@@ -626,6 +626,8 @@ def main_export(
     compiler_workdir: str | Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
+    instance_type: str = "trn1",
+    cpu_backend: bool = False,
     trust_remote_code: bool = False,
     subfolder: str = "",
     revision: str = "main",
@@ -686,6 +688,8 @@ def main_export(
         compiler_workdir=compiler_workdir,
         inline_weights_to_neff=inline_weights_to_neff,
         optlevel=optlevel,
+        instance_type=instance_type,
+        cpu_backend=cpu_backend,
         output_file_names=output_model_names,
         compiler_kwargs=compiler_kwargs,
         model_name_or_path=model_name_or_path,
@@ -754,7 +758,6 @@ def maybe_export_from_neuron_model_class(
     kwargs.pop("dynamic_batch_size", None)
     kwargs.pop("output_hidden_states", None)
     kwargs.pop("output_attentions", None)
-    kwargs.pop("tensor_parallel_size", None)
     # Fetch the model config
     config = AutoConfig.from_pretrained(model)
     if task == "text-generation":
@@ -766,7 +769,7 @@ def maybe_export_from_neuron_model_class(
     neuron_model_class = get_neuron_model_class(model_type=config.model_type, task=task, mode="inference")
     batch_size = kwargs.pop("batch_size", None)
     sequence_length = kwargs.pop("sequence_length", None)
-    tensor_parallel_size = kwargs.pop("num_cores", None)
+    tensor_parallel_size = kwargs.pop("tensor_parallel_size", None)
     auto_cast_type = kwargs.pop("auto_cast_type", None)
     neuron_config = neuron_model_class.get_neuron_config(
         model_name_or_path=model,

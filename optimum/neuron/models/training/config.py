@@ -56,6 +56,9 @@ class TrainingNeuronConfig(NeuronConfig):
         self.tensor_parallel_size = parallel_state.get_tensor_model_parallel_size()
         self.pipeline_parallel_size = parallel_state.get_pipeline_model_parallel_size()
 
+        if self.tensor_parallel_size == 1 and self.sequence_parallel_enabled:
+            self.sequence_parallel_enabled = False
+
     def auto_kv_size_multiplier(self, num_key_value_heads: int) -> int:
         kv_size_multiplier = max(1, self.tensor_parallel_size // num_key_value_heads)
         if self.kv_size_multiplier is not None and self.kv_size_multiplier != kv_size_multiplier:
@@ -66,5 +69,5 @@ class TrainingNeuronConfig(NeuronConfig):
         return kv_size_multiplier
 
     @property
-    def should_parallelize(self):
+    def model_parallelism_enabled(self):
         return self.tensor_parallel_size > 1 or self.pipeline_parallel_size > 1

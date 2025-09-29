@@ -296,3 +296,9 @@ def speculation():
             synchronize_hub_cache(cache_repo_id=OPTIMUM_CACHE_REPO_ID)
         yield neuron_model_path, draft_neuron_model_path
         logger.info(f"Done with speculation models at {speculation_path}")
+
+
+if __name__ == "__main__":
+    for config_name, model_config in LLM_MODEL_CONFIGURATIONS.items():
+        with TemporaryDirectory() as neuron_model_path:
+            _get_neuron_model_for_config(config_name, model_config, neuron_model_path)

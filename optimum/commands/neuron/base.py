@@ -17,6 +17,7 @@
 from ...utils import logging
 from ..base import BaseOptimumCLICommand, CommandInfo
 from .cache import CustomCacheRepoCommand
+from .serve import ServeCommand
 from .subcommands import ConsolidateCommand
 
 
@@ -36,5 +37,10 @@ class NeuronCommand(BaseOptimumCLICommand):
             name="consolidate",
             help="Consolidate checkpoints that were produced during a parallel training setting.",
             subcommand_class=ConsolidateCommand,
+        ),
+        CommandInfo(
+            name="serve",
+            help="Serve a neuron model.",
+            subcommand_class=ServeCommand,
         ),
     )

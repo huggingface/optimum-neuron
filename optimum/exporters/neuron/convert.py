@@ -299,6 +299,8 @@ def export_models(
     compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
+    instance_type: str = "trn1",
+    cpu_backend: bool = False,
     output_file_names: dict[str, str] | None = None,
     compiler_kwargs: dict[str, Any] | None = {},
     model_name_or_path: str | None = None,
@@ -324,6 +326,10 @@ def export_models(
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
                 2: provides the best balance between model performance and compile time.
                 3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
+        instance_type (`str`, defaults to `"trn1"`):
+            The instance type to use for the Neuron device.
+        cpu_backend (`bool`, defaults to `False`):
+            Whether to trace the model completely on CPU.
         output_file_names (`dict[str, str] | None`, defaults to `None`):
             The names to use for the exported Neuron files. The order must be the same as the order of submodels in the ordered dict `models_and_neuron_configs`.
             If None, will use the keys from `models_and_neuron_configs` as names.
@@ -373,6 +379,8 @@ def export_models(
             compiler_workdir=compiler_workdir,
             inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
+            instance_type=instance_type,
+            cpu_backend=cpu_backend,
             **compiler_kwargs,
         )
         compilation_time = time.time() - start_time
@@ -401,6 +409,7 @@ def export_models(
             compiler_version=NEURON_COMPILER_VERSION,
             inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
+            cpu_backend=cpu_backend,
             model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
             task=getattr(sub_neuron_config, "task", None),
             output_attentions=getattr(sub_neuron_config, "output_attentions", False),
@@ -437,8 +446,10 @@ def export(
     compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
+    instance_type: str = "trn1",
     auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
+    cpu_backend: bool = False,
     disable_fast_relayout: bool = False,
     disable_fallback: bool = False,
 ) -> tuple[list[str], list[str]]:
@@ -462,8 +473,10 @@ def export(
             compiler_workdir=compiler_workdir,
             inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
+            instance_type=instance_type,
             auto_cast=auto_cast,
             auto_cast_type=auto_cast_type,
+            cpu_backend=cpu_backend,
         )
     else:
         raise RuntimeError(
@@ -478,8 +491,10 @@ def export_neuronx(
     compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
+    instance_type: str = "trn1",
     auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
+    cpu_backend: bool = False,
 ) -> tuple[list[str], list[str]]:
     """
     Exports a PyTorch model to a serialized TorchScript module compiled by neuronx-cc compiler.
@@ -500,10 +515,14 @@ def export_neuronx(
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
                 2: provides the best balance between model performance and compile time.
                 3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
+        instance_type (`str`, defaults to `"trn1"`):
+            The instance type to use for the Neuron device.
         auto_cast (`str | None`, defaults to `None`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`str`, defaults to `"bf16"`):
             The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
+        cpu_backend (`bool`, defaults to `False`):
+            Whether to compile the model with CPU backend.
 
     Returns:
         `tuple[list[str], list[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
@@ -547,6 +566,7 @@ def export_neuronx(
         auto_cast=auto_cast,
         auto_cast_type=auto_cast_type,
         optlevel=optlevel,
+        instance_type=instance_type,
     )
 
     # Incompatibility between dynamic batching and uninlined weights/neff
@@ -567,6 +587,7 @@ def export_neuronx(
         tensor_parallel_size=tensor_parallel_size,
         aliases=aliases,
         inline_weights_to_neff=inline_weights_to_neff,
+        cpu_backend=cpu_backend,
         compiler_workdir=compiler_workdir,
     )
 
@@ -649,6 +670,7 @@ def trace_neuronx(
     tensor_parallel_size: int,
     aliases=None,
     inline_weights_to_neff: bool = True,
+    cpu_backend: bool = False,
     compiler_workdir: Path | None = None,
 ):
     if tensor_parallel_size > 1:
@@ -681,6 +703,7 @@ def trace_neuronx(
             compiler_args=compiler_args,
             input_output_aliases=aliases,
             inline_weights_to_neff=inline_weights_to_neff,
+            cpu_backend=cpu_backend,
             compiler_workdir=compiler_workdir,
         )
         if config.dynamic_batch_size is True:

@@ -104,7 +104,7 @@ def main():
         model_id,
         training_args.trn_config,
         torch_dtype=torch.bfloat16,
-        use_flash_attention_2=True,  # Enable fast attention
+        attn_implementation="flash_attention_2", # Enable flash attention
     )
 
     # Setup supervised fine-tuning

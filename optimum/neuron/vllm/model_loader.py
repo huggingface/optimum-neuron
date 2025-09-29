@@ -181,7 +181,8 @@ def _is_cached(
 ) -> bool:
     # Look for cached entries for the specified model
     in_cache = False
-    entries = get_hub_cached_entries(model_id)
+    # We only support the text-generation task
+    entries = get_hub_cached_entries(model_id, task="text-generation")
     # Look for compatible entries
     for entry in entries:
         if check_neuron_config_compatibility(

@@ -14,6 +14,7 @@
 import logging
 
 from vllm.platforms.interface import Platform, PlatformEnum
+from vllm.utils import FlexibleArgumentParser
 
 
 logger = logging.getLogger("Neuron")
@@ -27,6 +28,19 @@ class OptimumNeuronPlatform(Platform):
     device_control_env_var: str = "NEURON_RT_VISIBLE_CORES"
 
     @classmethod
+    def pre_register_and_update(cls, parser: FlexibleArgumentParser | None = None) -> None:
+        from vllm import config
+
+        # Patch ModelConfig to avoid hard-coded check in vLLM
+        def verify_with_parallel_config(self, parallel_config) -> None:
+            # The original method checks that the tensor_parallel_size divides
+            # the number of attention heads, which is not necessarily true for
+            # Neuron models (e.g., Llama 4 Scout 17B with TP=32).
+            # We override the method to skip this check.
+            pass
+
+        config.ModelConfig.verify_with_parallel_config = verify_with_parallel_config
+
     @classmethod
     def get_device_name(cls, device_id: int = 0) -> str:
         return "neuron"
@@ -40,7 +54,7 @@ class OptimumNeuronPlatform(Platform):
         """Check and update the vLLM configuration for the Optimum Neuron platform.
 
         Unsupported configuration parameters are rejected, and the configuration is modified
-        to set the worker class to `OptimumNeuronWorker`, which will laod and run the target
+        to set the worker class to `OptimumNeuronWorker`, which will load and run the target
         model using `optimum-neuron`.
         """
         parallel_config = vllm_config.parallel_config

@@ -83,7 +83,7 @@ from transformers.utils import (
     is_datasets_available,
 )
 
-from ..accelerate import NeuronAccelerator, NeuronDistributedType
+from ..accelerate import NeuronAccelerator
 from ..accelerate.utils.dataclasses import MixedPrecisionConfig
 from ..cache.hub_cache import hub_neuronx_cache
 from ..cache.training import patch_neuron_cc_wrapper
@@ -132,6 +132,13 @@ class NeuronTrainer:
         if eval_dataset is not None:
             raise RuntimeError("Evaluation is not supported in NeuronTrainer.")
 
+        if tokenizer is not None and processing_class is not None:
+            logger.warning(
+                "The `tokenizer` argument is deprecated and will be removed in a future version. Please use `processing_class` instead."
+            )
+            processing_class = tokenizer
+        self.processing_class = processing_class
+
         if args is None:
             output_dir = "tmp_trainer"
             logger.info(f"No `TrainingArguments` passed, using `output_dir={output_dir}`.")
@@ -177,13 +184,6 @@ class NeuronTrainer:
         self.data_collator = data_collator if data_collator is not None else default_collator
         self.train_dataset = train_dataset
         self.eval_dataset = eval_dataset
-
-        if tokenizer is not None and processing_class is not None:
-            logger.warning(
-                "The `tokenizer` argument is deprecated and will be removed in a future version. Please use `processing_class` instead."
-            )
-            processing_class = tokenizer
-        self.processing_class = processing_class
 
         model_forward = model.forward if not isinstance(model, NeuronPeftModel) else model.get_base_model().forward
         forward_params = inspect.signature(model_forward).parameters
@@ -850,6 +850,10 @@ class NeuronTrainer:
             # to handle cases wherein we pass "DummyScheduler" such as when it is specified in DeepSpeed config.
             self.optimizer, self.lr_scheduler = self.accelerator.prepare(self.optimizer, self.lr_scheduler)
 
+        # Enable gradient clipping
+        if args.max_grad_norm is not None and args.max_grad_norm > 0:
+            self.optimizer.set_permanent_clip_grad_norm(args.max_grad_norm)
+
         # Train!
         parameter_count = self.get_num_trainable_parameters()
         logger.info("***** Running training *****")
@@ -1105,17 +1109,6 @@ class NeuronTrainer:
                         self.accelerator.gradient_state.sync_gradients = True
                         xm.mark_step()
                         # Gradient clipping
-                        if args.max_grad_norm is not None and args.max_grad_norm > 0:
-                            parameters = (
-                                self.model.local_parameters()
-                                if isinstance(self.model, NxDPPModel)
-                                else self.model.parameters()
-                            )
-                            self.accelerator.clip_grad_norm_(
-                                parameters,
-                                args.max_grad_norm,
-                                postpone_clipping_to_optimizer_step=True,
-                            )
 
                         self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
 
@@ -1202,17 +1195,14 @@ class NeuronTrainer:
                         torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
 
                     xm.rendezvous("saving_checkpoint")
-                    if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+                    if self.trn_config.model_parallelism_enabled:
                         # Case 1: model parallelism, we use the model's `save_pretrained` method which will save the sharded
                         # state dict.
                         logger.info(
                             "Model parallelism is enabled, saving the model sharded state dict instead of the full state dict."
                         )
 
-                        model_to_save = (
-                            self.model.original_torch_module if isinstance(self.model, NxDPPModel) else self.model
-                        )
-                        model_to_save.save_pretrained(
+                        self.model.save_pretrained(
                             output_dir,
                             optimizer=self.optimizer if not self.args.save_only_model else None,
                         )
@@ -1261,7 +1251,7 @@ class NeuronTrainer:
 
         if not self.args.save_only_model:
             # The optimizer state is saved in the shard alongside with the model parameters when doing model-parallelism.
-            if self.accelerator.distributed_type is not NeuronDistributedType.MODEL_PARALLELISM:
+            if not self.trn_config.model_parallelism_enabled:
                 xm.rendezvous("saving_optimizer_states")
                 xm.save(self.optimizer.state_dict(), os.path.join(output_dir, OPTIMIZER_NAME))
 

@@ -14,7 +14,7 @@ specific language governing permissions and limitations under the License.
 
 ## Why Use the Cache?
 
-**Problem**: Neuron compilation takes 30-60 minutes for large models  
+**Problem**: Neuron compilation takes 30-60 minutes for large models
 **Solution**: Download pre-compiled models in seconds
 
 The cache system stores compiled Neuron models on HuggingFace Hub, eliminating recompilation time for your team. When you train or load a model, the system automatically checks for cached versions before starting the expensive compilation process.
@@ -40,7 +40,7 @@ trainer.train()  # Downloads cached models if available
 ```python
 from optimum.neuron import NeuronModelForCausalLM
 
-# Cache works automatically 
+# Cache works automatically
 model = NeuronModelForCausalLM.from_pretrained("model_id")
 ```
 
@@ -87,7 +87,7 @@ For most use cases, you'll want to create a **private cache repository** where y
 
 **Why private cache?**
 - **Upload your compilations**: store models you compile for team reuse
-- **Private models**: keep proprietary model compilations secure  
+- **Private models**: keep proprietary model compilations secure
 - **Team collaboration**: share compiled artifacts across team members and CI/CD
 - **Custom configurations**: cache models with your specific batch sizes, sequence lengths, etc.
 
@@ -121,7 +121,7 @@ export CUSTOM_CACHE_REPO="your-org/your-cache"
 # Create new cache repository
 optimum-cli neuron cache create [-n NAME] [--public]
 
-# Set default cache repository  
+# Set default cache repository
 optimum-cli neuron cache set REPO_NAME
 
 # Search for cached models
@@ -169,16 +169,6 @@ The inference cache includes a **registry** that lets you search for compatible 
 optimum-cli neuron cache lookup meta-llama/Llama-2-7b-chat-hf
 ```
 
-Example output:
-```
-*** 1 entries found in cache ***
-task: text-generation
-batch_size: 1, sequence_length: 2048
-num_cores: 24, precision: fp16
-compiler_version: 2.12.54.0
-checkpoint_revision: c1b0db933684edbfe29a06fa47eb19cc48025e93
-```
-
 **Important**: Finding entries doesn't guarantee cache hits. Your exact configuration must match the cached parameters, including compiler version and model revision.
 
 ## CI/CD Integration
@@ -209,7 +199,7 @@ Fix: Check repository name and login status
 → Verify repo format: org/repo-name
 ```
 
-### "Graph will be recompiled" 
+### "Graph will be recompiled"
 ```txt
 Cause: No cached model matches your exact configuration
 Fix: Use lookup to find compatible configurations
@@ -218,7 +208,7 @@ Fix: Use lookup to find compatible configurations
 
 ### Cache not uploading during training
 ```txt
-Cause: No write permissions to cache repository  
+Cause: No write permissions to cache repository
 Fix: Verify access and authentication
 → huggingface-cli whoami
 → Check cache repo permissions
