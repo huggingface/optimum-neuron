@@ -15,7 +15,7 @@
 
 import time
 from collections import deque
-from typing import Any, Dict, Optional
+from typing import Any
 
 import torch
 import torch_xla.runtime as xr
@@ -30,10 +30,10 @@ from ..utils.training_utils import get_model_param_count
 
 HARDWARE_TFLOPS = {
     # Ref: https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/trainium.html#trainium-arch
-
     "trn1": 190 / 2,
     "trn2": 667 / 2,
 }
+
 
 class MetricsClock:
     """
@@ -48,7 +48,7 @@ class MetricsClock:
         """Start the clock."""
         self.start_time = self.time_func()
 
-    def elapsed(self) -> Optional[float]:
+    def elapsed(self) -> float | None:
         """Get elapsed time since start. Returns None if not started."""
         if self.start_time is None:
             return None
@@ -81,7 +81,7 @@ class MovingAverageWindow:
         self.step_times.append(step_time)
         self.step_numbers.append(step_number)
 
-    def get_window_stats(self) -> Dict[str, float]:
+    def get_window_stats(self) -> dict[str, float]:
         """Calculate statistics for the current window."""
         if not self.step_times:
             return {}
@@ -153,7 +153,7 @@ class TrainingMetricsCollector:
         self.peak_tflops_per_core = HARDWARE_TFLOPS.get("trn1", 0.0)
 
         # Moving average window configuration
-        self.window_size = getattr(self.args, "metrics_window_size", 50)  # Default 50 steps
+        self.window_size = self.args.metrics_window_size
 
         # Per-metric moving windows and clocks
         self.metric_windows = {}
@@ -224,7 +224,7 @@ class TrainingMetricsCollector:
         self.current_batch_data[metric_name]["tokens"] += batch_tokens
         self.current_batch_data[metric_name]["samples"] += batch_samples
 
-    def stop_metric(self, metric_name: str, step_number: int = None):
+    def stop_metric(self, metric_name: str, step_number: int | None = None):
         """
         Stop timing for a specific metric and add the measurement to its moving window.
 
@@ -283,6 +283,7 @@ class TrainingMetricsCollector:
     def _calculate_throughput_metrics_from_window(self, metric_name: str) -> dict[str, float]:
         """Calculate throughput metrics from a specific metric window."""
         if metric_name not in self.metric_windows or self.metric_windows[metric_name].size == 0:
+            print(self.metric_windows[metric_name])
             return {}
 
         window_stats = self.metric_windows[metric_name].get_window_stats()
@@ -412,11 +413,9 @@ class TrainingMetricsCollector:
             return False
 
         # Use metrics_logging_steps if specified, otherwise fall back to logging_steps
-        metrics_logging_steps = getattr(self.args, "metrics_logging_steps", None)
+        metrics_logging_steps = self.args.metrics_logging_steps
         if metrics_logging_steps is None:
-            if hasattr(self.args, "logging_steps") and self.args.logging_steps > 0:
-                metrics_logging_steps = self.args.logging_steps
-            else:
-                return False
-
-        return step > 0 and step % metrics_logging_steps == 0
+            metrics_logging_steps = self.args.logging_steps
+        if metrics_logging_steps > 0:
+            return step > 0 and step % metrics_logging_steps == 0
+        return False

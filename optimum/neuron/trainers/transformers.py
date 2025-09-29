@@ -1005,6 +1005,20 @@ class NeuronTrainer:
             reduced_loss = reduced_loss.detach()
             self.running_loss.zero_()
 
+            # We calculte metrics here to avoid doing complicating thing with the closure and whe it is actually executed.
+            if self.metrics_collector is not None and self.metrics_collector.should_calculate_metrics(
+                self.state.global_step
+            ):
+                try:
+                    metrics = self.metrics_collector.calculate_metric("all")
+                    # Reset the metrics window after calculation
+                    self.metrics_collector.reset_window()
+                except Exception as e:
+                    # Log error but don't fail training
+                    logger.warning(f"Failed to calculate training metrics: {e}")
+            else:
+                metrics = {}
+
             def log_closure():
                 # We need to check that self.state.global_step > self._globalstep_last_logged because if two
                 # closures are added in a row (which can happen at the end of the training), then it will fail the
@@ -1024,18 +1038,8 @@ class NeuronTrainer:
                             else self.grad_norm
                         )
 
-                    # Add training metrics if available and should be calculated
-                    if self.metrics_collector is not None and self.metrics_collector.should_calculate_metrics(
-                        self.state.global_step
-                    ):
-                        try:
-                            metrics = self.metrics_collector.calculate_metric("all")
-                            logs.update(metrics)
-                            # Reset the metrics window after calculation
-                            self.metrics_collector.reset_window()
-                        except Exception as e:
-                            # Log error but don't fail training
-                            logger.warning(f"Failed to calculate training metrics: {e}")
+                    # Add metrics to the logs
+                    logs.update(metrics)
 
                     self.log(logs)
 
@@ -1115,6 +1119,7 @@ class NeuronTrainer:
                     prefetch_size=args.dataloader_prefetch_size,
                 )
 
+                # Start throughput timing at the beginning of each gradient accumulation cycle
                 if self.metrics_collector is not None:
                     self.metrics_collector.start_metric("throughput")
 
@@ -1127,8 +1132,8 @@ class NeuronTrainer:
                         self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
                     if self.metrics_collector is not None:
-                        self.metrics_collector.update_metric_batch_data("throughput", inputs)
                         self.metrics_collector.start_metric("mfu", inputs=inputs)
+                        self.metrics_collector.update_metric_batch_data("throughput", inputs)
 
                     loss_step = self.train_step(self.model, inputs, num_items_in_batch=num_items_in_batch)
 
@@ -1159,7 +1164,6 @@ class NeuronTrainer:
                         self.state.epoch = epoch + (step + 1) / steps_in_epoch
                         self.control = self.callback_handler.on_step_end(args, self.state, self.control)
                         xm.mark_step()
-
                         if self.metrics_collector is not None:
                             self.metrics_collector.stop_metric("throughput")
                     else:
