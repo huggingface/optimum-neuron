@@ -301,15 +301,21 @@ class TrainingMetricsCollector:
             Dictionary containing the calculated metrics for the specified type.
         """
         metrics = {}
-        if metric_name in ["throughput", "all"]:
-            if self.args.enable_throughput_metrics:
-                metrics.update(self._calculate_throughput_metrics_from_window("throughput"))
+
+        throughput_metrics = {}
+        if metric_name in ["throughput", "all"] and self.args.enable_throughput_metrics:
+            throughput_metrics = self._calculate_throughput_metrics_from_window("throughput")
+            if metric_name in ["throughput", "all"]:
+                metrics.update(throughput_metrics)
+
         if metric_name in ["mfu", "all"]:
             if self.args.enable_mfu_metrics:
                 metrics.update(self._calculate_mfu_metrics_from_window("mfu"))
+
         if metric_name in ["efficiency", "all"]:
             if self.args.enable_efficiency_metrics:
-                metrics.update(self._calculate_efficiency_metrics_from_window("efficiency"))
+                metrics.update(self._calculate_efficiency_metrics_from_window("efficiency", throughput_metrics))
+
         return metrics
 
     def calculate_summary_metrics(self) -> dict[str, float]:
@@ -555,15 +561,15 @@ class TrainingMetricsCollector:
             "train/mfu": round(mfu_percentage, 2),
         }
 
-    def _calculate_efficiency_metrics_from_window(self, metric_name: str) -> dict[str, float]:
-        """Calculate efficiency metrics from a specific metric window."""
+    def _calculate_efficiency_metrics_from_window(
+        self, metric_name: str, throughput_metrics: dict[str, Any] | None = None
+    ) -> dict[str, float]:
+        """Calculate efficiency metrics from a specific metric window (legacy method)."""
         if metric_name not in self.metric_windows or self.metric_windows[metric_name].size == 0:
             return {}
 
-        # Get throughput metrics first
-        throughput_metrics = self._calculate_throughput_metrics_from_window(metric_name)
         if not throughput_metrics:
-            return {}
+            throughput_metrics = self._calculate_throughput_metrics_from_window(metric_name)
 
         metrics = {}
 
