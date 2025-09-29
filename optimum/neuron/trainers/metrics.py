@@ -332,49 +332,59 @@ class TrainingMetricsCollector:
         samples_per_step = metric_data["samples_per_step"]
 
         # Calculate per-step throughput rates
-        tokens_per_sec_values = [tokens / time if time > 0 else 0 for tokens, time in zip(tokens_per_step, step_times)]
-        samples_per_sec_values = [
+        local_tokens_per_sec_values = [
+            tokens / time if time > 0 else 0 for tokens, time in zip(tokens_per_step, step_times)
+        ]
+        local_samples_per_sec_values = [
             samples / time if time > 0 else 0 for samples, time in zip(samples_per_step, step_times)
         ]
-        tokens_per_sec_per_core_values = [rate / self.total_neuron_cores for rate in tokens_per_sec_values]
-        samples_per_sec_per_core_values = [rate / self.total_neuron_cores for rate in samples_per_sec_values]
+
+        # Global effective throughput (accounting for data parallelism)
+        global_tokens_per_sec_values = [rate * self.dp_size for rate in local_tokens_per_sec_values]
+        global_samples_per_sec_values = [rate * self.dp_size for rate in local_samples_per_sec_values]
+
+        # Per-core metrics (for hardware utilization)
+        tokens_per_sec_per_core_values = [rate / self.total_neuron_cores for rate in local_tokens_per_sec_values]
+        samples_per_sec_per_core_values = [rate / self.total_neuron_cores for rate in local_samples_per_sec_values]
 
         # Summary statistics for throughput
-        if tokens_per_sec_values:
+        if global_tokens_per_sec_values:
             summary.update(
                 {
-                    "summary_tokens_per_sec_avg": sum(tokens_per_sec_values) / len(tokens_per_sec_values),
-                    "summary_tokens_per_sec_min": min(tokens_per_sec_values),
-                    "summary_tokens_per_sec_max": max(tokens_per_sec_values),
-                    "summary_tokens_per_sec_per_core_avg": sum(tokens_per_sec_per_core_values)
+                    "summary/tokens_per_sec_avg": sum(global_tokens_per_sec_values)
+                    / len(global_tokens_per_sec_values),
+                    "summary/tokens_per_sec_min": min(global_tokens_per_sec_values),
+                    "summary/tokens_per_sec_max": max(global_tokens_per_sec_values),
+                    "summary/tokens_per_sec_per_core_avg": sum(tokens_per_sec_per_core_values)
                     / len(tokens_per_sec_per_core_values),
-                    "summary_tokens_per_sec_per_core_min": min(tokens_per_sec_per_core_values),
-                    "summary_tokens_per_sec_per_core_max": max(tokens_per_sec_per_core_values),
+                    "summary/tokens_per_sec_per_core_min": min(tokens_per_sec_per_core_values),
+                    "summary/tokens_per_sec_per_core_max": max(tokens_per_sec_per_core_values),
                 }
             )
 
-        if samples_per_sec_values:
+        if global_samples_per_sec_values:
             summary.update(
                 {
-                    "summary_samples_per_sec_avg": sum(samples_per_sec_values) / len(samples_per_sec_values),
-                    "summary_samples_per_sec_min": min(samples_per_sec_values),
-                    "summary_samples_per_sec_max": max(samples_per_sec_values),
-                    "summary_samples_per_sec_per_core_avg": sum(samples_per_sec_per_core_values)
+                    "summary/samples_per_sec_avg": sum(global_samples_per_sec_values)
+                    / len(global_samples_per_sec_values),
+                    "summary/samples_per_sec_min": min(global_samples_per_sec_values),
+                    "summary/samples_per_sec_max": max(global_samples_per_sec_values),
+                    "summary/samples_per_sec_per_core_avg": sum(samples_per_sec_per_core_values)
                     / len(samples_per_sec_per_core_values),
-                    "summary_samples_per_sec_per_core_min": min(samples_per_sec_per_core_values),
-                    "summary_samples_per_sec_per_core_max": max(samples_per_sec_per_core_values),
+                    "summary/samples_per_sec_per_core_min": min(samples_per_sec_per_core_values),
+                    "summary/samples_per_sec_per_core_max": max(samples_per_sec_per_core_values),
                 }
             )
 
         # Step timing statistics
         summary.update(
             {
-                "summary_step_time_avg": sum(step_times) / len(step_times),
-                "summary_step_time_min": min(step_times),
-                "summary_step_time_max": max(step_times),
-                "summary_total_training_steps": len(step_times),
-                "summary_total_tokens_processed": sum(tokens_per_step),
-                "summary_total_samples_processed": sum(samples_per_step),
+                "summary/step_time_avg": sum(step_times) / len(step_times),
+                "summary/step_time_min": min(step_times),
+                "summary/step_time_max": max(step_times),
+                "summary/total_training_steps": len(step_times),
+                "summary/total_tokens_processed": sum(tokens_per_step),
+                "summary/total_samples_processed": sum(samples_per_step),
             }
         )
 
@@ -404,9 +414,9 @@ class TrainingMetricsCollector:
         if mfu_values:
             summary.update(
                 {
-                    "summary_mfu_avg": sum(mfu_values) / len(mfu_values),
-                    "summary_mfu_min": min(mfu_values),
-                    "summary_mfu_max": max(mfu_values),
+                    "summary/mfu_avg": sum(mfu_values) / len(mfu_values),
+                    "summary/mfu_min": min(mfu_values),
+                    "summary/mfu_max": max(mfu_values),
                 }
             )
 
@@ -437,9 +447,9 @@ class TrainingMetricsCollector:
         if efficiency_values:
             summary.update(
                 {
-                    "summary_efficiency_avg": sum(efficiency_values) / len(efficiency_values),
-                    "summary_efficiency_min": min(efficiency_values),
-                    "summary_efficiency_max": max(efficiency_values),
+                    "summary/efficiency_avg": sum(efficiency_values) / len(efficiency_values),
+                    "summary/efficiency_min": min(efficiency_values),
+                    "summary/efficiency_max": max(efficiency_values),
                 }
             )
 
@@ -449,7 +459,7 @@ class TrainingMetricsCollector:
             variance = sum((t - mean_time) ** 2 for t in step_times) / len(step_times)
             std_dev = variance**0.5
             cv = (std_dev / mean_time) * 100 if mean_time > 0 else 0
-            summary["summary_step_time_consistency"] = round(100 - min(cv, 100), 2)
+            summary["summary/step_time_consistency"] = round(100 - min(cv, 100), 2)
 
         return summary
 
@@ -469,26 +479,31 @@ class TrainingMetricsCollector:
         metrics = {}
 
         # General throughput metrics (for training performance comparison)
+        # These account for data parallelism to show effective global throughput
         if total_tokens > 0:
-            metrics["tokens_per_sec"] = total_tokens / total_time
-            metrics["avg_tokens_per_step"] = window_stats["avg_tokens_per_step"]
+            local_tokens_per_sec = total_tokens / total_time
+            metrics["train/tokens_per_sec"] = local_tokens_per_sec * self.dp_size  # Global effective throughput
+            metrics["train/avg_tokens_per_step"] = window_stats["avg_tokens_per_step"]
 
         if total_samples > 0:
-            metrics["samples_per_sec"] = total_samples / total_time
-            metrics["avg_samples_per_step"] = window_stats["avg_samples_per_step"]
+            local_samples_per_sec = total_samples / total_time
+            metrics["train/samples_per_sec"] = local_samples_per_sec * self.dp_size  # Global effective throughput
+            metrics["train/avg_samples_per_step"] = window_stats["avg_samples_per_step"]
 
         # Per-neuron-core metrics (for hardware utilization analysis)
         if self.total_neuron_cores > 0:
             if total_tokens > 0:
-                metrics["tokens_per_sec_per_neuron_core"] = total_tokens / (total_time * self.total_neuron_cores)
+                metrics["train/tokens_per_sec_per_neuron_core"] = total_tokens / (total_time * self.total_neuron_cores)
             if total_samples > 0:
-                metrics["samples_per_sec_per_neuron_core"] = total_samples / (total_time * self.total_neuron_cores)
+                metrics["train/samples_per_sec_per_neuron_core"] = total_samples / (
+                    total_time * self.total_neuron_cores
+                )
 
         # Additional window information
-        metrics["metrics_window_steps"] = window_stats["window_steps"]
-        metrics["avg_step_time"] = window_stats["avg_time_per_step"]
-        metrics["metrics_window_size"] = self.window_size
-        metrics["window_is_full"] = self.metric_windows[metric_name].is_full
+        metrics["train/metrics_window_steps"] = window_stats["window_steps"]
+        metrics["train/avg_step_time"] = window_stats["avg_time_per_step"]
+        metrics["train/metrics_window_size"] = self.window_size
+        metrics["train/window_is_full"] = self.metric_windows[metric_name].is_full
 
         return metrics
 
@@ -524,9 +539,7 @@ class TrainingMetricsCollector:
         mfu_percentage = (actual_flops_per_sec / peak_flops_per_sec) * 100
 
         return {
-            "model_flops_utilization": round(mfu_percentage, 2),
-            "theoretical_flops_per_sec": actual_flops_per_sec,
-            "peak_flops_per_sec": peak_flops_per_sec,
+            "train/mfu": round(mfu_percentage, 2),
         }
 
     def _calculate_efficiency_metrics_from_window(self, metric_name: str) -> dict[str, float]:
@@ -542,11 +555,11 @@ class TrainingMetricsCollector:
         metrics = {}
 
         # Simple efficiency based on tokens per second per core vs expected
-        if "tokens_per_sec_per_neuron_core" in throughput_metrics:
-            tokens_per_core = throughput_metrics["tokens_per_sec_per_neuron_core"]
+        if "train/tokens_per_sec_per_neuron_core" in throughput_metrics:
+            tokens_per_core = throughput_metrics["train/tokens_per_sec_per_neuron_core"]
             expected_tokens_per_core = getattr(self.args, "expected_tokens_per_core", 500.0)
             efficiency = (tokens_per_core / expected_tokens_per_core) * 100
-            metrics["training_efficiency"] = round(min(efficiency, 100.0), 2)
+            metrics["train/training_efficiency"] = round(min(efficiency, 100.0), 2)
 
         # Consistency metric: coefficient of variation of step times
         window_stats = self.metric_windows[metric_name].get_window_stats()
@@ -557,7 +570,7 @@ class TrainingMetricsCollector:
                 variance = sum((t - mean_time) ** 2 for t in step_times) / len(step_times)
                 std_dev = variance**0.5
                 cv = (std_dev / mean_time) * 100 if mean_time > 0 else 0
-                metrics["step_time_consistency"] = round(100 - min(cv, 100), 2)  # Higher is better
+                metrics["train/step_time_consistency"] = round(100 - min(cv, 100), 2)  # Higher is better
 
         return metrics
 

@@ -15,12 +15,11 @@
 
 import inspect
 import json
-import os
-from datetime import datetime
 import math
 import os
 import re
 import sys
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Iterator, Type
@@ -1310,7 +1309,7 @@ class NeuronTrainer:
                     "pipeline_parallel_size": getattr(self.args, "pipeline_parallel_size", 1),
                     "total_neuron_cores": self.metrics_collector.total_neuron_cores,
                 },
-                "metrics": summary_metrics
+                "metrics": summary_metrics,
             }
 
             with open(summary_file_path, "w") as f:
