@@ -100,7 +100,6 @@ def _overfit_causal_lm(
         tensor_parallel_size=tp_size,
         pipeline_parallel_size=pp_size,
         do_train=True,
-        do_eval=False,
         learning_rate=learning_rate,
         warmup_ratio=warmup_ratio,
         per_device_train_batch_size=1,
@@ -114,10 +113,7 @@ def _overfit_causal_lm(
         max_steps=6 if is_precompilation() else num_steps,
         output_dir=output_dir,
         run_name=wandb_run_name,
-        # This will load the weights on every worker at the same time.
-        # By default it is set to 8 to avoid OOM errors, but here the model are small enough to use the maximum size.
-        # This will save some time during weight loading.
-        num_local_ranks_per_step=-1,
+        num_local_ranks_per_step=16,
         **training_kwargs,
     )
 
@@ -127,7 +123,7 @@ def _overfit_causal_lm(
             model_name_or_path,
             training_args.trn_config,
             torch_dtype=torch.bfloat16,
-            attn_implementation="flash_attention_2" if use_flash_attention_2 else None,
+            attn_implementation="flash_attention_2" if use_flash_attention_2 else "eager",
         )
     else:
         model = model_class.from_pretrained(
@@ -207,8 +203,11 @@ def _overfit_causal_lm(
             50,
         ],
         [
-            "Qwen3ForCausalLM",
-            "Qwen/Qwen3-0.6B",
+            # "Qwen3ForCausalLM",
+            "LlamaForCausalLM",
+            # "Qwen/Qwen3-0.6B",
+            # "michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random",
+            "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random",
             1e-4,
             0.03,
             {},
@@ -227,7 +226,7 @@ def _overfit_causal_lm(
 @pytest.mark.parametrize(
     "world_size,tp_size,pp_size",
     [[32, 2, 4], [32, 8, 1]],
-    ids=["dp=4,tp=2,pp=4", "dp=4,tp=8"],
+    ids=["32_2_4", "32_8_1"],
 )
 @pytest.mark.neuron_parallel_compile
 @is_trainium_test

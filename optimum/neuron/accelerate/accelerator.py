@@ -222,10 +222,11 @@ class NeuronAccelerator(Accelerator):
             num_replicas = parallel_layers.parallel_state.get_data_parallel_size()
             rank = parallel_layers.parallel_state.get_data_parallel_rank()
             force_drop_last = parallel_layers.parallel_state.get_pipeline_model_parallel_size() > 1
-            logger.warning(
-                "Pipeline parallelsim: forcing the dataloader to drop the last incomplete batch because it can "
-                "cause failure if the last batch size is not divisible by the number of microbatches for the pipeline."
-            )
+            if force_drop_last and not data_loader.drop_last:
+                logger.warning(
+                    "Pipeline parallelsim: forcing the dataloader to drop the last incomplete batch because it can "
+                    "cause failure if the last batch size is not divisible by the number of microbatches for the pipeline."
+                )
         else:
             num_replicas = xr.world_size()
             rank = xr.global_ordinal()
