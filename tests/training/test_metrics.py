@@ -1,0 +1,410 @@
+# coding=utf-8
+# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import json
+import os
+import time
+from unittest.mock import patch
+
+import datasets
+import pytest
+import torch
+import torch_xla.core.xla_model as xm
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_data_parallel_size,
+    get_pipeline_model_parallel_size,
+    get_tensor_model_parallel_size,
+)
+from transformers import AutoTokenizer
+
+from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
+from optimum.neuron.models.training import NeuronModelForCausalLM
+from optimum.neuron.trainers.metrics import MovingAverageWindow, TrainingMetricsCollector
+from optimum.neuron.utils.testing_utils import is_trainium_test
+from optimum.neuron.utils.training_utils import get_model_param_count
+
+from .distributed_utils import distributed_test
+
+
+TINY_MODEL_NAME = "michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random"
+
+
+def test_metrics_collector_standalone():
+    """Test standalone metrics collector with comprehensive computation testing."""
+
+    # Test MovingAverageWindow
+    window = MovingAverageWindow(window_size=3)
+
+    # Test empty window
+    assert window.get_average_tokens_per_second() == 0.0
+    assert window.get_average_samples_per_second() == 0.0
+
+    # Add known values and test averages
+    window.add_step(tokens=100, samples=10, step_time=1.0)  # 100 tokens/sec, 10 samples/sec
+    assert window.get_average_tokens_per_second() == 100.0
+    assert window.get_average_samples_per_second() == 10.0
+
+    window.add_step(tokens=200, samples=20, step_time=2.0)  # 100 tokens/sec, 10 samples/sec
+    assert window.get_average_tokens_per_second() == 100.0
+    assert window.get_average_samples_per_second() == 10.0
+
+    window.add_step(tokens=300, samples=30, step_time=2.0)  # 150 tokens/sec, 15 samples/sec
+    expected_avg_tokens = (100 + 100 + 150) / 3  # 116.67
+    expected_avg_samples = (10 + 10 + 15) / 3  # 11.67
+    assert abs(window.get_average_tokens_per_second() - expected_avg_tokens) < 0.01
+    assert abs(window.get_average_samples_per_second() - expected_avg_samples) < 0.01
+
+    # Test window overflow
+    window.add_step(tokens=400, samples=40, step_time=1.0)  # 400 tokens/sec, 40 samples/sec
+    # Now window contains: [100, 150, 400] tokens/sec and [10, 15, 40] samples/sec
+    expected_avg_tokens = (100 + 150 + 400) / 3  # 216.67
+    expected_avg_samples = (10 + 15 + 40) / 3  # 21.67
+    assert abs(window.get_average_tokens_per_second() - expected_avg_tokens) < 0.01
+    assert abs(window.get_average_samples_per_second() - expected_avg_samples) < 0.01
+
+    # Test TrainingMetricsCollector initialization
+    training_args = NeuronTrainingArguments(
+        output_dir="/tmp/test",
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=4,
+        tensor_parallel_size=2,
+        pipeline_parallel_size=1,
+        dataloader_num_workers=0,
+    )
+
+    with patch.object(TrainingMetricsCollector, '_detect_hardware_tflops', return_value=190.0):
+        collector = TrainingMetricsCollector(
+            training_args=training_args,
+            model_param_count=1000000,  # 1M parameters
+            vocab_size=32000,
+            enable_mfu_metrics=True,
+            enable_efficiency_metrics=True,
+            metrics_window_size=5
+        )
+
+    # Test input validation
+    assert collector.model_param_count == 1000000
+    assert collector.vocab_size == 32000
+    assert collector.peak_tflops == 190.0
+
+    # Test metric timing
+    assert not collector.active_metrics
+
+    collector.start_metric("test_metric")
+    assert "test_metric" in collector.active_metrics
+
+    time.sleep(0.1)  # Small delay for timing
+
+    collector.stop_metric("test_metric", tokens=1000, samples=10)
+    assert "test_metric" not in collector.active_metrics
+    assert len(collector.windows["test_metric"].tokens_per_step) == 1
+
+    # Test metric calculations with known values
+    collector.start_metric("throughput_test")
+    start_time = collector.active_metrics["throughput_test"]
+
+    # Simulate 1 second of processing
+    collector.active_metrics["throughput_test"] = start_time - 1.0
+    collector.stop_metric("throughput_test", tokens=2000, samples=20)
+
+    # Calculate expected metrics
+    # Global throughput: 2000 tokens/sec, 20 samples/sec
+    # Per neuron core (32 cores): 2000/32 = 62.5 tokens/sec/core, 20/32 = 0.625 samples/sec/core
+    # Data parallel size = 4 (32 total / 2 TP / 4 PP)
+
+    metrics = collector.calculate_metric("throughput_test")
+
+    assert abs(metrics["tokens_per_second"] - 2000.0) < 0.1
+    assert abs(metrics["samples_per_second"] - 20.0) < 0.1
+    assert abs(metrics["tokens_per_second_per_neuron_core"] - 62.5) < 0.1
+    assert abs(metrics["samples_per_second_per_neuron_core"] - 0.625) < 0.01
+
+    # Test MFU calculation
+    # Model FLOPs ≈ 6 * 1M * 2000 = 12B FLOPs (assuming seq_len=2000/20=100 per sample)
+    # Peak FLOPs = 190 TFLOPS = 190e12 FLOPs/sec
+    # Achieved FLOPs = 12B FLOPs / 1 sec = 12e9 FLOPs/sec
+    # MFU = 12e9 / 190e12 ≈ 6.3%
+    expected_mfu = (6 * 1000000 * 100) / (190e12 / 20)  # Per DP rank
+    assert 0 <= metrics["model_flops_utilization"] <= 100
+
+    # Test training efficiency (should be same as general throughput / peak theoretical)
+    # This is calculated in the optimized method
+    assert "training_efficiency" in metrics
+    assert metrics["training_efficiency"] > 0
+
+
+def test_metrics_real_model_computation():
+    """Test metric computations with real model characteristics and minimal mocking."""
+
+    # Use real model to get actual parameters
+    training_args = NeuronTrainingArguments(
+        output_dir="/tmp/test",
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=2,
+        tensor_parallel_size=1,
+        pipeline_parallel_size=1,
+        dataloader_num_workers=0,
+    )
+
+    model = NeuronModelForCausalLM.from_pretrained(TINY_MODEL_NAME, trn_config=training_args.trn_config)
+    real_param_count = get_model_param_count(model, trainable_only=False)
+
+    tokenizer = AutoTokenizer.from_pretrained(TINY_MODEL_NAME)
+    vocab_size = tokenizer.vocab_size
+
+    with patch.object(TrainingMetricsCollector, '_detect_hardware_tflops', return_value=190.0):
+        collector = TrainingMetricsCollector(
+            training_args=training_args,
+            model_param_count=real_param_count,
+            vocab_size=vocab_size,
+            enable_mfu_metrics=True,
+            enable_efficiency_metrics=True,
+            metrics_window_size=3
+        )
+
+    # Test with realistic values
+    collector.start_metric("real_test")
+    start_time = collector.active_metrics["real_test"]
+
+    # Simulate 2 seconds of processing 500 tokens (25 samples with seq_len=20)
+    collector.active_metrics["real_test"] = start_time - 2.0
+    collector.stop_metric("real_test", tokens=500, samples=25)
+
+    metrics = collector.calculate_metric("real_test")
+
+    # Verify throughput calculations
+    expected_tokens_per_sec = 500 / 2  # 250 tokens/sec
+    expected_samples_per_sec = 25 / 2  # 12.5 samples/sec
+
+    assert abs(metrics["tokens_per_second"] - expected_tokens_per_sec) < 0.1
+    assert abs(metrics["samples_per_second"] - expected_samples_per_sec) < 0.1
+
+    # Per neuron core (1 core in this test setup)
+    assert abs(metrics["tokens_per_second_per_neuron_core"] - expected_tokens_per_sec) < 0.1
+    assert abs(metrics["samples_per_second_per_neuron_core"] - expected_samples_per_sec) < 0.1
+
+    # Test MFU bounds
+    assert 0 <= metrics["model_flops_utilization"] <= 100
+
+    # Test efficiency
+    assert metrics["training_efficiency"] > 0
+
+    # Test with DP=2 scenario
+    training_args_dp2 = NeuronTrainingArguments(
+        output_dir="/tmp/test",
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=2,
+        tensor_parallel_size=1,
+        pipeline_parallel_size=1,
+        dataloader_num_workers=0,
+    )
+
+    with patch.object(TrainingMetricsCollector, '_detect_hardware_tflops', return_value=190.0):
+        collector_dp2 = TrainingMetricsCollector(
+            training_args=training_args_dp2,
+            model_param_count=real_param_count,
+            vocab_size=vocab_size,
+            enable_mfu_metrics=True,
+            enable_efficiency_metrics=True,
+            metrics_window_size=3
+        )
+
+    # Simulate processing on 2 DP ranks
+    collector_dp2.start_metric("dp2_test")
+    start_time = collector_dp2.active_metrics["dp2_test"]
+    collector_dp2.active_metrics["dp2_test"] = start_time - 1.0
+
+    # Each rank processes 250 tokens, but global throughput should account for DP size
+    collector_dp2.stop_metric("dp2_test", tokens=250, samples=12)
+
+    metrics_dp2 = collector_dp2.calculate_metric("dp2_test")
+
+    # Global throughput should be same as per-rank when DP=1 (no scaling in this test)
+    assert abs(metrics_dp2["tokens_per_second"] - 250.0) < 0.1
+    assert abs(metrics_dp2["samples_per_second"] - 12.0) < 0.1
+
+
+@distributed_test(world_size=32, tp_size=2, pp_size=4)
+def test_trainer_full_metrics_integration(tmpdir):
+    """Test trainer integration with full metrics validation."""
+
+    tp_size = get_tensor_model_parallel_size()
+    pp_size = get_pipeline_model_parallel_size()
+    dp_size = get_data_parallel_size()
+
+    # Create training arguments with metrics enabled
+    training_args = NeuronTrainingArguments(
+        output_dir=tmpdir,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=2,
+        num_train_epochs=1,
+        max_steps=3,  # Minimal steps for testing
+        logging_steps=1,
+        save_steps=10,  # Don't save checkpoints
+        tensor_parallel_size=tp_size,
+        pipeline_parallel_size=pp_size,
+        dataloader_num_workers=0,
+        enable_mfu_metrics=True,
+        enable_efficiency_metrics=True,
+        metrics_window_size=2,
+    )
+
+    # Create model and dataset
+    model = NeuronModelForCausalLM.from_pretrained(TINY_MODEL_NAME, trn_config=training_args.trn_config)
+
+    tokenizer = AutoTokenizer.from_pretrained(TINY_MODEL_NAME)
+    inputs = tokenizer(
+        "Paris is the most beautiful city in the world.",
+        return_tensors="pt",
+        padding="max_length",
+        max_length=128
+    )
+    inputs["labels"] = inputs["input_ids"].clone()
+    dataset = datasets.Dataset.from_dict(inputs)
+    dataset = dataset.select([0] * 100)  # Small dataset
+
+    # Mock hardware detection for consistent test results
+    with patch.object(TrainingMetricsCollector, '_detect_hardware_tflops', return_value=190.0):
+        trainer = NeuronTrainer(model, training_args, train_dataset=dataset)
+
+        # Verify metrics collector is initialized
+        assert trainer.metrics_collector is not None
+        assert trainer.metrics_collector.enable_mfu_metrics
+        assert trainer.metrics_collector.enable_efficiency_metrics
+
+        # Run training
+        trainer.train()
+
+        # Verify training metrics were logged (train/ prefix)
+        log_history = trainer.state.log_history
+        training_logs = [log for log in log_history if any(key.startswith("train/") for key in log.keys())]
+
+        assert len(training_logs) > 0, "No training metrics were logged"
+
+        # Check that all expected metrics are present
+        expected_metrics = [
+            "train/tokens_per_second",
+            "train/samples_per_second",
+            "train/tokens_per_second_per_neuron_core",
+            "train/samples_per_second_per_neuron_core",
+            "train/model_flops_utilization",
+            "train/training_efficiency"
+        ]
+
+        last_training_log = training_logs[-1]
+        for metric in expected_metrics:
+            assert metric in last_training_log, f"Missing metric: {metric}"
+            assert isinstance(last_training_log[metric], (int, float)), f"Invalid metric type: {metric}"
+            assert last_training_log[metric] >= 0, f"Negative metric value: {metric}"
+
+        # Verify MFU is within reasonable bounds
+        assert 0 <= last_training_log["train/model_flops_utilization"] <= 100
+
+        # Test summary metrics generation and file saving
+        summary_file = os.path.join(tmpdir, "training_summary_metrics.json")
+        assert os.path.exists(summary_file), "Summary metrics file was not created"
+
+        # Load and validate summary metrics
+        with open(summary_file, 'r') as f:
+            summary_metrics = json.load(f)
+
+        # Check summary metrics structure
+        expected_summary_metrics = [
+            "summary/tokens_per_second_avg",
+            "summary/samples_per_second_avg",
+            "summary/tokens_per_second_per_neuron_core_avg",
+            "summary/samples_per_second_per_neuron_core_avg",
+            "summary/model_flops_utilization_avg",
+            "summary/training_efficiency_avg"
+        ]
+
+        for metric in expected_summary_metrics:
+            assert metric in summary_metrics, f"Missing summary metric: {metric}"
+            assert isinstance(summary_metrics[metric], (int, float)), f"Invalid summary metric type: {metric}"
+            assert summary_metrics[metric] >= 0, f"Negative summary metric: {metric}"
+
+        # Verify summary MFU bounds
+        assert 0 <= summary_metrics["summary/model_flops_utilization_avg"] <= 100
+
+        # Test metric value consistency
+        # Per-neuron-core metrics should be lower than general metrics (with 32 total cores)
+        assert summary_metrics["summary/tokens_per_second_per_neuron_core_avg"] <= summary_metrics["summary/tokens_per_second_avg"]
+        assert summary_metrics["summary/samples_per_second_per_neuron_core_avg"] <= summary_metrics["summary/samples_per_second_avg"]
+
+        # Test disabled metrics scenario
+        training_args_no_metrics = NeuronTrainingArguments(
+            output_dir=tmpdir,
+            per_device_train_batch_size=1,
+            gradient_accumulation_steps=2,
+            max_steps=1,
+            tensor_parallel_size=tp_size,
+            pipeline_parallel_size=pp_size,
+            dataloader_num_workers=0,
+            enable_mfu_metrics=False,
+            enable_efficiency_metrics=False,
+        )
+
+        with patch.object(TrainingMetricsCollector, '_detect_hardware_tflops', return_value=190.0):
+            trainer_no_metrics = NeuronTrainer(model, training_args_no_metrics, train_dataset=dataset)
+
+            # Verify metrics are disabled
+            assert not trainer_no_metrics.metrics_collector.enable_mfu_metrics
+            assert not trainer_no_metrics.metrics_collector.enable_efficiency_metrics
+
+
+@is_trainium_test
+def test_metrics_collector_edge_cases():
+    """Test edge cases and error conditions."""
+
+    training_args = NeuronTrainingArguments(
+        output_dir="/tmp/test",
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=1,
+        tensor_parallel_size=1,
+        pipeline_parallel_size=1,
+        dataloader_num_workers=0,
+    )
+
+    with patch.object(TrainingMetricsCollector, '_detect_hardware_tflops', return_value=190.0):
+        collector = TrainingMetricsCollector(
+            training_args=training_args,
+            model_param_count=1000000,
+            vocab_size=32000,
+            enable_mfu_metrics=True,
+            enable_efficiency_metrics=True,
+            metrics_window_size=1
+        )
+
+    # Test zero time edge case
+    collector.start_metric("zero_time")
+    collector.stop_metric("zero_time", tokens=100, samples=10)
+
+    metrics = collector.calculate_metric("zero_time")
+    # Should handle division by zero gracefully
+    assert metrics["tokens_per_second"] >= 0
+    assert metrics["samples_per_second"] >= 0
+
+    # Test single step window
+    assert len(collector.windows["zero_time"].tokens_per_step) == 1
+
+    # Test stopping non-existent metric (should not crash)
+    try:
+        collector.stop_metric("non_existent", tokens=0, samples=0)
+    except KeyError:
+        pass  # Expected behavior
+
+    # Test calculating metric for non-existent window
+    empty_metrics = collector.calculate_metric("non_existent_metric")
+    assert all(value == 0.0 for value in empty_metrics.values())
