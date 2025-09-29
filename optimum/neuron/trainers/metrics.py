@@ -19,12 +19,9 @@ from typing import Any
 
 import torch
 import torch_xla.runtime as xr
-from neuronx_distributed.parallel_layers.parallel_state import (
-    get_data_parallel_size,
-    get_pipeline_model_parallel_size,
-    get_tensor_model_parallel_size,
-)
+from neuronx_distributed.parallel_layers.parallel_state import get_data_parallel_size
 
+from ..trainers.training_args import NeuronTrainingArguments
 from ..utils.training_utils import get_model_param_count
 
 
@@ -33,30 +30,6 @@ HARDWARE_TFLOPS = {
     "trn1": 190 / 2,
     "trn2": 667 / 2,
 }
-
-
-class MetricsClock:
-    """
-    A high-resolution clock for measuring elapsed time using perf_counter.
-    """
-
-    def __init__(self):
-        self.start_time = None
-        self.time_func = time.perf_counter
-
-    def start(self):
-        """Start the clock."""
-        self.start_time = self.time_func()
-
-    def elapsed(self) -> float | None:
-        """Get elapsed time since start. Returns None if not started."""
-        if self.start_time is None:
-            return None
-        return self.time_func() - self.start_time
-
-    def reset(self):
-        """Reset the clock."""
-        self.start_time = None
 
 
 class MovingAverageWindow:
@@ -72,14 +45,12 @@ class MovingAverageWindow:
         self.tokens_per_step = deque(maxlen=window_size)
         self.samples_per_step = deque(maxlen=window_size)
         self.step_times = deque(maxlen=window_size)
-        self.step_numbers = deque(maxlen=window_size)
 
-    def add_step(self, tokens: int, samples: int, step_time: float, step_number: int):
+    def add_step(self, tokens: int, samples: int, step_time: float):
         """Add a new step to the moving window."""
         self.tokens_per_step.append(tokens)
         self.samples_per_step.append(samples)
         self.step_times.append(step_time)
-        self.step_numbers.append(step_number)
 
     def get_window_stats(self) -> dict[str, float]:
         """Calculate statistics for the current window."""
@@ -106,7 +77,6 @@ class MovingAverageWindow:
         self.tokens_per_step.clear()
         self.samples_per_step.clear()
         self.step_times.clear()
-        self.step_numbers.clear()
 
     @property
     def is_full(self) -> bool:
@@ -127,20 +97,22 @@ class TrainingMetricsCollector:
     general throughput metrics (for training performance comparison).
 
     Features:
-    - Individual metric clock control with start_metric()/stop_metric()
-    - Moving average windows for stable metrics
-    - Multiple clocks for different timing measurements
-    - Configurable window sizes and clock types
+    - Individual metric timing control with start_metric()/stop_metric()
+    - Moving average windows for stable real-time metrics
+    - Comprehensive summary statistics for end-of-training analysis
+    - Auto-detection of Trainium hardware for accurate MFU calculations
+    - Dual metrics: train/ (real-time) and summary/ (end-of-training)
     """
 
-    def __init__(self, model, training_args):
+    def __init__(self, model: Any, training_args: NeuronTrainingArguments):
         self.model = model
         self.args = training_args
 
+        # Input validation
+        self._validate_inputs()
+
         # Hardware topology
         self.dp_size = get_data_parallel_size()
-        self.tp_size = get_tensor_model_parallel_size()
-        self.pp_size = get_pipeline_model_parallel_size()
         self.total_neuron_cores = xr.world_size()
 
         # Model parameters (cached for MFU calculation)
@@ -150,14 +122,13 @@ class TrainingMetricsCollector:
             self.model_params = get_model_param_count(model, trainable_only=False)
 
         # Hardware specs (TFLOPS per core for bf16)
-        self.peak_tflops_per_core = HARDWARE_TFLOPS.get("trn1", 0.0)
+        self.peak_tflops_per_core = self._detect_hardware_tflops()
 
         # Moving average window configuration
         self.window_size = self.args.metrics_window_size
 
-        # Per-metric moving windows and clocks
+        # Per-metric moving windows and timing
         self.metric_windows = {}
-        self.metric_clocks = {}
         self.metric_start_times = {}
         self.current_batch_data = {}  # Store batch data for current metric timing
 
@@ -166,15 +137,63 @@ class TrainingMetricsCollector:
 
         self._initialize_metric_systems()
 
+    def _validate_inputs(self):
+        """Validate input parameters and configuration."""
+        # Validate window size
+        if not hasattr(self.args, "metrics_window_size"):
+            raise ValueError("metrics_window_size not found in training arguments")
+
+        if self.args.metrics_window_size <= 0:
+            raise ValueError(f"metrics_window_size must be > 0, got {self.args.metrics_window_size}")
+
+        # Validate model parameters for MFU if enabled
+        if hasattr(self.args, "enable_mfu_metrics") and self.args.enable_mfu_metrics:
+            if self.model is None:
+                raise ValueError("Model cannot be None when MFU metrics are enabled")
+
+        # Validate expected_tokens_per_core if provided
+        if hasattr(self.args, "expected_tokens_per_core") and self.args.expected_tokens_per_core <= 0:
+            raise ValueError(f"expected_tokens_per_core must be > 0, got {self.args.expected_tokens_per_core}")
+
+    def _detect_hardware_tflops(self) -> float:
+        """
+        Auto-detect Trainium hardware type and return peak TFLOPS per core.
+
+        Returns:
+            Peak TFLOPS per core for bf16 operations
+        """
+        try:
+            # Try to detect hardware from environment or other sources
+            import os
+
+            # Check environment variable first
+            hardware_type = os.getenv("NEURON_HARDWARE_TYPE")
+            if hardware_type and hardware_type in HARDWARE_TFLOPS:
+                return HARDWARE_TFLOPS[hardware_type]
+
+            # Try to detect from instance metadata or other sources
+            # For now, default to trn1 but could be enhanced with actual detection logic
+            instance_type = os.getenv("AWS_INSTANCE_TYPE", "")
+            if "trn2" in instance_type.lower():
+                return HARDWARE_TFLOPS["trn2"]
+            elif "trn1" in instance_type.lower():
+                return HARDWARE_TFLOPS["trn1"]
+
+            # Default fallback to trn1
+            return HARDWARE_TFLOPS["trn1"]
+
+        except Exception:
+            # If detection fails, fallback to trn1
+            return HARDWARE_TFLOPS["trn1"]
+
     def _initialize_metric_systems(self):
-        """Initialize per-metric moving windows and clocks."""
+        """Initialize per-metric moving windows and timing systems."""
         # Define available metrics
         metric_names = ["throughput", "mfu", "efficiency"]
 
         # Initialize per-metric systems
         for metric_name in metric_names:
             self.metric_windows[metric_name] = MovingAverageWindow(self.window_size)
-            self.metric_clocks[metric_name] = MetricsClock()
             self.metric_start_times[metric_name] = None
             self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
             # Initialize summary metrics storage
@@ -193,12 +212,11 @@ class TrainingMetricsCollector:
             metric_name: Name of the metric to start ('throughput', 'mfu', 'efficiency', etc.)
             inputs: Optional batch inputs for token/sample counting
         """
-        if metric_name not in self.metric_clocks:
-            raise ValueError(f"Unknown metric: {metric_name}. Available: {list(self.metric_clocks.keys())}")
+        if metric_name not in self.metric_start_times:
+            raise ValueError(f"Unknown metric: {metric_name}. Available: {list(self.metric_start_times.keys())}")
 
-        # Start the clock for this metric
-        self.metric_clocks[metric_name].start()
-        self.metric_start_times[metric_name] = self.metric_clocks[metric_name].time_func()
+        # Start timing for this metric
+        self.metric_start_times[metric_name] = time.perf_counter()
 
         # Reset batch data accumulator for this metric
         self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
@@ -242,16 +260,15 @@ class TrainingMetricsCollector:
             metric_name: Name of the metric to stop
             step_number: Optional step number for tracking
         """
-        if metric_name not in self.metric_clocks:
-            raise ValueError(f"Unknown metric: {metric_name}. Available: {list(self.metric_clocks.keys())}")
+        if metric_name not in self.metric_start_times:
+            raise ValueError(f"Unknown metric: {metric_name}. Available: {list(self.metric_start_times.keys())}")
 
         if self.metric_start_times[metric_name] is None:
             # Metric wasn't started, ignore
             return
 
         # Calculate elapsed time
-        current_time = self.metric_clocks[metric_name].time_func()
-        elapsed_time = current_time - self.metric_start_times[metric_name]
+        elapsed_time = time.perf_counter() - self.metric_start_times[metric_name]
 
         # Get batch data for this metric
         batch_data = self.current_batch_data[metric_name]
@@ -261,7 +278,6 @@ class TrainingMetricsCollector:
             tokens=batch_data["tokens"],
             samples=batch_data["samples"],
             step_time=elapsed_time,
-            step_number=step_number or 0,
         )
 
         # Add to summary metrics for end-of-training statistics
@@ -500,10 +516,7 @@ class TrainingMetricsCollector:
                 )
 
         # Additional window information
-        metrics["train/metrics_window_steps"] = window_stats["window_steps"]
         metrics["train/avg_step_time"] = window_stats["avg_time_per_step"]
-        metrics["train/metrics_window_size"] = self.window_size
-        metrics["train/window_is_full"] = self.metric_windows[metric_name].is_full
 
         return metrics
 
@@ -558,8 +571,9 @@ class TrainingMetricsCollector:
         if "train/tokens_per_sec_per_neuron_core" in throughput_metrics:
             tokens_per_core = throughput_metrics["train/tokens_per_sec_per_neuron_core"]
             expected_tokens_per_core = getattr(self.args, "expected_tokens_per_core", 500.0)
-            efficiency = (tokens_per_core / expected_tokens_per_core) * 100
-            metrics["train/training_efficiency"] = round(min(efficiency, 100.0), 2)
+            if expected_tokens_per_core > 0:
+                efficiency = (tokens_per_core / expected_tokens_per_core) * 100
+                metrics["train/training_efficiency"] = round(min(efficiency, 100.0), 2)
 
         # Consistency metric: coefficient of variation of step times
         window_stats = self.metric_windows[metric_name].get_window_stats()
@@ -575,10 +589,9 @@ class TrainingMetricsCollector:
         return metrics
 
     def reset_window(self):
-        """Reset moving average windows and clocks (but preserve summary metrics)."""
+        """Reset moving average windows and timing (but preserve summary metrics)."""
         for metric_name in self.metric_windows:
             self.metric_windows[metric_name].clear()
-            self.metric_clocks[metric_name].reset()
             self.metric_start_times[metric_name] = None
             self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
 
