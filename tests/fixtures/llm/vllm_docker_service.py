@@ -10,9 +10,14 @@ import time
 import huggingface_hub
 import pytest
 import torch
-from docker.errors import NotFound
 
-import docker
+from optimum.neuron.utils.import_utils import is_package_available
+
+
+if is_package_available("docker"):
+    from docker.errors import NotFound
+
+    import docker
 
 from .vllm_service import LauncherHandle
 
