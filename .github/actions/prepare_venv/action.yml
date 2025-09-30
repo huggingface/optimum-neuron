@@ -1,5 +1,5 @@
 name: Prepare virtual environment
-description: prepare virtual environment to install pyhton packages
+description: prepare virtual environment to install python packages
 runs:
     using: "composite"
     steps:
@@ -15,4 +15,4 @@ runs:
           python -m pip install hf_transfer
           # Install torch and torchvision for CPU: this avoids having to install CUDA related dependencies, that use a lot
           # of disk space. Note dependencies should be updated when we bump the PyTorch version.
-          python -m pip install torch==2.7.1 torchvision~=0.22 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install torch==2.8.0 torchvision~=0.23.0 --index-url https://download.pytorch.org/whl/cpu
