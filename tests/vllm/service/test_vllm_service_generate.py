@@ -1,5 +1,9 @@
 import pytest
 
+
+# Do not collect tests from this file if vllm is not installed
+pytest.importorskip("vllm")
+
 from optimum.neuron.utils import DTYPE_MAPPER
 
 

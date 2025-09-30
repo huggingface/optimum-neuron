@@ -1,5 +1,10 @@
 import pytest
 
+
+# Do not collect tests from this file if docker or vllm are not installed
+pytest.importorskip("docker")
+pytest.importorskip("vllm")
+
 from optimum.neuron.utils import DTYPE_MAPPER
 
 
