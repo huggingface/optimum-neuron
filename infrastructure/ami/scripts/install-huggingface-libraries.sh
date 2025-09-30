@@ -15,7 +15,8 @@ pip install --upgrade --no-cache-dir \
     "markupsafe==2.1.1" \
     "jinja2==3.1.2" \
     "attrs==23.1.0" \
-    "hf_transfer>=0.1.4"
+    "hf_transfer>=0.1.4" \
+    "rich>=14.1.0"
 
 # Temporary fix for the issue: https://github.com/huggingface/optimum-neuron/issues/142
 pip install -U optimum
