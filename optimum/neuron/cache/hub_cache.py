@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import torch
 import torch_xla.core.xla_model as xm
 import torch_xla.runtime as xr
 from huggingface_hub import HfApi, get_token
@@ -27,6 +28,7 @@ from huggingface_hub.hf_api import RepoFile
 
 from optimum.exporters import TasksManager
 
+from ..utils.argument_utils import DTYPE_MAPPER
 from ..utils.cache_utils import get_hf_hub_cache_repo
 from ..utils.import_utils import is_neuronx_available
 from ..utils.patching import patch_everywhere
@@ -400,3 +402,30 @@ def get_hub_cached_models(cache_repo_id: str | None = None):
                 # No cached models for the current version
                 continue
     return set()
+
+
+def select_hub_cached_entries(
+    model_id: str,
+    task: str | None = None,
+    cache_repo_id: str | None = None,
+    batch_size: int | None = None,
+    sequence_length: int | None = None,
+    tensor_parallel_size: int | None = None,
+    torch_dtype: str | torch.dtype | None = None,
+):
+    entries = get_hub_cached_entries(model_id, task=task, cache_repo_id=cache_repo_id)
+    selected = []
+    for entry in entries:
+        if batch_size is not None and entry.get("batch_size") != batch_size:
+            continue
+        if sequence_length is not None and entry.get("sequence_length") != sequence_length:
+            continue
+        if tensor_parallel_size is not None and entry.get("tp_degree") != tensor_parallel_size:
+            continue
+        if torch_dtype is not None:
+            target_value = DTYPE_MAPPER.pt(torch_dtype) if isinstance(torch_dtype, str) else torch_dtype
+            entry_value = DTYPE_MAPPER.pt(entry.get("torch_dtype"))
+            if target_value != entry_value:
+                continue
+        selected.append(entry)
+    return selected
