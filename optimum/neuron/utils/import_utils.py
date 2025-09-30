@@ -35,58 +35,46 @@ def _get_package_version(package_name: str) -> str | None:
     return None
 
 
+def is_package_available(package_name: str, min_version: str | None = None) -> bool:
+    package_version = _get_package_version(package_name)
+    if package_version is None:
+        return False
+    if min_version is None:
+        return True
+    return version.parse(package_version) >= version.parse(min_version)
+
+
 def is_neuron_available() -> bool:
-    return importlib.util.find_spec("torch_neuron") is not None
+    return is_package_available("torch_neuron")
 
 
 def is_neuronx_available() -> bool:
-    return importlib.util.find_spec("torch_neuronx") is not None
+    return is_package_available("torch_neuronx")
 
 
 def is_accelerate_available(min_version: str | None = MIN_ACCELERATE_VERSION) -> bool:
-    _accelerate_available = importlib.util.find_spec("accelerate") is not None
-    if min_version is not None:
-        if _accelerate_available:
-            import accelerate
-
-            _accelerate_version = accelerate.__version__
-            return version.parse(_accelerate_version) >= version.parse(min_version)
-        else:
-            return False
-    return _accelerate_available
+    return is_package_available("accelerate", min_version=min_version)
 
 
 def is_torch_neuronx_available() -> bool:
-    return importlib.util.find_spec("torch_neuronx") is not None
+    return is_package_available("torch_neuronx")
 
 
 def is_trl_available(required_version: str | None = None) -> bool:
-    trl_available = importlib.util.find_spec("trl") is not None
-    if trl_available:
-        import trl
-
-        if required_version is None:
-            required_version = trl.__version__
-
-        if version.parse(trl.__version__) == version.parse(required_version):
+    trl_version = _get_package_version("trl")
+    if trl_version is None:
+        return False
+    if required_version is not None:
+        if version.parse(trl_version) == version.parse(required_version):
             return True
 
-        raise RuntimeError(f"Only `trl=={required_version}` is supported, but {trl.__version__} is installed.")
-    return False
+        raise RuntimeError(f"Only `trl=={required_version}` is supported, but {trl_version} is installed.")
+    return True
 
 
 def is_peft_available(min_version: str | None = MIN_PEFT_VERSION) -> bool:
-    _peft_available = importlib.util.find_spec("peft") is not None
-    if min_version is not None:
-        if _peft_available:
-            import peft
-
-            _peft_version = peft.__version__
-            return version.parse(_peft_version) >= version.parse(min_version)
-        else:
-            return False
-    return _peft_available
+    return is_package_available("peft", min_version=min_version)
 
 
 def is_vllm_available() -> bool:
-    return _get_package_version("vllm") is not None
+    return is_package_available("vllm")
