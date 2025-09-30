@@ -351,7 +351,7 @@ class ASTDummyAudioInputGenerator(DummyAudioInputGenerator):
         return super().generate(input_name, framework=framework, int_dtype=int_dtype, float_dtype=float_dtype)
 
 
-class DummyFluxTransformerRotaryEmbGenerator(DummyInputGenerator):
+class DummyTransformerRotaryEmbGenerator(DummyInputGenerator):
     """
     Generates dummy image rotary embedding.
     """
@@ -385,12 +385,32 @@ class DummyFluxTransformerRotaryEmbGenerator(DummyInputGenerator):
             return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
 
 
-class DummyFluxKontextTransformerRotaryEmbGenerator(DummyInputGenerator):
+class DummyFluxKontextTransformerRotaryEmbGenerator(DummyTransformerRotaryEmbGenerator):
     """
-    Generates dummy image rotary embedding.
+    Generates dummy image rotary embedding for Flux Kontext.
     """
 
-    SUPPORTED_INPUT_NAMES = ("image_rotary_emb",)
+    def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
+        if input_name == "image_rotary_emb":
+            shape = [
+                self.sequence_length + (self.height // 2) * (self.width // 2) * 2,
+                self.rotary_axes_dim,
+                2,  # freqs_cos, freqs_sin
+            ]
+            return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
+
+
+class DummyQwenImageTransformerInputGenerator(DummyInputGenerator):
+    """
+    Generates dummy inputs for Qwen Image transformer.
+    """
+
+    SUPPORTED_INPUT_NAMES = (
+        "hidden_states",
+        "guidance",
+        "encoder_hidden_states",
+        "encoder_hidden_states_mask",
+    )
 
     def __init__(
         self,
@@ -410,10 +430,20 @@ class DummyFluxKontextTransformerRotaryEmbGenerator(DummyInputGenerator):
         self.normalized_config = normalized_config
 
     def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
-        if input_name == "image_rotary_emb":
-            shape = [
-                self.sequence_length + (self.height // 2) * (self.width // 2) * 2,
-                self.rotary_axes_dim,
-                2,  # freqs_cos, freqs_sin
-            ]
+        if input_name == "hidden_states":
+            shape = []
             return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
+        elif input_name == "guidance":
+            shape = [self.batch_size]
+            return self.random_float_tensor(shape, min_value=0, max_value=1, framework=framework, dtype=float_dtype)
+        elif input_name == "encoder_hidden_states":
+            shape = []
+            return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
+        elif input_name == "encoder_hidden_states_mask":
+            shape = [self.batch_size, self.sequence_length]
+            return self.random_mask_tensor(
+                shape=shape,
+                padding_side="right",
+                framework=framework,
+                dtype=int_dtype,
+            )
