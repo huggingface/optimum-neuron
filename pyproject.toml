@@ -79,7 +79,6 @@ training = [
     "trl == 0.11.4",
     "peft == 0.17.0",
     "evaluate == 0.4.3",
-    "neuronx_distributed==0.13.14393",
 ]
 neuron = [
     "wheel",
