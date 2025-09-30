@@ -16,7 +16,7 @@
 
 from argparse import ArgumentParser
 
-from ...neuron.cache import get_hub_cached_entries, synchronize_hub_cache
+from ...neuron.cache.hub_cache import select_hub_cached_entries, synchronize_hub_cache
 from ...neuron.utils.cache_utils import (
     CACHE_REPO_NAME,
     HF_HOME_CACHE_REPO_FILE,
@@ -91,10 +91,39 @@ class LookupRepoCommand(BaseOptimumCLICommand):
             default=None,
             help="The optional task to lookup cached versions for models supporting multiple tasks.",
         )
+        parser.add_argument(
+            "--dtype",
+            type=str,
+            choices=["bfloat16", "float16"],
+            help="Only look for cached models for the specified `torch.dtype`.",
+        )
+        parser.add_argument(
+            "--tensor_parallel_size",
+            type=int,
+            help="Only look for cached models with the specified tensor parallel size.",
+        )
+        parser.add_argument(
+            "--batch_size",
+            type=int,
+            help="Only look for cached models supporting at least the specified batch size.",
+        )
+        parser.add_argument(
+            "--sequence_length",
+            type=int,
+            help="Only look for cached models supporting at least the specified sequence length.",
+        )
         parser.add_argument("--repo_id", type=str, default=None, help="The name of the repo to use as remote cache.")
 
     def _list_entries(self):
-        entries = get_hub_cached_entries(self.args.model_id, task=self.args.task, cache_repo_id=self.args.repo_id)
+        entries = select_hub_cached_entries(
+            self.args.model_id,
+            task=self.args.task,
+            cache_repo_id=self.args.repo_id,
+            batch_size=self.args.batch_size,
+            sequence_length=self.args.sequence_length,
+            tensor_parallel_size=self.args.tensor_parallel_size,
+            torch_dtype=self.args.dtype,
+        )
         n_entries = len(entries)
         output = f"\n*** {n_entries} entrie(s) found in cache for {self.args.model_id}.***\n\n"
         for entry in entries:
