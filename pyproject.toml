@@ -63,7 +63,6 @@ tests = [
     "sacremoses",
     "safetensors",
     "sentence-transformers >= 2.2.0",
-    "compel",
     "rjieba",
     "soundfile",
     "librosa",
@@ -106,6 +105,9 @@ neuronx = [
 diffusers = [
     "diffusers==0.35.*",
     "peft==0.17.0",
+]
+diffusers-tests = [
+    "compel",
 ]
 sentence-transformers = [
     "sentence-transformers >= 2.2.0",
