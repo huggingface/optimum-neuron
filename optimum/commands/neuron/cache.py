@@ -23,6 +23,7 @@ from ...neuron.utils.cache_utils import (
     create_custom_cache_repo,
     set_custom_cache_repo_name_in_hf_home,
 )
+from ...neuron.utils.import_utils import is_package_available
 from ...neuron.utils.require_utils import requires_torch_neuronx
 from ...utils import logging
 from ..base import BaseOptimumCLICommand, CommandInfo
@@ -125,12 +126,42 @@ class LookupRepoCommand(BaseOptimumCLICommand):
             torch_dtype=self.args.dtype,
         )
         n_entries = len(entries)
-        output = f"\n*** {n_entries} entrie(s) found in cache for {self.args.model_id}.***\n\n"
+        if n_entries == 0:
+            print(f"No cached entries found for {self.args.model_id}.")
+            return
+        # Prepare output table data
+        title = f"Cached entries for {self.args.model_id}"
+        columns = ["batch size", "sequence length", "tensor parallel", "dtype"]
+        rows = []
         for entry in entries:
-            for key, value in entry.items():
-                output += f"\n{key}: {value}"
-            output += "\n"
-        print(output)
+            rows.append(
+                (
+                    str(entry["batch_size"]),
+                    str(entry["sequence_length"]),
+                    str(entry.get("tp_degree", entry.get("tensor_parallel_size"))),
+                    str(entry["torch_dtype"]),
+                )
+            )
+        # Remove duplicates (might happen if the same arch was compiled several times with different models and sync'ed afterwards)
+        rows = list(set(rows))
+        # Sort by tensor parallel size, then batch size, sequence length, dtype
+        rows = sorted(rows, key=lambda x: (int(x[2]), int(x[0]), int(x[1]), x[3]))
+        if is_package_available("rich", "14.1.0"):
+            from rich.console import Console
+            from rich.table import Table
+
+            table = Table(title=title)
+            for column in columns:
+                table.add_column(column, justify="center", no_wrap=True)
+            for row in rows:
+                table.add_row(*row)
+            Console().print(table)
+        else:
+            print(title)
+            row_format = "{:^16}" * len(columns)
+            print(row_format.format(*columns))
+            for row in rows:
+                print(row_format.format(*row))
 
     def run(self):
         self._list_entries()
@@ -155,7 +186,7 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
         ),
         CommandInfo(
             name="lookup",
-            help="Lookup the neuronx compiler hub cache for the specified model id.",
+            help="Lookup the neuronx compiler hub cache for the specified model id. Tip: install rich for a nicer display",
             subcommand_class=LookupRepoCommand,
         ),
     )

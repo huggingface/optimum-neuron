@@ -189,4 +189,5 @@ def test_optimum_neuron_cli_cache_synchronize(cache_repos):
     stdout, _ = p.communicate()
     stdout = stdout.decode("utf-8")
     assert p.returncode == 0
-    assert f"1 entrie(s) found in cache for {model_id}" in stdout
+    assert f"{model_id}" in stdout
+    assert "bfloat16" in stdout
