@@ -87,6 +87,44 @@ def attention_wrapper_sharded_without_swap(query, key, value):
     return attn_output
 
 
+class FluxTransformerNeuronWrapper(torch.nn.Module):
+    def __init__(self, model, input_names: list[str], device: str = None):
+        super().__init__()
+        self.model = model
+        self.dtype = model.dtype
+        self.input_names = input_names
+        self.device = device
+
+    def forward(self, *inputs):
+        if len(inputs) != len(self.input_names):
+            raise ValueError(
+                f"The model needs {len(self.input_names)} inputs: {self.input_names}."
+                f" But only {len(input)} inputs are passed."
+            )
+
+        ordered_inputs = dict(zip(self.input_names, inputs))
+
+        hidden_states = ordered_inputs.pop("hidden_states", None)
+        encoder_hidden_states = ordered_inputs.pop("encoder_hidden_states", None)
+        pooled_projections = ordered_inputs.pop("pooled_projections", None)
+        timestep = ordered_inputs.pop("timestep", None)
+        guidance = ordered_inputs.pop("guidance", None)
+        image_rotary_emb = ordered_inputs.pop("image_rotary_emb", None)
+
+        out_tuple = self.model(
+            hidden_states=hidden_states,
+            timestep=timestep,
+            guidance=guidance,
+            pooled_projections=pooled_projections,
+            encoder_hidden_states=encoder_hidden_states,
+            image_rotary_emb=image_rotary_emb,
+            joint_attention_kwargs=None,
+            return_dict=False,
+        )
+
+        return out_tuple
+
+
 class NeuronFluxTransformer2DModel(torch.nn.Module):
     """
     The Transformer model introduced in Flux.

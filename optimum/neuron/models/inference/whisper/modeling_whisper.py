@@ -24,6 +24,12 @@ from transformers import GenerationConfig, WhisperForConditionalGeneration
 from transformers.modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
 from transformers.utils import ModelOutput
 
+from optimum.neuron.utils import is_neuronx_available
+
+
+if is_neuronx_available():
+    import torch_xla.core.xla_model as xm
+
 from optimum.exporters.neuron import NeuronDefaultConfig
 from optimum.neuron.modeling_seq2seq import NeuronModelForConditionalGeneration, _NeuronSeq2SeqModelPart
 from optimum.neuron.modeling_traced import NeuronTracedModel
@@ -38,6 +44,7 @@ from optimum.neuron.utils.doc import (
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
+    from transformers.modeling_utils import PreTrainedModel
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +56,87 @@ class DummyLayer:
 
     def __call__(self, x):
         return x
+
+
+class WhisperEncoderWrapper(torch.nn.Module):
+    """Wrapper to trace the forward of Whisper encoder."""
+
+    def __init__(
+        self,
+        model: "PreTrainedModel",
+        batch_size: int,
+        device: str = None,
+        **kwargs,
+    ):
+        super().__init__()
+        self.model = model
+        self.config = model.config
+        self.batch_size = batch_size
+        self.device = device
+
+    def forward(
+        self,
+        input_features,
+        decoder_input_ids,
+        **kwargs,
+    ):
+        # encoder
+        encoder_outputs = self.model.model.encoder(
+            input_features=input_features,
+            return_dict=True,
+        )
+        # 1st decoder + proj_out
+        decoder_outputs = self.model.model.decoder(
+            input_ids=decoder_input_ids,
+            encoder_hidden_states=encoder_outputs[0],
+            use_cache=False,
+            return_dict=True,
+        )
+        lm_logits = self.model.proj_out(decoder_outputs[0])
+
+        return (lm_logits, encoder_outputs.last_hidden_state)
+
+
+class WhisperDecoderWrapper(torch.nn.Module):
+    """Wrapper to trace the forward of Whisper decoder."""
+
+    def __init__(
+        self,
+        model: "PreTrainedModel",
+        batch_size: int,
+        sequence_length: int,
+        output_hidden_states: bool = False,
+        output_attentions: bool = False,
+        device: str = None,
+        **kwargs,
+    ):
+        super().__init__()
+        self.model = model
+        self.config = model.config
+        self.batch_size = batch_size
+        self.sequence_length = sequence_length
+        self.output_hidden_states = output_hidden_states
+        self.output_attentions = output_attentions
+        self.device = device if device else xm.xla_device()
+
+    def forward(
+        self,
+        input_ids,
+        encoder_hidden_states,
+        **kwargs,
+    ):
+        cache_position = torch.arange(input_ids.shape[1]).to(self.device)
+        outputs = self.model.model.decoder(
+            input_ids=input_ids,
+            encoder_hidden_states=encoder_hidden_states,
+            use_cache=False,
+            output_attentions=False,
+            output_hidden_states=False,
+            return_dict=True,
+            cache_position=cache_position,
+        )
+        lm_logits = self.model.proj_out(outputs[0])
+        return lm_logits
 
 
 class NeuronWhisperEncoder(_NeuronSeq2SeqModelPart):

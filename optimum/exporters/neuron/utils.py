@@ -33,6 +33,7 @@ from ...neuron.utils import (
     ENCODER_NAME,
     InputShapesArguments,
     LoRAAdapterArguments,
+    f32Wrapper,
     get_attention_scores_sd,
     get_attention_scores_sdxl,
     neuron_scaled_dot_product_attention,
@@ -552,23 +553,6 @@ def replace_stable_diffusion_submodels(pipeline, submodels):
             pipeline.unet = unet
 
     return pipeline
-
-
-class f32Wrapper(torch.nn.Module):
-    def __init__(self, model):
-        super().__init__()
-        self.original = model
-
-    def forward(self, x):
-        y = x.to(torch.float32)
-        output = self.original(y)
-        return output
-
-    def __getattr__(self, name):
-        # Delegate attribute/method lookup to the wrapped model if not found in this wrapper
-        if name == "original":
-            return super().__getattr__(name)
-        return getattr(self.original, name)
 
 
 _DIFFUSERS_CLASS_NAME_TO_SUBMODEL_TYPE = {
