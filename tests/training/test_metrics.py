@@ -111,15 +111,31 @@ def test_metrics_collector_standalone():
     assert collector.metric_start_times["throughput"] is None
     assert len(collector.metric_windows["throughput"].step_times) == 1
 
-    # Test training efficiency component timing
-    collector.start_metric("forward_pass")
-    time.sleep(0.05)
+    # Test training efficiency component timing with gradient accumulation cycle
+    collector.start_gradient_accumulation_cycle()
+
+    # Simulate multiple forward/backward passes in a gradient accumulation cycle
+    inputs_sample = {"input_ids": torch.randint(0, 1000, (2, 10))}  # 2 samples, 10 tokens each
+
+    # Micro-batch 1
+    collector.start_metric("forward_pass", inputs=inputs_sample)
+    time.sleep(0.02)
     collector.stop_metric("forward_pass")
 
-    collector.start_metric("backward_pass")
-    time.sleep(0.03)
+    collector.start_metric("backward_pass", inputs=inputs_sample)
+    time.sleep(0.015)
     collector.stop_metric("backward_pass")
 
+    # Micro-batch 2
+    collector.start_metric("forward_pass", inputs=inputs_sample)
+    time.sleep(0.025)
+    collector.stop_metric("forward_pass")
+
+    collector.start_metric("backward_pass", inputs=inputs_sample)
+    time.sleep(0.018)
+    collector.stop_metric("backward_pass")
+
+    # Single optimizer step
     collector.start_metric("optimizer_step")
     time.sleep(0.02)
     collector.stop_metric("optimizer_step")
@@ -127,6 +143,9 @@ def test_metrics_collector_standalone():
     collector.start_metric("total_step")
     time.sleep(0.15)  # Should be >= sum of components
     collector.stop_metric("total_step")
+
+    # End the gradient accumulation cycle
+    collector.end_gradient_accumulation_cycle(step_number=1)
 
     # Test helper method for getting average times
     forward_time = collector._get_metric_average_time("forward_pass")
@@ -138,6 +157,16 @@ def test_metrics_collector_standalone():
     assert backward_time > 0
     assert optimizer_time > 0
     assert total_time > 0
+
+    # Verify that forward_time and backward_time represent cumulative values
+    # forward_time should be approximately 0.02 + 0.025 = 0.045 seconds
+    # backward_time should be approximately 0.015 + 0.018 = 0.033 seconds
+    expected_forward_cumulative = 0.02 + 0.025  # Sum of micro-batch forward passes
+    expected_backward_cumulative = 0.015 + 0.018  # Sum of micro-batch backward passes
+
+    # Allow some tolerance for timing variations
+    assert abs(forward_time - expected_forward_cumulative) < 0.01
+    assert abs(backward_time - expected_backward_cumulative) < 0.01
 
     # Test training efficiency calculation
     efficiency_metrics = collector._calculate_training_efficiency_metrics()

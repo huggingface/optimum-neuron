@@ -1032,18 +1032,19 @@ class NeuronTrainer:
             self.running_loss.zero_()
 
             # We calculte metrics here to avoid doing complicating thing with the closure and whe it is actually executed.
+            metrics = {}
             if self.metrics_collector is not None and self.metrics_collector.should_calculate_metrics(
                 self.state.global_step
             ):
                 try:
                     metrics = self.metrics_collector.calculate_metric("all")
+                    print("Metrics", metrics)
                     # Reset the metrics window after calculation
                     self.metrics_collector.reset_window()
                 except Exception as e:
                     # Log error but don't fail training
                     logger.warning(f"Failed to calculate training metrics: {e}")
-            else:
-                metrics = {}
+                    metrics = {}
 
             def log_closure():
                 # We need to check that self.state.global_step > self._globalstep_last_logged because if two
@@ -1147,6 +1148,7 @@ class NeuronTrainer:
 
                 # Start throughput and total_step timing at the beginning of each gradient accumulation cycle
                 if self.metrics_collector is not None:
+                    self.metrics_collector.start_gradient_accumulation_cycle()
                     self.metrics_collector.start_metric("throughput")
                     self.metrics_collector.start_metric("total_step")
 
@@ -1202,6 +1204,7 @@ class NeuronTrainer:
                         if self.metrics_collector is not None:
                             self.metrics_collector.stop_metric("throughput")
                             self.metrics_collector.stop_metric("total_step")
+                            self.metrics_collector.end_gradient_accumulation_cycle(step_number=self.state.global_step)
                     else:
                         self.accelerator.gradient_state.sync_gradients = False
                         self.control = self.callback_handler.on_substep_end(args, self.state, self.control)

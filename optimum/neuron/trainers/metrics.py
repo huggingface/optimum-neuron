@@ -26,8 +26,9 @@ from ..utils.training_utils import get_model_param_count
 
 
 HARDWARE_TFLOPS = {
-    # Ref: https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/trainium.html#trainium-arch
+    # Ref: https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/trainium.html
     "trn1": 190 / 2,
+    # Ref: https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/trainium2.html
     "trn2": 667 / 2,
 }
 
@@ -102,11 +103,21 @@ class TrainingMetricsCollector:
     - Comprehensive summary statistics for end-of-training analysis
     - Auto-detection of Trainium hardware for accurate MFU calculations
     - Dual metrics: train/ (real-time) and summary/ (end-of-training)
+    - Configurable gradient accumulation cycle support for any metric
+
+    Args:
+        model: The model being trained
+        training_args: NeuronTrainingArguments containing training configuration
+        accumulating_metrics: List of metric names that should accumulate during gradient accumulation cycles.
+                             Defaults to ["forward_pass", "backward_pass"]
     """
 
-    def __init__(self, model: Any, training_args: NeuronTrainingArguments):
+    def __init__(self, model: Any, training_args: NeuronTrainingArguments, accumulating_metrics: list[str] | None = None):
         self.model = model
         self.args = training_args
+
+        # Configure which metrics should accumulate during gradient accumulation cycles
+        self.accumulating_metrics = accumulating_metrics or ["forward_pass", "backward_pass"]
 
         # Input validation
         self._validate_inputs()
@@ -131,6 +142,12 @@ class TrainingMetricsCollector:
         self.metric_windows = {}
         self.metric_start_times = {}
         self.current_batch_data = {}  # Store batch data for current metric timing
+
+        # Cycle management for gradient accumulation
+        self.cycle_active = False
+        self.cycle_accumulators = dict.fromkeys(self.accumulating_metrics, 0.0)
+        self.cycle_batch_data = {"tokens": 0, "samples": 0}
+        self.component_start_time = None
 
         # Summary metrics collection (for end-of-training statistics)
         self.summary_metrics = {}  # Store all measurements for summary statistics
@@ -189,7 +206,7 @@ class TrainingMetricsCollector:
     def _initialize_metric_systems(self):
         """Initialize per-metric moving windows and timing systems."""
         # Define available metrics
-        metric_names = ["throughput", "mfu", "efficiency", "forward_pass", "backward_pass", "optimizer_step", "total_step"]
+        metric_names = ["throughput", "mfu", "training_efficiency", "forward_pass", "backward_pass", "optimizer_step", "total_step"]
 
         # Initialize per-metric systems
         for metric_name in metric_names:
@@ -204,26 +221,80 @@ class TrainingMetricsCollector:
                 "step_numbers": [],
             }
 
+    def start_gradient_accumulation_cycle(self):
+        """
+        Start a gradient accumulation cycle for cumulative timing.
+
+        This method should be called at the beginning of each gradient accumulation cycle
+        to enable proper cumulative timing for accumulating metrics.
+        """
+        self.cycle_active = True
+        self.cycle_accumulators = dict.fromkeys(self.accumulating_metrics, 0.0)
+        self.cycle_batch_data = {"tokens": 0, "samples": 0}
+
+    def end_gradient_accumulation_cycle(self, step_number: int | None = None):
+        """
+        End a gradient accumulation cycle and record accumulated times.
+
+        This method should be called at the end of each gradient accumulation cycle
+        to record the cumulative times for all accumulating metrics.
+
+        Args:
+            step_number: Optional step number for tracking
+        """
+        if not self.cycle_active:
+            return
+
+        # Record accumulated times to windows for all accumulating metrics
+        for metric_name in self.accumulating_metrics:
+            if metric_name in self.cycle_accumulators:
+                print(f"Accumulated time for {metric_name}: {self.cycle_accumulators[metric_name]:.4f} seconds")
+                self.metric_windows[metric_name].add_step(
+                    tokens=self.cycle_batch_data["tokens"],
+                    samples=self.cycle_batch_data["samples"],
+                    step_time=self.cycle_accumulators[metric_name],
+                )
+
+                # Add to summary metrics
+                self.summary_metrics[metric_name]["step_times"].append(self.cycle_accumulators[metric_name])
+                self.summary_metrics[metric_name]["tokens_per_step"].append(self.cycle_batch_data["tokens"])
+                self.summary_metrics[metric_name]["samples_per_step"].append(self.cycle_batch_data["samples"])
+                self.summary_metrics[metric_name]["step_numbers"].append(step_number or 0)
+
+        # Reset cycle state
+        self.cycle_active = False
+        self.cycle_accumulators = dict.fromkeys(self.accumulating_metrics, 0.0)
+        self.cycle_batch_data = {"tokens": 0, "samples": 0}
+
     def start_metric(self, metric_name: str, inputs: dict[str, Any] | None = None):
         """
         Start timing for a specific metric.
 
         Args:
-            metric_name: Name of the metric to start ('throughput', 'mfu', 'efficiency', etc.)
+            metric_name: Name of the metric to start ('throughput', 'mfu', 'training_efficiency', etc.)
             inputs: Optional batch inputs for token/sample counting
         """
         if metric_name not in self.metric_start_times:
             raise ValueError(f"Unknown metric: {metric_name}. Available: {list(self.metric_start_times.keys())}")
 
-        # Start timing for this metric
-        self.metric_start_times[metric_name] = time.perf_counter()
+        # Handle accumulation mode for accumulating metrics during gradient accumulation
+        if self.cycle_active and metric_name in self.accumulating_metrics:
+            # Start timing for this component within the accumulation cycle
+            self.component_start_time = time.perf_counter()
 
-        # Reset batch data accumulator for this metric
-        self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
+            # Accumulate batch data for the cycle
+            if inputs is not None:
+                self._update_cycle_batch_data(inputs)
+        else:
+            # Normal single-step timing
+            self.metric_start_times[metric_name] = time.perf_counter()
 
-        # Count tokens and samples if inputs provided
-        if inputs is not None:
-            self._update_batch_data(metric_name, inputs)
+            # Reset batch data accumulator for this metric
+            self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
+
+            # Count tokens and samples if inputs provided
+            if inputs is not None:
+                self._update_batch_data(metric_name, inputs)
 
     def update_metric_batch_data(self, metric_name: str, inputs: dict[str, Any]):
         """
@@ -252,6 +323,20 @@ class TrainingMetricsCollector:
         self.current_batch_data[metric_name]["tokens"] += batch_tokens
         self.current_batch_data[metric_name]["samples"] += batch_samples
 
+    def _update_cycle_batch_data(self, inputs: dict[str, Any]):
+        """Helper method to count tokens and samples for cycle accumulation."""
+        batch_tokens = 0
+        batch_samples = 0
+
+        if "input_ids" in inputs:
+            input_ids = inputs["input_ids"]
+            if isinstance(input_ids, torch.Tensor):
+                batch_tokens = input_ids.numel()
+                batch_samples = input_ids.size(0)
+
+        self.cycle_batch_data["tokens"] += batch_tokens
+        self.cycle_batch_data["samples"] += batch_samples
+
     def stop_metric(self, metric_name: str, step_number: int | None = None):
         """
         Stop timing for a specific metric and add the measurement to its moving window.
@@ -263,39 +348,55 @@ class TrainingMetricsCollector:
         if metric_name not in self.metric_start_times:
             raise ValueError(f"Unknown metric: {metric_name}. Available: {list(self.metric_start_times.keys())}")
 
-        if self.metric_start_times[metric_name] is None:
-            # Metric wasn't started, ignore
-            return
+        # Handle accumulation mode for accumulating metrics during gradient accumulation
+        if self.cycle_active and metric_name in self.accumulating_metrics:
+            if self.component_start_time is None:
+                # Component wasn't started, ignore
+                return
 
-        # Calculate elapsed time
-        elapsed_time = time.perf_counter() - self.metric_start_times[metric_name]
+            # Calculate elapsed time for this component
+            elapsed_time = time.perf_counter() - self.component_start_time
 
-        # Get batch data for this metric
-        batch_data = self.current_batch_data[metric_name]
+            # Accumulate time for this component
+            self.cycle_accumulators[metric_name] += elapsed_time
 
-        # Add to moving window
-        self.metric_windows[metric_name].add_step(
-            tokens=batch_data["tokens"],
-            samples=batch_data["samples"],
-            step_time=elapsed_time,
-        )
+            # Reset component timing
+            self.component_start_time = None
+        else:
+            # Normal single-step timing
+            if self.metric_start_times[metric_name] is None:
+                # Metric wasn't started, ignore
+                return
 
-        # Add to summary metrics for end-of-training statistics
-        self.summary_metrics[metric_name]["step_times"].append(elapsed_time)
-        self.summary_metrics[metric_name]["tokens_per_step"].append(batch_data["tokens"])
-        self.summary_metrics[metric_name]["samples_per_step"].append(batch_data["samples"])
-        self.summary_metrics[metric_name]["step_numbers"].append(step_number or 0)
+            # Calculate elapsed time
+            elapsed_time = time.perf_counter() - self.metric_start_times[metric_name]
 
-        # Reset the metric state
-        self.metric_start_times[metric_name] = None
-        self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
+            # Get batch data for this metric
+            batch_data = self.current_batch_data[metric_name]
+
+            # Add to moving window
+            self.metric_windows[metric_name].add_step(
+                tokens=batch_data["tokens"],
+                samples=batch_data["samples"],
+                step_time=elapsed_time,
+            )
+
+            # Add to summary metrics for end-of-training statistics
+            self.summary_metrics[metric_name]["step_times"].append(elapsed_time)
+            self.summary_metrics[metric_name]["tokens_per_step"].append(batch_data["tokens"])
+            self.summary_metrics[metric_name]["samples_per_step"].append(batch_data["samples"])
+            self.summary_metrics[metric_name]["step_numbers"].append(step_number or 0)
+
+            # Reset the metric state
+            self.metric_start_times[metric_name] = None
+            self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
 
     def calculate_metric(self, metric_name: str) -> dict[str, float]:
         """
         Calculate a specific metric using its moving window data.
 
         Args:
-            metric_name: Name of the metric to calculate ('throughput', 'mfu', 'efficiency', 'training_efficiency', 'all')
+            metric_name: Name of the metric to calculate ('throughput', 'mfu', 'training_efficiency', 'all')
 
         Returns:
             Dictionary containing the calculated metrics for the specified type.
@@ -311,10 +412,6 @@ class TrainingMetricsCollector:
         if metric_name in ["mfu", "all"]:
             if self.args.enable_mfu_metrics:
                 metrics.update(self._calculate_mfu_metrics_from_window("mfu"))
-
-        if metric_name in ["efficiency", "all"]:
-            if self.args.enable_efficiency_metrics:
-                metrics.update(self._calculate_efficiency_metrics_from_window("efficiency", throughput_metrics))
 
         if metric_name in ["training_efficiency", "all"]:
             if self.args.enable_efficiency_metrics:
@@ -339,9 +436,6 @@ class TrainingMetricsCollector:
         if self.args.enable_mfu_metrics and self.summary_metrics["mfu"]["step_times"]:
             summary.update(self._calculate_mfu_summary())
 
-        # Calculate efficiency summary if enabled
-        if self.args.enable_efficiency_metrics and self.summary_metrics["efficiency"]["step_times"]:
-            summary.update(self._calculate_efficiency_summary())
 
         # Calculate training efficiency summary if enabled and component data is available
         if self.args.enable_efficiency_metrics:
@@ -454,46 +548,6 @@ class TrainingMetricsCollector:
 
         return summary
 
-    def _calculate_efficiency_summary(self) -> dict[str, float]:
-        """Calculate summary statistics for efficiency metrics."""
-        summary = {}
-        metric_data = self.summary_metrics["efficiency"]
-
-        if not metric_data["step_times"]:
-            return summary
-
-        step_times = metric_data["step_times"]
-        tokens_per_step = metric_data["tokens_per_step"]
-
-        # Calculate efficiency for each step
-        efficiency_values = []
-        expected_tokens_per_core = getattr(self.args, "expected_tokens_per_core", 500.0)
-
-        for tokens, t in zip(tokens_per_step, step_times):
-            if t > 0 and tokens > 0:
-                tokens_per_sec = tokens / t
-                tokens_per_core = tokens_per_sec / self.total_neuron_cores
-                efficiency = (tokens_per_core / expected_tokens_per_core) * 100
-                efficiency_values.append(min(efficiency, 100.0))
-
-        if efficiency_values:
-            summary.update(
-                {
-                    "summary/efficiency_avg": sum(efficiency_values) / len(efficiency_values),
-                    "summary/efficiency_min": min(efficiency_values),
-                    "summary/efficiency_max": max(efficiency_values),
-                }
-            )
-
-        # Step time consistency over entire training
-        if len(step_times) > 1:
-            mean_time = sum(step_times) / len(step_times)
-            variance = sum((t - mean_time) ** 2 for t in step_times) / len(step_times)
-            std_dev = variance**0.5
-            cv = (std_dev / mean_time) * 100 if mean_time > 0 else 0
-            summary["summary/step_time_consistency"] = round(100 - min(cv, 100), 2)
-
-        return summary
 
     def _calculate_training_efficiency_summary(self) -> dict[str, float]:
         """Calculate summary statistics for training efficiency metrics."""
@@ -630,39 +684,6 @@ class TrainingMetricsCollector:
             "train/mfu": round(mfu_percentage, 2),
         }
 
-    def _calculate_efficiency_metrics_from_window(
-        self, metric_name: str, throughput_metrics: dict[str, Any] | None = None
-    ) -> dict[str, float]:
-        """Calculate efficiency metrics from a specific metric window (legacy method)."""
-        if metric_name not in self.metric_windows or self.metric_windows[metric_name].size == 0:
-            return {}
-
-        if not throughput_metrics:
-            throughput_metrics = self._calculate_throughput_metrics_from_window(metric_name)
-
-        metrics = {}
-
-        # Simple efficiency based on tokens per second per core vs expected
-        if "train/tokens_per_sec_per_neuron_core" in throughput_metrics:
-            tokens_per_core = throughput_metrics["train/tokens_per_sec_per_neuron_core"]
-            expected_tokens_per_core = getattr(self.args, "expected_tokens_per_core", 500.0)
-            if expected_tokens_per_core > 0:
-                efficiency = (tokens_per_core / expected_tokens_per_core) * 100
-                metrics["train/training_efficiency"] = round(min(efficiency, 100.0), 2)
-
-        # Consistency metric: coefficient of variation of step times
-        window_stats = self.metric_windows[metric_name].get_window_stats()
-        if window_stats["window_steps"] > 1:
-            step_times = list(self.metric_windows[metric_name].step_times)
-            if len(step_times) > 1:
-                mean_time = sum(step_times) / len(step_times)
-                variance = sum((t - mean_time) ** 2 for t in step_times) / len(step_times)
-                std_dev = variance**0.5
-                cv = (std_dev / mean_time) * 100 if mean_time > 0 else 0
-                metrics["train/step_time_consistency"] = round(100 - min(cv, 100), 2)  # Higher is better
-
-        return metrics
-
     def _get_metric_average_time(self, metric_name: str) -> float:
         """
         Get average step time for a metric from its window.
@@ -708,8 +729,6 @@ class TrainingMetricsCollector:
         return {
             "train/training_efficiency": round(efficiency_percentage, 2),
             "train/training_overhead": round(overhead_percentage, 2),
-            "train/compute_time_ratio": round(compute_time / total_time, 3),
-            "train/overhead_time_ratio": round(overhead_time / total_time, 3),
         }
 
     def reset_window(self):
