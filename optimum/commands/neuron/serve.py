@@ -17,10 +17,12 @@
 import os
 from argparse import ArgumentParser
 
+from ...neuron.cache.hub_cache import select_hub_cached_entries
 from ...neuron.configuration_utils import NeuronConfig
 from ...neuron.utils import DTYPE_MAPPER
 from ...neuron.utils.import_utils import is_vllm_available
 from ...neuron.utils.require_utils import requires_torch_neuronx, requires_vllm
+from ...neuron.utils.system import get_available_cores
 from ...utils import logging
 from ..base import BaseOptimumCLICommand
 
@@ -34,6 +36,9 @@ if is_vllm_available():
 
 
 logger = logging.get_logger()
+
+
+available_cores = get_available_cores()
 
 
 class ServeCommand(BaseOptimumCLICommand):
@@ -77,12 +82,19 @@ class ServeCommand(BaseOptimumCLICommand):
     @requires_vllm
     @requires_torch_neuronx
     def run(self):
+        model_id = self.args.model
+        revision = None
         batch_size = self.args.batch_size
         sequence_length = self.args.sequence_length
         tensor_parallel_size = self.args.tensor_parallel_size
         torch_dtype = None if self.args.dtype is None else DTYPE_MAPPER.pt(self.args.dtype)
-        if os.path.isdir(self.args.model):
-            # The model is a local path, we assume the user has already converted it to a Neuron model
+        try:
+            # Look for a NeuronConfig in the model directory
+            neuron_config = NeuronConfig.from_pretrained(model_id, revision=revision)
+        except Exception:
+            neuron_config = None
+        if neuron_config is not None:
+            # This is a Neuron model: retrieve and check the export arguments
             neuron_config = NeuronConfig.from_pretrained(self.args.model)
             if batch_size is None:
                 batch_size = neuron_config.batch_size
@@ -112,7 +124,51 @@ class ServeCommand(BaseOptimumCLICommand):
                     f"The specified dtype {torch_dtype} is inconsistent"
                     f"with the one used to export the neuron model ({neuron_config.torch_dtype})"
                 )
-            logger.info(f"Loading Neuron model from local path: {self.args.model}")
+            logger.info(f"Loading Neuron model: {self.args.model}")
+        else:
+            # Model needs to be exported: look for compatible hub cached configs
+            cached_entries = select_hub_cached_entries(
+                model_id,
+                task="text-generation",
+                batch_size=batch_size,
+                sequence_length=sequence_length,
+                tensor_parallel_size=tensor_parallel_size,
+                torch_dtype=torch_dtype,
+            )
+            if len(cached_entries) == 0:
+                hub_cache_url = "https://huggingface.co/aws-neuron/optimum-neuron-cache"  # noqa: E501
+                neuron_export_url = "https://huggingface.co/docs/optimum-neuron/main/en/guides/export_model"  # noqa: E501
+                error_msg = f"No cached version found for {model_id}"
+                if batch_size is not None:
+                    error_msg += f", batch size = {batch_size}"
+                if sequence_length is not None:
+                    error_msg += f", sequence length = {sequence_length},"
+                if tensor_parallel_size is not None:
+                    error_msg += f", tp = {tensor_parallel_size}"
+                if torch_dtype is not None:
+                    error_msg += f", dtype = {torch_dtype}"
+                error_msg += (
+                    f".You can start a discussion to request it on {hub_cache_url}"
+                    "Alternatively, you can export your own neuron model "
+                    f"as explained in {neuron_export_url}"
+                )
+                raise ValueError(error_msg)
+            logger.warning("%s is not a neuron model: it will be exported using cached artifacts.", model_id)
+            # Filter out entries that do not fit on the target host
+            filtered_entries = [e for e in cached_entries if e["tp_degree"] <= available_cores]
+            # Sort entries by decreasing tensor parallel size, batch size, sequence length
+            filtered_entries = sorted(
+                filtered_entries,
+                key=lambda x: (x["tp_degree"], x["batch_size"], x["sequence_length"]),
+                reverse=True,
+            )
+            # Export the model with the best matching configuration
+            selected_entry = filtered_entries[0]
+            batch_size = selected_entry["batch_size"]
+            sequence_length = selected_entry["sequence_length"]
+            tensor_parallel_size = selected_entry["tp_degree"]
+            torch_dtype = DTYPE_MAPPER.pt(selected_entry["torch_dtype"])
+
         os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
         vllm_parser = make_arg_parser(FlexibleArgumentParser())
         command = [
@@ -120,18 +176,15 @@ class ServeCommand(BaseOptimumCLICommand):
             self.args.model,
             "--port",
             str(self.args.port),
+            "--tensor-parallel-size",
+            str(tensor_parallel_size),
+            "--max-num-seqs",
+            str(batch_size),
+            "--max-model-len",
+            str(sequence_length),
+            "--dtype",
+            str(torch_dtype).split(".")[-1],
         ]
-        if tensor_parallel_size is not None:
-            command += ["--tensor-parallel-size", str(tensor_parallel_size)]
-        if batch_size is not None:
-            command += ["--max-num-seqs", str(batch_size)]
-        if sequence_length is not None:
-            command += ["--max-model-len", str(sequence_length)]
-        if torch_dtype is not None:
-            if isinstance(torch_dtype, str):
-                # vLLM does not accept string dtype, convert to torch.dtype
-                torch_dtype = DTYPE_MAPPER.vllm(torch_dtype)
-            command += ["--dtype", str(torch_dtype).split(".")[-1]]
         vllm_args = vllm_parser.parse_args(command)
         validate_parsed_serve_args(vllm_args)
 
