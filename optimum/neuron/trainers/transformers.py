@@ -1342,7 +1342,7 @@ class NeuronTrainer:
                         logger.info(f"{metric_name}: {value:.4f}s")
                     elif "per_sec" in metric_name:
                         logger.info(f"{metric_name}: {value:.2f}")
-                    elif "mfu" in metric_name or "efficiency" in metric_name or "consistency" in metric_name:
+                    elif "mfu" in metric_name or "efficiency" in metric_name or "consistency" in metric_name or "percent" in metric_name:
                         logger.info(f"{metric_name}: {value:.2f}%")
                     else:
                         logger.info(f"{metric_name}: {value:.2f}")
