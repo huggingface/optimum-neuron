@@ -15,7 +15,6 @@
 """Model specific Neuron configurations."""
 
 import copy
-import inspect
 import os
 from functools import partial
 from pathlib import Path
@@ -24,6 +23,7 @@ from typing import Any
 import neuronx_distributed
 import torch
 from neuronx_distributed.trace.model_builder import BaseModelInstance
+from neuronx_distributed.utils.utils import hardware
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import (
     DummyFluxTransformerTextInputGenerator,
@@ -43,7 +43,18 @@ from optimum.utils import (
     logging,
 )
 from safetensors.torch import load_file
+from torch_neuronx.utils import get_platform_target
 
+from optimum.neuron.models.inference.flux.modeling_flux import (
+    FluxTransformerNeuronWrapper,
+    NeuronFluxTransformer2DModel,
+)
+from optimum.neuron.models.inference.t5.modeling_t5 import (
+    T5DecoderWrapper,
+    T5EncoderForSeq2SeqLMWrapper,
+    T5EncoderWrapper,
+)
+from optimum.neuron.models.inference.whisper.modeling_whisper import WhisperDecoderWrapper, WhisperEncoderWrapper
 from optimum.neuron.utils import (
     SAFE_WEIGHTS_INDEX_NAME,
     ASTDummyAudioInputGenerator,
@@ -59,6 +70,7 @@ from optimum.neuron.utils import (
     saved_model_in_temporary_directory,
 )
 
+from .base import BaseNxDModelNeuronConfig
 from .config import (
     AudioNeuronConfig,
     TextAndVisionNeuronConfig,
@@ -69,17 +81,11 @@ from .config import (
 from .model_wrappers import (
     CLIPVisionWithProjectionNeuronWrapper,
     ControlNetNeuronWrapper,
-    FluxTransformerNeuronWrapper,
     NoCacheModelWrapper,
     PixartTransformerNeuronWrapper,
     SentenceTransformersCLIPNeuronWrapper,
     SentenceTransformersTransformerNeuronWrapper,
-    T5DecoderWrapper,
-    T5EncoderForSeq2SeqLMWrapper,
-    T5EncoderWrapper,
     UnetNeuronWrapper,
-    WhisperDecoderWrapper,
-    WhisperEncoderWrapper,
 )
 
 
@@ -794,7 +800,7 @@ class PixartTransformerNeuronConfig(VisionNeuronConfig):
 
 
 @register_in_tasks_manager("flux-transformer-2d", *["semantic-segmentation"], library_name="diffusers")
-class FluxTransformerNeuronConfig(VisionNeuronConfig):
+class FluxTransformerNeuronConfig(BaseNxDModelNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     INPUT_ARGS = (
         "batch_size",
@@ -807,6 +813,7 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
         "rotary_axes_dim",
     )
     MODEL_TYPE = "flux-transformer-2d"
+    TENSOR_PARALLEL_MODEL = NeuronFluxTransformer2DModel
     CUSTOM_MODEL_WRAPPER = FluxTransformerNeuronWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         height="height",
@@ -843,26 +850,6 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
     @property
     def outputs(self) -> list[str]:
         return ["out_hidden_states"]
-
-    def patch_model_and_prepare_aliases(self, model_or_path, *args):
-        base_model_instance = BaseModelInstance(
-            partial(self.get_parallel_callable, self._config),
-            input_output_aliases={},
-        )
-        return base_model_instance
-
-    def get_parallel_callable(self, config):
-        from optimum.neuron.models.inference.flux.modeling_flux import NeuronFluxTransformer2DModel
-
-        # Parallelize Flux transformer with NxD backend modeling
-        valid_params = inspect.signature(NeuronFluxTransformer2DModel.__init__).parameters
-        model_config = {k: v for k, v in config.items() if k in valid_params and k != "self"}
-        model = NeuronFluxTransformer2DModel(**model_config)
-        model.eval()
-        if self.float_dtype == torch.bfloat16:
-            model.bfloat16()
-
-        return model
 
     # Adapted from diffusers.models.modeling_utils.ModelMixin.from_pretrained, this is a helper function for loading checkpoints required by `ModelBuilder`.
     def get_checkpoint_loader_fn(self):
@@ -937,6 +924,17 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
     @is_flux_kontext.setter
     def is_flux_kontext(self, is_flux_kontext: bool):
         self._is_flux_kontext = is_flux_kontext
+
+    def get_compiler_args(self):
+        target_hardware_platform = hardware(get_platform_target())
+        compiler_args = "--model-type=transformer -O1"
+        compiler_args += " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'"
+        compiler_args += " --auto-cast=none --internal-hlo2tensorizer-options='--verify-hlo=true'"
+
+        os.environ["LOCAL_WORLD_SIZE"] = str(self.tensor_parallel_size)
+        if target_hardware_platform == hardware.TRN2:
+            os.environ["NEURON_RT_VIRTUAL_CORE_SIZE"] = "2"
+        return compiler_args
 
 
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")
@@ -1121,6 +1119,9 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
         )
 
         return sharded_text_encoder, {}
+
+    def get_checkpoint_loader_fn(self):
+        return None
 
 
 @register_in_tasks_manager("t5-encoder", *["text2text-generation"])
