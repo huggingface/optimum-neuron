@@ -1038,7 +1038,6 @@ class NeuronTrainer:
             ):
                 try:
                     metrics = self.metrics_collector.calculate_metric("all")
-                    print("Metrics", metrics)
                     # Reset the metrics window after calculation
                     self.metrics_collector.reset_window()
                 except Exception as e:
