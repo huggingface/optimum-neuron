@@ -516,6 +516,7 @@ class TrainingMetricsCollector:
 
         # Calculate training efficiency for each step
         efficiency_values = []
+        overhead_values = []
 
         forward_times = forward_data["step_times"]
         backward_times = backward_data["step_times"]
@@ -533,14 +534,22 @@ class TrainingMetricsCollector:
 
             if total_time > 0:
                 compute_time = forward_time + backward_time + optimizer_time
+                overhead_time = total_time - compute_time
+
                 efficiency = (compute_time / total_time) * 100
+                overhead = (overhead_time / total_time) * 100
+
                 efficiency_values.append(efficiency)
+                overhead_values.append(overhead)
 
         if efficiency_values:
             summary.update({
                 "summary/training_efficiency_avg": round(sum(efficiency_values) / len(efficiency_values), 2),
                 "summary/training_efficiency_min": round(min(efficiency_values), 2),
                 "summary/training_efficiency_max": round(max(efficiency_values), 2),
+                "summary/training_overhead_avg": round(sum(overhead_values) / len(overhead_values), 2),
+                "summary/training_overhead_min": round(min(overhead_values), 2),
+                "summary/training_overhead_max": round(max(overhead_values), 2),
             })
 
         return summary
@@ -691,11 +700,16 @@ class TrainingMetricsCollector:
 
         # Calculate useful compute time vs total time
         compute_time = forward_time + backward_time + optimizer_time
+        overhead_time = total_time - compute_time
+
         efficiency_percentage = (compute_time / total_time) * 100
+        overhead_percentage = (overhead_time / total_time) * 100
 
         return {
             "train/training_efficiency": round(efficiency_percentage, 2),
+            "train/training_overhead": round(overhead_percentage, 2),
             "train/compute_time_ratio": round(compute_time / total_time, 3),
+            "train/overhead_time_ratio": round(overhead_time / total_time, 3),
         }
 
     def reset_window(self):

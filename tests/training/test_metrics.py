@@ -142,14 +142,24 @@ def test_metrics_collector_standalone():
     # Test training efficiency calculation
     efficiency_metrics = collector._calculate_training_efficiency_metrics()
     assert "train/training_efficiency" in efficiency_metrics
+    assert "train/training_overhead" in efficiency_metrics
     assert "train/compute_time_ratio" in efficiency_metrics
+    assert "train/overhead_time_ratio" in efficiency_metrics
 
-    # Verify efficiency calculation
+    # Verify efficiency and overhead calculations
     compute_time = forward_time + backward_time + optimizer_time
+    overhead_time = total_time - compute_time
     expected_efficiency = (compute_time / total_time) * 100
+    expected_overhead = (overhead_time / total_time) * 100
 
     assert abs(efficiency_metrics["train/training_efficiency"] - expected_efficiency) < 0.1
+    assert abs(efficiency_metrics["train/training_overhead"] - expected_overhead) < 0.1
     assert abs(efficiency_metrics["train/compute_time_ratio"] - (compute_time / total_time)) < 0.01
+    assert abs(efficiency_metrics["train/overhead_time_ratio"] - (overhead_time / total_time)) < 0.01
+
+    # Verify efficiency + overhead = 100%
+    total_percentage = efficiency_metrics["train/training_efficiency"] + efficiency_metrics["train/training_overhead"]
+    assert abs(total_percentage - 100.0) < 0.1
 
     # Test non-existent metric
     assert collector._get_metric_average_time("non_existent") == 0.0
@@ -317,7 +327,8 @@ def test_trainer_full_metrics_integration(tmpdir):
             "train/tokens_per_second_per_neuron_core",
             "train/samples_per_second_per_neuron_core",
             "train/model_flops_utilization",
-            "train/training_efficiency"
+            "train/training_efficiency",
+            "train/training_overhead"
         ]
 
         last_training_log = training_logs[-1]
@@ -331,6 +342,13 @@ def test_trainer_full_metrics_integration(tmpdir):
 
         # Verify training efficiency is within reasonable bounds (should be <= 100%)
         assert 0 <= last_training_log["train/training_efficiency"] <= 100
+
+        # Verify training overhead is within reasonable bounds (should be <= 100%)
+        assert 0 <= last_training_log["train/training_overhead"] <= 100
+
+        # Verify efficiency + overhead = 100%
+        efficiency_overhead_sum = last_training_log["train/training_efficiency"] + last_training_log["train/training_overhead"]
+        assert abs(efficiency_overhead_sum - 100.0) < 0.1, f"Efficiency + Overhead should equal 100%, got {efficiency_overhead_sum}%"
 
         # Test summary metrics generation and file saving
         summary_file = os.path.join(tmpdir, "training_summary_metrics.json")
@@ -347,7 +365,8 @@ def test_trainer_full_metrics_integration(tmpdir):
             "summary/tokens_per_second_per_neuron_core_avg",
             "summary/samples_per_second_per_neuron_core_avg",
             "summary/model_flops_utilization_avg",
-            "summary/training_efficiency_avg"
+            "summary/training_efficiency_avg",
+            "summary/training_overhead_avg"
         ]
 
         for metric in expected_summary_metrics:
@@ -360,6 +379,13 @@ def test_trainer_full_metrics_integration(tmpdir):
 
         # Verify summary training efficiency bounds (should be <= 100%)
         assert 0 <= summary_metrics["summary/training_efficiency_avg"] <= 100
+
+        # Verify summary training overhead bounds (should be <= 100%)
+        assert 0 <= summary_metrics["summary/training_overhead_avg"] <= 100
+
+        # Verify summary efficiency + overhead = 100%
+        summary_efficiency_overhead_sum = summary_metrics["summary/training_efficiency_avg"] + summary_metrics["summary/training_overhead_avg"]
+        assert abs(summary_efficiency_overhead_sum - 100.0) < 0.1, f"Summary efficiency + overhead should equal 100%, got {summary_efficiency_overhead_sum}%"
 
         # Test metric value consistency
         # Per-neuron-core metrics should be lower than general metrics (with 32 total cores)
