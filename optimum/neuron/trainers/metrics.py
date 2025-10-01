@@ -393,44 +393,71 @@ class TrainingMetricsCollector:
         global_tokens_per_sec_values = [rate * self.dp_size for rate in local_tokens_per_sec_values]
         global_samples_per_sec_values = [rate * self.dp_size for rate in local_samples_per_sec_values]
 
-        tokens_per_sec_per_core_values = [rate / self.total_neuron_cores for rate in local_tokens_per_sec_values]
-        samples_per_sec_per_core_values = [rate / self.total_neuron_cores for rate in local_samples_per_sec_values]
+        # Calculate per-core metrics correctly
+        global_tokens_per_core_values = [rate / self.total_neuron_cores for rate in global_tokens_per_sec_values]
+        global_samples_per_core_values = [rate / self.total_neuron_cores for rate in global_samples_per_sec_values]
+
+        local_cores = self.total_neuron_cores // self.dp_size if self.dp_size > 0 else self.total_neuron_cores
+        local_tokens_per_core_values = [rate / local_cores for rate in local_tokens_per_sec_values] if local_cores > 0 else []
+        local_samples_per_core_values = [rate / local_cores for rate in local_samples_per_sec_values] if local_cores > 0 else []
         if global_tokens_per_sec_values:
             summary.update(
                 {
-                    "summary/tokens_per_sec_avg": sum(global_tokens_per_sec_values)
+                    "summary/global_tokens_per_sec_avg": sum(global_tokens_per_sec_values)
                     / len(global_tokens_per_sec_values),
-                    "summary/tokens_per_sec_min": min(global_tokens_per_sec_values),
-                    "summary/tokens_per_sec_max": max(global_tokens_per_sec_values),
-                    "summary/tokens_per_sec_per_core_avg": sum(tokens_per_sec_per_core_values)
-                    / len(tokens_per_sec_per_core_values),
-                    "summary/tokens_per_sec_per_core_min": min(tokens_per_sec_per_core_values),
-                    "summary/tokens_per_sec_per_core_max": max(tokens_per_sec_per_core_values),
+                    "summary/global_tokens_per_sec_min": min(global_tokens_per_sec_values),
+                    "summary/global_tokens_per_sec_max": max(global_tokens_per_sec_values),
+                    "summary/global_tokens_per_sec_per_core_avg": sum(global_tokens_per_core_values)
+                    / len(global_tokens_per_core_values),
+                    "summary/global_tokens_per_sec_per_core_min": min(global_tokens_per_core_values),
+                    "summary/global_tokens_per_sec_per_core_max": max(global_tokens_per_core_values),
                 }
             )
+
+            if local_tokens_per_core_values:
+                summary.update(
+                    {
+                        "summary/local_tokens_per_sec_per_core_avg": sum(local_tokens_per_core_values)
+                        / len(local_tokens_per_core_values),
+                        "summary/local_tokens_per_sec_per_core_min": min(local_tokens_per_core_values),
+                        "summary/local_tokens_per_sec_per_core_max": max(local_tokens_per_core_values),
+                    }
+                )
 
         if global_samples_per_sec_values:
             summary.update(
                 {
-                    "summary/samples_per_sec_avg": sum(global_samples_per_sec_values)
+                    "summary/global_samples_per_sec_avg": sum(global_samples_per_sec_values)
                     / len(global_samples_per_sec_values),
-                    "summary/samples_per_sec_min": min(global_samples_per_sec_values),
-                    "summary/samples_per_sec_max": max(global_samples_per_sec_values),
-                    "summary/samples_per_sec_per_core_avg": sum(samples_per_sec_per_core_values)
-                    / len(samples_per_sec_per_core_values),
-                    "summary/samples_per_sec_per_core_min": min(samples_per_sec_per_core_values),
-                    "summary/samples_per_sec_per_core_max": max(samples_per_sec_per_core_values),
+                    "summary/global_samples_per_sec_min": min(global_samples_per_sec_values),
+                    "summary/global_samples_per_sec_max": max(global_samples_per_sec_values),
+                    "summary/global_samples_per_sec_per_core_avg": sum(global_samples_per_core_values)
+                    / len(global_samples_per_core_values),
+                    "summary/global_samples_per_sec_per_core_min": min(global_samples_per_core_values),
+                    "summary/global_samples_per_sec_per_core_max": max(global_samples_per_core_values),
                 }
             )
 
+            if local_samples_per_core_values:
+                summary.update(
+                    {
+                        "summary/local_samples_per_sec_per_core_avg": sum(local_samples_per_core_values)
+                        / len(local_samples_per_core_values),
+                        "summary/local_samples_per_sec_per_core_min": min(local_samples_per_core_values),
+                        "summary/local_samples_per_sec_per_core_max": max(local_samples_per_core_values),
+                    }
+                )
+
         summary.update(
             {
-                "summary/step_time_avg": sum(step_times) / len(step_times),
-                "summary/step_time_min": min(step_times),
-                "summary/step_time_max": max(step_times),
+                "summary/local_step_time_avg": sum(step_times) / len(step_times),
+                "summary/local_step_time_min": min(step_times),
+                "summary/local_step_time_max": max(step_times),
                 "summary/total_training_steps": len(step_times),
-                "summary/total_tokens_processed": sum(tokens_per_step),
-                "summary/total_samples_processed": sum(samples_per_step),
+                "summary/local_tokens_processed": sum(tokens_per_step),
+                "summary/local_samples_processed": sum(samples_per_step),
+                "summary/global_tokens_processed": sum(tokens_per_step) * self.dp_size,
+                "summary/global_samples_processed": sum(samples_per_step) * self.dp_size,
             }
         )
 
@@ -537,23 +564,41 @@ class TrainingMetricsCollector:
 
         if total_tokens > 0:
             local_tokens_per_sec = total_tokens / total_time
-            metrics["train/tokens_per_sec"] = local_tokens_per_sec * self.dp_size
-            metrics["train/avg_tokens_per_step"] = window_stats["avg_tokens_per_step"]
+            global_tokens_per_sec = local_tokens_per_sec * self.dp_size
+
+            # Global metrics (across all DP ranks)
+            metrics["train/global_tokens_per_sec"] = global_tokens_per_sec
+
+            # Local metrics (per DP rank)
+            metrics["train/local_tokens_per_step"] = window_stats["avg_tokens_per_step"]
+
+            # Per-core metrics (hardware utilization)
+            if self.total_neuron_cores > 0:
+                metrics["train/global_tokens_per_sec_per_core"] = global_tokens_per_sec / self.total_neuron_cores
+                # Assume each rank uses total_cores/dp_size cores
+                local_cores = self.total_neuron_cores // self.dp_size if self.dp_size > 0 else self.total_neuron_cores
+                if local_cores > 0:
+                    metrics["train/local_tokens_per_sec_per_core"] = local_tokens_per_sec / local_cores
 
         if total_samples > 0:
             local_samples_per_sec = total_samples / total_time
-            metrics["train/samples_per_sec"] = local_samples_per_sec * self.dp_size
-            metrics["train/avg_samples_per_step"] = window_stats["avg_samples_per_step"]
+            global_samples_per_sec = local_samples_per_sec * self.dp_size
 
-        if self.total_neuron_cores > 0:
-            if total_tokens > 0:
-                metrics["train/tokens_per_sec_per_neuron_core"] = total_tokens / (total_time * self.total_neuron_cores)
-            if total_samples > 0:
-                metrics["train/samples_per_sec_per_neuron_core"] = total_samples / (
-                    total_time * self.total_neuron_cores
-                )
+            # Global metrics (across all DP ranks)
+            metrics["train/global_samples_per_sec"] = global_samples_per_sec
 
-        metrics["train/avg_step_time"] = window_stats["avg_time_per_step"]
+            # Local metrics (per DP rank)
+            metrics["train/local_samples_per_step"] = window_stats["avg_samples_per_step"]
+
+            # Per-core metrics (hardware utilization)
+            if self.total_neuron_cores > 0:
+                metrics["train/global_samples_per_sec_per_core"] = global_samples_per_sec / self.total_neuron_cores
+                # Assume each rank uses total_cores/dp_size cores
+                local_cores = self.total_neuron_cores // self.dp_size if self.dp_size > 0 else self.total_neuron_cores
+                if local_cores > 0:
+                    metrics["train/local_samples_per_sec_per_core"] = local_samples_per_sec / local_cores
+
+        metrics["train/local_step_time"] = window_stats["avg_time_per_step"]
 
         return metrics
 
