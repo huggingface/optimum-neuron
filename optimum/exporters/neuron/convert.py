@@ -354,6 +354,10 @@ def export_models(
     failed_models = []
     total_compilation_time = 0
     compile_configs = {}
+    models_and_neuron_configs.pop("text_encoder_2")
+    models_and_neuron_configs.pop("text_encoder")
+    models_and_neuron_configs.pop("vae_encoder")
+    models_and_neuron_configs.pop("vae_decoder")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -636,6 +640,7 @@ def prepare_compiler_flags(
     # `--model-type=transformer`` is now required for all models except those explicitly listed, based on our observations.
     exception_models = {
         "unet",
+        "flux-transformer-2d",
         "vae-encoder",
         "vae-decoder",
         "hubert",
@@ -675,7 +680,7 @@ def trace_neuronx(
 ):
     if tensor_parallel_size > 1:
         # Tensor Parallelism
-        # Case 1: Using ModelBuilderV2 API
+        # Case 1: Using `neuronx_distributed.trace.model_builder.ModelBuilder` API
         model_builder = ModelBuilder(
             router=None,
             debug=False,
@@ -728,7 +733,7 @@ def add_stable_diffusion_compiler_args(config, compiler_args):
     # unet or transformer or controlnet
     if any(model_type in identifier for model_type in ["unet", "transformer", "controlnet"]):
         if "flux" in str(getattr(config, "MODEL_TYPE", "")):
-            compiler_args.append(" --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'")
+            compiler_args.append(" " + config.get_compiler_args())
             return compiler_args
         # SDXL unet doesn't support fast loading neuron binaries(sdk 2.19.1)
         if not getattr(config, "is_sdxl", False):
