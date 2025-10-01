@@ -951,8 +951,16 @@ class NeuronTrainer:
         manager = self.autocast_smart_context_manager()
 
         if isinstance(model, NxDPPModel):
+            # Start forward pass timing for pipeline parallel models
+            if self.metrics_collector is not None:
+                self.metrics_collector.start_metric("forward_pass", inputs=inputs)
+
             with manager:
                 loss = model.run_train(**inputs)
+
+            # Stop forward pass timing (run_train includes both forward and backward for PP)
+            if self.metrics_collector is not None:
+                self.metrics_collector.stop_metric("forward_pass")
 
             # When using pipeline parallelism, the loss is only computed on the last stage.
             # So we set the loss to zero on other stages.
@@ -963,8 +971,16 @@ class NeuronTrainer:
             if num_items_in_batch is not None:
                 inputs = dict(**inputs, reduction="sum")
 
+            # Start forward pass timing
+            if self.metrics_collector is not None:
+                self.metrics_collector.start_metric("forward_pass", inputs=inputs)
+
             with manager:
                 outputs = model(**inputs)
+
+            # Stop forward pass timing
+            if self.metrics_collector is not None:
+                self.metrics_collector.stop_metric("forward_pass")
 
             if isinstance(outputs, dict) and "loss" not in outputs:
                 raise ValueError(
@@ -979,8 +995,16 @@ class NeuronTrainer:
             else:
                 loss = loss / self.args.gradient_accumulation_steps
 
+            # Start backward pass timing
+            if self.metrics_collector is not None:
+                self.metrics_collector.start_metric("backward_pass", inputs=inputs)
+
             # Backward pass
             self.accelerator.backward(loss)
+
+            # Stop backward pass timing
+            if self.metrics_collector is not None:
+                self.metrics_collector.stop_metric("backward_pass")
 
         return loss
 
@@ -1121,9 +1145,10 @@ class NeuronTrainer:
                     prefetch_size=args.dataloader_prefetch_size,
                 )
 
-                # Start throughput timing at the beginning of each gradient accumulation cycle
+                # Start throughput and total_step timing at the beginning of each gradient accumulation cycle
                 if self.metrics_collector is not None:
                     self.metrics_collector.start_metric("throughput")
+                    self.metrics_collector.start_metric("total_step")
 
                 for inputs in batch_samples:
                     xm.mark_step()
@@ -1151,6 +1176,10 @@ class NeuronTrainer:
 
                         self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
 
+                        # Start optimizer step timing
+                        if self.metrics_collector is not None:
+                            self.metrics_collector.start_metric("optimizer_step", inputs=inputs)
+
                         self.optimizer.step()
                         self.grad_norm = self.optimizer.grad_norm
 
@@ -1165,9 +1194,14 @@ class NeuronTrainer:
                         self.state.global_step += 1
                         self.state.epoch = epoch + (step + 1) / steps_in_epoch
                         self.control = self.callback_handler.on_step_end(args, self.state, self.control)
+
+                        # Stop optimizer step timing
+                        if self.metrics_collector is not None:
+                            self.metrics_collector.stop_metric("optimizer_step")
                         xm.mark_step()
                         if self.metrics_collector is not None:
                             self.metrics_collector.stop_metric("throughput")
+                            self.metrics_collector.stop_metric("total_step")
                     else:
                         self.accelerator.gradient_state.sync_gradients = False
                         self.control = self.callback_handler.on_substep_end(args, self.state, self.control)

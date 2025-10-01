@@ -19,9 +19,7 @@ import time
 from unittest.mock import patch
 
 import datasets
-import pytest
 import torch
-import torch_xla.core.xla_model as xm
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_data_parallel_size,
     get_pipeline_model_parallel_size,
@@ -48,31 +46,30 @@ def test_metrics_collector_standalone():
     window = MovingAverageWindow(window_size=3)
 
     # Test empty window
-    assert window.get_average_tokens_per_second() == 0.0
-    assert window.get_average_samples_per_second() == 0.0
+    window_stats = window.get_window_stats()
+    assert window_stats == {}
 
     # Add known values and test averages
     window.add_step(tokens=100, samples=10, step_time=1.0)  # 100 tokens/sec, 10 samples/sec
-    assert window.get_average_tokens_per_second() == 100.0
-    assert window.get_average_samples_per_second() == 10.0
+    window_stats = window.get_window_stats()
+    assert window_stats["total_tokens"] == 100
+    assert window_stats["total_samples"] == 10
+    assert window_stats["total_time"] == 1.0
 
     window.add_step(tokens=200, samples=20, step_time=2.0)  # 100 tokens/sec, 10 samples/sec
-    assert window.get_average_tokens_per_second() == 100.0
-    assert window.get_average_samples_per_second() == 10.0
-
     window.add_step(tokens=300, samples=30, step_time=2.0)  # 150 tokens/sec, 15 samples/sec
-    expected_avg_tokens = (100 + 100 + 150) / 3  # 116.67
-    expected_avg_samples = (10 + 10 + 15) / 3  # 11.67
-    assert abs(window.get_average_tokens_per_second() - expected_avg_tokens) < 0.01
-    assert abs(window.get_average_samples_per_second() - expected_avg_samples) < 0.01
+    window_stats = window.get_window_stats()
+    assert window_stats["total_tokens"] == 600
+    assert window_stats["total_samples"] == 60
+    assert window_stats["total_time"] == 5.0
 
     # Test window overflow
     window.add_step(tokens=400, samples=40, step_time=1.0)  # 400 tokens/sec, 40 samples/sec
-    # Now window contains: [100, 150, 400] tokens/sec and [10, 15, 40] samples/sec
-    expected_avg_tokens = (100 + 150 + 400) / 3  # 216.67
-    expected_avg_samples = (10 + 15 + 40) / 3  # 21.67
-    assert abs(window.get_average_tokens_per_second() - expected_avg_tokens) < 0.01
-    assert abs(window.get_average_samples_per_second() - expected_avg_samples) < 0.01
+    window_stats = window.get_window_stats()
+    # Now window contains last 3 steps: [200, 300, 400] tokens and [20, 30, 40] samples
+    assert window_stats["total_tokens"] == 900  # 200+300+400
+    assert window_stats["total_samples"] == 90  # 20+30+40
+    assert window_stats["total_time"] == 5.0  # 2+2+1
 
     # Test TrainingMetricsCollector initialization
     training_args = NeuronTrainingArguments(
@@ -82,67 +79,87 @@ def test_metrics_collector_standalone():
         tensor_parallel_size=2,
         pipeline_parallel_size=1,
         dataloader_num_workers=0,
+        enable_mfu_metrics=True,
+        enable_efficiency_metrics=True,
+        metrics_window_size=5
     )
 
-    with patch.object(TrainingMetricsCollector, '_detect_hardware_tflops', return_value=190.0):
-        collector = TrainingMetricsCollector(
-            training_args=training_args,
-            model_param_count=1000000,  # 1M parameters
-            vocab_size=32000,
-            enable_mfu_metrics=True,
-            enable_efficiency_metrics=True,
-            metrics_window_size=5
-        )
+    # Create a mock model for testing
+    class MockModel:
+        def parameters(self):
+            return [torch.randn(1000), torch.randn(500)]
 
-    # Test input validation
-    assert collector.model_param_count == 1000000
-    assert collector.vocab_size == 32000
-    assert collector.peak_tflops == 190.0
+    mock_model = MockModel()
+
+    with patch.object(TrainingMetricsCollector, '_detect_hardware_tflops', return_value=190.0):
+        with patch('optimum.neuron.trainers.metrics.get_model_param_count', return_value=1000000):
+            collector = TrainingMetricsCollector(model=mock_model, training_args=training_args)
+
+    # Test initialization
+    assert collector.model_params == 1000000
+    assert collector.peak_tflops_per_core == 190.0
 
     # Test metric timing
-    assert not collector.active_metrics
+    assert not collector.metric_start_times["throughput"]
 
-    collector.start_metric("test_metric")
-    assert "test_metric" in collector.active_metrics
+    collector.start_metric("throughput")
+    assert collector.metric_start_times["throughput"] is not None
 
     time.sleep(0.1)  # Small delay for timing
 
-    collector.stop_metric("test_metric", tokens=1000, samples=10)
-    assert "test_metric" not in collector.active_metrics
-    assert len(collector.windows["test_metric"].tokens_per_step) == 1
+    collector.stop_metric("throughput")
+    assert collector.metric_start_times["throughput"] is None
+    assert len(collector.metric_windows["throughput"].step_times) == 1
 
-    # Test metric calculations with known values
-    collector.start_metric("throughput_test")
-    start_time = collector.active_metrics["throughput_test"]
+    # Test training efficiency component timing
+    collector.start_metric("forward_pass")
+    time.sleep(0.05)
+    collector.stop_metric("forward_pass")
 
-    # Simulate 1 second of processing
-    collector.active_metrics["throughput_test"] = start_time - 1.0
-    collector.stop_metric("throughput_test", tokens=2000, samples=20)
+    collector.start_metric("backward_pass")
+    time.sleep(0.03)
+    collector.stop_metric("backward_pass")
 
-    # Calculate expected metrics
-    # Global throughput: 2000 tokens/sec, 20 samples/sec
-    # Per neuron core (32 cores): 2000/32 = 62.5 tokens/sec/core, 20/32 = 0.625 samples/sec/core
-    # Data parallel size = 4 (32 total / 2 TP / 4 PP)
+    collector.start_metric("optimizer_step")
+    time.sleep(0.02)
+    collector.stop_metric("optimizer_step")
 
-    metrics = collector.calculate_metric("throughput_test")
+    collector.start_metric("total_step")
+    time.sleep(0.15)  # Should be >= sum of components
+    collector.stop_metric("total_step")
 
-    assert abs(metrics["tokens_per_second"] - 2000.0) < 0.1
-    assert abs(metrics["samples_per_second"] - 20.0) < 0.1
-    assert abs(metrics["tokens_per_second_per_neuron_core"] - 62.5) < 0.1
-    assert abs(metrics["samples_per_second_per_neuron_core"] - 0.625) < 0.01
+    # Test helper method for getting average times
+    forward_time = collector._get_metric_average_time("forward_pass")
+    backward_time = collector._get_metric_average_time("backward_pass")
+    optimizer_time = collector._get_metric_average_time("optimizer_step")
+    total_time = collector._get_metric_average_time("total_step")
 
-    # Test MFU calculation
-    # Model FLOPs ≈ 6 * 1M * 2000 = 12B FLOPs (assuming seq_len=2000/20=100 per sample)
-    # Peak FLOPs = 190 TFLOPS = 190e12 FLOPs/sec
-    # Achieved FLOPs = 12B FLOPs / 1 sec = 12e9 FLOPs/sec
-    # MFU = 12e9 / 190e12 ≈ 6.3%
-    expected_mfu = (6 * 1000000 * 100) / (190e12 / 20)  # Per DP rank
-    assert 0 <= metrics["model_flops_utilization"] <= 100
+    assert forward_time > 0
+    assert backward_time > 0
+    assert optimizer_time > 0
+    assert total_time > 0
 
-    # Test training efficiency (should be same as general throughput / peak theoretical)
-    # This is calculated in the optimized method
-    assert "training_efficiency" in metrics
-    assert metrics["training_efficiency"] > 0
+    # Test training efficiency calculation
+    efficiency_metrics = collector._calculate_training_efficiency_metrics()
+    assert "train/training_efficiency" in efficiency_metrics
+    assert "train/compute_time_ratio" in efficiency_metrics
+
+    # Verify efficiency calculation
+    compute_time = forward_time + backward_time + optimizer_time
+    expected_efficiency = (compute_time / total_time) * 100
+
+    assert abs(efficiency_metrics["train/training_efficiency"] - expected_efficiency) < 0.1
+    assert abs(efficiency_metrics["train/compute_time_ratio"] - (compute_time / total_time)) < 0.01
+
+    # Test non-existent metric
+    assert collector._get_metric_average_time("non_existent") == 0.0
+
+    # Test calculate_metric with training_efficiency
+    all_metrics = collector.calculate_metric("all")
+    assert "train/training_efficiency" in all_metrics
+
+    specific_metrics = collector.calculate_metric("training_efficiency")
+    assert "train/training_efficiency" in specific_metrics
 
 
 def test_metrics_real_model_computation():
@@ -312,6 +329,9 @@ def test_trainer_full_metrics_integration(tmpdir):
         # Verify MFU is within reasonable bounds
         assert 0 <= last_training_log["train/model_flops_utilization"] <= 100
 
+        # Verify training efficiency is within reasonable bounds (should be <= 100%)
+        assert 0 <= last_training_log["train/training_efficiency"] <= 100
+
         # Test summary metrics generation and file saving
         summary_file = os.path.join(tmpdir, "training_summary_metrics.json")
         assert os.path.exists(summary_file), "Summary metrics file was not created"
@@ -337,6 +357,9 @@ def test_trainer_full_metrics_integration(tmpdir):
 
         # Verify summary MFU bounds
         assert 0 <= summary_metrics["summary/model_flops_utilization_avg"] <= 100
+
+        # Verify summary training efficiency bounds (should be <= 100%)
+        assert 0 <= summary_metrics["summary/training_efficiency_avg"] <= 100
 
         # Test metric value consistency
         # Per-neuron-core metrics should be lower than general metrics (with 32 total cores)

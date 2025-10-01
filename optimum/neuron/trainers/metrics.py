@@ -189,7 +189,7 @@ class TrainingMetricsCollector:
     def _initialize_metric_systems(self):
         """Initialize per-metric moving windows and timing systems."""
         # Define available metrics
-        metric_names = ["throughput", "mfu", "efficiency"]
+        metric_names = ["throughput", "mfu", "efficiency", "forward_pass", "backward_pass", "optimizer_step", "total_step"]
 
         # Initialize per-metric systems
         for metric_name in metric_names:
@@ -295,7 +295,7 @@ class TrainingMetricsCollector:
         Calculate a specific metric using its moving window data.
 
         Args:
-            metric_name: Name of the metric to calculate ('throughput', 'mfu', 'efficiency', 'all')
+            metric_name: Name of the metric to calculate ('throughput', 'mfu', 'efficiency', 'training_efficiency', 'all')
 
         Returns:
             Dictionary containing the calculated metrics for the specified type.
@@ -315,6 +315,10 @@ class TrainingMetricsCollector:
         if metric_name in ["efficiency", "all"]:
             if self.args.enable_efficiency_metrics:
                 metrics.update(self._calculate_efficiency_metrics_from_window("efficiency", throughput_metrics))
+
+        if metric_name in ["training_efficiency", "all"]:
+            if self.args.enable_efficiency_metrics:
+                metrics.update(self._calculate_training_efficiency_metrics())
 
         return metrics
 
@@ -338,6 +342,12 @@ class TrainingMetricsCollector:
         # Calculate efficiency summary if enabled
         if self.args.enable_efficiency_metrics and self.summary_metrics["efficiency"]["step_times"]:
             summary.update(self._calculate_efficiency_summary())
+
+        # Calculate training efficiency summary if enabled and component data is available
+        if self.args.enable_efficiency_metrics:
+            training_efficiency_summary = self._calculate_training_efficiency_summary()
+            if training_efficiency_summary:
+                summary.update(training_efficiency_summary)
 
         return summary
 
@@ -485,6 +495,56 @@ class TrainingMetricsCollector:
 
         return summary
 
+    def _calculate_training_efficiency_summary(self) -> dict[str, float]:
+        """Calculate summary statistics for training efficiency metrics."""
+        summary = {}
+
+        # Get component metric data
+        forward_data = self.summary_metrics.get("forward_pass", {})
+        backward_data = self.summary_metrics.get("backward_pass", {})
+        optimizer_data = self.summary_metrics.get("optimizer_step", {})
+        total_data = self.summary_metrics.get("total_step", {})
+
+        # Check if we have data for all components
+        if not all([
+            forward_data.get("step_times", []),
+            backward_data.get("step_times", []),
+            optimizer_data.get("step_times", []),
+            total_data.get("step_times", [])
+        ]):
+            return summary
+
+        # Calculate training efficiency for each step
+        efficiency_values = []
+
+        forward_times = forward_data["step_times"]
+        backward_times = backward_data["step_times"]
+        optimizer_times = optimizer_data["step_times"]
+        total_times = total_data["step_times"]
+
+        # Ensure all lists have the same length (take minimum)
+        min_steps = min(len(forward_times), len(backward_times), len(optimizer_times), len(total_times))
+
+        for i in range(min_steps):
+            forward_time = forward_times[i]
+            backward_time = backward_times[i]
+            optimizer_time = optimizer_times[i]
+            total_time = total_times[i]
+
+            if total_time > 0:
+                compute_time = forward_time + backward_time + optimizer_time
+                efficiency = (compute_time / total_time) * 100
+                efficiency_values.append(efficiency)
+
+        if efficiency_values:
+            summary.update({
+                "summary/training_efficiency_avg": round(sum(efficiency_values) / len(efficiency_values), 2),
+                "summary/training_efficiency_min": round(min(efficiency_values), 2),
+                "summary/training_efficiency_max": round(max(efficiency_values), 2),
+            })
+
+        return summary
+
     def _calculate_throughput_metrics_from_window(self, metric_name: str) -> dict[str, float]:
         """Calculate throughput metrics from a specific metric window."""
         if metric_name not in self.metric_windows or self.metric_windows[metric_name].size == 0:
@@ -593,6 +653,50 @@ class TrainingMetricsCollector:
                 metrics["train/step_time_consistency"] = round(100 - min(cv, 100), 2)  # Higher is better
 
         return metrics
+
+    def _get_metric_average_time(self, metric_name: str) -> float:
+        """
+        Get average step time for a metric from its window.
+
+        Args:
+            metric_name: Name of the metric to get timing data for
+
+        Returns:
+            Average time per step for the metric, or 0.0 if metric doesn't exist
+        """
+        if metric_name not in self.metric_windows:
+            return 0.0
+        window_stats = self.metric_windows[metric_name].get_window_stats()
+        return window_stats.get("avg_time_per_step", 0.0)
+
+    def _calculate_training_efficiency_metrics(self) -> dict[str, float]:
+        """
+        Calculate training efficiency from component timing metrics.
+
+        Training efficiency = (forward + backward + optimizer time) / total time
+        This measures how much of the total training time is spent on useful computation
+        vs overhead (data loading, synchronization, etc.).
+
+        Returns:
+            Dictionary containing training efficiency percentage
+        """
+        # Get component times from individual metric windows
+        forward_time = self._get_metric_average_time("forward_pass")
+        backward_time = self._get_metric_average_time("backward_pass")
+        optimizer_time = self._get_metric_average_time("optimizer_step")
+        total_time = self._get_metric_average_time("total_step")
+
+        if total_time <= 0:
+            return {}
+
+        # Calculate useful compute time vs total time
+        compute_time = forward_time + backward_time + optimizer_time
+        efficiency_percentage = (compute_time / total_time) * 100
+
+        return {
+            "train/training_efficiency": round(efficiency_percentage, 2),
+            "train/compute_time_ratio": round(compute_time / total_time, 3),
+        }
 
     def reset_window(self):
         """Reset moving average windows and timing (but preserve summary metrics)."""
