@@ -56,6 +56,11 @@ jobs:
         uses: ./.github/actions/prepare_venv
       - name: Install optimum-neuron
         uses: ./.github/actions/install_optimum_neuron
+      - name: Install datasets dependencies
+        run: |
+          sudo apt-get install ffmpeg -y
+          source aws_neuron_venv_pytorch/bin/activate
+          pip install datasets[audio]
       - name: Run transformers export CLI tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
