@@ -114,6 +114,23 @@ class TrainingMetricsCollector:
         self.args = training_args
         self.accumulating_metrics = accumulating_metrics or ["forward_pass", "backward_pass"]
 
+        # Auto-detect if any metrics are enabled
+        self.enabled = any(
+            [
+                training_args.enable_throughput_metrics,
+                training_args.enable_mfu_metrics,
+                training_args.enable_efficiency_metrics,
+            ]
+        )
+
+        if not self.enabled:
+            # Initialize minimal state for disabled metrics
+            self.metric_windows = {}
+            self.metric_start_times = {}
+            self.current_batch_data = {}
+            self.summary_metrics = {}
+            return
+
         self._validate_inputs()
 
         self.dp_size = get_data_parallel_size()
@@ -213,6 +230,8 @@ class TrainingMetricsCollector:
         This method should be called at the beginning of each gradient accumulation cycle
         to enable proper cumulative timing for accumulating metrics.
         """
+        if not self.enabled:
+            return
         self.cycle_active = True
         self.cycle_accumulators = dict.fromkeys(self.accumulating_metrics, 0.0)
         self.cycle_batch_data = {"tokens": 0, "samples": 0}
@@ -227,7 +246,7 @@ class TrainingMetricsCollector:
         Args:
             step_number: Optional step number for tracking
         """
-        if not self.cycle_active:
+        if not self.enabled or not self.cycle_active:
             return
 
         for metric_name in self.accumulating_metrics:
@@ -255,6 +274,8 @@ class TrainingMetricsCollector:
             metric_name: Name of the metric to start ('throughput', 'mfu', 'training_efficiency', etc.)
             inputs: Optional batch inputs for token/sample counting
         """
+        if not self.enabled:
+            return
         if metric_name not in self.metric_start_times:
             raise ValueError(f"Unknown metric: {metric_name}. Available: {list(self.metric_start_times.keys())}")
 
@@ -269,7 +290,7 @@ class TrainingMetricsCollector:
                 self._update_batch_data(metric_name, inputs)
 
     def update_metric_batch_data(self, metric_name: str, inputs: dict[str, Any]):
-        if metric_name not in self.current_batch_data:
+        if not self.enabled or metric_name not in self.current_batch_data:
             return
         self._update_batch_data(metric_name, inputs)
 
@@ -307,6 +328,8 @@ class TrainingMetricsCollector:
             metric_name: Name of the metric to stop
             step_number: Optional step number for tracking
         """
+        if not self.enabled:
+            return
         if metric_name not in self.metric_start_times:
             raise ValueError(f"Unknown metric: {metric_name}. Available: {list(self.metric_start_times.keys())}")
 
@@ -348,6 +371,8 @@ class TrainingMetricsCollector:
         Returns:
             Dictionary containing the calculated metrics for the specified type.
         """
+        if not self.enabled:
+            return {}
         metrics = {}
 
         throughput_metrics = {}
@@ -367,6 +392,8 @@ class TrainingMetricsCollector:
         return metrics
 
     def calculate_summary_metrics(self) -> dict[str, float]:
+        if not self.enabled:
+            return {}
         summary = {}
 
         if self.args.enable_throughput_metrics and self.summary_metrics["throughput"]["step_times"]:
@@ -603,12 +630,16 @@ class TrainingMetricsCollector:
         }
 
     def reset_window(self):
+        if not self.enabled:
+            return
         for metric_name in self.metric_windows:
             self.metric_windows[metric_name].clear()
             self.metric_start_times[metric_name] = None
             self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
 
     def reset_all_metrics(self):
+        if not self.enabled:
+            return
         self.reset_window()
         for metric_name in self.summary_metrics:
             self.summary_metrics[metric_name] = {
@@ -619,9 +650,7 @@ class TrainingMetricsCollector:
             }
 
     def should_calculate_metrics(self, step: int) -> bool:
-        if not any(
-            [self.args.enable_throughput_metrics, self.args.enable_mfu_metrics, self.args.enable_efficiency_metrics]
-        ):
+        if not self.enabled:
             return False
 
         metrics_logging_steps = self.args.metrics_logging_steps

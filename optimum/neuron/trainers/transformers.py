@@ -263,11 +263,8 @@ class NeuronTrainer:
             ],
         )
 
-        # Initialize training metrics collector
-        if args.enable_training_metrics:
-            self.metrics_collector = TrainingMetricsCollector(self.model, args)
-        else:
-            self.metrics_collector = None
+        # Initialize training metrics collector - auto-detects if metrics are enabled
+        self.metrics_collector = TrainingMetricsCollector(self.model, args)
 
         if isinstance(self.model, NeuronPeftModel) and self.args.label_names is None:
             logger.warning(
@@ -952,15 +949,13 @@ class NeuronTrainer:
 
         if isinstance(model, NxDPPModel):
             # Start forward pass timing for pipeline parallel models
-            if self.metrics_collector is not None:
-                self.metrics_collector.start_metric("forward_pass", inputs=inputs)
+            self.metrics_collector.start_metric("forward_pass", inputs=inputs)
 
             with manager:
                 loss = model.run_train(**inputs)
 
             # Stop forward pass timing (run_train includes both forward and backward for PP)
-            if self.metrics_collector is not None:
-                self.metrics_collector.stop_metric("forward_pass")
+            self.metrics_collector.stop_metric("forward_pass")
 
             # When using pipeline parallelism, the loss is only computed on the last stage.
             # So we set the loss to zero on other stages.
@@ -972,15 +967,13 @@ class NeuronTrainer:
                 inputs = dict(**inputs, reduction="sum")
 
             # Start forward pass timing
-            if self.metrics_collector is not None:
-                self.metrics_collector.start_metric("forward_pass", inputs=inputs)
+            self.metrics_collector.start_metric("forward_pass", inputs=inputs)
 
             with manager:
                 outputs = model(**inputs)
 
             # Stop forward pass timing
-            if self.metrics_collector is not None:
-                self.metrics_collector.stop_metric("forward_pass")
+            self.metrics_collector.stop_metric("forward_pass")
 
             if isinstance(outputs, dict) and "loss" not in outputs:
                 raise ValueError(
@@ -996,15 +989,13 @@ class NeuronTrainer:
                 loss = loss / self.args.gradient_accumulation_steps
 
             # Start backward pass timing
-            if self.metrics_collector is not None:
-                self.metrics_collector.start_metric("backward_pass", inputs=inputs)
+            self.metrics_collector.start_metric("backward_pass", inputs=inputs)
 
             # Backward pass
             self.accelerator.backward(loss)
 
             # Stop backward pass timing
-            if self.metrics_collector is not None:
-                self.metrics_collector.stop_metric("backward_pass")
+            self.metrics_collector.stop_metric("backward_pass")
 
         return loss
 
@@ -1033,9 +1024,7 @@ class NeuronTrainer:
 
             # We calculte metrics here to avoid doing complicating thing with the closure and whe it is actually executed.
             metrics = {}
-            if self.metrics_collector is not None and self.metrics_collector.should_calculate_metrics(
-                self.state.global_step
-            ):
+            if self.metrics_collector.should_calculate_metrics(self.state.global_step):
                 try:
                     metrics = self.metrics_collector.calculate_metric("all")
                     # Reset the metrics window after calculation
@@ -1146,10 +1135,9 @@ class NeuronTrainer:
                 )
 
                 # Start throughput and total_step timing at the beginning of each gradient accumulation cycle
-                if self.metrics_collector is not None:
-                    self.metrics_collector.start_gradient_accumulation_cycle()
-                    self.metrics_collector.start_metric("throughput")
-                    self.metrics_collector.start_metric("total_step")
+                self.metrics_collector.start_gradient_accumulation_cycle()
+                self.metrics_collector.start_metric("throughput")
+                self.metrics_collector.start_metric("total_step")
 
                 for inputs in batch_samples:
                     xm.mark_step()
@@ -1159,14 +1147,12 @@ class NeuronTrainer:
                     if step % args.gradient_accumulation_steps == 0:
                         self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
-                    if self.metrics_collector is not None:
-                        self.metrics_collector.start_metric("mfu", inputs=inputs)
-                        self.metrics_collector.update_metric_batch_data("throughput", inputs)
+                    self.metrics_collector.start_metric("mfu", inputs=inputs)
+                    self.metrics_collector.update_metric_batch_data("throughput", inputs)
 
                     loss_step = self.train_step(self.model, inputs, num_items_in_batch=num_items_in_batch)
 
-                    if self.metrics_collector is not None:
-                        self.metrics_collector.stop_metric("mfu")
+                    self.metrics_collector.stop_metric("mfu")
 
                     self.running_loss += loss_step.detach()
 
@@ -1178,8 +1164,7 @@ class NeuronTrainer:
                         self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
 
                         # Start optimizer step timing
-                        if self.metrics_collector is not None:
-                            self.metrics_collector.start_metric("optimizer_step", inputs=inputs)
+                        self.metrics_collector.start_metric("optimizer_step", inputs=inputs)
 
                         self.optimizer.step()
                         self.grad_norm = self.optimizer.grad_norm
@@ -1197,13 +1182,11 @@ class NeuronTrainer:
                         self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
                         # Stop optimizer step timing
-                        if self.metrics_collector is not None:
-                            self.metrics_collector.stop_metric("optimizer_step")
+                        self.metrics_collector.stop_metric("optimizer_step")
                         xm.mark_step()
-                        if self.metrics_collector is not None:
-                            self.metrics_collector.stop_metric("throughput")
-                            self.metrics_collector.stop_metric("total_step")
-                            self.metrics_collector.end_gradient_accumulation_cycle(step_number=self.state.global_step)
+                        self.metrics_collector.stop_metric("throughput")
+                        self.metrics_collector.stop_metric("total_step")
+                        self.metrics_collector.end_gradient_accumulation_cycle(step_number=self.state.global_step)
                     else:
                         self.accelerator.gradient_state.sync_gradients = False
                         self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
@@ -1320,9 +1303,6 @@ class NeuronTrainer:
 
     def report_and_save_summary_metrics(self):
         """Report and save comprehensive training summary metrics at the end of training."""
-        if self.metrics_collector is None:
-            return
-
         try:
             summary_metrics = self.metrics_collector.calculate_summary_metrics()
             if not summary_metrics:
