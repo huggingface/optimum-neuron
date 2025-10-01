@@ -14,3 +14,8 @@ runs:
           sudo apt-get update -y
           sudo apt-get install aws-neuronx-tools=2.26.14.0 aws-neuronx-runtime-lib=2.28.23.0-dd5879008 aws-neuronx-collectives=2.28.27.0-bc30ece58 -y
           export PATH=/opt/aws/neuron/bin:$PATH
+          dpkg -l | grep neuron
+      - name: Display driver version
+        shell: bash
+        run: |
+          apt show aws-neuronx-dkms
