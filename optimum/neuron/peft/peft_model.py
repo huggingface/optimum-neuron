@@ -22,7 +22,6 @@ from typing import Any
 
 import neuronx_distributed
 import torch
-import torch_xla.runtime as xr
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_data_parallel_rank,
     get_pipeline_model_parallel_rank,
@@ -234,19 +233,10 @@ class NeuronPeftModel(PeftModel):
                     )
 
             # Save the adapter weights.
-
-            # Async save: wait for the previous async save to finish before
-            # There is this mechanism in neuronx_distributed already, but it breaks when we change the name of the
-            # directory between saves, which we done (checkpoint-10, checkpoint-20, etc).
-            # So we add this extra wait here that uses the same mechanism but prior to calling the save function.
             if self.trn_config.async_save:
-                g_iostate = neuronx_distributed.trainer.checkpoint.g_iostate
-                if g_iostate is not None:
-                    g_iostate.wait_save(async_remove=True)
-                    if xr.global_ordinal() == 0:
-                        directory = Path(output_dir)
-                        (directory / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME).mkdir(parents=True, exist_ok=True)
-                        (directory / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME / "done").touch(exist_ok=True)
+                from ..models.training.modeling_utils import _wait_previous_async_save
+
+                _wait_previous_async_save(Path(output_dir) / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME)
 
             neuronx_distributed.trainer.save_checkpoint(
                 output_dir,

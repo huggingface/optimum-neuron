@@ -113,6 +113,20 @@ ALL_ATTENTION_FUNCTIONS: dict[str, dict[str, Callable]] = {
 }
 
 
+def _wait_previous_async_save(checkpoint_dir: Path):
+    # Async save: wait for the previous async save to finish before starting a new one.
+    # There is this mechanism in neuronx_distributed already, but it breaks when we change the name of the
+    # directory between saves, which we done (checkpoint-10, checkpoint-20, etc).
+    # Reference: https://github.com/aws-neuron/neuronx-distributed/blob/main/src/neuronx_distributed/trainer/checkpoint.py#L136-L139
+    # So we add this extra wait here that uses the same mechanism but prior to calling the save function.
+    g_iostate = neuronx_distributed.trainer.checkpoint.g_iostate
+    if g_iostate is not None:
+        g_iostate.wait_save(async_remove=True)
+        if xr.global_ordinal() == 0:
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            (checkpoint_dir / "done").touch(exist_ok=True)
+
+
 def _load_state_dict_into_model(model_to_load, state_dict, start_prefix):
     # copy state_dict so _load_from_state_dict can modify it
     metadata = getattr(state_dict, "_metadata", None)
@@ -1414,18 +1428,8 @@ class NeuronModelMixin:
         model_to_save.config._attn_implementation_autoset = False
 
         # Save the model
-
-        # Async save: wait for the previous async save to finish before
-        # There is this mechanism in neuronx_distributed already, but it breaks when we change the name of the
-        # directory between saves, which we done (checkpoint-10, checkpoint-20, etc).
-        # So we add this extra wait here that uses the same mechanism but prior to calling the save function.
         if self.trn_config.async_save:
-            g_iostate = neuronx_distributed.trainer.checkpoint.g_iostate
-            if g_iostate is not None:
-                g_iostate.wait_save(async_remove=True)
-                if xr.global_ordinal() == 0:
-                    (save_directory / MODEL_PARALLEL_SHARDS_DIR_NAME).mkdir(parents=True, exist_ok=True)
-                    (save_directory / MODEL_PARALLEL_SHARDS_DIR_NAME / "done").touch(exist_ok=True)
+            _wait_previous_async_save(save_directory / MODEL_PARALLEL_SHARDS_DIR_NAME)
 
         neuronx_distributed.trainer.save_checkpoint(
             save_directory.as_posix(),
