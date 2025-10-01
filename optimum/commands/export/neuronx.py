@@ -20,8 +20,11 @@ import sys
 from argparse import SUPPRESS, ArgumentParser, Namespace, _SubParsersAction
 from pathlib import Path
 
+from neuronx_distributed.utils.utils import hardware
+from torch_neuronx.utils import get_platform_target
+
 from ...exporters import TasksManager
-from ...neuron.utils import SUPPORTED_INSTANCE_TYPES, auto_detect_platform
+from ...neuron.utils import SUPPORTED_INSTANCE_TYPES
 from ..base import BaseOptimumCLICommand, CommandInfo
 
 
@@ -345,7 +348,7 @@ class NeuronxExportCommand(BaseOptimumCLICommand):
 
     @staticmethod
     def cpu_only_check(args_string: str):
-        instance_type = auto_detect_platform()
+        instance_type = get_platform_target()
         if instance_type not in SUPPORTED_INSTANCE_TYPES:
             if "--cpu_backend" not in args_string:
                 # `--cpu_backend` is mandary when no neuron device is available
@@ -366,4 +369,5 @@ class NeuronxExportCommand(BaseOptimumCLICommand):
                         f"{target_instance_type} is not a supported platform. \
                     Please choose from options trn1, inf2, trn1n, or trn2."
                     )
+                    target_instance_type = hardware(target_instance_type).value
                     os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = target_instance_type
