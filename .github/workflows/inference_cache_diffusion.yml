@@ -41,9 +41,6 @@ jobs:
         uses: ./.github/actions/prepare_venv
       - name: Install optimum-neuron
         uses: ./.github/actions/install_optimum_neuron
-      - name: Install cv2 dependencies
-        run: |
-          sudo apt-get install python3-opencv -y
       - name: Create cache for ${{matrix.config}} models
         run: |
           source aws_neuron_venv_pytorch/bin/activate

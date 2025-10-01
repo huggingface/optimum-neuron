@@ -27,7 +27,7 @@ echo "Step: install-and-copy-optimum-neuron-examples"
 git clone -b $OPTIMUM_VERSION https://github.com/huggingface/optimum-neuron.git
 
 cd optimum-neuron
-pip install ".[neuronx, diffusers, sentence-transformers, vllm]"
+pip install ".[neuronx, diffusers, sentence-transformers, vllm, training]"
 cd ..
 
 mkdir /home/ubuntu/huggingface-neuron-samples/ /home/ubuntu/huggingface-neuron-notebooks/
