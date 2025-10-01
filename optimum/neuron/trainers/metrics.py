@@ -107,7 +107,9 @@ class TrainingMetricsCollector:
                              Defaults to ["forward_pass", "backward_pass"]
     """
 
-    def __init__(self, model: Any, training_args: NeuronTrainingArguments, accumulating_metrics: list[str] | None = None):
+    def __init__(
+        self, model: Any, training_args: NeuronTrainingArguments, accumulating_metrics: list[str] | None = None
+    ):
         self.model = model
         self.args = training_args
         self.accumulating_metrics = accumulating_metrics or ["forward_pass", "backward_pass"]
@@ -183,7 +185,15 @@ class TrainingMetricsCollector:
             return HARDWARE_TFLOPS["trn1"]
 
     def _initialize_metric_systems(self):
-        metric_names = ["throughput", "mfu", "training_efficiency", "forward_pass", "backward_pass", "optimizer_step", "total_step"]
+        metric_names = [
+            "throughput",
+            "mfu",
+            "training_efficiency",
+            "forward_pass",
+            "backward_pass",
+            "optimizer_step",
+            "total_step",
+        ]
 
         for metric_name in metric_names:
             self.metric_windows[metric_name] = MovingAverageWindow(self.window_size)
@@ -381,7 +391,6 @@ class TrainingMetricsCollector:
 
         step_times = metric_data["step_times"]
         tokens_per_step = metric_data["tokens_per_step"]
-        samples_per_step = metric_data["samples_per_step"]
 
         local_tokens_per_sec_values = [
             tokens / time if time > 0 else 0 for tokens, time in zip(tokens_per_step, step_times)
@@ -433,7 +442,6 @@ class TrainingMetricsCollector:
 
         return summary
 
-
     def _calculate_training_efficiency_summary(self) -> dict[str, float]:
         summary = {}
 
@@ -442,12 +450,14 @@ class TrainingMetricsCollector:
         optimizer_data = self.summary_metrics.get("optimizer_step", {})
         total_data = self.summary_metrics.get("total_step", {})
 
-        if not all([
-            forward_data.get("step_times", []),
-            backward_data.get("step_times", []),
-            optimizer_data.get("step_times", []),
-            total_data.get("step_times", [])
-        ]):
+        if not all(
+            [
+                forward_data.get("step_times", []),
+                backward_data.get("step_times", []),
+                optimizer_data.get("step_times", []),
+                total_data.get("step_times", []),
+            ]
+        ):
             return summary
 
         efficiency_values = []
@@ -458,6 +468,11 @@ class TrainingMetricsCollector:
         total_times = total_data["step_times"]
 
         min_steps = min(len(forward_times), len(backward_times), len(optimizer_times), len(total_times))
+
+        forward_percentages = []
+        backward_percentages = []
+        optimizer_percentages = []
+        unaccounted_percentages = []
 
         for i in range(min_steps):
             forward_time = forward_times[i]
@@ -470,10 +485,28 @@ class TrainingMetricsCollector:
                 efficiency = (compute_time / total_time) * 100
                 efficiency_values.append(efficiency)
 
+                # Component percentages
+                forward_percentages.append((forward_time / total_time) * 100)
+                backward_percentages.append((backward_time / total_time) * 100)
+                optimizer_percentages.append((optimizer_time / total_time) * 100)
+                unaccounted_percentages.append(100 - efficiency)
+
         if efficiency_values:
-            summary.update({
-                "summary/training_efficiency_avg": round(sum(efficiency_values) / len(efficiency_values), 2),
-            })
+            summary.update(
+                {
+                    "summary/training_efficiency_avg": round(sum(efficiency_values) / len(efficiency_values), 2),
+                    "summary/forward_time_percent_avg": round(sum(forward_percentages) / len(forward_percentages), 2),
+                    "summary/backward_time_percent_avg": round(
+                        sum(backward_percentages) / len(backward_percentages), 2
+                    ),
+                    "summary/optimizer_time_percent_avg": round(
+                        sum(optimizer_percentages) / len(optimizer_percentages), 2
+                    ),
+                    "summary/unaccounted_time_percent_avg": round(
+                        sum(unaccounted_percentages) / len(unaccounted_percentages), 2
+                    ),
+                }
+            )
 
         return summary
 
@@ -486,7 +519,6 @@ class TrainingMetricsCollector:
             return {}
 
         total_tokens = window_stats["total_tokens"]
-        total_samples = window_stats["total_samples"]
         total_time = window_stats["total_time"]
 
         metrics = {}
@@ -556,8 +588,18 @@ class TrainingMetricsCollector:
         compute_time = forward_time + backward_time + optimizer_time
         efficiency_percentage = (compute_time / total_time) * 100
 
+        # Break down into component percentages
+        forward_percentage = (forward_time / total_time) * 100
+        backward_percentage = (backward_time / total_time) * 100
+        optimizer_percentage = (optimizer_time / total_time) * 100
+        unaccounted_percentage = 100 - efficiency_percentage  # Communication + overhead
+
         return {
             "train/training_efficiency": round(efficiency_percentage, 2),
+            "train/forward_time_percent": round(forward_percentage, 2),
+            "train/backward_time_percent": round(backward_percentage, 2),
+            "train/optimizer_time_percent": round(optimizer_percentage, 2),
+            "train/unaccounted_time_percent": round(unaccounted_percentage, 2),
         }
 
     def reset_window(self):
@@ -577,7 +619,9 @@ class TrainingMetricsCollector:
             }
 
     def should_calculate_metrics(self, step: int) -> bool:
-        if not any([self.args.enable_throughput_metrics, self.args.enable_mfu_metrics, self.args.enable_efficiency_metrics]):
+        if not any(
+            [self.args.enable_throughput_metrics, self.args.enable_mfu_metrics, self.args.enable_efficiency_metrics]
+        ):
             return False
 
         metrics_logging_steps = self.args.metrics_logging_steps

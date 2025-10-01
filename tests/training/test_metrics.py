@@ -21,7 +21,6 @@ from unittest.mock import patch
 import datasets
 import torch
 from neuronx_distributed.parallel_layers.parallel_state import (
-    get_data_parallel_size,
     get_pipeline_model_parallel_size,
     get_tensor_model_parallel_size,
 )
@@ -81,7 +80,7 @@ def test_metrics_collector_standalone():
         dataloader_num_workers=0,
         enable_mfu_metrics=True,
         enable_efficiency_metrics=True,
-        metrics_window_size=5
+        metrics_window_size=5,
     )
 
     # Create a mock model for testing
@@ -91,8 +90,8 @@ def test_metrics_collector_standalone():
 
     mock_model = MockModel()
 
-    with patch.object(TrainingMetricsCollector, '_detect_hardware_tflops', return_value=190.0):
-        with patch('optimum.neuron.trainers.metrics.get_model_param_count', return_value=1000000):
+    with patch.object(TrainingMetricsCollector, "_detect_hardware_tflops", return_value=190.0):
+        with patch("optimum.neuron.trainers.metrics.get_model_param_count", return_value=1000000):
             collector = TrainingMetricsCollector(model=mock_model, training_args=training_args)
 
     # Test initialization
@@ -220,14 +219,14 @@ def test_metrics_real_model_computation():
     tokenizer = AutoTokenizer.from_pretrained(TINY_MODEL_NAME)
     vocab_size = tokenizer.vocab_size
 
-    with patch.object(TrainingMetricsCollector, '_detect_hardware_tflops', return_value=190.0):
+    with patch.object(TrainingMetricsCollector, "_detect_hardware_tflops", return_value=190.0):
         collector = TrainingMetricsCollector(
             training_args=training_args,
             model_param_count=real_param_count,
             vocab_size=vocab_size,
             enable_mfu_metrics=True,
             enable_efficiency_metrics=True,
-            metrics_window_size=3
+            metrics_window_size=3,
         )
 
     # Test with realistic values
@@ -267,14 +266,14 @@ def test_metrics_real_model_computation():
         dataloader_num_workers=0,
     )
 
-    with patch.object(TrainingMetricsCollector, '_detect_hardware_tflops', return_value=190.0):
+    with patch.object(TrainingMetricsCollector, "_detect_hardware_tflops", return_value=190.0):
         collector_dp2 = TrainingMetricsCollector(
             training_args=training_args_dp2,
             model_param_count=real_param_count,
             vocab_size=vocab_size,
             enable_mfu_metrics=True,
             enable_efficiency_metrics=True,
-            metrics_window_size=3
+            metrics_window_size=3,
         )
 
     # Simulate processing on 2 DP ranks
@@ -298,7 +297,6 @@ def test_trainer_full_metrics_integration(tmpdir):
 
     tp_size = get_tensor_model_parallel_size()
     pp_size = get_pipeline_model_parallel_size()
-    dp_size = get_data_parallel_size()
 
     # Create training arguments with metrics enabled
     training_args = NeuronTrainingArguments(
@@ -322,17 +320,14 @@ def test_trainer_full_metrics_integration(tmpdir):
 
     tokenizer = AutoTokenizer.from_pretrained(TINY_MODEL_NAME)
     inputs = tokenizer(
-        "Paris is the most beautiful city in the world.",
-        return_tensors="pt",
-        padding="max_length",
-        max_length=128
+        "Paris is the most beautiful city in the world.", return_tensors="pt", padding="max_length", max_length=128
     )
     inputs["labels"] = inputs["input_ids"].clone()
     dataset = datasets.Dataset.from_dict(inputs)
     dataset = dataset.select([0] * 100)  # Small dataset
 
     # Mock hardware detection for consistent test results
-    with patch.object(TrainingMetricsCollector, '_detect_hardware_tflops', return_value=190.0):
+    with patch.object(TrainingMetricsCollector, "_detect_hardware_tflops", return_value=190.0):
         trainer = NeuronTrainer(model, training_args, train_dataset=dataset)
 
         # Verify metrics collector is initialized
@@ -357,7 +352,7 @@ def test_trainer_full_metrics_integration(tmpdir):
             "train/samples_per_second_per_neuron_core",
             "train/model_flops_utilization",
             "train/training_efficiency",
-            "train/training_overhead"
+            "train/training_overhead",
         ]
 
         last_training_log = training_logs[-1]
@@ -376,15 +371,19 @@ def test_trainer_full_metrics_integration(tmpdir):
         assert 0 <= last_training_log["train/training_overhead"] <= 100
 
         # Verify efficiency + overhead = 100%
-        efficiency_overhead_sum = last_training_log["train/training_efficiency"] + last_training_log["train/training_overhead"]
-        assert abs(efficiency_overhead_sum - 100.0) < 0.1, f"Efficiency + Overhead should equal 100%, got {efficiency_overhead_sum}%"
+        efficiency_overhead_sum = (
+            last_training_log["train/training_efficiency"] + last_training_log["train/training_overhead"]
+        )
+        assert abs(efficiency_overhead_sum - 100.0) < 0.1, (
+            f"Efficiency + Overhead should equal 100%, got {efficiency_overhead_sum}%"
+        )
 
         # Test summary metrics generation and file saving
         summary_file = os.path.join(tmpdir, "training_summary_metrics.json")
         assert os.path.exists(summary_file), "Summary metrics file was not created"
 
         # Load and validate summary metrics
-        with open(summary_file, 'r') as f:
+        with open(summary_file, "r") as f:
             summary_metrics = json.load(f)
 
         # Check summary metrics structure
@@ -395,7 +394,7 @@ def test_trainer_full_metrics_integration(tmpdir):
             "summary/samples_per_second_per_neuron_core_avg",
             "summary/model_flops_utilization_avg",
             "summary/training_efficiency_avg",
-            "summary/training_overhead_avg"
+            "summary/training_overhead_avg",
         ]
 
         for metric in expected_summary_metrics:
@@ -413,13 +412,23 @@ def test_trainer_full_metrics_integration(tmpdir):
         assert 0 <= summary_metrics["summary/training_overhead_avg"] <= 100
 
         # Verify summary efficiency + overhead = 100%
-        summary_efficiency_overhead_sum = summary_metrics["summary/training_efficiency_avg"] + summary_metrics["summary/training_overhead_avg"]
-        assert abs(summary_efficiency_overhead_sum - 100.0) < 0.1, f"Summary efficiency + overhead should equal 100%, got {summary_efficiency_overhead_sum}%"
+        summary_efficiency_overhead_sum = (
+            summary_metrics["summary/training_efficiency_avg"] + summary_metrics["summary/training_overhead_avg"]
+        )
+        assert abs(summary_efficiency_overhead_sum - 100.0) < 0.1, (
+            f"Summary efficiency + overhead should equal 100%, got {summary_efficiency_overhead_sum}%"
+        )
 
         # Test metric value consistency
         # Per-neuron-core metrics should be lower than general metrics (with 32 total cores)
-        assert summary_metrics["summary/tokens_per_second_per_neuron_core_avg"] <= summary_metrics["summary/tokens_per_second_avg"]
-        assert summary_metrics["summary/samples_per_second_per_neuron_core_avg"] <= summary_metrics["summary/samples_per_second_avg"]
+        assert (
+            summary_metrics["summary/tokens_per_second_per_neuron_core_avg"]
+            <= summary_metrics["summary/tokens_per_second_avg"]
+        )
+        assert (
+            summary_metrics["summary/samples_per_second_per_neuron_core_avg"]
+            <= summary_metrics["summary/samples_per_second_avg"]
+        )
 
         # Test disabled metrics scenario
         training_args_no_metrics = NeuronTrainingArguments(
@@ -434,7 +443,7 @@ def test_trainer_full_metrics_integration(tmpdir):
             enable_efficiency_metrics=False,
         )
 
-        with patch.object(TrainingMetricsCollector, '_detect_hardware_tflops', return_value=190.0):
+        with patch.object(TrainingMetricsCollector, "_detect_hardware_tflops", return_value=190.0):
             trainer_no_metrics = NeuronTrainer(model, training_args_no_metrics, train_dataset=dataset)
 
             # Verify metrics are disabled
@@ -455,14 +464,14 @@ def test_metrics_collector_edge_cases():
         dataloader_num_workers=0,
     )
 
-    with patch.object(TrainingMetricsCollector, '_detect_hardware_tflops', return_value=190.0):
+    with patch.object(TrainingMetricsCollector, "_detect_hardware_tflops", return_value=190.0):
         collector = TrainingMetricsCollector(
             training_args=training_args,
             model_param_count=1000000,
             vocab_size=32000,
             enable_mfu_metrics=True,
             enable_efficiency_metrics=True,
-            metrics_window_size=1
+            metrics_window_size=1,
         )
 
     # Test zero time edge case
