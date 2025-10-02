@@ -44,6 +44,7 @@ from .utils import (
     ENCODER_NAME,
     NEURON_FILE_NAME,
     get_neuron_instance_type,
+    is_cpu_only_instance,
 )
 from .utils.doc import (
     _TOKENIZER_FOR_DOC,
@@ -341,7 +342,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
         instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
-        cpu_backend: bool = False,
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
@@ -365,6 +365,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
+        cpu_backend = is_cpu_only_instance()
         instance_type = get_neuron_instance_type(instance_type)
         compiler_kwargs = {
             "auto_cast": auto_cast,

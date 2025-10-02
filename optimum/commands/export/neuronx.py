@@ -21,10 +21,9 @@ from argparse import SUPPRESS, ArgumentParser, Namespace, _SubParsersAction
 from pathlib import Path
 
 from neuronx_distributed.utils.utils import hardware
-from torch_neuronx.utils import get_platform_target
 
 from ...exporters import TasksManager
-from ...neuron.utils import SUPPORTED_INSTANCE_TYPES
+from ...neuron.utils import SUPPORTED_INSTANCE_TYPES, is_cpu_only_instance
 from ..base import BaseOptimumCLICommand, CommandInfo
 
 
@@ -49,15 +48,10 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         ),
     )
     optional_group.add_argument(
-        "--cpu_backend",
-        action="store_true",
-        help="Whether to trace the model completely on CPU.",
-    )
-    optional_group.add_argument(
         "--instance_type",
         type=str,
         default=None,
-        choices=["inf2", "trn1", "trn1n", "trn2"],
+        choices=SUPPORTED_INSTANCE_TYPES,
         help="Target Neuron instance type on which the compiled model will be run.",
     )
     optional_group.add_argument(
@@ -348,26 +342,19 @@ class NeuronxExportCommand(BaseOptimumCLICommand):
 
     @staticmethod
     def cpu_only_check(args_string: str):
-        instance_type = get_platform_target()
-        if instance_type not in SUPPORTED_INSTANCE_TYPES:
-            if "--cpu_backend" not in args_string:
-                # `--cpu_backend` is mandary when no neuron device is available
+        if is_cpu_only_instance():
+            # `--instance_type` is mandary when we compile with cpu backend
+            compiler_args = shlex.split(args_string)
+            if "--instance_type" not in args_string:
                 raise RuntimeError(
-                    f"You are using {instance_type} instance, please add the flag `--cpu_backend` for cpu-only compilation"
+                    f"You are using an instance without any neuron device, please supply target instance type among {SUPPORTED_INSTANCE_TYPES} for cpu-only compilation"
                 )
             else:
-                # `--instance_type` is mandary when we compile with cpu backend
-                compiler_args = shlex.split(args_string)
-                if "--instance_type" not in args_string:
-                    raise RuntimeError(
-                        f"You are using {instance_type} instance, please supply target instance type among {SUPPORTED_INSTANCE_TYPES} for cpu-only compilation"
-                    )
-                else:
-                    index = compiler_args.index("--instance_type")
-                    target_instance_type = compiler_args[index + 1]
-                    assert target_instance_type in SUPPORTED_INSTANCE_TYPES, (
-                        f"{target_instance_type} is not a supported platform. \
-                    Please choose from options trn1, inf2, trn1n, or trn2."
-                    )
-                    target_instance_type = hardware(target_instance_type).value
-                    os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = target_instance_type
+                index = compiler_args.index("--instance_type")
+                target_instance_type = compiler_args[index + 1]
+                assert target_instance_type in SUPPORTED_INSTANCE_TYPES, (
+                    f"{target_instance_type} is not a supported platform. \
+                Please choose from options {SUPPORTED_INSTANCE_TYPES}."
+                )
+                target_instance_type = hardware(target_instance_type).value
+                os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = target_instance_type

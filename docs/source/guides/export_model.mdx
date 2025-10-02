@@ -116,7 +116,7 @@ that matmul operation must be performed with `float16` precision for faster infe
 
 <Tip>
 
-You can also compile the model on a CPU-only instance. In this case, pass the `--cpu_backend` flag and specify the target `--instance_type` from `{inf2, trn1, trn1n, trn2}`. 
+You can also compile the model on a CPU-only instance. In this case, specify the target instance type by passing `--instance_type` from `{inf2, trn1, trn1n, trn2}`. 
 
 If you are using a `NeuronModelForXXX` class to export the model on a CPU-only instance, set the target instance type through the environment variable, e.g.:
 

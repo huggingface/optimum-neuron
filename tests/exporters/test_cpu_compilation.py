@@ -48,7 +48,7 @@ class NeuronEncoderCPUBackendTestCase(unittest.TestCase):
     """
     Tests for CPU backend compilation of encoder models.
     This class tests both the export functionality and integration aspects
-    for encoder models using cpu_backend=True.
+    for encoder models.
     """
 
     @parameterized.expand(INSTANCE_TYPES)
@@ -73,7 +73,6 @@ class NeuronEncoderCPUBackendTestCase(unittest.TestCase):
                     "text-classification",
                     "--instance_type",
                     instance_type,
-                    "--cpu_backend",
                     tempdir,
                 ],
                 shell=False,
@@ -95,7 +94,6 @@ class NeuronEncoderCPUBackendTestCase(unittest.TestCase):
         neuron_model = NeuronModelForFeatureExtraction.from_pretrained(
             model_id,
             export=True,
-            cpu_backend=True,
             **compiler_configs,
             **input_shapes,
         )
@@ -107,7 +105,7 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
     """
     Tests for CPU backend compilation of seq2seq models.
     This class tests both the export functionality and integration aspects
-    for seq2seq models (T5) using cpu_backend=True.
+    for seq2seq models (T5).
     """
 
     @parameterized.expand(INSTANCE_TYPES)
@@ -140,7 +138,6 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
                     "--output_attentions",
                     "--instance_type",
                     instance_type,
-                    "--cpu_backend",
                     tempdir,
                 ],
                 shell=False,
@@ -164,7 +161,6 @@ class NeuronCPUBackendSeq2SeqTestCase(unittest.TestCase):
         neuron_model = NeuronModelForSeq2SeqLM.from_pretrained(
             model_id,
             export=True,
-            cpu_backend=True,
             **compiler_configs,
             **input_shapes,
         )
@@ -176,7 +172,7 @@ class NeuronCPUBackendDiffusionTestCase(unittest.TestCase):
     """
     Tests for CPU backend compilation of diffusion models.
     This class tests both the export functionality and integration aspects
-    for diffusion models (Stable Diffusion) using cpu_backend=True.
+    for diffusion models (Stable Diffusion).
     """
 
     @parameterized.expand(INSTANCE_TYPES)
@@ -207,7 +203,6 @@ class NeuronCPUBackendDiffusionTestCase(unittest.TestCase):
                     "bf16",
                     "--instance_type",
                     instance_type,
-                    "--cpu_backend",
                     tempdir,
                 ],
                 shell=False,
@@ -232,7 +227,6 @@ class NeuronCPUBackendDiffusionTestCase(unittest.TestCase):
         neuron_model = NeuronStableDiffusionPipeline.from_pretrained(
             model_id,
             export=True,
-            cpu_backend=True,
             **compiler_configs,
             **input_shapes,
         )

@@ -408,7 +408,6 @@ def export_models(
             compiler_version=NEURON_COMPILER_VERSION,
             inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
-            cpu_backend=cpu_backend,
             model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
             task=getattr(sub_neuron_config, "task", None),
             output_attentions=getattr(sub_neuron_config, "output_attentions", False),

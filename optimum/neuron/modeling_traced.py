@@ -41,6 +41,7 @@ from .utils import (
     InputShapesArguments,
     check_if_weights_replacable,
     get_neuron_instance_type,
+    is_cpu_only_instance,
     is_neuron_available,
     replace_weights,
     store_compilation_config,
@@ -271,7 +272,6 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
         instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
-        cpu_backend: bool = False,
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
@@ -302,6 +302,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
             kwargs_shapes["batch_size"] = 1
             disable_fallback = True  # Turn off the fallback for neuron, otherwise dynamic batching will still fail
         auto_cast_type = None if auto_cast is None else auto_cast_type
+        cpu_backend = is_cpu_only_instance()
         instance_type = get_neuron_instance_type(instance_type)
         compiler_kwargs = {
             "auto_cast": auto_cast,
@@ -327,7 +328,6 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
                 compiler_version=NEURON_COMPILER_VERSION,
                 inline_weights_to_neff=inline_weights_to_neff,
                 optlevel=optlevel,
-                cpu_backend=cpu_backend,
                 model_type=getattr(config, "model_type", None),
                 task=task,
                 output_attentions=output_attentions,

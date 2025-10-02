@@ -265,7 +265,6 @@ def store_compilation_config(
     compiler_version: str,
     inline_weights_to_neff: bool,
     optlevel: str,
-    cpu_backend: bool = False,
     int_dtype: str | torch.dtype = "int64",
     tensor_parallel_size: int = 1,
     model_type: str | None = None,
@@ -286,7 +285,6 @@ def store_compilation_config(
     config_args["compiler_type"] = compiler_type
     config_args["compiler_version"] = compiler_version
     config_args["inline_weights_to_neff"] = inline_weights_to_neff
-    config_args["cpu_backend"] = cpu_backend
 
     # Add input shapes during compilation to the config
     config_args = add_shapes_to_config(config_args, input_shapes)

@@ -51,6 +51,7 @@ from ...neuron.utils import (
     IPAdapterArguments,
     LoRAAdapterArguments,
     get_neuron_instance_type,
+    is_cpu_only_instance,
     is_neuron_available,
     is_neuronx_available,
 )
@@ -706,7 +707,7 @@ def main_export(
             )
             do_validation = False
         elif cpu_backend:
-            logger.info("The validation is diabled since you are using CPU backend for the compilation.")
+            logger.info("The validation is disabled since you are using CPU backend for the compilation.")
             do_validation = False
 
     if do_validation is True:
@@ -838,7 +839,8 @@ def main():
     compiler_kwargs = infer_compiler_kwargs(args)
     optional_outputs = customize_optional_outputs(args)
     optlevel = parse_optlevel(args)
-    cpu_backend = args.cpu_backend
+
+    cpu_backend = is_cpu_only_instance()
     lora_args = LoRAAdapterArguments(
         model_ids=getattr(args, "lora_model_ids", None),
         weight_names=getattr(args, "lora_weight_names", None),

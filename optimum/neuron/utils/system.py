@@ -17,13 +17,10 @@ import logging
 import os
 import re
 
-from torch_neuronx.utils import get_platform_target
-
 
 NEURON_DEV_PATTERN = re.compile(r"^neuron\d+$", re.IGNORECASE)
 MAJORS_FILE = "/proc/devices"
 NEURON_MAJOR_LINE = re.compile(r"^\s*(\d+)\s+neuron\s*$")
-SUPPORTED_INSTANCE_TYPES = ["trn1", "inf2", "trn1n", "trn2"]
 
 logger = logging.getLogger(__name__)
 
@@ -79,17 +76,3 @@ def get_available_cores() -> int:
             visible_cores = 1
     visible_cores = min(visible_cores, num_cores)
     return visible_cores
-
-
-def get_neuron_instance_type(instance_type: str | None) -> str:
-    # Autodetect the platform
-    if instance_type is None:
-        instance_type = get_platform_target()
-
-    if instance_type not in SUPPORTED_INSTANCE_TYPES:
-        raise ValueError(
-            f"{instance_type} is not a valid instance type, supported instance types are: {SUPPORTED_INSTANCE_TYPES}."
-        )
-    os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = instance_type
-
-    return instance_type
