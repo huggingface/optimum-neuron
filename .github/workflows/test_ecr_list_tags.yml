@@ -1,0 +1,35 @@
+name: List ECR Tags
+
+on:
+  workflow_dispatch:
+
+jobs:
+  list-tags:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # requis pour OIDC
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ASSUME_SANDBOX_GITHUB_CI_PUSH_ECR}}
+          aws-region: us-east-1
+
+      - name: List ECR image tags
+        id: get_tags
+        run: |
+          TAGS=$(aws ecr list-images \
+            --repository-name neuronx-tgi \
+            --query 'imageIds[*].imageTag' \
+            --output json | jq -c .)
+
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+
+      - name: Show tags
+        run: |
+          echo "Tags: ${{ steps.get_tags.outputs.tags }}"
