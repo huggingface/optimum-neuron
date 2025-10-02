@@ -1,0 +1,47 @@
+name: Test Sagemaker Images
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/test_sagemaker.yml"
+      - "optimum/neuron/utils/ecr.py"
+      - "tests/sagemaker/**"
+  pull_request:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/test_sagemaker.yml"
+      - "optimum/neuron/utils/ecr.py"
+      - "tests/sagemaker/**"
+
+jobs:
+  do-the-job:
+    name: Run Sagemaker Related Tests
+    runs-on: ubuntu-22.04
+    permissions:
+      id-token: write   # required for OIDC
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Install Neuronx runtime
+        uses: ./.github/actions/install_neuronx_runtime
+      - name: Prepare virtual environment
+        uses: ./.github/actions/prepare_venv
+      - name: Install optimum-neuron
+        uses: ./.github/actions/install_optimum_neuron
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ASSUME_SANDBOX_GITHUB_CI_PUSH_ECR}}
+          aws-region: us-east-1
+
+      - name: Test Sagemaker related tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          pytest -sv tests/sagemaker/test_images_uri.py
