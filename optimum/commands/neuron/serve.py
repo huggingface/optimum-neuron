@@ -15,6 +15,7 @@
 """Defines the command to serve a Neuron model."""
 
 import os
+import warnings
 from argparse import ArgumentParser
 
 from ...neuron.cache.hub_cache import select_hub_cached_entries
@@ -78,6 +79,12 @@ class ServeCommand(BaseOptimumCLICommand):
             default=8080,
             help="The port on which to serve the model.",
         )
+        parser.add_argument(
+            "--allow_non_cached_model",
+            action="store_true",
+            default=False,
+            help="If set, export the model even if no cached configuration exists.",
+        )
 
     @requires_vllm
     @requires_torch_neuronx
@@ -135,39 +142,66 @@ class ServeCommand(BaseOptimumCLICommand):
                 tensor_parallel_size=tensor_parallel_size,
                 torch_dtype=torch_dtype,
             )
-            if len(cached_entries) == 0:
-                hub_cache_url = "https://huggingface.co/aws-neuron/optimum-neuron-cache"  # noqa: E501
-                neuron_export_url = "https://huggingface.co/docs/optimum-neuron/main/en/guides/export_model"  # noqa: E501
-                error_msg = f"No cached version found for {model_id}"
-                if batch_size is not None:
-                    error_msg += f", batch size = {batch_size}"
-                if sequence_length is not None:
-                    error_msg += f", sequence length = {sequence_length},"
-                if tensor_parallel_size is not None:
-                    error_msg += f", tp = {tensor_parallel_size}"
-                if torch_dtype is not None:
-                    error_msg += f", dtype = {torch_dtype}"
-                error_msg += (
-                    f".You can start a discussion to request it on {hub_cache_url}"
-                    "Alternatively, you can export your own neuron model "
-                    f"as explained in {neuron_export_url}"
-                )
-                raise ValueError(error_msg)
-            logger.warning("%s is not a neuron model: it will be exported using cached artifacts.", model_id)
             # Filter out entries that do not fit on the target host
             filtered_entries = [e for e in cached_entries if e["tp_degree"] <= available_cores]
-            # Sort entries by decreasing tensor parallel size, batch size, sequence length
-            filtered_entries = sorted(
-                filtered_entries,
-                key=lambda x: (x["tp_degree"], x["batch_size"], x["sequence_length"]),
-                reverse=True,
-            )
-            # Export the model with the best matching configuration
-            selected_entry = filtered_entries[0]
-            batch_size = selected_entry["batch_size"]
-            sequence_length = selected_entry["sequence_length"]
-            tensor_parallel_size = selected_entry["tp_degree"]
-            torch_dtype = DTYPE_MAPPER.pt(selected_entry["torch_dtype"])
+            if len(filtered_entries) == 0:
+                if self.args.allow_non_cached_model:
+                    warning_msg = f"{model_id} is not a neuron model, and no cached configuration is available using"
+                    if batch_size is None:
+                        batch_size = 1
+                        warning_msg += " default"
+                    warning_msg += f" batch size = {batch_size},"
+                    if sequence_length is None:
+                        sequence_length = 2048
+                        warning_msg += " default"
+                    warning_msg += f" sequence length = {sequence_length},"
+                    if tensor_parallel_size is None:
+                        tensor_parallel_size = available_cores
+                        warning_msg += " default"
+                    warning_msg += f" tp = {tensor_parallel_size},"
+                    if torch_dtype is None:
+                        torch_dtype = DTYPE_MAPPER.pt("bfloat16")
+                        warning_msg += " default"
+                    warning_msg += f" dtype = {torch_dtype}."
+                    warning_msg += " The compilation might fail or the model might not fit on the target instance."
+                    warnings.warn(warning_msg)
+                else:
+                    hub_cache_url = "https://huggingface.co/aws-neuron/optimum-neuron-cache"  # noqa: E501
+                    neuron_export_url = "https://huggingface.co/docs/optimum-neuron/main/en/guides/export_model"  # noqa: E501
+                    error_msg = f"No cached version found for {model_id}"
+                    if batch_size is not None:
+                        error_msg += f", batch size = {batch_size}"
+                    if sequence_length is not None:
+                        error_msg += f", sequence length = {sequence_length},"
+                    if tensor_parallel_size is not None:
+                        error_msg += f", tp = {tensor_parallel_size}"
+                    if torch_dtype is not None:
+                        error_msg += f", dtype = {torch_dtype}"
+                    error_msg += (
+                        f".You can start a discussion to request it on {hub_cache_url}"
+                        "Alternatively, you can export your own neuron model "
+                        f"as explained in {neuron_export_url}"
+                    )
+                    raise ValueError(error_msg)
+            else:
+                # Sort entries by decreasing tensor parallel size, batch size, sequence length
+                filtered_entries = sorted(
+                    filtered_entries,
+                    key=lambda x: (x["tp_degree"], x["batch_size"], x["sequence_length"]),
+                    reverse=True,
+                )
+                # Export the model with the best matching configuration
+                selected_entry = filtered_entries[0]
+                batch_size = selected_entry["batch_size"]
+                sequence_length = selected_entry["sequence_length"]
+                tensor_parallel_size = selected_entry["tp_degree"]
+                torch_dtype = DTYPE_MAPPER.pt(selected_entry["torch_dtype"])
+                warning_msg = f"{model_id} is not a neuron model, but a cached configuration is available using"
+                warning_msg += f" batch size = {batch_size},"
+                warning_msg += f" sequence length = {sequence_length},"
+                warning_msg += f" tp = {tensor_parallel_size},"
+                warning_msg += f" dtype = {torch_dtype}."
+                logger.warning(warning_msg)
 
         os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
         vllm_parser = make_arg_parser(FlexibleArgumentParser())
@@ -185,6 +219,8 @@ class ServeCommand(BaseOptimumCLICommand):
             "--dtype",
             str(torch_dtype).split(".")[-1],
         ]
+        if self.args.allow_non_cached_model:
+            command.append("--model-loader-extra-config=allow_non_cached_model")
         vllm_args = vllm_parser.parse_args(command)
         validate_parsed_serve_args(vllm_args)
 

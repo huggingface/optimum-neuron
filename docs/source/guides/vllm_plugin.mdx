@@ -77,6 +77,9 @@ optimum-cli neuron serve \
     --dtype="bfloat16"
 ```
 
+Note: by default `optimum-cli` will only `serve` standard models for which a cached configuration exists.
+This behaviour can be overridden using the `--allow_non_cached_model` argument.
+
 If you omit one parameter, `optimum-neuron` will select a default value for you based
 on the deployment target and prioritizing cached configurations.
 
