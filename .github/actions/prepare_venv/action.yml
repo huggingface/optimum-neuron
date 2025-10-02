@@ -1,5 +1,18 @@
 name: Prepare virtual environment
-description: prepare virtual environment to install pyhton packages
+description: prepare virtual environment to install python packages
+inputs:
+  torch_version:
+    description: 'The pytorch version to be installed'
+    required: true
+    default: '2.8.0'
+  torchvision_version:
+    description: 'The torchvision version to be installed'
+    required: true
+    default: '0.23.0'
+  use_cuda:
+    description: 'requires pytorch cuda to be installed'
+    required: true
+    default: 'false'
 runs:
     using: "composite"
     steps:
@@ -13,6 +26,19 @@ runs:
           python -m pip install -U pip
           python -m pip install --upgrade setuptools==69.5.1
           python -m pip install hf_transfer
+      - name: Install torch and torchvision (CUDA)
+        if: ${{ inputs.use_cuda == 'true' }}
+        shell: bash
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          # Install torch and torchvision for CUDA: required by diffusers even if neuron doesn't use it
+          python -m pip install torch==${{ inputs.torch_version }} torchvision~=${{ inputs.torchvision_version }}
+      - name: Install torch and torchvision (CPU)
+        if: ${{ inputs.use_cuda == 'false' }}
+        shell: bash
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          # Install torch and torchvision for CUDA: this avoids having to install CUDA related dependencies, that
           # Install torch and torchvision for CPU: this avoids having to install CUDA related dependencies, that use a lot
           # of disk space. Note dependencies should be updated when we bump the PyTorch version.
-          python -m pip install torch==2.7.1 torchvision~=0.22 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install torch==${{ inputs.torch_version }} torchvision~=${{ inputs.torchvision_version }} --index-url https://download.pytorch.org/whl/cpu

@@ -7,7 +7,12 @@ from tempfile import TemporaryDirectory
 
 import huggingface_hub
 import pytest
-from transformers import AutoConfig, AutoTokenizer
+
+from optimum.neuron.utils.import_utils import is_package_available
+
+
+if is_package_available("transformers"):
+    from transformers import AutoConfig, AutoTokenizer
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.cache import synchronize_hub_cache
