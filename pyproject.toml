@@ -102,7 +102,7 @@ diffusers = [
     "peft==0.17.0",
 ]
 diffusers-tests = [
-    "compel",
+    "compel==2.1.1",
 ]
 sentence-transformers = [
     "sentence-transformers >= 2.2.0",
