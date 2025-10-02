@@ -851,6 +851,23 @@ class FluxTransformerNeuronConfig(BaseNxDModelNeuronConfig):
     def outputs(self) -> list[str]:
         return ["out_hidden_states"]
 
+    def convert_hf_to_neuron_state_dict(self, state_dict: dict) -> dict:
+        state_dict["global_rank.rank"] = torch.arange(0, self.tensor_parallel_size, dtype=torch.int32)
+        inner_dim = self._config.num_attention_heads * self._config.attention_head_dim
+        for i in range(self._config.num_single_layers):
+            state_dict[f"single_transformer_blocks.{i}.proj_out_attn.weight"] = state_dict[
+                f"single_transformer_blocks.{i}.proj_out.weight"
+            ][:, :inner_dim].contiguous()
+            state_dict[f"single_transformer_blocks.{i}.proj_out_attn.bias"] = (
+                state_dict[f"single_transformer_blocks.{i}.proj_out.bias"].clone().detach().contiguous()
+            )
+            state_dict[f"single_transformer_blocks.{i}.proj_out_mlp.weight"] = state_dict[
+                f"single_transformer_blocks.{i}.proj_out.weight"
+            ][:, inner_dim:].contiguous()
+        for k, v in state_dict.items():
+            state_dict[k] = v.clone().detach().contiguous()
+        return state_dict
+
     # Adapted from diffusers.models.modeling_utils.ModelMixin.from_pretrained, this is a helper function for loading checkpoints required by `ModelBuilder`.
     def get_checkpoint_loader_fn(self):
         is_local = os.path.isdir(self.pretrained_model_name_or_path)
@@ -883,17 +900,7 @@ class FluxTransformerNeuronConfig(BaseNxDModelNeuronConfig):
             state_dict = load_file(shard_file)
             merged_state_dict.update(state_dict)
 
-        inner_dim = self._config.num_attention_heads * self._config.attention_head_dim
-        for i in range(self._config.num_single_layers):
-            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_attn.weight"] = merged_state_dict[
-                f"single_transformer_blocks.{i}.proj_out.weight"
-            ][:, :inner_dim].contiguous()
-            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_attn.bias"] = (
-                merged_state_dict[f"single_transformer_blocks.{i}.proj_out.bias"].clone().detach().contiguous()
-            )
-            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_mlp.weight"] = merged_state_dict[
-                f"single_transformer_blocks.{i}.proj_out.weight"
-            ][:, inner_dim:].contiguous()
+        merged_state_dict = self.convert_hf_to_neuron_state_dict(merged_state_dict)
 
         return merged_state_dict
 
@@ -1054,6 +1061,7 @@ class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
 
 @register_in_tasks_manager("t5-encoder", *["feature-extraction"], library_name="diffusers")
 class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
+    # TENSOR_PARALLEL_MODEL = NeuronT5EncoderModel
     CUSTOM_MODEL_WRAPPER = T5EncoderWrapper
     INPUT_ARGS = ("batch_size", "sequence_length")
     MODEL_TYPE = "t5-encoder"
@@ -1122,6 +1130,17 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
 
     def get_checkpoint_loader_fn(self):
         return None
+
+    def get_compiler_args(self):
+        target_hardware_platform = hardware(get_platform_target())
+        compiler_args = "--model-type=transformer -O1"
+        compiler_args += " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'"
+        compiler_args += " --auto-cast=none --internal-hlo2tensorizer-options='--verify-hlo=true'"
+
+        os.environ["LOCAL_WORLD_SIZE"] = str(self.tensor_parallel_size)
+        if target_hardware_platform == hardware.TRN2:
+            os.environ["NEURON_RT_VIRTUAL_CORE_SIZE"] = "2"
+        return compiler_args
 
 
 @register_in_tasks_manager("t5-encoder", *["text2text-generation"])

@@ -356,6 +356,7 @@ def export_models(
     compile_configs = {}
     models_and_neuron_configs.pop("text_encoder_2")
     models_and_neuron_configs.pop("text_encoder")
+    # models_and_neuron_configs.pop("transformer")
     models_and_neuron_configs.pop("vae_encoder")
     models_and_neuron_configs.pop("vae_decoder")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
