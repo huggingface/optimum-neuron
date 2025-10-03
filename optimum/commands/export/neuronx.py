@@ -13,12 +13,15 @@
 # limitations under the License.
 """Defines the command line for the export with Neuronx compiler."""
 
+import os
+import shlex
 import subprocess
 import sys
 from argparse import SUPPRESS, ArgumentParser, Namespace, _SubParsersAction
 from pathlib import Path
 
 from ...exporters import TasksManager
+from ...neuron.utils import SUPPORTED_INSTANCE_TYPES, get_neuron_instance_type, is_cpu_only_instance
 from ..base import BaseOptimumCLICommand, CommandInfo
 
 
@@ -41,6 +44,13 @@ def parse_args_neuronx(parser: "ArgumentParser"):
             "The task to export the model for. If not specified, the task will be auto-inferred based on the model. Available tasks depend on the model, but are among:"
             f" {str(list(TasksManager._TRANSFORMERS_TASKS_TO_MODEL_LOADERS.keys()) + list(TasksManager._DIFFUSERS_TASKS_TO_MODEL_LOADERS.keys()))}."
         ),
+    )
+    optional_group.add_argument(
+        "--instance_type",
+        type=str,
+        default=None,
+        choices=SUPPORTED_INSTANCE_TYPES,
+        help="Target Neuron instance type on which the compiled model will be run.",
     )
     optional_group.add_argument(
         "--subfolder",
@@ -98,8 +108,8 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         "--auto_cast_type",
         type=str,
         default="bf16",
-        choices=["bf16", "fp16", "tf32"],
-        help='The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.',
+        choices=["bf16", "fp16", "tf32", "fp8_e4m3"],
+        help='The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"`, `"tf32"` or "fp8_e4m3".',
     )
     optional_group.add_argument(
         "--torch_dtype",
@@ -324,5 +334,21 @@ class NeuronxExportCommand(BaseOptimumCLICommand):
         return parse_args_neuronx(parser)
 
     def run(self):
+        self.cpu_only_check(self.args_string)
         full_command = f"python3 -m optimum.exporters.neuron {self.args_string}"
         subprocess.run(full_command, shell=True, check=True)
+
+    @staticmethod
+    def cpu_only_check(args_string: str):
+        if is_cpu_only_instance():
+            # `--instance_type` is mandary when we compile with cpu backend
+            compiler_args = shlex.split(args_string)
+            if "--instance_type" not in args_string:
+                raise RuntimeError(
+                    f"You are using an instance without any neuron device, please supply target instance type among {SUPPORTED_INSTANCE_TYPES} for cpu-only compilation"
+                )
+            else:
+                index = compiler_args.index("--instance_type")
+                instance_type = compiler_args[index + 1]
+                instance_type = get_neuron_instance_type(instance_type)
+                os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = instance_type

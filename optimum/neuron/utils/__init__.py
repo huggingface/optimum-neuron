@@ -89,7 +89,7 @@ _import_structure = {
         "is_model_officially_supported",
         "patch_transformers_for_neuron_sdk",
     ],
-    "trl_utils": ["NeuronSFTConfig", "NeuronORPOConfig"],
+    "instance": ["SUPPORTED_INSTANCE_TYPES", "get_neuron_instance_type", "is_cpu_only_instance"],
 }
 
 if TYPE_CHECKING:
@@ -136,6 +136,7 @@ if TYPE_CHECKING:
         DummyTimestepInputGenerator,
         WhisperDummyTextInputGenerator,
     )
+    from .instance import SUPPORTED_INSTANCE_TYPES, get_neuron_instance_type, is_cpu_only_instance
     from .misc import (
         DiffusersPretrainedConfig,
         check_if_weights_replacable,
@@ -163,7 +164,6 @@ if TYPE_CHECKING:
         is_model_officially_supported,
         patch_transformers_for_neuron_sdk,
     )
-    from .trl_utils import NeuronORPOConfig, NeuronSFTConfig
 else:
     import sys
 

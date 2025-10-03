@@ -65,7 +65,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         input_shapes = build_stable_diffusion_components_mandatory_shapes(
             **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 1}
         )
-        compiler_kwargs = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+        compiler_kwargs = {"auto_cast": "matmul", "auto_cast_type": "bf16", "instance_type": "inf2"}
 
         with TemporaryDirectory() as tmpdirname:
             models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
@@ -99,7 +99,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         input_shapes = build_stable_diffusion_components_mandatory_shapes(
             **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 1}
         )
-        compiler_kwargs = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+        compiler_kwargs = {"auto_cast": "matmul", "auto_cast_type": "bf16", "instance_type": "inf2"}
 
         with TemporaryDirectory() as tmpdirname:
             models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
@@ -140,7 +140,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
             adapter_names=lora_params[2],
             scales=0.9,
         )
-        compiler_kwargs = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+        compiler_kwargs = {"auto_cast": "matmul", "auto_cast_type": "bf16", "instance_type": "inf2"}
 
         with TemporaryDirectory() as tmpdirname:
             models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(

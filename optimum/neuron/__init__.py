@@ -16,12 +16,6 @@
 import os
 from typing import TYPE_CHECKING
 
-from .utils.training_utils import patch_transformers_for_neuron_sdk
-
-
-if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):
-    patch_transformers_for_neuron_sdk()
-
 from transformers.utils import _LazyModule
 
 
@@ -79,6 +73,7 @@ _import_structure = {
         "NeuronPartialState",
     ],
     "pipelines": ["pipeline"],
+    "utils": ["is_neuron_available", "is_neuronx_available"],
 }
 
 # Model structures
@@ -154,6 +149,7 @@ if TYPE_CHECKING:
         NeuronTrainer,
         NeuronTrainingArguments,
     )
+    from .utils import is_neuron_available, is_neuronx_available
 
 else:
     import sys
@@ -166,5 +162,4 @@ else:
     )
 
 
-from .utils import is_neuron_available, is_neuronx_available, patch_transformers_for_neuron_sdk
 from .version import __version__

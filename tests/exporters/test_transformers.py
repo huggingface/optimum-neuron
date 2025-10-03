@@ -126,6 +126,7 @@ class NeuronExportTestCase(unittest.TestCase):
                     config=neuron_config,
                     output=Path(output.name),
                     inline_weights_to_neff=inline_weights_to_neff,
+                    instance_type="inf2",
                 )
 
                 validate_model_outputs(
@@ -203,6 +204,7 @@ class NeuronEncoderDecoderExportTestCase(unittest.TestCase):
                 task="text2text-generation",
                 output_dir=Path(tmpdirname),
                 output_file_names=output_model_names,
+                compiler_kwargs={"instance_type": "inf2"},
             )
             validate_models_outputs(
                 models_and_neuron_configs=models_and_neuron_configs,
