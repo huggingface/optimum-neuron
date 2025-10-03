@@ -68,9 +68,6 @@ tests = [
     "librosa",
     "controlnet-aux",
     "hf_transfer",
-    "docker",
-    "pytest-asyncio",
-    "openai",
 ]
 quality = [
     "pre-commit",
