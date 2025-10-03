@@ -25,9 +25,10 @@ NEURON_MAJOR_LINE = re.compile(r"^\s*(\d+)\s+neuron\s*$")
 logger = logging.getLogger(__name__)
 
 
-# Note: with python 3.9, functools.cache would be more suited
-@functools.lru_cache()
+@functools.cache
 def get_neuron_major() -> int:
+    if not os.path.exists(MAJORS_FILE):
+        return -1
     with open(MAJORS_FILE, "r") as f:
         for l in f.readlines():
             m = NEURON_MAJOR_LINE.match(l)
