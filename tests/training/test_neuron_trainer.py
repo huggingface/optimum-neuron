@@ -33,9 +33,9 @@ from transformers import AutoTokenizer, BertForSequenceClassification, BertToken
 
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.models.training import NeuronModelForCausalLM, TrainingNeuronConfig
+from optimum.neuron.models.training.training_utils import get_model_param_count
 from optimum.neuron.peft import NeuronPeftModel
 from optimum.neuron.utils.testing_utils import is_trainium_test
-from optimum.neuron.utils.training_utils import get_model_param_count
 
 from .distributed_utils import distributed_test, run_distributed_test
 
