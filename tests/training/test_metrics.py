@@ -149,13 +149,35 @@ def test_metrics_basic_functionality(tmpdir):
     forward_stats = collector.metric_windows["forward_pass"].get_window_stats()
     backward_stats = collector.metric_windows["backward_pass"].get_window_stats()
 
-    # Should have accumulated tokens from both micro-batches
-    assert forward_stats["total_tokens"] == 256  # 2 * 128
-    assert backward_stats["total_tokens"] == 256
+    # Validate token accumulation math
+    expected_tokens_per_microbatch = 2 * 64  # batch_size * seq_len
+    expected_total_tokens = expected_tokens_per_microbatch * 2  # 2 micro-batches
+    assert forward_stats["total_tokens"] == expected_total_tokens
+    assert backward_stats["total_tokens"] == expected_total_tokens
 
-    # Times should be cumulative
+    # Validate time accumulation (should be cumulative from 2 micro-batches)
     assert forward_stats["total_time"] > 0.008  # Should be > 2 * 0.005
     assert backward_stats["total_time"] > 0.008
+
+    # Test efficiency calculation precision
+    if collector.metric_windows["total_step"].size > 0:
+        # Add a total step measurement for efficiency calculation
+        collector.start_metric("total_step")
+        time.sleep(0.02)
+        collector.stop_metric("total_step", step_number=3)
+
+        efficiency_metrics = collector.calculate_metric("training_efficiency")
+        if efficiency_metrics:
+            # Validate that component percentages sum correctly
+            forward_pct = efficiency_metrics.get("train/forward_time_percent", 0)
+            backward_pct = efficiency_metrics.get("train/backward_time_percent", 0)
+            optimizer_pct = efficiency_metrics.get("train/optimizer_time_percent", 0)
+            unaccounted_pct = efficiency_metrics.get("train/unaccounted_time_percent", 0)
+            total_efficiency = efficiency_metrics.get("train/training_efficiency", 0)
+
+            # Components should sum to efficiency, and efficiency + unaccounted should = 100
+            assert abs((forward_pct + backward_pct + optimizer_pct) - total_efficiency) < 0.1
+            assert abs((total_efficiency + unaccounted_pct) - 100.0) < 0.1
 
 
 
@@ -192,27 +214,47 @@ def test_metrics_calculations_accuracy():
             assert window_stats["total_tokens"] == 128
             assert abs(window_stats["total_time"] - elapsed) < 0.005
 
-    # Test throughput calculation
+    # Test throughput calculation with precise validation
     throughput_metrics = collector.calculate_metric("throughput")
     assert "train/global_tokens_per_sec" in throughput_metrics
-    assert throughput_metrics["train/global_tokens_per_sec"] > 0
 
-    # Test MFU calculation if enabled
-    if args.enable_mfu_metrics:
+    # Validate distributed scaling: global = local * DP size
+    window_stats = collector.metric_windows["throughput"].get_window_stats()
+    expected_local_rate = window_stats["total_tokens"] / window_stats["total_time"]
+    expected_global_rate = expected_local_rate * collector.dp_size
+    actual_global_rate = throughput_metrics["train/global_tokens_per_sec"]
+
+    # Allow 5% tolerance for timing variations
+    assert abs(actual_global_rate - expected_global_rate) / expected_global_rate < 0.05
+
+    # Test MFU calculation with formula validation
+    if args.enable_mfu_metrics and collector.model_params:
         mfu_metrics = collector.calculate_metric("mfu")
-        if mfu_metrics:  # May be empty if insufficient data
-            assert "train/mfu" in mfu_metrics
-            assert 0 <= mfu_metrics["train/mfu"] <= 100
+        if mfu_metrics:
+            # Validate MFU formula: (actual_flops/sec) / (peak_flops/sec) * 100
+            total_tokens = window_stats["total_tokens"]
+            total_time = window_stats["total_time"]
+            theoretical_flops = 18 * collector.model_params * total_tokens
+            actual_flops_per_sec = theoretical_flops / total_time
+            peak_flops_per_sec = collector.peak_tflops_per_core * 1e12 * collector.total_neuron_cores
+            expected_mfu = (actual_flops_per_sec / peak_flops_per_sec) * 100
 
-    # Test summary vs moving window consistency
+            assert abs(mfu_metrics["train/mfu"] - round(expected_mfu, 2)) < 0.1
+
+    # Test summary vs moving window mathematical consistency
     summary_metrics = collector.calculate_summary_metrics()
     if "summary/global_tokens_per_sec_avg" in summary_metrics:
-        # Summary should be close to current moving average
-        window_throughput = throughput_metrics.get("train/global_tokens_per_sec", 0)
-        summary_throughput = summary_metrics["summary/global_tokens_per_sec_avg"]
-        if window_throughput > 0 and summary_throughput > 0:
-            ratio = summary_throughput / window_throughput
-            assert 0.5 < ratio < 2.0  # Should be reasonably close
+        # Summary should exactly match our manual calculation from recorded data
+        throughput_data = collector.summary_metrics["throughput"]
+        if throughput_data["step_times"]:
+            manual_rates = [
+                (tokens / time * collector.dp_size)
+                for tokens, time in zip(throughput_data["tokens_per_step"], throughput_data["step_times"])
+                if time > 0
+            ]
+            expected_summary = sum(manual_rates) / len(manual_rates)
+            actual_summary = summary_metrics["summary/global_tokens_per_sec_avg"]
+            assert abs(actual_summary - expected_summary) < 0.01
 
 
 
@@ -260,15 +302,37 @@ def test_metrics_integration_with_trainer():
     # Run minimal training to test integration
     trainer.train()
 
-    # Verify metrics were collected
+    # Verify metrics were collected and validate computations
     collector = trainer.metrics_collector
     summary_metrics = collector.calculate_summary_metrics()
 
-    # Should have throughput metrics
+    # Validate throughput computation against expected values
     assert len(summary_metrics) > 0
     if "summary/global_tokens_per_sec_avg" in summary_metrics:
-        assert summary_metrics["summary/global_tokens_per_sec_avg"] > 0
+        # Cross-validate with raw data
+        throughput_data = collector.summary_metrics.get("throughput", {})
+        if throughput_data.get("step_times") and throughput_data.get("tokens_per_step"):
+            # Manual calculation: average of (tokens/time * dp_size) for each step
+            manual_rates = []
+            for tokens, time in zip(throughput_data["tokens_per_step"], throughput_data["step_times"]):
+                if time > 0:
+                    manual_rates.append((tokens / time) * collector.dp_size)
 
-    # Should have training steps recorded
+            if manual_rates:
+                expected_avg = sum(manual_rates) / len(manual_rates)
+                actual_avg = summary_metrics["summary/global_tokens_per_sec_avg"]
+                assert abs(actual_avg - expected_avg) < 0.01, f"Expected {expected_avg}, got {actual_avg}"
+
+    # Validate training steps count matches actual training
     if "summary/total_training_steps" in summary_metrics:
-        assert summary_metrics["summary/total_training_steps"] > 0
+        total_steps = summary_metrics["summary/total_training_steps"]
+        # With 8 samples, batch_size=2, gradient_accumulation=2: expect 8/(2*2) = 2 steps
+        expected_steps = len(train_dataset) // (args.per_device_train_batch_size * args.gradient_accumulation_steps * collector.dp_size)
+        assert total_steps == expected_steps, f"Expected {expected_steps} steps, got {total_steps}"
+
+    # Validate token processing count
+    if "summary/global_tokens_processed" in summary_metrics:
+        total_tokens = summary_metrics["summary/global_tokens_processed"]
+        # Each sample has max_length=32 tokens
+        expected_tokens = len(train_dataset) * 32 * collector.dp_size  # Account for data parallel
+        assert total_tokens == expected_tokens, f"Expected {expected_tokens} tokens, got {total_tokens}"
