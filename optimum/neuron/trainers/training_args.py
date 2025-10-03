@@ -565,9 +565,6 @@ class NeuronTrainingArguments:
 
         # Neuron-specific setup
 
-        if self.async_save:
-            raise RuntimeError("async_save is currently broken, disable it for now.")
-
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_torch_xla_available()
 

@@ -233,6 +233,11 @@ class NeuronPeftModel(PeftModel):
                     )
 
             # Save the adapter weights.
+            if self.trn_config.async_save:
+                from ..models.training.modeling_utils import _wait_previous_async_save
+
+                _wait_previous_async_save(Path(output_dir) / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME)
+
             neuronx_distributed.trainer.save_checkpoint(
                 output_dir,
                 tag=ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME,
