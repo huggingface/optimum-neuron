@@ -13,14 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import TYPE_CHECKING
-
+from ..training_args import NeuronTrainingArguments
 from .base import MetricPlugin
+from .collector import TrainingMetricsCollector
 from .constants import MetricNames
-
-if TYPE_CHECKING:
-    from .collector import TrainingMetricsCollector
-    from ..training_args import NeuronTrainingArguments
 
 
 class MFUPlugin(MetricPlugin):
@@ -29,15 +25,17 @@ class MFUPlugin(MetricPlugin):
     def __init__(self):
         super().__init__(name=MetricNames.MFU, requires_accumulation=False)
 
-    def is_enabled(self, args: 'NeuronTrainingArguments') -> bool:
+    def is_enabled(self, args: NeuronTrainingArguments) -> bool:
         return args.enable_mfu_metrics
 
-    def calculate_realtime(self, window_stats: dict, collector: 'TrainingMetricsCollector') -> dict[str, float]:
+    def calculate_realtime(self, window_stats: dict, collector: TrainingMetricsCollector) -> dict[str, float]:
         """MFU = actual FLOPS / peak FLOPS as a percentage."""
-        if (not window_stats
+        if (
+            not window_stats
             or collector.model_params is None
             or window_stats.get("total_time", 0) <= 0
-            or window_stats.get("total_tokens", 0) == 0):
+            or window_stats.get("total_tokens", 0) == 0
+        ):
             return {}
 
         total_tokens = window_stats["total_tokens"]
@@ -51,7 +49,7 @@ class MFUPlugin(MetricPlugin):
 
         return {"train/mfu": round(mfu_pct, 2)}
 
-    def calculate_summary(self, summary_data: dict, collector: 'TrainingMetricsCollector') -> dict[str, float]:
+    def calculate_summary(self, summary_data: dict, collector: TrainingMetricsCollector) -> dict[str, float]:
         """Average MFU over the entire training run."""
         step_times = summary_data.get("step_times", [])
         tokens_per_step = summary_data.get("tokens_per_step", [])

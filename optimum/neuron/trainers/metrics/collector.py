@@ -99,7 +99,10 @@ class TrainingMetricsCollector:
                     "samples_per_step": [],
                     "step_numbers": [],
                 }
-                if plugin.requires_accumulation and metric_name in [MetricNames.FORWARD_PASS, MetricNames.BACKWARD_PASS]:
+                if plugin.requires_accumulation and metric_name in [
+                    MetricNames.FORWARD_PASS,
+                    MetricNames.BACKWARD_PASS,
+                ]:
                     self.accumulating_metrics.add(metric_name)
 
         self.cycle_active = False
@@ -134,9 +137,7 @@ class TrainingMetricsCollector:
         """Figure out what Trainium hardware we're running on."""
         platform_target = get_platform_target().lower()
         if platform_target not in HARDWARE_TFLOPS:
-            raise ValueError(
-                f"Unknown platform '{platform_target}'. We support: {list(HARDWARE_TFLOPS.keys())}"
-            )
+            raise ValueError(f"Unknown platform '{platform_target}'. We support: {list(HARDWARE_TFLOPS.keys())}")
         return HARDWARE_TFLOPS[platform_target]
 
     def _should_calculate_plugin(self, plugin: MetricPlugin, metric_type: str) -> bool:

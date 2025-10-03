@@ -13,14 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import TYPE_CHECKING
-
+from ..training_args import NeuronTrainingArguments
 from .base import MetricPlugin
+from .collector import TrainingMetricsCollector
 from .constants import MetricNames
-
-if TYPE_CHECKING:
-    from .collector import TrainingMetricsCollector
-    from ..training_args import NeuronTrainingArguments
 
 
 class ComponentTimingPlugin(MetricPlugin):
@@ -32,7 +28,7 @@ class ComponentTimingPlugin(MetricPlugin):
             requires_accumulation=True,  # forward/backward need accumulation across gradient steps
         )
 
-    def is_enabled(self, args: 'NeuronTrainingArguments') -> bool:
+    def is_enabled(self, args: NeuronTrainingArguments) -> bool:
         return True  # Always needed for efficiency calculations
 
     def get_metric_names(self) -> list[str]:
@@ -40,13 +36,13 @@ class ComponentTimingPlugin(MetricPlugin):
             MetricNames.FORWARD_PASS,
             MetricNames.BACKWARD_PASS,
             MetricNames.OPTIMIZER_STEP,
-            MetricNames.TOTAL_STEP
+            MetricNames.TOTAL_STEP,
         ]
 
-    def calculate_realtime(self, window_stats: dict, collector: 'TrainingMetricsCollector') -> dict[str, float]:
+    def calculate_realtime(self, window_stats: dict, collector: TrainingMetricsCollector) -> dict[str, float]:
         """This plugin just provides timing data to other plugins."""
         return {}
 
-    def calculate_summary(self, summary_data: dict, collector: 'TrainingMetricsCollector') -> dict[str, float]:
+    def calculate_summary(self, summary_data: dict, collector: TrainingMetricsCollector) -> dict[str, float]:
         """This plugin just provides timing data to other plugins."""
         return {}

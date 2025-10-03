@@ -15,32 +15,31 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from .collector import TrainingMetricsCollector
-    from ..training_args import NeuronTrainingArguments
+from ..training_args import NeuronTrainingArguments
+from .collector import TrainingMetricsCollector
 
 
 @dataclass
 class MetricPlugin(ABC):
     """Base class for metrics plugins. Each plugin calculates one type of metric."""
+
     name: str
     requires_accumulation: bool = False
     depends_on: list[str] | None = None
 
     @abstractmethod
-    def is_enabled(self, args: 'NeuronTrainingArguments') -> bool:
+    def is_enabled(self, args: NeuronTrainingArguments) -> bool:
         """Check if this plugin should be active."""
         pass
 
     @abstractmethod
-    def calculate_realtime(self, window_stats: dict, collector: 'TrainingMetricsCollector') -> dict[str, float]:
+    def calculate_realtime(self, window_stats: dict, collector: TrainingMetricsCollector) -> dict[str, float]:
         """Calculate train/ metrics from current window data."""
         pass
 
     @abstractmethod
-    def calculate_summary(self, summary_data: dict, collector: 'TrainingMetricsCollector') -> dict[str, float]:
+    def calculate_summary(self, summary_data: dict, collector: TrainingMetricsCollector) -> dict[str, float]:
         """Calculate summary/ metrics from all collected data."""
         pass
 

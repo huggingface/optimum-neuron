@@ -13,14 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import TYPE_CHECKING
-
+from ..training_args import NeuronTrainingArguments
 from .base import MetricPlugin
+from .collector import TrainingMetricsCollector
 from .constants import MetricNames
-
-if TYPE_CHECKING:
-    from .collector import TrainingMetricsCollector
-    from ..training_args import NeuronTrainingArguments
 
 
 class EfficiencyPlugin(MetricPlugin):
@@ -38,10 +34,10 @@ class EfficiencyPlugin(MetricPlugin):
             ],
         )
 
-    def is_enabled(self, args: 'NeuronTrainingArguments') -> bool:
+    def is_enabled(self, args: NeuronTrainingArguments) -> bool:
         return args.enable_efficiency_metrics
 
-    def calculate_realtime(self, window_stats: dict, collector: 'TrainingMetricsCollector') -> dict[str, float]:
+    def calculate_realtime(self, window_stats: dict, collector: TrainingMetricsCollector) -> dict[str, float]:
         """Efficiency = compute time / total time. Shows how much time we spend doing useful work."""
         # Get timing data from other plugins
         forward_time = collector.get_metric_average_time(MetricNames.FORWARD_PASS)
@@ -69,7 +65,7 @@ class EfficiencyPlugin(MetricPlugin):
             "train/overhead_time_percent": round(overhead_pct, 2),
         }
 
-    def calculate_summary(self, summary_data: dict, collector: 'TrainingMetricsCollector') -> dict[str, float]:
+    def calculate_summary(self, summary_data: dict, collector: TrainingMetricsCollector) -> dict[str, float]:
         """Calculate average efficiency over the entire training run."""
         # Get all the step times from component metrics
         forward_data = collector.summary_metrics.get(MetricNames.FORWARD_PASS, {})
