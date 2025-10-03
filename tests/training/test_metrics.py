@@ -16,12 +16,10 @@
 import time
 from unittest.mock import Mock, patch
 
-import pytest
 import torch
 from datasets import Dataset
-from transformers import AutoConfig, AutoTokenizer
+from transformers import AutoTokenizer
 
-from optimum.neuron.models.training.config import TrainingNeuronConfig
 from optimum.neuron.models.training.llama.modeling_llama import LlamaForCausalLM
 from optimum.neuron.trainers import NeuronTrainer
 from optimum.neuron.trainers.metrics import MovingAverageWindow, TrainingMetricsCollector
@@ -31,15 +29,17 @@ from optimum.neuron.utils.testing_utils import is_trainium_test
 from .distributed_utils import distributed_test
 from .utils import MODEL_NAME
 
+
 @is_trainium_test
 @distributed_test(world_size=1, tp_size=1, pp_size=1)
 def test_metrics_calculations_with_mocks(tmpdir):
     # Mock all distributed and hardware dependencies
-    with patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=2), \
-         patch("torch_xla.runtime.world_size", return_value=4), \
-         patch("optimum.neuron.trainers.metrics.get_model_param_count", return_value=1000000), \
-         patch.dict("os.environ", {"NEURON_HARDWARE_TYPE": "trn1"}):
-
+    with (
+        patch("optimum.neuron.trainers.metrics.get_data_parallel_size", return_value=2),
+        patch("torch_xla.runtime.world_size", return_value=4),
+        patch("optimum.neuron.trainers.metrics.get_model_param_count", return_value=1000000),
+        patch.dict("os.environ", {"NEURON_HARDWARE_TYPE": "trn1"}),
+    ):
         args = NeuronTrainingArguments(
             output_dir=tmpdir,
             enable_throughput_metrics=True,
@@ -97,10 +97,19 @@ def test_metrics_calculations_with_mocks(tmpdir):
         assert efficiency_metrics["train/optimizer_time_percent"] == 12.5  # 0.05/0.4 * 100
         assert efficiency_metrics["train/unaccounted_time_percent"] == 12.5  # 100 - 87.5
 
+        # Test context manager functionality
+        inputs_ctx = {"input_ids": torch.randint(0, 1000, (2, 32))}
+        with collector.time_metric("throughput", inputs_ctx, step_number=99):
+            time.sleep(0.01)
+
+        # Verify context manager recorded the metric
+        ctx_stats = collector.metric_windows["throughput"].get_window_stats()
+        assert ctx_stats["total_tokens"] == 64  # 2 * 32
+        assert ctx_stats["total_time"] > 0.008  # Should include the sleep time
 
 
 @is_trainium_test
-@distributed_test(world_size=4, tp_size=2, pp_size=1)
+@distributed_test(world_size=8, tp_size=2, pp_size=1)
 def test_metrics_basic_functionality(tmpdir):
     args = NeuronTrainingArguments(
         output_dir=tmpdir,
@@ -109,12 +118,12 @@ def test_metrics_basic_functionality(tmpdir):
         metrics_window_size=5,
         gradient_accumulation_steps=2,
     )
-
     model = LlamaForCausalLM.from_pretrained(MODEL_NAME, trn_config=args.trn_config)
     collector = TrainingMetricsCollector(model, args)
 
     # Test basic metric lifecycle
     inputs = {"input_ids": torch.randint(0, 1000, (2, 64))}
+    inputs["labels"] = inputs["input_ids"].clone()
 
     collector.start_metric("throughput", inputs)
     time.sleep(0.01)  # Simulate work
@@ -123,7 +132,7 @@ def test_metrics_basic_functionality(tmpdir):
     # Verify metric was recorded
     assert collector.metric_windows["throughput"].size == 1
     stats = collector.metric_windows["throughput"].get_window_stats()
-    assert stats["total_tokens"] == 128  # 2 * 64
+    assert stats["total_tokens"] == 2 * 64
     assert stats["total_samples"] == 2
     assert stats["total_time"] > 0
 
@@ -179,12 +188,46 @@ def test_metrics_basic_functionality(tmpdir):
             assert abs((forward_pct + backward_pct + optimizer_pct) - total_efficiency) < 0.1
             assert abs((total_efficiency + unaccounted_pct) - 100.0) < 0.1
 
+    # Test context manager in distributed setting
+    inputs_ctx = {"input_ids": torch.randint(0, 1000, (2, 64))}
+    inputs_ctx["labels"] = inputs_ctx["input_ids"].clone()
+    initial_size = collector.metric_windows["throughput"].size
+
+    with collector.time_metric("throughput", inputs_ctx, step_number=10):
+        time.sleep(0.005)
+
+    # Verify context manager worked correctly
+    assert collector.metric_windows["throughput"].size == initial_size + 1
+    latest_stats = collector.metric_windows["throughput"].get_window_stats()
+    # Each measurement should include tokens (2 * 64 = 128 tokens per measurement)
+    expected_min_tokens = 128 * collector.metric_windows["throughput"].size
+    assert latest_stats["total_tokens"] >= expected_min_tokens, (
+        f"Expected >= {expected_min_tokens} tokens, got {latest_stats['total_tokens']}"
+    )
+
+    # Test context manager with gradient accumulation cycle
+    collector.start_gradient_accumulation_cycle()
+    initial_forward_size = collector.metric_windows["forward_pass"].size
+
+    for i in range(2):
+        with collector.time_metric("forward_pass", inputs_ctx):
+            time.sleep(0.003)
+
+    collector.end_gradient_accumulation_cycle(step_number=11)
+
+    # Verify accumulation worked with context manager
+    assert collector.metric_windows["forward_pass"].size == initial_forward_size + 1
+    forward_stats_ctx = collector.metric_windows["forward_pass"].get_window_stats()
+    # Should have 2 micro-batches * 128 tokens each = 256 tokens accumulated
+    expected_accumulated_tokens = 2 * 128
+    assert forward_stats_ctx["total_tokens"] >= expected_accumulated_tokens, (
+        f"Expected >= {expected_accumulated_tokens} tokens, got {forward_stats_ctx['total_tokens']}"
+    )
 
 
 @is_trainium_test
-@distributed_test(world_size=4, tp_size=2, pp_size=2)
+@distributed_test(world_size=8, tp_size=2, pp_size=4)
 def test_metrics_calculations_accuracy():
-    """Test calculation accuracy in distributed setting."""
     args = NeuronTrainingArguments(
         output_dir="test_output",
         enable_throughput_metrics=True,
@@ -198,6 +241,7 @@ def test_metrics_calculations_accuracy():
 
     # Test with known inputs
     inputs = {"input_ids": torch.randint(0, 1000, (4, 32))}  # 128 tokens
+    inputs["labels"] = inputs["input_ids"].clone()
 
     # Record multiple steps with timing
     for step in range(3):
@@ -225,7 +269,10 @@ def test_metrics_calculations_accuracy():
     actual_global_rate = throughput_metrics["train/global_tokens_per_sec"]
 
     # Allow 5% tolerance for timing variations
-    assert abs(actual_global_rate - expected_global_rate) / expected_global_rate < 0.05
+    relative_error = abs(actual_global_rate - expected_global_rate) / expected_global_rate
+    assert relative_error < 0.05, (
+        f"Distributed scaling validation failed: expected {expected_global_rate:.2f}, got {actual_global_rate:.2f} (dp_size={collector.dp_size}, error={relative_error:.3f})"
+    )
 
     # Test MFU calculation with formula validation
     if args.enable_mfu_metrics and collector.model_params:
@@ -239,7 +286,10 @@ def test_metrics_calculations_accuracy():
             peak_flops_per_sec = collector.peak_tflops_per_core * 1e12 * collector.total_neuron_cores
             expected_mfu = (actual_flops_per_sec / peak_flops_per_sec) * 100
 
-            assert abs(mfu_metrics["train/mfu"] - round(expected_mfu, 2)) < 0.1
+            mfu_diff = abs(mfu_metrics["train/mfu"] - round(expected_mfu, 2))
+            assert mfu_diff < 0.1, (
+                f"MFU calculation failed: expected {round(expected_mfu, 2):.2f}%, got {mfu_metrics['train/mfu']:.2f}% (diff={mfu_diff:.3f}, cores={collector.total_neuron_cores})"
+            )
 
     # Test summary vs moving window mathematical consistency
     summary_metrics = collector.calculate_summary_metrics()
@@ -257,12 +307,11 @@ def test_metrics_calculations_accuracy():
             assert abs(actual_summary - expected_summary) < 0.01
 
 
-
 @is_trainium_test
 @distributed_test(world_size=2, tp_size=1, pp_size=1)
-def test_metrics_integration_with_trainer():
+def test_metrics_integration_with_trainer(tmpdir):
     args = NeuronTrainingArguments(
-        output_dir="test_output",
+        output_dir=tmpdir,
         do_train=True,
         num_train_epochs=1,
         per_device_train_batch_size=2,
@@ -284,9 +333,9 @@ def test_metrics_integration_with_trainer():
     def tokenize_function(examples):
         return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=32)
 
-    train_dataset = Dataset.from_dict({
-        "text": ["Hello world this is a test"] * 8
-    }).map(tokenize_function, batched=True)
+    train_dataset = Dataset.from_dict({"text": ["Hello world this is a test"] * 8}).map(
+        tokenize_function, batched=True
+    )
 
     trainer = NeuronTrainer(
         model=model,
@@ -326,13 +375,17 @@ def test_metrics_integration_with_trainer():
     # Validate training steps count matches actual training
     if "summary/total_training_steps" in summary_metrics:
         total_steps = summary_metrics["summary/total_training_steps"]
-        # With 8 samples, batch_size=2, gradient_accumulation=2: expect 8/(2*2) = 2 steps
-        expected_steps = len(train_dataset) // (args.per_device_train_batch_size * args.gradient_accumulation_steps * collector.dp_size)
-        assert total_steps == expected_steps, f"Expected {expected_steps} steps, got {total_steps}"
+        # With 8 samples, batch_size=2, gradient_accumulation=2, dp_size=2: expect 8/(2*2*2) = 1 step
+        expected_steps = len(train_dataset) // (
+            args.per_device_train_batch_size * args.gradient_accumulation_steps * collector.dp_size
+        )
+        assert total_steps == expected_steps, (
+            f"Expected {expected_steps} steps, got {total_steps} (dp_size={collector.dp_size})"
+        )
 
     # Validate token processing count
     if "summary/global_tokens_processed" in summary_metrics:
         total_tokens = summary_metrics["summary/global_tokens_processed"]
-        # Each sample has max_length=32 tokens
-        expected_tokens = len(train_dataset) * 32 * collector.dp_size  # Account for data parallel
+        # Each sample has max_length=32 tokens, multiplied by dp_size for global count
+        expected_tokens = len(train_dataset) * 32
         assert total_tokens == expected_tokens, f"Expected {expected_tokens} tokens, got {total_tokens}"

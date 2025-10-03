@@ -948,14 +948,10 @@ class NeuronTrainer:
         manager = self.autocast_smart_context_manager()
 
         if isinstance(model, NxDPPModel):
-            # Start forward pass timing for pipeline parallel models
-            self.metrics_collector.start_metric("forward_pass", inputs=inputs)
-
-            with manager:
-                loss = model.run_train(**inputs)
-
-            # Stop forward pass timing (run_train includes both forward and backward for PP)
-            self.metrics_collector.stop_metric("forward_pass")
+            # Time forward pass for pipeline parallel models (run_train includes both forward and backward for PP)
+            with self.metrics_collector.time_metric("forward_pass", inputs=inputs):
+                with manager:
+                    loss = model.run_train(**inputs)
 
             # When using pipeline parallelism, the loss is only computed on the last stage.
             # So we set the loss to zero on other stages.
@@ -966,14 +962,10 @@ class NeuronTrainer:
             if num_items_in_batch is not None:
                 inputs = dict(**inputs, reduction="sum")
 
-            # Start forward pass timing
-            self.metrics_collector.start_metric("forward_pass", inputs=inputs)
-
-            with manager:
-                outputs = model(**inputs)
-
-            # Stop forward pass timing
-            self.metrics_collector.stop_metric("forward_pass")
+            # Time forward pass
+            with self.metrics_collector.time_metric("forward_pass", inputs=inputs):
+                with manager:
+                    outputs = model(**inputs)
 
             if isinstance(outputs, dict) and "loss" not in outputs:
                 raise ValueError(
@@ -988,14 +980,9 @@ class NeuronTrainer:
             else:
                 loss = loss / self.args.gradient_accumulation_steps
 
-            # Start backward pass timing
-            self.metrics_collector.start_metric("backward_pass", inputs=inputs)
-
-            # Backward pass
-            self.accelerator.backward(loss)
-
-            # Stop backward pass timing
-            self.metrics_collector.stop_metric("backward_pass")
+            # Time backward pass
+            with self.metrics_collector.time_metric("backward_pass", inputs=inputs):
+                self.accelerator.backward(loss)
 
         return loss
 
@@ -1134,7 +1121,9 @@ class NeuronTrainer:
                     prefetch_size=args.dataloader_prefetch_size,
                 )
 
-                # Start throughput and total_step timing at the beginning of each gradient accumulation cycle
+                # Start gradient accumulation cycle and cycle-level timing
+                # Note: throughput and total_step span the entire gradient accumulation cycle,
+                # so we use start/stop rather than context manager for better clarity
                 self.metrics_collector.start_gradient_accumulation_cycle()
                 self.metrics_collector.start_metric("throughput")
                 self.metrics_collector.start_metric("total_step")
@@ -1147,12 +1136,10 @@ class NeuronTrainer:
                     if step % args.gradient_accumulation_steps == 0:
                         self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
-                    self.metrics_collector.start_metric("mfu", inputs=inputs)
                     self.metrics_collector.update_metric_batch_data("throughput", inputs)
 
-                    loss_step = self.train_step(self.model, inputs, num_items_in_batch=num_items_in_batch)
-
-                    self.metrics_collector.stop_metric("mfu")
+                    with self.metrics_collector.time_metric("mfu", inputs=inputs):
+                        loss_step = self.train_step(self.model, inputs, num_items_in_batch=num_items_in_batch)
 
                     self.running_loss += loss_step.detach()
 
@@ -1163,11 +1150,10 @@ class NeuronTrainer:
 
                         self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
 
-                        # Start optimizer step timing
-                        self.metrics_collector.start_metric("optimizer_step", inputs=inputs)
-
-                        self.optimizer.step()
-                        self.grad_norm = self.optimizer.grad_norm
+                        # Time optimizer step
+                        with self.metrics_collector.time_metric("optimizer_step", inputs=inputs):
+                            self.optimizer.step()
+                            self.grad_norm = self.optimizer.grad_norm
 
                         self.control = self.callback_handler.on_optimizer_step(args, self.state, self.control)
 
@@ -1180,9 +1166,6 @@ class NeuronTrainer:
                         self.state.global_step += 1
                         self.state.epoch = epoch + (step + 1) / steps_in_epoch
                         self.control = self.callback_handler.on_step_end(args, self.state, self.control)
-
-                        # Stop optimizer step timing
-                        self.metrics_collector.stop_metric("optimizer_step")
                         xm.mark_step()
                         self.metrics_collector.stop_metric("throughput")
                         self.metrics_collector.stop_metric("total_step")
@@ -1342,7 +1325,12 @@ class NeuronTrainer:
                         logger.info(f"{metric_name}: {value:.4f}s")
                     elif "per_sec" in metric_name:
                         logger.info(f"{metric_name}: {value:.2f}")
-                    elif "mfu" in metric_name or "efficiency" in metric_name or "consistency" in metric_name or "percent" in metric_name:
+                    elif (
+                        "mfu" in metric_name
+                        or "efficiency" in metric_name
+                        or "consistency" in metric_name
+                        or "percent" in metric_name
+                    ):
                         logger.info(f"{metric_name}: {value:.2f}%")
                     else:
                         logger.info(f"{metric_name}: {value:.2f}")

@@ -15,11 +15,13 @@
 
 import time
 from collections import deque
+from contextlib import contextmanager
 from typing import Any
 
 import torch
 import torch_xla.runtime as xr
 from neuronx_distributed.parallel_layers.parallel_state import get_data_parallel_size
+from torch_neuronx.utils import get_platform_target
 
 from ..trainers.training_args import NeuronTrainingArguments
 from ..utils.training_utils import get_model_param_count
@@ -93,7 +95,7 @@ class TrainingMetricsCollector:
     general throughput metrics (for training performance comparison).
 
     Features:
-    - Individual metric timing control with start_metric()/stop_metric()
+    - Individual metric timing control with start_metric()/stop_metric() or time_metric() context manager
     - Moving average windows for stable real-time metrics
     - Comprehensive summary statistics for end-of-training analysis
     - Auto-detection of Trainium hardware for accurate MFU calculations
@@ -177,29 +179,12 @@ class TrainingMetricsCollector:
         Returns:
             Peak TFLOPS per core for bf16 operations
         """
-        try:
-            # Try to detect hardware from environment or other sources
-            import os
-
-            # Check environment variable first
-            hardware_type = os.getenv("NEURON_HARDWARE_TYPE")
-            if hardware_type and hardware_type in HARDWARE_TFLOPS:
-                return HARDWARE_TFLOPS[hardware_type]
-
-            # Try to detect from instance metadata or other sources
-            # For now, default to trn1 but could be enhanced with actual detection logic
-            instance_type = os.getenv("AWS_INSTANCE_TYPE", "")
-            if "trn2" in instance_type.lower():
-                return HARDWARE_TFLOPS["trn2"]
-            elif "trn1" in instance_type.lower():
-                return HARDWARE_TFLOPS["trn1"]
-
-            # Default fallback to trn1
-            return HARDWARE_TFLOPS["trn1"]
-
-        except Exception:
-            # If detection fails, fallback to trn1
-            return HARDWARE_TFLOPS["trn1"]
+        platform_target = get_platform_target().lower()
+        if platform_target not in HARDWARE_TFLOPS:
+            raise ValueError(
+                f"Unrecognized platform target '{platform_target}'. Supported targets: {list(HARDWARE_TFLOPS.keys())}"
+            )
+        return HARDWARE_TFLOPS[platform_target]
 
     def _initialize_metric_systems(self):
         metric_names = [
@@ -293,6 +278,30 @@ class TrainingMetricsCollector:
         if not self.enabled or metric_name not in self.current_batch_data:
             return
         self._update_batch_data(metric_name, inputs)
+
+    @contextmanager
+    def time_metric(self, metric_name: str, inputs: dict[str, Any] | None = None, step_number: int | None = None):
+        """
+        Context manager for timing a metric. Automatically calls start_metric and stop_metric.
+
+        Args:
+            metric_name: Name of the metric to time
+            inputs: Optional batch inputs for token/sample counting
+            step_number: Optional step number for tracking
+
+        Usage:
+            with collector.time_metric("forward_pass", inputs):
+                # ... forward pass code
+        """
+        if not self.enabled:
+            yield
+            return
+
+        self.start_metric(metric_name, inputs)
+        try:
+            yield
+        finally:
+            self.stop_metric(metric_name, step_number)
 
     def _update_batch_data(self, metric_name: str, inputs: dict[str, Any]):
         batch_tokens = 0
