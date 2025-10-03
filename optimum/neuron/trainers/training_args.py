@@ -407,6 +407,65 @@ class NeuronTrainingArguments:
         },
     )
 
+    # Training metrics configuration
+    enable_training_metrics: bool = field(
+        default=True,
+        metadata={"help": "Whether to enable collection and logging of training performance metrics."},
+    )
+    metrics_logging_steps: int | None = field(
+        default=None,
+        metadata={
+            "help": (
+                "Number of steps between metrics logging. If None, defaults to logging_steps. "
+                "Set to 0 to disable metrics logging."
+            )
+        },
+    )
+    enable_throughput_metrics: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to calculate and log throughput metrics (tokens/sec, samples/sec, both general and per-neuron-core)."
+            )
+        },
+    )
+    enable_mfu_metrics: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to calculate and log Model FLOPs Utilization (MFU) metrics. "
+                "This requires additional computation and is disabled by default."
+            )
+        },
+    )
+    enable_efficiency_metrics: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to calculate and log training efficiency metrics. "
+                "This requires additional computation and is disabled by default."
+            )
+        },
+    )
+    metrics_window_size: int = field(
+        default=50,
+        metadata={
+            "help": (
+                "Size of the moving average window for metrics calculation. "
+                "Larger windows provide more stable metrics but react slower to changes."
+            )
+        },
+    )
+    expected_tokens_per_core: float = field(
+        default=500.0,
+        metadata={
+            "help": (
+                "Expected tokens per core per second for efficiency calculation baseline. "
+                "This should be calibrated based on your model size and hardware setup."
+            )
+        },
+    )
+
     def __post_init__(self):
         # Set the verbosity so that each process logs according to its rank.
         log_level = self.get_process_log_level()
