@@ -14,12 +14,15 @@
 # limitations under the License.
 """Neuron configuration base classes."""
 
+import inspect
 import re
 from abc import ABC, abstractmethod
 from dataclasses import fields, is_dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import torch
+from neuronx_distributed.trace.model_builder import BaseModelInstance
 from optimum.utils import logging
 
 from ...exporters.base import ExportConfig
@@ -438,3 +441,32 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
             return ModelWrapper(model, input_names), {}
         else:
             return self.CUSTOM_MODEL_WRAPPER(model, input_names), {}
+
+
+class BaseNxDModelNeuronConfig(NeuronDefaultConfig):
+    """
+    Handles parallelized model using `neuronx_distributed`.
+    """
+
+    TENSOR_PARALLEL_MODEL = None
+    DUMMY_INPUT_GENERATOR_CLASSES = None
+
+    def patch_model_and_prepare_aliases(self, model_or_path, *args):
+        base_model_instance = BaseModelInstance(
+            partial(self.get_parallel_callable, self._config),
+            input_output_aliases={},
+        )
+        return base_model_instance, None
+
+    def get_parallel_callable(self, config):
+        # Parallelize Flux transformer with NxD backend modeling
+        valid_params = inspect.signature(self.TENSOR_PARALLEL_MODEL.__init__).parameters
+        model_config = {k: v for k, v in config.items() if k in valid_params and k != "self"}
+        model = self.TENSOR_PARALLEL_MODEL(**model_config)
+        model = model.to(DTYPE_MAPPER.pt(self.float_dtype))
+        model.eval()
+
+        return model
+
+    def get_checkpoint_loader_fn(self):
+        return None

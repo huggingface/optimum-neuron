@@ -89,3 +89,20 @@ def saved_model_in_temporary_directory(model: "PreTrainedModel"):
         yield path
     finally:
         tmpdir.cleanup()
+
+
+class f32Wrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.original = model
+
+    def forward(self, x):
+        y = x.to(torch.float32)
+        output = self.original(y)
+        return output
+
+    def __getattr__(self, name):
+        # Delegate attribute/method lookup to the wrapped model if not found in this wrapper
+        if name == "original":
+            return super().__getattr__(name)
+        return getattr(self.original, name)

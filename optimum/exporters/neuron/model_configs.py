@@ -15,7 +15,6 @@
 """Model specific Neuron configurations."""
 
 import copy
-import inspect
 import os
 from functools import partial
 from pathlib import Path
@@ -24,6 +23,7 @@ from typing import Any
 import neuronx_distributed
 import torch
 from neuronx_distributed.trace.model_builder import BaseModelInstance
+from neuronx_distributed.utils.utils import hardware
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import (
     DummyFluxTransformerTextInputGenerator,
@@ -43,7 +43,18 @@ from optimum.utils import (
     logging,
 )
 from safetensors.torch import load_file
+from torch_neuronx.utils import get_platform_target
 
+from optimum.neuron.models.inference.flux.modeling_flux import (
+    FluxTransformerNeuronWrapper,
+    NeuronFluxTransformer2DModel,
+)
+from optimum.neuron.models.inference.t5.modeling_t5 import (
+    T5DecoderWrapper,
+    T5EncoderForSeq2SeqLMWrapper,
+    T5EncoderWrapper,
+)
+from optimum.neuron.models.inference.whisper.modeling_whisper import WhisperDecoderWrapper, WhisperEncoderWrapper
 from optimum.neuron.utils import (
     SAFE_WEIGHTS_INDEX_NAME,
     ASTDummyAudioInputGenerator,
@@ -59,6 +70,7 @@ from optimum.neuron.utils import (
     saved_model_in_temporary_directory,
 )
 
+from .base import BaseNxDModelNeuronConfig
 from .config import (
     AudioNeuronConfig,
     TextAndVisionNeuronConfig,
@@ -69,17 +81,11 @@ from .config import (
 from .model_wrappers import (
     CLIPVisionWithProjectionNeuronWrapper,
     ControlNetNeuronWrapper,
-    FluxTransformerNeuronWrapper,
     NoCacheModelWrapper,
     PixartTransformerNeuronWrapper,
     SentenceTransformersCLIPNeuronWrapper,
     SentenceTransformersTransformerNeuronWrapper,
-    T5DecoderWrapper,
-    T5EncoderForSeq2SeqLMWrapper,
-    T5EncoderWrapper,
     UnetNeuronWrapper,
-    WhisperDecoderWrapper,
-    WhisperEncoderWrapper,
 )
 
 
@@ -794,7 +800,7 @@ class PixartTransformerNeuronConfig(VisionNeuronConfig):
 
 
 @register_in_tasks_manager("flux-transformer-2d", *["semantic-segmentation"], library_name="diffusers")
-class FluxTransformerNeuronConfig(VisionNeuronConfig):
+class FluxTransformerNeuronConfig(BaseNxDModelNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     INPUT_ARGS = (
         "batch_size",
@@ -807,6 +813,7 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
         "rotary_axes_dim",
     )
     MODEL_TYPE = "flux-transformer-2d"
+    TENSOR_PARALLEL_MODEL = NeuronFluxTransformer2DModel
     CUSTOM_MODEL_WRAPPER = FluxTransformerNeuronWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         height="height",
@@ -844,25 +851,22 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
     def outputs(self) -> list[str]:
         return ["out_hidden_states"]
 
-    def patch_model_and_prepare_aliases(self, model_or_path, *args):
-        base_model_instance = BaseModelInstance(
-            partial(self.get_parallel_callable, self._config),
-            input_output_aliases={},
-        )
-        return base_model_instance, None
-
-    def get_parallel_callable(self, config):
-        from optimum.neuron.models.inference.flux.modeling_flux import NeuronFluxTransformer2DModel
-
-        # Parallelize Flux transformer with NxD backend modeling
-        valid_params = inspect.signature(NeuronFluxTransformer2DModel.__init__).parameters
-        model_config = {k: v for k, v in config.items() if k in valid_params and k != "self"}
-        model = NeuronFluxTransformer2DModel(**model_config)
-        model.eval()
-        if self.float_dtype == torch.bfloat16:
-            model.bfloat16()
-
-        return model
+    def convert_hf_to_neuron_state_dict(self, state_dict: dict) -> dict:
+        state_dict["global_rank.rank"] = torch.arange(0, self.tensor_parallel_size, dtype=torch.int32)
+        inner_dim = self._config.num_attention_heads * self._config.attention_head_dim
+        for i in range(self._config.num_single_layers):
+            state_dict[f"single_transformer_blocks.{i}.proj_out_attn.weight"] = state_dict[
+                f"single_transformer_blocks.{i}.proj_out.weight"
+            ][:, :inner_dim].contiguous()
+            state_dict[f"single_transformer_blocks.{i}.proj_out_attn.bias"] = (
+                state_dict[f"single_transformer_blocks.{i}.proj_out.bias"].clone().detach().contiguous()
+            )
+            state_dict[f"single_transformer_blocks.{i}.proj_out_mlp.weight"] = state_dict[
+                f"single_transformer_blocks.{i}.proj_out.weight"
+            ][:, inner_dim:].contiguous()
+        for k, v in state_dict.items():
+            state_dict[k] = v.clone().detach().contiguous()
+        return state_dict
 
     # Adapted from diffusers.models.modeling_utils.ModelMixin.from_pretrained, this is a helper function for loading checkpoints required by `ModelBuilder`.
     def get_checkpoint_loader_fn(self):
@@ -896,17 +900,7 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
             state_dict = load_file(shard_file)
             merged_state_dict.update(state_dict)
 
-        inner_dim = self._config.num_attention_heads * self._config.attention_head_dim
-        for i in range(self._config.num_single_layers):
-            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_attn.weight"] = merged_state_dict[
-                f"single_transformer_blocks.{i}.proj_out.weight"
-            ][:, :inner_dim].contiguous()
-            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_attn.bias"] = (
-                merged_state_dict[f"single_transformer_blocks.{i}.proj_out.bias"].clone().detach().contiguous()
-            )
-            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_mlp.weight"] = merged_state_dict[
-                f"single_transformer_blocks.{i}.proj_out.weight"
-            ][:, inner_dim:].contiguous()
+        merged_state_dict = self.convert_hf_to_neuron_state_dict(merged_state_dict)
 
         return merged_state_dict
 
@@ -937,6 +931,17 @@ class FluxTransformerNeuronConfig(VisionNeuronConfig):
     @is_flux_kontext.setter
     def is_flux_kontext(self, is_flux_kontext: bool):
         self._is_flux_kontext = is_flux_kontext
+
+    def get_compiler_args(self):
+        target_hardware_platform = hardware(get_platform_target())
+        compiler_args = "--model-type=transformer -O1"
+        compiler_args += " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'"
+        compiler_args += " --auto-cast=none --internal-hlo2tensorizer-options='--verify-hlo=true'"
+
+        os.environ["LOCAL_WORLD_SIZE"] = str(self.tensor_parallel_size)
+        if target_hardware_platform == hardware.TRN2:
+            os.environ["NEURON_RT_VIRTUAL_CORE_SIZE"] = "2"
+        return compiler_args
 
 
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")
@@ -1056,6 +1061,7 @@ class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
 
 @register_in_tasks_manager("t5-encoder", *["feature-extraction"], library_name="diffusers")
 class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
+    # TENSOR_PARALLEL_MODEL = NeuronT5EncoderModel
     CUSTOM_MODEL_WRAPPER = T5EncoderWrapper
     INPUT_ARGS = ("batch_size", "sequence_length")
     MODEL_TYPE = "t5-encoder"
@@ -1077,15 +1083,18 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
         batch_size = input_shapes.pop("batch_size", None)
         sequence_length = input_shapes.pop("sequence_length", None)
         if self.tensor_parallel_size > 1:
-            # `torch.nn.modules` objects not eligible for pickling, the model needs to be loaded within the func.
-            return partial(
-                self.get_parallel_callable,
-                model_or_path,
-                sequence_length,
-                batch_size,
-                device,
-                self.tensor_parallel_size,
-            ), None
+            base_model_instance = BaseModelInstance(
+                partial(
+                    self.get_parallel_callable,
+                    model_or_path,
+                    sequence_length,
+                    batch_size,
+                    device,
+                    self.tensor_parallel_size,
+                ),
+                input_output_aliases={},
+            )
+            return base_model_instance, None
         else:
             return self.CUSTOM_MODEL_WRAPPER(
                 model_or_path,
@@ -1119,6 +1128,20 @@ class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
 
         return sharded_text_encoder, {}
 
+    def get_checkpoint_loader_fn(self):
+        return None
+
+    def get_compiler_args(self):
+        target_hardware_platform = hardware(get_platform_target())
+        compiler_args = "--model-type=transformer -O1"
+        compiler_args += " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'"
+        compiler_args += " --auto-cast=none --internal-hlo2tensorizer-options='--verify-hlo=true'"
+
+        os.environ["LOCAL_WORLD_SIZE"] = str(self.tensor_parallel_size)
+        if target_hardware_platform == hardware.TRN2:
+            os.environ["NEURON_RT_VIRTUAL_CORE_SIZE"] = "2"
+        return compiler_args
+
 
 @register_in_tasks_manager("t5-encoder", *["text2text-generation"])
 class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
@@ -1144,18 +1167,20 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
         num_beams = kwargs.pop("num_beams", 1)
         sequence_length = kwargs.pop("sequence_length", None)
         batch_size = kwargs.pop("batch_size", None)
-
         if self.tensor_parallel_size > 1:
-            # `torch.nn.modules` objects not eligible for pickling, the model needs to be loaded within the func.
-            return partial(
-                self.get_parallel_callable,
-                model_or_path,
-                sequence_length,
-                batch_size,
-                num_beams,
-                device,
-                self.tensor_parallel_size,
-            ), None
+            base_model_instance = BaseModelInstance(
+                partial(
+                    self.get_parallel_callable,
+                    model_or_path,
+                    sequence_length,
+                    batch_size,
+                    num_beams,
+                    device,
+                    self.tensor_parallel_size,
+                ),
+                input_output_aliases={},
+            )
+            return base_model_instance, None
         else:
             # Override T5 encoder and build aliases
             checked_model = self.CUSTOM_MODEL_WRAPPER(
@@ -1295,17 +1320,21 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             "tensor_parallel_size": self.tensor_parallel_size,
         }
         if self.tensor_parallel_size > 1:
-            return partial(
-                self.get_parallel_callable,
-                model,
-                batch_size,
-                sequence_length,
-                num_beams,
-                self.output_hidden_states,
-                self.output_attentions,
-                device,
-                self.tensor_parallel_size,
-            ), None
+            base_model_instance = BaseModelInstance(
+                partial(
+                    self.get_parallel_callable,
+                    model,
+                    batch_size,
+                    sequence_length,
+                    num_beams,
+                    self.output_hidden_states,
+                    self.output_attentions,
+                    device,
+                    self.tensor_parallel_size,
+                ),
+                input_output_aliases={},
+            )
+            return base_model_instance, None
         else:
             # Override T5 encoder and build aliases
             checked_model = self.CUSTOM_MODEL_WRAPPER(**trace_args)

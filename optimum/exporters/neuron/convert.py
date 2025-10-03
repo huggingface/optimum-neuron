@@ -15,7 +15,6 @@
 """Neuron compiled model check and export functions."""
 
 import copy
-import os
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -68,8 +67,7 @@ if is_diffusers_available():
 if is_sentence_transformers_available():
     from sentence_transformers import SentenceTransformer
 
-import neuronx_distributed
-from neuronx_distributed.trace.model_builder import BaseModelInstance, ModelBuilder
+from neuronx_distributed.trace.model_builder import ModelBuilder
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -356,6 +354,11 @@ def export_models(
     failed_models = []
     total_compilation_time = 0
     compile_configs = {}
+    models_and_neuron_configs.pop("text_encoder_2")
+    models_and_neuron_configs.pop("text_encoder")
+    # models_and_neuron_configs.pop("transformer")
+    models_and_neuron_configs.pop("vae_encoder")
+    models_and_neuron_configs.pop("vae_decoder")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -638,6 +641,7 @@ def prepare_compiler_flags(
     # `--model-type=transformer`` is now required for all models except those explicitly listed, based on our observations.
     exception_models = {
         "unet",
+        "flux-transformer-2d",
         "vae-encoder",
         "vae-decoder",
         "hubert",
@@ -677,42 +681,28 @@ def trace_neuronx(
 ):
     if tensor_parallel_size > 1:
         # Tensor Parallelism
-        if isinstance(model, BaseModelInstance):
-            # Case 1: Using `neuronx_distributed.trace.model_builder`
-            model_builder = ModelBuilder(
-                router=None,
-                debug=False,
-                tp_degree=tensor_parallel_size,
-                checkpoint_loader=config.get_checkpoint_loader_fn,
-                compiler_workdir=compiler_workdir,
-            )
-            subfolder = output.parts[1]
-            model_builder.add(
-                key=subfolder,
-                model_instance=model,
-                example_inputs=[dummy_inputs],
-                priority_model_idx=0,
-                compiler_args=compiler_args,
-            )
-            neuron_model = model_builder.trace(initialize_model_weights=False)
+        # Case 1: Using `neuronx_distributed.trace.model_builder.ModelBuilder` API
+        model_builder = ModelBuilder(
+            router=None,
+            debug=False,
+            tp_degree=tensor_parallel_size,
+            checkpoint_loader=config.get_checkpoint_loader_fn,
+            compiler_workdir=compiler_workdir,
+        )  # I/O aliases included
+        subfolder = output.parts[1]
+        model_builder.add(
+            key=subfolder,
+            model_instance=model,
+            example_inputs=[dummy_inputs],
+            priority_model_idx=0,
+            compiler_args=compiler_args,
+        )
+        neuron_model = model_builder.trace(initialize_model_weights=False)
 
-            model_builder.shard_checkpoint(serialize_path=output.parent / "weights/")
-            torch.jit.save(neuron_model, output)
-        else:
-            # Case 2: Using `neuronx_distributed.trace.parallel_model_trace`
-            os.environ["LOCAL_WORLD_SIZE"] = str(tensor_parallel_size)
-            with torch.no_grad():
-                neuron_model = neuronx_distributed.trace.parallel_model_trace(
-                    model,
-                    dummy_inputs,
-                    compiler_args=compiler_args,
-                    inline_weights_to_neff=inline_weights_to_neff,
-                    compiler_workdir=compiler_workdir,
-                    tp_degree=tensor_parallel_size,
-                )
-            neuronx_distributed.trace.parallel_model_save(neuron_model, output)
+        model_builder.shard_checkpoint(serialize_path=output.parent / "weights/")
+        torch.jit.save(neuron_model, output)
     else:
-        # Case 3: Using `torch_neuronx.trace`
+        # Case 2: Using `torch_neuronx.trace`
         neuron_model = neuronx.trace(
             model,
             dummy_inputs,
@@ -744,7 +734,7 @@ def add_stable_diffusion_compiler_args(config, compiler_args):
     # unet or transformer or controlnet
     if any(model_type in identifier for model_type in ["unet", "transformer", "controlnet"]):
         if "flux" in str(getattr(config, "MODEL_TYPE", "")):
-            compiler_args.append(" --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'")
+            compiler_args.append(" " + config.get_compiler_args())
             return compiler_args
         # SDXL unet doesn't support fast loading neuron binaries(sdk 2.19.1)
         if not getattr(config, "is_sdxl", False):
