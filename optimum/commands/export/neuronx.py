@@ -20,10 +20,8 @@ import sys
 from argparse import SUPPRESS, ArgumentParser, Namespace, _SubParsersAction
 from pathlib import Path
 
-from neuronx_distributed.utils.utils import hardware
-
 from ...exporters import TasksManager
-from ...neuron.utils import SUPPORTED_INSTANCE_TYPES, is_cpu_only_instance
+from ...neuron.utils import SUPPORTED_INSTANCE_TYPES, get_neuron_instance_type, is_cpu_only_instance
 from ..base import BaseOptimumCLICommand, CommandInfo
 
 
@@ -351,10 +349,6 @@ class NeuronxExportCommand(BaseOptimumCLICommand):
                 )
             else:
                 index = compiler_args.index("--instance_type")
-                target_instance_type = compiler_args[index + 1]
-                assert target_instance_type in SUPPORTED_INSTANCE_TYPES, (
-                    f"{target_instance_type} is not a supported platform. \
-                Please choose from options {SUPPORTED_INSTANCE_TYPES}."
-                )
-                target_instance_type = hardware(target_instance_type).value
-                os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = target_instance_type
+                instance_type = compiler_args[index + 1]
+                instance_type = get_neuron_instance_type(instance_type)
+                os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = instance_type
