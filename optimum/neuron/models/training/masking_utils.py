@@ -20,9 +20,9 @@ from transformers import PretrainedConfig
 from transformers.cache_utils import Cache
 
 from ....utils import logging
-from ...utils.training_utils import is_logging_process
 from .config import TrainingNeuronConfig
 from .pipeline_utils import dynamic_torch_fx_wrap
+from .training_utils import is_logging_process
 
 
 _LOGGED_WARNING_FLASH_ATTENTION_2 = False

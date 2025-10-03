@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 from . import auto_models  # Import to register training models
 from .checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
 from .config import TrainingNeuronConfig
@@ -22,6 +24,7 @@ from .modeling_auto import NeuronModel, NeuronModelForCausalLM
 from .modeling_utils import ALL_ATTENTION_FUNCTIONS, NeuronModelMixin
 from .pipeline_utils import get_pipeline_parameters_for_current_stage
 from .qwen3.modeling_qwen3 import Qwen3ForCausalLM
+from .training_utils import patch_transformers_for_neuron_sdk
 from .transformations_utils import (
     CustomModule,
     FusedLinearsSpec,
@@ -35,3 +38,7 @@ from .transformations_utils import (
     to_original_peft_config_for_model,
     to_original_weights,
 )
+
+
+if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):
+    patch_transformers_for_neuron_sdk()

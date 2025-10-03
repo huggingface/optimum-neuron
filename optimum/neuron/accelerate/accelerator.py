@@ -47,6 +47,7 @@ from transformers.training_args import trainer_log_levels
 from ...utils import logging
 from ..models.neuron_config import TrainingNeuronConfig
 from ..models.training.pipeline_utils import create_nxdpp_model
+from ..models.training.training_utils import is_custom_modeling_model, is_logging_process
 from ..utils import (
     DynamicPatch,
     ModelPatcher,
@@ -54,7 +55,6 @@ from ..utils import (
     patch_within_function,
 )
 from ..utils.misc import args_and_kwargs_to_kwargs_only
-from ..utils.training_utils import is_custom_modeling_model, is_logging_process
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
