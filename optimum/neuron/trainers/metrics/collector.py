@@ -25,41 +25,21 @@ from torch_neuronx.utils import get_platform_target
 from ...utils.training_utils import get_model_param_count
 from ..training_args import NeuronTrainingArguments
 from .base import MetricPlugin
+from .constants import HARDWARE_TFLOPS, MetricNames
 from .efficiency import EfficiencyPlugin
 from .mfu import MFUPlugin
+from .registry import PluginRegistry
 from .throughput import ThroughputPlugin
 from .timing import ComponentTimingPlugin
 from .window import MovingAverageWindow
 
 
-HARDWARE_TFLOPS = {
-    # Ref: https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/trainium.html
-    "trn1": 190 / 2,
-    # Ref: https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/trainium2.html
-    "trn2": 667 / 2,
-}
-
-
 class TrainingMetricsCollector:
     """
-    Collects and calculates training performance metrics for Neuron distributed training using a plugin system.
+    Tracks training performance metrics using a plugin system.
 
-    Provides both per-neuron-core metrics (for hardware utilization analysis) and
-    general throughput metrics (for training performance comparison).
-
-    Features:
-    - Plugin-based architecture for extensible metrics
-    - Individual metric timing control with start_metric()/stop_metric() or time_metric() context manager
-    - Moving average windows for stable real-time metrics
-    - Comprehensive summary statistics for end-of-training analysis
-    - Auto-detection of Trainium hardware for accurate MFU calculations
-    - Dual metrics: train/ (real-time) and summary/ (end-of-training)
-    - Configurable gradient accumulation cycle support for any metric
-
-    Args:
-        model: The model being trained
-        training_args: NeuronTrainingArguments containing training configuration
-        custom_plugins: List of custom metric plugins to add
+    Provides real-time metrics during training and summary stats at the end.
+    Auto-detects Trainium hardware and handles distributed training setups.
     """
 
     def __init__(
@@ -71,14 +51,15 @@ class TrainingMetricsCollector:
         self.model = model
         self.args = training_args
 
-        # Load built-in and custom plugins
-        self.plugins = self._get_default_plugins() + (custom_plugins or [])
+        # Set up plugins
+        all_plugins = self._get_default_plugins() + (custom_plugins or [])
+        self.registry = PluginRegistry(all_plugins)
+        self.registry.validate_dependencies()
 
-        # Auto-detect if any metrics are enabled
-        self.enabled = any(plugin.is_enabled(training_args) for plugin in self.plugins)
+        # Check if any metrics are enabled
+        self.enabled = any(plugin.is_enabled(training_args) for plugin in all_plugins)
 
         if not self.enabled:
-            # Initialize minimal state for disabled metrics
             self.metric_windows = {}
             self.metric_start_times = {}
             self.current_batch_data = {}
@@ -97,8 +78,8 @@ class TrainingMetricsCollector:
         self.peak_tflops_per_core = self._detect_hardware_tflops()
         self.window_size = self.args.metrics_window_size
 
-        # Only initialize enabled plugins
-        self.active_plugins = [p for p in self.plugins if p.is_enabled(training_args)]
+        # Only work with enabled plugins
+        self.active_plugins = [p for p in all_plugins if p.is_enabled(training_args)]
 
         # Initialize metric windows and tracking for active plugins
         self.metric_windows = {}
@@ -118,7 +99,7 @@ class TrainingMetricsCollector:
                     "samples_per_step": [],
                     "step_numbers": [],
                 }
-                if plugin.requires_accumulation and metric_name in ["forward_pass", "backward_pass"]:
+                if plugin.requires_accumulation and metric_name in [MetricNames.FORWARD_PASS, MetricNames.BACKWARD_PASS]:
                     self.accumulating_metrics.add(metric_name)
 
         self.cycle_active = False
@@ -127,7 +108,7 @@ class TrainingMetricsCollector:
         self.component_start_time = None
 
     def _get_default_plugins(self) -> list[MetricPlugin]:
-        """Return list of built-in plugins."""
+        """Built-in metrics we support."""
         return [
             ThroughputPlugin(),
             MFUPlugin(),
@@ -150,34 +131,16 @@ class TrainingMetricsCollector:
             raise ValueError(f"expected_tokens_per_core must be > 0, got {self.args.expected_tokens_per_core}")
 
     def _detect_hardware_tflops(self) -> float:
-        """
-        Auto-detect Trainium hardware type and return peak TFLOPS per core.
-
-        Returns:
-            Peak TFLOPS per core for bf16 operations
-        """
+        """Figure out what Trainium hardware we're running on."""
         platform_target = get_platform_target().lower()
         if platform_target not in HARDWARE_TFLOPS:
             raise ValueError(
-                f"Unrecognized platform target '{platform_target}'. Supported targets: {list(HARDWARE_TFLOPS.keys())}"
+                f"Unknown platform '{platform_target}'. We support: {list(HARDWARE_TFLOPS.keys())}"
             )
         return HARDWARE_TFLOPS[platform_target]
 
-    def _get_plugins_in_dependency_order(self) -> list[MetricPlugin]:
-        """Sort plugins to ensure dependencies are calculated first."""
-        independent_plugins = []
-        dependent_plugins = []
-
-        for plugin in self.active_plugins:
-            if plugin.depends_on:
-                dependent_plugins.append(plugin)
-            else:
-                independent_plugins.append(plugin)
-
-        return independent_plugins + dependent_plugins
-
     def _should_calculate_plugin(self, plugin: MetricPlugin, metric_type: str) -> bool:
-        """Check if a plugin should be calculated for the given metric type."""
+        """Check if we should calculate this plugin for the given metric type."""
         if metric_type == "all":
             return True
         if plugin.name == metric_type:
@@ -187,38 +150,33 @@ class TrainingMetricsCollector:
         return False
 
     def _get_plugin_window_stats(self, plugin: MetricPlugin) -> dict:
-        """Get window stats for a plugin (handles multi-metric plugins)."""
+        """Get window stats for a plugin."""
         if hasattr(plugin, "get_metric_names") and len(plugin.get_metric_names()) > 1:
-            # For multi-metric plugins, return empty dict as they use inter-plugin communication
+            # Multi-metric plugins use inter-plugin communication instead
             return {}
         else:
-            # For single-metric plugins, return their window stats
+            # Single-metric plugins get their own window stats
             metric_name = plugin.name
             if metric_name in self.metric_windows:
                 return self.metric_windows[metric_name].get_window_stats()
             return {}
 
-    # Inter-plugin communication helpers
+    # Let plugins access each other's data
     def get_metric_average_time(self, metric_name: str) -> float:
-        """Helper for plugins to access other metrics' average time."""
+        """Get average time for a metric (used by efficiency plugin)."""
         if metric_name not in self.metric_windows:
             return 0.0
         window_stats = self.metric_windows[metric_name].get_window_stats()
         return window_stats.get("avg_time_per_step", 0.0)
 
     def get_metric_window_stats(self, metric_name: str) -> dict:
-        """Helper for plugins to access other metrics' window data."""
+        """Get full window stats for a metric."""
         if metric_name not in self.metric_windows:
             return {}
         return self.metric_windows[metric_name].get_window_stats()
 
     def start_gradient_accumulation_cycle(self):
-        """
-        Start a gradient accumulation cycle for cumulative timing.
-
-        This method should be called at the beginning of each gradient accumulation cycle
-        to enable proper cumulative timing for accumulating metrics.
-        """
+        """Start accumulating timing across multiple forward/backward passes."""
         if not self.enabled:
             return
         self.cycle_active = True
@@ -226,15 +184,7 @@ class TrainingMetricsCollector:
         self.cycle_batch_data = {"tokens": 0, "samples": 0}
 
     def end_gradient_accumulation_cycle(self, step_number: int | None = None):
-        """
-        End a gradient accumulation cycle and record accumulated times.
-
-        This method should be called at the end of each gradient accumulation cycle
-        to record the cumulative times for all accumulating metrics.
-
-        Args:
-            step_number: Optional step number for tracking
-        """
+        """Finish accumulation cycle and record the total times."""
         if not self.enabled or not self.cycle_active:
             return
 
@@ -256,13 +206,7 @@ class TrainingMetricsCollector:
         self.cycle_batch_data = {"tokens": 0, "samples": 0}
 
     def start_metric(self, metric_name: str, inputs: dict[str, Any] | None = None):
-        """
-        Start timing for a specific metric.
-
-        Args:
-            metric_name: Name of the metric to start ('throughput', 'mfu', 'training_efficiency', etc.)
-            inputs: Optional batch inputs for token/sample counting
-        """
+        """Start timing a metric (like forward_pass, backward_pass, etc.)."""
         if not self.enabled:
             return
         if metric_name not in self.metric_start_times:
@@ -285,18 +229,7 @@ class TrainingMetricsCollector:
 
     @contextmanager
     def time_metric(self, metric_name: str, inputs: dict[str, Any] | None = None, step_number: int | None = None):
-        """
-        Context manager for timing a metric. Automatically calls start_metric and stop_metric.
-
-        Args:
-            metric_name: Name of the metric to time
-            inputs: Optional batch inputs for token/sample counting
-            step_number: Optional step number for tracking
-
-        Usage:
-            with collector.time_metric("forward_pass", inputs):
-                # ... forward pass code
-        """
+        """Context manager for timing - handles start/stop automatically."""
         if not self.enabled:
             yield
             return
@@ -334,13 +267,7 @@ class TrainingMetricsCollector:
         self.cycle_batch_data["samples"] += batch_samples
 
     def stop_metric(self, metric_name: str, step_number: int | None = None):
-        """
-        Stop timing for a specific metric and add the measurement to its moving window.
-
-        Args:
-            metric_name: Name of the metric to stop
-            step_number: Optional step number for tracking
-        """
+        """Stop timing and record the measurement."""
         if not self.enabled:
             return
         if metric_name not in self.metric_start_times:
@@ -375,22 +302,12 @@ class TrainingMetricsCollector:
             self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
 
     def calculate_metric(self, metric_name: str) -> dict[str, float]:
-        """
-        Calculate a specific metric using plugin system.
-
-        Args:
-            metric_name: Name of the metric to calculate ('throughput', 'mfu', 'training_efficiency', 'all')
-
-        Returns:
-            Dictionary containing the calculated metrics for the specified type.
-        """
+        """Calculate specific metric(s). Use 'all' to get everything."""
         if not self.enabled:
             return {}
 
         results = {}
-
-        # Calculate in dependency order
-        for plugin in self._get_plugins_in_dependency_order():
+        for plugin in self.registry.get_plugins_in_dependency_order():
             if self._should_calculate_plugin(plugin, metric_name):
                 window_stats = self._get_plugin_window_stats(plugin)
                 results.update(plugin.calculate_realtime(window_stats, self))

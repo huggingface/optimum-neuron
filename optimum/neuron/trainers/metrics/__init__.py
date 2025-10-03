@@ -15,19 +15,10 @@
 
 from .base import MetricPlugin
 from .collector import TrainingMetricsCollector
+from .constants import MetricNames
 from .efficiency import EfficiencyPlugin
 from .mfu import MFUPlugin
+from .registry import PluginRegistry
 from .throughput import ThroughputPlugin
 from .timing import ComponentTimingPlugin
 from .window import MovingAverageWindow
-
-# For backward compatibility with existing imports
-__all__ = [
-    "TrainingMetricsCollector",
-    "MovingAverageWindow",
-    "MetricPlugin",
-    "ThroughputPlugin",
-    "MFUPlugin",
-    "EfficiencyPlugin",
-    "ComponentTimingPlugin",
-]

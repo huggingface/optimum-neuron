@@ -16,6 +16,7 @@
 from typing import TYPE_CHECKING
 
 from .base import MetricPlugin
+from .constants import MetricNames
 
 if TYPE_CHECKING:
     from .collector import TrainingMetricsCollector
@@ -23,36 +24,29 @@ if TYPE_CHECKING:
 
 
 class ComponentTimingPlugin(MetricPlugin):
-    """Plugin for handling individual timing component metrics (forward, backward, optimizer, total)."""
+    """Tracks individual component times (forward, backward, optimizer, total)."""
 
     def __init__(self):
         super().__init__(
             name="component_timing",
-            requires_accumulation=True,  # forward_pass and backward_pass need accumulation
+            requires_accumulation=True,  # forward/backward need accumulation across gradient steps
         )
 
     def is_enabled(self, args: 'NeuronTrainingArguments') -> bool:
-        """Always enabled - needed for efficiency calculations."""
-        return True
+        return True  # Always needed for efficiency calculations
 
     def get_metric_names(self) -> list[str]:
-        """Return all metric names this plugin handles."""
-        return ["forward_pass", "backward_pass", "optimizer_step", "total_step"]
+        return [
+            MetricNames.FORWARD_PASS,
+            MetricNames.BACKWARD_PASS,
+            MetricNames.OPTIMIZER_STEP,
+            MetricNames.TOTAL_STEP
+        ]
 
     def calculate_realtime(self, window_stats: dict, collector: 'TrainingMetricsCollector') -> dict[str, float]:
-        """
-        Calculate real-time timing metrics.
-
-        Note: This plugin doesn't produce its own train/ metrics,
-        it just provides timing data for other plugins (like EfficiencyPlugin).
-        """
+        """This plugin just provides timing data to other plugins."""
         return {}
 
     def calculate_summary(self, summary_data: dict, collector: 'TrainingMetricsCollector') -> dict[str, float]:
-        """
-        Calculate summary timing metrics.
-
-        Note: This plugin doesn't produce its own summary/ metrics,
-        it just provides timing data for other plugins (like EfficiencyPlugin).
-        """
+        """This plugin just provides timing data to other plugins."""
         return {}

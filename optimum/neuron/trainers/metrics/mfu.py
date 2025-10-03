@@ -16,6 +16,7 @@
 from typing import TYPE_CHECKING
 
 from .base import MetricPlugin
+from .constants import MetricNames
 
 if TYPE_CHECKING:
     from .collector import TrainingMetricsCollector
@@ -23,60 +24,51 @@ if TYPE_CHECKING:
 
 
 class MFUPlugin(MetricPlugin):
-    """Plugin for calculating Model FLOPS Utilization (MFU) metrics."""
+    """Calculates Model FLOPS Utilization - how efficiently we're using the hardware."""
 
     def __init__(self):
-        super().__init__(name="mfu", requires_accumulation=False)
+        super().__init__(name=MetricNames.MFU, requires_accumulation=False)
 
     def is_enabled(self, args: 'NeuronTrainingArguments') -> bool:
-        """Enable if MFU metrics are requested."""
         return args.enable_mfu_metrics
 
     def calculate_realtime(self, window_stats: dict, collector: 'TrainingMetricsCollector') -> dict[str, float]:
-        """Calculate real-time MFU metrics from moving window."""
-        if (
-            not window_stats
+        """MFU = actual FLOPS / peak FLOPS as a percentage."""
+        if (not window_stats
             or collector.model_params is None
             or window_stats.get("total_time", 0) <= 0
-            or window_stats.get("total_tokens", 0) == 0
-        ):
+            or window_stats.get("total_tokens", 0) == 0):
             return {}
 
         total_tokens = window_stats["total_tokens"]
         total_time = window_stats["total_time"]
 
-        # Theoretical FLOPs calculation for transformers:
-        # Forward pass: ~6 * params * tokens, Backward pass: ~2 * forward pass FLOPs
-        # Total: ~18 * params * tokens
+        # FLOP calculation: ~18 * params * tokens for transformer training
         theoretical_flops = 18 * collector.model_params * total_tokens
         actual_flops_per_sec = theoretical_flops / total_time
         peak_flops_per_sec = collector.peak_tflops_per_core * 1e12 * collector.total_neuron_cores
-        mfu_percentage = (actual_flops_per_sec / peak_flops_per_sec) * 100
+        mfu_pct = (actual_flops_per_sec / peak_flops_per_sec) * 100
 
-        return {
-            "train/mfu": round(mfu_percentage, 2),
-        }
+        return {"train/mfu": round(mfu_pct, 2)}
 
     def calculate_summary(self, summary_data: dict, collector: 'TrainingMetricsCollector') -> dict[str, float]:
-        """Calculate summary MFU metrics from all collected data."""
-        if not summary_data.get("step_times") or collector.model_params is None:
+        """Average MFU over the entire training run."""
+        step_times = summary_data.get("step_times", [])
+        tokens_per_step = summary_data.get("tokens_per_step", [])
+
+        if not step_times or collector.model_params is None:
             return {}
 
-        step_times = summary_data["step_times"]
-        tokens_per_step = summary_data["tokens_per_step"]
-
         mfu_values = []
-        for tokens, t in zip(tokens_per_step, step_times):
-            if t > 0 and tokens > 0:
+        for tokens, time in zip(tokens_per_step, step_times):
+            if time > 0 and tokens > 0:
                 theoretical_flops = 18 * collector.model_params * tokens
-                actual_flops_per_sec = theoretical_flops / t
+                actual_flops_per_sec = theoretical_flops / time
                 peak_flops_per_sec = collector.peak_tflops_per_core * 1e12 * collector.total_neuron_cores
-                mfu_percentage = (actual_flops_per_sec / peak_flops_per_sec) * 100
-                mfu_values.append(mfu_percentage)
+                mfu_pct = (actual_flops_per_sec / peak_flops_per_sec) * 100
+                mfu_values.append(mfu_pct)
 
         if mfu_values:
-            return {
-                "summary/mfu_avg": sum(mfu_values) / len(mfu_values),
-            }
+            return {"summary/mfu_avg": sum(mfu_values) / len(mfu_values)}
 
         return {}
