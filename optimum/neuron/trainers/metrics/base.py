@@ -13,11 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from ..training_args import NeuronTrainingArguments
-from .collector import TrainingMetricsCollector
+
+
+if TYPE_CHECKING:
+    from .collector import TrainingMetricsCollector
 
 
 @dataclass
@@ -34,12 +40,12 @@ class MetricPlugin(ABC):
         pass
 
     @abstractmethod
-    def calculate_realtime(self, window_stats: dict, collector: TrainingMetricsCollector) -> dict[str, float]:
+    def calculate_realtime(self, window_stats: dict, collector: "TrainingMetricsCollector") -> dict[str, float]:
         """Calculate train/ metrics from current window data."""
         pass
 
     @abstractmethod
-    def calculate_summary(self, summary_data: dict, collector: TrainingMetricsCollector) -> dict[str, float]:
+    def calculate_summary(self, summary_data: dict, collector: "TrainingMetricsCollector") -> dict[str, float]:
         """Calculate summary/ metrics from all collected data."""
         pass
 

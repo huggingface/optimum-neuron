@@ -13,10 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from ..training_args import NeuronTrainingArguments
 from .base import MetricPlugin
-from .collector import TrainingMetricsCollector
 from .constants import MetricNames
+
+
+if TYPE_CHECKING:
+    from .collector import TrainingMetricsCollector
 
 
 class ThroughputPlugin(MetricPlugin):
@@ -28,7 +35,7 @@ class ThroughputPlugin(MetricPlugin):
     def is_enabled(self, args: NeuronTrainingArguments) -> bool:
         return args.enable_throughput_metrics
 
-    def calculate_realtime(self, window_stats: dict, collector: TrainingMetricsCollector) -> dict[str, float]:
+    def calculate_realtime(self, window_stats: dict, collector: "TrainingMetricsCollector") -> dict[str, float]:
         """Tokens per second across all devices."""
         if not window_stats or window_stats.get("total_time", 0) <= 0:
             return {}
@@ -46,7 +53,7 @@ class ThroughputPlugin(MetricPlugin):
         metrics["train/step_time"] = window_stats["avg_time_per_step"]
         return metrics
 
-    def calculate_summary(self, summary_data: dict, collector: TrainingMetricsCollector) -> dict[str, float]:
+    def calculate_summary(self, summary_data: dict, collector: "TrainingMetricsCollector") -> dict[str, float]:
         """Average throughput over the entire training run."""
         step_times = summary_data.get("step_times", [])
         tokens_per_step = summary_data.get("tokens_per_step", [])

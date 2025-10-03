@@ -13,10 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from ..training_args import NeuronTrainingArguments
 from .base import MetricPlugin
-from .collector import TrainingMetricsCollector
 from .constants import MetricNames
+
+
+if TYPE_CHECKING:
+    from .collector import TrainingMetricsCollector
 
 
 class MFUPlugin(MetricPlugin):
@@ -28,7 +35,7 @@ class MFUPlugin(MetricPlugin):
     def is_enabled(self, args: NeuronTrainingArguments) -> bool:
         return args.enable_mfu_metrics
 
-    def calculate_realtime(self, window_stats: dict, collector: TrainingMetricsCollector) -> dict[str, float]:
+    def calculate_realtime(self, window_stats: dict, collector: "TrainingMetricsCollector") -> dict[str, float]:
         """MFU = actual FLOPS / peak FLOPS as a percentage."""
         if (
             not window_stats
@@ -49,7 +56,7 @@ class MFUPlugin(MetricPlugin):
 
         return {"train/mfu": round(mfu_pct, 2)}
 
-    def calculate_summary(self, summary_data: dict, collector: TrainingMetricsCollector) -> dict[str, float]:
+    def calculate_summary(self, summary_data: dict, collector: "TrainingMetricsCollector") -> dict[str, float]:
         """Average MFU over the entire training run."""
         step_times = summary_data.get("step_times", [])
         tokens_per_step = summary_data.get("tokens_per_step", [])
