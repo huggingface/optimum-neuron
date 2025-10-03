@@ -26,8 +26,8 @@ from transformers import AutoTokenizer
 
 from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer, NeuronTrainingArguments
 from optimum.neuron.models.training import LlamaForCausalLM as NeuronLlamaForCausalLM
+from optimum.neuron.models.training.training_utils import get_model_param_count
 from optimum.neuron.utils.testing_utils import is_trainium_test
-from optimum.neuron.utils.training_utils import get_model_param_count
 
 from .distributed_utils import distributed_test, run_distributed_test
 from .utils import MODEL_NAME

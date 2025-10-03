@@ -37,9 +37,9 @@ from ..models.training import (
     specialize_transformation_specs_for_model,
     to_original_peft_config_for_model,
 )
+from ..models.training.training_utils import _get_model_param_count
 from ..utils.import_utils import is_peft_available
 from ..utils.patching import Patcher
-from ..utils.training_utils import _get_model_param_count
 from .utils.save_and_load import get_peft_model_state_dict
 
 
