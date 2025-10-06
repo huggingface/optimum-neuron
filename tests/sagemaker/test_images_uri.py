@@ -1,3 +1,5 @@
+import pytest
+
 from optimum.neuron.utils import ecr
 
 
@@ -15,3 +17,12 @@ def test_ecr_image_uri():
     # only version
     image_uri = ecr.image_uri(version="3.3.4")
     assert image_uri is not None
+    # invalid version
+    image_uri = ecr.image_uri(version="ABCD")
+    assert image_uri is None
+    # not valid service name
+    with pytest.raises(ValueError, match="Invalid service name"):
+        ecr.image_uri(service_name="ABCD")
+    # not valid region
+    with pytest.raises(KeyError, match="ABCD"):
+        ecr.image_uri(region="ABCD")
