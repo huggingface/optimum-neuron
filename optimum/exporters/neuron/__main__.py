@@ -50,11 +50,10 @@ from ...neuron.utils import (
     InputShapesArguments,
     IPAdapterArguments,
     LoRAAdapterArguments,
-    get_neuron_instance_type,
-    is_cpu_only_instance,
     is_neuron_available,
     is_neuronx_available,
 )
+from ...neuron.utils.system import get_available_cores
 from ...neuron.utils.version_utils import (
     check_compiler_compatibility_for_stable_diffusion,
 )
@@ -101,7 +100,7 @@ logger.setLevel(logging.INFO)
 
 def infer_compiler_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     # infer instance type
-    instance_type = get_neuron_instance_type(args.instance_type)
+    instance_type = args.instance_type
     auto_cast = None if args.auto_cast == "none" else args.auto_cast
     auto_cast_type = None if auto_cast is None else args.auto_cast_type
     compiler_kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type, "instance_type": instance_type}
@@ -706,8 +705,8 @@ def main_export(
                 "The validation is not yet supported for tensor parallel model, the validation will be turned off."
             )
             do_validation = False
-        elif cpu_backend:
-            logger.info("The validation is disabled since you are using CPU backend for the compilation.")
+        elif get_available_cores() == 0:
+            logger.info("The validation is disabled since no Neuron device is detected.")
             do_validation = False
 
     if do_validation is True:
@@ -840,7 +839,6 @@ def main():
     optional_outputs = customize_optional_outputs(args)
     optlevel = parse_optlevel(args)
 
-    cpu_backend = is_cpu_only_instance()
     lora_args = LoRAAdapterArguments(
         model_ids=getattr(args, "lora_model_ids", None),
         weight_names=getattr(args, "lora_weight_names", None),
@@ -868,7 +866,6 @@ def main():
         compiler_workdir=args.compiler_workdir,
         inline_weights_to_neff=args.inline_weights_neff,
         optlevel=optlevel,
-        cpu_backend=cpu_backend,
         trust_remote_code=args.trust_remote_code,
         subfolder=args.subfolder,
         do_validation=not args.disable_validation,

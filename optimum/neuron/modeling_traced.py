@@ -40,13 +40,12 @@ from .utils import (
     NEURON_FILE_NAME,
     InputShapesArguments,
     check_if_weights_replacable,
-    get_neuron_instance_type,
-    is_cpu_only_instance,
     is_neuron_available,
     replace_weights,
     store_compilation_config,
 )
 from .utils.import_utils import is_neuronx_available
+from .utils.system import get_available_cores
 from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
 
@@ -302,8 +301,6 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
             kwargs_shapes["batch_size"] = 1
             disable_fallback = True  # Turn off the fallback for neuron, otherwise dynamic batching will still fail
         auto_cast_type = None if auto_cast is None else auto_cast_type
-        cpu_backend = is_cpu_only_instance()
-        instance_type = get_neuron_instance_type(instance_type)
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
@@ -385,7 +382,6 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
                 compiler_workdir=compiler_workdir,
                 inline_weights_to_neff=inline_weights_to_neff,
                 optlevel=optlevel,
-                cpu_backend=cpu_backend,
                 trust_remote_code=trust_remote_code,
                 subfolder=subfolder,
                 revision=revision,
@@ -398,9 +394,9 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
             )
             config = AutoConfig.from_pretrained(save_dir_path)
 
-        if cpu_backend:
+        if get_available_cores() == 0:
             logger.warning(
-                "Model was compiled with cpu_backend=True. Model loading is skipped as it requires Neuron hardware."
+                "No Neuron device detected! Model loading is skipped as it requires Neuron hardware."
                 "The model compilation was successful and the artifacts were saved."
             )
             return None

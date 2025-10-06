@@ -118,10 +118,15 @@ that matmul operation must be performed with `float16` precision for faster infe
 
 You can also compile the model on a CPU-only instance. In this case, specify the target instance type by passing `--instance_type` from `{inf2, trn1, trn1n, trn2}`. 
 
-If you are using a `NeuronModelForXXX` class to export the model on a CPU-only instance, set the target instance type through the environment variable, e.g.:
+If you are using a `NeuronModelForXXX` class to export the model on a CPU-only instance, set the target instance type through the `instance_type` argument, For example:
 
-```bash
-export NEURON_PLATFORM_TARGET_OVERRIDE=inf2
+```python
+model = NeuronModelForXXX.from_pretrained(
+    ...,
+    export=True,
+    instance_type="inf2",
+    ...
+)
 ```
 
 </Tip>

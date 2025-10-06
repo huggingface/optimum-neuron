@@ -39,6 +39,7 @@ from optimum.neuron.utils import (
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils.cache_utils import get_model_name_or_path
+from ...neuron.utils.system import get_available_cores
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
 from ...utils import (
     is_diffusers_available,
@@ -302,7 +303,6 @@ def export_models(
     compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
-    cpu_backend: bool = False,
     output_file_names: dict[str, str] | None = None,
     compiler_kwargs: dict[str, Any] | None = {},
     model_name_or_path: str | None = None,
@@ -328,8 +328,6 @@ def export_models(
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
                 2: provides the best balance between model performance and compile time.
                 3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
-        cpu_backend (`bool`, defaults to `False`):
-            Whether to trace the model completely on CPU.
         output_file_names (`dict[str, str] | None`, defaults to `None`):
             The names to use for the exported Neuron files. The order must be the same as the order of submodels in the ordered dict `models_and_neuron_configs`.
             If None, will use the keys from `models_and_neuron_configs` as names.
@@ -379,7 +377,6 @@ def export_models(
             compiler_workdir=compiler_workdir,
             inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
-            cpu_backend=cpu_backend,
             **compiler_kwargs,
         )
         compilation_time = time.time() - start_time
@@ -447,7 +444,6 @@ def export(
     optlevel: str = "2",
     auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
-    cpu_backend: bool = False,
     disable_fast_relayout: bool = False,
     disable_fallback: bool = False,
 ) -> tuple[list[str], list[str]]:
@@ -474,7 +470,6 @@ def export(
             instance_type=instance_type,
             auto_cast=auto_cast,
             auto_cast_type=auto_cast_type,
-            cpu_backend=cpu_backend,
         )
     else:
         raise RuntimeError(
@@ -492,7 +487,6 @@ def export_neuronx(
     optlevel: str = "2",
     auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
-    cpu_backend: bool = False,
 ) -> tuple[list[str], list[str]]:
     """
     Exports a PyTorch model to a serialized TorchScript module compiled by neuronx-cc compiler.
@@ -585,7 +579,6 @@ def export_neuronx(
         tensor_parallel_size=tensor_parallel_size,
         aliases=aliases,
         inline_weights_to_neff=inline_weights_to_neff,
-        cpu_backend=cpu_backend,
         compiler_workdir=compiler_workdir,
     )
 
@@ -665,7 +658,6 @@ def trace_neuronx(
     tensor_parallel_size: int,
     aliases=None,
     inline_weights_to_neff: bool = True,
-    cpu_backend: bool = False,
     compiler_workdir: Path | None = None,
 ):
     if tensor_parallel_size > 1:
@@ -709,6 +701,7 @@ def trace_neuronx(
             neuronx_distributed.trace.parallel_model_save(neuron_model, output)
     else:
         # Case 3: Using `torch_neuronx.trace`
+        cpu_backend = get_available_cores() == 0
         neuron_model = neuronx.trace(
             model,
             dummy_inputs,

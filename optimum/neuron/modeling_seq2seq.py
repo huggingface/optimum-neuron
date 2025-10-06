@@ -43,8 +43,6 @@ from .utils import (
     DECODER_NAME,
     ENCODER_NAME,
     NEURON_FILE_NAME,
-    get_neuron_instance_type,
-    is_cpu_only_instance,
 )
 from .utils.doc import (
     _TOKENIZER_FOR_DOC,
@@ -53,6 +51,7 @@ from .utils.doc import (
     NEURON_TRANSLATION_EXAMPLE,
     NEURON_TRANSLATION_TP_EXAMPLE,
 )
+from .utils.system import get_available_cores
 
 
 if TYPE_CHECKING:
@@ -365,8 +364,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
-        cpu_backend = is_cpu_only_instance()
-        instance_type = get_neuron_instance_type(instance_type)
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
@@ -390,7 +387,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             compiler_workdir=compiler_workdir,
             inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
-            cpu_backend=cpu_backend,
             trust_remote_code=trust_remote_code,
             subfolder=subfolder,
             revision=revision,
@@ -403,9 +399,9 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             **kwargs_shapes,
         )
 
-        if cpu_backend:
+        if get_available_cores() == 0:
             logger.warning(
-                "Since `cpu_backend` is set to `True` during compilation, model loading is skipped."
+                "No Neuron device detected! Model loading is skipped as it requires Neuron hardware."
                 "The model compilation was successful and the artifacts were saved."
             )
             return None

@@ -62,12 +62,11 @@ from .utils import (
     DiffusersPretrainedConfig,
     NeuronArgumentParser,
     check_if_weights_replacable,
-    get_neuron_instance_type,
-    is_cpu_only_instance,
     replace_weights,
     store_compilation_config,
 )
 from .utils.require_utils import requires_torch_neuronx
+from .utils.system import get_available_cores
 from .utils.version_utils import get_neuronxcc_version
 
 
@@ -905,8 +904,6 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
-        cpu_backend = is_cpu_only_instance()
-        instance_type = get_neuron_instance_type(instance_type)
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
@@ -1029,7 +1026,6 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 compiler_workdir=compiler_workdir,
                 inline_weights_to_neff=inline_weights_to_neff,
                 optlevel=optlevel,
-                cpu_backend=cpu_backend,
                 trust_remote_code=trust_remote_code,
                 subfolder=subfolder,
                 revision=revision,
@@ -1043,9 +1039,9 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 library_name=cls.library_name,
                 **input_shapes,
             )
-        if cpu_backend:
+        if get_available_cores() == 0:
             logger.warning(
-                "Model was compiled with cpu_backend=True. Model loading is skipped as it requires Neuron hardware."
+                "No Neuron device detected! Model loading is skipped as it requires Neuron hardware."
                 "The model compilation was successful and the artifacts were saved."
             )
             return None
