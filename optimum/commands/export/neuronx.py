@@ -18,6 +18,8 @@ import sys
 from argparse import SUPPRESS, ArgumentParser, Namespace, _SubParsersAction
 from pathlib import Path
 
+from optimum.neuron.utils.instance import SUPPORTED_INSTANCE_TYPES
+
 from ...exporters import TasksManager
 from ..base import BaseOptimumCLICommand, CommandInfo
 
@@ -41,6 +43,13 @@ def parse_args_neuronx(parser: "ArgumentParser"):
             "The task to export the model for. If not specified, the task will be auto-inferred based on the model. Available tasks depend on the model, but are among:"
             f" {str(list(TasksManager._TRANSFORMERS_TASKS_TO_MODEL_LOADERS.keys()) + list(TasksManager._DIFFUSERS_TASKS_TO_MODEL_LOADERS.keys()))}."
         ),
+    )
+    optional_group.add_argument(
+        "--instance_type",
+        type=str,
+        default=None,
+        choices=SUPPORTED_INSTANCE_TYPES,
+        help="Target Neuron instance type on which the compiled model will be run.",
     )
     optional_group.add_argument(
         "--subfolder",
