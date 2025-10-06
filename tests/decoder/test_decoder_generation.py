@@ -256,3 +256,33 @@ def test_generation_assisted_decoding(speculation):
     generated_text = tokenizer.decode(outputs[0])
     expected_text = " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial neural"
     assert generated_text.endswith(expected_text)
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_model_vs_cpu(model_and_tokenizer: tuple[NeuronModelForCausalLM, AutoTokenizer]):
+    prompt = "Gravity is"
+
+    checkpoint = "unsloth/Llama-3.2-1B-Instruct"
+    device = "cpu"
+    tokenizer = AutoTokenizer.from_pretrained(checkpoint)
+
+    from transformers import AutoModelForCausalLM
+
+    model_cpu = AutoModelForCausalLM.from_pretrained(checkpoint).to(device)
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    input_ids = inputs.input_ids
+    attention_mask = inputs.attention_mask
+    seq_len = input_ids.shape[-1]
+    position_ids = torch.arange(seq_len, dtype=torch.int64).view(1, -1)
+    outputs = model_cpu(input_ids, attention_mask, position_ids, use_cache=False)
+    # Extract next logits
+    next_logits_cpu = outputs.logits[:, -1, :]
+
+    model, tokenizer = model_and_tokenizer
+
+    outputs = model(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids)
+    next_logits_neuron = outputs.logits[:, -1, :]
+    torch.testing.assert_close(
+        next_logits_cpu, next_logits_neuron, atol=torch.finfo(torch.bfloat16).resolution, rtol=1e-1
+    )
