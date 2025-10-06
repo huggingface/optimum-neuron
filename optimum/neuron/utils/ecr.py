@@ -39,14 +39,30 @@ IMAGE_SERVICES = {
     "huggingface-neuronx": TGI_REPOSITORY_NAME,
 }
 
+# This dictionary contains the pattern templates for the version pattern for each repository. The
+# "platform_version" will be replaced with the platform version when provided.
+TAG_PATTERNS = {
+    TGI_REPOSITORY_NAME: r"optimum{platform_version}",
+}
 
-def check_tag(tag, expected_version):
+
+def check_tag(pattern, tag: list[dict], platform_version: str = None) -> list[str]:
+    """Return all the tags that match the version pattern
+
+    Args:
+        pattern_template: the pattern template to match
+        tag: list of dicts with the image tag
+        platform_version: the platform version to match. If not provided, all versions will be matched.
+
+    Returns:
+        list of tags that match the version pattern
     """
-    Verify that the expected_version appears after 'optimum' in the tag string.
-    """
-    pattern = rf"optimum[.-]?{re.escape(expected_version)}"
-    match = re.search(pattern, tag)
-    return match is not None
+    if platform_version is None:
+        platform_version = ".*"  # all versions
+    else:
+        platform_version = re.escape(platform_version)
+    version_pattern = re.compile(pattern.format(platform_version=platform_version))
+    return [t["imageTag"] for t in tag if version_pattern.search(t["imageTag"]) is not None]
 
 
 def image_uri(
@@ -84,16 +100,11 @@ def image_uri(
             + str(e)
         )
         raise ValueError(message)
-
-    neuronx_images = [image for image in images if "neuronx" in image["imageTag"]]
-    if version is not None:
-        neuronx_images = [image for image in neuronx_images if check_tag(image["imageTag"], version)]
-        if len(neuronx_images) == 0:
-            return None
-        tag = neuronx_images[-1]["imageTag"]
-    else:
-        # Get latest tag
-        neuronx_images.sort(key=lambda x: x["imageTag"])
-        tag = neuronx_images[-1]["imageTag"]
-
+    repository_pattern = TAG_PATTERNS[repository_name]
+    tags = check_tag(repository_pattern, images, version)
+    if len(tags) == 0:
+        return None
+    # sorting will put the latest version at the end
+    tags.sort()
+    tag = tags[-1]
     return f"{repository_id}.dkr.ecr.{region}.amazonaws.com/{repository_name}:{tag}"
