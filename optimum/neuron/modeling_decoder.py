@@ -28,6 +28,7 @@ from transformers.generation import StoppingCriteriaList
 from .configuration_utils import NeuronConfig
 from .modeling_base import NeuronModel
 from .models.auto_model import get_neuron_model_class
+from .utils.instance import current_instance_type, normalize_instance_type
 from .utils.system import get_available_cores
 
 
@@ -110,6 +111,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         config: PretrainedConfig | None = None,
         token: bool | str | None = None,
         revision: str | None = None,
+        instance_type: str | None = None,
         batch_size: int | None = None,
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
@@ -132,6 +134,8 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
                 The token to use for authentication with the Hugging Face Hub.
             revision (`str`, *optional*):
                 The revision of the model to use. If not specified, the latest revision will be used.
+            instance_type (`str`, *optional*):
+                The target Neuron instance type on which the compiled model will be run. If not specified
             batch_size (`int`, *optional*):
                 The batch size to use for inference. If not specified, defaults to 1.
             sequence_length (`int`, *optional*):
@@ -159,6 +163,10 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
                 use_auth_token=token,
             ).get_text_config()
 
+        if instance_type is None:
+            instance_type = "trn1" if get_available_cores() == 0 else current_instance_type()
+        else:
+            instance_type = normalize_instance_type(instance_type)
         if batch_size is None:
             batch_size = 1
         # If the sequence_length was not specified, deduce it from the model configuration
@@ -189,6 +197,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         return cls._get_neuron_config(
             checkpoint_id=checkpoint_id,
             checkpoint_revision=checkpoint_revision,
+            instance_type=instance_type,
             batch_size=batch_size,
             sequence_length=sequence_length,
             tensor_parallel_size=tensor_parallel_size,
@@ -292,6 +301,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         cls,
         checkpoint_id: str,
         checkpoint_revision: str,
+        instance_type: str,
         batch_size: int,
         sequence_length: int,
         tensor_parallel_size: int,
