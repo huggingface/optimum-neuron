@@ -408,6 +408,7 @@ def select_hub_cached_entries(
     model_id: str,
     task: str | None = None,
     cache_repo_id: str | None = None,
+    instance_type: str | None = None,
     batch_size: int | None = None,
     sequence_length: int | None = None,
     tensor_parallel_size: int | None = None,
@@ -416,6 +417,8 @@ def select_hub_cached_entries(
     entries = get_hub_cached_entries(model_id, task=task, cache_repo_id=cache_repo_id)
     selected = []
     for entry in entries:
+        if instance_type is not None and entry.get("target") != instance_type:
+            continue
         if batch_size is not None and entry.get("batch_size") != batch_size:
             continue
         if sequence_length is not None and entry.get("sequence_length") != sequence_length:
