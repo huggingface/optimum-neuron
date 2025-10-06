@@ -173,7 +173,7 @@ def test_metrics_basic_functionality(tmpdir):
     assert backward_stats["total_time"] > 0.008
 
     # Add optimizer step measurement for efficiency calculation
-    collector.start_metric("optimizer_step", inputs_ctx)
+    collector.start_metric("optimizer_step", inputs)
     time.sleep(0.01)
     collector.stop_metric("optimizer_step", step_number=3)
 

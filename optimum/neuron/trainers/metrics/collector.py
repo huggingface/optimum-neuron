@@ -119,10 +119,7 @@ class TrainingMetricsCollector:
             raise ValueError(f"metrics_window_size must be > 0, got {self.args.metrics_window_size}")
 
         if self.args.enable_mfu_metrics and self.model is None:
-                raise ValueError("Model cannot be None when MFU metrics are enabled")
-
-        if self.args.expected_tokens_per_core <= 0:
-            raise ValueError(f"expected_tokens_per_core must be > 0, got {self.args.expected_tokens_per_core}")
+            raise ValueError("Model cannot be None when MFU metrics are enabled")
 
     def _detect_hardware_tflops(self) -> float:
         platform_target = get_platform_target().lower()
@@ -339,14 +336,3 @@ class TrainingMetricsCollector:
                 "samples_per_step": [],
                 "step_numbers": [],
             }
-
-    def should_calculate_metrics(self, step: int) -> bool:
-        if not self.enabled:
-            return False
-
-        metrics_logging_steps = self.args.metrics_logging_steps
-        if metrics_logging_steps is None:
-            metrics_logging_steps = self.args.logging_steps
-        if metrics_logging_steps > 0:
-            return step > 0 and step % metrics_logging_steps == 0
-        return False

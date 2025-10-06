@@ -408,19 +408,6 @@ class NeuronTrainingArguments:
     )
 
     # Training metrics configuration
-    enable_training_metrics: bool = field(
-        default=True,
-        metadata={"help": "Whether to enable collection and logging of training performance metrics."},
-    )
-    metrics_logging_steps: int | None = field(
-        default=None,
-        metadata={
-            "help": (
-                "Number of steps between metrics logging. If None, defaults to logging_steps. "
-                "Set to 0 to disable metrics logging."
-            )
-        },
-    )
     enable_throughput_metrics: bool = field(
         default=True,
         metadata={
@@ -453,15 +440,6 @@ class NeuronTrainingArguments:
             "help": (
                 "Size of the moving average window for metrics calculation. "
                 "Larger windows provide more stable metrics but react slower to changes."
-            )
-        },
-    )
-    expected_tokens_per_core: float = field(
-        default=500.0,
-        metadata={
-            "help": (
-                "Expected tokens per core per second for efficiency calculation baseline. "
-                "This should be calibrated based on your model size and hardware setup."
             )
         },
     )

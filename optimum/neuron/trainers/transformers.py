@@ -1009,9 +1009,9 @@ class NeuronTrainer:
             reduced_loss = reduced_loss.detach()
             self.running_loss.zero_()
 
-            # We calculte metrics here to avoid doing complicating thing with the closure and whe it is actually executed.
+            # Calculate metrics here to avoid complications with closure execution
             metrics = {}
-            if self.metrics_collector.should_calculate_metrics(self.state.global_step):
+            if self.metrics_collector.enabled:
                 try:
                     metrics = self.metrics_collector.calculate_metric("all")
                     # Reset the metrics window after calculation
