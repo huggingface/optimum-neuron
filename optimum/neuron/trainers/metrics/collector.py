@@ -19,13 +19,12 @@ from typing import Any
 
 import torch
 import torch_xla.runtime as xr
-from neuronx_distributed.parallel_layers.parallel_state import get_data_parallel_size
 from torch_neuronx.utils import get_platform_target
 
 from ...utils.training_utils import get_model_param_count
 from ..training_args import NeuronTrainingArguments
 from .base import MetricPlugin
-from .constants import HARDWARE_TFLOPS, MetricNames
+from .constants import HARDWARE_TFLOPS
 from .efficiency import EfficiencyPlugin
 from .mfu import MFUPlugin
 from .registry import PluginRegistry
@@ -68,7 +67,7 @@ class TrainingMetricsCollector:
 
         self._validate_inputs()
 
-        self.dp_size = get_data_parallel_size()
+        self.dp_size = self.args.trn_config.data_parallel_size
         self.total_neuron_cores = xr.world_size()
 
         self.model_params = None
@@ -99,10 +98,7 @@ class TrainingMetricsCollector:
                     "samples_per_step": [],
                     "step_numbers": [],
                 }
-                if plugin.requires_accumulation and metric_name in [
-                    MetricNames.FORWARD_PASS,
-                    MetricNames.BACKWARD_PASS,
-                ]:
+                if plugin.requires_accumulation:
                     self.accumulating_metrics.add(metric_name)
 
         self.cycle_active = False
@@ -111,7 +107,6 @@ class TrainingMetricsCollector:
         self.component_start_time = None
 
     def _get_default_plugins(self) -> list[MetricPlugin]:
-        """Built-in metrics we support."""
         return [
             ThroughputPlugin(),
             MFUPlugin(),
@@ -120,28 +115,22 @@ class TrainingMetricsCollector:
         ]
 
     def _validate_inputs(self):
-        if not hasattr(self.args, "metrics_window_size"):
-            raise ValueError("metrics_window_size not found in training arguments")
-
         if self.args.metrics_window_size <= 0:
             raise ValueError(f"metrics_window_size must be > 0, got {self.args.metrics_window_size}")
 
-        if hasattr(self.args, "enable_mfu_metrics") and self.args.enable_mfu_metrics:
-            if self.model is None:
+        if self.args.enable_mfu_metrics and self.model is None:
                 raise ValueError("Model cannot be None when MFU metrics are enabled")
 
-        if hasattr(self.args, "expected_tokens_per_core") and self.args.expected_tokens_per_core <= 0:
+        if self.args.expected_tokens_per_core <= 0:
             raise ValueError(f"expected_tokens_per_core must be > 0, got {self.args.expected_tokens_per_core}")
 
     def _detect_hardware_tflops(self) -> float:
-        """Figure out what Trainium hardware we're running on."""
         platform_target = get_platform_target().lower()
         if platform_target not in HARDWARE_TFLOPS:
             raise ValueError(f"Unknown platform '{platform_target}'. We support: {list(HARDWARE_TFLOPS.keys())}")
         return HARDWARE_TFLOPS[platform_target]
 
     def _should_calculate_plugin(self, plugin: MetricPlugin, metric_type: str) -> bool:
-        """Check if we should calculate this plugin for the given metric type."""
         if metric_type == "all":
             return True
         if plugin.name == metric_type:
@@ -151,7 +140,6 @@ class TrainingMetricsCollector:
         return False
 
     def _get_plugin_window_stats(self, plugin: MetricPlugin) -> dict:
-        """Get window stats for a plugin."""
         if hasattr(plugin, "get_metric_names") and len(plugin.get_metric_names()) > 1:
             # Multi-metric plugins use inter-plugin communication instead
             return {}
@@ -162,16 +150,13 @@ class TrainingMetricsCollector:
                 return self.metric_windows[metric_name].get_window_stats()
             return {}
 
-    # Let plugins access each other's data
     def get_metric_average_time(self, metric_name: str) -> float:
-        """Get average time for a metric (used by efficiency plugin)."""
         if metric_name not in self.metric_windows:
             return 0.0
         window_stats = self.metric_windows[metric_name].get_window_stats()
         return window_stats.get("avg_time_per_step", 0.0)
 
     def get_metric_window_stats(self, metric_name: str) -> dict:
-        """Get full window stats for a metric."""
         if metric_name not in self.metric_windows:
             return {}
         return self.metric_windows[metric_name].get_window_stats()
@@ -207,7 +192,7 @@ class TrainingMetricsCollector:
         self.cycle_batch_data = {"tokens": 0, "samples": 0}
 
     def start_metric(self, metric_name: str, inputs: dict[str, Any] | None = None):
-        """Start timing a metric (like forward_pass, backward_pass, etc.)."""
+        """Start timing a metric."""
         if not self.enabled:
             return
         if metric_name not in self.metric_start_times:
@@ -303,7 +288,7 @@ class TrainingMetricsCollector:
             self.current_batch_data[metric_name] = {"tokens": 0, "samples": 0}
 
     def calculate_metric(self, metric_name: str) -> dict[str, float]:
-        """Calculate specific metric(s). Use 'all' to get everything."""
+        """Calculate specific metric(s). Use `"all"` to get everything."""
         if not self.enabled:
             return {}
 
