@@ -394,7 +394,7 @@ def export_models(
         # only register mandatory input shapes
         input_shapes = sub_neuron_config.input_shapes
         mandatory_shape = sub_neuron_config.INPUT_ARGS
-        input_shapes = {k: input_shapes[k] for k in mandatory_shape}
+        input_shapes = {k: v for k, v in input_shapes.items() if k in mandatory_shape}
 
         model_config = store_compilation_config(
             config=model_config,

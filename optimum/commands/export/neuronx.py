@@ -13,13 +13,16 @@
 # limitations under the License.
 """Defines the command line for the export with Neuronx compiler."""
 
+import os
+import shlex
 import subprocess
 import sys
 from argparse import SUPPRESS, ArgumentParser, Namespace, _SubParsersAction
 from pathlib import Path
 
 from ...exporters import TasksManager
-from ...neuron.utils import SUPPORTED_INSTANCE_TYPES
+from ...neuron.utils import SUPPORTED_INSTANCE_TYPES, normalize_instance_type
+from ...neuron.utils.system import get_available_cores
 from ..base import BaseOptimumCLICommand, CommandInfo
 
 
@@ -332,5 +335,21 @@ class NeuronxExportCommand(BaseOptimumCLICommand):
         return parse_args_neuronx(parser)
 
     def run(self):
+        self.setup_target_instance(self.args_string)
         full_command = f"python3 -m optimum.exporters.neuron {self.args_string}"
         subprocess.run(full_command, shell=True, check=True)
+
+    @staticmethod
+    def setup_target_instance(args_string: str):
+        if get_available_cores() == 0:
+            # `--instance_type` is mandary when we compile w/o Neuron devices.
+            compiler_args = shlex.split(args_string)
+            if "--instance_type" not in args_string:
+                raise RuntimeError(
+                    f"You are using an instance without any neuron device, please supply target instance type among {SUPPORTED_INSTANCE_TYPES} for cpu-only compilation"
+                )
+            else:
+                index = compiler_args.index("--instance_type")
+                instance_type = compiler_args[index + 1]
+                instance_type = normalize_instance_type(instance_type)
+                os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = instance_type
