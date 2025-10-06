@@ -79,8 +79,8 @@ def image_uri(
         images = ecr_client.list_images(repositoryName=repository_name, registryId=repository_id)["imageIds"]
     except boto3.exceptions.botocore.exceptions.NoCredentialsError as e:
         message = (
-            "An error occurred while listing images from the ECR repository. Please check you have exported "
-            + " the AWS credentials. Original error: "
+            "An error occurred while listing images from the ECR repository. Please check you have set "
+            + " the required AWS credentials. Original error: "
             + str(e)
         )
         raise ValueError(message)
