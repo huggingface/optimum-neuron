@@ -99,10 +99,6 @@ from ..utils.cache_utils import (
 )
 from ..utils.import_utils import is_peft_available
 from ..utils.misc import is_main_worker, is_precompilation
-from ..utils.training_utils import (
-    get_model_param_count,
-    is_logging_process,
-)
 from .metrics import TrainingMetricsCollector
 from .training_args import NeuronTrainingArguments
 from .utils import XLAPrefetchIterator

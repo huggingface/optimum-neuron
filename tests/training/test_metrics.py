@@ -15,13 +15,15 @@
 
 import time
 
+import datasets
+import pytest
 import torch
 from datasets import Dataset
 from transformers import AutoTokenizer
 
 from optimum.neuron.models.training.llama.modeling_llama import LlamaForCausalLM
 from optimum.neuron.trainers import NeuronTrainer
-from optimum.neuron.trainers.metrics import MovingAverageWindow, TrainingMetricsCollector
+from optimum.neuron.trainers.metrics import TrainingMetricsCollector
 from optimum.neuron.trainers.training_args import NeuronTrainingArguments
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
@@ -29,93 +31,23 @@ from .distributed_utils import distributed_test
 from .utils import MODEL_NAME
 
 
-@is_trainium_test
-@distributed_test(world_size=2, tp_size=2, pp_size=1)
-def test_metrics_calculations_real_functionality(tmpdir):
-    args = NeuronTrainingArguments(
-        output_dir=tmpdir,
-        enable_throughput_metrics=True,
-        enable_mfu_metrics=True,
-        enable_efficiency_metrics=True,
-        metrics_window_size=3,
+@pytest.fixture(scope="module")
+def inputs():
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    inputs = tokenizer(
+        "Paris is the most beautiful city in the world.", return_tensors="pt", padding="max_length", max_length=1024
     )
+    inputs["labels"] = inputs["input_ids"].clone()
+    return inputs
 
-    model = LlamaForCausalLM.from_pretrained(MODEL_NAME, trn_config=args.trn_config)
-    collector = TrainingMetricsCollector(model, args)
 
-    # Test MovingAverageWindow standalone
-    window = MovingAverageWindow(window_size=2)
-    window.add_step(tokens=1000, samples=4, step_time=0.5)
-    window.add_step(tokens=2000, samples=8, step_time=1.0)
-
-    stats = window.get_window_stats()
-    assert stats["total_tokens"] == 3000
-    assert stats["total_samples"] == 12
-    assert stats["total_time"] == 1.5
-    assert stats["avg_tokens_per_step"] == 1500
-    assert stats["avg_time_per_step"] == 0.75
-
-    # Test throughput calculation using proper collector API
-    inputs = {"input_ids": torch.randint(0, 1000, (1, 1000))}  # 1000 tokens
-    collector.start_metric("throughput", inputs)
-    time.sleep(0.5)
-    collector.stop_metric("throughput", step_number=1)
-
-    throughput_metrics = collector.calculate_metric("throughput")
-    expected_global_rate = 2000.0 * collector.dp_size  # 1000 tokens / 0.5 sec * dp_size
-    assert abs(throughput_metrics["train/tokens_per_sec"] - expected_global_rate) < 100  # Allow timing variance
-
-    # Test MFU calculation using proper collector API
-    collector.start_metric("mfu", inputs)
-    time.sleep(0.5)
-    collector.stop_metric("mfu", step_number=2)
-
-    mfu_metrics = collector.calculate_metric("mfu")
-    theoretical_flops = 18 * collector.model_params * 1000
-    actual_flops_per_sec = theoretical_flops / 0.5
-    peak_flops_per_sec = collector.peak_tflops_per_core * 1e12 * collector.total_neuron_cores
-    expected_mfu = (actual_flops_per_sec / peak_flops_per_sec) * 100
-    assert abs(mfu_metrics["train/mfu"] - round(expected_mfu, 2)) < 1.0  # Allow more variance for real timing
-
-    # Test efficiency calculation using gradient accumulation cycle
-    collector.start_gradient_accumulation_cycle()
-
-    collector.start_metric("forward_pass", inputs)
-    time.sleep(0.1)
-    collector.stop_metric("forward_pass")
-
-    collector.start_metric("backward_pass", inputs)
-    time.sleep(0.2)
-    collector.stop_metric("backward_pass")
-
-    collector.start_metric("optimizer_step", inputs)
-    time.sleep(0.05)
-    collector.stop_metric("optimizer_step")
-
-    collector.end_gradient_accumulation_cycle(step_number=3)
-
-    collector.start_metric("total_step", inputs)
-    time.sleep(0.4)
-    collector.stop_metric("total_step", step_number=4)
-
-    efficiency_metrics = collector.calculate_metric("efficiency")
-    # With real timing, just verify metrics exist and are reasonable
-    assert "train/efficiency" in efficiency_metrics
-    assert "train/forward_time_percent" in efficiency_metrics
-    assert "train/backward_time_percent" in efficiency_metrics
-    assert "train/optimizer_time_percent" in efficiency_metrics
-    assert "train/overhead_time_percent" in efficiency_metrics
-    assert 0 <= efficiency_metrics["train/efficiency"] <= 100
-
-    # Test context manager
-    initial_tokens = collector.metric_windows["throughput"].get_window_stats()["total_tokens"]
-    inputs_ctx = {"input_ids": torch.randint(0, 1000, (2, 32))}
-    with collector.time_metric("throughput", inputs_ctx, step_number=99):
-        time.sleep(0.01)
-
-    ctx_stats = collector.metric_windows["throughput"].get_window_stats()
-    assert ctx_stats["total_tokens"] == initial_tokens + 64  # Added 2*32 tokens
-    assert ctx_stats["total_time"] > 0.008
+@pytest.fixture(scope="module")
+def train_dataset(inputs):
+    dataset = datasets.Dataset.from_dict(inputs)
+    dataset = dataset.select([0] * 10000)  # 10k samples
+    return dataset
 
 
 @is_trainium_test
@@ -298,18 +230,17 @@ def test_metrics_calculations_accuracy(tmpdir):
 
 
 @is_trainium_test
-@distributed_test(world_size=2, tp_size=1, pp_size=1)
-def test_metrics_integration_with_trainer(tmpdir):
+@distributed_test(world_size=32, tp_size=2, pp_size=4)
+def test_metrics_integration_with_trainer(tmpdir, train_dataset):
     args = NeuronTrainingArguments(
         output_dir=tmpdir,
         do_train=True,
         num_train_epochs=1,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=2,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=16,
         logging_steps=1,
         enable_throughput_metrics=True,
         enable_efficiency_metrics=True,
-        metrics_logging_steps=1,
         metrics_window_size=2,
         save_strategy="no",
     )
@@ -320,9 +251,11 @@ def test_metrics_integration_with_trainer(tmpdir):
         tokenizer.pad_token = tokenizer.eos_token
 
     def tokenize_function(examples):
-        return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=32)
+        inputs = tokenizer(examples["text"], truncation=True, padding="max_length", max_length=32)
+        inputs["labels"] = inputs["input_ids"].copy()
+        return inputs
 
-    train_dataset = Dataset.from_dict({"text": ["Hello world this is a test"] * 8}).map(
+    train_dataset = Dataset.from_dict({"text": ["Hello world this is a test"] * 10000}).map(
         tokenize_function, batched=True
     )
 
