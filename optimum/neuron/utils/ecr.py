@@ -87,6 +87,8 @@ def image_uri(
     if region is None:
         # use default region from boto3
         region = ecr_client.meta.region_name
+    if region not in ACCOUNT_IDS:
+        raise KeyError(f"Invalid region: {region}")
     repository_id = ACCOUNT_IDS[region]
     if service_name not in IMAGE_SERVICES:
         raise ValueError(f"Invalid service name: {service_name}")
