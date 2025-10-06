@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Activate the neuron virtual environment
-source /opt/aws_neuronx_venv_pytorch_2_7/bin/activate
+source /opt/aws_neuronx_venv_pytorch_2_8/bin/activate
 
 echo "Step: install-hugging-face-libraries"
 
@@ -15,7 +15,8 @@ pip install --upgrade --no-cache-dir \
     "markupsafe==2.1.1" \
     "jinja2==3.1.2" \
     "attrs==23.1.0" \
-    "hf_transfer>=0.1.4"
+    "hf_transfer>=0.1.4" \
+    "rich>=14.1.0"
 
 # Temporary fix for the issue: https://github.com/huggingface/optimum-neuron/issues/142
 pip install -U optimum
@@ -27,7 +28,7 @@ echo "Step: install-and-copy-optimum-neuron-examples"
 git clone -b $OPTIMUM_VERSION https://github.com/huggingface/optimum-neuron.git
 
 cd optimum-neuron
-pip install ".[neuronx, diffusers, sentence-transformers, vllm]"
+pip install ".[neuronx, diffusers, sentence-transformers, vllm, training]"
 cd ..
 
 mkdir /home/ubuntu/huggingface-neuron-samples/ /home/ubuntu/huggingface-neuron-notebooks/

@@ -72,13 +72,10 @@ jobs:
         uses: ./.github/actions/prepare_venv
       - name: Install optimum-neuron
         uses: ./.github/actions/install_optimum_neuron
-      - name: Install cv2 dependencies
-        run: |
-          sudo apt-get install python3-opencv -y
-      - name: Install vLLM
+      - name: Install vLLM and test prerequisites
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          pip install .[vllm]
+          pip install .[vllm,vllm-tests]
       - name: Export test models
         run: |
           source aws_neuron_venv_pytorch/bin/activate

@@ -23,9 +23,6 @@ jobs:
         uses: actions/checkout@v4
       - name: Install Neuronx runtime
         uses: ./.github/actions/install_neuronx_runtime
-      - name: Install cv2 dependencies
-        run: |
-          sudo apt-get install ffmpeg libsm6 libxext6  -y
       - name: Prepare virtual environment
         uses: ./.github/actions/prepare_venv
       - name: Install optimum-neuron

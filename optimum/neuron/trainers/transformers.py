@@ -89,6 +89,10 @@ from ..accelerate import NeuronAccelerator
 from ..accelerate.utils.dataclasses import MixedPrecisionConfig
 from ..cache.hub_cache import hub_neuronx_cache
 from ..cache.training import patch_neuron_cc_wrapper
+from ..models.training.training_utils import (
+    get_model_param_count,
+    is_logging_process,
+)
 from ..peft import NeuronPeftModel
 from ..utils.cache_utils import (
     get_neuron_cache_path,

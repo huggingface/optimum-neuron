@@ -37,9 +37,9 @@ from ..models.training import (
     specialize_transformation_specs_for_model,
     to_original_peft_config_for_model,
 )
+from ..models.training.training_utils import _get_model_param_count
 from ..utils.import_utils import is_peft_available
 from ..utils.patching import Patcher
-from ..utils.training_utils import _get_model_param_count
 from .utils.save_and_load import get_peft_model_state_dict
 
 
@@ -233,6 +233,11 @@ class NeuronPeftModel(PeftModel):
                     )
 
             # Save the adapter weights.
+            if self.trn_config.async_save:
+                from ..models.training.modeling_utils import _wait_previous_async_save
+
+                _wait_previous_async_save(Path(output_dir) / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME)
+
             neuronx_distributed.trainer.save_checkpoint(
                 output_dir,
                 tag=ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME,

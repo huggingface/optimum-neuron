@@ -10,9 +10,14 @@ import time
 import huggingface_hub
 import pytest
 import torch
-from docker.errors import NotFound
 
-import docker
+from optimum.neuron.utils.import_utils import is_package_available
+
+
+if is_package_available("docker"):
+    from docker.errors import NotFound
+
+    import docker
 
 from .vllm_service import LauncherHandle
 
@@ -109,16 +114,16 @@ def vllm_docker_launcher(event_loop):
             env["HF_TOKEN"] = HF_TOKEN
 
         if batch_size is not None:
-            env["SM_VLLM_MAX_NUM_SEQS"] = str(batch_size)
+            env["SM_ON_BATCH_SIZE"] = str(batch_size)
         if sequence_length is not None:
-            env["SM_VLLM_MAX_MODEL_LEN"] = str(sequence_length)
+            env["SM_ON_SEQUENCE_LENGTH"] = str(sequence_length)
         if tensor_parallel_size is not None:
-            env["SM_VLLM_TENSOR_PARALLEL_SIZE"] = str(tensor_parallel_size)
+            env["SM_ON_TENSOR_PARALLEL_SIZE"] = str(tensor_parallel_size)
         if dtype is not None:
             if isinstance(dtype, torch.dtype):
                 # vLLM does not accept torch dtype, convert to string
                 dtype = str(dtype).split(".")[-1]
-            env["SM_VLLM_DTYPE"] = dtype
+            env["SM_ON_DTYPE"] = dtype
 
         base_image = get_docker_image()
         if os.path.isdir(model_name_or_path):
@@ -152,7 +157,7 @@ def vllm_docker_launcher(event_loop):
             image = None
             container_model_id = model_name_or_path
 
-        env["SM_VLLM_MODEL"] = container_model_id
+        env["SM_ON_MODEL"] = container_model_id
         container = client.containers.run(
             test_image,
             name=container_name,

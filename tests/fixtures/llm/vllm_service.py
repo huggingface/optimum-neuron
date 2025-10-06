@@ -11,7 +11,16 @@ from typing import List
 import huggingface_hub
 import pytest
 import torch
-from openai import APIConnectionError, AsyncOpenAI
+
+from optimum.neuron.utils.import_utils import is_package_available
+
+
+if is_package_available("openai"):
+    from openai import APIConnectionError, AsyncOpenAI
+else:
+
+    class AsyncOpenAI:
+        pass
 
 
 OPTIMUM_CACHE_REPO_ID = "optimum-internal-testing/neuron-testing-cache"

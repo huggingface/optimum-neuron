@@ -1,13 +1,18 @@
 import pytest
 
+
+# Do not collect tests from this file if docker or vllm are not installed
+pytest.importorskip("docker")
+pytest.importorskip("vllm")
+
 from optimum.neuron.utils import DTYPE_MAPPER
 
 
 @pytest.mark.asyncio
-@pytest.fixture(params=["local_neuron", "hub_neuron", "hub"])
+@pytest.fixture(params=["local_neuron", "hub_neuron", "hub_explicit", "hub_implicit"])
 async def vllm_docker_service_from_model(request, vllm_docker_launcher, base_neuron_llm_config):
     service_name = base_neuron_llm_config["name"]
-    if request.param == "hub":
+    if request.param == "hub_explicit":
         model_name_or_path = base_neuron_llm_config["model_id"]
         export_kwargs = base_neuron_llm_config["export_kwargs"]
         batch_size = export_kwargs["batch_size"]
@@ -27,8 +32,12 @@ async def vllm_docker_service_from_model(request, vllm_docker_launcher, base_neu
     else:
         if request.param == "local_neuron":
             model_name_or_path = base_neuron_llm_config["neuron_model_path"]
-        else:
+        elif request.param == "hub_neuron":
             model_name_or_path = base_neuron_llm_config["neuron_model_id"]
+        elif request.param == "hub_implicit":
+            model_name_or_path = base_neuron_llm_config["model_id"]
+        else:
+            raise ValueError(f"Unknown request.param: {request.param}")
         with vllm_docker_launcher(service_name, model_name_or_path) as vllm_service:
             await vllm_service.health(600)
             yield vllm_service

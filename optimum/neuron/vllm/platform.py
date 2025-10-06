@@ -21,9 +21,12 @@ logger = logging.getLogger("Neuron")
 
 
 class OptimumNeuronPlatform(Platform):
-    _enum = PlatformEnum.NEURON
+    _enum = PlatformEnum.UNSPECIFIED
     device_name: str = "neuron"
-    device_type: str = "neuron"
+    # Device type is set to "cpu" to prevent vLLM from preemptively moving tensors
+    # to the XLA device and trigger spurious neuron runtime intializations.
+    # The CPU tensors will be moved when required to the XLA device by the neuron SDK.
+    device_type: str = "cpu"
     ray_device_key: str = "neuron_cores"
     device_control_env_var: str = "NEURON_RT_VISIBLE_CORES"
 

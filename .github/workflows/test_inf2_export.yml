@@ -58,9 +58,10 @@ jobs:
         uses: ./.github/actions/prepare_venv
       - name: Install optimum-neuron
         uses: ./.github/actions/install_optimum_neuron
-      - name: Install cv2 dependencies
+      - name: Install diffusers dependencies
         run: |
-          sudo apt-get install python3-opencv -y
+          source aws_neuron_venv_pytorch/bin/activate
+          pip install .[diffusers]
       - name: Run exporters tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
