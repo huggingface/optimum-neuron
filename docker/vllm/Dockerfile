@@ -25,10 +25,10 @@ RUN wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEU
 # Install neuronx packages
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends \
-    aws-neuronx-dkms=2.22.2.0 \
-    aws-neuronx-collectives=2.26.43.0-47cc904ea \
-    aws-neuronx-runtime-lib=2.26.42.0-2ff3b5c7d \
-    aws-neuronx-tools=2.24.54.0 \
+    aws-neuronx-dkms=2.24.7.0 \
+    aws-neuronx-collectives=2.28.27.0-bc30ece58 \
+    aws-neuronx-runtime-lib=2.28.23.0-dd5879008 \
+    aws-neuronx-tools=2.26.14.0 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -40,8 +40,8 @@ RUN pip3 install \
 
 # Install manually torch CPU version to avoid pulling CUDA
 RUN pip3 install \
-    torch==2.7.1 \
-    torchvision==0.22.1 \
+    torch==2.8.0 \
+    torchvision==0.23.0 \
     --index-url https://download.pytorch.org/whl/cpu
 
 # Install optimum-neuron
@@ -65,7 +65,7 @@ RUN cat <<'EOF' > entrypoint.sh
 #!/bin/bash
 
 # Define the prefix for environment variables to look for
-PREFIX="SM_VLLM_"
+PREFIX="SM_ON_"
 ARG_PREFIX="--"
 
 # Initialize an array for storing the arguments
@@ -74,8 +74,8 @@ ARGS=(--port 8080)
 
 # Loop through all environment variables
 while IFS='=' read -r key value; do
-    # Remove the prefix from the key, convert to lowercase, and replace underscores with dashes
-    arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+    # Remove the prefix from the key, convert to lowercase
+    arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]')
 
     # Add the argument name and value to the ARGS array
     ARGS+=("${ARG_PREFIX}${arg_name}")
@@ -84,8 +84,8 @@ while IFS='=' read -r key value; do
     fi
 done < <(env | grep "^${PREFIX}")
 
-# Pass the collected arguments to the main entrypoint
-exec python3 -m vllm.entrypoints.openai.api_server "${ARGS[@]}"
+# Pass the collected arguments to the optimum-cli serve command
+exec optimum-cli neuron serve "${ARGS[@]}"
 EOF
 ######## End of entry-point script ########
 

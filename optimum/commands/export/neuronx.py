@@ -15,7 +15,7 @@
 
 import subprocess
 import sys
-from argparse import ArgumentParser, Namespace, _SubParsersAction
+from argparse import SUPPRESS, ArgumentParser, Namespace, _SubParsersAction
 from pathlib import Path
 
 from ...exporters import TasksManager
@@ -119,11 +119,13 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         action="store_true",
         help="Enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can be a multiple of the batch size during the compilation, but it comes with a potential tradeoff in terms of latency.",
     )
+    # The following parameter is deprecated but kept for backward compatibility
     optional_group.add_argument(
         "--num_cores",
         type=int,
         default=None,
-        help="The number of cores on which the model should be deployed (text-generation only).",
+        help=SUPPRESS,
+        dest="tensor_parallel_size",
     )
     optional_group.add_argument(
         "--unet",

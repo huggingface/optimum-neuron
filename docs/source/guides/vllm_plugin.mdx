@@ -28,7 +28,7 @@ Note: Trn2 instances are not supported by the `optimum-neuron` platform yet.
 source /opt/aws_neuronx_venv_pytorch_2_7/bin/activate
 ```
 
-## Offline inference example
+## Generating content programmatically
 
 The easiest way to test a model is to use the python API:
 
@@ -46,8 +46,7 @@ sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 llm = LLM(model="unsloth/Llama-3.2-1B-Instruct",
           max_num_seqs=4,
           max_model_len=4096,
-          tensor_parallel_size=2,
-          device="neuron")
+          tensor_parallel_size=2)
 
 outputs = llm.generate(prompts, sampling_params)
 
@@ -57,19 +56,32 @@ for output in outputs:
     print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
 ```
 
-## Online inference example
+## Serving a model
 
-You can also launch an Open AI compatible inference server.
+The easiest way to serve a model is to use the `optimum-cli`:
 
 ```console
-python -m vllm.entrypoints.openai.api_server \
-    --model="unsloth/Llama-3.2-1B-Instruct" \
-    --max-num-seqs=4 \
-    --max-model-len=4096 \
-    --tensor-parallel-size=2 \
-    --port=8080 \
-    --device "neuron"
+optimum-cli neuron serve --model=<model_name_or_path>
 ```
+
+The model can be a pre-exported neuron model or a standard hub model.
+
+When deploying a standard hub model, you can customize the way it will be exported:
+
+```console
+optimum-cli neuron serve \
+    --model="unsloth/Llama-3.1-1B-Intruct" \
+    --batch_size=4 \
+    --sequence_length=4096 \
+    --tensor_parallel_size=2 \
+    --dtype="bfloat16"
+```
+
+Note: by default `optimum-cli` will only `serve` standard models for which a cached configuration exists.
+This behaviour can be overridden using the `--allow_non_cached_model` argument.
+
+If you omit one parameter, `optimum-neuron` will select a default value for you based
+on the deployment target and prioritizing cached configurations.
 
 Use the following command to test the model:
 
@@ -78,4 +90,17 @@ curl 127.0.0.1:8080/v1/completions \
     -H 'Content-Type: application/json' \
     -X POST \
     -d '{"prompt":"One of my fondest memory is", "temperature": 0.8, "max_tokens":128}'
+```
+
+## Custom deployment for advanced users
+
+You can also launch an Open AI compatible inference server directly using vLLM entry points:
+
+```console
+python -m vllm.entrypoints.openai.api_server \
+    --model="unsloth/Llama-3.2-1B-Instruct" \
+    --max-num-seqs=4 \
+    --max-model-len=4096 \
+    --tensor-parallel-size=2 \
+    --port=8080
 ```

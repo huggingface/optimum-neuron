@@ -15,11 +15,13 @@
 
 import json
 import os
+from pathlib import Path
 
 import datasets
 import pytest
 import torch
 import torch_xla.core.xla_model as xm
+import torch_xla.runtime as xr
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_data_parallel_rank,
     get_data_parallel_size,
@@ -30,10 +32,10 @@ from peft import LoraConfig, TaskType
 from transformers import AutoTokenizer, BertForSequenceClassification, BertTokenizer
 
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
-from optimum.neuron.models.training import NeuronModelForCausalLM
+from optimum.neuron.models.training import NeuronModelForCausalLM, TrainingNeuronConfig
+from optimum.neuron.models.training.training_utils import get_model_param_count
 from optimum.neuron.peft import NeuronPeftModel
 from optimum.neuron.utils.testing_utils import is_trainium_test
-from optimum.neuron.utils.training_utils import get_model_param_count
 
 from .distributed_utils import distributed_test, run_distributed_test
 
@@ -663,3 +665,68 @@ def test_no_parallelism_bert_training(tmpdir, set_cache_for_ci):
             params_changed = True
             break
     assert params_changed, f"Model parameters were not updated during training. Checked {len(final_params)} parameters"
+
+
+@distributed_test(8, 2, 1)
+@is_trainium_test
+@pytest.mark.parametrize("use_async_save", [True, False], ids=["async_save", "sync_save"])
+def test_save_during_training(use_async_save, train_dataset, tmpdir, set_cache_for_ci):
+    tp_size = get_tensor_model_parallel_size()
+    pp_size = get_pipeline_model_parallel_size()
+
+    tmpdir = Path(tmpdir)
+
+    # Configure training with async save
+    trn_config = TrainingNeuronConfig(
+        tensor_parallel_size=tp_size,
+        pipeline_parallel_size=pp_size,
+        async_save=use_async_save,
+        use_xser=False,
+    )
+
+    # Load tokenizer & model
+    model_name = TINY_MODEL_NAME
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = NeuronModelForCausalLM.from_pretrained(model_name, trn_config)
+
+    # Configure training arguments for frequent saving
+    training_args = NeuronTrainingArguments(
+        output_dir=str(tmpdir / "save_test"),
+        max_steps=20,
+        save_steps=1,  # Save at every step - this will test async behavior
+        save_strategy="steps",
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=1,
+        learning_rate=1e-4,
+        logging_steps=5,
+        bf16=True,
+        report_to="none",  # Disable wandb/tensorboard
+    )
+
+    # Create trainer
+    trainer = NeuronTrainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        tokenizer=tokenizer,
+    )
+
+    # Run training - this should complete without hanging on save operations
+    trainer.train()
+
+    # Verify that checkpoints were created
+    output_dir = Path(training_args.output_dir)
+    if xr.global_ordinal() == 0:  # Only check on the main process
+        # Check that checkpoint directories exist for each step
+        expected_checkpoints = [f"checkpoint-{i}" for i in range(1, 21)]  # steps 1-20
+
+        for checkpoint_name in expected_checkpoints:
+            checkpoint_dir = output_dir / checkpoint_name
+            assert checkpoint_dir.exists(), f"Checkpoint {checkpoint_name} was not saved"
+
+            # Verify that the checkpoint contains model files
+            # At minimum, should contain some model files (exact files depend on save format)
+            checkpoint_files = list(checkpoint_dir.glob("*"))
+            assert len(checkpoint_files) > 0, f"Checkpoint {checkpoint_name} is empty"
+
+    xm.rendezvous("Async save test completed.")

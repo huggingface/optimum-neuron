@@ -21,7 +21,6 @@ from vllm.distributed import ensure_model_parallel_initialized, init_distributed
 from vllm.lora.request import LoRARequest
 from vllm.model_executor import set_random_seed
 from vllm.sequence import ExecuteModelRequest
-from vllm.worker.neuron_model_runner import NeuronModelRunner
 from vllm.worker.worker_base import LocalOrDistributedWorkerBase, WorkerBase, WorkerInput
 
 from .runner import OptimumNeuronModelRunner
@@ -33,7 +32,7 @@ logger = logging.getLogger("Neuron")
 class OptimumNeuronWorker(LocalOrDistributedWorkerBase):
     """A worker class that executes the model on a group of neuron cores."""
 
-    model_runner: NeuronModelRunner
+    model_runner: OptimumNeuronModelRunner
 
     def __init__(
         self,

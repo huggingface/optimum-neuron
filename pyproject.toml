@@ -41,7 +41,7 @@ dependencies = [
     "accelerate == 1.8.1",
     "optimum ~= 1.24.0",
     "huggingface_hub >= 0.29.0",
-    "numpy>=1.22.2, <=1.25.2",
+    "numpy>=1.22.2, <=1.26.4",
     "protobuf>=3.20.3, <4",
 ]
 
@@ -61,24 +61,13 @@ tests = [
     "sentencepiece",
     "datasets",
     "sacremoses",
-    "diffusers==0.35.*",
     "safetensors",
     "sentence-transformers >= 2.2.0",
-    "peft==0.17.0",
-    "trl==0.11.4",
-    "compel",
     "rjieba",
     "soundfile",
     "librosa",
-    "opencv-python-headless",
     "controlnet-aux",
-    "mediapipe",
-    "timm >= 1.0.0",
     "hf_transfer",
-    "torchcodec < 0.6.0",
-    "docker",
-    "pytest-asyncio",
-    "openai",
 ]
 quality = [
     "pre-commit",
@@ -89,7 +78,6 @@ training = [
     "trl == 0.11.4",
     "peft == 0.17.0",
     "evaluate == 0.4.3",
-    "neuronx_distributed==0.13.14393",
 ]
 neuron = [
     "wheel",
@@ -102,22 +90,30 @@ neuron = [
 ]
 neuronx = [
     "wheel",
-    "neuronx-cc==2.19.8089.0",
-    "torch-neuronx==2.7.0.2.8.6734+ac864f72",
-    "torch==2.7.1.*",
-    "torchvision==0.22.*",
-    "neuronx_distributed==0.13.14393",
-    "libneuronxla==2.2.4410.0",
+    "neuronx-cc==2.21.18209.0",
+    "torch-neuronx==2.8.0.2.10.13553",
+    "torch==2.8.0.*",
+    "torchvision==0.23.*",
+    "neuronx_distributed==0.15.22404",
+    "libneuronxla==2.2.12677.0",
 ]
 diffusers = [
     "diffusers==0.35.*",
     "peft==0.17.0",
 ]
+diffusers-tests = [
+    "compel==2.1.1",
+]
 sentence-transformers = [
     "sentence-transformers >= 2.2.0",
 ]
 vllm = [
-    "vllm == 0.10.0",
+    "vllm == 0.10.2",
+]
+vllm-tests = [
+    "docker",
+    "pytest-asyncio",
+    "openai",
 ]
 
 [project.scripts]

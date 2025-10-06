@@ -16,13 +16,14 @@
 
 from argparse import ArgumentParser
 
-from ...neuron.cache import get_hub_cached_entries, synchronize_hub_cache
+from ...neuron.cache.hub_cache import select_hub_cached_entries, synchronize_hub_cache
 from ...neuron.utils.cache_utils import (
     CACHE_REPO_NAME,
     HF_HOME_CACHE_REPO_FILE,
     create_custom_cache_repo,
     set_custom_cache_repo_name_in_hf_home,
 )
+from ...neuron.utils.import_utils import is_package_available
 from ...neuron.utils.require_utils import requires_torch_neuronx
 from ...utils import logging
 from ..base import BaseOptimumCLICommand, CommandInfo
@@ -91,17 +92,76 @@ class LookupRepoCommand(BaseOptimumCLICommand):
             default=None,
             help="The optional task to lookup cached versions for models supporting multiple tasks.",
         )
+        parser.add_argument(
+            "--dtype",
+            type=str,
+            choices=["bfloat16", "float16"],
+            help="Only look for cached models for the specified `torch.dtype`.",
+        )
+        parser.add_argument(
+            "--tensor_parallel_size",
+            type=int,
+            help="Only look for cached models with the specified tensor parallel size.",
+        )
+        parser.add_argument(
+            "--batch_size",
+            type=int,
+            help="Only look for cached models supporting at least the specified batch size.",
+        )
+        parser.add_argument(
+            "--sequence_length",
+            type=int,
+            help="Only look for cached models supporting at least the specified sequence length.",
+        )
         parser.add_argument("--repo_id", type=str, default=None, help="The name of the repo to use as remote cache.")
 
     def _list_entries(self):
-        entries = get_hub_cached_entries(self.args.model_id, task=self.args.task, cache_repo_id=self.args.repo_id)
+        entries = select_hub_cached_entries(
+            self.args.model_id,
+            task=self.args.task,
+            cache_repo_id=self.args.repo_id,
+            batch_size=self.args.batch_size,
+            sequence_length=self.args.sequence_length,
+            tensor_parallel_size=self.args.tensor_parallel_size,
+            torch_dtype=self.args.dtype,
+        )
         n_entries = len(entries)
-        output = f"\n*** {n_entries} entrie(s) found in cache for {self.args.model_id}.***\n\n"
+        if n_entries == 0:
+            print(f"No cached entries found for {self.args.model_id}.")
+            return
+        # Prepare output table data
+        title = f"Cached entries for {self.args.model_id}"
+        columns = ["batch size", "sequence length", "tensor parallel", "dtype"]
+        rows = []
         for entry in entries:
-            for key, value in entry.items():
-                output += f"\n{key}: {value}"
-            output += "\n"
-        print(output)
+            rows.append(
+                (
+                    str(entry["batch_size"]),
+                    str(entry["sequence_length"]),
+                    str(entry.get("tp_degree", entry.get("tensor_parallel_size"))),
+                    str(entry["torch_dtype"]),
+                )
+            )
+        # Remove duplicates (might happen if the same arch was compiled several times with different models and sync'ed afterwards)
+        rows = list(set(rows))
+        # Sort by tensor parallel size, then batch size, sequence length, dtype
+        rows = sorted(rows, key=lambda x: (int(x[2]), int(x[0]), int(x[1]), x[3]))
+        if is_package_available("rich", "14.1.0"):
+            from rich.console import Console
+            from rich.table import Table
+
+            table = Table(title=title)
+            for column in columns:
+                table.add_column(column, justify="center", no_wrap=True)
+            for row in rows:
+                table.add_row(*row)
+            Console().print(table)
+        else:
+            print(title)
+            row_format = "{:^16}" * len(columns)
+            print(row_format.format(*columns))
+            for row in rows:
+                print(row_format.format(*row))
 
     def run(self):
         self._list_entries()
@@ -126,7 +186,7 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
         ),
         CommandInfo(
             name="lookup",
-            help="Lookup the neuronx compiler hub cache for the specified model id.",
+            help="Lookup the neuronx compiler hub cache for the specified model id. Tip: install rich for a nicer display",
             subcommand_class=LookupRepoCommand,
         ),
     )

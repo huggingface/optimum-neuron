@@ -31,10 +31,10 @@ from peft import LoraConfig
 from transformers import AutoTokenizer, PreTrainedModel, TrainerCallback
 
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
+from optimum.neuron.models.training.training_utils import is_logging_process
 from optimum.neuron.peft import get_peft_model
 from optimum.neuron.utils.misc import is_precompilation
 from optimum.neuron.utils.testing_utils import is_trainium_test
-from optimum.neuron.utils.training_utils import is_logging_process
 from optimum.neuron.version import __sdk_version__ as sdk_version
 
 from .distributed_utils import EarlyExit, distributed_test
