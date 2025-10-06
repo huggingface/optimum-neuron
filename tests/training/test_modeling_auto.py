@@ -18,8 +18,8 @@ import torch
 from transformers import AutoConfig
 
 from optimum.neuron.models.training import NeuronModel, NeuronModelForCausalLM, TrainingNeuronConfig
+from optimum.neuron.models.training.training_utils import is_custom_modeling_model
 from optimum.neuron.utils.testing_utils import is_trainium_test
-from optimum.neuron.utils.training_utils import is_custom_modeling_model
 
 from .distributed_utils import distributed_test
 

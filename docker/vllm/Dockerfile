@@ -65,7 +65,7 @@ RUN cat <<'EOF' > entrypoint.sh
 #!/bin/bash
 
 # Define the prefix for environment variables to look for
-PREFIX="SM_VLLM_"
+PREFIX="SM_ON_"
 ARG_PREFIX="--"
 
 # Initialize an array for storing the arguments
@@ -74,8 +74,8 @@ ARGS=(--port 8080)
 
 # Loop through all environment variables
 while IFS='=' read -r key value; do
-    # Remove the prefix from the key, convert to lowercase, and replace underscores with dashes
-    arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+    # Remove the prefix from the key, convert to lowercase
+    arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]')
 
     # Add the argument name and value to the ARGS array
     ARGS+=("${ARG_PREFIX}${arg_name}")
@@ -84,8 +84,8 @@ while IFS='=' read -r key value; do
     fi
 done < <(env | grep "^${PREFIX}")
 
-# Pass the collected arguments to the main entrypoint
-exec python3 -m vllm.entrypoints.openai.api_server "${ARGS[@]}"
+# Pass the collected arguments to the optimum-cli serve command
+exec optimum-cli neuron serve "${ARGS[@]}"
 EOF
 ######## End of entry-point script ########
 

@@ -38,8 +38,8 @@ from ...utils import logging
 from ..accelerate import NeuronAcceleratorState, NeuronPartialState
 from ..accelerate.utils import patch_accelerate_is_torch_xla_available
 from ..models.training.config import TrainingNeuronConfig
+from ..models.training.training_utils import is_logging_process
 from ..utils import is_main_worker
-from ..utils.training_utils import is_logging_process
 
 
 logger = logging.get_logger(__name__)
@@ -564,9 +564,6 @@ class NeuronTrainingArguments:
             raise RuntimeError("Evaluation is not supported yet.")
 
         # Neuron-specific setup
-
-        if self.async_save:
-            raise RuntimeError("async_save is currently broken, disable it for now.")
 
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_torch_xla_available()

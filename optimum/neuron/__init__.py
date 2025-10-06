@@ -14,9 +14,21 @@
 # limitations under the License.
 
 import os
+import warnings
 from typing import TYPE_CHECKING
 
 from transformers.utils import _LazyModule
+
+from .utils.system import get_neuron_major
+
+
+if get_neuron_major() == -1:
+    warnings.warn(
+        "It seems this is running on a CPU-only machine,"
+        " so we override the platform target to trn1, otherwise there will"
+        " be errors when importing torch_neuronx."
+    )
+    os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = "trn1"
 
 
 _import_structure = {
@@ -73,7 +85,6 @@ _import_structure = {
         "NeuronPartialState",
     ],
     "pipelines": ["pipeline"],
-    "utils": ["is_neuron_available", "is_neuronx_available"],
 }
 
 # Model structures
@@ -162,4 +173,5 @@ else:
     )
 
 
+from .utils import is_neuron_available, is_neuronx_available
 from .version import __version__

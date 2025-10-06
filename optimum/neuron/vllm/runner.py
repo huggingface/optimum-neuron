@@ -85,7 +85,10 @@ class OptimumNeuronModelRunner(ModelRunnerBase[ModelInputForOptimumNeuron]):
 
     def load_model(self) -> None:
         self.model = get_optimum_neuron_model(
-            self.model_config, parallel_config=self.parallel_config, scheduler_config=self.scheduler_config
+            self.model_config,
+            parallel_config=self.parallel_config,
+            scheduler_config=self.scheduler_config,
+            load_config=self.load_config,
         )
 
     def get_model(self) -> torch.nn.Module:

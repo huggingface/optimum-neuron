@@ -17,16 +17,15 @@ import logging
 
 import torch
 import torch.nn as nn
-from vllm.config import ModelConfig, ParallelConfig, SchedulerConfig
+from vllm.config import LoadConfig, ModelConfig, ParallelConfig, SchedulerConfig
 from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.layers.sampler import Sampler, SamplerOutput
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.sequence import CompletionSequenceGroupOutput, Logprob, SequenceOutput
 
-from ..cache import get_hub_cached_entries
+from ..cache.hub_cache import select_hub_cached_entries
 from ..configuration_utils import NeuronConfig
 from ..modeling_decoder import NeuronModelForCausalLM
-from ..utils import DTYPE_MAPPER
 from ..utils.system import get_available_cores
 from ..utils.version_utils import get_neuronxcc_version
 
@@ -111,94 +110,11 @@ class OptimumNeuronModelForCausalLM(nn.Module):
             return self.sampler(logits, sampling_metadata)
 
 
-def check_neuron_config_compatibility(
-    neuron_config_dict: dict,
-    batch_size: int | None = None,
-    sequence_length: int | None = None,
-    tensor_parallel_size: int | None = None,
-    torch_dtype: str | torch.dtype | None = None,
-) -> bool:
-    """Check if the cached entry is compatible with the current environment."""
-    logger.debug(
-        "Checking the provided neuron config %s is compatible with the local setup and provided environment",
-        neuron_config_dict,
-    )
-
-    # Local setup compat checks
-    if neuron_config_dict["tp_degree"] > available_cores:
-        logger.debug("Not enough neuron cores available to use tp_degree %d", neuron_config_dict["tp_degree"])
-        return False
-
-    if neuron_config_dict["neuronxcc_version"] != neuronxcc_version:
-        logger.debug(
-            "Compiler version conflict, the local one (%s) differs from the one used to compile the model (%s)",
-            neuronxcc_version,
-            neuron_config_dict["neuronxcc_version"],
-        )
-        return False
-    if neuron_config_dict["batch_size"] > 1 and not neuron_config_dict["continuous_batching"]:
-        logger.debug("Continuous batching is not enabled")
-        return False
-    if batch_size is not None and neuron_config_dict["batch_size"] != batch_size:
-        logger.debug(
-            "The target batch size %d is different from the neuron config batch size %d",
-            batch_size,
-            neuron_config_dict["batch_size"],
-        )
-        return False
-    if sequence_length is not None and neuron_config_dict["sequence_length"] != sequence_length:
-        logger.debug(
-            "The target sequence length %d is different from the neuron  config sequence length %d",
-            sequence_length,
-            neuron_config_dict["sequence_length"],
-        )
-        return False
-    if tensor_parallel_size is not None and neuron_config_dict["tp_degree"] != tensor_parallel_size:
-        logger.debug(
-            "The target parallel size %d is different from the neuron config tp degree %d",
-            tensor_parallel_size,
-            neuron_config_dict["tp_degree"],
-        )
-        return False
-    if torch_dtype is not None:
-        neuron_config_value = DTYPE_MAPPER.pt(str(neuron_config_dict["torch_dtype"]))
-        target_value = DTYPE_MAPPER.pt(torch_dtype)
-        if target_value != neuron_config_value:
-            logger.debug(
-                "The target dtype %s is different from the neuron config dtype %s", target_value, neuron_config_value
-            )
-            return False
-
-    return True
-
-
-def _is_cached(
-    model_id: str,
-    batch_size: int | None = None,
-    sequence_length: int | None = None,
-    tensor_parallel_size: int | None = None,
-    torch_dtype: str | torch.dtype | None = None,
-) -> bool:
-    # Look for cached entries for the specified model
-    in_cache = False
-    # We only support the text-generation task
-    entries = get_hub_cached_entries(model_id, task="text-generation")
-    # Look for compatible entries
-    for entry in entries:
-        if check_neuron_config_compatibility(
-            entry,
-            batch_size=batch_size,
-            sequence_length=sequence_length,
-            tensor_parallel_size=tensor_parallel_size,
-            torch_dtype=torch_dtype,
-        ):
-            in_cache = True
-            break
-    return in_cache
-
-
 def get_optimum_neuron_model(
-    model_config: ModelConfig, parallel_config: ParallelConfig, scheduler_config: SchedulerConfig
+    model_config: ModelConfig,
+    parallel_config: ParallelConfig,
+    scheduler_config: SchedulerConfig,
+    load_config: LoadConfig,
 ) -> OptimumNeuronModelForCausalLM:
     """Initializes a neuron-optimized model for inference."""
     if parallel_config.pipeline_parallel_size > 1:
@@ -237,32 +153,57 @@ def get_optimum_neuron_model(
         # Model needs to be exported: look for compatible hub cached configs
         batch_size = scheduler_config.max_num_seqs
         sequence_length = scheduler_config.max_model_len
-        tensor_parallel_size = parallel_config.tensor_parallel_size
         torch_dtype = None if model_config.dtype is None else model_config.dtype
-        if not _is_cached(
+        cached_entries = select_hub_cached_entries(
             model_id,
+            task="text-generation",
             batch_size=batch_size,
             sequence_length=sequence_length,
-            tensor_parallel_size=tensor_parallel_size,
+            tensor_parallel_size=tp_degree,
             torch_dtype=torch_dtype,
-        ):
-            hub_cache_url = "https://huggingface.co/aws-neuron/optimum-neuron-cache"  # noqa: E501
-            neuron_export_url = "https://huggingface.co/docs/optimum-neuron/main/en/guides/export_model"  # noqa: E501
-            error_msg = (
-                f"No cached version found for {model_id} with "
-                f"batch size = {batch_size}, seq len = {sequence_length},"
-                f" tp = {tensor_parallel_size}, dtype = {torch_dtype}."
-                f"You can start a discussion to request it on {hub_cache_url}"
-                f"Alternatively, you can export your own neuron model "
-                f"as explained in {neuron_export_url}"
-            )
-            raise ValueError(error_msg)
-        logger.warning("%s is not a neuron model: it will be exported using cached artifacts.", model_id)
+        )
+        cached_only = load_config.model_loader_extra_config != "allow_non_cached_model"
+        if len(cached_entries) == 0:
+            if cached_only:
+                hub_cache_url = "https://huggingface.co/aws-neuron/optimum-neuron-cache"  # noqa: E501
+                neuron_export_url = "https://huggingface.co/docs/optimum-neuron/main/en/guides/export_model"  # noqa: E501
+                error_msg = f"No cached version found for {model_id}"
+                if batch_size is not None:
+                    error_msg += f", batch size = {batch_size}"
+                if sequence_length is not None:
+                    error_msg += f", sequence length = {sequence_length},"
+                if tp_degree is not None:
+                    error_msg += f", tp = {tp_degree}"
+                if torch_dtype is not None:
+                    error_msg += f", dtype = {torch_dtype}"
+                error_msg += (
+                    f".You can start a discussion to request it on {hub_cache_url}"
+                    "Alternatively, you can export your own neuron model "
+                    f"as explained in {neuron_export_url}"
+                )
+                raise ValueError(error_msg)
+            else:
+                logger.warning("No cached version found for %s", model_id)
+                if batch_size is not None:
+                    logger.warning("  batch size = %d", batch_size)
+                if sequence_length is not None:
+                    logger.warning("  sequence length = %d", sequence_length)
+                if tp_degree is not None:
+                    logger.warning("  tp = %d", tp_degree)
+                if torch_dtype is not None:
+                    logger.warning("  dtype = %s", torch_dtype)
+                logger.warning("The model will be exported on the fly, which may take some time.")
+                logger.warning(
+                    "To avoid this, you can set export parameters "
+                    "in the model config corresponding to a cached configuration."
+                )
+        else:
+            logger.warning("%s is not a neuron model: it will be exported using cached artifacts.", model_id)
         neuron_config = NeuronModelForCausalLM.get_neuron_config(
             model_name_or_path=model_id,
             batch_size=batch_size,
             sequence_length=sequence_length,
-            tensor_parallel_size=tensor_parallel_size,
+            tensor_parallel_size=tp_degree,
             auto_cast_type=torch_dtype,
         )
         neuron_model = NeuronModelForCausalLM.export(

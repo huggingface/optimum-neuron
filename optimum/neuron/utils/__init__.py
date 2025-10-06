@@ -85,11 +85,8 @@ _import_structure = {
         "patch_within_function",
         "replace_class_in_inheritance_hierarchy",
     ],
-    "training_utils": [
-        "is_model_officially_supported",
-        "patch_transformers_for_neuron_sdk",
-    ],
-    "instance": ["SUPPORTED_INSTANCE_TYPES", "get_neuron_instance_type", "is_cpu_only_instance"],
+    "instance": ["SUPPORTED_INSTANCE_TYPES", "current_instance_type", "normalize_instance_type"],
+    "trl_utils": ["NeuronSFTConfig", "NeuronORPOConfig"],
 }
 
 if TYPE_CHECKING:
@@ -160,10 +157,7 @@ if TYPE_CHECKING:
         patch_within_function,
         replace_class_in_inheritance_hierarchy,
     )
-    from .training_utils import (
-        is_model_officially_supported,
-        patch_transformers_for_neuron_sdk,
-    )
+    from .trl_utils import NeuronORPOConfig, NeuronSFTConfig
 else:
     import sys
 
