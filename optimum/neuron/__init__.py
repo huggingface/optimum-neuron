@@ -19,16 +19,17 @@ from typing import TYPE_CHECKING
 
 from transformers.utils import _LazyModule
 
+from .utils.instance import align_compilation_target
 from .utils.system import get_neuron_major
 
 
 if get_neuron_major() == -1:
-    warnings.warn(
-        "It seems this is running on a CPU-only machine,"
-        " so we override the platform target to trn1, otherwise there will"
-        " be errors when importing torch_neuronx."
-    )
-    os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = "trn1"
+    if align_compilation_target("trn1", override=False) == "trn1":
+        warnings.warn(
+            "It seems this is running on a CPU-only machine,"
+            " so we override the platform target to trn1, otherwise there will"
+            " be errors when importing torch_neuronx."
+        )
 
 
 _import_structure = {
