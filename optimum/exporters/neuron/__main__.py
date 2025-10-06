@@ -99,7 +99,6 @@ logger.setLevel(logging.INFO)
 
 
 def infer_compiler_kwargs(args: argparse.Namespace) -> dict[str, Any]:
-    # infer instance type
     instance_type = args.instance_type
     auto_cast = None if args.auto_cast == "none" else args.auto_cast
     auto_cast_type = None if auto_cast is None else args.auto_cast_type
@@ -630,7 +629,6 @@ def main_export(
     compiler_workdir: str | Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
-    cpu_backend: bool = False,
     trust_remote_code: bool = False,
     subfolder: str = "",
     revision: str = "main",
@@ -691,7 +689,6 @@ def main_export(
         compiler_workdir=compiler_workdir,
         inline_weights_to_neff=inline_weights_to_neff,
         optlevel=optlevel,
-        cpu_backend=cpu_backend,
         output_file_names=output_model_names,
         compiler_kwargs=compiler_kwargs,
         model_name_or_path=model_name_or_path,

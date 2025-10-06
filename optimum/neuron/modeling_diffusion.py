@@ -973,8 +973,6 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                     compiler_kwargs=compiler_kwargs,
                     int_dtype=neuron_config.int_dtype,
                     float_dtype=neuron_config.float_dtype,
-                    input_names=neuron_config.inputs,
-                    output_names=neuron_config.outputs,
                     dynamic_batch_size=neuron_config.dynamic_batch_size,
                     tensor_parallel_size=neuron_config.tensor_parallel_size,
                     compiler_type=NEURON_COMPILER_TYPE,

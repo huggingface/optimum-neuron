@@ -391,14 +391,17 @@ def export_models(
             model_config = OrderedDict(model_config)
             model_config = DiffusersPretrainedConfig.from_dict(model_config)
 
+        # only register mandatory input shapes
+        input_shapes = sub_neuron_config.input_shapes
+        mandatory_shape = sub_neuron_config.INPUT_ARGS
+        input_shapes = {k: input_shapes[k] for k in mandatory_shape}
+
         model_config = store_compilation_config(
             config=model_config,
-            input_shapes=sub_neuron_config.input_shapes,
+            input_shapes=input_shapes,
             compiler_kwargs=compiler_kwargs,
             int_dtype=sub_neuron_config.int_dtype,
             float_dtype=sub_neuron_config.float_dtype,
-            input_names=neuron_inputs,
-            output_names=neuron_outputs,
             dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
             tensor_parallel_size=sub_neuron_config.tensor_parallel_size,
             compiler_type=NEURON_COMPILER_TYPE,
@@ -438,7 +441,7 @@ def export(
     model_or_path: "PreTrainedModel | str | Path",
     config: "NeuronDefaultConfig",
     output: Path,
-    instance_type: Literal["trn1", "inf2", "trn1n", "trn2"],
+    instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
     compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
@@ -481,7 +484,7 @@ def export_neuronx(
     model_or_path: "PreTrainedModel | str | Path",
     config: "NeuronDefaultConfig",
     output: Path,
-    instance_type: Literal["trn1", "inf2", "trn1n", "trn2"],
+    instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
     compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
@@ -498,7 +501,7 @@ def export_neuronx(
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
-        instance_type (`Literal["trn1", "inf2", "trn1n", "trn2"]`):
+        instance_type (`Literal["trn1", "inf2", "trn1n", "trn2"] | None`, defaults to `None`):
             Target Neuron instance type on which the compiled model will be run, valid values are: "trn1", "inf2", "trn1n", "trn2".
         compiler_workdir (`Path | None`, defaults to `None`):
             The directory used by neuronx-cc, where you can find intermediary outputs (neff, weight, hlo...).
@@ -513,8 +516,6 @@ def export_neuronx(
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`str`, defaults to `"bf16"`):
             The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
-        cpu_backend (`bool`, defaults to `False`):
-            Whether to compile the model with CPU backend.
 
     Returns:
         `tuple[list[str], list[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
@@ -601,7 +602,7 @@ def prepare_dummy_inputs(config: "NeuronDefaultConfig", input_shapes: dict[str, 
 
 def prepare_compiler_flags(
     config: "NeuronDefaultConfig",
-    instance_type: Literal["trn1", "inf2", "trn1n", "trn2"],
+    instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
     auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
     optlevel: str = "2",
@@ -619,7 +620,8 @@ def prepare_compiler_flags(
     compiler_args.extend(["--optlevel", optlevel])
     logger.info(f"Using Neuron: --optlevel {optlevel}")
 
-    compiler_args.extend(["--target", instance_type])
+    if instance_type is not None:
+        compiler_args.extend(["--target", instance_type])
 
     # `--model-type=transformer`` is now required for all models except those explicitly listed, based on our observations.
     exception_models = {
