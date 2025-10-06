@@ -53,6 +53,7 @@ from ...neuron.utils import (
     is_neuron_available,
     is_neuronx_available,
 )
+from ...neuron.utils.instance import align_compilation_target
 from ...neuron.utils.version_utils import (
     check_compiler_compatibility_for_stable_diffusion,
 )
@@ -813,6 +814,10 @@ def main():
 
     task = infer_task(args.model) if args.task == "auto" else args.task
     library_name = TasksManager.infer_library_from_model(args.model, cache_dir=args.cache_dir)
+
+    if args.instance_type is not None:
+        # We must align the compilation target before neuronx-distributed is initialized
+        align_compilation_target(args.instance_type, override=True)
 
     if library_name == "diffusers":
         input_shapes = normalize_diffusers_input_shapes(args)
