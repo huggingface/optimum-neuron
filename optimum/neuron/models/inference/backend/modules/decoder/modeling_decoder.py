@@ -33,7 +33,7 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 from ......cache.entries.single_model import SingleModelCacheEntry
 from ......cache.hub_cache import hub_neuronx_cache
 from ......modeling_decoder import NeuronModelForCausalLM
-from ......utils.instance import current_instance_type
+from ......utils.instance import align_compilation_target, current_instance_type
 from ......utils.system import get_available_cores
 from ...config import NxDNeuronConfig
 from ...pretrained_model import NxDPreTrainedModel
@@ -696,6 +696,13 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     ) -> "NeuronModelForCausalLM":
         if len(kwargs) > 0:
             logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
+        # Try to align compilation target. We do not allow override as neuronx-distributed is already initialized.
+        compilation_target = align_compilation_target(neuron_config.target, override=False)
+        if compilation_target != neuron_config.target:
+            raise ValueError(
+                f"The compilation target is {neuron_config.target} but the NEURON_PLATFORM_TARGET_OVERRIDE"
+                f" environment variable is set to {compilation_target}, Please set it to the correct value."
+            )
         if config is None:
             # Get the text config if not provided
             config = AutoConfig.from_pretrained(
