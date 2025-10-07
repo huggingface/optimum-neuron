@@ -22,6 +22,7 @@ from ...neuron.cache.hub_cache import select_hub_cached_entries
 from ...neuron.configuration_utils import NeuronConfig
 from ...neuron.utils import DTYPE_MAPPER
 from ...neuron.utils.import_utils import is_vllm_available
+from ...neuron.utils.instance import current_instance_type
 from ...neuron.utils.require_utils import requires_torch_neuronx, requires_vllm
 from ...neuron.utils.system import get_available_cores
 from ...utils import logging
@@ -91,6 +92,7 @@ class ServeCommand(BaseOptimumCLICommand):
     def run(self):
         model_id = self.args.model
         revision = None
+        instance_type = current_instance_type()
         batch_size = self.args.batch_size
         sequence_length = self.args.sequence_length
         tensor_parallel_size = self.args.tensor_parallel_size
@@ -103,6 +105,10 @@ class ServeCommand(BaseOptimumCLICommand):
         if neuron_config is not None:
             # This is a Neuron model: retrieve and check the export arguments
             neuron_config = NeuronConfig.from_pretrained(self.args.model)
+            if neuron_config.target != instance_type:
+                raise ValueError(
+                    f"The neuron model is compiled for {neuron_config.target} and cannot run on a {instance_type} instance."
+                )
             if batch_size is None:
                 batch_size = neuron_config.batch_size
             elif batch_size != neuron_config.batch_size:
@@ -137,6 +143,7 @@ class ServeCommand(BaseOptimumCLICommand):
             cached_entries = select_hub_cached_entries(
                 model_id,
                 task="text-generation",
+                instance_type=instance_type,
                 batch_size=batch_size,
                 sequence_length=sequence_length,
                 tensor_parallel_size=tensor_parallel_size,
@@ -147,6 +154,7 @@ class ServeCommand(BaseOptimumCLICommand):
             if len(filtered_entries) == 0:
                 if self.args.allow_non_cached_model:
                     warning_msg = f"{model_id} is not a neuron model, and no cached configuration is available using"
+                    warning_msg += f" instance type {instance_type},"
                     if batch_size is None:
                         batch_size = 1
                         warning_msg += " default"
@@ -169,6 +177,7 @@ class ServeCommand(BaseOptimumCLICommand):
                     hub_cache_url = "https://huggingface.co/aws-neuron/optimum-neuron-cache"  # noqa: E501
                     neuron_export_url = "https://huggingface.co/docs/optimum-neuron/main/en/guides/export_model"  # noqa: E501
                     error_msg = f"No cached version found for {model_id}"
+                    error_msg += f" instance type {instance_type},"
                     if batch_size is not None:
                         error_msg += f", batch size = {batch_size}"
                     if sequence_length is not None:
@@ -197,6 +206,7 @@ class ServeCommand(BaseOptimumCLICommand):
                 tensor_parallel_size = selected_entry["tp_degree"]
                 torch_dtype = DTYPE_MAPPER.pt(selected_entry["torch_dtype"])
                 warning_msg = f"{model_id} is not a neuron model, but a cached configuration is available using"
+                warning_msg += f" instance type {instance_type},"
                 warning_msg += f" batch size = {batch_size},"
                 warning_msg += f" sequence length = {sequence_length},"
                 warning_msg += f" tp = {tensor_parallel_size},"
