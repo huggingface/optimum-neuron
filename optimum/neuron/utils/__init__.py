@@ -89,7 +89,7 @@ _import_structure = {
         "SUPPORTED_INSTANCE_TYPES",
         "current_instance_type",
         "normalize_instance_type",
-        "define_target_instance_type",
+        "align_compilation_target",
     ],
     "trl_utils": ["NeuronSFTConfig", "NeuronORPOConfig"],
 }
@@ -140,8 +140,8 @@ if TYPE_CHECKING:
     )
     from .instance import (
         SUPPORTED_INSTANCE_TYPES,
+        align_compilation_target,
         current_instance_type,
-        define_target_instance_type,
         normalize_instance_type,
     )
     from .misc import (
