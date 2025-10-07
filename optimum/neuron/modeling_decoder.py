@@ -28,7 +28,7 @@ from transformers.generation import StoppingCriteriaList
 from .configuration_utils import NeuronConfig
 from .modeling_base import NeuronModel
 from .models.auto_model import get_neuron_model_class
-from .utils.instance import current_instance_type, normalize_instance_type
+from .utils.instance import define_instance_type_with_default_value
 from .utils.system import get_available_cores
 
 
@@ -163,10 +163,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
                 use_auth_token=token,
             ).get_text_config()
 
-        if instance_type is None:
-            instance_type = "trn1" if get_available_cores() == 0 else current_instance_type()
-        else:
-            instance_type = normalize_instance_type(instance_type)
+        instance_type = define_instance_type_with_default_value(instance_type)
         if batch_size is None:
             batch_size = 1
         # If the sequence_length was not specified, deduce it from the model configuration
