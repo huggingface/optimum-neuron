@@ -21,7 +21,6 @@ from .system import get_available_cores
 
 logger = logging.getLogger(__name__)
 
-
 SUPPORTED_INSTANCE_TYPES = ["trn1", "inf2", "trn1n", "trn2"]
 INSTANCE_VALUE_MAP = {
     "trn1": "trn1",

@@ -53,6 +53,7 @@ from ...neuron.utils import (
     is_neuron_available,
     is_neuronx_available,
 )
+from ...neuron.utils.instance import align_compilation_target
 from ...neuron.utils.system import get_available_cores
 from ...neuron.utils.version_utils import (
     check_compiler_compatibility_for_stable_diffusion,
@@ -741,6 +742,7 @@ def maybe_export_from_neuron_model_class(
     model: str,
     output: str | Path,
     task: str = "auto",
+    instance_type: str | None = None,
     cache_dir: str | None = None,
     subfolder: str = "",
     trust_remote_code: bool = False,
@@ -780,6 +782,7 @@ def maybe_export_from_neuron_model_class(
         config=config,
         token=kwargs.get("token", None),
         revision=kwargs.get("revision", "main"),
+        instance_type=instance_type,
         batch_size=batch_size,
         sequence_length=sequence_length,
         tensor_parallel_size=tensor_parallel_size,
@@ -815,6 +818,10 @@ def main():
 
     task = infer_task(args.model) if args.task == "auto" else args.task
     library_name = TasksManager.infer_library_from_model(args.model, cache_dir=args.cache_dir)
+
+    if args.instance_type is not None:
+        # We must align the compilation target before neuronx-distributed is initialized
+        align_compilation_target(args.instance_type, override=True)
 
     if library_name == "diffusers":
         input_shapes = normalize_diffusers_input_shapes(args)

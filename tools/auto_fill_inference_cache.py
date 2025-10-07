@@ -28,6 +28,7 @@ from huggingface_hub import get_token, login, logout
 
 from optimum.exporters import TasksManager
 from optimum.neuron import version as optimum_neuron_version
+from optimum.neuron.utils.instance import SUPPORTED_INSTANCE_TYPES
 from optimum.neuron.utils.version_utils import get_neuronxcc_version
 
 
@@ -62,8 +63,10 @@ def get_aws_neuronx_tools_version():
         raise ValueError("Version information not found in the output")
 
 
-def build_decoder_command(hf_model_id, batch_size, sequence_length, tensor_parallel_size, auto_cast_type, output_dir):
-    if None in [batch_size, sequence_length, tensor_parallel_size, auto_cast_type]:
+def build_decoder_command(
+    hf_model_id, instance_type, batch_size, sequence_length, tensor_parallel_size, auto_cast_type, output_dir
+):
+    if None in [instance_type, batch_size, sequence_length, tensor_parallel_size, auto_cast_type]:
         raise ValueError(
             "You must provide --batch_size, --sequence_length, --tensor_parallel_size and --auto_cast_type for compiling decoder models."
         )
@@ -73,6 +76,8 @@ def build_decoder_command(hf_model_id, batch_size, sequence_length, tensor_paral
         "neuron",
         "-m",
         hf_model_id,
+        "--instance_type",
+        instance_type,
         "--batch_size",
         str(batch_size),
         "--sequence_length",
@@ -176,6 +181,7 @@ def build_pixart_command(
 
 def compile_and_cache_model(
     hf_model_id: str,
+    instance_type: str,
     batch_size: int,
     sequence_length: int | None = None,
     height: int | None = None,
@@ -194,7 +200,7 @@ def compile_and_cache_model(
         # Compile model with Optimum for specific configurations
         if task == "text-generation":
             compile_command = build_decoder_command(
-                hf_model_id, batch_size, sequence_length, tensor_parallel_size, auto_cast_type, temp_dir
+                hf_model_id, instance_type, batch_size, sequence_length, tensor_parallel_size, auto_cast_type, temp_dir
             )
         elif "stable-diffusion" in task:
             compile_command = build_stable_diffusion_command(
@@ -270,6 +276,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compile and cache a model to the Hugging Face Hub.")
     parser.add_argument("--hf_model_id", type=str, help="Hugging Face model ID to compile.")
     parser.add_argument("--task", type=str, help="Task for compilation (mandatory for encoders).")
+    parser.add_argument(
+        "--instance_type",
+        type=str,
+        choices=SUPPORTED_INSTANCE_TYPES,
+        default=SUPPORTED_INSTANCE_TYPES[0],
+        help="The target instance type for compilation.",
+    )
     parser.add_argument("--batch_size", type=int, help="Batch size for compilation.")
     parser.add_argument("--sequence_length", type=int, help="Sequence length for compilation.")
     parser.add_argument("--height", type=int, help="Image height for compilation.")
@@ -325,6 +338,7 @@ if __name__ == "__main__":
             for model_config in configs:
                 compile_and_cache_model(
                     hf_model_id=model_id,
+                    instance_type=model_config.get("instance_type", SUPPORTED_INSTANCE_TYPES[0]),
                     batch_size=model_config["batch_size"],
                     sequence_length=model_config.get("sequence_length", None),
                     height=model_config.get("height", None),
@@ -341,6 +355,7 @@ if __name__ == "__main__":
     else:
         compile_and_cache_model(
             hf_model_id=args.hf_model_id,
+            instance_type=args.instance_type,
             batch_size=args.batch_size,
             sequence_length=args.sequence_length,
             height=args.height,
