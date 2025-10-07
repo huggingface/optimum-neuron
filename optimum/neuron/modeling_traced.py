@@ -45,6 +45,7 @@ from .utils import (
     store_compilation_config,
 )
 from .utils.import_utils import is_neuronx_available
+from .utils.instance import define_target_instance_type
 from .utils.system import get_available_cores
 from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
@@ -270,7 +271,8 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         disable_neuron_cache: bool = False,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
-        instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
+        # TODO: set instance type through API, currently impossible as the target need to be defined before importing from NxD.
+        # instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
@@ -301,6 +303,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
             kwargs_shapes["batch_size"] = 1
             disable_fallback = True  # Turn off the fallback for neuron, otherwise dynamic batching will still fail
         auto_cast_type = None if auto_cast is None else auto_cast_type
+        instance_type = define_target_instance_type()
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,

@@ -65,6 +65,7 @@ from .utils import (
     replace_weights,
     store_compilation_config,
 )
+from .utils.instance import define_target_instance_type
 from .utils.require_utils import requires_torch_neuronx
 from .utils.system import get_available_cores
 from .utils.version_utils import get_neuronxcc_version
@@ -790,7 +791,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         tensor_parallel_size: int | None = 1,
         disable_neuron_cache: bool = False,
         inline_weights_to_neff: bool = True,
-        instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
+        # TODO: set instance type through API, currently impossible as the target need to be defined before importing from NxD.
+        # instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
@@ -904,6 +906,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
+        instance_type = define_target_instance_type()
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,

@@ -34,9 +34,7 @@ CACHE_WHITE_LIST = [
     "projection_dim",
     "_use_default_values",
     "_attn_implementation_autoset",
-    "_entry_class",
-    "_model_id",
-    "_task",
+    "return_dict",
 ]
 
 
@@ -91,6 +89,9 @@ class ModelCacheEntry:
 
     def serialize(self) -> str:
         cache_dict = self.to_dict()
+        cache_dict["_entry_class"] = self.__class__.__name__
+        cache_dict["_model_id"] = self.model_id
+        cache_dict["_task"] = self.task
         return json.dumps(cache_dict, indent=2, sort_keys=True)
 
     @staticmethod

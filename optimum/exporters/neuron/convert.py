@@ -393,7 +393,9 @@ def export_models(
 
         # only register mandatory input shapes
         input_shapes = sub_neuron_config.input_shapes
-        mandatory_shape = sub_neuron_config.INPUT_ARGS
+        mandatory_shape = [
+            elem for arg in sub_neuron_config.INPUT_ARGS for elem in ((arg,) if isinstance(arg, str) else arg[1:])
+        ]
         input_shapes = {k: v for k, v in input_shapes.items() if k in mandatory_shape}
 
         model_config = store_compilation_config(
@@ -427,6 +429,7 @@ def export_models(
             cache_entry = SingleModelCacheEntry(model_id=model_id, task=task, config=cache_config)
         else:
             cache_entry = MultiModelCacheEntry(model_id=model_id, configs=compile_configs)
+
         cache_traced_neuron_artifacts(neuron_dir=output_dir, cache_entry=cache_entry)
 
     # remove models failed to export

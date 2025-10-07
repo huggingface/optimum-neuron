@@ -21,7 +21,7 @@ import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable
 
 import torch
 from huggingface_hub import snapshot_download
@@ -51,6 +51,7 @@ from .utils.doc import (
     NEURON_TRANSLATION_EXAMPLE,
     NEURON_TRANSLATION_TP_EXAMPLE,
 )
+from .utils.instance import define_target_instance_type
 from .utils.system import get_available_cores
 
 
@@ -340,7 +341,8 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         tensor_parallel_size: int | None = 1,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
-        instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
+        # TODO: set instance type through API, currently impossible as the target need to be defined before importing from NxD.
+        # instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
@@ -364,6 +366,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
+        instance_type = define_target_instance_type()
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
@@ -426,12 +429,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         encoder_neuron_config = encoder_config.neuron
         decoder_neuron_config = decoder_config.neuron
         combined_config = copy.deepcopy(encoder_config)
-
-        encoder_neuron_config["encoder_input_names"] = encoder_neuron_config.pop("input_names")
-        encoder_neuron_config["encoder_output_names"] = encoder_neuron_config.pop("output_names")
-        decoder_neuron_config["decoder_input_names"] = decoder_neuron_config.pop("input_names")
-        decoder_neuron_config["decoder_output_names"] = decoder_neuron_config.pop("output_names")
-
         encoder_neuron_config.update(decoder_neuron_config)
         encoder_neuron_config.pop("model_type")
         combined_config.__setattr__("neuron", encoder_neuron_config)
