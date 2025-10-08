@@ -21,7 +21,7 @@ import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import torch
 from huggingface_hub import snapshot_download
@@ -51,6 +51,8 @@ from .utils.doc import (
     NEURON_TRANSLATION_EXAMPLE,
     NEURON_TRANSLATION_TP_EXAMPLE,
 )
+from .utils.instance import align_compilation_target, get_default_compilation_target
+from .utils.system import get_neuron_major
 
 
 if TYPE_CHECKING:
@@ -339,7 +341,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         tensor_parallel_size: int | None = 1,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
-        cpu_backend: bool = False,
+        instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
@@ -363,9 +365,14 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
+        if instance_type is None:
+            instance_type = get_default_compilation_target()
+        instance_type = align_compilation_target(target=instance_type, override=False)
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
+            "instance_type": instance_type,
+            # Inf1 specific compiler args
             "disable_fast_relayout": disable_fast_relayout,
             "disable_fallback": disable_fallback,
         }
@@ -384,7 +391,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             compiler_workdir=compiler_workdir,
             inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
-            cpu_backend=cpu_backend,
             trust_remote_code=trust_remote_code,
             subfolder=subfolder,
             revision=revision,
@@ -397,9 +403,9 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             **kwargs_shapes,
         )
 
-        if cpu_backend:
+        if get_neuron_major() == -1:
             logger.warning(
-                "Since `cpu_backend` is set to `True` during compilation, model loading is skipped."
+                "No Neuron device detected! Model loading is skipped as it requires Neuron hardware."
                 "The model compilation was successful and the artifacts were saved."
             )
             return None
@@ -424,12 +430,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         encoder_neuron_config = encoder_config.neuron
         decoder_neuron_config = decoder_config.neuron
         combined_config = copy.deepcopy(encoder_config)
-
-        encoder_neuron_config["encoder_input_names"] = encoder_neuron_config.pop("input_names")
-        encoder_neuron_config["encoder_output_names"] = encoder_neuron_config.pop("output_names")
-        decoder_neuron_config["decoder_input_names"] = decoder_neuron_config.pop("input_names")
-        decoder_neuron_config["decoder_output_names"] = decoder_neuron_config.pop("output_names")
-
         encoder_neuron_config.update(decoder_neuron_config)
         encoder_neuron_config.pop("model_type")
         combined_config.__setattr__("neuron", encoder_neuron_config)

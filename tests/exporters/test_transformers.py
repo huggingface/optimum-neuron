@@ -126,6 +126,7 @@ class NeuronExportTestCase(unittest.TestCase):
                     config=neuron_config,
                     output=Path(output.name),
                     inline_weights_to_neff=inline_weights_to_neff,
+                    instance_type="inf2",
                 )
 
                 validate_model_outputs(

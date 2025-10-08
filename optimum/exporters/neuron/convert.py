@@ -16,10 +16,11 @@
 
 import copy
 import os
+import re
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import torch
@@ -38,6 +39,7 @@ from optimum.neuron.utils import (
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils.cache_utils import get_model_name_or_path
+from ...neuron.utils.system import get_neuron_major
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
 from ...utils import (
     is_diffusers_available,
@@ -301,8 +303,6 @@ def export_models(
     compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
-    instance_type: str = "trn1",
-    cpu_backend: bool = False,
     output_file_names: dict[str, str] | None = None,
     compiler_kwargs: dict[str, Any] | None = {},
     model_name_or_path: str | None = None,
@@ -328,10 +328,6 @@ def export_models(
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
                 2: provides the best balance between model performance and compile time.
                 3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
-        instance_type (`str`, defaults to `"trn1"`):
-            The instance type to use for the Neuron device.
-        cpu_backend (`bool`, defaults to `False`):
-            Whether to trace the model completely on CPU.
         output_file_names (`dict[str, str] | None`, defaults to `None`):
             The names to use for the exported Neuron files. The order must be the same as the order of submodels in the ordered dict `models_and_neuron_configs`.
             If None, will use the keys from `models_and_neuron_configs` as names.
@@ -381,8 +377,6 @@ def export_models(
             compiler_workdir=compiler_workdir,
             inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
-            instance_type=instance_type,
-            cpu_backend=cpu_backend,
             **compiler_kwargs,
         )
         compilation_time = time.time() - start_time
@@ -397,21 +391,25 @@ def export_models(
             model_config = OrderedDict(model_config)
             model_config = DiffusersPretrainedConfig.from_dict(model_config)
 
+        # only register mandatory input shapes
+        input_shapes = sub_neuron_config.input_shapes
+        mandatory_shape = [
+            elem for arg in sub_neuron_config.INPUT_ARGS for elem in ((arg,) if isinstance(arg, str) else arg[1:])
+        ]
+        input_shapes = {k: v for k, v in input_shapes.items() if k in mandatory_shape}
+
         model_config = store_compilation_config(
             config=model_config,
-            input_shapes=sub_neuron_config.input_shapes,
+            input_shapes=input_shapes,
             compiler_kwargs=compiler_kwargs,
             int_dtype=sub_neuron_config.int_dtype,
             float_dtype=sub_neuron_config.float_dtype,
-            input_names=neuron_inputs,
-            output_names=neuron_outputs,
             dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
             tensor_parallel_size=sub_neuron_config.tensor_parallel_size,
             compiler_type=NEURON_COMPILER_TYPE,
             compiler_version=NEURON_COMPILER_VERSION,
             inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
-            cpu_backend=cpu_backend,
             model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
             task=getattr(sub_neuron_config, "task", None),
             output_attentions=getattr(sub_neuron_config, "output_attentions", False),
@@ -431,6 +429,7 @@ def export_models(
             cache_entry = SingleModelCacheEntry(model_id=model_id, task=task, config=cache_config)
         else:
             cache_entry = MultiModelCacheEntry(model_id=model_id, configs=compile_configs)
+
         cache_traced_neuron_artifacts(neuron_dir=output_dir, cache_entry=cache_entry)
 
     # remove models failed to export
@@ -445,13 +444,12 @@ def export(
     model_or_path: "PreTrainedModel | str | Path",
     config: "NeuronDefaultConfig",
     output: Path,
+    instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
     compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
-    instance_type: str = "trn1",
     auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
-    cpu_backend: bool = False,
     disable_fast_relayout: bool = False,
     disable_fallback: bool = False,
 ) -> tuple[list[str], list[str]]:
@@ -478,7 +476,6 @@ def export(
             instance_type=instance_type,
             auto_cast=auto_cast,
             auto_cast_type=auto_cast_type,
-            cpu_backend=cpu_backend,
         )
     else:
         raise RuntimeError(
@@ -490,13 +487,12 @@ def export_neuronx(
     model_or_path: "PreTrainedModel | str | Path",
     config: "NeuronDefaultConfig",
     output: Path,
+    instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
     compiler_workdir: Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
-    instance_type: str = "trn1",
     auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
-    cpu_backend: bool = False,
 ) -> tuple[list[str], list[str]]:
     """
     Exports a PyTorch model to a serialized TorchScript module compiled by neuronx-cc compiler.
@@ -508,6 +504,8 @@ def export_neuronx(
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
+        instance_type (`Literal["trn1", "inf2", "trn1n", "trn2"] | None`, defaults to `None`):
+            Target Neuron instance type on which the compiled model will be run, valid values are: "trn1", "inf2", "trn1n", "trn2".
         compiler_workdir (`Path | None`, defaults to `None`):
             The directory used by neuronx-cc, where you can find intermediary outputs (neff, weight, hlo...).
         inline_weights_to_neff (`bool`, defaults to `True`):
@@ -517,14 +515,10 @@ def export_neuronx(
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
                 2: provides the best balance between model performance and compile time.
                 3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
-        instance_type (`str`, defaults to `"trn1"`):
-            The instance type to use for the Neuron device.
         auto_cast (`str | None`, defaults to `None`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`str`, defaults to `"bf16"`):
             The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
-        cpu_backend (`bool`, defaults to `False`):
-            Whether to compile the model with CPU backend.
 
     Returns:
         `tuple[list[str], list[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
@@ -565,10 +559,10 @@ def export_neuronx(
     # Construct compiler configurations
     compiler_args = prepare_compiler_flags(
         config=config,
+        instance_type=instance_type,
         auto_cast=auto_cast,
         auto_cast_type=auto_cast_type,
         optlevel=optlevel,
-        instance_type=instance_type,
     )
 
     # Incompatibility between dynamic batching and uninlined weights/neff
@@ -589,7 +583,6 @@ def export_neuronx(
         tensor_parallel_size=tensor_parallel_size,
         aliases=aliases,
         inline_weights_to_neff=inline_weights_to_neff,
-        cpu_backend=cpu_backend,
         compiler_workdir=compiler_workdir,
     )
 
@@ -612,10 +605,10 @@ def prepare_dummy_inputs(config: "NeuronDefaultConfig", input_shapes: dict[str, 
 
 def prepare_compiler_flags(
     config: "NeuronDefaultConfig",
+    instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
     auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
     optlevel: str = "2",
-    instance_type: str = "trn1",
 ):
     if auto_cast is not None:
         logger.info(f"Using Neuron: --auto-cast {auto_cast}")
@@ -630,10 +623,8 @@ def prepare_compiler_flags(
     compiler_args.extend(["--optlevel", optlevel])
     logger.info(f"Using Neuron: --optlevel {optlevel}")
 
-    if instance_type == "trn2":
-        compiler_args.extend(["--target", "trn2"])
-    elif instance_type == "trn1":
-        compiler_args.extend(["--target", "trn1"])
+    if instance_type is not None:
+        compiler_args.extend(["--target", instance_type])
 
     # `--model-type=transformer`` is now required for all models except those explicitly listed, based on our observations.
     exception_models = {
@@ -672,7 +663,6 @@ def trace_neuronx(
     tensor_parallel_size: int,
     aliases=None,
     inline_weights_to_neff: bool = True,
-    cpu_backend: bool = False,
     compiler_workdir: Path | None = None,
 ):
     if tensor_parallel_size > 1:
@@ -701,6 +691,9 @@ def trace_neuronx(
         else:
             # Case 2: Using `neuronx_distributed.trace.parallel_model_trace`
             os.environ["LOCAL_WORLD_SIZE"] = str(tensor_parallel_size)
+            # TODO: To remove when migrating from `parallel_model_trace` to ModelBuilderV2. `parallel_model_trace` doesn't support custom target.
+            if "--target" in compiler_args:
+                compiler_args = re.sub(r"--target\s+\S+", "", compiler_args).strip()
             with torch.no_grad():
                 neuron_model = neuronx_distributed.trace.parallel_model_trace(
                     model,
@@ -713,6 +706,7 @@ def trace_neuronx(
             neuronx_distributed.trace.parallel_model_save(neuron_model, output)
     else:
         # Case 3: Using `torch_neuronx.trace`
+        cpu_backend = get_neuron_major() == -1
         neuron_model = neuronx.trace(
             model,
             dummy_inputs,

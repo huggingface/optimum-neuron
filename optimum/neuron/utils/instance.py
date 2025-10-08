@@ -87,3 +87,12 @@ def align_compilation_target(target: str, override: bool):
         logger.info(f"Setting the compilation target to {target}.")
     os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = target
     return target
+
+
+def get_default_compilation_target():
+    if get_available_cores() == 0:
+        instance_type = "trn1"
+        logger.info(f"No Neuron device detected, we are compiling for {instance_type}.")
+    else:
+        instance_type = current_instance_type()
+    return instance_type
