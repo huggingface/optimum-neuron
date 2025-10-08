@@ -39,7 +39,7 @@ from optimum.neuron.utils import (
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils.cache_utils import get_model_name_or_path
-from ...neuron.utils.system import get_available_cores
+from ...neuron.utils.system import get_neuron_major
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
 from ...utils import (
     is_diffusers_available,
@@ -706,7 +706,7 @@ def trace_neuronx(
             neuronx_distributed.trace.parallel_model_save(neuron_model, output)
     else:
         # Case 3: Using `torch_neuronx.trace`
-        cpu_backend = get_available_cores() == 0
+        cpu_backend = get_neuron_major() == -1
         neuron_model = neuronx.trace(
             model,
             dummy_inputs,

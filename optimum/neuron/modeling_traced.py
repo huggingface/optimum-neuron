@@ -46,7 +46,7 @@ from .utils import (
 )
 from .utils.import_utils import is_neuronx_available
 from .utils.instance import align_compilation_target, define_instance_type_with_default_value
-from .utils.system import get_available_cores
+from .utils.system import get_neuron_major
 from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
 
@@ -397,7 +397,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
             )
             config = AutoConfig.from_pretrained(save_dir_path)
 
-        if get_available_cores() == 0:
+        if get_neuron_major() == -1:
             logger.warning(
                 "No Neuron device detected! Model loading is skipped as it requires Neuron hardware."
                 "The model compilation was successful and the artifacts were saved."

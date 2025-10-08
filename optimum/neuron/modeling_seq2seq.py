@@ -52,7 +52,7 @@ from .utils.doc import (
     NEURON_TRANSLATION_TP_EXAMPLE,
 )
 from .utils.instance import align_compilation_target, define_instance_type_with_default_value
-from .utils.system import get_available_cores
+from .utils.system import get_neuron_major
 
 
 if TYPE_CHECKING:
@@ -402,7 +402,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             **kwargs_shapes,
         )
 
-        if get_available_cores() == 0:
+        if get_neuron_major() == -1:
             logger.warning(
                 "No Neuron device detected! Model loading is skipped as it requires Neuron hardware."
                 "The model compilation was successful and the artifacts were saved."

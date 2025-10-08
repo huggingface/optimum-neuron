@@ -67,7 +67,7 @@ from .utils import (
 )
 from .utils.instance import align_compilation_target, define_instance_type_with_default_value
 from .utils.require_utils import requires_torch_neuronx
-from .utils.system import get_available_cores
+from .utils.system import get_neuron_major
 from .utils.version_utils import get_neuronxcc_version
 
 
@@ -1040,7 +1040,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 library_name=cls.library_name,
                 **input_shapes,
             )
-        if get_available_cores() == 0:
+        if get_neuron_major() == -1:
             logger.warning(
                 "No Neuron device detected! Model loading is skipped as it requires Neuron hardware."
                 "The model compilation was successful and the artifacts were saved."
