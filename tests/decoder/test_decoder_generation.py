@@ -22,7 +22,6 @@ from transformers.generation import StoppingCriteria
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.models.inference.backend.modules.generation.generation_utils import prepare_sampling_params
-from optimum.neuron.models.inference.llama.modeling_llama import LlamaNxDModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -247,9 +246,9 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
 @requires_neuronx
 def test_generation_assisted_decoding(speculation):
     model_path, draft_model_path = speculation
-    model = LlamaNxDModelForCausalLM.from_pretrained(model_path)
+    model = NeuronModelForCausalLM.from_pretrained(model_path)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
-    assistant_model = LlamaNxDModelForCausalLM.from_pretrained(draft_model_path)
+    assistant_model = NeuronModelForCausalLM.from_pretrained(draft_model_path)
     prompt = "What is Deep Learning?"
     inputs = tokenizer(prompt, return_tensors="pt")
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17, assistant_model=assistant_model)
