@@ -89,14 +89,10 @@ def align_compilation_target(target: str, override: bool):
     return target
 
 
-def define_instance_type_with_default_value(instance_type: str | None = None):
-    if instance_type is None:
-        if get_available_cores() == 0:
-            instance_type = "trn1"
-            logger.info(f"No Neuron device detected, we are compiling for {instance_type}.")
-        else:
-            instance_type = current_instance_type()
+def get_default_compilation_target():
+    if get_available_cores() == 0:
+        instance_type = "trn1"
+        logger.info(f"No Neuron device detected, we are compiling for {instance_type}.")
     else:
-        instance_type = normalize_instance_type(instance_type)
-
+        instance_type = current_instance_type()
     return instance_type

@@ -85,13 +85,6 @@ _import_structure = {
         "patch_within_function",
         "replace_class_in_inheritance_hierarchy",
     ],
-    "instance": [
-        "SUPPORTED_INSTANCE_TYPES",
-        "current_instance_type",
-        "normalize_instance_type",
-        "align_compilation_target",
-        "define_instance_type_with_default_value",
-    ],
     "trl_utils": ["NeuronSFTConfig", "NeuronORPOConfig"],
 }
 
@@ -138,13 +131,6 @@ if TYPE_CHECKING:
         DummyMaskedPosGenerator,
         DummyTimestepInputGenerator,
         WhisperDummyTextInputGenerator,
-    )
-    from .instance import (
-        SUPPORTED_INSTANCE_TYPES,
-        align_compilation_target,
-        current_instance_type,
-        define_instance_type_with_default_value,
-        normalize_instance_type,
     )
     from .misc import (
         DiffusersPretrainedConfig,

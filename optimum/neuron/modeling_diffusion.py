@@ -65,7 +65,7 @@ from .utils import (
     replace_weights,
     store_compilation_config,
 )
-from .utils.instance import align_compilation_target, define_instance_type_with_default_value
+from .utils.instance import align_compilation_target, get_default_compilation_target
 from .utils.require_utils import requires_torch_neuronx
 from .utils.system import get_neuron_major
 from .utils.version_utils import get_neuronxcc_version
@@ -905,7 +905,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
-        instance_type = define_instance_type_with_default_value(instance_type)
+        if instance_type is None:
+            instance_type = get_default_compilation_target()
         instance_type = align_compilation_target(instance_type, override=False)
         compiler_kwargs = {
             "auto_cast": auto_cast,

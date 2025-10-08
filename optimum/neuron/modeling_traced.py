@@ -45,7 +45,7 @@ from .utils import (
     store_compilation_config,
 )
 from .utils.import_utils import is_neuronx_available
-from .utils.instance import align_compilation_target, define_instance_type_with_default_value
+from .utils.instance import align_compilation_target, get_default_compilation_target
 from .utils.system import get_neuron_major
 from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
@@ -302,7 +302,8 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
             kwargs_shapes["batch_size"] = 1
             disable_fallback = True  # Turn off the fallback for neuron, otherwise dynamic batching will still fail
         auto_cast_type = None if auto_cast is None else auto_cast_type
-        instance_type = define_instance_type_with_default_value(instance_type)
+        if instance_type is None:
+            instance_type = get_default_compilation_target()
         instance_type = align_compilation_target(instance_type, override=False)
         compiler_kwargs = {
             "auto_cast": auto_cast,

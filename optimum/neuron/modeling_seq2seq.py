@@ -51,7 +51,7 @@ from .utils.doc import (
     NEURON_TRANSLATION_EXAMPLE,
     NEURON_TRANSLATION_TP_EXAMPLE,
 )
-from .utils.instance import align_compilation_target, define_instance_type_with_default_value
+from .utils.instance import align_compilation_target, get_default_compilation_target
 from .utils.system import get_neuron_major
 
 
@@ -365,8 +365,9 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
-        instance_type = define_instance_type_with_default_value(instance_type)
-        instance_type = align_compilation_target(instance_type, override=False)
+        if instance_type is None:
+            instance_type = get_default_compilation_target()
+        instance_type = align_compilation_target(target=instance_type, override=False)
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
