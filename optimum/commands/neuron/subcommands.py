@@ -16,6 +16,7 @@
 
 from typing import TYPE_CHECKING
 
+from ...neuron.models.training import consolidate_model_parallel_checkpoints_to_unified_checkpoint
 from ...utils import logging
 from ..base import BaseOptimumCLICommand
 
@@ -52,8 +53,6 @@ class ConsolidateCommand(BaseOptimumCLICommand):
         )
 
     def run(self):
-        from ...neuron.models.training import consolidate_model_parallel_checkpoints_to_unified_checkpoint
-
         checkpoint_format = "safetensors" if self.args.format == "safetensors" else "pytorch"
         logger.info(f"Consolidating checkpoints from {self.args.checkpoint_dir} to the {checkpoint_format} format...")
         output_dir = self.args.output_dir
