@@ -338,7 +338,6 @@ class NeuronxExportCommand(BaseOptimumCLICommand):
     def run(self):
         if get_neuron_major() == -1:
             self.setup_target_instance()
-        self.setup_target_instance()
         full_command = f"python3 -m optimum.exporters.neuron {self.args_string}"
         subprocess.run(full_command, shell=True, check=True)
 
