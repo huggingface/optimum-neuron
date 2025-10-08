@@ -110,7 +110,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         "--auto_cast_type",
         type=str,
         default="bf16",
-        choices=["bf16", "fp16", "tf32", "fp8_e4m3"],
+        choices=["bf16", "fp16", "tf32"],
         help='The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.',
     )
     optional_group.add_argument(
