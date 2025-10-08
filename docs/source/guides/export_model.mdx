@@ -118,7 +118,7 @@ that matmul operation must be performed with `float16` precision for faster infe
 
 You can also compile the model on a CPU-only instance. In this case, specify the target instance type by passing `--instance_type` from `{inf2, trn1, trn1n, trn2}`. 
 
-If you are using a `NeuronModelForXXX` class to export the model on a CPU-only instance, set the target instance type through the environment variable, for example:
+If you are using a `NeuronModelForXXX` class to export the model on a CPU-only instance, you must define an environment variable `NEURON_PLATFORM_TARGET_OVERRIDE` before importing anything from the `neuronx_distributed` library, and specify the target instance type. For example:
 
 ```python
 import os
