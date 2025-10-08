@@ -15,10 +15,8 @@ concurrency:
 jobs:
   cache:
     name: Create optimum-neuron inference cache
-    runs-on:
-      group: aws-inf2-48xlarge
+    runs-on: aws-general-8-plus-use1-public-80
     env:
-      AWS_REGION: us-east-1
       HF_HUB_ENABLE_HF_TRANSFER: 1
     strategy:
       fail-fast: false
