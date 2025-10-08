@@ -164,7 +164,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
             ).get_text_config()
 
         if instance_type is None:
-            instance_type = get_default_compilation_target(instance_type)
+            instance_type = get_default_compilation_target()
         else:
             instance_type = normalize_instance_type(instance_type)
         if batch_size is None:
