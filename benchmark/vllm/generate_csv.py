@@ -51,7 +51,7 @@ def main():
                     results.append(pd.DataFrame.from_dict(d, orient="index").transpose())
 
     df = pd.concat(results).sort_values(by="Date")
-    df.to_csv("vllm-results.csv", index=False)
+    df.to_csv(f"{args.dir}/vllm-results.csv", index=False)
 
 
 if __name__ == "__main__":
