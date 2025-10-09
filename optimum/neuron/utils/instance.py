@@ -16,7 +16,7 @@ import functools
 import logging
 import os
 
-from .system import get_available_cores
+from .system import get_instance_name, get_neuron_major
 
 
 logger = logging.getLogger(__name__)
@@ -32,15 +32,8 @@ INSTANCE_VALUE_MAP = {
 
 @functools.cache
 def current_instance_type() -> str:
-    if get_available_cores() == 0:
-        raise RuntimeError("No Neuron device detected.")
-    fpath = "/sys/devices/virtual/dmi/id/product_name"
-    try:
-        with open(fpath, "r") as f:
-            fc = f.readline()
-    except IOError:
-        raise RuntimeError("Unable to read Neuron platform instance type.")
-    instance_type = fc.split(".")[0]
+    instance_name = get_instance_name()
+    instance_type = instance_name.split(".")[0]
     return normalize_instance_type(instance_type)
 
 
@@ -72,7 +65,7 @@ def align_compilation_target(target: str, override: bool):
         # Another compilation target is already set and we don't want to override it
         return env_target
     # The compilation target is not set
-    if get_available_cores() > 0:
+    if get_neuron_major() != -1:
         current_target = current_instance_type()
         if target == current_target:
             # No need to override the compilation target as it matches the current instance type
@@ -90,7 +83,7 @@ def align_compilation_target(target: str, override: bool):
 
 
 def get_default_compilation_target():
-    if get_available_cores() == 0:
+    if get_neuron_major() == -1:
         instance_type = "trn1"
         logger.info(f"No Neuron device detected, we are compiling for {instance_type}.")
     else:
