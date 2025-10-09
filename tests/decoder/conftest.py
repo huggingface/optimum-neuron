@@ -34,7 +34,6 @@ DECODER_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 2,
-            "auto_cast_type": "fp16",
         },
     },
     "qwen2": {
@@ -43,7 +42,6 @@ DECODER_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 2,
-            "auto_cast_type": "fp16",
         },
     },
     "granite": {
@@ -52,7 +50,6 @@ DECODER_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 2,
-            "auto_cast_type": "bf16",
         },
     },
     "phi": {
@@ -61,7 +58,6 @@ DECODER_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 2,
-            "auto_cast_type": "bf16",
         },
     },
     "qwen3": {
@@ -70,7 +66,6 @@ DECODER_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 2,
-            "auto_cast_type": "bf16",
         },
     },
     "smollm3": {
@@ -79,7 +74,6 @@ DECODER_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 2,
-            "auto_cast_type": "bf16",
         },
     },
 }
@@ -193,7 +187,6 @@ def base_neuron_decoder_config():
                 "batch_size": 1,
                 "sequence_length": 4096,
                 "tensor_parallel_size": 2,
-                "auto_cast_type": "bf16",
             },
         }
         neuron_model_config = _get_neuron_model_for_config("base", model_config, neuron_model_path)

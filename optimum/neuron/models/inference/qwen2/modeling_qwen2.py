@@ -18,6 +18,7 @@
 import logging
 import warnings
 
+import torch
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
     ParallelEmbedding,
@@ -111,7 +112,7 @@ class Qwen2NxDModelForCausalLM(LlamaNxDModelForCausalLM):
         batch_size: int,
         sequence_length: int,
         tensor_parallel_size: int,
-        auto_cast_type: str,
+        dtype: torch.dtype,
     ):
         continuous_batching = (batch_size > 1) if batch_size else False
         on_device_sampling = True
@@ -128,7 +129,7 @@ class Qwen2NxDModelForCausalLM(LlamaNxDModelForCausalLM):
             batch_size=batch_size,
             sequence_length=sequence_length,
             tp_degree=tensor_parallel_size,
-            torch_dtype=auto_cast_type,
+            torch_dtype=dtype,
             target=instance_type,
             on_device_sampling=on_device_sampling,
             fused_qkv=False,

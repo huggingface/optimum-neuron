@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 
 import huggingface_hub
 import pytest
+import torch
 
 from optimum.neuron.utils.import_utils import is_package_available
 
@@ -45,7 +46,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 2,
-            "auto_cast_type": "fp16",
         },
     },
     "qwen2": {
@@ -54,7 +54,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 2,
-            "auto_cast_type": "fp16",
         },
     },
     "granite": {
@@ -63,7 +62,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 2,
-            "auto_cast_type": "bf16",
         },
     },
     "phi": {
@@ -72,7 +70,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 2,
-            "auto_cast_type": "bf16",
         },
     },
     "qwen3": {
@@ -81,7 +78,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 2,
-            "auto_cast_type": "bf16",
         },
     },
     "smollm3": {
@@ -90,7 +86,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 2,
-            "auto_cast_type": "bf16",
         },
     },
 }
@@ -226,7 +221,6 @@ def base_neuron_llm_config():
                 "batch_size": 1,
                 "sequence_length": 4096,
                 "tensor_parallel_size": 2,
-                "auto_cast_type": "bf16",
             },
         }
         neuron_model_config = _get_neuron_model_for_config("base", model_config, neuron_model_path)
@@ -257,7 +251,7 @@ def speculation():
                 batch_size=1,
                 sequence_length=4096,
                 tp_degree=2,
-                torch_dtype="bf16",
+                torch_dtype=torch.bfloat16,
                 speculation_length=5,
             )
             model = LlamaNxDModelForCausalLM.export(

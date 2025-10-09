@@ -19,7 +19,6 @@ import torch
 from transformers import AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.utils import DTYPE_MAPPER
 
 
 DECODER_MODEL_ARCHITECTURES = ["llama", "llama4_text", "granite", "qwen2", "qwen3-moe", "phi3", "mixtral"]
@@ -49,13 +48,10 @@ def check_neuron_config(neuron_config, **kwargs):
         aliases = {
             "num_cores": "tp_degree",
             "tensor_parallel_size": "tp_degree",
-            "auto_cast_type": "torch_dtype",
         }
         if key in aliases:
             key = aliases[key]
         if value is not None:
-            if key == "torch_dtype" and isinstance(value, str):
-                value = DTYPE_MAPPER.pt(value)
             assert getattr(neuron_config, key) == value, (
                 f"Expected {key} to be {value}, but got {getattr(neuron_config, key)}"
             )
@@ -83,7 +79,7 @@ def test_decoder_export_save_reload(
     load_weights: bool,
 ):
     model_id = export_decoder_id
-    export_kwargs = {"batch_size": 1, "sequence_length": 1024, "tensor_parallel_size": 2, "auto_cast_type": "bf16"}
+    export_kwargs = {"batch_size": 1, "sequence_length": 1024, "tensor_parallel_size": 2}
     neuron_config = NeuronModelForCausalLM.get_neuron_config(model_name_or_path=export_decoder_id, **export_kwargs)
     with TemporaryDirectory() as model_path:
         if is_local:

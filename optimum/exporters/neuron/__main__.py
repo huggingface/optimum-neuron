@@ -760,6 +760,7 @@ def maybe_export_from_neuron_model_class(
     kwargs.pop("dynamic_batch_size", None)
     kwargs.pop("output_hidden_states", None)
     kwargs.pop("output_attentions", None)
+    kwargs.pop("auto_cast_type", None)
     # Fetch the model config
     config = AutoConfig.from_pretrained(model)
     if task == "text-generation":
@@ -772,7 +773,6 @@ def maybe_export_from_neuron_model_class(
     batch_size = kwargs.pop("batch_size", None)
     sequence_length = kwargs.pop("sequence_length", None)
     tensor_parallel_size = kwargs.pop("tensor_parallel_size", None)
-    auto_cast_type = kwargs.pop("auto_cast_type", None)
     neuron_config = neuron_model_class.get_neuron_config(
         model_name_or_path=model,
         config=config,
@@ -782,7 +782,6 @@ def maybe_export_from_neuron_model_class(
         batch_size=batch_size,
         sequence_length=sequence_length,
         tensor_parallel_size=tensor_parallel_size,
-        auto_cast_type=auto_cast_type,
     )
     neuron_model = neuron_model_class.export(
         model_id=model,

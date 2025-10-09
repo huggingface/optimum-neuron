@@ -4,8 +4,6 @@ import pytest
 # Do not collect tests from this file if vllm is not installed
 pytest.importorskip("vllm")
 
-from optimum.neuron.utils import DTYPE_MAPPER
-
 
 @pytest.fixture
 async def multi_model_vllm_service(vllm_launcher, neuron_llm_config):
@@ -26,14 +24,12 @@ async def vllm_service_from_model(request, vllm_launcher, base_neuron_llm_config
         batch_size = export_kwargs["batch_size"]
         sequence_length = export_kwargs["sequence_length"]
         tensor_parallel_size = export_kwargs["tensor_parallel_size"]
-        dtype = DTYPE_MAPPER.pt(export_kwargs["auto_cast_type"])
         with vllm_launcher(
             service_name,
             model_name_or_path,
             batch_size=batch_size,
             sequence_length=sequence_length,
             tensor_parallel_size=tensor_parallel_size,
-            dtype=dtype,
         ) as vllm_service:
             await vllm_service.health(600)
             yield vllm_service
