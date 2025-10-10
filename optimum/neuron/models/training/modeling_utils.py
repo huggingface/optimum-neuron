@@ -1269,9 +1269,8 @@ class NeuronModelMixin:
         config.torch_dtype = torch_dtype
 
         # ** Difference from original from_pretrained **
-        # We do not support the `tie_word_embeddings` feature in pipeline parallelism.
-        # Instead when `config.tie_word_embeddings` is set to True, we set it to False and simply clone the data between
-        # the tied weights.
+
+        config.tie_word_embeddings = True
 
         with ContextManagers(init_contexts):
             # Let's make sure we don't run the init function of buffer modules

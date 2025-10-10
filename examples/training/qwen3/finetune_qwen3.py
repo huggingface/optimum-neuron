@@ -68,14 +68,16 @@ def train(model_id, tokenizer, dataset, training_args):
         trn_config,
         torch_dtype=dtype,
         # Use FlashAttention2 for better performance and to be able to use larger sequence lengths.
-        attn_implementation="flash_attention_2",
+        # attn_implementation="flash_attention_2",
+        attn_implementation="eager",
     )
 
     lora_config = LoraConfig(
         r=64,
         lora_alpha=128,
         lora_dropout=0.05,
-        target_modules=["embed_tokens", "q_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj", "gate_proj"],
+        # target_modules=["embed_tokens", "q_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj", "gate_proj"],
+        target_modules=["q_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj", "gate_proj"],
         bias="none",
         task_type="CAUSAL_LM",
     )
@@ -84,7 +86,7 @@ def train(model_id, tokenizer, dataset, training_args):
     args = training_args.to_dict()
 
     sft_config = NeuronSFTConfig(
-        max_seq_length=4096,
+        max_seq_length=512,
         packing=True,
         **args,
     )
@@ -97,7 +99,7 @@ def train(model_id, tokenizer, dataset, training_args):
     trainer = NeuronSFTTrainer(
         args=sft_config,
         model=model,
-        peft_config=lora_config,
+        # peft_config=lora_config,
         tokenizer=tokenizer,
         train_dataset=dataset,
         formatting_func=formatting_function,
@@ -123,6 +125,8 @@ if __name__ == "__main__":
     script_args, training_args = parser.parse_args_into_dataclasses()
 
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_id)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
     dataset = preprocess_dataset_with_eos(tokenizer.eos_token)
 
     train(

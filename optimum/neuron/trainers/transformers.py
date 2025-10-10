@@ -1112,7 +1112,7 @@ class NeuronTrainer:
 
                         self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
 
-                        self.optimizer.step()
+                        # self.optimizer.step()
                         self.grad_norm = self.optimizer.grad_norm
 
                         self.control = self.callback_handler.on_optimizer_step(args, self.state, self.control)

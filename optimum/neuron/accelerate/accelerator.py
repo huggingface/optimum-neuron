@@ -371,6 +371,7 @@ class NeuronAccelerator(Accelerator):
                     model.to(torch.bfloat16)
                 move_model_to_device(model, self.device)
                 model.tie_weights()
+
         else:
             should_apply_activation_checkpointing = False
             for mod in model.modules():
