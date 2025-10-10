@@ -203,16 +203,19 @@ def test_metrics_calculations_accuracy(tmpdir):
     if args.enable_mfu_metrics and collector.model_params:
         mfu_metrics = collector.calculate_metric("mfu")
         if mfu_metrics:
-            total_tokens = window_stats["total_tokens"]
+            total_tokens = window_stats["total_tokens"]  # Per-core tokens
             total_time = window_stats["total_time"]
-            theoretical_flops = 18 * collector.model_params * total_tokens
-            actual_flops_per_sec = theoretical_flops / total_time
-            peak_flops_per_sec = collector.peak_tflops_per_core * 1e12 * collector.total_neuron_cores
-            expected_mfu = (actual_flops_per_sec / peak_flops_per_sec) * 100
 
-            mfu_diff = abs(mfu_metrics["train/mfu"] - round(expected_mfu, 2))
-            assert mfu_diff < 0.1, (
-                f"MFU calculation failed: expected {round(expected_mfu, 2):.2f}%, got {mfu_metrics['train/mfu']:.2f}% (diff={mfu_diff:.3f}, cores={collector.total_neuron_cores})"
+            # Test system-wide MFU calculation
+            system_tokens = total_tokens * collector.dp_size
+            system_theoretical_flops = 18 * collector.model_params * system_tokens
+            system_actual_flops_per_sec = system_theoretical_flops / total_time
+            system_peak_flops_per_sec = collector.peak_tflops_per_core * 1e12 * collector.total_neuron_cores
+            expected_system_mfu = (system_actual_flops_per_sec / system_peak_flops_per_sec) * 100
+
+            system_mfu_diff = abs(mfu_metrics["train/mfu"] - round(expected_system_mfu, 2))
+            assert system_mfu_diff < 0.1, (
+                f"System MFU calculation failed: expected {round(expected_system_mfu, 2):.2f}%, got {mfu_metrics['train/mfu']:.2f}% (diff={system_mfu_diff:.3f}, cores={collector.total_neuron_cores})"
             )
 
     summary_metrics = collector.calculate_summary_metrics()

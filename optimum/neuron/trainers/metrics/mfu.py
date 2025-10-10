@@ -45,7 +45,7 @@ class MFUPlugin(MetricPlugin):
         ):
             return {}
 
-        total_tokens = window_stats["total_tokens"]
+        total_tokens = window_stats["total_tokens"]  # Per-core tokens
         total_time = window_stats["total_time"]
 
         if collector.seq_length is None:
@@ -54,12 +54,15 @@ class MFUPlugin(MetricPlugin):
         N = collector.model_params
         L, H, Q, T = collector.num_layers, collector.num_heads, collector.head_dim, collector.seq_length
         flops_per_token = 6 * N + 12 * L * H * Q * T
-        flops_per_iter = flops_per_token * total_tokens
-        actual_flops_per_sec = flops_per_iter / total_time
-        peak_flops_per_sec = collector.peak_tflops_per_core * 1e12
-        mfu_pct = (actual_flops_per_sec / peak_flops_per_sec) * 100
 
-        return {"train/mfu": round(mfu_pct, 2)}
+        # System-wide MFU calculation
+        system_tokens = total_tokens * collector.dp_size  # Scale by data parallel size
+        system_flops_per_iter = flops_per_token * system_tokens
+        system_actual_flops_per_sec = system_flops_per_iter / total_time
+        system_peak_flops_per_sec = collector.peak_tflops_per_core * collector.total_neuron_cores * 1e12
+        system_mfu_pct = (system_actual_flops_per_sec / system_peak_flops_per_sec) * 100
+
+        return {"train/mfu": round(system_mfu_pct, 2)}
 
     def calculate_summary(self, summary_data: dict, collector: "TrainingMetricsCollector") -> dict[str, float]:
         """Average MFU over the entire training run."""
@@ -76,11 +79,13 @@ class MFUPlugin(MetricPlugin):
         mfu_values = []
         for tokens, time in zip(tokens_per_step, step_times):
             if time > 0 and tokens > 0:
-                flops_per_iter = flops_per_token * tokens
-                actual_flops_per_sec = flops_per_iter / time
-                peak_flops_per_sec = collector.peak_tflops_per_core * 1e12
-                mfu_pct = (actual_flops_per_sec / peak_flops_per_sec) * 100
-                mfu_values.append(mfu_pct)
+                # System-wide MFU
+                system_tokens = tokens * collector.dp_size
+                system_flops_per_iter = flops_per_token * system_tokens
+                system_actual_flops_per_sec = system_flops_per_iter / time
+                system_peak_flops_per_sec = collector.peak_tflops_per_core * collector.total_neuron_cores * 1e12
+                system_mfu_pct = (system_actual_flops_per_sec / system_peak_flops_per_sec) * 100
+                mfu_values.append(system_mfu_pct)
 
         if mfu_values:
             return {"summary/mfu_avg": sum(mfu_values) / len(mfu_values)}

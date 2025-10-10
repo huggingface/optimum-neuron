@@ -22,6 +22,9 @@ class MovingAverageWindow:
 
     Maintains separate deques for tokens, samples, and timing information,
     allowing for stable moving average calculations.
+
+    It is storing metrics per-core and is agnostic of any distributed setup.
+    Scaling of these metrics for distributed training should be handled by `MetricPlugin`.
     """
 
     def __init__(self, window_size: int):
