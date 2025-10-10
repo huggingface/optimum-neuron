@@ -71,6 +71,12 @@ class TrainingMetricsCollector:
         self.total_neuron_cores = xr.world_size()
 
         self.model_params = None
+        self.num_layers = model.config.num_hidden_layers
+        self.num_heads = model.config.num_attention_heads
+        self.hidden_size = model.config.hidden_size
+        self.seq_length = None
+        self.head_dim = getattr(model.config, "head_dim", self.hidden_size // self.num_heads)
+
         if self.args.enable_mfu_metrics:
             self.model_params = get_model_param_count(model, trainable_only=False)
 
@@ -233,6 +239,9 @@ class TrainingMetricsCollector:
                 batch_tokens = input_ids.numel()
                 batch_samples = input_ids.size(0)
 
+                if self.seq_length is None:
+                    self.seq_length = input_ids.size(1)
+
         self.current_batch_data[metric_name]["tokens"] += batch_tokens
         self.current_batch_data[metric_name]["samples"] += batch_samples
 
@@ -245,6 +254,9 @@ class TrainingMetricsCollector:
             if isinstance(input_ids, torch.Tensor):
                 batch_tokens = input_ids.numel()
                 batch_samples = input_ids.size(0)
+
+                if self.seq_length is None:
+                    self.seq_length = input_ids.size(1)
 
         self.cycle_batch_data["tokens"] += batch_tokens
         self.cycle_batch_data["samples"] += batch_samples

@@ -48,10 +48,15 @@ class MFUPlugin(MetricPlugin):
         total_tokens = window_stats["total_tokens"]
         total_time = window_stats["total_time"]
 
-        # FLOP calculation: ~18 * params * tokens for transformer training
-        theoretical_flops = 18 * collector.model_params * total_tokens
-        actual_flops_per_sec = theoretical_flops / total_time
-        peak_flops_per_sec = collector.peak_tflops_per_core * 1e12 * collector.total_neuron_cores
+        if collector.seq_length is None:
+            raise ValueError("Sequence length must be set in the collector to calculate MFU.")
+
+        N = collector.model_params
+        L, H, Q, T = collector.num_layers, collector.num_heads, collector.head_dim, collector.seq_length
+        flops_per_token = 6 * N + 12 * L * H * Q * T
+        flops_per_iter = flops_per_token * total_tokens
+        actual_flops_per_sec = flops_per_iter / total_time
+        peak_flops_per_sec = collector.peak_tflops_per_core * 1e12
         mfu_pct = (actual_flops_per_sec / peak_flops_per_sec) * 100
 
         return {"train/mfu": round(mfu_pct, 2)}
@@ -64,12 +69,16 @@ class MFUPlugin(MetricPlugin):
         if not step_times or collector.model_params is None:
             return {}
 
+        N = collector.model_params
+        L, H, Q, T = collector.num_layers, collector.num_heads, collector.head_dim, collector.seq_length
+        flops_per_token = 6 * N + 12 * L * H * Q * T
+
         mfu_values = []
         for tokens, time in zip(tokens_per_step, step_times):
             if time > 0 and tokens > 0:
-                theoretical_flops = 18 * collector.model_params * tokens
-                actual_flops_per_sec = theoretical_flops / time
-                peak_flops_per_sec = collector.peak_tflops_per_core * 1e12 * collector.total_neuron_cores
+                flops_per_iter = flops_per_token * tokens
+                actual_flops_per_sec = flops_per_iter / time
+                peak_flops_per_sec = collector.peak_tflops_per_core * 1e12
                 mfu_pct = (actual_flops_per_sec / peak_flops_per_sec) * 100
                 mfu_values.append(mfu_pct)
 
