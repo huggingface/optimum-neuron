@@ -7,6 +7,7 @@ from transformers import AutoTokenizer
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.pipelines import pipeline
 from optimum.neuron.utils import DTYPE_MAPPER
+from optimum.neuron.utils.instance import current_instance_type
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -47,7 +48,8 @@ def _test_generation(p):
 @requires_neuronx
 def test_export_no_parameters():
     visible_cores = os.environ.get("NEURON_RT_NUM_CORES", None)
-    os.environ["NEURON_RT_NUM_CORES"] = "2"
+    # We can restrict the number of visible cores, but only if we use a full device
+    os.environ["NEURON_RT_NUM_CORES"] = "4" if current_instance_type() == "trn2" else "2"
     p = pipeline("text-generation", "Qwen/Qwen2.5-0.5B", export=True)
     _test_generation(p)
     if visible_cores is None:
