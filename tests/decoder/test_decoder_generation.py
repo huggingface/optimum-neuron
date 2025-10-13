@@ -98,9 +98,11 @@ def test_decoder_generation_greedy_expectations(neuron_llm_config):
     prompt = "What is Deep Learning?"
     inputs = tokenizer(prompt, return_tensors="pt")
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17)
+    target = model.neuron_config.target
     expectations = {
         "llama": " and how does it work?\nDeep learning is a subset of machine learning that uses artificial",
-        "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning that is based on",
+        "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning"
+        + (". It is a" if target == "trn2" else " that is based on"),
         "qwen3": " What is the difference between Deep Learning and Machine Learning?\n\nDeep Learning is a subset of",
         "granite": "\n\nDeep Learning is a subset of machine learning that is inspired by the structure and",
         "phi": "\n\nDeep learning is a subfield of machine learning that focuses on creating",

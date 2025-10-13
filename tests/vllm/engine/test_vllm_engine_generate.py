@@ -9,6 +9,7 @@ from vllm import LLM, RequestOutput, SamplingParams
 from vllm.platforms import current_platform
 
 from optimum.neuron.utils import DTYPE_MAPPER
+from optimum.neuron.utils.instance import current_instance_type
 from optimum.neuron.vllm.platform import OptimumNeuronPlatform
 
 
@@ -87,9 +88,10 @@ def test_vllm_greedy_expectations(base_neuron_llm_config):
 
     outputs = llm.generate(prompts, sampling_params)
 
+    trn2 = current_instance_type() == "trn2"
     expected_outputs = [
         " the head of state and government of the United States",
-        " Paris. The Eiffel Tower is located in Paris. The Eiffel Tower is a famous",
+        " Paris. The Eiffel Tower is located in Paris. The Eiffel Tower is " + ("one of" if trn2 else "a famous"),
         " The world was holding its breath as the world's top scientists and engineers gathered at the secret underground facility to witness the unveiling of the ultimate time machine.",
         " to find happiness and fulfillment in the present moment. It's a simple yet profound concept that can bring joy and peace to our lives.\n\nAs I reflect on my own life, I realize that I've",
         " blue, but what about the colour of the sky",

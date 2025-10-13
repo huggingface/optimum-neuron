@@ -9,6 +9,7 @@ import huggingface_hub
 import pytest
 
 from optimum.neuron.utils.import_utils import is_package_available
+from optimum.neuron.utils.instance import current_instance_type
 
 
 if is_package_available("transformers"):
@@ -25,7 +26,7 @@ from optimum.neuron.version import __version__ as version
 TEST_ORGANIZATION = "optimum-internal-testing"
 TEST_CACHE_REPO_ID = f"{TEST_ORGANIZATION}/neuron-testing-cache"
 HF_TOKEN = huggingface_hub.get_token()
-
+INSTANCE_TYPE = current_instance_type()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,7 +45,7 @@ LLM_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "tensor_parallel_size": 2,
+            "tensor_parallel_size": 4 if INSTANCE_TYPE == "trn2" else 2,
             "auto_cast_type": "bf16",
         },
     },
@@ -53,7 +54,7 @@ LLM_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "tensor_parallel_size": 2,
+            "tensor_parallel_size": 4 if INSTANCE_TYPE == "trn2" else 2,
             "auto_cast_type": "bf16",
         },
     },
@@ -62,7 +63,7 @@ LLM_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "tensor_parallel_size": 2,
+            "tensor_parallel_size": 4 if INSTANCE_TYPE == "trn2" else 2,
             "auto_cast_type": "bf16",
         },
     },
@@ -71,7 +72,7 @@ LLM_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "tensor_parallel_size": 2,
+            "tensor_parallel_size": 4 if INSTANCE_TYPE == "trn2" else 2,
             "auto_cast_type": "bf16",
         },
     },
@@ -80,7 +81,7 @@ LLM_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "tensor_parallel_size": 2,
+            "tensor_parallel_size": 4 if INSTANCE_TYPE == "trn2" else 2,
             "auto_cast_type": "bf16",
         },
     },
@@ -89,7 +90,7 @@ LLM_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "tensor_parallel_size": 2,
+            "tensor_parallel_size": 4 if INSTANCE_TYPE == "trn2" else 2,
             "auto_cast_type": "bf16",
         },
     },
@@ -120,7 +121,7 @@ def get_neuron_models_hash():
 
 
 def _get_hub_neuron_model_prefix():
-    return f"{TEST_HUB_ORG}/optimum-neuron-testing-{version}-{sdk_version}-{get_neuron_models_hash()}"
+    return f"{TEST_HUB_ORG}/optimum-neuron-testing-{version}-{sdk_version}-{INSTANCE_TYPE}-{get_neuron_models_hash()}"
 
 
 def _get_hub_neuron_model_id(config_name: str, model_config: dict[str, str]):
@@ -237,6 +238,7 @@ def speculation():
     model_id = "unsloth/Llama-3.2-1B-Instruct"
     neuron_model_id = f"{_get_hub_neuron_model_prefix()}-speculation"
     draft_neuron_model_id = f"{_get_hub_neuron_model_prefix()}-speculation-draft"
+    tp_degree = 4 if current_instance_type() == "trn2" else 2
     with TemporaryDirectory() as speculation_path:
         hub = huggingface_hub.HfApi()
         neuron_model_path = os.path.join(speculation_path, "model")
@@ -248,7 +250,7 @@ def speculation():
                 checkpoint_id=model_id,
                 batch_size=1,
                 sequence_length=4096,
-                tp_degree=2,
+                tp_degree=tp_degree,
                 torch_dtype="bf16",
                 speculation_length=5,
             )
@@ -275,7 +277,7 @@ def speculation():
                 checkpoint_id=model_id,
                 batch_size=1,
                 sequence_length=4096,
-                tp_degree=2,
+                tp_degree=tp_degree,
                 torch_dtype="bf16",
             )
             model = LlamaNxDModelForCausalLM.export(
