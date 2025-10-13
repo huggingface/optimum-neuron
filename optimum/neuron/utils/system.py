@@ -57,8 +57,10 @@ def get_available_cores() -> int:
     This number depends first on the actual number of cores, then on the
     content of the NEURON_RT_NUM_CORES and NEURON_RT_VISIBLE_CORES variables.
     """
-    device_count = 0
     neuron_major = get_neuron_major()
+    if neuron_major == -1:
+        return 0
+    device_count = 0
     root, _, files = next(os.walk("/dev"))
     # Just look for devices in dev, non recursively
     for f in files:
