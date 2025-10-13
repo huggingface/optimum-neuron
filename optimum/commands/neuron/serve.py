@@ -40,9 +40,6 @@ if is_vllm_available():
 logger = logging.get_logger()
 
 
-available_cores = get_available_cores()
-
-
 class ServeCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
@@ -150,6 +147,7 @@ class ServeCommand(BaseOptimumCLICommand):
                 torch_dtype=torch_dtype,
             )
             # Filter out entries that do not fit on the target host
+            available_cores = get_available_cores()
             filtered_entries = [e for e in cached_entries if e["tp_degree"] <= available_cores]
             if len(filtered_entries) == 0:
                 if self.args.allow_non_cached_model:

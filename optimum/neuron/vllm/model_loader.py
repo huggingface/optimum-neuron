@@ -32,7 +32,6 @@ from ..utils.version_utils import get_neuronxcc_version
 
 logger = logging.getLogger("Neuron")
 
-available_cores = get_available_cores()
 neuronxcc_version = get_neuronxcc_version()
 
 
@@ -128,6 +127,7 @@ def get_optimum_neuron_model(
             "Please set data_parallel_size to 1 in the parallel config."
         )
     tp_degree = parallel_config.tensor_parallel_size
+    available_cores = get_available_cores()
     if tp_degree > available_cores:
         raise ValueError(
             f"The specified tensor parallelism degree ({tp_degree}) is higher"
