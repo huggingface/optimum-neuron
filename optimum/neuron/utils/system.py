@@ -51,6 +51,16 @@ def get_instance_name() -> str:
     return instance_name
 
 
+@functools.cache
+def cores_per_device():
+    if get_neuron_major() == -1:
+        return 0
+    # Trn2 instances have 8 physical cores per device, grouped by pairs, hence 4 virtual cores
+    # Note that the runtime can be configured to expose 8 cores per device, but it is not
+    # supported in optimum-neuron
+    return 4 if get_instance_name().startswith("trn2") else 2
+
+
 def get_available_cores() -> int:
     """A helper to get the number of available cores.
 
@@ -77,15 +87,7 @@ def get_available_cores() -> int:
             # device name
             if NEURON_DEV_PATTERN.match(f):
                 device_count += 1
-    instance_name = get_instance_name()
-    if instance_name.startswith("trn2"):
-        # Trn2 instances have 8 physical cores per device, grouped by pairs, hence 4 virtual cores
-        # Note that the runtime can be configured to expose 8 cores per device, but it is not
-        # supported in optimum-neuron
-        max_cores = device_count * 4
-    else:
-        # inf2 and trn1 instances have 2 cores per device
-        max_cores = device_count * 2
+    max_cores = device_count * cores_per_device()
     num_cores = os.environ.get("NEURON_RT_NUM_CORES", max_cores)
     if num_cores != max_cores:
         num_cores = int(num_cores)
