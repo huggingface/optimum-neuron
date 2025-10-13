@@ -89,11 +89,11 @@ def test_vllm_greedy_expectations(base_neuron_llm_config):
 
     expected_outputs = [
         " the head of state and government of the United States",
-        " Paris. The Eiffel Tower is located in Paris. The Louvre Museum is also located in",
-        " The world was holding its breath as the world's top scientists and engineers gathered at the secret underground facility to witness the unveiling of the ultimate time machine.\n",
+        " Paris. The Eiffel Tower is located in Paris. The Eiffel Tower is a famous",
+        " The world was holding its breath as the world's top scientists and engineers gathered at the secret underground facility to witness the unveiling of the ultimate time machine.",
         " to find happiness and fulfillment in the present moment. It's a simple yet profound concept that can bring joy and peace to our lives.\n\nAs I reflect on my own life, I realize that I've",
         " blue, but what about the colour of the sky",
-        " of my grandmother's kitchen, where I spent countless hours helping her in the kitchen. She was a",
+        " of my grandmother, who was a kind and gentle soul. She had a way of making everyone feel",
     ]
 
     for expected_output, output in zip(expected_outputs, outputs):

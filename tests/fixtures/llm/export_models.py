@@ -45,7 +45,7 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 2,
-            "auto_cast_type": "fp16",
+            "auto_cast_type": "bf16",
         },
     },
     "qwen2": {
@@ -54,7 +54,7 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 2,
-            "auto_cast_type": "fp16",
+            "auto_cast_type": "bf16",
         },
     },
     "granite": {
