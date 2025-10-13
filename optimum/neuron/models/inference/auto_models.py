@@ -29,6 +29,7 @@ from .mixtral.modeling_mixtral import MixtralNxDModelForCausalLM
 from .phi3.modeling_phi3 import Phi3NxDModelForCausalLM
 from .qwen2.modeling_qwen2 import Qwen2NxDModelForCausalLM
 from .qwen3.modeling_qwen3 import Qwen3NxDModelForCausalLM
+from .qwen3_embedding.modeling_qwen3_embedding import Qwen3NxDModelForCausalLMEmbedding
 from .qwen3_moe.modeling_qwen3_moe import Qwen3MoeNxDModelForCausalLM
 from .smollm3.modeling_smollm3 import SmolLM3NxDModelForCausalLM
 
@@ -105,6 +106,13 @@ class Qwen3NeuronModelForCausalLM(Qwen3NxDModelForCausalLM):
 
     pass
 
+@register_neuron_model_for_inference("qwen3", "feature-extraction")
+class Qwen3NeuronModelForCausalLMEmbedding(Qwen3NxDModelForCausalLMEmbedding):
+    """
+    Qwen3 model with NxD backend for inference on AWS Neuron.
+    """
+
+    pass
 
 @register_neuron_model_for_inference("qwen3_moe", "text-generation")
 class Qwen3MoeNeuronModelForCausalLM(Qwen3MoeNxDModelForCausalLM):
