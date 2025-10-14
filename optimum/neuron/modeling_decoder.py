@@ -28,6 +28,7 @@ from transformers.generation import StoppingCriteriaList
 from .configuration_utils import NeuronConfig
 from .modeling_base import NeuronModel
 from .models.auto_model import get_neuron_model_class
+from .utils.argument_utils import DTYPE_MAPPER
 from .utils.instance import get_default_compilation_target, normalize_instance_type
 from .utils.system import get_available_cores
 
@@ -115,7 +116,6 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         batch_size: int | None = None,
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
-        auto_cast_type: str | None = None,
     ) -> NeuronConfig:
         """
         Get the Neuron configuration for the target model class.
@@ -142,8 +142,6 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
                 The sequence length to use for inference. If not specified, defaults to the model's maximum sequence length.
             tensor_parallel_size (`int`, *optional*):
                 The number of cores to use for tensor parallelism. If not specified, all available cores will be used.
-            auto_cast_type (`str`, *optional*):
-                The data type to use for automatic casting. If not specified, defaults to the model's data type.
         Returns:
             `NeuronConfig`: The Neuron configuration for the model.
         """
@@ -182,12 +180,6 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         if tensor_parallel_size is None:
             # Use all available cores
             tensor_parallel_size = get_available_cores()
-        if auto_cast_type is None:
-            auto_cast_type = "fp32"
-            if config.torch_dtype == "float16":
-                auto_cast_type = "fp16"
-            elif config.torch_dtype == "bfloat16":
-                auto_cast_type = "bf16"
 
         if cls is NeuronModelForCausalLM:
             # Instantiation through the abstract class: find the correct model class
@@ -201,7 +193,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
             batch_size=batch_size,
             sequence_length=sequence_length,
             tensor_parallel_size=tensor_parallel_size,
-            auto_cast_type=auto_cast_type,
+            dtype=DTYPE_MAPPER.pt(config.torch_dtype),
         )
 
     @classmethod
@@ -305,7 +297,7 @@ class NeuronModelForCausalLM(NeuronModel, ABC):
         batch_size: int,
         sequence_length: int,
         tensor_parallel_size: int,
-        auto_cast_type: str,
+        dtype: torch.dtype,
     ):
         raise NotImplementedError("The `_get_neuron_config` method must be implemented in the subclass.")
 

@@ -47,7 +47,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": cores_per_device(),
-            "auto_cast_type": "bf16",
         },
     },
     "qwen2": {
@@ -56,7 +55,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": cores_per_device(),
-            "auto_cast_type": "bf16",
         },
     },
     "granite": {
@@ -65,7 +63,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": cores_per_device(),
-            "auto_cast_type": "bf16",
         },
     },
     "phi": {
@@ -74,7 +71,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": cores_per_device(),
-            "auto_cast_type": "bf16",
         },
     },
     "qwen3": {
@@ -83,7 +79,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": cores_per_device(),
-            "auto_cast_type": "bf16",
         },
     },
     "smollm3": {
@@ -92,7 +87,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": cores_per_device(),
-            "auto_cast_type": "bf16",
         },
     },
 }
