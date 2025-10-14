@@ -220,15 +220,7 @@ def base_neuron_llm_config():
     It will create a temporary directory and yield its path.
     """
     with TemporaryDirectory() as neuron_model_path:
-        model_config = {
-            "model_id": "Qwen/Qwen2.5-0.5B",
-            "export_kwargs": {
-                "batch_size": 1,
-                "sequence_length": 4096,
-                "tensor_parallel_size": 2,
-                "auto_cast_type": "bf16",
-            },
-        }
+        model_config = LLM_MODEL_CONFIGURATIONS["llama"]
         neuron_model_config = _get_neuron_model_for_config("base", model_config, neuron_model_path)
         logger.info("Base neuron model ready for testing ...")
         yield neuron_model_config
