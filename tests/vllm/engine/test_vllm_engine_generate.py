@@ -8,7 +8,6 @@ pytest.importorskip("vllm")
 from vllm import LLM, RequestOutput, SamplingParams
 from vllm.platforms import current_platform
 
-from optimum.neuron.utils import DTYPE_MAPPER
 from optimum.neuron.utils.instance import current_instance_type
 from optimum.neuron.vllm.platform import OptimumNeuronPlatform
 
@@ -56,7 +55,6 @@ def test_vllm_from_hub_model(neuron_llm_config):
         max_num_seqs=export_kwargs["batch_size"],
         max_model_len=export_kwargs["sequence_length"],
         tensor_parallel_size=export_kwargs["tensor_parallel_size"],
-        dtype=DTYPE_MAPPER.pt(export_kwargs["auto_cast_type"]),
     )
     _test_vllm_generation(llm)
 
