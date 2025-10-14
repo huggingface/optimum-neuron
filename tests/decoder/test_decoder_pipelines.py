@@ -6,7 +6,6 @@ from transformers import AutoTokenizer
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.pipelines import pipeline
-from optimum.neuron.utils import DTYPE_MAPPER
 from optimum.neuron.utils.instance import current_instance_type
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
@@ -61,15 +60,11 @@ def test_export_no_parameters():
 @is_inferentia_test
 @requires_neuronx
 def test_export_parameters():
-    export_kwargs = {"batch_size": 2, "sequence_length": 1024, "tensor_parallel_size": 2, "auto_cast_type": "fp16"}
+    export_kwargs = {"batch_size": 2, "sequence_length": 1024, "tensor_parallel_size": 2}
     p = pipeline("text-generation", "Qwen/Qwen2.5-0.5B", export=True, **export_kwargs)
     for key, value in export_kwargs.items():
         if key == "tensor_parallel_size":
             key = "tp_degree"
-        if key == "auto_cast_type":
-            key = "torch_dtype"
-            if isinstance(value, str):
-                value = DTYPE_MAPPER.pt(value)
         assert getattr(p.model.neuron_config, key) == value
     _test_generation(p)
 

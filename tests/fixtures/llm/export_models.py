@@ -46,7 +46,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 4 if INSTANCE_TYPE == "trn2" else 2,
-            "auto_cast_type": "bf16",
         },
     },
     "qwen2": {
@@ -55,7 +54,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 4 if INSTANCE_TYPE == "trn2" else 2,
-            "auto_cast_type": "bf16",
         },
     },
     "granite": {
@@ -64,7 +62,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 4 if INSTANCE_TYPE == "trn2" else 2,
-            "auto_cast_type": "bf16",
         },
     },
     "phi": {
@@ -73,7 +70,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 4 if INSTANCE_TYPE == "trn2" else 2,
-            "auto_cast_type": "bf16",
         },
     },
     "qwen3": {
@@ -82,7 +78,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 4 if INSTANCE_TYPE == "trn2" else 2,
-            "auto_cast_type": "bf16",
         },
     },
     "smollm3": {
@@ -91,7 +86,6 @@ LLM_MODEL_CONFIGURATIONS = {
             "batch_size": 4,
             "sequence_length": 4096,
             "tensor_parallel_size": 4 if INSTANCE_TYPE == "trn2" else 2,
-            "auto_cast_type": "bf16",
         },
     },
 }

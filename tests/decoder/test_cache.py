@@ -61,13 +61,11 @@ def export_decoder_model(model_id):
     batch_size = 2
     sequence_length = 512
     tensor_parallel_size = 2
-    auto_cast_type = "bf16"
     neuron_config = NeuronModelForCausalLM.get_neuron_config(
         model_id,
         batch_size=batch_size,
         sequence_length=sequence_length,
         tensor_parallel_size=tensor_parallel_size,
-        auto_cast_type=auto_cast_type,
     )
     return NeuronModelForCausalLM.export(
         model_id,
