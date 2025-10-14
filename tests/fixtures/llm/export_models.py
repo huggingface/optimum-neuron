@@ -18,7 +18,6 @@ if is_package_available("transformers"):
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.cache import synchronize_hub_cache
 from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
-from optimum.neuron.models.inference.llama.modeling_llama import LlamaNxDModelForCausalLM
 from optimum.neuron.version import __sdk_version__ as sdk_version
 from optimum.neuron.version import __version__ as version
 
@@ -246,9 +245,10 @@ def speculation():
                 sequence_length=4096,
                 tp_degree=tp_degree,
                 torch_dtype="bf16",
+                target=current_instance_type(),
                 speculation_length=5,
             )
-            model = LlamaNxDModelForCausalLM.export(
+            model = NeuronModelForCausalLM.export(
                 model_id,
                 config=AutoConfig.from_pretrained(model_id),
                 neuron_config=neuron_config,
@@ -273,8 +273,9 @@ def speculation():
                 sequence_length=4096,
                 tp_degree=tp_degree,
                 torch_dtype="bf16",
+                target=current_instance_type(),
             )
-            model = LlamaNxDModelForCausalLM.export(
+            model = NeuronModelForCausalLM.export(
                 model_id,
                 config=AutoConfig.from_pretrained(model_id),
                 neuron_config=neuron_config,
