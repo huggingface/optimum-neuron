@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..training_args import NeuronTrainingArguments
-from .base import MetricPlugin
+from .base import MetricPlugin, MetricUnit
 from .constants import MetricNames
 
 
@@ -77,3 +77,12 @@ class ThroughputPlugin(MetricPlugin):
         )
 
         return summary
+
+    def get_metric_units(self) -> dict[str, str]:
+        return {
+            "train/tokens_per_sec": MetricUnit.TOKENS_PER_SECOND,
+            "train/step_time": MetricUnit.SECONDS,
+            "summary/tokens_per_sec_avg": MetricUnit.TOKENS_PER_SECOND,
+            "summary/total_steps": MetricUnit.COUNT,
+            "summary/total_tokens_processed": MetricUnit.COUNT,
+        }

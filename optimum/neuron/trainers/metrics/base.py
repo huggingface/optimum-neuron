@@ -26,6 +26,18 @@ if TYPE_CHECKING:
     from .collector import TrainingMetricsCollector
 
 
+class MetricUnit:
+    SECONDS = "s"
+    MILLISECONDS = "ms"
+    TOKENS_PER_SECOND = "tokens/s"
+    SAMPLES_PER_SECOND = "samples/s"
+    PERCENT = "%"
+    COUNT = "count"
+    TFLOPS = "TFLOP/s"
+    RATIO = "ratio"
+    NONE = ""
+
+
 @dataclass
 class MetricPlugin(ABC):
     """Base class for metrics plugins. Each plugin calculates one type of metric."""
@@ -56,3 +68,7 @@ class MetricPlugin(ABC):
     def handles_metric(self, metric_name: str) -> bool:
         """Check if this plugin handles the given metric."""
         return metric_name in self.get_metric_names()
+
+    def get_metric_units(self) -> dict[str, str]:
+        """Get units for each metric this plugin produces. Override in subclasses."""
+        return dict.fromkeys(self.get_metric_names(), MetricUnit.NONE)

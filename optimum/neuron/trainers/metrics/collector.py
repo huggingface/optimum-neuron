@@ -110,7 +110,8 @@ class TrainingMetricsCollector:
         self.cycle_active = False
         self.cycle_accumulators = dict.fromkeys(self.accumulating_metrics, 0.0)
         self.cycle_batch_data = {"tokens": 0, "samples": 0}
-        self.component_start_time = None
+        self.component_start_times = dict.fromkeys(self.accumulating_metrics, None)
+        self.component_start_times = dict.fromkeys(self.accumulating_metrics, None)
 
     def _get_default_plugins(self) -> list[MetricPlugin]:
         return [
@@ -164,6 +165,21 @@ class TrainingMetricsCollector:
             return {}
         return self.metric_windows[metric_name].get_window_stats()
 
+    def get_metric_unit(self, metric_name: str) -> str:
+        """Get the unit for a specific metric."""
+        for plugin in self.active_plugins:
+            if plugin.handles_metric(metric_name):
+                units = plugin.get_metric_units()
+                return units.get(metric_name, "")
+        return ""
+
+    def get_all_metric_units(self) -> dict[str, str]:
+        """Get units for all metrics from all active plugins."""
+        all_units = {}
+        for plugin in self.active_plugins:
+            all_units.update(plugin.get_metric_units())
+        return all_units
+
     def start_gradient_accumulation_cycle(self):
         """Start accumulating timing across multiple forward/backward passes."""
         if not self.enabled:
@@ -171,6 +187,7 @@ class TrainingMetricsCollector:
         self.cycle_active = True
         self.cycle_accumulators = dict.fromkeys(self.accumulating_metrics, 0.0)
         self.cycle_batch_data = {"tokens": 0, "samples": 0}
+        self.component_start_times = dict.fromkeys(self.accumulating_metrics, None)
 
     def end_gradient_accumulation_cycle(self, step_number: int | None = None):
         """Finish accumulation cycle and record the total times."""
@@ -193,6 +210,7 @@ class TrainingMetricsCollector:
         self.cycle_active = False
         self.cycle_accumulators = dict.fromkeys(self.accumulating_metrics, 0.0)
         self.cycle_batch_data = {"tokens": 0, "samples": 0}
+        self.component_start_times = dict.fromkeys(self.accumulating_metrics, None)
 
     def start_metric(self, metric_name: str, inputs: dict[str, Any] | None = None):
         """Start timing a metric."""
@@ -202,7 +220,7 @@ class TrainingMetricsCollector:
             raise ValueError(f"Unknown metric: {metric_name}. Available: {list(self.metric_start_times.keys())}")
 
         if self.cycle_active and metric_name in self.accumulating_metrics:
-            self.component_start_time = time.perf_counter()
+            self.component_start_times[metric_name] = time.perf_counter()
             if inputs is not None:
                 self._update_cycle_batch_data(inputs)
         else:
@@ -269,12 +287,12 @@ class TrainingMetricsCollector:
             raise ValueError(f"Unknown metric: {metric_name}. Available: {list(self.metric_start_times.keys())}")
 
         if self.cycle_active and metric_name in self.accumulating_metrics:
-            if self.component_start_time is None:
+            if self.component_start_times[metric_name] is None:
                 return
 
-            elapsed_time = time.perf_counter() - self.component_start_time
+            elapsed_time = time.perf_counter() - self.component_start_times[metric_name]
             self.cycle_accumulators[metric_name] += elapsed_time
-            self.component_start_time = None
+            self.component_start_times[metric_name] = None
         else:
             if self.metric_start_times[metric_name] is None:
                 return

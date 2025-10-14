@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..training_args import NeuronTrainingArguments
-from .base import MetricPlugin
+from .base import MetricPlugin, MetricUnit
 from .constants import MetricNames
 
 
@@ -91,3 +91,9 @@ class MFUPlugin(MetricPlugin):
             return {"summary/mfu_avg": sum(mfu_values) / len(mfu_values)}
 
         return {}
+
+    def get_metric_units(self) -> dict[str, str]:
+        return {
+            "train/mfu": MetricUnit.PERCENT,
+            "summary/mfu_avg": MetricUnit.PERCENT,
+        }

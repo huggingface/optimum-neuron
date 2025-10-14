@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..training_args import NeuronTrainingArguments
-from .base import MetricPlugin
+from .base import MetricPlugin, MetricUnit
 from .constants import MetricNames
 
 
@@ -53,3 +53,11 @@ class ComponentTimingPlugin(MetricPlugin):
     def calculate_summary(self, summary_data: dict, collector: "TrainingMetricsCollector") -> dict[str, float]:
         """This plugin just provides timing data to other plugins."""
         return {}
+
+    def get_metric_units(self) -> dict[str, str]:
+        return {
+            MetricNames.FORWARD_PASS: MetricUnit.SECONDS,
+            MetricNames.BACKWARD_PASS: MetricUnit.SECONDS,
+            MetricNames.OPTIMIZER_STEP: MetricUnit.SECONDS,
+            MetricNames.TOTAL_STEP: MetricUnit.SECONDS,
+        }

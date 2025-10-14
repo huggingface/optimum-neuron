@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..training_args import NeuronTrainingArguments
-from .base import MetricPlugin
+from .base import MetricPlugin, MetricUnit
 from .constants import MetricNames
 
 
@@ -126,4 +126,18 @@ class EfficiencyPlugin(MetricPlugin):
             "summary/backward_time_percent_avg": avg(backward_pcts),
             "summary/optimizer_time_percent_avg": avg(optimizer_pcts),
             "summary/overhead_time_percent_avg": avg(overhead_pcts),
+        }
+
+    def get_metric_units(self) -> dict[str, str]:
+        return {
+            "train/efficiency": MetricUnit.PERCENT,
+            "train/forward_time_percent": MetricUnit.PERCENT,
+            "train/backward_time_percent": MetricUnit.PERCENT,
+            "train/optimizer_time_percent": MetricUnit.PERCENT,
+            "train/overhead_time_percent": MetricUnit.PERCENT,
+            "summary/efficiency_avg": MetricUnit.PERCENT,
+            "summary/forward_time_percent_avg": MetricUnit.PERCENT,
+            "summary/backward_time_percent_avg": MetricUnit.PERCENT,
+            "summary/optimizer_time_percent_avg": MetricUnit.PERCENT,
+            "summary/overhead_time_percent_avg": MetricUnit.PERCENT,
         }
