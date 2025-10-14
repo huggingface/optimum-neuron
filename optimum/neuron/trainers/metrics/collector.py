@@ -22,6 +22,7 @@ import torch_xla.runtime as xr
 from torch_neuronx.utils import get_platform_target
 
 from ...utils.training_utils import get_model_param_count
+from ...models.training.training_utils import is_logging_process
 from ..training_args import NeuronTrainingArguments
 from .base import MetricPlugin
 from .constants import HARDWARE_TFLOPS
@@ -56,7 +57,10 @@ class TrainingMetricsCollector:
         self.registry.validate_dependencies()
 
         # Check if any metrics are enabled
-        self.enabled = any(plugin.is_enabled(training_args) for plugin in all_plugins)
+        if is_logging_process():
+            self.enabled = any(plugin.is_enabled(training_args) for plugin in all_plugins)
+        else:
+            self.enabled = False
 
         if not self.enabled:
             self.metric_windows = {}
