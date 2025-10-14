@@ -1,8 +1,6 @@
 import argparse
 import json
 
-from optimum.neuron.cache.hub_cache import get_hub_cached_entries
-
 
 try:
     # this is optional and not required for the script to run
@@ -43,6 +41,8 @@ def pick_best_config(cached_entries):
 
 
 def check_neuron_config(model_entry):
+    from optimum.neuron.cache.hub_cache import get_hub_cached_entries
+
     model_id = model_entry["name"]
     try:
         cached_entries = get_hub_cached_entries(model_id=model_id, task="text-generation")
@@ -127,17 +127,43 @@ def print_summary(catalog_path, output_path):
     print(f"Total files with changes: {total_files_with_changes}")
 
 
+def parse_csv():
+    import csv
+
+    csv_path = "ie_dump.csv"
+    entries = []
+    with open(csv_path, "r") as f:
+        fields = f.readline().strip().split(";")
+        reader = csv.reader(f, delimiter=";")
+        for row in reader:
+            entry = {}
+            for i, field in enumerate(row):
+                entry[fields[i]] = field
+            model_id = entry["name"]
+            hasNeuronConfig = "NEURON" in entry["accelerator_config"]
+            catalog_id = entry["id"]
+            ie_model_entry = {"name": model_id, "hasTgiNeuronConfig": hasNeuronConfig, "catalog_id": catalog_id}
+            entries.append(ie_model_entry)
+
+    # Now make it in the format of ie_models.json
+    with open("ie_models_new.json", "w") as f:
+        json.dump(entries, f, indent=4)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--catalog_path", help="Path to the catalog.json file", default="ie_models.json")
     parser.add_argument("-o", "--output_path", help="Path to the output file", default="neuron_models_changes.json")
     parser.add_argument("-s", "--summary", action="store_true", help="Print summary of the results")
     parser.add_argument("-u", "--update", help="Update neuron config for a model", default=None)
+    parser.add_argument("-v", "--parse_csv", action="store_true", help="Parse the csv file")
 
     args = parser.parse_args()
     if args.summary:
         print_summary(args.catalog_path, args.output_path)
     elif args.update:
         update_neuron_ie(args.update, args.output_path)
+    elif args.parse_csv:
+        parse_csv()
     else:
         check_neuron_ie(args.catalog_path, args.output_path)

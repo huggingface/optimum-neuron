@@ -1,0 +1,132 @@
+id;name;accelerator_config;inference_backend;task
+207;allenai/OLMo-7B-0724-Instruct-hf;GPU 48GB;TGI;text-generation
+290;BAAI/bge-large-en-v1.5;GPU 24GB;TEI;sentence-embeddings
+289;BAAI/bge-base-en-v1.5;GPU 8GBCPU 8GB;TEI;sentence-embeddings
+317;BAAI/bge-multilingual-gemma2;GPU 48GB;None;sentence-embeddings
+314;BAAI/bge-reranker-base;GPU 16GB;TEI;text-ranking
+274;bartowski/Qwen2.5-Coder-32B-Instruct-GGUF;GPU 24GB;llama.cpp;text-generation
+275;bartowski/QwQ-32B-Preview-GGUF;GPU 48GB;llama.cpp;text-generation
+291;beethogedeon/gte-Qwen2-7B-instruct-Q4_K_M-GGUF;GPU 16GBCPU 16GB;llama.cpp;sentence-embeddings
+214;berkeley-nest/Starling-LM-7B-alpha;GPU 24GB;TGI;text-generation
+300;black-forest-labs/FLUX.1-schnell;GPU 48GB;None;text-to-image
+325;ByteDance-Seed/UI-TARS-72B-DPO;GPU 384GB;TGI;image-text-to-text
+315;cross-encoder/ms-marco-MiniLM-L12-v2;GPU 2GBCPU 2GB;None;text-ranking
+215;deepseek-ai/DeepSeek-R1-Distill-Llama-70B;GPU 192GB;TGI;text-generation
+216;deepseek-ai/DeepSeek-R1-Distill-Qwen-32B;GPU 96GB;TGI;text-generation
+344;distil-whisper/distil-large-v3.5;GPU 16GB;None;automatic-speech-recognition
+310;facebook/bart-large-cnn;GPU 8GB;None;summarization
+311;facebook/bart-large-mnli;GPU 16GB;None;zero-shot-classification
+326;ggml-org/SmolVLM2-2.2B-Instruct-GGUF;GPU 8GB;llama.cpp;image-text-to-text
+327;ggml-org/Qwen2.5-VL-7B-Instruct-GGUF;GPU 13GB;llama.cpp;image-text-to-text
+328;ggml-org/Qwen2.5-VL-3B-Instruct-GGUF;GPU 8GB;llama.cpp;image-text-to-text
+329;ggml-org/InternVL3-14B-Instruct-GGUF;GPU 19GB;llama.cpp;image-text-to-text
+316;ggml-org/jina-reranker-v1-turbo-en-GGUF;GPU 16GBCPU 16GB;llama.cpp;text-ranking
+283;google/paligemma2-3b-mix-448;GPU 24GB;TGI;image-text-to-text
+281;google/gemma-3-27b-it;GPU 80GB;TGI;image-text-to-text
+282;google/gemma-3-12b-it;GPU 48GB;TGI;image-text-to-text
+284;google/paligemma2-10b-mix-224;GPU 48GB;TGI;image-text-to-text
+285;google/paligemma2-10b-mix-448;GPU 48GB;TGI;image-text-to-text
+347;google/embeddinggemma-300m;GPU 4GBCPU 4GB;TEI;sentence-similarity
+346;google/embeddinggemma-300m;CPU 4GB;custom;sentence-similarity
+217;HuggingFaceH4/zephyr-7b-beta;GPU 24GBNEURON 24GB;TGITGI Neuron;text-generation
+220;HuggingFaceTB/SmolLM2-1.7B;GPU 24GB;TGI;text-generation
+221;HuggingFaceTB/SmolLM2-1.7B-Instruct;GPU 24GB;TGI;text-generation
+335;HuggingFaceTB/SmolLM3-3B;GPU 16GB;vLLM;text-generation
+208;ibm-granite/granite-3.1-8b-base;GPU 48GB;TGI;text-generation
+340;ibm-granite/granite-3.3-8b-instruct;GPU 25GB;vLLM;text-generation
+352;ibm-granite/granite-4.0-micro;GPU 10GB;vLLM;text-generation
+219;Intel/neural-chat-7b-v3-3;GPU 24GBNEURON 24GB;TGITGI Neuron;text-generation
+218;Intel/neural-chat-7b-v3-1;GPU 24GBNEURON 24GB;TGITGI Neuron;text-generation
+292;intfloat/multilingual-e5-large;GPU 16GB;TEI;sentence-embeddings
+293;intfloat/multilingual-e5-large-instruct;GPU 16GB;TEI;sentence-embeddings
+280;jinaai/jina-embeddings-v2-base-en;CPU 4GB;TEI;feature-extraction
+303;Linaqruf/animagine-xl-2.0;GPU 24GB;None;text-to-image
+318;llmrails/ember-v1;GPU 24GBCPU 8GB;TEI;sentence-embeddings
+273;lmstudio-community/Llama-3.3-70B-Instruct-GGUF;GPU 96GB;llama.cpp;text-generation
+222;lmsys/vicuna-7b-v1.5;GPU 48GBNEURON 24GB;TGITGI Neuron;text-generation
+232;meta-llama/Llama-3.1-8B-Instruct;GPU 24GBNEURON 32GB;TGITGI Neuron;text-generation
+231;meta-llama/Llama-3.1-8B;GPU 24GBNEURON 32GB;TGITGI Neuron;text-generation
+230;meta-llama/Meta-Llama-3-8B-Instruct;GPU 24GBNEURON 32GB;TGITGI Neuron;text-generation
+226;meta-llama/Llama-2-13b-hf;GPU 48GBNEURON 64GB;TGITGI Neuron;text-generation
+237;meta-llama/Llama-3.2-1B;GPU 24GBNEURON 32GB;TGITGI Neuron;text-generation
+240;meta-llama/Llama-3.2-3B-Instruct;GPU 24GBNEURON 32GB;TGITGI Neuron;text-generation
+225;meta-llama/Llama-2-13b-chat-hf;GPU 48GBNEURON 64GB;TGITGI Neuron;text-generation
+224;meta-llama/Llama-2-7b-hf;GPU 48GBNEURON 32GB;TGITGI Neuron;text-generation
+227;meta-llama/Llama-2-70b-chat-hf;GPU 192GBNEURON 192GB;TGITGI Neuron;text-generation
+235;meta-llama/Llama-3.1-70B;GPU 192GBNEURON 384GB;TGITGI Neuron;text-generation
+236;meta-llama/Llama-3.1-70B-Instruct;GPU 192GBNEURON 384GB;TGITGI Neuron;text-generation
+286;meta-llama/Llama-3.2-11B-Vision-Instruct;GPU 48GB;TGI;image-text-to-text
+239;meta-llama/Llama-3.2-3B;GPU 24GBNEURON 32GB;TGITGI Neuron;text-generation
+287;meta-llama/Llama-4-Scout-17B-16E-Instruct;GPU 640GB;TGI;image-text-to-text
+228;meta-llama/Llama-2-70b-hf;GPU 192GBNEURON 192GB;TGITGI Neuron;text-generation
+234;meta-llama/Meta-Llama-3-70B-Instruct;GPU 320GBNEURON 384GB;TGITGI Neuron;text-generation
+238;meta-llama/Llama-3.2-1B-Instruct;GPU 24GBNEURON 32GB;TGITGI Neuron;text-generation
+223;meta-llama/Llama-2-7b-chat-hf;GPU 48GBNEURON 32GB;TGITGI Neuron;text-generation
+233;meta-llama/Meta-Llama-3-70B;GPU 320GBNEURON 384GB;TGITGI Neuron;text-generation
+229;meta-llama/Meta-Llama-3-8B;GPU 24GBNEURON 32GB;TGITGI Neuron;text-generation
+212;microsoft/Phi-3-mini-4k-instruct;GPU 24GB;TGI;text-generation
+213;microsoft/phi-4;GPU 48GB;TGI;text-generation
+211;microsoft/Phi-3-mini-128k-instruct;GPU 24GB;TGI;text-generation
+248;mistralai/Mixtral-8x7B-v0.1;GPU 160GBNEURON 160GB;TGITGI Neuron;text-generation
+245;mistralai/Mistral-7B-v0.3;GPU 24GBNEURON 32GB;TGITGI Neuron;text-generation
+250;mistralai/Mistral-Nemo-Instruct-2407;GPU 96GB;TGI;text-generation
+244;mistralai/Mistral-7B-Instruct-v0.2;GPU 24GBNEURON 32GB;TGITGI Neuron;text-generation
+246;mistralai/Mistral-7B-Instruct-v0.3;GPU 24GBNEURON 32GB;TGITGI Neuron;text-generation
+247;mistralai/Mixtral-8x22B-Instruct-v0.1;GPU 384GB;TGI;text-generation
+242;mistralai/Mistral-7B-v0.1;GPU 24GBNEURON 32GB;TGITGI Neuron;text-generation
+241;mistralai/Mistral-Small-24B-Instruct-2501;GPU 96GB;TGI;text-generation
+249;mistralai/Mixtral-8x7B-Instruct-v0.1;GPU 160GBNEURON 160GB;TGITGI Neuron;text-generation
+243;mistralai/Mistral-7B-Instruct-v0.1;GPU 24GBNEURON 32GB;TGITGI Neuron;text-generation
+294;mixedbread-ai/mxbai-embed-large-v1;GPU 24GB;TEI;sentence-embeddings
+313;MoritzLaurer/deberta-v3-large-zeroshot-v2.0;GPU 16GB;None;zero-shot-classification
+312;MoritzLaurer/bge-m3-zeroshot-v2.0;GPU 16GB;None;zero-shot-classification
+336;nomic-ai/nomic-embed-text-v1.5;GPU 8GBCPU 16GB;TEI;sentence-similarity
+345;onnx-community/embeddinggemma-300m-ONNX;GPU 4GBCPU 4GB;TEI;sentence-similarity
+278;openai/whisper-large-v3;GPU 24GB;None;automatic-speech-recognition
+279;openai/whisper-large-v3-turbo;GPU 24GB;None;automatic-speech-recognition
+342;openai/gpt-oss-20b;GPU 58GB;vLLM;text-generation
+343;openai/gpt-oss-120b;GPU 160GB;vLLM;text-generation
+251;openchat/openchat-3.5-0106;GPU 24GB;TGI;text-generation
+304;prompthero/openjourney;GPU 24GB;None;text-to-image
+210;qihoo360/TinyR1-32B-Preview;GPU 96GB;TGI;text-generation
+263;Qwen/QwQ-32B;GPU 96GB;TGI;text-generation
+265;Qwen/Qwen2.5-72B-Instruct;GPU 320GB;TGI;text-generation
+261;Qwen/Qwen2.5-14B-Instruct;GPU 128GB;TGI;text-generation
+256;Qwen/Qwen2.5-Coder-7B-Instruct;GPU 48GB;TGI;text-generation
+258;Qwen/Qwen2.5-7B-Instruct;GPU 48GB;TGI;text-generation
+266;Qwen/Qwen2.5-Math-72B-Instruct;GPU 320GB;TGI;text-generation
+259;Qwen/Qwen2.5-Coder-32B-Instruct;GPU 95GB;TGI;text-generation
+288;Qwen/Qwen2.5-VL-7B-Instruct;GPU 48GB;TGI;image-text-to-text
+260;Qwen/Qwen2.5-14B-Instruct-1M;GPU 128GB;TGI;text-generation
+255;Qwen/Qwen2-7B-Instruct;GPU 48GB;TGI;text-generation
+257;Qwen/Qwen2.5-Math-7B-Instruct;GPU 48GB;TGI;text-generation
+264;Qwen/Qwen2-72B-Instruct;GPU 320GB;TGI;text-generation
+338;Qwen/Qwen3-Embedding-4B;GPU 12GB;TEI;feature-extraction
+351;Qwen/Qwen3-Next-80B-A3B-Instruct;GPU 228GB;vLLM;text-generation
+350;Qwen/Qwen3-Next-80B-A3B-Thinking;GPU 228GB;vLLM;text-generation
+337;Qwen/Qwen3-Embedding-8B;GPU 22GB;TEI;feature-extraction
+339;Qwen/Qwen3-Embedding-0.6B;GPU 8GB;TEI;feature-extraction
+262;Qwen/Qwen2.5-Coder-14B-Instruct;GPU 45GB;TGI;text-generation
+341;Qwen/Qwen3-32B;GPU 100GB;vLLM;text-generation
+334;Qwen/Qwen3-1.7B;GPU 12GB;TGI;text-generation
+209;RekaAI/reka-flash-3;GPU 48GB;TGI;text-generation
+295;sentence-transformers/all-MiniLM-L6-v2;GPU 2GBCPU 2GB;TEI;sentence-embeddings
+296;sentence-transformers/all-mpnet-base-v2;GPU 4GBCPU 4GB;TEI;sentence-embeddings
+319;sentence-transformers/sentence-t5-xxl;GPU 24GB;None;sentence-embeddings
+297;sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2;GPU 24GB;TEI;sentence-embeddings
+252;simplescaling/s1.1-32B;GPU 96GB;TGI;text-generation
+306;stabilityai/stable-diffusion-xl-base-1.0;GPU 24GBNEURON 32GB;TGI Neuron;text-to-image
+307;stabilityai/stable-diffusion-2-1;GPU 24GBNEURON 32GB;TGI Neuron;text-to-image
+305;stabilityai/sdxl-turbo;GPU 24GBNEURON 32GB;TGI Neuron;text-to-image
+308;stable-diffusion-v1-5/stable-diffusion-v1-5;GPU 16GB;None;text-to-image
+309;stablediffusionapi/anything-v5;GPU 24GB;None;text-to-image
+349;swiss-ai/Apertus-8B-Instruct-2509;GPU 23GB;SGlang;text-generation
+267;Tesslate/Tessa-T1-32B;GPU 80GB;TGI;text-generation
+269;TheBloke/NeuralHermes-2.5-Mistral-7B-GPTQ;GPU 24GB;TGI;text-generation
+270;TheBloke/OpenHermes-2.5-Mistral-7B-GPTQ;GPU 24GB;TGI;text-generation
+271;TheBloke/Llama-2-13B-chat-GPTQ;GPU 24GB;TGI;text-generation
+272;TheBloke/Llama-2-70B-chat-GPTQ;GPU 160GB;TGI;text-generation
+268;TheBloke/Falcon-180B-Chat-GPTQ;GPU 160GB;TGI;text-generation
+298;thenlper/gte-large;GPU 8GBCPU 8GB;TEI;sentence-embeddings
+299;thenlper/gte-large-zh;GPU 4GBCPU 4GB;TEI;sentence-embeddings
+330;unsloth/DeepSeek-R1-GGUF;GPU 384GB;llama.cpp;text-generation
