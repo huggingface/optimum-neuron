@@ -53,7 +53,7 @@ async def vllm_service_from_model(request, vllm_launcher, base_neuron_llm_config
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "prompt, max_output_tokens", [("One of my fondest memory is", 32), ("What is the colour of the sky ?", 24)]
+    "prompt, max_output_tokens", [("What is Deep Learning?", 17), ("What is the colour of the sky ?", 24)]
 )
 async def test_vllm_service_from_model(vllm_service_from_model, prompt, max_output_tokens):
     greedy_tokens, greedy_text = await vllm_service_from_model.client.greedy(

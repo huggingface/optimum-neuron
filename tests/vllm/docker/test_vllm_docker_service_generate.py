@@ -48,7 +48,7 @@ async def vllm_docker_service_from_model(request, vllm_docker_launcher, base_neu
     "prompt, max_output_tokens",
     [
         ("What is Deep Learning?", 17),
-        ("One of my fondest memory is", 32),
+        ("What is the colour of the sky ?", 24),
     ],
 )
 async def test_vllm_docker_service_from_model(vllm_docker_service_from_model, prompt, max_output_tokens):
