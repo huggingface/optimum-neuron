@@ -35,6 +35,28 @@ class MFUPlugin(MetricPlugin):
     def is_enabled(self, args: NeuronTrainingArguments) -> bool:
         return args.enable_mfu_metrics
 
+    def _compute_mfu(self, tokens: int, time: float, collector: "TrainingMetricsCollector") -> float:
+        """
+        Compute the system-wide MFU percentage.
+
+        Refer to the PaLM paper Appendix B (page 66) for the MFU formula:
+        https://arxiv.org/pdf/2204.02311
+        """
+        if collector.seq_length is None:
+            raise ValueError("Sequence length must be set in the collector to calculate MFU.")
+
+        N = collector.model_params
+        L, H, Q, T = collector.num_layers, collector.num_heads, collector.head_dim, collector.seq_length
+        flops_per_token = 6 * N + 12 * L * H * Q * T
+
+        # System-wide MFU calculation
+        system_tokens = tokens * collector.dp_size  # Scale by data parallel size
+        system_flops_per_iter = flops_per_token * system_tokens
+        system_actual_flops_per_sec = system_flops_per_iter / time
+        system_peak_flops_per_sec = collector.peak_tflops_per_core * collector.total_neuron_cores * 1e12
+        system_mfu_pct = (system_actual_flops_per_sec / system_peak_flops_per_sec) * 100
+        return system_mfu_pct
+
     def calculate_realtime(self, window_stats: dict, collector: "TrainingMetricsCollector") -> dict[str, float]:
         """MFU = actual FLOPS / peak FLOPS as a percentage."""
         if (
@@ -47,21 +69,7 @@ class MFUPlugin(MetricPlugin):
 
         total_tokens = window_stats["total_tokens"]  # Per-core tokens
         total_time = window_stats["total_time"]
-
-        if collector.seq_length is None:
-            raise ValueError("Sequence length must be set in the collector to calculate MFU.")
-
-        N = collector.model_params
-        L, H, Q, T = collector.num_layers, collector.num_heads, collector.head_dim, collector.seq_length
-        flops_per_token = 6 * N + 12 * L * H * Q * T
-
-        # System-wide MFU calculation
-        system_tokens = total_tokens * collector.dp_size  # Scale by data parallel size
-        system_flops_per_iter = flops_per_token * system_tokens
-        system_actual_flops_per_sec = system_flops_per_iter / total_time
-        system_peak_flops_per_sec = collector.peak_tflops_per_core * collector.total_neuron_cores * 1e12
-        system_mfu_pct = (system_actual_flops_per_sec / system_peak_flops_per_sec) * 100
-
+        system_mfu_pct = self._compute_mfu(total_tokens, total_time, collector)
         return {"train/mfu": round(system_mfu_pct, 2)}
 
     def calculate_summary(self, summary_data: dict, collector: "TrainingMetricsCollector") -> dict[str, float]:
@@ -72,19 +80,10 @@ class MFUPlugin(MetricPlugin):
         if not step_times or collector.model_params is None:
             return {}
 
-        N = collector.model_params
-        L, H, Q, T = collector.num_layers, collector.num_heads, collector.head_dim, collector.seq_length
-        flops_per_token = 6 * N + 12 * L * H * Q * T
-
         mfu_values = []
         for tokens, time in zip(tokens_per_step, step_times):
             if time > 0 and tokens > 0:
-                # System-wide MFU
-                system_tokens = tokens * collector.dp_size
-                system_flops_per_iter = flops_per_token * system_tokens
-                system_actual_flops_per_sec = system_flops_per_iter / time
-                system_peak_flops_per_sec = collector.peak_tflops_per_core * collector.total_neuron_cores * 1e12
-                system_mfu_pct = (system_actual_flops_per_sec / system_peak_flops_per_sec) * 100
+                system_mfu_pct = self._compute_mfu(tokens, time, collector)
                 mfu_values.append(system_mfu_pct)
 
         if mfu_values:
