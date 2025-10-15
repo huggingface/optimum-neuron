@@ -26,7 +26,6 @@ runs:
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
           python -m pip install -U pip
           python -m pip install --upgrade setuptools==69.5.1
-          python -m pip install hf_transfer
       - name: Install torch and torchvision (CUDA)
         if: ${{ inputs.use_cuda == 'true' }}
         shell: bash

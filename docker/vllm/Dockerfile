@@ -36,7 +36,7 @@ ENV PATH="/opt/bin/:/opt/aws/neuron/bin:${PATH}"
 
 # Install HuggingFace packages
 RUN pip3 install \
-    hf_transfer huggingface_hub
+    huggingface_hub
 
 # Install manually torch CPU version to avoid pulling CUDA
 RUN pip3 install \
@@ -54,7 +54,7 @@ RUN cd optimum-neuron && pip3 install .[neuronx,vllm] \
 
 # HF base env
 ENV HUGGINGFACE_HUB_CACHE=/tmp \
-    HF_HUB_ENABLE_HF_TRANSFER=1 \
+    HF_XET_HIGH_PERFORMANCE=1 \
     HF_HUB_USER_AGENT_ORIGIN=aws:sagemaker:neuron:inference:vllm-optimum-neuron
 
 # Create the entrypoint script
