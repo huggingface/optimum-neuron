@@ -19,6 +19,7 @@ runs:
       - name: Prepare virtual environment
         shell: bash
         run: |
+          sudo apt-get update -y
           sudo apt install python3-venv python3-dev -y
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate

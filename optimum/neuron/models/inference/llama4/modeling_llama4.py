@@ -320,6 +320,7 @@ class Llama4NxDModelForCausalLM(NxDModelForCausalLM):
         cls,
         checkpoint_id: str,
         checkpoint_revision: str,
+        instance_type: str,
         batch_size: int,
         sequence_length: int,
         tensor_parallel_size: int,
@@ -333,6 +334,7 @@ class Llama4NxDModelForCausalLM(NxDModelForCausalLM):
             sequence_length=sequence_length,
             tp_degree=tensor_parallel_size,
             torch_dtype=auto_cast_type,
+            target=instance_type,
             on_device_sampling=True,
             continuous_batching=continuous_batching,
         )

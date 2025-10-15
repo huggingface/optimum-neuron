@@ -38,6 +38,19 @@ def get_neuron_major() -> int:
     return -1
 
 
+@functools.cache
+def get_instance_name() -> str:
+    if get_neuron_major() == -1:
+        raise RuntimeError("No Neuron device detected.")
+    fpath = "/sys/devices/virtual/dmi/id/product_name"
+    try:
+        with open(fpath, "r") as f:
+            instance_name = f.readline()
+    except IOError:
+        raise RuntimeError("Unable to read Neuron platform instance type.")
+    return instance_name
+
+
 def get_available_cores() -> int:
     """A helper to get the number of available cores.
 
@@ -62,7 +75,15 @@ def get_available_cores() -> int:
             # device name
             if NEURON_DEV_PATTERN.match(f):
                 device_count += 1
-    max_cores = device_count * 2
+    instance_name = get_instance_name()
+    if instance_name.startswith("trn2"):
+        # Trn2 instances have 8 physical cores per device, grouped by pairs, hence 4 virtual cores
+        # Note that the runtime can be configured to expose 8 cores per device, but it is not
+        # supported in optimum-neuron
+        max_cores = device_count * 4
+    else:
+        # inf2 and trn1 instances have 2 cores per device
+        max_cores = device_count * 2
     num_cores = os.environ.get("NEURON_RT_NUM_CORES", max_cores)
     if num_cores != max_cores:
         num_cores = int(num_cores)

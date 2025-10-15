@@ -53,6 +53,8 @@ from ...neuron.utils import (
     is_neuron_available,
     is_neuronx_available,
 )
+from ...neuron.utils.instance import align_compilation_target
+from ...neuron.utils.system import get_available_cores
 from ...neuron.utils.version_utils import (
     check_compiler_compatibility_for_stable_diffusion,
 )
@@ -98,10 +100,12 @@ logger.setLevel(logging.INFO)
 
 
 def infer_compiler_kwargs(args: argparse.Namespace) -> dict[str, Any]:
-    # infer compiler kwargs
+    instance_type = args.instance_type
     auto_cast = None if args.auto_cast == "none" else args.auto_cast
     auto_cast_type = None if auto_cast is None else args.auto_cast_type
-    compiler_kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type}
+    compiler_kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type, "instance_type": instance_type}
+
+    # Inf1 specific compiler args
     if hasattr(args, "disable_fast_relayout"):
         compiler_kwargs["disable_fast_relayout"] = getattr(args, "disable_fast_relayout")
     if hasattr(args, "disable_fallback"):
@@ -626,8 +630,6 @@ def main_export(
     compiler_workdir: str | Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
-    instance_type: str = "trn1",
-    cpu_backend: bool = False,
     trust_remote_code: bool = False,
     subfolder: str = "",
     revision: str = "main",
@@ -688,20 +690,23 @@ def main_export(
         compiler_workdir=compiler_workdir,
         inline_weights_to_neff=inline_weights_to_neff,
         optlevel=optlevel,
-        instance_type=instance_type,
-        cpu_backend=cpu_backend,
         output_file_names=output_model_names,
         compiler_kwargs=compiler_kwargs,
         model_name_or_path=model_name_or_path,
     )
 
     # Validate compiled model
-    if do_validation and tensor_parallel_size > 1:
-        # TODO: support the validation of tp models.
-        logger.warning(
-            "The validation is not yet supported for tensor parallel model, the validation will be turned off."
-        )
-        do_validation = False
+    if do_validation:
+        if tensor_parallel_size > 1:
+            # TODO: support the validation of tp models.
+            logger.warning(
+                "The validation is not yet supported for tensor parallel model, the validation will be turned off."
+            )
+            do_validation = False
+        elif get_available_cores() == 0:
+            logger.info("The validation is disabled since no Neuron device is detected.")
+            do_validation = False
+
     if do_validation is True:
         try:
             validate_models_outputs(
@@ -737,6 +742,7 @@ def maybe_export_from_neuron_model_class(
     model: str,
     output: str | Path,
     task: str = "auto",
+    instance_type: str | None = None,
     cache_dir: str | None = None,
     subfolder: str = "",
     trust_remote_code: bool = False,
@@ -776,6 +782,7 @@ def maybe_export_from_neuron_model_class(
         config=config,
         token=kwargs.get("token", None),
         revision=kwargs.get("revision", "main"),
+        instance_type=instance_type,
         batch_size=batch_size,
         sequence_length=sequence_length,
         tensor_parallel_size=tensor_parallel_size,
@@ -812,6 +819,10 @@ def main():
     task = infer_task(args.model) if args.task == "auto" else args.task
     library_name = TasksManager.infer_library_from_model(args.model, cache_dir=args.cache_dir)
 
+    if args.instance_type is not None:
+        # We must align the compilation target before neuronx-distributed is initialized
+        align_compilation_target(args.instance_type, override=True)
+
     if library_name == "diffusers":
         input_shapes = normalize_diffusers_input_shapes(args)
         submodels = {"unet": args.unet}
@@ -831,6 +842,7 @@ def main():
     compiler_kwargs = infer_compiler_kwargs(args)
     optional_outputs = customize_optional_outputs(args)
     optlevel = parse_optlevel(args)
+
     lora_args = LoRAAdapterArguments(
         model_ids=getattr(args, "lora_model_ids", None),
         weight_names=getattr(args, "lora_weight_names", None),

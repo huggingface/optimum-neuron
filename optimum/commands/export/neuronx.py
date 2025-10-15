@@ -13,12 +13,15 @@
 # limitations under the License.
 """Defines the command line for the export with Neuronx compiler."""
 
+import os
 import subprocess
 import sys
 from argparse import SUPPRESS, ArgumentParser, Namespace, _SubParsersAction
 from pathlib import Path
 
 from ...exporters import TasksManager
+from ...neuron.utils.instance import SUPPORTED_INSTANCE_TYPES, normalize_instance_type
+from ...neuron.utils.system import get_neuron_major
 from ..base import BaseOptimumCLICommand, CommandInfo
 
 
@@ -41,6 +44,15 @@ def parse_args_neuronx(parser: "ArgumentParser"):
             "The task to export the model for. If not specified, the task will be auto-inferred based on the model. Available tasks depend on the model, but are among:"
             f" {str(list(TasksManager._TRANSFORMERS_TASKS_TO_MODEL_LOADERS.keys()) + list(TasksManager._DIFFUSERS_TASKS_TO_MODEL_LOADERS.keys()))}."
         ),
+    )
+    require_instance_type = True if get_neuron_major() == -1 else False
+    optional_group.add_argument(
+        "--instance_type",
+        type=str,
+        default=None,
+        choices=SUPPORTED_INSTANCE_TYPES,
+        required=require_instance_type,
+        help="Target Neuron instance type on which the compiled model will be run.",
     )
     optional_group.add_argument(
         "--subfolder",
@@ -324,5 +336,11 @@ class NeuronxExportCommand(BaseOptimumCLICommand):
         return parse_args_neuronx(parser)
 
     def run(self):
+        if get_neuron_major() == -1:
+            self.setup_target_instance()
         full_command = f"python3 -m optimum.exporters.neuron {self.args_string}"
         subprocess.run(full_command, shell=True, check=True)
+
+    def setup_target_instance(self):
+        instance_type = normalize_instance_type(self.args.instance_type)
+        os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = instance_type
