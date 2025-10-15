@@ -18,6 +18,8 @@ import os
 import warnings
 from argparse import ArgumentParser
 
+from transformers import AutoConfig
+
 from ...neuron.cache.hub_cache import select_hub_cached_entries
 from ...neuron.configuration_utils import NeuronConfig
 from ...neuron.utils import DTYPE_MAPPER
@@ -49,12 +51,6 @@ class ServeCommand(BaseOptimumCLICommand):
             type=str,
             required=True,
             help="Model ID on huggingface.co or path on disk to load model from.",
-        )
-        parser.add_argument(
-            "--dtype",
-            type=str,
-            choices=["bfloat16", "float16"],
-            help="Override the default `torch.dtype` and load the model under this dtype. If `None` is passed, the dtype will be automatically derived from the model's weights.",
         )
         parser.add_argument(
             "--tensor_parallel_size",
@@ -93,7 +89,8 @@ class ServeCommand(BaseOptimumCLICommand):
         batch_size = self.args.batch_size
         sequence_length = self.args.sequence_length
         tensor_parallel_size = self.args.tensor_parallel_size
-        torch_dtype = None if self.args.dtype is None else DTYPE_MAPPER.pt(self.args.dtype)
+        config = AutoConfig.from_pretrained(model_id, revision=revision)
+        torch_dtype = DTYPE_MAPPER.pt(config.torch_dtype)
         try:
             # Look for a NeuronConfig in the model directory
             neuron_config = NeuronConfig.from_pretrained(model_id, revision=revision)
@@ -126,13 +123,6 @@ class ServeCommand(BaseOptimumCLICommand):
                 raise ValueError(
                     f"The specified tensor parallel size {tensor_parallel_size} is inconsistent"
                     f"with the one used to export the neuron model ({neuron_config.tp_degree})"
-                )
-            if torch_dtype is None:
-                torch_dtype = neuron_config.torch_dtype
-            elif torch_dtype != neuron_config.torch_dtype:
-                raise ValueError(
-                    f"The specified dtype {torch_dtype} is inconsistent"
-                    f"with the one used to export the neuron model ({neuron_config.torch_dtype})"
                 )
             logger.info(f"Loading Neuron model: {self.args.model}")
         else:
