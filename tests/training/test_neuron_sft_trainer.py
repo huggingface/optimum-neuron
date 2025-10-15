@@ -77,7 +77,7 @@ def test_neuron_sft_trainer_basic_training_loop(world_size, tp_size, pp_size, pa
         args = args.to_dict()
         sft_config = NeuronSFTConfig(
             # Using a small sequence-length since we are not validating the outputs.
-            max_seq_length=128,
+            max_length=128,
             packing=packing,
             dataset_num_proc=1,
             **args,
@@ -86,7 +86,7 @@ def test_neuron_sft_trainer_basic_training_loop(world_size, tp_size, pp_size, pa
         # Create Trainer instance
         trainer = NeuronSFTTrainer(
             model=model,
-            tokenizer=tokenizer,
+            processing_class=tokenizer,
             train_dataset=dataset,
             formatting_func=format_dolly,
             args=sft_config,
@@ -172,7 +172,7 @@ def test_neuron_sft_trainer_peft_training(tmpdir, set_cache_for_ci):
 
     args = args.to_dict()
     sft_config = NeuronSFTConfig(
-        max_seq_length=128,
+        max_length=128,
         packing=False,  # No packing for PEFT test simplicity
         dataset_num_proc=1,
         **args,
@@ -181,7 +181,7 @@ def test_neuron_sft_trainer_peft_training(tmpdir, set_cache_for_ci):
     # Create SFT Trainer instance with PEFT model
     trainer = NeuronSFTTrainer(
         model=base_model,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         train_dataset=dataset,
         formatting_func=format_dolly,
         args=sft_config,

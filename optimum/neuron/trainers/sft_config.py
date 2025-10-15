@@ -10,10 +10,11 @@
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# Seg the License for the specific language governing permissions and
+# See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from ..utils.import_utils import is_trl_available
 from .training_args import NeuronTrainingArguments
@@ -32,4 +33,14 @@ else:
 
 @dataclass
 class NeuronSFTConfig(NeuronTrainingArguments, SFTConfig):
-    pass
+
+    def __post_init__(self):
+        # Handle max_seq_length -> max_length migration for backward compatibility
+        if hasattr(self, "max_seq_length") and self.max_seq_length is not None:
+            if self.max_length == 1024:  # 1024 is the default
+                self.max_length = self.max_seq_length
+
+        # Force padding_free to False for Neuron - critical for avoiding recompilation
+        self.padding_free = False
+
+        super().__post_init__()
