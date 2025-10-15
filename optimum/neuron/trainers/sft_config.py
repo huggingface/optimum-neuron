@@ -13,8 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 from ..utils.import_utils import is_trl_available
 from .training_args import NeuronTrainingArguments
@@ -33,7 +32,6 @@ else:
 
 @dataclass
 class NeuronSFTConfig(NeuronTrainingArguments, SFTConfig):
-
     def __post_init__(self):
         # Handle max_seq_length -> max_length migration for backward compatibility
         if hasattr(self, "max_seq_length") and self.max_seq_length is not None:

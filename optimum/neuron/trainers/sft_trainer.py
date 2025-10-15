@@ -21,7 +21,6 @@ from optimum.utils import logging
 from torch.utils.data import Dataset, IterableDataset
 from transformers import (
     AutoModelForCausalLM,
-    AutoTokenizer,
     DataCollator,
     DataCollatorForLanguageModeling,
     PreTrainedModel,
@@ -107,7 +106,6 @@ class NeuronSFTTrainer(_SFTTrainer):
             raise RuntimeError(f"Using NeuronSFTTrainer requires trl=={TRL_VERSION}.")
 
         from trl.extras.dataset_formatting import get_formatting_func_from_dataset
-
         from trl.trainer.callbacks import RichProgressCallback
         from trl.trainer.utils import peft_module_casting_to_bf16
 
@@ -161,7 +159,6 @@ class NeuronSFTTrainer(_SFTTrainer):
                     "The `model_init_kwargs` will be ignored."
                 )
 
-
         if is_peft_available() and peft_config is not None:
             if not isinstance(peft_config, PeftConfig):
                 raise ValueError(
@@ -192,10 +189,11 @@ class NeuronSFTTrainer(_SFTTrainer):
         # Processing class (tokenizer) handling
         if processing_class is None:
             from transformers import AutoProcessor
+
             processing_class = AutoProcessor.from_pretrained(model_id)
 
         # Ensure we have a pad token
-        if hasattr(processing_class, 'pad_token') and getattr(processing_class, "pad_token", None) is None:
+        if hasattr(processing_class, "pad_token") and getattr(processing_class, "pad_token", None) is None:
             processing_class.pad_token = processing_class.eos_token
 
         # Handle max_length (renamed from max_seq_length)
@@ -210,6 +208,9 @@ class NeuronSFTTrainer(_SFTTrainer):
         self.dataset_num_proc = args.dataset_num_proc
 
         self._trainer_supports_neftune = hasattr(args, "neftune_noise_alpha")
+
+        # Vision Language Model (VLM) support - not yet supported in Neuron
+        self._is_vlm = False
 
         if args.dataset_kwargs is None:
             args.dataset_kwargs = {}
@@ -241,12 +242,7 @@ class NeuronSFTTrainer(_SFTTrainer):
         with NeuronPartialState().local_main_process_first():
             if train_dataset is not None:
                 train_dataset = self._prepare_dataset(
-                    train_dataset,
-                    processing_class,
-                    args,
-                    args.packing,
-                    formatting_func,
-                    "train"
+                    train_dataset, processing_class, args, args.packing, formatting_func, "train"
                 )
             if eval_dataset is not None:
                 _multiple = isinstance(eval_dataset, dict)
@@ -259,15 +255,19 @@ class NeuronSFTTrainer(_SFTTrainer):
                         args,
                         args.eval_packing if args.eval_packing is not None else args.packing,
                         formatting_func,
-                        _eval_dataset_name
+                        _eval_dataset_name,
                     )
                 if not _multiple:
                     eval_dataset = _eval_datasets["singleton"]
 
-        if hasattr(processing_class, "padding_side") and processing_class.padding_side is not None and processing_class.padding_side != "right":
+        if (
+            hasattr(processing_class, "padding_side")
+            and processing_class.padding_side is not None
+            and processing_class.padding_side != "right"
+        ):
             logger.warning(
                 "You passed a processing_class with `padding_side` not equal to `right` to the SFTTrainer. This might lead to some unexpected behaviour due to "
-                "overflow issues when training a model in half-precision. You might consider adding `processing_class.padding_side = \"right\"` to your code."
+                'overflow issues when training a model in half-precision. You might consider adding `processing_class.padding_side = "right"` to your code.'
             )
 
         NeuronTrainer.__init__(
@@ -328,13 +328,15 @@ class NeuronSFTTrainer(_SFTTrainer):
             original_padding_free = getattr(args, "padding_free", False)
             args.padding_free = False
             try:
-                result = super()._prepare_dataset(dataset, processing_class, args, packing, formatting_func, dataset_name)
+                result = super()._prepare_dataset(
+                    dataset, processing_class, args, packing, formatting_func, dataset_name
+                )
             finally:
                 args.padding_free = original_padding_free
             return result
 
         # For non-packed datasets, use our custom implementation with forced padding
-        from datasets import Dataset, IterableDataset
+        from datasets import Dataset
 
         # Apply formatting function if provided
         if formatting_func is not None:
@@ -342,7 +344,7 @@ class NeuronSFTTrainer(_SFTTrainer):
                 dataset = dataset.map(
                     lambda example: {"text": formatting_func(example)},
                     num_proc=args.dataset_num_proc,
-                    desc=f"Applying formatting function to {dataset_name} dataset"
+                    desc=f"Applying formatting function to {dataset_name} dataset",
                 )
             else:  # IterableDataset
                 dataset = dataset.map(lambda example: {"text": formatting_func(example)})
@@ -369,13 +371,15 @@ class NeuronSFTTrainer(_SFTTrainer):
             return {
                 "input_ids": outputs["input_ids"],
                 "attention_mask": outputs["attention_mask"],
-                "labels": outputs["input_ids"].copy()  # For language modeling
+                "labels": outputs["input_ids"].copy(),  # For language modeling
             }
 
         # Build map kwargs
         map_kwargs = {
             "batched": True,
-            "remove_columns": dataset.column_names if hasattr(dataset, "column_names") and dataset.column_names else None,
+            "remove_columns": dataset.column_names
+            if hasattr(dataset, "column_names") and dataset.column_names
+            else None,
         }
         if isinstance(dataset, Dataset):
             map_kwargs["num_proc"] = args.dataset_num_proc
