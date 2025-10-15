@@ -21,7 +21,7 @@ import torch
 import torch_xla.runtime as xr
 from torch_neuronx.utils import get_platform_target
 
-from ...utils.training_utils import get_model_param_count
+from ...models.training.training_utils import get_model_param_count
 from ..training_args import NeuronTrainingArguments
 from .base import MetricPlugin
 from .constants import HARDWARE_TFLOPS
