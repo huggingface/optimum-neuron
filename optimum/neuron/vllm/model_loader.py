@@ -204,7 +204,6 @@ def get_optimum_neuron_model(
             batch_size=batch_size,
             sequence_length=sequence_length,
             tensor_parallel_size=tp_degree,
-            auto_cast_type=torch_dtype,
         )
         neuron_model = NeuronModelForCausalLM.export(
             model_id,
