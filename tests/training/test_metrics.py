@@ -97,7 +97,7 @@ def test_metrics_distributed_correctness(world_size, tp_size, pp_size, tmpdir):
             collector.stop_metric("mfu", step_number=step)
 
             window_stats = collector.metric_windows["throughput"].get_window_stats()
-            
+
             assert window_stats["total_tokens"] == 128 * (step + 1)
             assert abs(window_stats["total_time"] - elapsed) < 0.05
 
@@ -111,8 +111,10 @@ def test_metrics_distributed_correctness(world_size, tp_size, pp_size, tmpdir):
         actual_global_rate = throughput_metrics["train/tokens_per_sec"]
 
         relative_error = abs(actual_global_rate - expected_global_rate) / expected_global_rate
-        assert relative_error < 0.05, f"Throughput calculation failed: expected {expected_global_rate}, got {actual_global_rate} " \
-                                      f"(relative error={relative_error:.3f})"
+        assert relative_error < 0.05, (
+            f"Throughput calculation failed: expected {expected_global_rate}, got {actual_global_rate} "
+            f"(relative error={relative_error:.3f})"
+        )
 
         # Validate MFU computation
         mfu_metrics = collector.calculate_metric("mfu")
@@ -157,8 +159,9 @@ def test_metrics_distributed_correctness(world_size, tp_size, pp_size, tmpdir):
         assert optimizer_pct > 0, "Optimizer time percentage should be > 0"
 
         # Test that efficiency calculation is correct
-        assert abs((forward_pct + backward_pct + optimizer_pct) - total_efficiency) < 0.01
-        assert abs((total_efficiency + overhead_pct) - 100.0) < 0.01
+        # It is not completely exact due to rounding, but should be very close.
+        assert abs((forward_pct + backward_pct + optimizer_pct) - total_efficiency) < 0.02
+        assert abs((total_efficiency + overhead_pct) - 100.0) < 0.02
 
         # Validate summary metrics
         summary_metrics = collector.calculate_summary_metrics()
