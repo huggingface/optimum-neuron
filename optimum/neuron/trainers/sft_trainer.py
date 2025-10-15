@@ -307,6 +307,25 @@ class NeuronSFTTrainer(_SFTTrainer):
     ):
         return NeuronTrainer.train(self, resume_from_checkpoint=resume_from_checkpoint)
 
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        """
+        Compute training loss.
+
+        This method overrides the TRL SFTTrainer's compute_loss to disable unsupported
+        metrics computation (entropy, token accuracy) for Neuron compatibility.
+        """
+        # Set use_cache to False to avoid warnings with gradient checkpointing
+        inputs["use_cache"] = False
+
+        # Call the parent NeuronTrainer's compute_loss method (not TRL's)
+        return NeuronTrainer.compute_loss(self, model, inputs, return_outputs, num_items_in_batch)
+
+    def training_step(
+        self, model: torch.nn.Module, inputs: dict[str, Any], num_items_in_batch: int | None = None
+    ) -> torch.Tensor:
+        # We do not use the SFTTrainer.training_step because it checks for an attribute the NeuronTrainer doesn't have.
+        return NeuronTrainer.training_step(self, model, inputs, num_items_in_batch=num_items_in_batch)
+
     def _prepare_dataset(
         self,
         dataset,
