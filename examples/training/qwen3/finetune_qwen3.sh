@@ -10,12 +10,10 @@ export MALLOC_ARENA_MAX=64 # Host OOM mitigation
 PROCESSES_PER_NODE=32
 NUM_EPOCHS=3
 TP_DEGREE=8
-PP_DEGREE=4
 BS=1
 GRADIENT_ACCUMULATION_STEPS=8
 LOGGING_STEPS=2
-# MODEL_NAME="Qwen/Qwen3-8B" # Change this to the desired model name
-MODEL_NAME="Qwen/Qwen3-0.6B" # Change this to the desired model name
+MODEL_NAME="Qwen/Qwen3-8B" # Change this to the desired model name
 OUTPUT_DIR="$(echo $MODEL_NAME | cut -d'/' -f2)-finetuned"
 DISTRIBUTED_ARGS="--nproc_per_node $PROCESSES_PER_NODE"
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
@@ -36,7 +34,6 @@ torchrun --nproc_per_node $PROCESSES_PER_NODE finetune_qwen3.py \
   --learning_rate 8e-4 \
   --bf16 \
   --tensor_parallel_size $TP_DEGREE \
-  --pipeline_parallel_size $PP_DEGREE \
   --zero_1 \
   --async_save \
   --logging_steps $LOGGING_STEPS \
