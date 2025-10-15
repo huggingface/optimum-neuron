@@ -132,7 +132,37 @@ class TrainingMetricsCollector:
         platform_target = get_platform_target().lower()
         if platform_target not in HARDWARE_TFLOPS:
             raise ValueError(f"Unknown platform '{platform_target}'. We support: {list(HARDWARE_TFLOPS.keys())}")
-        return HARDWARE_TFLOPS[platform_target]
+
+        # Detect training precision
+        dtype = self._detect_training_precision()
+        platform_specs = HARDWARE_TFLOPS[platform_target]
+
+        if dtype not in platform_specs:
+            raise ValueError(
+                f"Unknown precision '{dtype}' for platform '{platform_target}'. "
+                f"Supported precisions: {list(platform_specs.keys())}"
+            )
+
+        return platform_specs[dtype]
+
+    def _detect_training_precision(self) -> str:
+        if self.args.bf16 or self.args.use_autocast:
+            return "bf16"
+
+        # Check model dtype if available
+        if self.model is not None:
+            try:
+                # Get the first parameter's dtype
+                first_param = next(self.model.parameters())
+                if first_param.dtype == torch.bfloat16:
+                    return "bf16"
+                elif first_param.dtype == torch.float32:
+                    return "fp32"
+            except (StopIteration, AttributeError):
+                pass
+
+        # Default to fp32 if we can't determine
+        return "fp32"
 
     def _should_calculate_plugin(self, plugin: MetricPlugin, metric_type: str) -> bool:
         if metric_type == "all":

@@ -28,8 +28,15 @@ class MetricNames:
     TOTAL_STEP = "total_step"
 
 
+# Specs for Trainium 1 and 2 can be found here:
+# https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/trainium2.html#compute
 HARDWARE_TFLOPS = {
-    # Peak TFLOPS per core for bf16 operations
-    "trn1": 190 / 2,  # TRN1 specs
-    "trn2": 667 / 2,  # TRN2 specs
+    "trn1": {
+        "fp32": 48 / 2,
+        "bf16": 191 / 2,
+    },
+    "trn2": {
+        "fp32": 181 / 2,
+        "bf16": 667 / 2,
+    },
 }
