@@ -9,6 +9,8 @@ import huggingface_hub
 import pytest
 
 from optimum.neuron.utils.import_utils import is_package_available
+from optimum.neuron.utils.instance import current_instance_type
+from optimum.neuron.utils.system import cores_per_device
 
 
 if is_package_available("transformers"):
@@ -17,7 +19,6 @@ if is_package_available("transformers"):
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.cache import synchronize_hub_cache
 from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
-from optimum.neuron.models.inference.llama.modeling_llama import LlamaNxDModelForCausalLM
 from optimum.neuron.version import __sdk_version__ as sdk_version
 from optimum.neuron.version import __version__ as version
 
@@ -44,8 +45,7 @@ LLM_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "tensor_parallel_size": 2,
-            "auto_cast_type": "fp16",
+            "tensor_parallel_size": cores_per_device(),
         },
     },
     "qwen2": {
@@ -53,8 +53,7 @@ LLM_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "tensor_parallel_size": 2,
-            "auto_cast_type": "fp16",
+            "tensor_parallel_size": cores_per_device(),
         },
     },
     "granite": {
@@ -62,8 +61,7 @@ LLM_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "tensor_parallel_size": 2,
-            "auto_cast_type": "bf16",
+            "tensor_parallel_size": cores_per_device(),
         },
     },
     "phi": {
@@ -71,8 +69,7 @@ LLM_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "tensor_parallel_size": 2,
-            "auto_cast_type": "bf16",
+            "tensor_parallel_size": cores_per_device(),
         },
     },
     "qwen3": {
@@ -80,8 +77,7 @@ LLM_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "tensor_parallel_size": 2,
-            "auto_cast_type": "bf16",
+            "tensor_parallel_size": cores_per_device(),
         },
     },
     "smollm3": {
@@ -89,8 +85,7 @@ LLM_MODEL_CONFIGURATIONS = {
         "export_kwargs": {
             "batch_size": 4,
             "sequence_length": 4096,
-            "tensor_parallel_size": 2,
-            "auto_cast_type": "bf16",
+            "tensor_parallel_size": cores_per_device(),
         },
     },
 }
@@ -120,7 +115,7 @@ def get_neuron_models_hash():
 
 
 def _get_hub_neuron_model_prefix():
-    return f"{TEST_HUB_ORG}/optimum-neuron-testing-{version}-{sdk_version}-{get_neuron_models_hash()}"
+    return f"{TEST_HUB_ORG}/optimum-neuron-testing-{version}-{sdk_version}-{current_instance_type()}-{get_neuron_models_hash()}"
 
 
 def _get_hub_neuron_model_id(config_name: str, model_config: dict[str, str]):
@@ -220,15 +215,7 @@ def base_neuron_llm_config():
     It will create a temporary directory and yield its path.
     """
     with TemporaryDirectory() as neuron_model_path:
-        model_config = {
-            "model_id": "Qwen/Qwen2.5-0.5B",
-            "export_kwargs": {
-                "batch_size": 1,
-                "sequence_length": 4096,
-                "tensor_parallel_size": 2,
-                "auto_cast_type": "bf16",
-            },
-        }
+        model_config = LLM_MODEL_CONFIGURATIONS["llama"]
         neuron_model_config = _get_neuron_model_for_config("base", model_config, neuron_model_path)
         logger.info("Base neuron model ready for testing ...")
         yield neuron_model_config
@@ -245,6 +232,7 @@ def speculation():
     model_id = "unsloth/Llama-3.2-1B-Instruct"
     neuron_model_id = f"{_get_hub_neuron_model_prefix()}-speculation"
     draft_neuron_model_id = f"{_get_hub_neuron_model_prefix()}-speculation-draft"
+    tp_degree = cores_per_device()
     with TemporaryDirectory() as speculation_path:
         hub = huggingface_hub.HfApi()
         neuron_model_path = os.path.join(speculation_path, "model")
@@ -256,11 +244,12 @@ def speculation():
                 checkpoint_id=model_id,
                 batch_size=1,
                 sequence_length=4096,
-                tp_degree=2,
+                tp_degree=tp_degree,
                 torch_dtype="bf16",
+                target=current_instance_type(),
                 speculation_length=5,
             )
-            model = LlamaNxDModelForCausalLM.export(
+            model = NeuronModelForCausalLM.export(
                 model_id,
                 config=AutoConfig.from_pretrained(model_id),
                 neuron_config=neuron_config,
@@ -283,10 +272,11 @@ def speculation():
                 checkpoint_id=model_id,
                 batch_size=1,
                 sequence_length=4096,
-                tp_degree=2,
+                tp_degree=tp_degree,
                 torch_dtype="bf16",
+                target=current_instance_type(),
             )
-            model = LlamaNxDModelForCausalLM.export(
+            model = NeuronModelForCausalLM.export(
                 model_id,
                 config=AutoConfig.from_pretrained(model_id),
                 neuron_config=neuron_config,

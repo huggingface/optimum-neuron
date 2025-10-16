@@ -755,6 +755,7 @@ def maybe_export_from_neuron_model_class(
     # Remove None values from the kwargs
     kwargs = {key: value for key, value in kwargs.items() if value is not None}
     # Also remove some arguments that are not supported in this context
+    kwargs.pop("auto_cast_type", None)
     kwargs.pop("disable_neuron_cache", None)
     kwargs.pop("inline_weights_neff", None)
     kwargs.pop("O1", None)
@@ -776,7 +777,6 @@ def maybe_export_from_neuron_model_class(
     batch_size = kwargs.pop("batch_size", None)
     sequence_length = kwargs.pop("sequence_length", None)
     tensor_parallel_size = kwargs.pop("tensor_parallel_size", None)
-    auto_cast_type = kwargs.pop("auto_cast_type", None)
     neuron_config = neuron_model_class.get_neuron_config(
         model_name_or_path=model,
         config=config,
@@ -786,7 +786,6 @@ def maybe_export_from_neuron_model_class(
         batch_size=batch_size,
         sequence_length=sequence_length,
         tensor_parallel_size=tensor_parallel_size,
-        auto_cast_type=auto_cast_type,
     )
     neuron_model = neuron_model_class.export(
         model_id=model,

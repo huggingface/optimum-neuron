@@ -98,7 +98,6 @@ First I'll need to create my .env file, which specifies my batch size, precision
 
 ```
 MODEL_ID='/data/exportedmodel'
-HF_AUTO_CAST_TYPE='bf16'
 MAX_BATCH_SIZE=8
 MAX_INPUT_TOKENS=16000
 MAX_TOTAL_TOKENS=16512
@@ -146,7 +145,6 @@ services:
  environment:
  - PORT=8081
  - MODEL_ID=${MODEL_ID}
- - HF_AUTO_CAST_TYPE=${HF_AUTO_CAST_TYPE}
  - HF_NUM_CORES=8
  - MAX_BATCH_SIZE=${MAX_BATCH_SIZE}
  - HF_TOKEN=YOUR_TOKEN
@@ -168,7 +166,6 @@ services:
  environment:
  - PORT=8082
  - MODEL_ID=${MODEL_ID}
- - HF_AUTO_CAST_TYPE=${HF_AUTO_CAST_TYPE}
  - HF_NUM_CORES=8
  - MAX_BATCH_SIZE=${MAX_BATCH_SIZE}
  - HF_TOKEN=YOUR_TOKEN
@@ -190,7 +187,6 @@ services:
  environment:
  - PORT=8083
  - MODEL_ID=${MODEL_ID}
- - HF_AUTO_CAST_TYPE=${HF_AUTO_CAST_TYPE}
  - HF_NUM_CORES=8
  - MAX_BATCH_SIZE=${MAX_BATCH_SIZE}
  - HF_TOKEN=YOUR_TOKEN
@@ -330,6 +326,6 @@ In this blog post, I took you through how to compile and load an Optimum Neuron 
 
 ## References
 
-https://huggingface.co/docs/optimum-neuron/en/guides/cache_system 
-https://github.com/huggingface/optimum-neuron/tree/main/benchmark/text-generation-inference/performance 
-https://github.com/vllm-project/guidellm 
+https://huggingface.co/docs/optimum-neuron/en/guides/cache_system
+https://github.com/huggingface/optimum-neuron/tree/main/benchmark/text-generation-inference/performance
+https://github.com/vllm-project/guidellm

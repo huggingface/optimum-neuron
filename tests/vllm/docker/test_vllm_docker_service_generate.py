@@ -5,8 +5,6 @@ import pytest
 pytest.importorskip("docker")
 pytest.importorskip("vllm")
 
-from optimum.neuron.utils import DTYPE_MAPPER
-
 
 @pytest.mark.asyncio
 @pytest.fixture(params=["local_neuron", "hub_neuron", "hub_explicit", "hub_implicit"])
@@ -18,14 +16,12 @@ async def vllm_docker_service_from_model(request, vllm_docker_launcher, base_neu
         batch_size = export_kwargs["batch_size"]
         sequence_length = export_kwargs["sequence_length"]
         tensor_parallel_size = export_kwargs["tensor_parallel_size"]
-        dtype = DTYPE_MAPPER.pt(export_kwargs["auto_cast_type"])
         with vllm_docker_launcher(
             service_name,
             model_name_or_path,
             batch_size=batch_size,
             sequence_length=sequence_length,
             tensor_parallel_size=tensor_parallel_size,
-            dtype=dtype,
         ) as vllm_service:
             await vllm_service.health(600)
             yield vllm_service
@@ -48,7 +44,7 @@ async def vllm_docker_service_from_model(request, vllm_docker_launcher, base_neu
     "prompt, max_output_tokens",
     [
         ("What is Deep Learning?", 17),
-        ("One of my fondest memory is", 32),
+        ("What is the colour of the sky ?", 24),
     ],
 )
 async def test_vllm_docker_service_from_model(vllm_docker_service_from_model, prompt, max_output_tokens):

@@ -10,7 +10,6 @@ from typing import List
 
 import huggingface_hub
 import pytest
-import torch
 
 from optimum.neuron.utils.import_utils import is_package_available
 
@@ -132,7 +131,6 @@ def vllm_launcher(event_loop):
         batch_size: int | None = None,
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
-        dtype: str | None = None,
     ):
         port = random.randint(8000, 10_000)
 
@@ -154,11 +152,6 @@ def vllm_launcher(event_loop):
             command += ["--sequence_length", str(sequence_length)]
         if tensor_parallel_size is not None:
             command += ["--tensor_parallel_size", str(tensor_parallel_size)]
-        if dtype is not None:
-            if isinstance(dtype, torch.dtype):
-                # vLLM does not accept torch dtype, convert to string
-                dtype = str(dtype).split(".")[-1]
-            command += ["--dtype", dtype]
 
         p = subprocess.Popen(
             command,
