@@ -135,17 +135,18 @@ def get_optimum_neuron_model(
             " Please set tensor_parallel_size to a value less than or equal "
             "to the number of available Neuron cores."
         )
-    model_id = model_config.model
+    model_id = model_config.served_model_name
+    model_name_or_path = model_config.model
     revision = model_config.revision or "main"
     token = model_config.hf_token
     try:
         # Look for a NeuronConfig in the model directory
-        neuron_config = NeuronConfig.from_pretrained(model_id, revision=revision, token=token)
+        neuron_config = NeuronConfig.from_pretrained(model_name_or_path, revision=revision, token=token)
     except Exception:
         neuron_config = None
     if neuron_config is not None:
         neuron_model = NeuronModelForCausalLM.from_pretrained(
-            model_id,
+            model_name_or_path,
             revision=revision,
             token=token,
         )
@@ -206,7 +207,7 @@ def get_optimum_neuron_model(
             tensor_parallel_size=tp_degree,
         )
         neuron_model = NeuronModelForCausalLM.export(
-            model_id,
+            model_name_or_path,
             neuron_config=neuron_config,
             token=token,
             revision=revision,
