@@ -823,6 +823,12 @@ def main():
         # We must align the compilation target before neuronx-distributed is initialized
         align_compilation_target(args.instance_type, override=True)
 
+    # Try new export mode using dedicated neuron model classes first
+    kwargs = vars(args).copy()
+    if maybe_export_from_neuron_model_class(**kwargs):
+        return
+
+    # Fallback to library-specific exports
     if library_name == "diffusers":
         input_shapes = normalize_diffusers_input_shapes(args)
         submodels = {"unet": args.unet}
@@ -830,10 +836,6 @@ def main():
         input_shapes = normalize_sentence_transformers_input_shapes(args)
         submodels = None
     else:
-        # New export mode using dedicated neuron model classes
-        kwargs = vars(args).copy()
-        if maybe_export_from_neuron_model_class(**kwargs):
-            return
         # Fallback to legacy export
         input_shapes = get_input_shapes(task, args)
         submodels = None

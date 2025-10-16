@@ -437,12 +437,16 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             neuron_config,
             **model_init_kwargs,
         )
-        token_generation_model = NxDModelForCausalLM.create_token_generation_wrapper(
-            model_cls,
-            config,
-            neuron_config,
-            **model_init_kwargs,
+        token_generation_model = (NxDModelForCausalLM.create_token_generation_wrapper(
+                model_cls,
+                config,
+                neuron_config,
+                **model_init_kwargs,
+            )
+            if neuron_config.embedding_model == False
+            else None
         )
+        
         speculation_model = (
             NxDModelForCausalLM.create_speculation_wrapper(
                 model_cls,

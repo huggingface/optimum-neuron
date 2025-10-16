@@ -186,6 +186,7 @@ class Qwen3NxDModelForCausalLMEmbedding(LlamaNxDModelForCausalLM):
             on_device_sampling=on_device_sampling,
             fused_qkv=True,
             continuous_batching=continuous_batching,
+            embedding_model=True,
         )
     
     def encode(
