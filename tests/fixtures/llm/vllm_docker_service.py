@@ -48,7 +48,8 @@ def get_docker_image():
 
 class ContainerLauncherHandle(LauncherHandle):
     def __init__(self, service_name, model_name, docker_client, container_name, port: int):
-        super(ContainerLauncherHandle, self).__init__(service_name, model_name, port)
+        served_model_name = model_name
+        super(ContainerLauncherHandle, self).__init__(service_name, model_name, served_model_name, port)
         self.docker_client = docker_client
         self.container_name = container_name
         self._log_since = time.time()
