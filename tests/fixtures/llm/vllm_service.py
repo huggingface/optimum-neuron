@@ -36,10 +36,11 @@ logger = logging.getLogger(__file__)
 
 
 class TestClient(AsyncOpenAI):
-    def __init__(self, service_name: str, model_name: str, port: int):
+    def __init__(self, service_name: str, model_name: str, served_model_name: str, port: int):
         super().__init__(api_key="EMPTY", base_url=f"http://localhost:{port}/v1")
         self.model_name: str = model_name
         self.service_name: str = service_name
+        self.served_model_name: str = served_model_name
 
     async def sample(
         self,
@@ -50,7 +51,7 @@ class TestClient(AsyncOpenAI):
         stop: List[str] | None = None,
     ):
         response = await self.chat.completions.create(
-            model=self.model_name,
+            model=self.served_model_name,
             messages=[{"role": "user", "content": prompt}],
             max_completion_tokens=max_output_tokens,
             temperature=temperature,
@@ -66,8 +67,8 @@ class TestClient(AsyncOpenAI):
 
 
 class LauncherHandle:
-    def __init__(self, service_name: str, model_name: str, port: int):
-        self.client = TestClient(service_name, model_name, port)
+    def __init__(self, service_name: str, model_name: str, served_model_name: str, port: int):
+        self.client = TestClient(service_name, model_name, served_model_name, port)
 
     def _inner_health(self):
         raise NotImplementedError
@@ -81,7 +82,7 @@ class LauncherHandle:
             try:
                 models = await self.client.models.list()
                 model_name = models.data[0].id
-                if self.client.model_name != model_name:
+                if self.client.served_model_name != model_name:
                     raise ValueError(f"The service exposes {model_name} but {self.client.service_name} was expected.")
                 logger.info(f"Service started after {i} seconds")
                 return
@@ -93,8 +94,8 @@ class LauncherHandle:
 
 
 class SubprocessLauncherHandle(LauncherHandle):
-    def __init__(self, service_name, model_name, port: int, process: subprocess.Popen):
-        super().__init__(service_name, model_name, port)
+    def __init__(self, service_name, model_name, served_model_name, port: int, process: subprocess.Popen):
+        super().__init__(service_name, model_name, served_model_name, port)
         self.process = process
 
     def _inner_health(self) -> bool:
@@ -128,6 +129,7 @@ def vllm_launcher(event_loop):
     def launcher(
         service_name: str,
         model_name_or_path: str,
+        served_model_name: str | None = None,
         batch_size: int | None = None,
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
@@ -146,6 +148,10 @@ def vllm_launcher(event_loop):
             "--port",
             str(port),
         ]
+        if served_model_name is not None:
+            command += ["--served_model_name", served_model_name]
+        else:
+            served_model_name = model_name_or_path
         if batch_size is not None:
             command += ["--batch_size", str(batch_size)]
         if sequence_length is not None:
@@ -162,7 +168,7 @@ def vllm_launcher(event_loop):
             os.environ["CUSTOM_CACHE_REPO"] = cache_repo
 
         logger.info(f"Starting {service_name} with model {model_name_or_path}")
-        yield SubprocessLauncherHandle(service_name, model_name_or_path, port, p)
+        yield SubprocessLauncherHandle(service_name, model_name_or_path, served_model_name, port, p)
         logger.info(f"Stopping {service_name} with model {model_name_or_path}")
         p.terminate()
         p.wait()
