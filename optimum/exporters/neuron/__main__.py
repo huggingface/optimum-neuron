@@ -740,17 +740,21 @@ def main_export(
 
 def maybe_export_from_neuron_model_class(
     model: str,
+    config: PretrainedConfig,
     output: str | Path,
-    task: str = "auto",
-    instance_type: str | None = None,
+    task: str,
+    instance_type,
     cache_dir: str | None = None,
     subfolder: str = "",
-    trust_remote_code: bool = False,
+    token: str | None = None,
+    revision: str | None = None,
+    trust_remote_code: bool | None = None,
+    batch_size: int | None = None,
+    sequence_length: int | None = None,
+    tensor_parallel_size: int | None = None,
     **kwargs,
 ):
     """Export the model from the neuron model class if it exists."""
-    if task == "auto":
-        task = infer_task(model)
     output = Path(output)
     # Remove None values from the kwargs
     kwargs = {key: value for key, value in kwargs.items() if value is not None}
@@ -765,23 +769,15 @@ def maybe_export_from_neuron_model_class(
     kwargs.pop("dynamic_batch_size", None)
     kwargs.pop("output_hidden_states", None)
     kwargs.pop("output_attentions", None)
-    # Fetch the model config
-    config = AutoConfig.from_pretrained(model)
-    if task == "text-generation":
-        # In case a multi-modal model is being exported, extract the text model config
-        config = config.get_text_config()
     # Check if we have an auto-model class for the model_type and task
     if not has_neuron_model_class(model_type=config.model_type, task=task, mode="inference"):
         return False
     neuron_model_class = get_neuron_model_class(model_type=config.model_type, task=task, mode="inference")
-    batch_size = kwargs.pop("batch_size", None)
-    sequence_length = kwargs.pop("sequence_length", None)
-    tensor_parallel_size = kwargs.pop("tensor_parallel_size", None)
     neuron_config = neuron_model_class.get_neuron_config(
         model_name_or_path=model,
         config=config,
-        token=kwargs.get("token", None),
-        revision=kwargs.get("revision", "main"),
+        token=token,
+        revision=revision,
         instance_type=instance_type,
         batch_size=batch_size,
         sequence_length=sequence_length,
@@ -815,12 +811,40 @@ def main():
     # Retrieve CLI arguments
     args = parser.parse_args()
 
-    task = infer_task(args.model) if args.task == "auto" else args.task
-    library_name = TasksManager.infer_library_from_model(args.model, cache_dir=args.cache_dir)
-
     if args.instance_type is not None:
         # We must align the compilation target before neuronx-distributed is initialized
         align_compilation_target(args.instance_type, override=True)
+
+    task = infer_task(args.model) if args.task == "auto" else args.task
+
+    try:
+        # Try first the export based on custom modeling classes
+        config = AutoConfig.from_pretrained(args.model)
+        if task == "text-generation":
+            # In case a multi-modal model is being exported, extract the text model config
+            config = config.get_text_config()
+    except Exception:
+        config = None
+    if config is not None:
+        kwargs = vars(args).copy()
+        kwargs.pop("task")
+        if maybe_export_from_neuron_model_class(
+            model=kwargs.pop("model"),
+            config=config,
+            output=kwargs.pop("output"),
+            task=task,
+            instance_type=kwargs.pop("instance_type"),
+            cache_dir=kwargs.pop("cache_dir", None),
+            subfolder=kwargs.pop("subfolder", None),
+            token=kwargs.pop("token", None),
+            revision=kwargs.pop("revision", None),
+            trust_remote_code=kwargs.pop("trust_remote_code", None),
+            **kwargs,
+        ):
+            return
+        logger.info(f"No custom modeling class is registered for {args.model} with task {task}")
+
+    library_name = TasksManager.infer_library_from_model(args.model, cache_dir=args.cache_dir)
 
     if library_name == "diffusers":
         input_shapes = normalize_diffusers_input_shapes(args)
@@ -829,11 +853,6 @@ def main():
         input_shapes = normalize_sentence_transformers_input_shapes(args)
         submodels = None
     else:
-        # New export mode using dedicated neuron model classes
-        kwargs = vars(args).copy()
-        if maybe_export_from_neuron_model_class(**kwargs):
-            return
-        # Fallback to legacy export
         input_shapes = get_input_shapes(task, args)
         submodels = None
 
