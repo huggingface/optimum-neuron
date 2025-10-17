@@ -17,7 +17,7 @@ jobs:
     name: Create optimum-neuron inference cache
     runs-on: aws-general-8-plus-use1-public-80
     env:
-      HF_HUB_ENABLE_HF_TRANSFER: 1
+      HF_XET_HIGH_PERFORMANCE: 1
     strategy:
       fail-fast: false
       matrix:
