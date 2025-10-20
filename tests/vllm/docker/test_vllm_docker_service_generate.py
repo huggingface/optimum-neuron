@@ -1,4 +1,7 @@
+from tempfile import TemporaryDirectory
+
 import pytest
+from huggingface_hub import get_token, snapshot_download
 
 
 # Do not collect tests from this file if docker or vllm are not installed
@@ -7,7 +10,7 @@ pytest.importorskip("vllm")
 
 
 @pytest.mark.asyncio
-@pytest.fixture(params=["local_neuron", "hub_neuron", "hub_explicit", "hub_implicit"])
+@pytest.fixture(params=["local_neuron", "hub_neuron", "hub_explicit", "hub_implicit", "local_implicit"])
 async def vllm_docker_service_from_model(request, vllm_docker_launcher, base_neuron_llm_config):
     service_name = base_neuron_llm_config["name"]
     if request.param == "hub_explicit":
@@ -25,6 +28,24 @@ async def vllm_docker_service_from_model(request, vllm_docker_launcher, base_neu
         ) as vllm_service:
             await vllm_service.health(600)
             yield vllm_service
+    elif request.param == "local_implicit":
+        served_model_name = base_neuron_llm_config["model_id"]
+        with TemporaryDirectory() as local_model_path:
+            # Manually download weights
+            token = get_token()
+            snapshot_download(
+                served_model_name,
+                local_dir=local_model_path,
+                token=token,
+                allow_patterns=[
+                    "model*.safetensors",
+                    "*.json",
+                ],
+            )
+            model_name_or_path = local_model_path
+            with vllm_docker_launcher(service_name, model_name_or_path, served_model_name) as vllm_service:
+                await vllm_service.health(600)
+                yield vllm_service
     else:
         if request.param == "local_neuron":
             model_name_or_path = base_neuron_llm_config["neuron_model_path"]
