@@ -11,6 +11,7 @@ on:
   pull_request:
     branches: [ main ]
     paths:
+      - ".github/workflows/inference_cache_llm.yml"
       - "tools/cache/auto_fill_llm_cache.py"
 
 concurrency:
