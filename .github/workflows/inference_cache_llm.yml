@@ -38,6 +38,9 @@ jobs:
           qwen2.5-large,
           llama-variants,
           smollm3,
+          trn2/llama3,
+          trn2/llama4,
+          trn2/qwen3-moe,
         ]
     steps:
       - name: Checkout
