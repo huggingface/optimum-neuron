@@ -29,18 +29,18 @@ from optimum.neuron.utils.instance import SUPPORTED_INSTANCE_TYPES
 
 # Example usage:
 # huggingface-cli login --token hf_xxx # access to cache repo
-# python tools/auto_fill_inference_cache.py --model_id "HuggingFaceH4/zephyr-7b-beta" --batch_size 1 --sequence_length 2048 --tensor_parallel_size 2 --auto_cast_type fp16
-# Alternative provide json config file as local file or remote file (https://) with the following formwat
+# python tools/auto_fill_llm_cache.py --model_id "HuggingFaceH4/zephyr-7b-beta" --batch_size 1 --sequence_length 2048 --tensor_parallel_size 2
+# Alternative provide json config file as local file or remote file (https://) with the following format
 # {
 #    "meta-llama/Llama-2-7b-chat-hf": [
-#        {  "batch_size": 1, "sequence_length": 2048, "tensor_parallel_size": 2, "auto_cast_type": "fp16" },
-#        {  "batch_size": 2, "sequence_length": 2048, "tensor_parallel_size": 2, "auto_cast_type": "bf16" }
+#        {  "batch_size": 1, "sequence_length": 4096, "tensor_parallel_size": 2, "instance_type": "trn1" },
+#        {  "batch_size": 1, "sequence_length": 4096, "tensor_parallel_size": 4, "instance_type": "trn2" }
 #    ]
 # }
 # Local file Example usage:
-# python tools/auto_fill_inference_cache.py --config_file test.json
+# python tools/auto_fill_llm_cache.py --config_file test.json
 # Remote file Example usage:
-# python tools/auto_fill_inference_cache.py --config_file https://huggingface.co/aws-neuron/optimum-neuron-cache/raw/main/inference-cache-config/gpt2.json
+# python tools/auto_fill_llm_cache.py --config_file https://huggingface.co/aws-neuron/optimum-neuron-cache/raw/main/inference-cache-config/gpt2.json
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, force=True)
