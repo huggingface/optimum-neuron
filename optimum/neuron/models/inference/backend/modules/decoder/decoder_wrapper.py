@@ -21,6 +21,7 @@ from torch_neuronx import BucketModelConfig
 from transformers import PretrainedConfig
 
 from ...config import NxDNeuronConfig
+from ...graph_builder import NxDGraphBuilder
 from ...model_wrapper import NxDModelWrapper
 from ..autobucketing import (
     get_context_encoder_bk,
@@ -72,7 +73,7 @@ def get_bucket_model_config_from_tag(
         )
 
 
-class NxDDecoderWrapper(NxDModelWrapper):
+class NxDDecoderWrapper(NxDGraphBuilder, NxDModelWrapper):
     def __init__(
         self,
         config: PretrainedConfig,
