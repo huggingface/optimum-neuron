@@ -20,11 +20,12 @@ from pathlib import Path
 
 import neuronx_distributed.trace.hlo_utils as hlo_utils
 import torch
-from huggingface_hub import snapshot_download
+from huggingface_hub import HfApi, snapshot_download
 from neuronx_distributed.trace.model_builder import ModelBuilder
 from safetensors.torch import load_file
 from transformers import AutoModelForCausalLM, PretrainedConfig
 
+from ..modeling_utils import NeuronPreTrainedModel
 from .config import NxDNeuronConfig
 from .model_wrapper import NxDModelWrapper
 from .modules.checkpoint import (
@@ -96,7 +97,7 @@ def get_builder(
     return builder
 
 
-class NxDPreTrainedModel:
+class NxDPreTrainedModel(NeuronPreTrainedModel):
     _STATE_DICT_MODEL_PREFIX = "model."
     _NEW_STATE_DICT_MODEL_PREFIX = ""
     _FUSED_PREFIX = ""
@@ -302,3 +303,40 @@ class NxDPreTrainedModel:
     def reset(self):
         """Resets the model state. Can be implemented by subclasses."""
         pass
+
+    # NeuronPreTrainedModel methods
+    def _save_pretrained(self, save_directory: str | Path, **kwargs):
+        model_name_or_path = getattr(self.config, "_name_or_path")
+        # If the model was exported from a local path, we need to save the checkpoint (not that we also shard it)
+        weight_path = model_name_or_path if os.path.isdir(model_name_or_path) else None
+        self.save(save_directory, weight_path=weight_path)
+
+    def push_to_hub(
+        self,
+        save_directory: str,
+        repository_id: str,
+        private: bool | None = None,
+        revision: str | None = None,
+        token: bool | str = True,
+        endpoint: str | None = None,
+    ) -> str:
+        api = HfApi(endpoint=endpoint)
+
+        api.create_repo(
+            token=token,
+            repo_id=repository_id,
+            exist_ok=True,
+            private=private,
+        )
+        ignore_patterns = []
+        checkpoint_id = self.neuron_config.checkpoint_id
+        if checkpoint_id is not None:
+            # Avoid uploading checkpoints when the original model is available on the hub
+            ignore_patterns = [self.CHECKPOINT_DIR + "/*"]
+        api.upload_folder(
+            repo_id=repository_id,
+            folder_path=save_directory,
+            token=token,
+            revision=revision,
+            ignore_patterns=ignore_patterns,
+        )
