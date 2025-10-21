@@ -44,7 +44,7 @@ def register_neuron_model_for_inference(model_type: str, task: str):
 
 
 @register_neuron_model_for_inference("granite", "text-generation")
-class GraniteModelForCausalLM(GraniteNxDModelForCausalLM):
+class GraniteNeuronModelForCausalLM(GraniteNxDModelForCausalLM):
     """
     Granite model with NxD backend for inference on AWS Neuron.
     """
@@ -53,7 +53,7 @@ class GraniteModelForCausalLM(GraniteNxDModelForCausalLM):
 
 
 @register_neuron_model_for_inference("llama", "text-generation")
-class LLamaModelForCausalLM(LlamaNxDModelForCausalLM):
+class LlamaNeuronModelForCausalLM(LlamaNxDModelForCausalLM):
     """
     Llama model with NxD backend for inference on AWS Neuron.
     """
@@ -62,7 +62,7 @@ class LLamaModelForCausalLM(LlamaNxDModelForCausalLM):
 
 
 @register_neuron_model_for_inference("llama4_text", "text-generation")
-class LLama4ModelForCausalLM(Llama4NxDModelForCausalLM):
+class Llama4NeuronModelForCausalLM(Llama4NxDModelForCausalLM):
     """
     Llama4 model with NxD backend for inference on AWS Neuron.
     """
@@ -80,7 +80,7 @@ class MixtralNeuronModelForCausalLM(MixtralNxDModelForCausalLM):
 
 
 @register_neuron_model_for_inference("phi3", "text-generation")
-class Phi3ModelForCausalLM(Phi3NxDModelForCausalLM):
+class Phi3NeuronModelForCausalLM(Phi3NxDModelForCausalLM):
     """
     Phi3 model with NxD backend for inference on AWS Neuron.
     """
@@ -89,7 +89,7 @@ class Phi3ModelForCausalLM(Phi3NxDModelForCausalLM):
 
 
 @register_neuron_model_for_inference("qwen2", "text-generation")
-class Qwen2ModelForCausalLM(Qwen2NxDModelForCausalLM):
+class Qwen2NeuronModelForCausalLM(Qwen2NxDModelForCausalLM):
     """
     Qwen2 model with NxD backend for inference on AWS Neuron.
     """
