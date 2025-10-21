@@ -32,9 +32,9 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from ......cache.entries.single_model import SingleModelCacheEntry
 from ......cache.hub_cache import hub_neuronx_cache
-from ......modeling_decoder import NeuronModelForCausalLM
 from ......utils.instance import align_compilation_target, current_instance_type
 from ......utils.system import get_available_cores
+from ....modeling_utils import NeuronModelForCausalLM
 from ...config import NxDNeuronConfig
 from ...pretrained_model import NxDPreTrainedModel
 from ...utils.random import set_random_seed

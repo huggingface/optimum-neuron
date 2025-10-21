@@ -23,9 +23,9 @@ from vllm.model_executor.layers.sampler import Sampler, SamplerOutput
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.sequence import CompletionSequenceGroupOutput, Logprob, SequenceOutput
 
+from ...models.inference.modeling_utils import NeuronModelForCausalLM
 from ..cache.hub_cache import select_hub_cached_entries
 from ..configuration_utils import NeuronConfig
-from ..modeling_decoder import NeuronModelForCausalLM
 from ..utils.system import get_available_cores
 from ..utils.version_utils import get_neuronxcc_version
 

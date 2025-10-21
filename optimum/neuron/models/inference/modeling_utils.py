@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Base class for text-generation model architectures on neuron devices."""
+"""Base classes for neuron model custom modeling for inference."""
 
 import inspect
 import logging
@@ -26,12 +26,12 @@ from transformers import AutoConfig, GenerationConfig, PretrainedConfig
 from transformers.file_utils import add_start_docstrings
 from transformers.generation import StoppingCriteriaList
 
-from .configuration_utils import NeuronConfig
-from .modeling_base import NeuronModel
-from .models.auto_model import get_neuron_model_class
-from .utils.argument_utils import DTYPE_MAPPER
-from .utils.instance import get_default_compilation_target, normalize_instance_type
-from .utils.system import get_available_cores
+from ...configuration_utils import NeuronConfig
+from ...modeling_base import NeuronModel
+from ...models.auto_model import get_neuron_model_class
+from ...utils.argument_utils import DTYPE_MAPPER
+from ...utils.instance import get_default_compilation_target, normalize_instance_type
+from ...utils.system import get_available_cores
 
 
 logger = logging.getLogger(__name__)
