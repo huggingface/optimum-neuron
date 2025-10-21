@@ -15,6 +15,7 @@
 import copy
 import logging
 import os
+from abc import ABC, abstractmethod
 from functools import partial
 from pathlib import Path
 
@@ -97,7 +98,7 @@ def get_builder(
     return builder
 
 
-class NxDPreTrainedModel(NeuronPreTrainedModel):
+class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
     _STATE_DICT_MODEL_PREFIX = "model."
     _NEW_STATE_DICT_MODEL_PREFIX = ""
     _FUSED_PREFIX = ""
@@ -120,17 +121,15 @@ class NxDPreTrainedModel(NeuronPreTrainedModel):
         for model_wrapper in self.model_wrappers:
             model_wrapper.model = self._traced_model
 
+    # NxDPretrainedModel abstract API
+    @abstractmethod
     def forward(self, **kwargs):
         """Forward pass for this model."""
         raise NotImplementedError("forward is not implemented")
 
     @classmethod
-    def get_config_cls(cls) -> PretrainedConfig:
-        """Gets the config class for this model."""
-        raise NotImplementedError("get_config_cls is not implemented")
-
-    @classmethod
-    def get_compiler_args(cls, neuron_config) -> str:
+    @abstractmethod
+    def get_compiler_args(cls, neuron_config) -> str | None:
         """Gets the Neuron compiler arguments to use when compiling this model."""
         return None
 
