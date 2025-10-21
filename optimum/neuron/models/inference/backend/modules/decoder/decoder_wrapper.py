@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
-import os
 
 import torch
 import torch.nn.functional as F
@@ -98,15 +97,6 @@ class NxDDecoderWrapper(NxDModelWrapper):
 
         self.model_cls = model_cls
         self.model = None
-        self.is_compiled = False
-        self.serialize_base_path = None
-
-        base_compile_work_dir = os.environ.get("BASE_COMPILE_WORK_DIR", "/tmp/nxd_model/")
-        self.compiler_workdir = os.path.join(base_compile_work_dir, self.tag)
-
-    def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
-        self.model = self.model_cls(self.config, self.neuron_config)
-        self.model.load_state_dict(state_dict, strict=strict, assign=assign)
 
     def input_generator(
         self,
@@ -225,10 +215,6 @@ class NxDDecoderWrapper(NxDModelWrapper):
             args = (input_ids, padded_attention_mask, *rest_of_args)
 
         return args
-
-    def _get_async_output(self, ranked_async_tensor):
-        outputs = [[async_tensor[0].cpu()] for async_tensor in ranked_async_tensor]
-        return outputs[0][0]
 
     def forward(self, input_ids, attention_mask, position_ids, seq_ids, sampling_params):
         input_ids, attention_mask, position_ids, seq_ids = self.convert_int64_to_int32(
