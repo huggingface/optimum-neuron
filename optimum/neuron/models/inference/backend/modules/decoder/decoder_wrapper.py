@@ -83,7 +83,6 @@ class NxDDecoderWrapper(NxDModelWrapper):
         model_cls,
         tag="",
         priority_model_idx: int = None,
-        model_init_kwargs={},
     ) -> None:
         super().__init__(tag, priority_model_idx)
         self.config = config
@@ -104,8 +103,6 @@ class NxDDecoderWrapper(NxDModelWrapper):
 
         base_compile_work_dir = os.environ.get("BASE_COMPILE_WORK_DIR", "/tmp/nxd_model/")
         self.compiler_workdir = os.path.join(base_compile_work_dir, self.tag)
-
-        self.model_init_kwargs = model_init_kwargs
 
     def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
         self.model = self.model_cls(self.config, self.neuron_config)
@@ -136,7 +133,6 @@ class NxDDecoderWrapper(NxDModelWrapper):
             config=self.config,
             neuron_config=self.neuron_config,
             buckets=self.buckets,
-            **self.model_init_kwargs,
         )
 
     def get_bucket_config(self):
@@ -278,22 +274,19 @@ class NxDDecoderWrapper(NxDModelWrapper):
 
 
 class DecoderModelInstance(BaseModelInstance):
-    def __init__(
-        self, model_cls, config: PretrainedConfig, neuron_config: NxDNeuronConfig, buckets: list[int], **kwargs
-    ):
+    def __init__(self, model_cls, config: PretrainedConfig, neuron_config: NxDNeuronConfig, buckets: list[int]):
         self.model_cls = model_cls
         self.module = None
         self.input_output_aliases = None
         self.config = config
         self.neuron_config = neuron_config
         self.buckets = buckets
-        self.kwargs = kwargs if kwargs is not None else {}
 
     def initialize_process_group(self, world_size):
         self.model_cls.initialize_process_group(world_size)
 
     def load_module(self):
-        float_model = self.model_cls(self.config, self.neuron_config, **self.kwargs)
+        float_model = self.model_cls(self.config, self.neuron_config)
         float_model.eval()
 
         if self.neuron_config.torch_dtype != torch.float32:
