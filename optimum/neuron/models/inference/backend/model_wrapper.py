@@ -42,7 +42,7 @@ class NxDModelWrapper(torch.nn.Module):
         raise NotImplementedError
 
     @abstractmethod
-    def get_bucket_config(self) -> BucketModelConfig:
+    def get_bucket_config(self) -> BucketModelConfig | None:
         """Return the bucket configuration
 
         Used at compilation time only when tracing the model.
