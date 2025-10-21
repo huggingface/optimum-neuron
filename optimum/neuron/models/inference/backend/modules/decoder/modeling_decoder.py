@@ -360,7 +360,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         self.sampler = None
 
     @staticmethod
-    def create_context_encoding_wrapper(model_cls, config, neuron_config, **model_init_kwargs):
+    def create_context_encoding_wrapper(model_cls, config, neuron_config):
         new_neuron_config = copy.deepcopy(neuron_config)
         new_neuron_config.batch_size = neuron_config.ctx_batch_size
         new_neuron_config.n_active_tokens = neuron_config.max_context_length
@@ -380,13 +380,10 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             bucket_n_active_tokens=True,
             model_cls=model_cls,
             tag=CONTEXT_ENCODING_MODEL_TAG,
-            model_init_kwargs=model_init_kwargs,
         )
 
     @staticmethod
-    def create_token_generation_wrapper(
-        model_cls, config, neuron_config, enable_wlt_optimization: bool = True, **model_init_kwargs
-    ):
+    def create_token_generation_wrapper(model_cls, config, neuron_config, enable_wlt_optimization: bool = True):
         new_neuron_config = copy.deepcopy(neuron_config)
         new_neuron_config.batch_size = neuron_config.tkg_batch_size
         new_neuron_config.n_active_tokens = 1
@@ -404,11 +401,10 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             model_cls=model_cls,
             tag=TOKEN_GENERATION_MODEL_TAG,
             priority_model_idx=0 if enable_wlt_optimization else None,  # to turn on weight layout optimization
-            model_init_kwargs=model_init_kwargs,
         )
 
     @staticmethod
-    def create_speculation_wrapper(model_cls, config, neuron_config, **model_init_kwargs):
+    def create_speculation_wrapper(model_cls, config, neuron_config):
         new_neuron_config = copy.deepcopy(neuron_config)
         new_neuron_config.batch_size = neuron_config.tkg_batch_size
         new_neuron_config.n_active_tokens = neuron_config.speculation_length
@@ -426,29 +422,25 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             model_cls=model_cls,
             tag=SPECULATION_MODEL_TAG,
             priority_model_idx=0,  # to turn on weight layout optimization
-            model_init_kwargs=model_init_kwargs,
         )
 
     @staticmethod
-    def create_model_wrappers(model_cls, config, neuron_config, **model_init_kwargs):
+    def create_model_wrappers(model_cls, config, neuron_config):
         context_encoding_model = NxDModelForCausalLM.create_context_encoding_wrapper(
             model_cls,
             config,
             neuron_config,
-            **model_init_kwargs,
         )
         token_generation_model = NxDModelForCausalLM.create_token_generation_wrapper(
             model_cls,
             config,
             neuron_config,
-            **model_init_kwargs,
         )
         speculation_model = (
             NxDModelForCausalLM.create_speculation_wrapper(
                 model_cls,
                 config,
                 neuron_config,
-                **model_init_kwargs,
             )
             if neuron_config.speculation_length > 0
             else None
