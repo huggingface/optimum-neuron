@@ -28,7 +28,7 @@ from transformers import AutoModelForCausalLM, PretrainedConfig
 
 from ..modeling_utils import NeuronPreTrainedModel
 from .config import NxDNeuronConfig
-from .model_wrapper import NxDModelWrapper
+from .graph_builder import NxDGraphBuilder
 from .modules.checkpoint import (
     load_state_dict,
 )
@@ -49,7 +49,7 @@ def get_shards_path(dest_path):
 
 def get_builder(
     neuron_config: NxDNeuronConfig,
-    model_wrappers: list[NxDModelWrapper],
+    model_wrappers: list[NxDGraphBuilder],
     debug: bool = False,
     checkpoint_loader=None,
     compiler_args: str = None,
@@ -63,7 +63,7 @@ def get_builder(
 
     Args:
         neuron_config (NxDNeuronConfig): The Neuron configuration.
-        model_wrappers (list[NxDModelWrapper]): The model wrappers to be added to the builder.
+        model_wrappers (list[NxDGraphBuilder]): The model graphs to be added to the builder.
         debug (bool): Whether to enable debug mode.
         checkpoint_loader (callable): A function to load the model's state dictionary and weights.
         compiler_args (str): Compiler arguments to be passed to the builder.
@@ -110,7 +110,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
         traced_model: torch.jit.ScriptModule,
-        model_wrappers: list[NxDModelWrapper],
+        model_wrappers: list[NxDGraphBuilder],
     ):
         self.config = copy.deepcopy(config)
         self.neuron_config = copy.deepcopy(neuron_config)
@@ -118,8 +118,6 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         self.config.torch_dtype = self.neuron_config.torch_dtype
         self._traced_model = traced_model
         self.model_wrappers = model_wrappers  # Required for loading weights
-        for model_wrapper in self.model_wrappers:
-            model_wrapper.model = self._traced_model
 
     # NxDPretrainedModel abstract API
     @abstractmethod
@@ -134,7 +132,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         return None
 
     @staticmethod
-    def compile(neuron_config, model_wrappers: list[NxDModelWrapper], compiler_args: str, debug: bool = False):
+    def compile(neuron_config, model_wrappers: list[NxDGraphBuilder], compiler_args: str, debug: bool = False):
         builder = get_builder(neuron_config, model_wrappers, debug=debug, compiler_args=compiler_args)
         return builder.trace(initialize_model_weights=False)
 
