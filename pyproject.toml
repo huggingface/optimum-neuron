@@ -67,6 +67,7 @@ tests = [
     "soundfile",
     "librosa",
     "controlnet-aux",
+    "torchcodec==0.7.0",
 ]
 quality = [
     "pre-commit",
