@@ -92,7 +92,6 @@ def get_builder(
             model_instance=model.get_model_instance(),
             example_inputs=model.input_generator(),
             compiler_args=compiler_args,
-            bucket_config=model.get_bucket_config(),
             priority_model_idx=model.priority_model_idx,
         )
     return builder

@@ -16,7 +16,6 @@ from abc import ABC, abstractmethod
 
 import torch
 from neuronx_distributed.trace.model_builder import BaseModelInstance
-from torch_neuronx import BucketModelConfig
 
 
 class NxDGraphBuilder(ABC):
@@ -36,14 +35,6 @@ class NxDGraphBuilder(ABC):
     @abstractmethod
     def get_model_instance(self) -> BaseModelInstance:
         """Return the underlying ModelInstance
-
-        Used at compilation time only when tracing the model.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_bucket_config(self) -> BucketModelConfig | None:
-        """Return the bucket configuration
 
         Used at compilation time only when tracing the model.
         """
