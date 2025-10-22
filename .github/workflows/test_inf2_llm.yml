@@ -5,7 +5,7 @@ on:
     branches: [ main ]
     paths:
       - "pyproject.toml"
-      - "optimum/commands/**.py"
+      - "optimum/commands/export/neuronx.py"
       - "optimum/exporters/neuron/__main__.py"
       - "optimum/neuron/configuration_utils.py"
       - "optimum/neuron/modeling_base.py"
@@ -30,7 +30,7 @@ on:
     branches: [ main ]
     paths:
       - "pyproject.toml"
-      - "optimum/commands/**.py"
+      - "optimum/commands/export/neuronx.py"
       - "optimum/exporters/neuron/__main__.py"
       - "optimum/neuron/configuration_utils.py"
       - "optimum/neuron/modeling_base.py"
