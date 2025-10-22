@@ -1489,7 +1489,7 @@ class NeuronModelForAudioFrameClassificationIntegrationTest(NeuronModelTestMixin
 
     def _validate_outputs(self, model_arch, suffix, batch_size):
         neuron_model, preprocessor = self._load_neuron_model_and_processor(model_arch, suffix)
-        inputs = self._prepare_inputs(preprocessor)
+        inputs = self._prepare_inputs(preprocessor, batch_size)
         neuron_outputs = neuron_model(**inputs)
         self.assertIn("logits", neuron_outputs)
         self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
