@@ -383,8 +383,10 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         spec_neuron_config.batch_size = neuron_config.tkg_batch_size
         return spec_neuron_config
 
-    @staticmethod
-    def create_graph_builders(model_cls, config, neuron_config):
+    @classmethod
+    def create_graph_builders(cls, config, neuron_config):
+        if cls._model_cls is None:
+            raise SystemError(f"No underlying model class defined for {cls}.")
         graph_builders = {}
         ctx_neuron_config = NxDModelForCausalLM._create_context_encoding_config(neuron_config)
         graph_builders["context_encoding"] = NxDDecoderBuilder(
@@ -392,7 +394,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             neuron_config=ctx_neuron_config,
             max_tokens=ctx_neuron_config.max_context_length,
             active_tokens=ctx_neuron_config.max_context_length,
-            model_cls=model_cls,
+            model_cls=cls._model_cls,
         )
         tkg_neuron_config = NxDModelForCausalLM._create_token_generation_config(neuron_config)
         graph_builders["token_generation"] = NxDDecoderBuilder(
@@ -400,7 +402,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             neuron_config=tkg_neuron_config,
             max_tokens=tkg_neuron_config.sequence_length,
             active_tokens=1,
-            model_cls=model_cls,
+            model_cls=cls._model_cls,
             priority_model_idx=0,  # to turn on weight layout optimization
         )
         if neuron_config.speculation_length > 0:
@@ -410,7 +412,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
                 neuron_config=spec_neuron_config,
                 max_tokens=spec_neuron_config.sequence_length,
                 active_tokens=spec_neuron_config.speculation_length,
-                model_cls=model_cls,
+                model_cls=cls._model_cls,
                 priority_model_idx=0,  # to turn on weight layout optimization
             )
         return graph_builders
@@ -617,9 +619,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
                 traced_model = torch.jit.load(os.path.join(tmpdir, cls.COMPILED_MODEL_FILE_NAME))
         else:
             traced_model = torch.jit.load(os.path.join(model_id, cls.COMPILED_MODEL_FILE_NAME))
-        graph_builders = NxDModelForCausalLM.create_graph_builders(
-            cls._model_cls, config=config, neuron_config=neuron_config
-        )
+        graph_builders = NxDModelForCausalLM.create_graph_builders(config=config, neuron_config=neuron_config)
         model = cls(
             config=config,
             neuron_config=neuron_config,
@@ -647,7 +647,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         force_download: bool | None = False,
         local_files_only: bool | None = False,
         trust_remote_code: bool | None = False,
-        load_weights: bool = False,
+        load_weights: bool | None = False,
         **kwargs,
     ) -> "NeuronModelForCausalLM":
         if len(kwargs) > 0:
@@ -675,7 +675,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         if hasattr(config, "head_dim") and config.head_dim is None:
             config.head_dim = config.hidden_size // config.num_attention_heads
         graph_builders = cls.create_graph_builders(
-            model_cls=cls._model_cls,
             config=config,
             neuron_config=neuron_config,
         )

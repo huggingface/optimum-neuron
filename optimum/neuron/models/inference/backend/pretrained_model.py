@@ -130,6 +130,15 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         """Gets the Neuron compiler arguments to use when compiling this model."""
         return None
 
+    @classmethod
+    @abstractmethod
+    def create_graph_builders(
+        cls, config: PretrainedConfig, neuron_config: NxDNeuronConfig
+    ) -> dict[str, NxDGraphBuilder]:
+        raise NotImplementedError(
+            "The child class must provide a method to return the model graph builders dictionary."
+        )
+
     @staticmethod
     def compile(neuron_config, graph_builders: dict[str, NxDGraphBuilder], compiler_args: str, debug: bool = False):
         builder = get_builder(neuron_config, graph_builders, debug=debug, compiler_args=compiler_args)
