@@ -30,10 +30,9 @@ class NxDDecoderBuilder(NxDGraphBuilder):
         max_tokens: int,
         active_tokens: int,
         model_cls,
-        tag="",
         priority_model_idx: int = None,
     ) -> None:
-        super().__init__(tag, priority_model_idx)
+        super().__init__(priority_model_idx)
         self.config = config
         self.neuron_config = neuron_config
         self.max_tokens = max_tokens

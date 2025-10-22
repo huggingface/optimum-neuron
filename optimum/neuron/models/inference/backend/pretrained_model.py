@@ -49,7 +49,7 @@ def get_shards_path(dest_path):
 
 def get_builder(
     neuron_config: NxDNeuronConfig,
-    model_wrappers: list[NxDGraphBuilder],
+    model_wrappers: dict[str, NxDGraphBuilder],
     debug: bool = False,
     checkpoint_loader=None,
     compiler_args: str = None,
@@ -86,9 +86,9 @@ def get_builder(
         logical_nc_config=neuron_config.logical_nc_config,
         weights_to_skip_layout_optimization=neuron_config.weights_to_skip_layout_optimization,
     )
-    for model in model_wrappers:
+    for tag, model in model_wrappers.items():
         builder.add(
-            key=model.tag,
+            key=tag,
             model_instance=model.get_model_instance(),
             example_inputs=model.input_generator(),
             compiler_args=compiler_args,
@@ -109,7 +109,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
         traced_model: torch.jit.ScriptModule,
-        model_wrappers: list[NxDGraphBuilder],
+        model_wrappers: dict[str, NxDGraphBuilder],
     ):
         self.config = copy.deepcopy(config)
         self.neuron_config = copy.deepcopy(neuron_config)
@@ -131,7 +131,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         return None
 
     @staticmethod
-    def compile(neuron_config, model_wrappers: list[NxDGraphBuilder], compiler_args: str, debug: bool = False):
+    def compile(neuron_config, model_wrappers: dict[str, NxDGraphBuilder], compiler_args: str, debug: bool = False):
         builder = get_builder(neuron_config, model_wrappers, debug=debug, compiler_args=compiler_args)
         return builder.trace(initialize_model_weights=False)
 

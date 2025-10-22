@@ -384,69 +384,36 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         return spec_neuron_config
 
     @staticmethod
-    def _create_context_encoding_builder(model_cls, config, neuron_config):
+    def create_graph_builders(model_cls, config, neuron_config):
+        graph_builders = {}
         ctx_neuron_config = NxDModelForCausalLM._create_context_encoding_config(neuron_config)
-
-        return NxDDecoderBuilder(
+        graph_builders["context_encoding"] = NxDDecoderBuilder(
             config=config,
             neuron_config=ctx_neuron_config,
             max_tokens=ctx_neuron_config.max_context_length,
             active_tokens=ctx_neuron_config.max_context_length,
             model_cls=model_cls,
-            tag=CONTEXT_ENCODING_MODEL_TAG,
         )
-
-    @staticmethod
-    def _create_token_generation_builder(model_cls, config, neuron_config, enable_wlt_optimization: bool = True):
         tkg_neuron_config = NxDModelForCausalLM._create_token_generation_config(neuron_config)
-
-        return NxDDecoderBuilder(
+        graph_builders["token_generation"] = NxDDecoderBuilder(
             config=config,
             neuron_config=tkg_neuron_config,
             max_tokens=tkg_neuron_config.sequence_length,
             active_tokens=1,
             model_cls=model_cls,
-            tag=TOKEN_GENERATION_MODEL_TAG,
-            priority_model_idx=0 if enable_wlt_optimization else None,  # to turn on weight layout optimization
-        )
-
-    @staticmethod
-    def _create_speculation_builder(model_cls, config, neuron_config):
-        spec_neuron_config = NxDModelForCausalLM._create_speculation_config(neuron_config)
-
-        return NxDDecoderBuilder(
-            config=config,
-            neuron_config=spec_neuron_config,
-            max_tokens=spec_neuron_config.sequence_length,
-            active_tokens=spec_neuron_config.speculation_length,
-            model_cls=model_cls,
-            tag=SPECULATION_MODEL_TAG,
             priority_model_idx=0,  # to turn on weight layout optimization
         )
-
-    @staticmethod
-    def create_model_builders(model_cls, config, neuron_config):
-        model_builders = [
-            NxDModelForCausalLM._create_context_encoding_builder(
-                model_cls,
-                config,
-                neuron_config,
-            ),
-            NxDModelForCausalLM._create_token_generation_builder(
-                model_cls,
-                config,
-                neuron_config,
-            ),
-        ]
         if neuron_config.speculation_length > 0:
-            model_builders.append(
-                NxDModelForCausalLM._create_speculation_builder(
-                    model_cls,
-                    config,
-                    neuron_config,
-                )
+            spec_neuron_config = NxDModelForCausalLM._create_speculation_config(neuron_config)
+            graph_builders["speculation_model"] = NxDDecoderBuilder(
+                config=config,
+                neuron_config=spec_neuron_config,
+                max_tokens=spec_neuron_config.sequence_length,
+                active_tokens=spec_neuron_config.speculation_length,
+                model_cls=model_cls,
+                priority_model_idx=0,  # to turn on weight layout optimization
             )
-        return model_builders
+        return graph_builders
 
     def forward(
         self,
@@ -650,7 +617,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
                 traced_model = torch.jit.load(os.path.join(tmpdir, cls.COMPILED_MODEL_FILE_NAME))
         else:
             traced_model = torch.jit.load(os.path.join(model_id, cls.COMPILED_MODEL_FILE_NAME))
-        model_builders = NxDModelForCausalLM.create_model_builders(
+        model_builders = NxDModelForCausalLM.create_graph_builders(
             cls._model_cls, config=config, neuron_config=neuron_config
         )
         model = cls(
@@ -707,7 +674,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         # Evaluate head_dim if it is defined but set to null (like in Mixtral for transformers 4.54+)
         if hasattr(config, "head_dim") and config.head_dim is None:
             config.head_dim = config.hidden_size // config.num_attention_heads
-        model_builders = cls.create_model_builders(
+        model_builders = cls.create_graph_builders(
             model_cls=cls._model_cls,
             config=config,
             neuron_config=neuron_config,
