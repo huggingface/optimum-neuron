@@ -14,26 +14,18 @@
 # limitations under the License.
 import copy
 import logging
-import os
-from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import neuronx_distributed as nxd
 import torch
-from huggingface_hub import snapshot_download
 from neuronx_distributed.operators.argmax import argmax as nxd_argmax
 from neuronx_distributed.parallel_layers.layers import SPMDRank
 from neuronx_distributed.parallel_layers.mappings import (
     _gather_along_dim,
 )
 from torch import nn
-from transformers import AutoConfig, PretrainedConfig
+from transformers import PretrainedConfig
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from ......cache.entries.single_model import SingleModelCacheEntry
-from ......cache.hub_cache import hub_neuronx_cache
-from ......utils.instance import align_compilation_target, current_instance_type
-from ......utils.system import get_available_cores
 from ....modeling_utils import NeuronModelForCausalLM
 from ...config import NxDNeuronConfig
 from ...graph_builder import NxDGraphBuilder
@@ -574,135 +566,3 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
 
         logging.info(f"neuronx-cc compiler_args are: {compiler_args}")
         return compiler_args
-
-    # NeuronPreTrainedModel methods
-    @classmethod
-    def _from_pretrained(
-        cls,
-        model_id: "str | Path",
-        config: "PretrainedConfig",
-        revision: str | None = None,
-        token: bool | str | None = None,
-        cache_dir: str | None = None,
-        force_download: bool | None = False,
-        local_files_only: bool | None = False,
-        **kwargs,
-    ) -> "NeuronModelForCausalLM":
-        if len(kwargs) > 0:
-            logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
-        neuron_config = NxDNeuronConfig.from_pretrained(model_id)
-        # Check the current instance type is compatible with the one used to compile the model
-        if neuron_config.target != current_instance_type():
-            raise ValueError(
-                f"The model was compiled for {neuron_config.target} but the current instance type is "
-                f"{current_instance_type()}. Please use a compatible instance type."
-            )
-        # Also check the number of cores is at least equal to the tensor parallel size
-        if get_available_cores() < neuron_config.tp_degree:
-            raise ValueError(
-                f"The model requires at least {neuron_config.tp_degree} Neuron cores but only "
-                f"{get_available_cores()} are available. Please use a compatible instance type."
-            )
-        if not os.path.exists(model_id):
-            # The model_id is a model hub id: download the model from the hub.
-            with TemporaryDirectory() as tmpdir:
-                snapshot_download(
-                    repo_id=model_id,
-                    revision=revision,
-                    cache_dir=cache_dir,
-                    local_dir=tmpdir,
-                    force_download=force_download,
-                    local_files_only=local_files_only,
-                    token=token,
-                    allow_patterns=[cls.COMPILED_MODEL_FILE_NAME],
-                )
-                traced_model = torch.jit.load(os.path.join(tmpdir, cls.COMPILED_MODEL_FILE_NAME))
-        else:
-            traced_model = torch.jit.load(os.path.join(model_id, cls.COMPILED_MODEL_FILE_NAME))
-        graph_builders = NxDModelForCausalLM.create_graph_builders(config=config, neuron_config=neuron_config)
-        model = cls(
-            config=config,
-            neuron_config=neuron_config,
-            traced_model=traced_model,
-            graph_builders=graph_builders,
-        )
-        model.load_weights(
-            model_id,
-            cache_dir=cache_dir,
-            force_download=force_download,
-            local_files_only=local_files_only,
-            token=token,
-        )
-        return model
-
-    @classmethod
-    def _export(
-        cls,
-        model_id: str,
-        config: "PretrainedConfig | None",
-        neuron_config: "NxDNeuronConfig",
-        token: bool | str | None = None,
-        revision: str | None = None,
-        cache_dir: str | None = None,
-        force_download: bool | None = False,
-        local_files_only: bool | None = False,
-        trust_remote_code: bool | None = False,
-        load_weights: bool | None = False,
-        **kwargs,
-    ) -> "NeuronModelForCausalLM":
-        if len(kwargs) > 0:
-            logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
-        # Try to align compilation target. We do not allow override as neuronx-distributed is already initialized.
-        compilation_target = align_compilation_target(neuron_config.target, override=False)
-        if compilation_target != neuron_config.target:
-            raise ValueError(
-                f"The compilation target is {neuron_config.target} but the NEURON_PLATFORM_TARGET_OVERRIDE"
-                f" environment variable is set to {compilation_target}, Please set it to the correct value."
-            )
-        if config is None:
-            # Get the text config if not provided
-            config = AutoConfig.from_pretrained(
-                model_id,
-                token=token,
-                revision=revision,
-                cache_dir=cache_dir,
-                force_download=force_download,
-                trust_remote_code=trust_remote_code,
-            ).get_text_config()
-        # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
-        config.torch_dtype = neuron_config.torch_dtype
-        # Evaluate head_dim if it is defined but set to null (like in Mixtral for transformers 4.54+)
-        if hasattr(config, "head_dim") and config.head_dim is None:
-            config.head_dim = config.hidden_size // config.num_attention_heads
-        graph_builders = cls.create_graph_builders(
-            config=config,
-            neuron_config=neuron_config,
-        )
-        # The model NEFF files will be cached locally, but if the model_id corresponds
-        # to a hub model, we also create a cache entry for it.
-        cache_entry = (
-            None
-            if os.path.exists(model_id)
-            else SingleModelCacheEntry(model_id, task="text-generation", config=config, neuron_config=neuron_config)
-        )
-        with hub_neuronx_cache(entry=cache_entry):
-            traced_model = NxDPreTrainedModel.compile(
-                neuron_config=neuron_config,
-                graph_builders=graph_builders,
-                compiler_args=cls.get_compiler_args(neuron_config),
-            )
-        model = cls(
-            config=config,
-            neuron_config=neuron_config,
-            traced_model=traced_model,
-            graph_builders=graph_builders,
-        )
-        if load_weights:
-            model.load_weights(
-                model_id,
-                cache_dir=cache_dir,
-                force_download=force_download,
-                local_files_only=local_files_only,
-                token=token,
-            )
-        return model
