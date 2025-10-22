@@ -49,7 +49,7 @@ def get_shards_path(dest_path):
 
 def get_builder(
     neuron_config: NxDNeuronConfig,
-    model_wrappers: dict[str, NxDGraphBuilder],
+    graph_builders: dict[str, NxDGraphBuilder],
     debug: bool = False,
     checkpoint_loader=None,
     compiler_args: str = None,
@@ -63,7 +63,7 @@ def get_builder(
 
     Args:
         neuron_config (NxDNeuronConfig): The Neuron configuration.
-        model_wrappers (list[NxDGraphBuilder]): The model graphs to be added to the builder.
+        graph_builders (list[NxDGraphBuilder]): The model graphs to be added to the builder.
         debug (bool): Whether to enable debug mode.
         checkpoint_loader (callable): A function to load the model's state dictionary and weights.
         compiler_args (str): Compiler arguments to be passed to the builder.
@@ -86,13 +86,13 @@ def get_builder(
         logical_nc_config=neuron_config.logical_nc_config,
         weights_to_skip_layout_optimization=neuron_config.weights_to_skip_layout_optimization,
     )
-    for tag, model in model_wrappers.items():
+    for tag, graph_builder in graph_builders.items():
         builder.add(
             key=tag,
-            model_instance=model.get_model_instance(),
-            example_inputs=model.input_generator(),
+            model_instance=graph_builder.get_model_instance(),
+            example_inputs=graph_builder.input_generator(),
             compiler_args=compiler_args,
-            priority_model_idx=model.priority_model_idx,
+            priority_model_idx=graph_builder.priority_model_idx,
         )
     return builder
 
@@ -109,14 +109,14 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
         traced_model: torch.jit.ScriptModule,
-        model_wrappers: dict[str, NxDGraphBuilder],
+        graph_builders: dict[str, NxDGraphBuilder],
     ):
         self.config = copy.deepcopy(config)
         self.neuron_config = copy.deepcopy(neuron_config)
         # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
         self.config.torch_dtype = self.neuron_config.torch_dtype
         self._traced_model = traced_model
-        self.model_wrappers = model_wrappers  # Required for loading weights
+        self.graph_builders = graph_builders  # Required for loading weights
 
     # NxDPretrainedModel abstract API
     @abstractmethod
@@ -131,8 +131,8 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         return None
 
     @staticmethod
-    def compile(neuron_config, model_wrappers: dict[str, NxDGraphBuilder], compiler_args: str, debug: bool = False):
-        builder = get_builder(neuron_config, model_wrappers, debug=debug, compiler_args=compiler_args)
+    def compile(neuron_config, graph_builders: dict[str, NxDGraphBuilder], compiler_args: str, debug: bool = False):
+        builder = get_builder(neuron_config, graph_builders, debug=debug, compiler_args=compiler_args)
         return builder.trace(initialize_model_weights=False)
 
     def save(self, dest_path, weight_path: str | None = None):
@@ -153,7 +153,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         checkpoint_loader = partial(self.checkpoint_loader_fn, src_path, self.config, self.neuron_config)
         sharder = get_builder(
             self.neuron_config,
-            self.model_wrappers,
+            self.graph_builders,
             debug=debug,
             checkpoint_loader=checkpoint_loader,
             compiler_args=self.get_compiler_args(self.neuron_config),
@@ -191,7 +191,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
             checkpoint_loader = partial(self.checkpoint_loader_fn, weights_path, self.config, self.neuron_config)
             sharder = get_builder(
                 self.neuron_config,
-                self.model_wrappers,
+                self.graph_builders,
                 debug=False,
                 checkpoint_loader=checkpoint_loader,
                 compiler_args=self.get_compiler_args(self.neuron_config),

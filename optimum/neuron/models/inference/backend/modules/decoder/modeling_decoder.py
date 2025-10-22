@@ -338,10 +338,10 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
         traced_model: torch.jit.ScriptModule,
-        model_wrappers: list[NxDGraphBuilder],
+        graph_builders: list[NxDGraphBuilder],
     ):
         super().__init__(
-            config=config, neuron_config=neuron_config, traced_model=traced_model, model_wrappers=model_wrappers
+            config=config, neuron_config=neuron_config, traced_model=traced_model, graph_builders=graph_builders
         )
         ctx_neuron_config = NxDModelForCausalLM._create_context_encoding_config(neuron_config)
         self.context_encoding_model = NxDDecoderWrapper(
@@ -617,14 +617,14 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
                 traced_model = torch.jit.load(os.path.join(tmpdir, cls.COMPILED_MODEL_FILE_NAME))
         else:
             traced_model = torch.jit.load(os.path.join(model_id, cls.COMPILED_MODEL_FILE_NAME))
-        model_builders = NxDModelForCausalLM.create_graph_builders(
+        graph_builders = NxDModelForCausalLM.create_graph_builders(
             cls._model_cls, config=config, neuron_config=neuron_config
         )
         model = cls(
             config=config,
             neuron_config=neuron_config,
             traced_model=traced_model,
-            model_wrappers=model_builders,
+            graph_builders=graph_builders,
         )
         model.load_weights(
             model_id,
@@ -674,7 +674,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         # Evaluate head_dim if it is defined but set to null (like in Mixtral for transformers 4.54+)
         if hasattr(config, "head_dim") and config.head_dim is None:
             config.head_dim = config.hidden_size // config.num_attention_heads
-        model_builders = cls.create_graph_builders(
+        graph_builders = cls.create_graph_builders(
             model_cls=cls._model_cls,
             config=config,
             neuron_config=neuron_config,
@@ -689,14 +689,14 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         with hub_neuronx_cache(entry=cache_entry):
             traced_model = NxDPreTrainedModel.compile(
                 neuron_config=neuron_config,
-                model_wrappers=model_builders,
+                graph_builders=graph_builders,
                 compiler_args=cls.get_compiler_args(neuron_config),
             )
         model = cls(
             config=config,
             neuron_config=neuron_config,
             traced_model=traced_model,
-            model_wrappers=model_builders,
+            graph_builders=graph_builders,
         )
         if load_weights:
             model.load_weights(
