@@ -39,7 +39,6 @@ from ...config import NxDNeuronConfig
 from ...graph_builder import NxDGraphBuilder
 from ...pretrained_model import NxDPreTrainedModel
 from ...utils.random import set_random_seed
-from ..autobucketing import generate_buckets
 from ..generation.generation_utils import NxDGenerationMixin
 from ..generation.sampling import (
     Sampler,
@@ -370,40 +369,29 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     def _create_context_encoding_config(neuron_config: NxDNeuronConfig) -> NxDNeuronConfig:
         ctx_neuron_config = copy.deepcopy(neuron_config)
         ctx_neuron_config.batch_size = neuron_config.ctx_batch_size
-        ctx_neuron_config.n_active_tokens = neuron_config.max_context_length
         return ctx_neuron_config
 
     @staticmethod
     def _create_token_generation_config(neuron_config: NxDNeuronConfig) -> NxDNeuronConfig:
         tkg_neuron_config = copy.deepcopy(neuron_config)
         tkg_neuron_config.batch_size = neuron_config.tkg_batch_size
-        tkg_neuron_config.n_active_tokens = 1
         return tkg_neuron_config
 
     @staticmethod
     def _create_speculation_config(neuron_config: NxDNeuronConfig) -> NxDNeuronConfig:
         spec_neuron_config = copy.deepcopy(neuron_config)
         spec_neuron_config.batch_size = neuron_config.tkg_batch_size
-        spec_neuron_config.n_active_tokens = neuron_config.speculation_length
         return spec_neuron_config
 
     @staticmethod
     def _create_context_encoding_builder(model_cls, config, neuron_config):
         ctx_neuron_config = NxDModelForCausalLM._create_context_encoding_config(neuron_config)
 
-        if ctx_neuron_config.enable_bucketing:
-            buckets = generate_buckets(128, ctx_neuron_config.max_context_length)
-        else:
-            buckets = generate_buckets(
-                ctx_neuron_config.max_context_length,
-                ctx_neuron_config.max_context_length,
-            )
-
         return NxDDecoderBuilder(
             config=config,
             neuron_config=ctx_neuron_config,
-            buckets=buckets,
-            bucket_n_active_tokens=True,
+            max_tokens=ctx_neuron_config.max_context_length,
+            active_tokens=ctx_neuron_config.max_context_length,
             model_cls=model_cls,
             tag=CONTEXT_ENCODING_MODEL_TAG,
         )
@@ -412,16 +400,11 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     def _create_token_generation_builder(model_cls, config, neuron_config, enable_wlt_optimization: bool = True):
         tkg_neuron_config = NxDModelForCausalLM._create_token_generation_config(neuron_config)
 
-        if tkg_neuron_config.enable_bucketing:
-            buckets = generate_buckets(128, tkg_neuron_config.sequence_length)
-        else:
-            buckets = generate_buckets(tkg_neuron_config.sequence_length, tkg_neuron_config.sequence_length)
-
         return NxDDecoderBuilder(
             config=config,
             neuron_config=tkg_neuron_config,
-            buckets=buckets,
-            bucket_n_active_tokens=False,
+            max_tokens=tkg_neuron_config.sequence_length,
+            active_tokens=1,
             model_cls=model_cls,
             tag=TOKEN_GENERATION_MODEL_TAG,
             priority_model_idx=0 if enable_wlt_optimization else None,  # to turn on weight layout optimization
@@ -431,16 +414,11 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     def _create_speculation_builder(model_cls, config, neuron_config):
         spec_neuron_config = NxDModelForCausalLM._create_speculation_config(neuron_config)
 
-        if spec_neuron_config.enable_bucketing:
-            buckets = generate_buckets(128, spec_neuron_config.sequence_length)
-        else:
-            buckets = generate_buckets(spec_neuron_config.sequence_length, spec_neuron_config.sequence_length)
-
         return NxDDecoderBuilder(
             config=config,
             neuron_config=spec_neuron_config,
-            buckets=buckets,
-            bucket_n_active_tokens=False,
+            max_tokens=spec_neuron_config.sequence_length,
+            active_tokens=spec_neuron_config.speculation_length,
             model_cls=model_cls,
             tag=SPECULATION_MODEL_TAG,
             priority_model_idx=0,  # to turn on weight layout optimization
