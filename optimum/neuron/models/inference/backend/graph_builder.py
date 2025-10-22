@@ -19,9 +19,8 @@ from neuronx_distributed.trace.model_builder import BaseModelInstance
 
 
 class NxDGraphBuilder(ABC):
-    def __init__(self, tag: str, priority_model_idx: int):
+    def __init__(self, priority_model_idx: int):
         super().__init__()
-        self.tag = tag
         self.priority_model_idx = priority_model_idx
 
     @abstractmethod
