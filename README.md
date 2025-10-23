@@ -32,6 +32,18 @@ To install the latest release of this package:
 pip install --upgrade-strategy eager optimum-neuron[neuronx]
 ```
 
+* To install additional components for training
+ 
+```bash
+pip install --upgrade-strategy eager optimum-neuron[training]
+```
+
+* To install additional components for inference with vllm
+ 
+```bash
+pip install --upgrade-strategy eager optimum-neuron[vllm]
+```
+
 * For AWS inferentia (inf1)
 
 ```bash
