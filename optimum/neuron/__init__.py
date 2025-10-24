@@ -43,7 +43,6 @@ _import_structure = {
     "modeling_traced": ["NeuronTracedModel"],
     "modeling": [
         "NeuronModelForFeatureExtraction",
-        "NeuronModelForSentenceTransformers",
         "NeuronModelForMaskedLM",
         "NeuronModelForQuestionAnswering",
         "NeuronModelForSequenceClassification",
@@ -79,6 +78,7 @@ _import_structure = {
     "modeling_seq2seq": [
         "NeuronModelForSeq2SeqLM",
     ],
+    "modeling_sentence_transformers": ["NeuronSentenceTransformers"],
     "models": [],
     "accelerate": [
         "NeuronAccelerator",
@@ -115,7 +115,6 @@ if TYPE_CHECKING:
         NeuronModelForObjectDetection,
         NeuronModelForQuestionAnswering,
         NeuronModelForSemanticSegmentation,
-        NeuronModelForSentenceTransformers,
         NeuronModelForSequenceClassification,
         NeuronModelForTokenClassification,
         NeuronModelForXVector,
@@ -139,6 +138,7 @@ if TYPE_CHECKING:
         NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
     )
+    from .modeling_sentence_transformers import NeuronSentenceTransformers
     from .modeling_seq2seq import NeuronModelForSeq2SeqLM
     from .modeling_traced import NeuronTracedModel
 
