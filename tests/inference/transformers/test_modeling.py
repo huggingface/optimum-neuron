@@ -60,10 +60,10 @@ from optimum.neuron import (
     NeuronModelForObjectDetection,
     NeuronModelForQuestionAnswering,
     NeuronModelForSemanticSegmentation,
-    NeuronModelForSentenceTransformers,
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
     NeuronModelForXVector,
+    NeuronSentenceTransformers,
     NeuronTracedModel,
     pipeline,
 )
@@ -302,8 +302,8 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
 
 
 @is_inferentia_test
-class NeuronModelForSentenceTransformersIntegrationTest(NeuronModelTestMixin):
-    NEURON_MODEL_CLASS = NeuronModelForSentenceTransformers
+class NeuronSentenceTransformersIntegrationTest(NeuronModelTestMixin):
+    NEURON_MODEL_CLASS = NeuronSentenceTransformers
     TASK = "feature-extraction"
     ATOL_FOR_VALIDATION = 1e-2
     SUPPORTED_ARCHITECTURES = ["transformer", "clip"]
@@ -358,6 +358,14 @@ class NeuronModelForSentenceTransformersIntegrationTest(NeuronModelTestMixin):
                 atol=atol,
             )
         )
+
+        # Encode + Similarity
+        sentences_1 = ["Life is pain au chocolat", "Life is galette des rois"]
+        sentences_2 = ["Life is eclaire au cafe", "Life is mille feuille"]
+        embeddings_1 = neuron_model_dyn.encode(sentences_1, normalize_embeddings=True)
+        embeddings_2 = neuron_model_dyn.encode(sentences_2, normalize_embeddings=True)
+        similarity = neuron_model_dyn.similarity(embeddings_1, embeddings_2)
+        self.assertIsInstance(similarity, torch.Tensor)
 
         gc.collect()
 

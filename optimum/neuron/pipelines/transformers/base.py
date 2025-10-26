@@ -56,11 +56,11 @@ from ...modeling import (
     NeuronModelForMaskedLM,
     NeuronModelForQuestionAnswering,
     NeuronModelForSemanticSegmentation,
-    NeuronModelForSentenceTransformers,
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
 )
 from ...modeling_decoder import NeuronModelForCausalLM
+from ...modeling_sentence_transformers import NeuronSentenceTransformers
 
 
 logger = logging.getLogger(__name__)
@@ -171,7 +171,7 @@ def load_pipeline(
             model, token=token, revision=revision
         ):
             logger.info("Using Sentence Transformers compatible Feature extraction pipeline")
-            neuronx_model_class = NeuronModelForSentenceTransformers
+            neuronx_model_class = NeuronSentenceTransformers
 
         if issubclass(neuronx_model_class, NeuronModelForCausalLM):
             if export:

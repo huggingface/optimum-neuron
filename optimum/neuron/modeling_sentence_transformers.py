@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""NeuronModelForSentenceTransformers classe for inference on neuron devices of sentence transformers."""
+"""NeuronSentenceTransformers class for inference on neuron devices of sentence transformers."""
 
 import logging
 from typing import Literal
@@ -118,7 +118,11 @@ class NeuronSentenceTransformers(NeuronTracedModel):
                     0
                 ]  # Remove padding on batch_size(0)
 
-                return ModelOutput(token_embeddings=token_embeddings, sentence_embedding=sentence_embedding)
+                return ModelOutput(
+                    token_embeddings=token_embeddings,
+                    sentence_embedding=sentence_embedding,
+                    attention_mask=attention_mask,
+                )
 
     def tokenize(self, texts: list[str] | list[dict] | list[tuple[str, str]], **kwargs) -> dict[str, torch.Tensor]:
         """
@@ -282,7 +286,7 @@ class NeuronSentenceTransformers(NeuronTracedModel):
                 if normalize_embeddings:
                     embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
 
-                all_embeddings.extend(embeddings)
+            all_embeddings.extend(embeddings)
 
         all_embeddings = [all_embeddings[idx] for idx in np.argsort(length_sorted_idx)]
 
