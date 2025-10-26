@@ -74,7 +74,6 @@ _import_structure = {
         "NeuronFluxKontextPipeline",
         "NeuronFluxInpaintPipeline",
     ],
-    "modeling_decoder": ["NeuronModelForCausalLM"],
     "modeling_seq2seq": [
         "NeuronModelForSeq2SeqLM",
     ],
@@ -100,6 +99,7 @@ _import_structure["models.inference.bert"] = [
 _import_structure["models.inference.clip"] = ["NeuronCLIPModel", "NeuronCLIPForImageClassification"]
 _import_structure["models.inference.whisper"] = ["NeuronWhisperForConditionalGeneration"]
 _import_structure["models.inference.yolos"] = ["NeuronYolosForObjectDetection"]
+_import_structure["models.inference.modeling_utils"] = ["NeuronModelForCausalLM"]
 
 if TYPE_CHECKING:
     from .accelerate import NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
@@ -119,7 +119,6 @@ if TYPE_CHECKING:
         NeuronModelForTokenClassification,
         NeuronModelForXVector,
     )
-    from .modeling_decoder import NeuronModelForCausalLM
     from .modeling_diffusion import (
         NeuronDiffusionPipelineBase,
         NeuronFluxInpaintPipeline,
@@ -152,6 +151,7 @@ if TYPE_CHECKING:
         NeuronBertModel,
     )
     from .models.inference.clip import NeuronCLIPForImageClassification, NeuronCLIPModel
+    from .models.inference.modeling_utils import NeuronModelForCausalLM
     from .models.inference.whisper import NeuronWhisperForConditionalGeneration
     from .models.inference.yolos import NeuronYolosForObjectDetection
     from .pipelines import pipeline
