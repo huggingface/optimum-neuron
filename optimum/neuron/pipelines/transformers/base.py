@@ -59,7 +59,7 @@ from ...modeling import (
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
 )
-from ...modeling_decoder import NeuronModelForCausalLM
+from ...models.inference.modeling_utils import NeuronModelForCausalLM
 from ...modeling_sentence_transformers import NeuronSentenceTransformers
 
 

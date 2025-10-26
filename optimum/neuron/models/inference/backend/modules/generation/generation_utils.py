@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import copy
+from abc import ABC, abstractmethod
 from typing import Any
 
 import torch
@@ -28,7 +29,7 @@ from .sampling import (
 )
 
 
-class NxDGenerationMixin(GenerationMixin):
+class NxDGenerationMixin(GenerationMixin, ABC):
     """A generation Mixin that can be used to extend NxDPreTrainedModel based classes"""
 
     # These are expected to be set by the GenerationMixin code
@@ -425,3 +426,7 @@ class NxDGenerationMixin(GenerationMixin):
         """
         # We dont want HF to move parameters to device
         return torch.device("cpu")
+
+    @abstractmethod
+    def reset(self):
+        raise SystemError(f"The reset method must be implemented by {self.__class__.__name__}")
