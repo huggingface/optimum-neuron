@@ -59,8 +59,8 @@ from ...modeling import (
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
 )
-from ...models.inference.modeling_utils import NeuronModelForCausalLM
 from ...modeling_sentence_transformers import NeuronSentenceTransformers
+from ...models.inference.modeling_utils import NeuronModelForCausalLM
 
 
 logger = logging.getLogger(__name__)
