@@ -339,10 +339,11 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         self.context_encoding_model = NxDDecoderWrapper(
             config=config, neuron_config=ctx_neuron_config, model=traced_model, tag=CONTEXT_ENCODING_MODEL_TAG
         )
-        tkg_neuron_config = NxDModelForCausalLM._create_token_generation_config(neuron_config)
-        self.token_generation_model = NxDDecoderWrapper(
-            config=config, neuron_config=tkg_neuron_config, model=traced_model, tag=TOKEN_GENERATION_MODEL_TAG
-        )
+        if neuron_config.embedding_model == False:
+            tkg_neuron_config = NxDModelForCausalLM._create_token_generation_config(neuron_config)
+            self.token_generation_model = NxDDecoderWrapper(
+                config=config, neuron_config=tkg_neuron_config, model=traced_model, tag=TOKEN_GENERATION_MODEL_TAG
+            )
         if neuron_config.speculation_length > 0:
             spec_neuron_config = NxDModelForCausalLM._create_speculation_config(neuron_config)
             self.speculation_model = NxDDecoderWrapper(

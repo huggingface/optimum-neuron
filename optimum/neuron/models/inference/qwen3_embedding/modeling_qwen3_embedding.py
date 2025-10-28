@@ -170,7 +170,7 @@ class Qwen3NxDModelForCausalLMEmbedding(LlamaNxDModelForCausalLM):
         batch_size: int,
         sequence_length: int,
         tensor_parallel_size: int,
-        auto_cast_type: str,
+        dtype: torch.dtype,
     ):
         continuous_batching = False  # Disable for embeddings
         on_device_sampling = False  # Disable for embeddings
@@ -181,7 +181,7 @@ class Qwen3NxDModelForCausalLMEmbedding(LlamaNxDModelForCausalLM):
             batch_size=batch_size,
             sequence_length=sequence_length,
             tp_degree=tensor_parallel_size,
-            torch_dtype=auto_cast_type,
+            torch_dtype=dtype,
             target=instance_type,
             on_device_sampling=on_device_sampling,
             fused_qkv=True,
@@ -228,5 +228,6 @@ class Qwen3NxDModelForCausalLMEmbedding(LlamaNxDModelForCausalLM):
         hidden_states = outputs.hidden_states
         return hidden_states
     
-    def forward(self, input_ids, attention_mask):
+    def forward(self, input_ids, attention_mask=None, position_ids=None, seq_ids=None, sampling_params=None):
+        # vLLM compatibility: accept but ignore extra parameters
         return self.encode(input_ids, attention_mask)
