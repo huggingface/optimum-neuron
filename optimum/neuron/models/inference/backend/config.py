@@ -68,7 +68,6 @@ class NxDNeuronConfig(NeuronConfig):
         max_context_length: int | None = None,
         output_logits: bool | None = False,
         fused_qkv: bool | None = False,
-        enable_bucketing: bool | None = False,
         target: str | None = None,  # set to "trn2" for trn2
         on_device_sampling: bool | None = False,
         max_topk: int | None = 256,
@@ -106,9 +105,6 @@ class NxDNeuronConfig(NeuronConfig):
         # On-device sampling
         self.on_device_sampling = on_device_sampling
         self.max_topk = max_topk
-
-        # Bucketing
-        self.enable_bucketing = enable_bucketing
 
         # Speculative decoding
         self.speculation_length = speculation_length

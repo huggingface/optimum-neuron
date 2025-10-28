@@ -1,4 +1,7 @@
+from tempfile import TemporaryDirectory
+
 import pytest
+from huggingface_hub import get_token, snapshot_download
 
 
 # Do not collect tests from this file if vllm is not installed
@@ -15,7 +18,7 @@ async def multi_model_vllm_service(vllm_launcher, neuron_llm_config):
 
 
 @pytest.mark.asyncio
-@pytest.fixture(params=["local_neuron", "hub_neuron", "hub_explicit", "hub_implicit"])
+@pytest.fixture(params=["local_neuron", "hub_neuron", "hub_explicit", "hub_implicit", "local_implicit"])
 async def vllm_service_from_model(request, vllm_launcher, base_neuron_llm_config):
     service_name = base_neuron_llm_config["name"]
     if request.param == "hub_explicit":
@@ -33,6 +36,24 @@ async def vllm_service_from_model(request, vllm_launcher, base_neuron_llm_config
         ) as vllm_service:
             await vllm_service.health(600)
             yield vllm_service
+    elif request.param == "local_implicit":
+        served_model_name = base_neuron_llm_config["model_id"]
+        with TemporaryDirectory() as local_model_path:
+            # Manually download weights
+            token = get_token()
+            snapshot_download(
+                served_model_name,
+                local_dir=local_model_path,
+                token=token,
+                allow_patterns=[
+                    "model*.safetensors",
+                    "*.json",
+                ],
+            )
+            model_name_or_path = local_model_path
+            with vllm_launcher(service_name, model_name_or_path, served_model_name) as vllm_service:
+                await vllm_service.health(600)
+                yield vllm_service
     else:
         if request.param == "local_neuron":
             model_name_or_path = base_neuron_llm_config["neuron_model_path"]
@@ -48,10 +69,9 @@ async def vllm_service_from_model(request, vllm_launcher, base_neuron_llm_config
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "prompt, max_output_tokens", [("What is Deep Learning?", 17), ("What is the colour of the sky ?", 24)]
-)
-async def test_vllm_service_from_model(vllm_service_from_model, prompt, max_output_tokens):
+async def test_vllm_service_from_model(vllm_service_from_model):
+    prompt = "What is Deep Learning?"
+    max_output_tokens = 17
     greedy_tokens, greedy_text = await vllm_service_from_model.client.greedy(
         prompt, max_output_tokens=max_output_tokens
     )

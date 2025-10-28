@@ -5,13 +5,13 @@ on:
     branches: [ main ]
     paths:
       - "pyproject.toml"
-      - "optimum/commands/**.py"
+      - "optimum/commands/export/neuronx.py"
       - "optimum/exporters/neuron/__main__.py"
       - "optimum/neuron/configuration_utils.py"
       - "optimum/neuron/modeling_base.py"
-      - "optimum/neuron/modeling_decoder.py"
       - "optimum/neuron/models/*.py"
       - "optimum/neuron/models/inference/auto_models.py"
+      - "optimum/neuron/models/inference/modeling_utils.py"
       - "optimum/neuron/models/inference/backend/**.py"
       - "optimum/neuron/models/inference/granite/**.py"
       - "optimum/neuron/models/inference/llama/**.py"
@@ -30,13 +30,13 @@ on:
     branches: [ main ]
     paths:
       - "pyproject.toml"
-      - "optimum/commands/**.py"
+      - "optimum/commands/export/neuronx.py"
       - "optimum/exporters/neuron/__main__.py"
       - "optimum/neuron/configuration_utils.py"
       - "optimum/neuron/modeling_base.py"
-      - "optimum/neuron/modeling_decoder.py"
       - "optimum/neuron/models/*.py"
       - "optimum/neuron/models/inference/auto_models.py"
+      - "optimum/neuron/models/inference/modeling_utils.py"
       - "optimum/neuron/models/inference/backend/**.py"
       - "optimum/neuron/models/inference/granite/**.py"
       - "optimum/neuron/models/inference/llama/**.py"
@@ -62,7 +62,7 @@ jobs:
     runs-on:
       group: aws-inf2-8xlarge
     env:
-      HF_HUB_ENABLE_HF_TRANSFER: 1
+      HF_XET_HIGH_PERFORMANCE: 1
     steps:
       - name: Checkout
         uses: actions/checkout@v4

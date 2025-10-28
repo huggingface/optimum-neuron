@@ -14,31 +14,23 @@
 # limitations under the License.
 import copy
 import logging
-import os
-from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import neuronx_distributed as nxd
 import torch
-from huggingface_hub import HfApi, snapshot_download
 from neuronx_distributed.operators.argmax import argmax as nxd_argmax
 from neuronx_distributed.parallel_layers.layers import SPMDRank
 from neuronx_distributed.parallel_layers.mappings import (
     _gather_along_dim,
 )
 from torch import nn
-from transformers import AutoConfig, PretrainedConfig
+from transformers import PretrainedConfig
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from ......cache.entries.single_model import SingleModelCacheEntry
-from ......cache.hub_cache import hub_neuronx_cache
-from ......modeling_decoder import NeuronModelForCausalLM
-from ......utils.instance import align_compilation_target, current_instance_type
-from ......utils.system import get_available_cores
+from ....modeling_utils import NeuronModelForCausalLM
 from ...config import NxDNeuronConfig
+from ...graph_builder import NxDGraphBuilder
 from ...pretrained_model import NxDPreTrainedModel
 from ...utils.random import set_random_seed
-from ..autobucketing import generate_buckets
 from ..generation.generation_utils import NxDGenerationMixin
 from ..generation.sampling import (
     Sampler,
@@ -50,6 +42,7 @@ from ..kvcache.kv_cache_manager import (
     KVCacheManager,
     _slice_kv_cacheline,
 )
+from .decoder_builder import NxDDecoderBuilder
 from .decoder_wrapper import (
     CONTEXT_ENCODING_MODEL_TAG,
     SPECULATION_MODEL_TAG,
@@ -337,22 +330,27 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
         traced_model: torch.jit.ScriptModule,
-        context_encoding_model: NxDDecoderWrapper,
-        token_generation_model: NxDDecoderWrapper = None,
-        speculation_model: NxDDecoderWrapper = None,
+        graph_builders: list[NxDGraphBuilder],
     ):
-        self.context_encoding_model = context_encoding_model
-        self.token_generation_model = token_generation_model
-        self.speculation_model = speculation_model
-        # Model wrappers are used by the parent class to assign weights to the model.
-        model_wrappers = [self.context_encoding_model]
-        if self.token_generation_model is not None:
-            model_wrappers.append(self.token_generation_model)
-        if self.speculation_model is not None:
-            model_wrappers.append(self.speculation_model)
         super().__init__(
-            config=config, neuron_config=neuron_config, traced_model=traced_model, model_wrappers=model_wrappers
+            config=config, neuron_config=neuron_config, traced_model=traced_model, graph_builders=graph_builders
         )
+        ctx_neuron_config = NxDModelForCausalLM._create_context_encoding_config(neuron_config)
+        self.context_encoding_model = NxDDecoderWrapper(
+            config=config, neuron_config=ctx_neuron_config, model=traced_model, tag=CONTEXT_ENCODING_MODEL_TAG
+        )
+        tkg_neuron_config = NxDModelForCausalLM._create_token_generation_config(neuron_config)
+        self.token_generation_model = NxDDecoderWrapper(
+            config=config, neuron_config=tkg_neuron_config, model=traced_model, tag=TOKEN_GENERATION_MODEL_TAG
+        )
+        if neuron_config.speculation_length > 0:
+            spec_neuron_config = NxDModelForCausalLM._create_speculation_config(neuron_config)
+            self.speculation_model = NxDDecoderWrapper(
+                config=config,
+                neuron_config=spec_neuron_config,
+                model=traced_model,
+                tag=SPECULATION_MODEL_TAG,
+            )
 
         self.text_config = self.config.get_text_config()
         self.vocab_size = self.text_config.vocab_size
@@ -360,104 +358,56 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         self.sampler = None
 
     @staticmethod
-    def create_context_encoding_wrapper(model_cls, config, neuron_config, **model_init_kwargs):
-        new_neuron_config = copy.deepcopy(neuron_config)
-        new_neuron_config.batch_size = neuron_config.ctx_batch_size
-        new_neuron_config.n_active_tokens = neuron_config.max_context_length
-
-        if new_neuron_config.enable_bucketing:
-            buckets = generate_buckets(128, new_neuron_config.max_context_length)
-        else:
-            buckets = generate_buckets(
-                new_neuron_config.max_context_length,
-                new_neuron_config.max_context_length,
-            )
-
-        return NxDDecoderWrapper(
-            config=config,
-            neuron_config=new_neuron_config,
-            buckets=buckets,
-            bucket_n_active_tokens=True,
-            model_cls=model_cls,
-            tag=CONTEXT_ENCODING_MODEL_TAG,
-            model_init_kwargs=model_init_kwargs,
-        )
+    def _create_context_encoding_config(neuron_config: NxDNeuronConfig) -> NxDNeuronConfig:
+        ctx_neuron_config = copy.deepcopy(neuron_config)
+        ctx_neuron_config.batch_size = neuron_config.ctx_batch_size
+        return ctx_neuron_config
 
     @staticmethod
-    def create_token_generation_wrapper(
-        model_cls, config, neuron_config, enable_wlt_optimization: bool = True, **model_init_kwargs
-    ):
-        new_neuron_config = copy.deepcopy(neuron_config)
-        new_neuron_config.batch_size = neuron_config.tkg_batch_size
-        new_neuron_config.n_active_tokens = 1
-
-        if new_neuron_config.enable_bucketing:
-            buckets = generate_buckets(128, neuron_config.sequence_length)
-        else:
-            buckets = generate_buckets(neuron_config.sequence_length, neuron_config.sequence_length)
-
-        return NxDDecoderWrapper(
-            config=config,
-            neuron_config=new_neuron_config,
-            buckets=buckets,
-            bucket_n_active_tokens=False,
-            model_cls=model_cls,
-            tag=TOKEN_GENERATION_MODEL_TAG,
-            priority_model_idx=0 if enable_wlt_optimization else None,  # to turn on weight layout optimization
-            model_init_kwargs=model_init_kwargs,
-        )
+    def _create_token_generation_config(neuron_config: NxDNeuronConfig) -> NxDNeuronConfig:
+        tkg_neuron_config = copy.deepcopy(neuron_config)
+        tkg_neuron_config.batch_size = neuron_config.tkg_batch_size
+        return tkg_neuron_config
 
     @staticmethod
-    def create_speculation_wrapper(model_cls, config, neuron_config, **model_init_kwargs):
-        new_neuron_config = copy.deepcopy(neuron_config)
-        new_neuron_config.batch_size = neuron_config.tkg_batch_size
-        new_neuron_config.n_active_tokens = neuron_config.speculation_length
+    def _create_speculation_config(neuron_config: NxDNeuronConfig) -> NxDNeuronConfig:
+        spec_neuron_config = copy.deepcopy(neuron_config)
+        spec_neuron_config.batch_size = neuron_config.tkg_batch_size
+        return spec_neuron_config
 
-        if new_neuron_config.enable_bucketing:
-            buckets = generate_buckets(128, neuron_config.sequence_length)
-        else:
-            buckets = generate_buckets(neuron_config.sequence_length, neuron_config.sequence_length)
-
-        return NxDDecoderWrapper(
+    @classmethod
+    def create_graph_builders(cls, config, neuron_config):
+        if cls._model_cls is None:
+            raise SystemError(f"No underlying model class defined for {cls}.")
+        graph_builders = {}
+        ctx_neuron_config = NxDModelForCausalLM._create_context_encoding_config(neuron_config)
+        graph_builders["context_encoding"] = NxDDecoderBuilder(
             config=config,
-            neuron_config=new_neuron_config,
-            buckets=buckets,
-            bucket_n_active_tokens=False,
-            model_cls=model_cls,
-            tag=SPECULATION_MODEL_TAG,
+            neuron_config=ctx_neuron_config,
+            max_tokens=ctx_neuron_config.max_context_length,
+            active_tokens=ctx_neuron_config.max_context_length,
+            model_cls=cls._model_cls,
+        )
+        tkg_neuron_config = NxDModelForCausalLM._create_token_generation_config(neuron_config)
+        graph_builders["token_generation"] = NxDDecoderBuilder(
+            config=config,
+            neuron_config=tkg_neuron_config,
+            max_tokens=tkg_neuron_config.sequence_length,
+            active_tokens=1,
+            model_cls=cls._model_cls,
             priority_model_idx=0,  # to turn on weight layout optimization
-            model_init_kwargs=model_init_kwargs,
         )
-
-    @staticmethod
-    def create_model_wrappers(model_cls, config, neuron_config, **model_init_kwargs):
-        context_encoding_model = NxDModelForCausalLM.create_context_encoding_wrapper(
-            model_cls,
-            config,
-            neuron_config,
-            **model_init_kwargs,
-        )
-        token_generation_model = (NxDModelForCausalLM.create_token_generation_wrapper(
-                model_cls,
-                config,
-                neuron_config,
-                **model_init_kwargs,
+        if neuron_config.speculation_length > 0:
+            spec_neuron_config = NxDModelForCausalLM._create_speculation_config(neuron_config)
+            graph_builders["speculation_model"] = NxDDecoderBuilder(
+                config=config,
+                neuron_config=spec_neuron_config,
+                max_tokens=spec_neuron_config.sequence_length,
+                active_tokens=spec_neuron_config.speculation_length,
+                model_cls=cls._model_cls,
+                priority_model_idx=0,  # to turn on weight layout optimization
             )
-            if neuron_config.embedding_model == False
-            else None
-        )
-        
-        speculation_model = (
-            NxDModelForCausalLM.create_speculation_wrapper(
-                model_cls,
-                config,
-                neuron_config,
-                **model_init_kwargs,
-            )
-            if neuron_config.speculation_length > 0
-            else None
-        )
-        return context_encoding_model, token_generation_model, speculation_model
+        return graph_builders
 
     def forward(
         self,
@@ -616,185 +566,3 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
 
         logging.info(f"neuronx-cc compiler_args are: {compiler_args}")
         return compiler_args
-
-    # NeuronModelForCausalLM methods
-    @classmethod
-    def _from_pretrained(
-        cls,
-        model_id: "str | Path",
-        config: "PretrainedConfig",
-        revision: str | None = None,
-        token: bool | str | None = None,
-        cache_dir: str | None = None,
-        force_download: bool | None = False,
-        local_files_only: bool | None = False,
-        **kwargs,
-    ) -> "NeuronModelForCausalLM":
-        if len(kwargs) > 0:
-            logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
-        neuron_config = NxDNeuronConfig.from_pretrained(model_id)
-        # Check the current instance type is compatible with the one used to compile the model
-        if neuron_config.target != current_instance_type():
-            raise ValueError(
-                f"The model was compiled for {neuron_config.target} but the current instance type is "
-                f"{current_instance_type()}. Please use a compatible instance type."
-            )
-        # Also check the number of cores is at least equal to the tensor parallel size
-        if get_available_cores() < neuron_config.tp_degree:
-            raise ValueError(
-                f"The model requires at least {neuron_config.tp_degree} Neuron cores but only "
-                f"{get_available_cores()} are available. Please use a compatible instance type."
-            )
-        context_encoding_model, token_generation_model, speculation_model = cls.create_model_wrappers(
-            model_cls=cls._model_cls,
-            config=config,
-            neuron_config=neuron_config,
-        )
-        if not os.path.exists(model_id):
-            # The model_id is a model hub id: download the model from the hub.
-            with TemporaryDirectory() as tmpdir:
-                snapshot_download(
-                    repo_id=model_id,
-                    revision=revision,
-                    cache_dir=cache_dir,
-                    local_dir=tmpdir,
-                    force_download=force_download,
-                    local_files_only=local_files_only,
-                    token=token,
-                    allow_patterns=[cls.COMPILED_MODEL_FILE_NAME],
-                )
-                traced_model = torch.jit.load(os.path.join(tmpdir, cls.COMPILED_MODEL_FILE_NAME))
-        else:
-            traced_model = torch.jit.load(os.path.join(model_id, cls.COMPILED_MODEL_FILE_NAME))
-        model = cls(
-            config=config,
-            neuron_config=neuron_config,
-            traced_model=traced_model,
-            context_encoding_model=context_encoding_model,
-            token_generation_model=token_generation_model,
-            speculation_model=speculation_model,
-        )
-        model.load_weights(
-            model_id,
-            cache_dir=cache_dir,
-            force_download=force_download,
-            local_files_only=local_files_only,
-            token=token,
-        )
-        return model
-
-    @classmethod
-    def _export(
-        cls,
-        model_id: str,
-        config: "PretrainedConfig | None",
-        neuron_config: "NxDNeuronConfig",
-        token: bool | str | None = None,
-        revision: str | None = None,
-        cache_dir: str | None = None,
-        force_download: bool | None = False,
-        local_files_only: bool | None = False,
-        trust_remote_code: bool | None = False,
-        load_weights: bool = False,
-        **kwargs,
-    ) -> "NeuronModelForCausalLM":
-        if len(kwargs) > 0:
-            logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
-        # Try to align compilation target. We do not allow override as neuronx-distributed is already initialized.
-        compilation_target = align_compilation_target(neuron_config.target, override=False)
-        if compilation_target != neuron_config.target:
-            raise ValueError(
-                f"The compilation target is {neuron_config.target} but the NEURON_PLATFORM_TARGET_OVERRIDE"
-                f" environment variable is set to {compilation_target}, Please set it to the correct value."
-            )
-        if config is None:
-            # Get the text config if not provided
-            config = AutoConfig.from_pretrained(
-                model_id,
-                token=token,
-                revision=revision,
-                cache_dir=cache_dir,
-                force_download=force_download,
-                trust_remote_code=trust_remote_code,
-            ).get_text_config()
-        # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
-        config.torch_dtype = neuron_config.torch_dtype
-        # Evaluate head_dim if it is defined but set to null (like in Mixtral for transformers 4.54+)
-        if hasattr(config, "head_dim") and config.head_dim is None:
-            config.head_dim = config.hidden_size // config.num_attention_heads
-        context_encoding_model, token_generation_model, speculation_model = cls.create_model_wrappers(
-            model_cls=cls._model_cls,
-            config=config,
-            neuron_config=neuron_config,
-        )
-        model_wrappers = []
-        for wrapper in context_encoding_model, token_generation_model, speculation_model:
-            if wrapper is not None:
-                model_wrappers.append(wrapper)
-
-        # The model NEFF files will be cached locally, but if the model_id corresponds
-        # to a hub model, we also create a cache entry for it.
-        cache_entry = (
-            None
-            if os.path.exists(model_id)
-            else SingleModelCacheEntry(model_id, task="text-generation", config=config, neuron_config=neuron_config)
-        )
-        with hub_neuronx_cache(entry=cache_entry):
-            traced_model = NxDPreTrainedModel.compile(
-                neuron_config=neuron_config,
-                model_wrappers=model_wrappers,
-                compiler_args=cls.get_compiler_args(neuron_config),
-            )
-        model = cls(
-            config=config,
-            neuron_config=neuron_config,
-            traced_model=traced_model,
-            context_encoding_model=context_encoding_model,
-            token_generation_model=token_generation_model,
-            speculation_model=speculation_model,
-        )
-        if load_weights:
-            model.load_weights(
-                model_id,
-                cache_dir=cache_dir,
-                force_download=force_download,
-                local_files_only=local_files_only,
-                token=token,
-            )
-        return model
-
-    def _save_pretrained(self, save_directory: str | Path):
-        model_name_or_path = getattr(self.config, "_name_or_path")
-        # If the model was exported from a local path, we need to save the checkpoint (not that we also shard it)
-        weight_path = model_name_or_path if os.path.isdir(model_name_or_path) else None
-        self.save(save_directory, weight_path=weight_path)
-
-    def push_to_hub(
-        self,
-        save_directory: str,
-        repository_id: str,
-        private: bool | None = None,
-        revision: str | None = None,
-        token: bool | str = True,
-        endpoint: str | None = None,
-    ) -> str:
-        api = HfApi(endpoint=endpoint)
-
-        api.create_repo(
-            token=token,
-            repo_id=repository_id,
-            exist_ok=True,
-            private=private,
-        )
-        ignore_patterns = []
-        checkpoint_id = self.neuron_config.checkpoint_id
-        if checkpoint_id is not None:
-            # Avoid uploading checkpoints when the original model is available on the hub
-            ignore_patterns = [self.CHECKPOINT_DIR + "/*"]
-        api.upload_folder(
-            repo_id=repository_id,
-            folder_path=save_directory,
-            token=token,
-            revision=revision,
-            ignore_patterns=ignore_patterns,
-        )
