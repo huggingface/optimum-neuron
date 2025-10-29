@@ -28,7 +28,7 @@ CACHE_WHITE_LIST = [
     "bos_token_id",
     "pad_token_id",
     "torchscript",
-    "torch_dtype",  # this has been renamed as `float_dtype` for the check
+    "dtype",  # this has been renamed as `float_dtype` for the check
     "_commit_hash",
     "sample_size",
     "projection_dim",

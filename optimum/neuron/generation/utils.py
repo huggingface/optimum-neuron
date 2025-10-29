@@ -325,18 +325,17 @@ class NeuronGenerationMixin(GenerationMixin):
     The class exposes [`~generation.GenerationMixin.generate`], which can be used for:
         - *greedy decoding* by calling [`~generation.GenerationMixin.greedy_search`] if `num_beams=1` and
           `do_sample=False`
-        - *contrastive search* by calling [`~generation.GenerationMixin.contrastive_search`] if `penalty_alpha>0` and
-          `top_k>1`
         - *multinomial sampling* by calling [`~generation.GenerationMixin.sample`] if `num_beams=1` and
           `do_sample=True`
         - *beam-search decoding* by calling [`~generation.GenerationMixin.beam_search`] if `num_beams>1` and
           `do_sample=False`
         - *beam-search multinomial sampling* by calling [`~generation.GenerationMixin.beam_sample`] if `num_beams>1`
           and `do_sample=True`
-        - *diverse beam-search decoding* by calling [`~generation.GenerationMixin.group_beam_search`], if `num_beams>1`
-          and `num_beam_groups>1`
-        - *constrained beam-search decoding* by calling [`~generation.GenerationMixin.constrained_beam_search`], if
-          `constraints!=None` or `force_words_ids!=None`
+
+    Note: The following strategies have been removed in transformers 4.56.0+:
+        - constrained beam-search decoding (constraints and force_words_ids)
+        - group beam-search decoding (num_beam_groups > 1)
+        - contrastive search (penalty_alpha > 0)
 
     You do not need to call any of the above methods directly. Pass custom parameter values to 'generate' instead. To
     learn more about decoding strategies refer to the [text generation strategies guide](../generation_strategies).

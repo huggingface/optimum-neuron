@@ -29,10 +29,9 @@ from transformers.trainer_utils import (
     SchedulerType,
     get_last_checkpoint,
 )
+from functools import cached_property
+
 from transformers.training_args import OptimizerNames, _convert_str_dict, default_logdir, trainer_log_levels
-from transformers.utils import (
-    cached_property,
-)
 
 from ...utils import logging
 from ..accelerate import NeuronAcceleratorState, NeuronPartialState
@@ -759,8 +758,8 @@ class NeuronTrainingArguments:
         converts torch.dtype to a string of just the type. For example, `torch.float32` get converted into *"float32"*
         string, which can then be stored in the json format.
         """
-        if d.get("torch_dtype", None) is not None and not isinstance(d["torch_dtype"], str):
-            d["torch_dtype"] = str(d["torch_dtype"]).split(".")[1]
+        if d.get("dtype", None) is not None and not isinstance(d["dtype"], str):
+            d["dtype"] = str(d["dtype"]).split(".")[1]
         for value in d.values():
             if isinstance(value, dict):
                 self._dict_torch_dtype_to_str(value)

@@ -61,7 +61,6 @@ from transformers.modeling_utils import (
     get_state_dict_dtype,
     load_state_dict,
     no_init_weights,
-    set_initialized_submodules,
 )
 from transformers.pytorch_utils import id_tensor_storage
 from transformers.quantizers import AutoHfQuantizer
@@ -213,7 +212,7 @@ class NeuronModelMixin:
         return attn_implementation
 
     def _flash_attn_2_can_dispatch(self, is_init_check: bool = False) -> bool:
-        torch_dtype = self.config.torch_dtype
+        dtype = self.config.dtype
 
         if not self._supports_flash_attn:
             raise ValueError(
@@ -221,9 +220,9 @@ class NeuronModelMixin:
                 "https://github.com/huggingface/optimum-neuron/issues"
             )
 
-        if torch_dtype is None:
+        if dtype is None:
             logger.warning_once(
-                "You are attempting to use Flash Attention 2 without specifying a torch dtype. This might lead to unexpected behaviour"
+                "You are attempting to use Flash Attention 2 without specifying a dtype. This might lead to unexpected behaviour"
             )
 
         # If no error raise by this point, we can return `True`
@@ -447,7 +446,14 @@ class NeuronModelMixin:
                     _loaded_keys = [k[len(prefix) + 1 :] for k in loaded_keys]
                 else:
                     _loaded_keys = loaded_keys
-                not_initialized_submodules = set_initialized_submodules(model, _loaded_keys)
+
+                # Mark loaded parameters/buffers as initialized (transformers 4.56.0+ approach)
+                for key in model.state_dict():
+                    if key in _loaded_keys:
+                        param_or_buffer = model.get_parameter_or_buffer(key)
+                        if param_or_buffer is not None:
+                            param_or_buffer._is_hf_initialized = True
+
                 # If we're about to tie the output embeds to the input embeds we don't need to init them
                 if (
                     hasattr(model.config.get_text_config(decoder=True), "tie_word_embeddings")
@@ -458,6 +464,22 @@ class NeuronModelMixin:
                         # Still need to initialize if there is a bias term since biases are not tied.
                         if not hasattr(output_embeddings, "bias") or output_embeddings.bias is None:
                             output_embeddings._is_hf_initialized = True
+
+                # Set the flag on modules recursively
+                def set_is_initialized_for_modules(module):
+                    if (
+                        all(getattr(child, "_is_hf_initialized", False) for child in module.children())
+                        and all(getattr(param, "_is_hf_initialized", False) for param in module.parameters(recurse=False))
+                        and all(
+                            getattr(buffer, "_is_hf_initialized", False)
+                            for buffer in module.buffers(recurse=False)
+                            if buffer not in module._non_persistent_buffers_set
+                        )
+                    ):
+                        module._is_hf_initialized = True
+
+                model.apply(set_is_initialized_for_modules)
+                not_initialized_submodules = {name: mod for name, mod in model.named_modules() if not getattr(mod, "_is_hf_initialized", False)}
             else:
                 not_initialized_submodules = dict(model.named_modules())
 
@@ -704,7 +726,11 @@ class NeuronModelMixin:
         from_pipeline = kwargs.pop("_from_pipeline", None)
         from_auto_class = kwargs.pop("_from_auto", False)
         _fast_init = kwargs.pop("_fast_init", True)
+        dtype = kwargs.pop("dtype", None)
         torch_dtype = kwargs.pop("torch_dtype", None)
+        # For BC on torch_dtype argument (deprecated in favor of dtype)
+        if torch_dtype is not None:
+            dtype = dtype if dtype is not None else torch_dtype
         low_cpu_mem_usage = kwargs.pop("low_cpu_mem_usage", None)
         device_map = kwargs.pop("device_map", None)
         kwargs.pop("max_memory", None)
@@ -859,6 +885,9 @@ class NeuronModelMixin:
                 _from_pipeline=from_pipeline,
                 **kwargs,
             )
+            # dtype is a config attribute, not a model parameter, so we remove it from model_kwargs
+            # Following the transformers pattern where dtype/torch_dtype are popped early from kwargs
+            model_kwargs.pop("dtype", None)
         else:
             config = copy.deepcopy(config)
             model_kwargs = kwargs
@@ -1172,18 +1201,18 @@ class NeuronModelMixin:
         # 1. If torch_dtype is not None, we use that dtype
         # 2. If torch_dtype is "auto", we auto-detect dtype from the loaded state_dict, by checking its first
         #    weights entry that is of a floating type - we assume all floating dtype weights are of the same dtype
-        # We also may have config.torch_dtype available, but we won't rely on it till v5
+        # We also may have config.dtype available, but we won't rely on it till v5
         dtype_orig = None
 
-        if torch_dtype is not None:
-            if isinstance(torch_dtype, str):
-                if torch_dtype == "auto":
-                    if hasattr(config, "torch_dtype") and config.torch_dtype is not None:
-                        torch_dtype = config.torch_dtype
-                        logger.info(f"Will use torch_dtype={torch_dtype} as defined in model's config object")
+        if dtype is not None:
+            if isinstance(dtype, str):
+                if dtype == "auto":
+                    if hasattr(config, "dtype") and config.dtype is not None:
+                        dtype = config.dtype
+                        logger.info(f"Will use dtype={dtype} as defined in model's config object")
                     else:
                         if is_sharded and "dtype" in sharded_metadata:
-                            torch_dtype = sharded_metadata["dtype"]
+                            dtype = sharded_metadata["dtype"]
                         elif not is_sharded:
                             # ** Difference from original from_pretrained **
                             # Here we load the state dict only if we end up in this case, otherwise we defer the
@@ -1193,52 +1222,52 @@ class NeuronModelMixin:
                                     one_time_state_dict = load_state_dict(
                                         resolved_archive_file, weights_only=weights_only
                                     )
-                                    torch_dtype = get_state_dict_dtype(one_time_state_dict)
+                                    dtype = get_state_dict_dtype(one_time_state_dict)
                                     del one_time_state_dict
-                                xm.rendezvous(f"auto torch_dtype_{worker}")
+                                xm.rendezvous(f"auto dtype_{worker}")
                         else:
                             one_state_dict = load_state_dict(resolved_archive_file[0], weights_only=weights_only)
-                            torch_dtype = get_state_dict_dtype(one_state_dict)
+                            dtype = get_state_dict_dtype(one_state_dict)
                             del one_state_dict  # free CPU memory
                         logger.info(
-                            "Since the `torch_dtype` attribute can't be found in model's config object, "
-                            "will use torch_dtype={torch_dtype} as derived from model's weights"
+                            "Since the `dtype` attribute can't be found in model's config object, "
+                            "will use dtype={dtype} as derived from model's weights"
                         )
-                elif hasattr(torch, torch_dtype):
-                    torch_dtype = getattr(torch, torch_dtype)
+                elif hasattr(torch, dtype):
+                    dtype = getattr(torch, dtype)
                     for sub_config_key in config.sub_configs.keys():
                         sub_config = getattr(config, sub_config_key)
-                        sub_config.torch_dtype = torch_dtype
-            elif isinstance(torch_dtype, torch.dtype):
+                        sub_config.dtype = dtype
+            elif isinstance(dtype, torch.dtype):
                 for sub_config_key in config.sub_configs.keys():
                     sub_config = getattr(config, sub_config_key)
-                    sub_config.torch_dtype = torch_dtype
-            elif isinstance(torch_dtype, dict):
-                for key, curr_dtype in torch_dtype.items():
+                    sub_config.dtype = dtype
+            elif isinstance(dtype, dict):
+                for key, curr_dtype in dtype.items():
                     if hasattr(config, key):
                         value = getattr(config, key)
-                        value.torch_dtype = curr_dtype
+                        value.dtype = curr_dtype
                 # main torch dtype for modules that aren't part of any sub-config
-                torch_dtype = torch_dtype.get("")
-                config.torch_dtype = torch_dtype
-                if isinstance(torch_dtype, str) and hasattr(torch, torch_dtype):
-                    torch_dtype = getattr(torch, torch_dtype)
-                elif torch_dtype is None:
-                    torch_dtype = torch.float32
+                dtype = dtype.get("")
+                config.dtype = dtype
+                if isinstance(dtype, str) and hasattr(torch, dtype):
+                    dtype = getattr(torch, dtype)
+                elif dtype is None:
+                    dtype = torch.float32
             else:
                 raise ValueError(
-                    f"`torch_dtype` can be one of: `torch.dtype`, `'auto'`, a string of a valid `torch.dtype` or a `dict` with valid `torch_dtype` "
-                    f"for each sub-config in composite configs, but received {torch_dtype}"
+                    f"`dtype` can be one of: `torch.dtype`, `'auto'`, a string of a valid `torch.dtype` or a `dict` with valid `dtype` "
+                    f"for each sub-config in composite configs, but received {dtype}"
                 )
 
-            dtype_orig = cls._set_default_torch_dtype(torch_dtype)
+            dtype_orig = cls._set_default_torch_dtype(dtype)
         else:
             # set fp32 as the default dtype for BC
             default_dtype = str(torch.get_default_dtype()).split(".")[-1]
-            config.torch_dtype = default_dtype
+            config.dtype = default_dtype
             for key in config.sub_configs.keys():
                 value = getattr(config, key)
-                value.torch_dtype = default_dtype
+                value.dtype = default_dtype
 
         # ** Difference from original from_pretrained **
         # We do not handle `use_keep_in_fp32_modules` here since it is not relevant for us.
@@ -1264,9 +1293,9 @@ class NeuronModelMixin:
         config = copy.deepcopy(config)  # We do not want to modify the config inplace in from_pretrained.
 
         # ** Difference from original from_pretrained **
-        # We make sure that config.torch_dtype is of type torch.dtype.
+        # We make sure that config.dtype is of type torch.dtype.
         # We do not change the config inplace since we are working from a deepcopy.
-        config.torch_dtype = torch_dtype
+        config.dtype = dtype
 
         # ** Difference from original from_pretrained **
         # We do not support the `tie_word_embeddings` feature in pipeline parallelism.
@@ -1316,7 +1345,7 @@ class NeuronModelMixin:
                     sharded_metadata=sharded_metadata,
                     _fast_init=_fast_init,
                     device_map=device_map,
-                    dtype=torch_dtype,
+                    dtype=dtype,
                     weights_only=weights_only,
                 )
 
@@ -1419,7 +1448,7 @@ class NeuronModelMixin:
         # save the string version of dtype to the config, e.g. convert torch.float32 => "float32"
         # we currently don't use this setting automatically, but may start to use with v5
         dtype = get_parameter_dtype(model_to_save)
-        model_to_save.config.torch_dtype = str(dtype).split(".")[1]
+        model_to_save.config.dtype = str(dtype).split(".")[1]
 
         # Attach architecture to the config
         model_to_save.config.architectures = [model_to_save.__class__.__name__]

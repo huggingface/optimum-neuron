@@ -38,8 +38,8 @@ class NxDDecoderBuilder(NxDGraphBuilder):
         self.max_tokens = max_tokens
         self.active_tokens = active_tokens
 
-        if not self.neuron_config.torch_dtype:
-            self.neuron_config.torch_dtype = torch.float32
+        if not self.neuron_config.dtype:
+            self.neuron_config.dtype = torch.float32
 
         if config.pad_token_id is None:
             config.pad_token_id = 0
@@ -88,9 +88,9 @@ class DecoderModelInstance(BaseModelInstance):
         float_model = self.model_cls(self.config, self.neuron_config)
         float_model.eval()
 
-        if self.neuron_config.torch_dtype != torch.float32:
+        if self.neuron_config.dtype != torch.float32:
             float_model._apply(
-                lambda t: t.to(self.neuron_config.torch_dtype)
+                lambda t: t.to(self.neuron_config.dtype)
                 if t.is_floating_point() and t.dtype not in [torch.float8_e4m3fn, torch.float8_e5m2]
                 else t
             )

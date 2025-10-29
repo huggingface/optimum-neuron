@@ -61,7 +61,7 @@ from optimum.neuron import NeuronPixArtAlphaPipeline
 compiler_args = {"auto_cast": "none"}
 input_shapes = {"batch_size": 1, "height": 512, "width": 512, "sequence_length": 120}
 
-neuron_model = NeuronPixArtAlphaPipeline.from_pretrained("PixArt-alpha/PixArt-XL-2-512x512", torch_dtype=torch.bfloat16, export=True, disable_neuron_cache=True, **compiler_args, **input_shapes)
+neuron_model = NeuronPixArtAlphaPipeline.from_pretrained("PixArt-alpha/PixArt-XL-2-512x512", dtype=torch.bfloat16, export=True, disable_neuron_cache=True, **compiler_args, **input_shapes)
 
 # Save locally
 neuron_model.save_pretrained("pixart_alpha_neuron_512/")

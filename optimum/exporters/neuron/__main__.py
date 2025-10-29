@@ -581,7 +581,7 @@ def load_models_and_neuron_configs(
         "trust_remote_code": trust_remote_code,
         "framework": "pt",
         "library_name": library_name,
-        "torch_dtype": torch_dtype,
+        "dtype": torch_dtype,
     }
     if model is None:
         model = TasksManager.get_model_from_task(**model_kwargs)
@@ -878,7 +878,7 @@ def main():
         model_name_or_path=args.model,
         output=args.output,
         compiler_kwargs=compiler_kwargs,
-        torch_dtype=args.torch_dtype,
+        torch_dtype=args.dtype,
         tensor_parallel_size=args.tensor_parallel_size,
         task=task,
         dynamic_batch_size=args.dynamic_batch_size,

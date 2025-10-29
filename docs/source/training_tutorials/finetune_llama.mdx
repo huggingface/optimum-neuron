@@ -138,7 +138,7 @@ dtype = torch.bfloat16 if training_args.bf16 else torch.float32
 model = NeuronModelForCausalLM.from_pretrained(
     model_id,
     trn_config,
-    torch_dtype=dtype,
+    dtype=dtype,
     # Use FlashAttention2 for better performance and to be able to use larger sequence lengths.
     attn_implementation="flash_attention_2",
 )

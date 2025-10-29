@@ -209,7 +209,7 @@ class NeuronLlama4TextModel(NxDDecoderModel):
             config.vocab_size,
             config.hidden_size,
             config.pad_token_id,
-            dtype=neuron_config.torch_dtype,
+            dtype=neuron_config.dtype,
             shard_across_embedding=True,
             pad=True,
         )
@@ -226,7 +226,7 @@ class NeuronLlama4TextModel(NxDDecoderModel):
             gather_output=not neuron_config.on_device_sampling,
             bias=False,
             pad=True,
-            dtype=neuron_config.torch_dtype,
+            dtype=neuron_config.dtype,
         )
 
 

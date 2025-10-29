@@ -115,7 +115,7 @@ def main():
     model = NeuronModelForCausalLM.from_pretrained(
         model_id,
         training_args.trn_config,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         attn_implementation="flash_attention_2", # Enable flash attention
     )
 

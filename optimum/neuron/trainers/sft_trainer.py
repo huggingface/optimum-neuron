@@ -138,7 +138,7 @@ class NeuronSFTTrainer(_SFTTrainer):
             raise ValueError("You passed model_init_kwargs to the SFTConfig, but your model is already instantiated.")
         else:
             model_init_kwargs = args.model_init_kwargs
-            torch_dtype = model_init_kwargs.get("torch_dtype")
+            torch_dtype = model_init_kwargs.get("dtype")
             if torch_dtype is not None:
                 # Convert to `torch.dtype` if an str is passed
                 if isinstance(torch_dtype, str) and torch_dtype != "auto":
@@ -147,7 +147,7 @@ class NeuronSFTTrainer(_SFTTrainer):
                     raise ValueError(
                         f"Invalid `torch_dtype` passed to the SFTConfig. Expected a string with either `torch.dtype` or 'auto', but got {torch_dtype}."
                     )
-                model_init_kwargs["torch_dtype"] = torch_dtype
+                model_init_kwargs["dtype"] = torch_dtype
 
         if isinstance(model, str):
             logging.warning(

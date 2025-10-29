@@ -84,7 +84,7 @@ class NeuronLlamaMLP(nn.Module):
             self.intermediate_size,
             bias=mlp_bias,
             gather_output=False,
-            dtype=neuron_config.torch_dtype,
+            dtype=neuron_config.dtype,
             pad=True,
         )
         self.up_proj = ColumnParallelLinear(
@@ -92,7 +92,7 @@ class NeuronLlamaMLP(nn.Module):
             self.intermediate_size,
             bias=mlp_bias,
             gather_output=False,
-            dtype=neuron_config.torch_dtype,
+            dtype=neuron_config.dtype,
             pad=True,
         )
         self.down_proj = RowParallelLinear(
@@ -100,9 +100,9 @@ class NeuronLlamaMLP(nn.Module):
             self.hidden_size,
             bias=mlp_bias,
             input_is_parallel=True,
-            dtype=neuron_config.torch_dtype,
+            dtype=neuron_config.dtype,
             pad=True,
-            reduce_dtype=neuron_config.torch_dtype,
+            reduce_dtype=neuron_config.dtype,
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -288,7 +288,7 @@ class NxDLlamaModel(NxDDecoderModel):
             config.vocab_size,
             config.hidden_size,
             config.pad_token_id,
-            dtype=neuron_config.torch_dtype,
+            dtype=neuron_config.dtype,
             shard_across_embedding=True,
             pad=True,
         )

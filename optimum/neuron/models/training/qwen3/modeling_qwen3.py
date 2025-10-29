@@ -197,7 +197,7 @@ class Qwen3Model(LlamaModel):
             self.padding_idx,
             init_method=init_method,
             sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
-            dtype=config.torch_dtype,
+            dtype=config.dtype,
         )
         self.layers = nn.ModuleList(
             [Qwen3DecoderLayer(config, trn_config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
