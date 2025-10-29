@@ -193,7 +193,7 @@ class NeuronSentenceTransformers(NeuronTracedModel):
 
     @similarity_fn_name.setter
     def similarity_fn_name(
-        self, value: Literal["cosine", "dot", "euclidean", "manhattan"] | SimilarityFunction
+        self, value: Literal["cosine", "dot", "euclidean", "manhattan"] | SimilarityFunction | None
     ) -> None:
         if isinstance(value, SimilarityFunction):
             value = value.value
