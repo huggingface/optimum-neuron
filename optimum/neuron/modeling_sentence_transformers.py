@@ -137,7 +137,7 @@ class NeuronSentenceTransformers(NeuronTracedModel):
         """
         return self.preprocessors[0](texts, **kwargs)
 
-    def _get_prompt_length(self, prompt: str, **kwargs) -> int:
+    def _get_prompt_length(self, prompt: str, **kwargs) -> int | None:
         """
         Return the length of the prompt in tokens, including the BOS token
         """
