@@ -469,7 +469,9 @@ class NeuronModelMixin:
                 def set_is_initialized_for_modules(module):
                     if (
                         all(getattr(child, "_is_hf_initialized", False) for child in module.children())
-                        and all(getattr(param, "_is_hf_initialized", False) for param in module.parameters(recurse=False))
+                        and all(
+                            getattr(param, "_is_hf_initialized", False) for param in module.parameters(recurse=False)
+                        )
                         and all(
                             getattr(buffer, "_is_hf_initialized", False)
                             for buffer in module.buffers(recurse=False)
@@ -479,7 +481,9 @@ class NeuronModelMixin:
                         module._is_hf_initialized = True
 
                 model.apply(set_is_initialized_for_modules)
-                not_initialized_submodules = {name: mod for name, mod in model.named_modules() if not getattr(mod, "_is_hf_initialized", False)}
+                not_initialized_submodules = {
+                    name: mod for name, mod in model.named_modules() if not getattr(mod, "_is_hf_initialized", False)
+                }
             else:
                 not_initialized_submodules = dict(model.named_modules())
 
@@ -885,9 +889,6 @@ class NeuronModelMixin:
                 _from_pipeline=from_pipeline,
                 **kwargs,
             )
-            # dtype is a config attribute, not a model parameter, so we remove it from model_kwargs
-            # Following the transformers pattern where dtype/torch_dtype are popped early from kwargs
-            model_kwargs.pop("dtype", None)
         else:
             config = copy.deepcopy(config)
             model_kwargs = kwargs
@@ -1260,7 +1261,7 @@ class NeuronModelMixin:
                     f"for each sub-config in composite configs, but received {dtype}"
                 )
 
-            dtype_orig = cls._set_default_torch_dtype(dtype)
+            dtype_orig = cls._set_default_dtype(dtype)
         else:
             # set fp32 as the default dtype for BC
             default_dtype = str(torch.get_default_dtype()).split(".")[-1]

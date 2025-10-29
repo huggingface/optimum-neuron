@@ -18,6 +18,7 @@ import math
 import os
 from dataclasses import dataclass, field, fields
 from enum import Enum
+from functools import cached_property
 from typing import Any
 
 import torch
@@ -29,8 +30,6 @@ from transformers.trainer_utils import (
     SchedulerType,
     get_last_checkpoint,
 )
-from functools import cached_property
-
 from transformers.training_args import OptimizerNames, _convert_str_dict, default_logdir, trainer_log_levels
 
 from ...utils import logging
