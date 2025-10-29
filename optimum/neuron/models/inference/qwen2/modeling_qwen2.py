@@ -76,7 +76,7 @@ class NxDQwen2Model(NxDDecoderModel):
             config.vocab_size,
             config.hidden_size,
             config.pad_token_id,
-            dtype=neuron_config.dtype,
+            dtype=neuron_config.torch_dtype,
             shard_across_embedding=True,
             pad=True,
         )

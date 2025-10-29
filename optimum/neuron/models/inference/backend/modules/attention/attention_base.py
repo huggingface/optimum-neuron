@@ -99,7 +99,7 @@ class NeuronAttentionBase(nn.Module):
             self.head_dim = self.hidden_size // self.num_attention_heads
         self.max_position_embeddings = config.max_position_embeddings
         self.rope_theta = config.rope_theta
-        self.dtype = neuron_config.dtype
+        self.dtype = neuron_config.torch_dtype
         self.rms_norm_eps = config.rms_norm_eps
         self._qk_scale = qk_scale
 
@@ -130,7 +130,7 @@ class NeuronAttentionBase(nn.Module):
             input_is_parallel=True,
             layer_name=self.o_proj_layer_name,
             tensor_model_parallel_group=self.tensor_model_parallel_group,
-            rpl_reduce_dtype=neuron_config.dtype,
+            rpl_reduce_dtype=neuron_config.torch_dtype,
         )
         self.num_heads = utils.divide(self.qkv_proj.get_num_attention_heads(), neuron_config.tp_degree)
         self.num_key_value_heads = utils.divide(self.qkv_proj.get_num_key_value_heads(), neuron_config.tp_degree)

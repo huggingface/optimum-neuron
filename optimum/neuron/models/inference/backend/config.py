@@ -83,9 +83,9 @@ class NxDNeuronConfig(NeuronConfig):
         self.batch_size = batch_size
         self.sequence_length = sequence_length
         self.tp_degree = tp_degree
-        self.dtype = torch_dtype
-        if isinstance(self.dtype, str):
-            self.dtype = DTYPE_MAPPER.pt(self.dtype)
+        self.torch_dtype = torch_dtype
+        if isinstance(self.torch_dtype, str):
+            self.torch_dtype = DTYPE_MAPPER.pt(self.torch_dtype)
         self.n_active_tokens = self.sequence_length if n_active_tokens is None else n_active_tokens
         self.output_logits = output_logits
 

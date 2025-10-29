@@ -36,7 +36,7 @@ def initialize_moe_module(
             glu_mlp=neuron_config.glu_mlp,
             early_expert_affinity_modulation=early_expert_affinity_modulation,
         ),
-        dtype=neuron_config.dtype,
+        dtype=neuron_config.torch_dtype,
     )
     shared_experts = None
     if n_shared_experts is not None:
@@ -45,8 +45,8 @@ def initialize_moe_module(
             intermediate_size=config.intermediate_size,
             num_shared_experts=n_shared_experts,
             hidden_act=config.hidden_act,
-            dtype=neuron_config.dtype,
-            reduce_dtype=neuron_config.dtype,
+            dtype=neuron_config.torch_dtype,
+            reduce_dtype=neuron_config.torch_dtype,
             fused_gate_up_projection=fused_shared_experts,
         )
 

@@ -202,7 +202,7 @@ class ServeCommand(BaseOptimumCLICommand):
                 batch_size = selected_entry["batch_size"]
                 sequence_length = selected_entry["sequence_length"]
                 tensor_parallel_size = selected_entry["tp_degree"]
-                torch_dtype = DTYPE_MAPPER.pt(selected_entry["dtype"])
+                torch_dtype = DTYPE_MAPPER.pt(selected_entry["torch_dtype"])
                 warning_msg = f"{model_id} is not a neuron model, but a cached configuration is available using"
                 warning_msg += f" instance type {instance_type},"
                 warning_msg += f" batch size = {batch_size},"

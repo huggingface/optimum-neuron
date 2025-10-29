@@ -47,7 +47,7 @@ class KVCacheManager(nn.Module):
         self._init_kv_shape(config, neuron_config)
 
         num_layer = config.num_hidden_layers
-        dtype = neuron_config.dtype
+        dtype = neuron_config.torch_dtype
         self.past_key_values = nn.ParameterList(
             [nn.Parameter(torch.zeros(self.kv_shape, dtype=dtype), requires_grad=False) for _ in range(num_layer * 2)]
         )

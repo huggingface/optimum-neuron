@@ -37,8 +37,8 @@ class NxDDecoderWrapper(NxDModelWrapper):
         self.model = model
         self.tag = tag
 
-        if not self.neuron_config.dtype:
-            self.neuron_config.dtype = torch.float32
+        if not self.neuron_config.torch_dtype:
+            self.neuron_config.torch_dtype = torch.float32
 
         if config.pad_token_id is None:
             config.pad_token_id = 0

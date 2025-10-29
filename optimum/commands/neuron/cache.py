@@ -147,7 +147,7 @@ class LookupRepoCommand(BaseOptimumCLICommand):
                     str(entry["batch_size"]),
                     str(entry["sequence_length"]),
                     str(entry.get("tp_degree", entry.get("tensor_parallel_size"))),
-                    str(entry["dtype"]),
+                    str(entry.get("torch_dtype", "unknown")),
                     str(entry["target"]),
                 )
             )
