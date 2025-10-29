@@ -17,7 +17,6 @@
 import logging
 from typing import Literal
 
-import numpy as np
 import torch
 from sentence_transformers.similarity_functions import SimilarityFunction
 from tqdm.autonotebook import trange
@@ -59,7 +58,6 @@ class NeuronSentenceTransformers(NeuronTracedModel):
         attention_mask: torch.Tensor,
         pixel_values: torch.Tensor | None = None,
         token_type_ids: torch.Tensor | None = None,
-        **kwargs,
     ):
         model_type = self.config.neuron["model_type"]
         neuron_inputs = {"input_ids": input_ids}
@@ -103,7 +101,7 @@ class NeuronSentenceTransformers(NeuronTracedModel):
             texts (list[str] | list[dict] | list[tuple[str, str]]]): A list of texts to be tokenized.
 
         Returns:
-            Dict[str, Tensor]: A dictionary of tensors with the tokenized texts. Common keys are "input_ids",
+            dict[str, torch.Tensor]: A dictionary of tensors with the tokenized texts. Common keys are "input_ids",
                 "attention_mask", and "token_type_ids".
         """
         return self.preprocessors[0](texts, **kwargs)
@@ -129,7 +127,7 @@ class NeuronSentenceTransformers(NeuronTracedModel):
         self._prompt_length_mapping[(prompt, *kwargs.values())] = prompt_length
         return prompt_length
 
-    def _text_length(self, text: list[int] | list[list[int]]) -> int:
+    def _text_length(self, text: list[int] | list[list[int]] | dict) -> int:
         """
         Help function to get the length for the input text. Text can be either
         a list of ints (which means a single text as input), or a tuple of list of ints
@@ -221,7 +219,8 @@ class NeuronSentenceTransformers(NeuronTracedModel):
                 extra_features["prompt_length"] = length
 
         all_embeddings = []
-        length_sorted_idx = np.argsort([-self._text_length(sen) for sen in sentences])
+        lengths = torch.tensor([self._text_length(sen) for sen in sentences])
+        length_sorted_idx = torch.argsort(-lengths)
         sentences_sorted = [sentences[int(idx)] for idx in length_sorted_idx]
 
         batch_size = self.neuron_config.batch_size
@@ -259,13 +258,10 @@ class NeuronSentenceTransformers(NeuronTracedModel):
 
             all_embeddings.extend(embeddings)
 
-        all_embeddings = [all_embeddings[idx] for idx in np.argsort(length_sorted_idx)]
+        all_embeddings = [all_embeddings[i] for i in length_sorted_idx.tolist()]
 
         if len(all_embeddings):
-            if isinstance(all_embeddings, np.ndarray):
-                all_embeddings = torch.from_numpy(all_embeddings)
-            else:
-                all_embeddings = torch.stack(all_embeddings)
+            all_embeddings = torch.stack(all_embeddings)
         else:
             all_embeddings = torch.tensor([], device=self.device)
 
