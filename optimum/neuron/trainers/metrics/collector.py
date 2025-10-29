@@ -19,6 +19,7 @@ from typing import Any
 
 import torch
 import torch_xla.runtime as xr
+from neuronx_distributed.utils.model_utils import LogicalNCConfig, get_platform_lnc
 from torch_neuronx.utils import get_platform_target
 
 from ...models.training.training_utils import get_model_param_count
@@ -69,6 +70,7 @@ class TrainingMetricsCollector:
 
         self.dp_size = self.args.trn_config.data_parallel_size
         self.total_neuron_cores = xr.world_size()
+        self.platform_lnc = get_platform_lnc()
 
         self.model_params = None
         self.num_layers = model.config.num_hidden_layers
@@ -136,6 +138,10 @@ class TrainingMetricsCollector:
         # Detect training precision
         dtype = self._detect_training_precision()
         platform_specs = HARDWARE_TFLOPS[platform_target]
+
+        # Adjust for LNC2 if applicable
+        if self.platform_lnc is LogicalNCConfig.LNC2:
+            platform_specs = {k: v * 2 for k, v in platform_specs.items()}
 
         if dtype not in platform_specs:
             raise ValueError(
