@@ -129,7 +129,7 @@ class NeuronSentenceTransformers(NeuronTracedModel):
         Tokenizes the texts.
 
         Args:
-            texts (Union[List[str], List[Dict], List[Tuple[str, str]]]): A list of texts to be tokenized.
+            texts (list[str] | list[dict] | list[tuple[str, str]]]): A list of texts to be tokenized.
 
         Returns:
             Dict[str, Tensor]: A dictionary of tensors with the tokenized texts. Common keys are "input_ids",
