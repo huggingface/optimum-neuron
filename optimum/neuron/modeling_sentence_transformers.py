@@ -25,27 +25,11 @@ from transformers import AutoModel
 from transformers.modeling_outputs import ModelOutput
 
 from .modeling_traced import NeuronTracedModel
-from .utils.doc import (
-    _GENERIC_PROCESSOR,
-    _TOKENIZER_FOR_DOC,
-    NEURON_MODEL_START_DOCSTRING,
-    NEURON_SENTENCE_TRANSFORMERS_IMAGE_EXAMPLE,
-    NEURON_SENTENCE_TRANSFORMERS_TEXT_EXAMPLE,
-    NEURON_TEXT_INPUTS_DOCSTRING,
-    add_start_docstrings,
-    add_start_docstrings_to_model_forward,
-)
 
 
 logger = logging.getLogger(__name__)
 
 
-@add_start_docstrings(
-    """
-    Neuron Model for Sentence Transformers.
-    """,
-    NEURON_MODEL_START_DOCSTRING,
-)
 class NeuronSentenceTransformers(NeuronTracedModel):
     """
     Sentence Transformers model on Neuron devices.
@@ -69,19 +53,6 @@ class NeuronSentenceTransformers(NeuronTracedModel):
 
         super().__init__(**kwargs)
 
-    @add_start_docstrings_to_model_forward(
-        NEURON_TEXT_INPUTS_DOCSTRING.format("batch_size, sequence_length")
-        + NEURON_SENTENCE_TRANSFORMERS_TEXT_EXAMPLE.format(
-            processor_class=_TOKENIZER_FOR_DOC,
-            model_class="NeuronModelForSentenceTransformers",
-            checkpoint="optimum/bge-base-en-v1.5-neuronx",
-        )
-        + NEURON_SENTENCE_TRANSFORMERS_IMAGE_EXAMPLE.format(
-            processor_class=_GENERIC_PROCESSOR,
-            model_class="NeuronModelForSentenceTransformers",
-            checkpoint="optimum/clip_vit_emb_neuronx",
-        )
-    )
     def forward(
         self,
         input_ids: torch.Tensor,
