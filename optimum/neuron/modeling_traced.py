@@ -612,7 +612,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
 
     @staticmethod
     def remove_padding(
-        outputs: list[torch.Tensor],
+        outputs: list[torch.Tensor] | dict,
         dims: list[int],
         indices: list[int],
         padding_side: Literal["right", "left"] = "right",
@@ -633,6 +633,8 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         if len(dims) != len(indices):
             raise ValueError(f"The size of `dims`({len(dims)}) and indices`({len(indices)}) must be equal.")
 
+        if isinstance(outputs, dict):
+            outputs = list(outputs.values())
         for dim, indice in zip(dims, indices):
             if padding_side == "right":
                 outputs = [
