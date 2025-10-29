@@ -100,7 +100,7 @@ class NeuronSentenceTransformers(NeuronTracedModel):
         Tokenizes the texts.
 
         Args:
-            texts (Union[List[str], List[Dict], List[Tuple[str, str]]]): A list of texts to be tokenized.
+            texts (list[str] | list[dict] | list[tuple[str, str]]]): A list of texts to be tokenized.
 
         Returns:
             Dict[str, Tensor]: A dictionary of tensors with the tokenized texts. Common keys are "input_ids",
@@ -108,7 +108,7 @@ class NeuronSentenceTransformers(NeuronTracedModel):
         """
         return self.preprocessors[0](texts, **kwargs)
 
-    def _get_prompt_length(self, prompt: str, **kwargs) -> int:
+    def _get_prompt_length(self, prompt: str, **kwargs) -> int | None:
         """
         Return the length of the prompt in tokens, including the BOS token
         """
