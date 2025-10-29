@@ -32,7 +32,7 @@ def main():
             assert neuron_config.sequence_length == seq_length, (
                 f"Model {model_name} is not configured for sequence length {seq_length}."
             )
-            assert neuron_config.dtype == torch.bfloat16, f"Model {model_name} is not configured for bf16."
+            assert neuron_config.torch_dtype == torch.bfloat16, f"Model {model_name} is not configured for bf16."
             model = NeuronModelForCausalLM.from_pretrained(model_id)
         except Exception:
             model = NeuronModelForCausalLM.from_pretrained(

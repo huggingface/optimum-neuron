@@ -40,7 +40,7 @@ if __name__ == "__main__":
 
     pipe = NeuronFluxPipeline.from_pretrained(
         "black-forest-labs/FLUX.1-dev",
-        dtype=torch.bfloat16,
+        torch_dtype=torch.bfloat16,
         export=True,
         tensor_parallel_size=8,
         **compiler_args,

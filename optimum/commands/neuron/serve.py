@@ -101,7 +101,7 @@ class ServeCommand(BaseOptimumCLICommand):
         sequence_length = self.args.sequence_length
         tensor_parallel_size = self.args.tensor_parallel_size
         config = AutoConfig.from_pretrained(model_name_or_path)
-        torch_dtype = DTYPE_MAPPER.pt(config.dtype)
+        torch_dtype = DTYPE_MAPPER.pt(config.torch_dtype)
         try:
             # Look for a NeuronConfig in the model directory
             neuron_config = NeuronConfig.from_pretrained(model_name_or_path)

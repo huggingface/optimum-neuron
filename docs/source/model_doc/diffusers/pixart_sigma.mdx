@@ -61,7 +61,7 @@ from optimum.neuron import NeuronPixArtSigmaPipeline
 compiler_args = {"auto_cast": "none"}
 input_shapes = {"batch_size": 1, "height": 512, "width": 512, "sequence_length": 120}
 
-neuron_model = NeuronPixArtSigmaPipeline.from_pretrained("Jingya/pixart_sigma_pipe_xl_2_512_ms", dtype=torch.bfloat16, export=True, disable_neuron_cache=True, **compiler_args, **input_shapes)
+neuron_model = NeuronPixArtSigmaPipeline.from_pretrained("Jingya/pixart_sigma_pipe_xl_2_512_ms", torch_dtype=torch.bfloat16, export=True, disable_neuron_cache=True, **compiler_args, **input_shapes)
 
 # Save locally
 neuron_model.save_pretrained("pixart_sigma_neuron_512/")

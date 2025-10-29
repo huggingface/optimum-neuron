@@ -117,7 +117,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         self.config = copy.deepcopy(config)
         self.neuron_config = copy.deepcopy(neuron_config)
         # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
-        self.config.dtype = self.neuron_config.torch_dtype
+        self.config.torch_dtype = self.neuron_config.torch_dtype
         self._traced_model = traced_model
         self.graph_builders = graph_builders  # Required for loading weights
 
@@ -344,7 +344,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
                 trust_remote_code=trust_remote_code,
             ).get_text_config()
         # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
-        config.dtype = neuron_config.torch_dtype
+        config.torch_dtype = neuron_config.torch_dtype
         # Evaluate head_dim if it is defined but set to null (like in Mixtral for transformers 4.54+)
         if hasattr(config, "head_dim") and config.head_dim is None:
             config.head_dim = config.hidden_size // config.num_attention_heads

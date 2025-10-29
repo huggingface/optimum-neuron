@@ -99,7 +99,7 @@ class NeuronAttentionBase(nn.Module):
             self.head_dim = self.hidden_size // self.num_attention_heads
         self.max_position_embeddings = config.max_position_embeddings
         self.rope_theta = config.rope_theta
-        self.dtype = neuron_config.torch_dtype
+        self.torch_dtype = neuron_config.torch_dtype
         self.rms_norm_eps = config.rms_norm_eps
         self._qk_scale = qk_scale
 
@@ -111,7 +111,7 @@ class NeuronAttentionBase(nn.Module):
             num_attention_heads=self.num_attention_heads,
             num_key_value_heads=self.num_key_value_heads,
             tp_degree=neuron_config.tp_degree,
-            dtype=self.dtype,
+            dtype=self.torch_dtype,
             bias=qkv_proj_bias,
             gather_output=False,
             fused_qkv=neuron_config.fused_qkv,
@@ -125,7 +125,7 @@ class NeuronAttentionBase(nn.Module):
             num_attention_heads=self.num_attention_heads,
             num_key_value_heads=self.num_key_value_heads,
             tp_degree=neuron_config.tp_degree,
-            dtype=self.dtype,
+            dtype=self.torch_dtype,
             bias=o_proj_bias,
             input_is_parallel=True,
             layer_name=self.o_proj_layer_name,
@@ -202,13 +202,13 @@ class NeuronAttentionBase(nn.Module):
             Q = (
                 Q.permute(0, 1, 3, 2)  # after permute: batch, num_heads, d_head, seqlen
                 .reshape((bsz * self.num_heads, self.head_dim, q_len))
-                .to(self.dtype)
+                .to(self.torch_dtype)
             )
             Q = Q * self.qk_scale
             K_active = (
-                K_active.permute(0, 1, 3, 2).reshape((bsz * self.num_heads, self.head_dim, q_len)).to(self.dtype)
+                K_active.permute(0, 1, 3, 2).reshape((bsz * self.num_heads, self.head_dim, q_len)).to(self.torch_dtype)
             )
-            V_active = V_active.reshape((bsz * self.num_heads, q_len, self.head_dim)).to(self.dtype)
+            V_active = V_active.reshape((bsz * self.num_heads, q_len, self.head_dim)).to(self.torch_dtype)
             # shape: (B*H)DS
             attn_output = torch.zeros(bsz * self.num_heads, self.head_dim, q_len, dtype=Q.dtype, device=Q.device)
 
