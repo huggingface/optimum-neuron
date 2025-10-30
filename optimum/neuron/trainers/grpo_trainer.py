@@ -15,6 +15,11 @@ from neuronx_distributed.pipeline import NxDPPModel
 logger = logging.get_logger()
 
 
+def identity(x):
+    # Identity function for data collator as no collation needed for GRPO
+    return x
+
+
 if is_trl_available():
     # Import TRL classes only when available to avoid hard dependency at import time.
     from trl import GRPOConfig, GRPOTrainer  # type: ignore
@@ -72,6 +77,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             logging.set_verbosity(log_level)
             logging.warning(f"No `GRPOConfig` passed, using `output_dir={args.output_dir}`.")
 
+        if data_collator is None:
+            data_collator = identity
+
         NeuronTrainer.__init__(
             self,
             model,
@@ -85,7 +93,42 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             optimizer_cls_and_kwargs=optimizer_cls_and_kwargs,
         )
 
-        # Minimal: capture reward functions if provided for TRL's GRPO loss
+        if not hasattr(self, "_train_batch_size"):
+            # Fallback to per-device train batch size when the base trainer doesn't set this field
+            try:
+                self._train_batch_size = self.args.per_device_train_batch_size
+            except Exception:
+                self._train_batch_size = 1
+
+        # TRL 0.24 uses self.num_generations in sampler
+        if not hasattr(self, "num_generations"):
+            try:
+                self.num_generations = int(getattr(self.args, "num_generations", getattr(self.args, "steps_per_generation", 1)))
+            except Exception:
+                self.num_generations = 1
+
+        try:
+            gen_bs = getattr(self.args, "generation_batch_size", None)
+        except Exception:
+            gen_bs = None
+        if gen_bs is None:
+            try:
+                self.args.generation_batch_size = int(self._train_batch_size) * int(self.num_generations)
+            except Exception:
+                self.args.generation_batch_size = int(self.num_generations)
+
+        # TRL's dataloader/sampler references `self.num_iterations`; default to 1
+        if not hasattr(self, "num_iterations"):
+            self.num_iterations = 1
+
+        # TRL's dataloader checks `self.shuffle_dataset`; default to True
+        if not hasattr(self, "shuffle_dataset"):
+            try:
+                self.shuffle_dataset = bool(getattr(self.args, "shuffle_dataset", True))
+            except Exception:
+                self.shuffle_dataset = True
+
+        # capture reward functions if provided for TRL's GRPO loss
         if "reward_funcs" in kwargs:
             self.reward_funcs = kwargs["reward_funcs"]
 
