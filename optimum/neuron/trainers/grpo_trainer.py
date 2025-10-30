@@ -85,6 +85,10 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             optimizer_cls_and_kwargs=optimizer_cls_and_kwargs,
         )
 
+        # Minimal: capture reward functions if provided for TRL's GRPO loss
+        if "reward_funcs" in kwargs:
+            self.reward_funcs = kwargs["reward_funcs"]
+
     def train(self, resume_from_checkpoint: str | bool | None = None):
         return NeuronTrainer.train(self, resume_from_checkpoint=resume_from_checkpoint)
 
