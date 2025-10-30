@@ -58,6 +58,8 @@ class NeuronSentenceTransformers(NeuronTracedModel):
         attention_mask: torch.Tensor,
         pixel_values: torch.Tensor | None = None,
         token_type_ids: torch.Tensor | None = None,
+        token_embeddings: torch.Tensor | None = None,
+        sentence_embedding: torch.Tensor | None = None,
     ):
         model_type = self.config.neuron["model_type"]
         neuron_inputs = {"input_ids": input_ids}

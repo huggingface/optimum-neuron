@@ -327,10 +327,9 @@ class NeuronSentenceTransformersIntegrationTest(NeuronModelTestMixin):
 
         set_seed(SEED)
         sentence_transformers_model = SentenceTransformer(model_id)
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
 
         text = ["This is a sample output"] * 2
-        tokens = tokenizer(text, return_tensors="pt")
+        tokens = neuron_model_dyn.tokenize(text, return_tensors="pt")
         with torch.no_grad():
             sentence_transformers_outputs = sentence_transformers_model(tokens)
 
