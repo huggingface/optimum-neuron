@@ -15,6 +15,7 @@
 """NeuronModelForXXX classes for inference on neuron devices using the same API as Transformers."""
 
 import logging
+from typing import TYPE_CHECKING
 
 import torch
 from transformers import (
@@ -71,6 +72,9 @@ from .utils.doc import (
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
 )
+
+if TYPE_CHECKING:
+    pass
 
 
 logger = logging.getLogger(__name__)
