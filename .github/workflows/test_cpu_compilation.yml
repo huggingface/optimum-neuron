@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths:
       - "pyproject.toml"
+      - "optimum/commands/export/neuronx.py"
       - "optimum/neuron/modeling_traced.py"
       - "optimum/neuron/modeling_seq2seq.py"
       - "optimum/exporters/neuron/**.py"
@@ -14,6 +15,7 @@ on:
     branches: [ main ]
     paths:
       - "pyproject.toml"
+      - "optimum/commands/export/neuronx.py"
       - "optimum/neuron/modeling_traced.py"
       - "optimum/neuron/modeling_seq2seq.py"
       - "optimum/exporters/neuron/**.py"

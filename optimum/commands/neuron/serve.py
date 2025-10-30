@@ -53,6 +53,12 @@ class ServeCommand(BaseOptimumCLICommand):
             help="Model ID on huggingface.co or path on disk to load model from.",
         )
         parser.add_argument(
+            "--served_model_name",
+            type=str,
+            default=None,
+            help="The model name(s) used in the API. If not specified, the model name will be the same as the `--model` argument.",
+        )
+        parser.add_argument(
             "--tensor_parallel_size",
             type=int,
             help="Tensor parallelism size, the number of neuron cores on which to shard the model.",
@@ -83,22 +89,26 @@ class ServeCommand(BaseOptimumCLICommand):
     @requires_vllm
     @requires_torch_neuronx
     def run(self):
-        model_id = self.args.model
-        revision = None
+        model_name_or_path = self.args.model
+        model_id = self.args.served_model_name
+        if model_id is None:
+            model_id = model_name_or_path
+        else:
+            if model_name_or_path != model_id:
+                logger.info(f"Serving model {model_id} at path {model_name_or_path}")
         instance_type = current_instance_type()
         batch_size = self.args.batch_size
         sequence_length = self.args.sequence_length
         tensor_parallel_size = self.args.tensor_parallel_size
-        config = AutoConfig.from_pretrained(model_id, revision=revision)
+        config = AutoConfig.from_pretrained(model_name_or_path)
         torch_dtype = DTYPE_MAPPER.pt(config.torch_dtype)
         try:
             # Look for a NeuronConfig in the model directory
-            neuron_config = NeuronConfig.from_pretrained(model_id, revision=revision)
+            neuron_config = NeuronConfig.from_pretrained(model_name_or_path)
         except Exception:
             neuron_config = None
         if neuron_config is not None:
             # This is a Neuron model: retrieve and check the export arguments
-            neuron_config = NeuronConfig.from_pretrained(self.args.model)
             if neuron_config.target != instance_type:
                 raise ValueError(
                     f"The neuron model is compiled for {neuron_config.target} and cannot run on a {instance_type} instance."
@@ -124,7 +134,7 @@ class ServeCommand(BaseOptimumCLICommand):
                     f"The specified tensor parallel size {tensor_parallel_size} is inconsistent"
                     f"with the one used to export the neuron model ({neuron_config.tp_degree})"
                 )
-            logger.info(f"Loading Neuron model: {self.args.model}")
+            logger.info(f"Loading Neuron model: {model_name_or_path}")
         else:
             # Model needs to be exported: look for compatible hub cached configs
             cached_entries = select_hub_cached_entries(
@@ -206,6 +216,8 @@ class ServeCommand(BaseOptimumCLICommand):
         command = [
             "--model",
             self.args.model,
+            "--served_model_name",
+            model_id,
             "--port",
             str(self.args.port),
             "--tensor-parallel-size",
