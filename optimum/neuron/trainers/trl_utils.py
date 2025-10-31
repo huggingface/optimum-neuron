@@ -13,4 +13,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-TRL_VERSION = "0.23.1"
+TRL_VERSION = "0.24.0"

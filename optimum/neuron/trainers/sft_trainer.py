@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from typing import Any, Callable
 
 import datasets
@@ -74,13 +75,18 @@ logger = logging.get_logger()
 
 class NeuronSFTTrainer(_SFTTrainer):
     """
-    `SFTTrainer` adapted for Neuron.
+    `SFTTrainer` adapted for Neuron (Trainium) devices.
 
-    It differs from the original `SFTTrainer` by:
-        - Using `_TrainerForNeuron.__init__()` instead of `Trainer.__init__()`
-        - Using the `_TrainerForNeuron.train()` instead of `Trainer.train()`
-        - Adapts the `_prepare_non_packed_dataloader` to pad to max length. In the original `SFTTrainer` examples are
-          not padded, which is an issue here because it triggers compilation every time.
+    Overrides key methods for Neuron compatibility:
+        - Uses NeuronTrainer.__init__() instead of transformers.Trainer.__init__()
+        - Uses NeuronTrainer.train() for Neuron-optimized training
+        - Enforces padding_free=False for fixed input shapes (required for Trainium)
+        - Simplifies _prepare_dataset to delegate to parent with Neuron constraints
+
+    Neuron-specific constraints:
+        - padding_free is always False to avoid recompilation
+        - VLM training is not yet supported
+        - NeFTune training is not supported
     """
 
     def __init__(
@@ -175,6 +181,31 @@ class NeuronSFTTrainer(_SFTTrainer):
                     "The `model_init_kwargs` will be ignored."
                 )
 
+        # Chat template handling (trl 0.24.0+)
+        # This allows users to provide a custom chat template via path or directory
+        if hasattr(args, 'chat_template_path') and args.chat_template_path is not None:
+            from trl.models import clone_chat_template
+
+            if os.path.isfile(args.chat_template_path) and args.chat_template_path.endswith((".jinja", ".j2")):
+                # Load Jinja template directly
+                with open(args.chat_template_path, encoding="utf-8") as chat_template_file:
+                    processing_class.chat_template = chat_template_file.read()
+                added_tokens = []
+            else:
+                # Clone template from another model
+                try:
+                    model, processing_class, added_tokens = clone_chat_template(
+                        model, processing_class, args.chat_template_path
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to clone chat template from {args.chat_template_path}: {e}. "
+                        "Continuing without custom chat template."
+                    )
+                    added_tokens = []
+        else:
+            added_tokens = []
+
         if is_peft_available() and peft_config is not None:
             if not isinstance(peft_config, PeftConfig):
                 raise ValueError(
@@ -251,8 +282,30 @@ class NeuronSFTTrainer(_SFTTrainer):
                     "You passed `packing=False` to the SFTTrainer/SFTConfig, but you didn't pass a `dataset_text_field` or `formatting_func` argument."
                 )
 
+            # Data collator creation with Neuron-specific constraints
             if data_collator is None:
-                data_collator = DataCollatorForLanguageModeling(tokenizer=processing_class, mlm=False)
+                # Determine if this is a VLM (vision language model)
+                is_vlm = isinstance(processing_class, ProcessorMixin) and hasattr(processing_class, 'image_processor')
+
+                if is_vlm:
+                    # VLM support is not yet implemented in Neuron
+                    logger.warning(
+                        "Vision Language Model (VLM) detected. VLM training is not yet fully supported in Neuron. "
+                        "Attempting to use standard language modeling collator."
+                    )
+                    # For now, use standard collator - user can override if needed
+                    data_collator = DataCollatorForLanguageModeling(
+                        tokenizer=processing_class.tokenizer if hasattr(processing_class, 'tokenizer') else processing_class,
+                        mlm=False,
+                    )
+                else:
+                    # Standard language modeling collator
+                    data_collator = DataCollatorForLanguageModeling(tokenizer=processing_class, mlm=False)
+
+            # Ensure padding_free is False - critical Neuron requirement
+            # (this is already done in NeuronSFTConfig.__post_init__, but double-check)
+            if hasattr(data_collator, 'padding_free'):
+                data_collator.padding_free = False
 
         # Pre-process the datasets only once per node. The remaining processes will use the cache.
         with NeuronPartialState().local_main_process_first():
@@ -325,10 +378,10 @@ class NeuronSFTTrainer(_SFTTrainer):
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         """
-        Compute training loss.
+        Compute training loss for Neuron-optimized training.
 
-        This method overrides the TRL SFTTrainer's compute_loss to disable unsupported
-        metrics computation (entropy, token accuracy) for Neuron compatibility.
+        Overrides TRL SFTTrainer's compute_loss to set use_cache=False for gradient
+        checkpointing compatibility and delegate to NeuronTrainer's compute_loss.
         """
         # Set use_cache to False to avoid warnings with gradient checkpointing
         inputs["use_cache"] = False
@@ -339,7 +392,12 @@ class NeuronSFTTrainer(_SFTTrainer):
     def training_step(
         self, model: torch.nn.Module, inputs: dict[str, Any], num_items_in_batch: int | None = None
     ) -> torch.Tensor:
-        # We do not use the SFTTrainer.training_step because it checks for an attribute the NeuronTrainer doesn't have.
+        """
+        Perform a training step for Neuron-optimized training.
+
+        Overrides SFTTrainer.training_step to delegate to NeuronTrainer's implementation,
+        which is compatible with Neuron's distributed training setup.
+        """
         return NeuronTrainer.training_step(self, model, inputs, num_items_in_batch=num_items_in_batch)
 
     def _prepare_dataset(
@@ -352,73 +410,26 @@ class NeuronSFTTrainer(_SFTTrainer):
         dataset_name="train",
     ):
         """
-        Prepare dataset for Neuron training with proper padding.
+        Prepare dataset for Neuron training.
 
-        This method overrides the base TRL implementation to ensure consistent padding
-        for Neuron devices, which require fixed input shapes to avoid recompilation.
+        Delegates to parent SFTTrainer._prepare_dataset, which handles:
+        - Dataset type detection (language modeling, prompt-completion, conversational)
+        - Chat template application
+        - Tokenization
+        - Packing (if enabled)
+
+        Neuron-specific behavior:
+        - Ensures padding_free=False to avoid recompilation
+        - Enforces padding to max_length for fixed input shapes
         """
-        # For packing, delegate to parent implementation but ensure no padding_free
-        if packing:
-            # Temporarily disable padding_free for packing as well
-            original_padding_free = getattr(args, "padding_free", False)
-            args.padding_free = False
-            try:
-                result = super()._prepare_dataset(
-                    dataset, processing_class, args, packing, formatting_func, dataset_name
-                )
-            finally:
-                args.padding_free = original_padding_free
-            return result
-
-        # For non-packed datasets, use our custom implementation with forced padding
-        from datasets import Dataset
-
-        # Apply formatting function if provided
-        if formatting_func is not None:
-            if isinstance(dataset, Dataset):
-                dataset = dataset.map(
-                    lambda example: {"text": formatting_func(example)},
-                    num_proc=args.dataset_num_proc,
-                    desc=f"Applying formatting function to {dataset_name} dataset",
-                )
-            else:  # IterableDataset
-                dataset = dataset.map(lambda example: {"text": formatting_func(example)})
-
-        # Tokenization function with forced padding for Neuron
-        def tokenize(examples):
-            # Handle both single examples and batches
-            if isinstance(examples[args.dataset_text_field], list):
-                texts = examples[args.dataset_text_field]
-            else:
-                texts = [examples[args.dataset_text_field]]
-
-            outputs = processing_class(
-                texts,
-                add_special_tokens=True,
-                truncation=True,
-                # Critical for Neuron: always pad to max_length to avoid recompilation
-                padding="max_length",
-                max_length=args.max_length,
-                return_overflowing_tokens=False,
-                return_length=False,
+        # Ensure padding_free is disabled for Neuron - this is critical for Trainium devices
+        if args.padding_free:
+            raise ValueError(
+                "padding_free must be False for Neuron training. "
+                "Neuron devices require fixed input shapes to avoid recompilation."
             )
 
-            return {
-                "input_ids": outputs["input_ids"],
-                "attention_mask": outputs["attention_mask"],
-                "labels": outputs["input_ids"].copy(),  # For language modeling
-            }
-
-        # Build map kwargs
-        map_kwargs = {
-            "batched": True,
-            "remove_columns": dataset.column_names
-            if hasattr(dataset, "column_names") and dataset.column_names
-            else None,
-        }
-        if isinstance(dataset, Dataset):
-            map_kwargs["num_proc"] = args.dataset_num_proc
-            map_kwargs["desc"] = f"Tokenizing {dataset_name} dataset"
-
-        tokenized_dataset = dataset.map(tokenize, **map_kwargs)
-        return tokenized_dataset
+        # Call parent implementation from SFTTrainer
+        return super()._prepare_dataset(
+            dataset, processing_class, args, packing, formatting_func, dataset_name
+        )

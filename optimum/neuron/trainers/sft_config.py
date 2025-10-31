@@ -32,12 +32,24 @@ else:
 
 @dataclass
 class NeuronSFTConfig(NeuronTrainingArguments, SFTConfig):
+    """
+    Configuration class for Neuron-optimized SFT training.
+
+    Inherits from both NeuronTrainingArguments (for Trainium-specific settings) and
+    trl's SFTConfig (for SFT-specific settings).
+
+    Key Neuron-specific behavior:
+    - padding_free is always set to False to avoid recompilation on Trainium devices
+    - All other SFT parameters from trl 0.24.0+ are supported
+    """
+
     def __post_init__(self):
         # Handle max_seq_length -> max_length migration for backward compatibility
         if hasattr(self, "max_seq_length") and self.max_seq_length is not None:
             self.max_length = self.max_seq_length
 
         # Force padding_free to False for Neuron - critical for avoiding recompilation
+        # Neuron devices require fixed input shapes; padding_free flattening breaks this requirement
         self.padding_free = False
 
         super().__post_init__()
