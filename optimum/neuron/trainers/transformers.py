@@ -936,26 +936,29 @@ class NeuronTrainer:
 
         return batch_samples, num_items_in_batch
 
-    def train_step(
-        self, model: nn.Module, inputs: dict[str, Any], num_items_in_batch: int | torch.Tensor | None = None
-    ) -> torch.Tensor:
-        manager = self.autocast_smart_context_manager()
-
+    def compute_loss(
+        self,
+        model: nn.Module,
+        inputs: dict[str, torch.Tensor | Any],
+        return_outputs: bool = False,
+        num_items_in_batch: torch.Tensor | None = None,
+    ):
         if isinstance(model, NxDPPModel):
-            with manager:
-                loss = model.run_train(**inputs)
+            loss = model.run_train(**inputs)
 
             # When using pipeline parallelism, the loss is only computed on the last stage.
             # So we set the loss to zero on other stages.
             if self.pp_rank != self.pp_size - 1:
                 dtype = torch.bfloat16 if self.args.bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
+
+            # PP does not return any outputs except the loss
+            outputs = {"loss": loss}
         else:
             if num_items_in_batch is not None:
                 inputs = dict(**inputs, reduction="sum")
 
-            with manager:
-                outputs = model(**inputs)
+            outputs = model(**inputs)
 
             if isinstance(outputs, dict) and "loss" not in outputs:
                 raise ValueError(
@@ -970,8 +973,17 @@ class NeuronTrainer:
             else:
                 loss = loss / self.args.gradient_accumulation_steps
 
-            # Backward pass
-            self.accelerator.backward(loss)
+        return (loss, outputs) if return_outputs else loss
+
+    def training_step(
+        self, model: nn.Module, inputs: dict[str, Any], num_items_in_batch: int | torch.Tensor | None = None
+    ) -> torch.Tensor:
+        manager = self.autocast_smart_context_manager()
+        with manager:
+            loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
+
+        # Backward pass
+        self.accelerator.backward(loss)
 
         return loss
 
@@ -1102,7 +1114,7 @@ class NeuronTrainer:
                     if step % args.gradient_accumulation_steps == 0:
                         self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
-                    loss_step = self.train_step(self.model, inputs, num_items_in_batch=num_items_in_batch)
+                    loss_step = self.training_step(self.model, inputs, num_items_in_batch=num_items_in_batch)
                     self.running_loss += loss_step.detach()
 
                     if do_sync_step:
