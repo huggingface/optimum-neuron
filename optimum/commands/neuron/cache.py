@@ -139,7 +139,7 @@ class LookupRepoCommand(BaseOptimumCLICommand):
                     str(entry["batch_size"]),
                     str(entry["sequence_length"]),
                     str(entry.get("tp_degree", entry.get("tensor_parallel_size"))),
-                    str(entry["torch_dtype"]),
+                    str(entry.get("torch_dtype", entry.get("dtype"))),
                 )
             )
         # Remove duplicates (might happen if the same arch was compiled several times with different models and sync'ed afterwards)
