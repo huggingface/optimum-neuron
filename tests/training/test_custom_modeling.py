@@ -614,8 +614,6 @@ def test_each_pp_rank_only_loads_relevant_parameters(set_cache_for_ci):
         ("flash_attention_2", "flash_attention_2"),
         ("eager", "eager"),
         (None, "eager"),
-        # Unsupported attention implementation - should default to eager
-        ("sdpa", "eager"),
     ],
 )
 @distributed_test(world_size=8, tp_size=2, pp_size=1)

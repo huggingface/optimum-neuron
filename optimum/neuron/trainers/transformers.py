@@ -354,8 +354,8 @@ class NeuronTrainer:
         self.mixed_precision_config = MixedPrecisionConfig(
             mode=mode,
             stochastic_rounding=self.args.stochastic_rounding_enabled,
-            optimizer_use_master_weights=self.args.zero_1,
-            optimizer_use_fp32_grad_acc=self.args.zero_1,
+            optimizer_use_master_weights=self.args.optimizer_use_master_weights,
+            optimizer_use_fp32_grad_acc=self.args.optimizer_use_fp32_grad_acc,
             optimizer_save_master_weights_in_ckpt=self.args.optimizer_save_master_weights_in_ckpt,
         )
 

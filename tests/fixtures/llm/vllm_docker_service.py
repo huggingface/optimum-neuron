@@ -9,7 +9,6 @@ import time
 
 import huggingface_hub
 import pytest
-import torch
 
 from optimum.neuron.utils.import_utils import is_package_available
 
@@ -86,10 +85,10 @@ def vllm_docker_launcher(event_loop):
     def docker_launcher(
         service_name: str,
         model_name_or_path: str,
+        served_model_name: str | None = None,
         batch_size: int | None = None,
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
-        dtype: str | None = None,
     ):
         port = random.randint(8000, 10_000)
 
@@ -113,17 +112,14 @@ def vllm_docker_launcher(event_loop):
             env["HUGGING_FACE_HUB_TOKEN"] = HF_TOKEN
             env["HF_TOKEN"] = HF_TOKEN
 
+        if served_model_name is not None:
+            env["SM_ON_SERVED_MODEL_NAME"] = served_model_name
         if batch_size is not None:
             env["SM_ON_BATCH_SIZE"] = str(batch_size)
         if sequence_length is not None:
             env["SM_ON_SEQUENCE_LENGTH"] = str(sequence_length)
         if tensor_parallel_size is not None:
             env["SM_ON_TENSOR_PARALLEL_SIZE"] = str(tensor_parallel_size)
-        if dtype is not None:
-            if isinstance(dtype, torch.dtype):
-                # vLLM does not accept torch dtype, convert to string
-                dtype = str(dtype).split(".")[-1]
-            env["SM_ON_DTYPE"] = dtype
 
         base_image = get_docker_image()
         if os.path.isdir(model_name_or_path):
@@ -141,10 +137,10 @@ def vllm_docker_launcher(event_loop):
                 model_path = os.path.join(context_dir, "model")
                 shutil.copytree(model_name_or_path, model_path)
                 # Create Dockerfile
-                container_model_id = f"/data/{model_name_or_path}"
+                container_model_name_or_path = f"/data/{model_name_or_path}"
                 docker_content = f"""
                 FROM {base_image}
-                COPY model {container_model_id}
+                COPY model {container_model_name_or_path}
                 """
                 with open(os.path.join(context_dir, "Dockerfile"), "wb") as f:
                     f.write(docker_content.encode("utf-8"))
@@ -155,9 +151,9 @@ def vllm_docker_launcher(event_loop):
         else:
             test_image = base_image
             image = None
-            container_model_id = model_name_or_path
+            container_model_name_or_path = model_name_or_path
 
-        env["SM_ON_MODEL"] = container_model_id
+        env["SM_ON_MODEL"] = container_model_name_or_path
         container = client.containers.run(
             test_image,
             name=container_name,
@@ -170,7 +166,14 @@ def vllm_docker_launcher(event_loop):
         )
 
         logger.info(f"Starting {container_name} container")
-        yield ContainerLauncherHandle(service_name, container_model_id, client, container.name, port)
+        model_name = served_model_name if served_model_name is not None else container_model_name_or_path
+        yield ContainerLauncherHandle(
+            service_name,
+            model_name,
+            client,
+            container.name,
+            port,
+        )
 
         try:
             container.stop(timeout=60)

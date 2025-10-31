@@ -45,6 +45,8 @@ from .utils import (
     store_compilation_config,
 )
 from .utils.import_utils import is_neuronx_available
+from .utils.instance import align_compilation_target, get_default_compilation_target
+from .utils.system import get_neuron_major
 from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
 
@@ -269,8 +271,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         disable_neuron_cache: bool = False,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
-        instance_type: str = "trn1",
-        cpu_backend: bool = False,
+        instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
@@ -301,9 +302,14 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
             kwargs_shapes["batch_size"] = 1
             disable_fallback = True  # Turn off the fallback for neuron, otherwise dynamic batching will still fail
         auto_cast_type = None if auto_cast is None else auto_cast_type
+        if instance_type is None:
+            instance_type = get_default_compilation_target()
+        instance_type = align_compilation_target(instance_type, override=False)
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
+            "instance_type": instance_type,
+            # Inf1 specific compiler args
             "disable_fast_relayout": disable_fast_relayout,
             "disable_fallback": disable_fallback,
         }
@@ -323,7 +329,6 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
                 compiler_version=NEURON_COMPILER_VERSION,
                 inline_weights_to_neff=inline_weights_to_neff,
                 optlevel=optlevel,
-                cpu_backend=cpu_backend,
                 model_type=getattr(config, "model_type", None),
                 task=task,
                 output_attentions=output_attentions,
@@ -381,8 +386,6 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
                 compiler_workdir=compiler_workdir,
                 inline_weights_to_neff=inline_weights_to_neff,
                 optlevel=optlevel,
-                instance_type=instance_type,
-                cpu_backend=cpu_backend,
                 trust_remote_code=trust_remote_code,
                 subfolder=subfolder,
                 revision=revision,
@@ -395,9 +398,9 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
             )
             config = AutoConfig.from_pretrained(save_dir_path)
 
-        if cpu_backend:
+        if get_neuron_major() == -1:
             logger.warning(
-                "Model was compiled with cpu_backend=True. Model loading is skipped as it requires Neuron hardware."
+                "No Neuron device detected! Model loading is skipped as it requires Neuron hardware."
                 "The model compilation was successful and the artifacts were saved."
             )
             return None
@@ -609,7 +612,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
 
     @staticmethod
     def remove_padding(
-        outputs: list[torch.Tensor],
+        outputs: list[torch.Tensor] | dict,
         dims: list[int],
         indices: list[int],
         padding_side: Literal["right", "left"] = "right",
@@ -630,6 +633,8 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         if len(dims) != len(indices):
             raise ValueError(f"The size of `dims`({len(dims)}) and indices`({len(indices)}) must be equal.")
 
+        if isinstance(outputs, dict):
+            outputs = list(outputs.values())
         for dim, indice in zip(dims, indices):
             if padding_side == "right":
                 outputs = [

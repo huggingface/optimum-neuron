@@ -53,6 +53,8 @@ from ...neuron.utils import (
     is_neuron_available,
     is_neuronx_available,
 )
+from ...neuron.utils.instance import align_compilation_target
+from ...neuron.utils.system import get_available_cores
 from ...neuron.utils.version_utils import (
     check_compiler_compatibility_for_stable_diffusion,
 )
@@ -98,10 +100,12 @@ logger.setLevel(logging.INFO)
 
 
 def infer_compiler_kwargs(args: argparse.Namespace) -> dict[str, Any]:
-    # infer compiler kwargs
+    instance_type = args.instance_type
     auto_cast = None if args.auto_cast == "none" else args.auto_cast
     auto_cast_type = None if auto_cast is None else args.auto_cast_type
-    compiler_kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type}
+    compiler_kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type, "instance_type": instance_type}
+
+    # Inf1 specific compiler args
     if hasattr(args, "disable_fast_relayout"):
         compiler_kwargs["disable_fast_relayout"] = getattr(args, "disable_fast_relayout")
     if hasattr(args, "disable_fallback"):
@@ -626,8 +630,6 @@ def main_export(
     compiler_workdir: str | Path | None = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
-    instance_type: str = "trn1",
-    cpu_backend: bool = False,
     trust_remote_code: bool = False,
     subfolder: str = "",
     revision: str = "main",
@@ -688,20 +690,23 @@ def main_export(
         compiler_workdir=compiler_workdir,
         inline_weights_to_neff=inline_weights_to_neff,
         optlevel=optlevel,
-        instance_type=instance_type,
-        cpu_backend=cpu_backend,
         output_file_names=output_model_names,
         compiler_kwargs=compiler_kwargs,
         model_name_or_path=model_name_or_path,
     )
 
     # Validate compiled model
-    if do_validation and tensor_parallel_size > 1:
-        # TODO: support the validation of tp models.
-        logger.warning(
-            "The validation is not yet supported for tensor parallel model, the validation will be turned off."
-        )
-        do_validation = False
+    if do_validation:
+        if tensor_parallel_size > 1:
+            # TODO: support the validation of tp models.
+            logger.warning(
+                "The validation is not yet supported for tensor parallel model, the validation will be turned off."
+            )
+            do_validation = False
+        elif get_available_cores() == 0:
+            logger.info("The validation is disabled since no Neuron device is detected.")
+            do_validation = False
+
     if do_validation is True:
         try:
             validate_models_outputs(
@@ -735,20 +740,26 @@ def main_export(
 
 def maybe_export_from_neuron_model_class(
     model: str,
+    config: PretrainedConfig,
     output: str | Path,
-    task: str = "auto",
+    task: str,
+    instance_type,
     cache_dir: str | None = None,
     subfolder: str = "",
-    trust_remote_code: bool = False,
+    token: str | None = None,
+    revision: str | None = None,
+    trust_remote_code: bool | None = None,
+    batch_size: int | None = None,
+    sequence_length: int | None = None,
+    tensor_parallel_size: int | None = None,
     **kwargs,
 ):
     """Export the model from the neuron model class if it exists."""
-    if task == "auto":
-        task = infer_task(model)
     output = Path(output)
     # Remove None values from the kwargs
     kwargs = {key: value for key, value in kwargs.items() if value is not None}
     # Also remove some arguments that are not supported in this context
+    kwargs.pop("auto_cast_type", None)
     kwargs.pop("disable_neuron_cache", None)
     kwargs.pop("inline_weights_neff", None)
     kwargs.pop("O1", None)
@@ -758,28 +769,19 @@ def maybe_export_from_neuron_model_class(
     kwargs.pop("dynamic_batch_size", None)
     kwargs.pop("output_hidden_states", None)
     kwargs.pop("output_attentions", None)
-    # Fetch the model config
-    config = AutoConfig.from_pretrained(model)
-    if task == "text-generation":
-        # In case a multi-modal model is being exported, extract the text model config
-        config = config.get_text_config()
     # Check if we have an auto-model class for the model_type and task
     if not has_neuron_model_class(model_type=config.model_type, task=task, mode="inference"):
         return False
     neuron_model_class = get_neuron_model_class(model_type=config.model_type, task=task, mode="inference")
-    batch_size = kwargs.pop("batch_size", None)
-    sequence_length = kwargs.pop("sequence_length", None)
-    tensor_parallel_size = kwargs.pop("tensor_parallel_size", None)
-    auto_cast_type = kwargs.pop("auto_cast_type", None)
     neuron_config = neuron_model_class.get_neuron_config(
         model_name_or_path=model,
         config=config,
-        token=kwargs.get("token", None),
-        revision=kwargs.get("revision", "main"),
+        token=token,
+        revision=revision,
+        instance_type=instance_type,
         batch_size=batch_size,
         sequence_length=sequence_length,
         tensor_parallel_size=tensor_parallel_size,
-        auto_cast_type=auto_cast_type,
     )
     neuron_model = neuron_model_class.export(
         model_id=model,
@@ -809,7 +811,39 @@ def main():
     # Retrieve CLI arguments
     args = parser.parse_args()
 
+    if args.instance_type is not None:
+        # We must align the compilation target before neuronx-distributed is initialized
+        align_compilation_target(args.instance_type, override=True)
+
     task = infer_task(args.model) if args.task == "auto" else args.task
+
+    try:
+        # Try first the export based on custom modeling classes
+        config = AutoConfig.from_pretrained(args.model)
+        if task == "text-generation":
+            # In case a multi-modal model is being exported, extract the text model config
+            config = config.get_text_config()
+    except Exception:
+        config = None
+    if config is not None:
+        kwargs = vars(args).copy()
+        kwargs.pop("task")
+        if maybe_export_from_neuron_model_class(
+            model=kwargs.pop("model"),
+            config=config,
+            output=kwargs.pop("output"),
+            task=task,
+            instance_type=kwargs.pop("instance_type"),
+            cache_dir=kwargs.pop("cache_dir", None),
+            subfolder=kwargs.pop("subfolder", None),
+            token=kwargs.pop("token", None),
+            revision=kwargs.pop("revision", None),
+            trust_remote_code=kwargs.pop("trust_remote_code", None),
+            **kwargs,
+        ):
+            return
+        logger.info(f"No custom modeling class is registered for {args.model} with task {task}")
+
     library_name = TasksManager.infer_library_from_model(args.model, cache_dir=args.cache_dir)
 
     if library_name == "diffusers":
@@ -819,11 +853,6 @@ def main():
         input_shapes = normalize_sentence_transformers_input_shapes(args)
         submodels = None
     else:
-        # New export mode using dedicated neuron model classes
-        kwargs = vars(args).copy()
-        if maybe_export_from_neuron_model_class(**kwargs):
-            return
-        # Fallback to legacy export
         input_shapes = get_input_shapes(task, args)
         submodels = None
 
@@ -831,6 +860,7 @@ def main():
     compiler_kwargs = infer_compiler_kwargs(args)
     optional_outputs = customize_optional_outputs(args)
     optlevel = parse_optlevel(args)
+
     lora_args = LoRAAdapterArguments(
         model_ids=getattr(args, "lora_model_ids", None),
         weight_names=getattr(args, "lora_weight_names", None),

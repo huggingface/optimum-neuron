@@ -19,13 +19,13 @@ runs:
       - name: Prepare virtual environment
         shell: bash
         run: |
+          sudo apt-get update -y
           sudo apt install python3-venv python3-dev -y
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
           python -m pip install -U pip
           python -m pip install --upgrade setuptools==69.5.1
-          python -m pip install hf_transfer
       - name: Install torch and torchvision (CUDA)
         if: ${{ inputs.use_cuda == 'true' }}
         shell: bash

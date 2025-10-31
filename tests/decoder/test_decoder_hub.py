@@ -30,7 +30,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 @pytest.mark.parametrize("from_local", [False, True], ids=["llama_from_hub", "llama_from_local"])
 def test_decoder_push_to_hub(from_local):
     model_id = "llamafactory/tiny-random-Llama-3"
-    export_kwargs = {"batch_size": 1, "sequence_length": 1024, "tensor_parallel_size": 2, "auto_cast_type": "bf16"}
+    export_kwargs = {"batch_size": 1, "sequence_length": 1024, "tensor_parallel_size": 2}
     with TemporaryDirectory() as model_path:
         if from_local:
             hub_model = AutoModelForCausalLM.from_pretrained(model_id)

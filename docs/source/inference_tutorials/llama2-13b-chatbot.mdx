@@ -50,7 +50,7 @@ For your convenience, we host a pre-compiled version of that model on the Huggin
 ```python
 from optimum.neuron import NeuronModelForCausalLM
 
-compiler_args = {"tensor_parallel_size": 24, "auto_cast_type": 'fp16'}
+compiler_args = {"tensor_parallel_size": 24}
 input_shapes = {"batch_size": 1, "sequence_length": 2048}
 model = NeuronModelForCausalLM.from_pretrained(
         "NousResearch/Llama-2-13b-chat-hf",

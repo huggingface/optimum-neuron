@@ -24,6 +24,7 @@ from ...neuron.utils.cache_utils import (
     set_custom_cache_repo_name_in_hf_home,
 )
 from ...neuron.utils.import_utils import is_package_available
+from ...neuron.utils.instance import SUPPORTED_INSTANCE_TYPES
 from ...neuron.utils.require_utils import requires_torch_neuronx
 from ...utils import logging
 from ..base import BaseOptimumCLICommand, CommandInfo
@@ -93,6 +94,12 @@ class LookupRepoCommand(BaseOptimumCLICommand):
             help="The optional task to lookup cached versions for models supporting multiple tasks.",
         )
         parser.add_argument(
+            "--instance_type",
+            type=str,
+            choices=SUPPORTED_INSTANCE_TYPES,
+            help=f"Only look for cached models for the specified instance type (e.g. {SUPPORTED_INSTANCE_TYPES}).",
+        )
+        parser.add_argument(
             "--dtype",
             type=str,
             choices=["bfloat16", "float16"],
@@ -120,6 +127,7 @@ class LookupRepoCommand(BaseOptimumCLICommand):
             self.args.model_id,
             task=self.args.task,
             cache_repo_id=self.args.repo_id,
+            instance_type=self.args.instance_type,
             batch_size=self.args.batch_size,
             sequence_length=self.args.sequence_length,
             tensor_parallel_size=self.args.tensor_parallel_size,
@@ -131,7 +139,7 @@ class LookupRepoCommand(BaseOptimumCLICommand):
             return
         # Prepare output table data
         title = f"Cached entries for {self.args.model_id}"
-        columns = ["batch size", "sequence length", "tensor parallel", "dtype"]
+        columns = ["batch size", "sequence length", "tensor parallel", "dtype", "instance type"]
         rows = []
         for entry in entries:
             rows.append(
@@ -140,6 +148,7 @@ class LookupRepoCommand(BaseOptimumCLICommand):
                     str(entry["sequence_length"]),
                     str(entry.get("tp_degree", entry.get("tensor_parallel_size"))),
                     str(entry.get("torch_dtype", entry.get("dtype"))),
+                    str(entry["target"]),
                 )
             )
         # Remove duplicates (might happen if the same arch was compiled several times with different models and sync'ed afterwards)

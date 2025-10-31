@@ -60,7 +60,7 @@ from ...modeling import (
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
 )
-from ...modeling_decoder import NeuronModelForCausalLM
+from ...models.inference.modeling_utils import NeuronModelForCausalLM
 
 
 logger = logging.getLogger(__name__)
@@ -298,7 +298,6 @@ def pipeline(
                 "batch_size": batch_size,
                 "sequence_length": kwargs.pop("sequence_length", None),
                 "tensor_parallel_size": kwargs.pop("tensor_parallel_size", num_cores),
-                "auto_cast_type": kwargs.pop("auto_cast_type", None),
             }
     else:
         if neuron_config is None:

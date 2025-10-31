@@ -19,16 +19,17 @@ from typing import TYPE_CHECKING
 
 from transformers.utils import _LazyModule
 
+from .utils.instance import align_compilation_target
 from .utils.system import get_neuron_major
 
 
 if get_neuron_major() == -1:
-    warnings.warn(
-        "It seems this is running on a CPU-only machine,"
-        " so we override the platform target to trn1, otherwise there will"
-        " be errors when importing torch_neuronx."
-    )
-    os.environ["NEURON_PLATFORM_TARGET_OVERRIDE"] = "trn1"
+    if align_compilation_target("trn1", override=False) == "trn1":
+        warnings.warn(
+            "It seems this is running on a CPU-only machine,"
+            " so we override the platform target to trn1, otherwise there will"
+            " be errors when importing torch_neuronx."
+        )
 
 
 _import_structure = {
@@ -74,7 +75,6 @@ _import_structure = {
         "NeuronFluxKontextPipeline",
         "NeuronFluxInpaintPipeline",
     ],
-    "modeling_decoder": ["NeuronModelForCausalLM"],
     "modeling_seq2seq": [
         "NeuronModelForSeq2SeqLM",
     ],
@@ -99,6 +99,7 @@ _import_structure["models.inference.bert"] = [
 _import_structure["models.inference.clip"] = ["NeuronCLIPModel", "NeuronCLIPForImageClassification"]
 _import_structure["models.inference.whisper"] = ["NeuronWhisperForConditionalGeneration"]
 _import_structure["models.inference.yolos"] = ["NeuronYolosForObjectDetection"]
+_import_structure["models.inference.modeling_utils"] = ["NeuronModelForCausalLM"]
 
 if TYPE_CHECKING:
     from .accelerate import NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
@@ -119,7 +120,6 @@ if TYPE_CHECKING:
         NeuronModelForTokenClassification,
         NeuronModelForXVector,
     )
-    from .modeling_decoder import NeuronModelForCausalLM
     from .modeling_diffusion import (
         NeuronDiffusionPipelineBase,
         NeuronFluxInpaintPipeline,
@@ -151,6 +151,7 @@ if TYPE_CHECKING:
         NeuronBertModel,
     )
     from .models.inference.clip import NeuronCLIPForImageClassification, NeuronCLIPModel
+    from .models.inference.modeling_utils import NeuronModelForCausalLM
     from .models.inference.whisper import NeuronWhisperForConditionalGeneration
     from .models.inference.yolos import NeuronYolosForObjectDetection
     from .pipelines import pipeline
@@ -160,6 +161,7 @@ if TYPE_CHECKING:
         NeuronTrainer,
         NeuronTrainingArguments,
     )
+    from .utils import is_neuron_available, is_neuronx_available
 
 else:
     import sys

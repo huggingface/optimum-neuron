@@ -22,7 +22,6 @@ from transformers.generation import StoppingCriteria
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.models.inference.backend.modules.generation.generation_utils import prepare_sampling_params
-from optimum.neuron.models.inference.llama.modeling_llama import LlamaNxDModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -99,9 +98,11 @@ def test_decoder_generation_greedy_expectations(neuron_llm_config):
     prompt = "What is Deep Learning?"
     inputs = tokenizer(prompt, return_tensors="pt")
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17)
+    target = model.neuron_config.target
     expectations = {
         "llama": " and how does it work?\nDeep learning is a subset of machine learning that uses artificial",
-        "qwen2": "Deep Learning is a subset of Machine Learning that involves the use of artificial neural networks",
+        "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning"
+        + (". It is a" if target == "trn2" else " that is based on"),
         "qwen3": " What is the difference between Deep Learning and Machine Learning?\n\nDeep Learning is a subset of",
         "granite": "\n\nDeep Learning is a subset of machine learning that is inspired by the structure and",
         "phi": "\n\nDeep learning is a subfield of machine learning that focuses on creating",
@@ -247,9 +248,9 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
 @requires_neuronx
 def test_generation_assisted_decoding(speculation):
     model_path, draft_model_path = speculation
-    model = LlamaNxDModelForCausalLM.from_pretrained(model_path)
+    model = NeuronModelForCausalLM.from_pretrained(model_path)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
-    assistant_model = LlamaNxDModelForCausalLM.from_pretrained(draft_model_path)
+    assistant_model = NeuronModelForCausalLM.from_pretrained(draft_model_path)
     prompt = "What is Deep Learning?"
     inputs = tokenizer(prompt, return_tensors="pt")
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17, assistant_model=assistant_model)

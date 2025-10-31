@@ -65,7 +65,9 @@ from .utils import (
     replace_weights,
     store_compilation_config,
 )
+from .utils.instance import align_compilation_target, get_default_compilation_target
 from .utils.require_utils import requires_torch_neuronx
+from .utils.system import get_neuron_major
 from .utils.version_utils import get_neuronxcc_version
 
 
@@ -789,6 +791,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         tensor_parallel_size: int | None = 1,
         disable_neuron_cache: bool = False,
         inline_weights_to_neff: bool = True,
+        instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
@@ -836,11 +839,13 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 Whether to disable automatic caching of compiled models. If set to True, will not load neuron cache nor cache the compiled artifacts.
             inline_weights_to_neff (`bool`, defaults to `True`):
                 Whether to inline the weights to the neff graph. If set to False, weights will be separated from the neff.
+            instance_type (`Literal["trn1", "inf2", "trn1n", "trn2"] | None`, defaluts to `None`):
+                Target Neuron instance type on which the compiled model will be run, valid values are: "trn1", "inf2", "trn1n", "trn2".
             optlevel (`str`, defaults to `"2"`):
-            The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
-                1: enables the core performance optimizations in the compiler, while also minimizing compile time.
-                2: provides the best balance between model performance and compile time.
-                3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
+                The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
+                    1: enables the core performance optimizations in the compiler, while also minimizing compile time.
+                    2: provides the best balance between model performance and compile time.
+                    3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
             subfolder (`str`, defaults to `""`):
                 In case the relevant files are located inside a subfolder of the model repo either locally or on huggingface.co, you can
                 specify the folder name here.
@@ -900,9 +905,13 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
+        if instance_type is None:
+            instance_type = get_default_compilation_target()
+        instance_type = align_compilation_target(instance_type, override=False)
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
+            "instance_type": instance_type,
         }
 
         pipe = TasksManager.get_model_from_task(
@@ -968,8 +977,6 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                     compiler_kwargs=compiler_kwargs,
                     int_dtype=neuron_config.int_dtype,
                     float_dtype=neuron_config.float_dtype,
-                    input_names=neuron_config.inputs,
-                    output_names=neuron_config.outputs,
                     dynamic_batch_size=neuron_config.dynamic_batch_size,
                     tensor_parallel_size=neuron_config.tensor_parallel_size,
                     compiler_type=NEURON_COMPILER_TYPE,
@@ -1034,13 +1041,19 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 library_name=cls.library_name,
                 **input_shapes,
             )
-
-        return cls._from_pretrained(
-            model_id=save_dir_path,
-            config=config,
-            model_save_dir=save_dir,
-            data_parallel_mode=data_parallel_mode,
-        )
+        if get_neuron_major() == -1:
+            logger.warning(
+                "No Neuron device detected! Model loading is skipped as it requires Neuron hardware."
+                "The model compilation was successful and the artifacts were saved."
+            )
+            return None
+        else:
+            return cls._from_pretrained(
+                model_id=save_dir_path,
+                config=config,
+                model_save_dir=save_dir,
+                data_parallel_mode=data_parallel_mode,
+            )
 
     @classmethod
     def _load_config(cls, config_name_or_path: str | os.PathLike, **kwargs):
@@ -1180,7 +1193,7 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
 
         outputs = self.model(*inputs)
         if self.config.model_type == "t5" and isinstance(outputs, dict):  # Flux text encoder 2
-            return [outputs["last_hidden_state"].to(self.config.torch_dtype)]
+            return [outputs["last_hidden_state"].to(self.config.dtype)]
 
         if return_dict and not isinstance(outputs, dict):
             outputs = ModelOutput(dict(zip(self.neuron_config.outputs, outputs)))

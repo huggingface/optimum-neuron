@@ -4,7 +4,7 @@ from transformers import AutoTokenizer
 from benchmark import run
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.configuration_utils import NeuronConfig
-from optimum.neuron.modeling_decoder import get_available_cores
+from optimum.neuron.utils.system import get_available_cores
 
 
 def main():

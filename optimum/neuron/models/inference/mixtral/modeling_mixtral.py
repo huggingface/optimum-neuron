@@ -252,10 +252,11 @@ class MixtralNxDModelForCausalLM(NxDModelForCausalLM):
         cls,
         checkpoint_id: str,
         checkpoint_revision: str,
+        instance_type: str,
         batch_size: int,
         sequence_length: int,
         tensor_parallel_size: int,
-        auto_cast_type: str,
+        dtype: torch.dtype,
     ):
         return NxDNeuronConfig(
             checkpoint_id=checkpoint_id,
@@ -263,5 +264,6 @@ class MixtralNxDModelForCausalLM(NxDModelForCausalLM):
             batch_size=batch_size,
             sequence_length=sequence_length,
             tp_degree=tensor_parallel_size,
-            torch_dtype=auto_cast_type,
+            torch_dtype=dtype,
+            target=instance_type,
         )
