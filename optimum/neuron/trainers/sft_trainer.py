@@ -23,7 +23,6 @@ from torch.utils.data import Dataset, IterableDataset
 from transformers import (
     AutoModelForCausalLM,
     DataCollator,
-    DataCollatorForLanguageModeling,
     PreTrainedModel,
     PreTrainedTokenizerBase,
     ProcessorMixin,
@@ -43,12 +42,19 @@ from .trl_utils import TRL_VERSION
 
 if is_trl_available():
     from trl import SFTConfig, SFTTrainer
+    from trl.trainer.sft_trainer import DataCollatorForLanguageModeling, DataCollatorForVisionLanguageModeling
 else:
 
     class SFTTrainer:
         pass
 
     class SFTConfig:
+        pass
+
+    class DataCollatorForLanguageModeling:
+        pass
+
+    class DataCollatorForVisionLanguageModeling:
         pass
 
 
@@ -183,7 +189,7 @@ class NeuronSFTTrainer(_SFTTrainer):
 
         # Chat template handling (trl 0.24.0+)
         # This allows users to provide a custom chat template via path or directory
-        if hasattr(args, 'chat_template_path') and args.chat_template_path is not None:
+        if hasattr(args, "chat_template_path") and args.chat_template_path is not None:
             from trl.models import clone_chat_template
 
             if os.path.isfile(args.chat_template_path) and args.chat_template_path.endswith((".jinja", ".j2")):
@@ -212,6 +218,30 @@ class NeuronSFTTrainer(_SFTTrainer):
                     "If you want to use the NeuronPeftModel, you need to pass a PeftConfig object to the NeuronSFTTrainer."
                     f" and you passed a {type(peft_config)}."
                 )
+
+            # Handle added tokens from chat template
+            if added_tokens:
+                # Ensure that the added tokens are trainable
+                if peft_config.trainable_token_indices is None:
+                    peft_config.trainable_token_indices = {"embed_tokens": added_tokens}
+                elif "embed_tokens" not in peft_config.trainable_token_indices:
+                    peft_config.trainable_token_indices["embed_tokens"] = added_tokens
+                else:
+                    peft_config.trainable_token_indices["embed_tokens"].extend(added_tokens)
+
+                # Ensure that the lm_head is trainable
+                if peft_config.modules_to_save is None or "lm_head" not in peft_config.modules_to_save:
+                    logger.warning(
+                        "Cloning chat template added new tokens to the tokenizer, but 'lm_head' is not in PEFT's "
+                        "`modules_to_save`. As a result, the model may not learn to generate outputs with these new "
+                        "tokens, leading to degraded generation quality. To fix this, add "
+                        "`modules_to_save=['lm_head']` to your PEFT configuration."
+                    )
+
+                    if peft_config.modules_to_save is None:
+                        peft_config.modules_to_save = ["lm_head"]
+                    else:
+                        peft_config.modules_to_save.append("lm_head")
 
             if not isinstance(model, NeuronPeftModel):
                 gradient_checkpointing_kwargs = getattr(args, "gradient_checkpointing_kwargs", None) or {}
@@ -256,8 +286,23 @@ class NeuronSFTTrainer(_SFTTrainer):
         # We do not support NeFTune with NeuronSFTTrainer for now.
         self._trainer_supports_neftune = False
 
-        # Vision Language Model (VLM) support - not yet supported in Neuron
-        self._is_vlm = False
+        # Determine VLM type based on processing_class
+        # This must be done before data collator creation
+        if processing_class is None:
+            from transformers import AutoProcessor
+
+            processing_class = AutoProcessor.from_pretrained(model_id)
+
+        if isinstance(processing_class, ProcessorMixin):
+            self._is_vlm = True
+        elif isinstance(processing_class, PreTrainedTokenizerBase):
+            self._is_vlm = False
+        else:
+            raise TypeError("The `processing_class` must be either a `PreTrainedTokenizerBase` or a `ProcessorMixin`")
+
+        # Initialize _is_vision_dataset - will be set to True if dataset contains 'image' or 'images' keys
+        # This is needed for trl 0.24.0's _set_signature_columns_if_needed method
+        self._is_vision_dataset = False
 
         if args.dataset_kwargs is None:
             args.dataset_kwargs = {}
@@ -282,29 +327,22 @@ class NeuronSFTTrainer(_SFTTrainer):
                     "You passed `packing=False` to the SFTTrainer/SFTConfig, but you didn't pass a `dataset_text_field` or `formatting_func` argument."
                 )
 
-            # Data collator creation with Neuron-specific constraints
-            if data_collator is None:
-                # Determine if this is a VLM (vision language model)
-                is_vlm = isinstance(processing_class, ProcessorMixin) and hasattr(processing_class, 'image_processor')
-
-                if is_vlm:
-                    # VLM support is not yet implemented in Neuron
-                    logger.warning(
-                        "Vision Language Model (VLM) detected. VLM training is not yet fully supported in Neuron. "
-                        "Attempting to use standard language modeling collator."
-                    )
-                    # For now, use standard collator - user can override if needed
-                    data_collator = DataCollatorForLanguageModeling(
-                        tokenizer=processing_class.tokenizer if hasattr(processing_class, 'tokenizer') else processing_class,
-                        mlm=False,
-                    )
+            # Inspect dataset to determine dataset type and completion_only_loss
+            if train_dataset is not None:
+                dataset_sample = next(iter(train_dataset))
+                if args.completion_only_loss is None:
+                    self.completion_only_loss = "prompt" in dataset_sample and "completion" in dataset_sample
                 else:
-                    # Standard language modeling collator
-                    data_collator = DataCollatorForLanguageModeling(tokenizer=processing_class, mlm=False)
+                    self.completion_only_loss = args.completion_only_loss
+                self._is_vision_dataset = "image" in dataset_sample or "images" in dataset_sample
+            else:
+                self.completion_only_loss = False
+                self._is_vision_dataset = False
 
-            # Ensure padding_free is False - critical Neuron requirement
-            # (this is already done in NeuronSFTConfig.__post_init__, but double-check)
-            if hasattr(data_collator, 'padding_free'):
+            # Data collator creation with Neuron-specific constraints
+            # We delegate to parent SFTTrainer to create the proper data collator
+            # If user provides data_collator, ensure padding_free is False for Neuron
+            if data_collator is not None and hasattr(data_collator, "padding_free"):
                 data_collator.padding_free = False
 
         # Pre-process the datasets only once per node. The remaining processes will use the cache.
@@ -338,6 +376,15 @@ class NeuronSFTTrainer(_SFTTrainer):
                 "You passed a processing_class with `padding_side` not equal to `right` to the SFTTrainer. This might lead to some unexpected behaviour due to "
                 'overflow issues when training a model in half-precision. You might consider adding `processing_class.padding_side = "right"` to your code.'
             )
+
+        # Detect if this is a vision dataset
+        if train_dataset is not None:
+            try:
+                dataset_sample = next(iter(train_dataset))
+                self._is_vision_dataset = "image" in dataset_sample or "images" in dataset_sample
+            except (StopIteration, KeyError):
+                # Empty dataset or no vision keys
+                self._is_vision_dataset = False
 
         NeuronTrainer.__init__(
             self,
@@ -430,6 +477,4 @@ class NeuronSFTTrainer(_SFTTrainer):
             )
 
         # Call parent implementation from SFTTrainer
-        return super()._prepare_dataset(
-            dataset, processing_class, args, packing, formatting_func, dataset_name
-        )
+        return super()._prepare_dataset(dataset, processing_class, args, packing, formatting_func, dataset_name)
