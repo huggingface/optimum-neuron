@@ -212,9 +212,8 @@ class NeuronSFTTrainer(_SFTTrainer):
         if hasattr(processing_class, "pad_token") and getattr(processing_class, "pad_token", None) is None:
             processing_class.pad_token = processing_class.eos_token
 
-        # Handle max_length (renamed from max_seq_length)
         if args.max_length is None:
-            # to overcome some issues with broken tokenizers
+            # To overcome some issues with broken tokenizers
             args.max_length = min(processing_class.model_max_length, 1024)
 
             logger.warning(
@@ -223,7 +222,8 @@ class NeuronSFTTrainer(_SFTTrainer):
 
         self.dataset_num_proc = args.dataset_num_proc
 
-        self._trainer_supports_neftune = hasattr(args, "neftune_noise_alpha")
+        # We do not support NeFTune with NeuronSFTTrainer for now.
+        self._trainer_supports_neftune = False
 
         # Vision Language Model (VLM) support - not yet supported in Neuron
         self._is_vlm = False
