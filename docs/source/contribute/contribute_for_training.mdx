@@ -80,7 +80,7 @@ class YourModelEmbeddings(nn.Module):
         self.embed_tokens = ParallelEmbedding(
             config.vocab_size,
             config.hidden_size,
-            dtype=config.torch_dtype,
+            dtype=config.dtype,
             sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
         )
 ```
@@ -105,7 +105,7 @@ class YourModelMLP(nn.Module, CustomModule):
             bias=False,
             gather_output=False,
             sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
-            dtype=config.torch_dtype,
+            dtype=config.dtype,
         )
         
         self.down_proj = RowParallelLinear(
@@ -114,7 +114,7 @@ class YourModelMLP(nn.Module, CustomModule):
             bias=False,
             input_is_parallel=True,
             sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
-            dtype=config.torch_dtype,
+            dtype=config.dtype,
         )
         
         # Define transformation specs
@@ -151,7 +151,7 @@ class YourModelAttention(nn.Module, CustomModule):
             bias=False,
             gather_output=False,
             sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
-            dtype=config.torch_dtype,
+            dtype=config.dtype,
         )
         self.k_proj = ColumnParallelLinear(
             config.hidden_size,
@@ -159,7 +159,7 @@ class YourModelAttention(nn.Module, CustomModule):
             bias=False,
             gather_output=False,
             sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
-            dtype=config.torch_dtype,
+            dtype=config.dtype,
         )
         self.v_proj = ColumnParallelLinear(
             config.hidden_size,
@@ -167,7 +167,7 @@ class YourModelAttention(nn.Module, CustomModule):
             bias=False,
             gather_output=False,
             sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
-            dtype=config.torch_dtype,
+            dtype=config.dtype,
         )
         
         self.o_proj = RowParallelLinear(
@@ -176,7 +176,7 @@ class YourModelAttention(nn.Module, CustomModule):
             bias=False,
             input_is_parallel=True,
             sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
-            dtype=config.torch_dtype,
+            dtype=config.dtype,
         )
         
         # No transformation specs needed - regular parallel layers
@@ -201,7 +201,7 @@ class YourModelAttention(nn.Module, CustomModule):
                 bias=False,
                 gather_output=False,
                 sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
-                dtype=config.torch_dtype,
+                dtype=config.dtype,
             )
             
             # Define transformation specs for fused QKV
@@ -246,7 +246,7 @@ class YourModelAttention(nn.Module, CustomModule):
                 sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
                 kv_size_multiplier=self.kv_size_multiplier,
                 fuse_qkv=trn_config.fuse_qkv,
-                dtype=config.torch_dtype,
+                dtype=config.dtype,
             )
             
             # Define transformation specs for GQA QKV
@@ -336,7 +336,7 @@ class YourModelForCausalLM(NeuronModelMixin, YourPreTrainedModel):
             config.vocab_size,
             bias=False,
             gather_output=False,
-            dtype=config.torch_dtype,
+            dtype=config.dtype,
         )
         
         self.post_init()
@@ -473,7 +473,7 @@ Update `tests/training/test_modeling_auto.py`:
 @is_trainium_test
 def test_auto_model_with_supported_architecture(from_pretrained):
     trn_config = TrainingNeuronConfig()
-    kwargs = {"torch_dtype": torch.bfloat16}
+    kwargs = {"dtype": torch.bfloat16}
     for model_name_or_path in [
         "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random",
         "michaelbenayoun/granite-tiny-4kv-heads-4layers-random", 
@@ -487,7 +487,7 @@ def test_auto_model_with_supported_architecture(from_pretrained):
 @is_trainium_test
 def test_auto_model_for_causal_lm_with_supported_architecture(from_pretrained):
     trn_config = TrainingNeuronConfig()
-    kwargs = {"torch_dtype": torch.bfloat16}
+    kwargs = {"dtype": torch.bfloat16}
     for model_name_or_path in [
         "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random",
         "michaelbenayoun/granite-tiny-4kv-heads-4layers-random",

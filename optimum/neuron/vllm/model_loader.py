@@ -25,14 +25,13 @@ from vllm.sequence import CompletionSequenceGroupOutput, Logprob, SequenceOutput
 
 from ..cache.hub_cache import select_hub_cached_entries
 from ..configuration_utils import NeuronConfig
-from ..modeling_decoder import NeuronModelForCausalLM
+from ..models.inference.modeling_utils import NeuronModelForCausalLM
 from ..utils.system import get_available_cores
 from ..utils.version_utils import get_neuronxcc_version
 
 
 logger = logging.getLogger("Neuron")
 
-available_cores = get_available_cores()
 neuronxcc_version = get_neuronxcc_version()
 
 
@@ -128,6 +127,7 @@ def get_optimum_neuron_model(
             "Please set data_parallel_size to 1 in the parallel config."
         )
     tp_degree = parallel_config.tensor_parallel_size
+    available_cores = get_available_cores()
     if tp_degree > available_cores:
         raise ValueError(
             f"The specified tensor parallelism degree ({tp_degree}) is higher"
@@ -135,17 +135,18 @@ def get_optimum_neuron_model(
             " Please set tensor_parallel_size to a value less than or equal "
             "to the number of available Neuron cores."
         )
-    model_id = model_config.model
+    model_id = model_config.served_model_name
+    model_name_or_path = model_config.model
     revision = model_config.revision or "main"
     token = model_config.hf_token
     try:
         # Look for a NeuronConfig in the model directory
-        neuron_config = NeuronConfig.from_pretrained(model_id, revision=revision, token=token)
+        neuron_config = NeuronConfig.from_pretrained(model_name_or_path, revision=revision, token=token)
     except Exception:
         neuron_config = None
     if neuron_config is not None:
         neuron_model = NeuronModelForCausalLM.from_pretrained(
-            model_id,
+            model_name_or_path,
             revision=revision,
             token=token,
         )
@@ -204,10 +205,9 @@ def get_optimum_neuron_model(
             batch_size=batch_size,
             sequence_length=sequence_length,
             tensor_parallel_size=tp_degree,
-            auto_cast_type=torch_dtype,
         )
         neuron_model = NeuronModelForCausalLM.export(
-            model_id,
+            model_name_or_path,
             neuron_config=neuron_config,
             token=token,
             revision=revision,

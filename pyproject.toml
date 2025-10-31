@@ -37,10 +37,10 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "transformers ~= 4.55.4",
+    "transformers ~= 4.57.1",
     "accelerate == 1.8.1",
     "optimum ~= 1.24.0",
-    "huggingface_hub >= 0.29.0",
+    "huggingface_hub >= 0.31.4",
     "numpy>=1.22.2, <=1.26.4",
     "protobuf>=3.20.3, <4",
 ]
@@ -67,7 +67,7 @@ tests = [
     "soundfile",
     "librosa",
     "controlnet-aux",
-    "hf_transfer",
+    "torchcodec==0.7.0",
 ]
 quality = [
     "pre-commit",

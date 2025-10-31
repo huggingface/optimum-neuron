@@ -136,7 +136,23 @@ class NeuronSFTTrainer(_SFTTrainer):
             logging.warning(f"No `SFTConfig` passed, using `output_dir={args.output_dir}`.")
 
         # Model handling - use model_init_kwargs from args
-        model_init_kwargs = args.model_init_kwargs or {}
+        if args.model_init_kwargs is None:
+            model_init_kwargs = {}
+        elif not isinstance(model, str):
+            raise ValueError("You passed model_init_kwargs to the SFTConfig, but your model is already instantiated.")
+        else:
+            model_init_kwargs = args.model_init_kwargs
+            torch_dtype = model_init_kwargs.get("dtype")
+            if torch_dtype is not None:
+                # Convert to `torch.dtype` if an str is passed
+                if isinstance(torch_dtype, str) and torch_dtype != "auto":
+                    torch_dtype = getattr(torch, torch_dtype)
+                if torch_dtype != "auto" and not isinstance(torch_dtype, torch.dtype):
+                    raise ValueError(
+                        f"Invalid `torch_dtype` passed to the SFTConfig. Expected a string with either `torch.dtype` or 'auto', but got {torch_dtype}."
+                    )
+                model_init_kwargs["dtype"] = torch_dtype
+
         if isinstance(model, str):
             model_id = model
             dtype = model_init_kwargs.get("dtype")

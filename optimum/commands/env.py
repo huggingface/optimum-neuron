@@ -11,11 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import importlib.metadata
 import platform
 import subprocess
 
 import huggingface_hub
-from pkg_resources import get_distribution
 from transformers import __version__ as transformers_version
 from transformers.utils import is_torch_available
 
@@ -38,7 +38,7 @@ class EnvironmentCommand(BaseOptimumCLICommand):
         if pkg_list is not None:
             for pkg in pkg_list:
                 try:
-                    num_version = get_distribution(pkg).version
+                    num_version = importlib.metadata.version(pkg)
                 except Exception:
                     num_version = "NA"
                 info[f"`{pkg}` version"] = num_version
