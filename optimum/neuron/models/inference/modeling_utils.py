@@ -138,7 +138,7 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
             batch_size=batch_size,
             sequence_length=sequence_length,
             tensor_parallel_size=tensor_parallel_size,
-            dtype=DTYPE_MAPPER.pt(config.torch_dtype),
+            dtype=DTYPE_MAPPER.pt(config.dtype),
         )
 
     @classmethod

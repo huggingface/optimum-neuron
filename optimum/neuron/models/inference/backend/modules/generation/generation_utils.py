@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 import torch
-from transformers import GenerationConfig
+from transformers import GenerationConfig, PreTrainedModel
 from transformers.generation import GenerationMixin, SampleDecoderOnlyOutput
 from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import StoppingCriteriaList
@@ -270,14 +270,13 @@ class NxDGenerationMixin(GenerationMixin, ABC):
     def _assisted_decoding(
         self,
         input_ids: torch.LongTensor,
-        candidate_generator: "CandidateGenerator",  # noqa
         stopping_criteria: StoppingCriteriaList,
         generation_config: GenerationConfig,
+        assistant_model: "PreTrainedModel | None" = None,
         **model_kwargs,
     ):
         pad_token_id = generation_config.pad_token_id
         eos_token_id = generation_config.eos_token_id
-        assistant_model = candidate_generator.assistant_model
 
         if assistant_model.neuron_config.on_device_sampling:
             raise ValueError("Assistant model must not use on-device sampling")

@@ -1193,7 +1193,7 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
 
         outputs = self.model(*inputs)
         if self.config.model_type == "t5" and isinstance(outputs, dict):  # Flux text encoder 2
-            return [outputs["last_hidden_state"].to(self.config.torch_dtype)]
+            return [outputs["last_hidden_state"].to(self.config.dtype)]
 
         if return_dict and not isinstance(outputs, dict):
             outputs = ModelOutput(dict(zip(self.neuron_config.outputs, outputs)))
