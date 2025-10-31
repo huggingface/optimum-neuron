@@ -140,7 +140,9 @@ class TrainingMetricsCollector:
         platform_specs = HARDWARE_TFLOPS[platform_target]
 
         # Adjust for LNC2 if applicable
-        if self.platform_lnc is LogicalNCConfig.LNC2:
+        # When using LNC2, one logical core associated with one process, maps to two physical cores.
+        # Therefore, the peak TFLOPS per logical core is doubled.
+        if self.platform_lnc is LogicalNCConfig.LNC_2:
             platform_specs = {k: v * 2 for k, v in platform_specs.items()}
 
         if dtype not in platform_specs:
