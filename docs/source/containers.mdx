@@ -15,7 +15,15 @@ specific language governing permissions and limitations under the License.
 We provide pre-built Optimum Neuron containers for Amazon SageMaker. These containers come with all of the Hugging Face libraries and dependencies pre-installed, so you can start using them right away.
 We have containers for training and inference, and optimized text generation containers with TGI. The table is up to date and only includes the latest versions of each container. You can find older versions in the [Deep Learning Container Release Notes](https://github.com/aws/deep-learning-containers/releases?q=hf-neuronx&expanded=true)
 
-We include the function `image_uri` to retrieve the image URI for the container you want to use. The result is the same as the one retrieved by the `sagemaker` Python SDK, but the image URI retrieved can be newer than the one reported by the `sagemaker` Python SDK.
+It is possible to ure the `get_huggingface_llm_image_uri` function from the `sagemaker` Python SDK to retrieve the Text Generation Inference URI for the container you want to use.
+
+```python
+from sagemaker.image_uri_config import get_huggingface_llm_image_uri
+
+llm_image = get_huggingface_llm_image_uri("huggingface-neuronx")
+```
+
+If you have the Optimum Neuron package installed, you can use the function `image_uri` to retrieve the image URI for the container you want to use. The result is the same as the one retrieved by the `sagemaker` Python SDK, but the image URI retrieved can be newer than the one reported by the `sagemaker` Python SDK.
 ```python
 from optimum.neuron.utils import ecr
 
@@ -30,9 +38,9 @@ print(f"llm image uri: {llm_image}")
 
 | Type                       | Optimum Version | Image URI                                   |
 |-----------------------------|-----------------|---------------------------------------------|
-| Training  | 0.0.25           | `763104351884.dkr.ecr.us-west-2.amazonaws.com/huggingface-pytorch-training-neuronx:2.1.2-transformers4.48.1-neuronx-py310-sdk2.20.0-ubuntu20.04`   |
-| Inference      | 0.0.25           | `763104351884.dkr.ecr.us-west-2.amazonaws.com/huggingface-pytorch-inference-neuronx:2.1.2-transformers4.43.2-neuronx-py310-sdk2.20.0-ubuntu20.04`      |
-| Text Generation Inference        | 0.2.0           | `763104351884.dkr.ecr.us-west-2.amazonaws.com/huggingface-pytorch-tgi-inference:2.5.1-optimum3.3.4-neuronx-py310-ubuntu22.04`        |
+| Training  | 0.3.0           | `763104351884.dkr.ecr.us-west-2.amazonaws.com/huggingface-pytorch-training-neuronx:2.7.0-transformers4.51.0-neuronx-py310-sdk2.24.1-ubuntu22.04`   |
+| Inference      | 0.3.0           | `763104351884.dkr.ecr.us-west-2.amazonaws.com/huggingface-pytorch-inference-neuronx:2.7.1-transformers4.51.3-neuronx-py310-sdk2.24.1-ubuntu22.04`      |
+| Text Generation Inference        | 0.3.0           | `763104351884.dkr.ecr.us-west-2.amazonaws.com/huggingface-pytorch-tgi-inference:2.7.0-optimum3.3.6-neuronx-py310-ubuntu22.04`        |
 
 
 Please replace `763104351884` with the correct [AWS account ID](https://github.com/aws/sagemaker-python-sdk/blob/master/src/sagemaker/image_uri_config/huggingface-neuronx.json) and `region` with the AWS region you are working in.

@@ -8,31 +8,37 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/inference_cache_llm.yml"
+      - "tools/cache/auto_fill_llm_cache.py"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
 
 jobs:
   cache:
-    name: Create optimum-neuron inference cache
-    runs-on: aws-general-8-plus-use1-public-80
+    name: Create optimum-neuron LLM inference cache
+    runs-on:
+      group: aws-inf2-8xlarge
     env:
-      HF_HUB_ENABLE_HF_TRANSFER: 1
+      HF_XET_HIGH_PERFORMANCE: 1
     strategy:
       fail-fast: false
       matrix:
         config: [
-          llama,
-          llama4,
-          qwen,
-          qwen-moe,
-          qwen2.5,
-          granite,
-          phi4,
-          llama3.1-70b,
-          qwen2.5-large,
-          llama-variants,
-          smollm3,
+          trn1/llama3,
+          trn1/llama4,
+          trn1/mixtral,
+          trn1/qwen3,
+          trn1/qwen3-moe,
+          trn1/granite,
+          trn1/phi4,
+          trn1/smollm3,
+          trn2/llama3,
+          trn2/llama4,
+          trn2/qwen3-moe,
         ]
     steps:
       - name: Checkout
@@ -48,4 +54,4 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           config_prefix_url=https://huggingface.co/aws-neuron/optimum-neuron-cache/raw/main/inference-cache-config
           HF_TOKEN=${{secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE}} \
-            python tools/auto_fill_inference_cache.py --config_file ${config_prefix_url}/${{matrix.config}}.json
+            python tools/cache/auto_fill_llm_cache.py --config_file ${config_prefix_url}/${{matrix.config}}.json

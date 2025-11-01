@@ -10,7 +10,6 @@ from typing import List
 
 import huggingface_hub
 import pytest
-import torch
 
 from optimum.neuron.utils.import_utils import is_package_available
 
@@ -83,7 +82,7 @@ class LauncherHandle:
                 models = await self.client.models.list()
                 model_name = models.data[0].id
                 if self.client.model_name != model_name:
-                    raise ValueError(f"The service exposes {model_name} but {self.client.service_name} was expected.")
+                    raise ValueError(f"The service exposes {model_name} but {self.client.model_name} was expected.")
                 logger.info(f"Service started after {i} seconds")
                 return
             except APIConnectionError:
@@ -129,10 +128,10 @@ def vllm_launcher(event_loop):
     def launcher(
         service_name: str,
         model_name_or_path: str,
+        served_model_name: str | None = None,
         batch_size: int | None = None,
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
-        dtype: str | None = None,
     ):
         port = random.randint(8000, 10_000)
 
@@ -148,17 +147,14 @@ def vllm_launcher(event_loop):
             "--port",
             str(port),
         ]
+        if served_model_name is not None:
+            command += ["--served_model_name", served_model_name]
         if batch_size is not None:
             command += ["--batch_size", str(batch_size)]
         if sequence_length is not None:
             command += ["--sequence_length", str(sequence_length)]
         if tensor_parallel_size is not None:
             command += ["--tensor_parallel_size", str(tensor_parallel_size)]
-        if dtype is not None:
-            if isinstance(dtype, torch.dtype):
-                # vLLM does not accept torch dtype, convert to string
-                dtype = str(dtype).split(".")[-1]
-            command += ["--dtype", dtype]
 
         p = subprocess.Popen(
             command,
@@ -169,10 +165,11 @@ def vllm_launcher(event_loop):
             os.environ["CUSTOM_CACHE_REPO"] = cache_repo
 
         logger.info(f"Starting {service_name} with model {model_name_or_path}")
-        yield SubprocessLauncherHandle(service_name, model_name_or_path, port, p)
-        logger.info(f"Stopping {service_name} with model {model_name_or_path}")
+        model_name = served_model_name if served_model_name is not None else model_name_or_path
+        yield SubprocessLauncherHandle(service_name, model_name, port, p)
+        logger.info(f"Stopping {service_name} with model {model_name}")
         p.terminate()
         p.wait()
-        logger.info(f"Stopped {service_name} with model {model_name_or_path}")
+        logger.info(f"Stopped {service_name} with model {model_name}")
 
     return launcher

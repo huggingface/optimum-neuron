@@ -116,7 +116,7 @@ that matmul operation must be performed with `float16` precision for faster infe
 
 <Tip>
 
-You can also compile the model on a CPU-only instance. In this case, specify the target instance type by passing `--instance_type` from `{inf2, trn1, trn1n, trn2}`. 
+You can also compile the model on a CPU-only instance. In this case, specify the target instance type by passing `--instance_type` from `{inf2, trn1, trn1n, trn2}`.
 
 If you are using a `NeuronModelForXXX` class to export the model on a CPU-only instance, you must define an environment variable `NEURON_PLATFORM_TARGET_OVERRIDE` before importing anything from the `neuronx_distributed` library, and specify the target instance type. For example:
 
@@ -255,7 +255,6 @@ Just like the standard NLP models, you need to specify static parameters when ex
 
 - `batch_size` is the number of input sequences that the model will accept. Defaults to 1,
 - `sequence_length` is the maximum number of tokens in an input sequence. Defaults to `max_position_embeddings` (`n_positions` for older models).
-- `auto_cast_type` specifies the format to encode the weights. It can be one of `fp32` (`float32`), `fp16` (`float16`) or `bf16` (`bfloat16`). Defaults to `fp32`.
 - `tensor_parallel_size` is the number of neuron cores used when instantiating the model. Each neuron core has 16 Gb of memory, which means that
 bigger models need to be split on multiple cores. Defaults to 1,
 
@@ -263,7 +262,6 @@ bigger models need to be split on multiple cores. Defaults to 1,
 optimum-cli export neuron --model meta-llama/Llama-3.2-1B \
   --batch_size 1 \
   --sequence_length 4096 \
-  --auto_cast_type bf16 \
   --tensor_parallel_size 2 \
   llama3_neuron/
 ```
@@ -314,22 +312,22 @@ Please be aware that:
 - the generation parameters can be stored in a `generation_config.json` file. When such a file is present in model directory,
 it will be parsed to set the default parameters (the values passed to the `generate` method still take precedence).
 
-## Exporting neuron models using NeuronX TGI
+## Exporting neuron models using NeuronX docker images
 
 The NeuronX TGI image includes not only NeuronX runtime, but also all packages and tools required to export Neuron models.
 
-Use the following command to export a model to Neuron using a TGI image:
+Use the following command to export a model to Neuron using a vLLM image:
+
 
 ```
 docker run --entrypoint optimum-cli \
        -v $(pwd)/data:/data \
        --privileged \
-       ghcr.io/huggingface/neuronx-tgi:latest \
+       ghcr.io/huggingface/optimum-neuron-vllm:latest \
        export neuron \
        --model <organization>/<model> \
        --batch_size 1 \
        --sequence_length 4096 \
-       --auto_cast_type fp16 \
        --tensor_parallel_size 2 \
        /data/<neuron_model_path>
 ```
@@ -340,13 +338,24 @@ The exported model will be saved under `./data/<neuron_model_path>`.
 
 You must make sure that the options used for compilation match the options used for deployment.
 
+### TGI
+
 You can see examples of these parameters in the .env and docker-compose.yaml files in the [TGI Neuron backend documentation](https://github.com/huggingface/text-generation-inference/blob/main/docs/source/backends/neuron.md).
 
 For Docker and SageMaker, you can see these reflected in the following options and their optimum-cli equivalent:
 
-```MODEL_ID = model
-HF_AUTO_CAST_TYPE = auto_cast_type
+```
+MODEL_ID = model
 MAX_BATCH_SIZE = batch_size
 MAX_TOTAL_TOKENS = sequence_length
-HF_NUM_CORES = num_cores
+HF_NUM_CORES = tensor_parallel_size
+```
+
+### vLLM
+
+```
+SM_ON_MODEL = model
+SM_ON_BATCH_SIZE = batch_size
+SM_ON_SEQUENCE_LENGTH = sequence_length
+SM_ON_TENSOR_PARALLEL_SIZE = tensor_parallel_size
 ```

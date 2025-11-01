@@ -1,15 +1,16 @@
+from tempfile import TemporaryDirectory
+
 import pytest
+from huggingface_hub import get_token, snapshot_download
 
 
 # Do not collect tests from this file if docker or vllm are not installed
 pytest.importorskip("docker")
 pytest.importorskip("vllm")
 
-from optimum.neuron.utils import DTYPE_MAPPER
-
 
 @pytest.mark.asyncio
-@pytest.fixture(params=["local_neuron", "hub_neuron", "hub_explicit", "hub_implicit"])
+@pytest.fixture(params=["local_neuron", "hub_neuron", "hub_explicit", "hub_implicit", "local_implicit"])
 async def vllm_docker_service_from_model(request, vllm_docker_launcher, base_neuron_llm_config):
     service_name = base_neuron_llm_config["name"]
     if request.param == "hub_explicit":
@@ -18,17 +19,33 @@ async def vllm_docker_service_from_model(request, vllm_docker_launcher, base_neu
         batch_size = export_kwargs["batch_size"]
         sequence_length = export_kwargs["sequence_length"]
         tensor_parallel_size = export_kwargs["tensor_parallel_size"]
-        dtype = DTYPE_MAPPER.pt(export_kwargs["auto_cast_type"])
         with vllm_docker_launcher(
             service_name,
             model_name_or_path,
             batch_size=batch_size,
             sequence_length=sequence_length,
             tensor_parallel_size=tensor_parallel_size,
-            dtype=dtype,
         ) as vllm_service:
             await vllm_service.health(600)
             yield vllm_service
+    elif request.param == "local_implicit":
+        served_model_name = base_neuron_llm_config["model_id"]
+        with TemporaryDirectory() as local_model_path:
+            # Manually download weights
+            token = get_token()
+            snapshot_download(
+                served_model_name,
+                local_dir=local_model_path,
+                token=token,
+                allow_patterns=[
+                    "model*.safetensors",
+                    "*.json",
+                ],
+            )
+            model_name_or_path = local_model_path
+            with vllm_docker_launcher(service_name, model_name_or_path, served_model_name) as vllm_service:
+                await vllm_service.health(600)
+                yield vllm_service
     else:
         if request.param == "local_neuron":
             model_name_or_path = base_neuron_llm_config["neuron_model_path"]
@@ -44,14 +61,9 @@ async def vllm_docker_service_from_model(request, vllm_docker_launcher, base_neu
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "prompt, max_output_tokens",
-    [
-        ("What is Deep Learning?", 17),
-        ("One of my fondest memory is", 32),
-    ],
-)
-async def test_vllm_docker_service_from_model(vllm_docker_service_from_model, prompt, max_output_tokens):
+async def test_vllm_docker_service_from_model(vllm_docker_service_from_model):
+    prompt = "What is the colour of the sky ?"
+    max_output_tokens = 24
     greedy_tokens, greedy_text = await vllm_docker_service_from_model.client.greedy(
         prompt, max_output_tokens=max_output_tokens
     )

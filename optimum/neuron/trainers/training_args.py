@@ -329,6 +329,28 @@ class NeuronTrainingArguments:
         default=True,
         metadata={"help": "Whether to enable stochastic rounding when using bf16 training."},
     )
+    optimizer_use_master_weights: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to use FP32 master weights for the optimizer when using bf16 training. "
+                "This is more stable than bf16 training without master weights, at the cost of using more memory. "
+                "It is only supported with the ZeRO-1 optimizer, and enabled by default when using bf16 with ZeRO-1. "
+                "Set it to false to disable."
+            )
+        },
+    )
+    optimizer_use_fp32_grad_acc: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to use FP32 gradient accumulation when using bf16 training. This is more stable than bf16 "
+                "training without FP32 gradient accumulation, at the cost of using more memory. It is only supported "
+                "with the ZeRO-1 optimizer, and enabled by default when using bf16 with ZeRO-1. Set it to false to "
+                "disable."
+            )
+        },
+    )
     optimizer_save_master_weights_in_ckpt: bool = field(
         default=False,
         metadata={
@@ -598,6 +620,8 @@ class NeuronTrainingArguments:
 
         # It is not supported so disabling it
         if not self.zero_1:
+            self.optimizer_use_master_weights = False
+            self.optimizer_use_fp32_grad_acc = False
             self.optimizer_save_master_weights_in_ckpt = False
 
         self.trn_config = TrainingNeuronConfig(
