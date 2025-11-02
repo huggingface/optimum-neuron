@@ -293,6 +293,33 @@ class NeuronGRPOTrainer(NeuronTrainer):
         """
         generator_device = next(self.generator_model.parameters()).device
         
+        # Prompts are duplicated num_generations times by RepeatSampler
+        # Deduplicate to get unique prompts
+        if len(prompts) > 0:
+            # Check if prompts appear to be duplicated (every num_generations-th prompt should be same)
+            # Take unique prompts by sampling every num_generations-th item
+            if len(prompts) >= self.num_generations:
+                unique_prompts = prompts[::self.num_generations]
+                num_unique = len(unique_prompts)
+                # Verify expected structure: num_unique * num_generations should equal total
+                expected_total = num_unique * self.num_generations
+                if expected_total != len(prompts):
+                    # If structure doesn't match, generate once per prompt (fallback)
+                    logger.warning(
+                        f"Prompt structure mismatch: expected {expected_total} prompts "
+                        f"(from {num_unique} unique * {self.num_generations}), got {len(prompts)}. "
+                        "Generating once per prompt."
+                    )
+                    unique_prompts = prompts
+                    num_unique = len(unique_prompts)
+            else:
+                # Fewer prompts than num_generations, generate once per prompt
+                unique_prompts = prompts
+                num_unique = len(unique_prompts)
+        else:
+            unique_prompts = prompts
+            num_unique = len(unique_prompts)
+        
         processor_kwargs = {
             "return_tensors": "pt",
             "padding": "max_length",
@@ -302,9 +329,9 @@ class NeuronGRPOTrainer(NeuronTrainer):
             "add_special_tokens": False,
         }
         
-        if is_conversational({"prompt": prompts[0]}):
+        if is_conversational({"prompt": unique_prompts[0]}):
             generate_inputs = self._generator_tokenizer.apply_chat_template(
-                conversation=prompts,
+                conversation=unique_prompts,
                 **processor_kwargs,
                 add_generation_prompt=True,
                 tokenize=True,
@@ -312,29 +339,45 @@ class NeuronGRPOTrainer(NeuronTrainer):
                 **self.chat_template_kwargs,
             )
         else:
-            generate_inputs = self._generator_tokenizer(text=prompts, **processor_kwargs)
+            generate_inputs = self._generator_tokenizer(text=unique_prompts, **processor_kwargs)
         
         generate_inputs = {
             k: v.to(generator_device) if isinstance(v, torch.Tensor) else v 
             for k, v in generate_inputs.items()
         }
         
-        with torch.no_grad():
-            prompt_completion_ids = self.generator_model.generate(
-                **generate_inputs,
-                max_new_tokens=self.max_completion_length,
-                pad_token_id=self.pad_token_id,
-                eos_token_id=self.eos_token_id,
-                do_sample=self.generation_config.do_sample,
-                temperature=self.generation_config.temperature,
-                top_p=self.generation_config.top_p,
-                top_k=self.generation_config.top_k,
-            )
+        # Generate num_generations completions per unique prompt
+        all_prompt_completion_ids = []
+        all_prompt_ids = []
+        all_prompt_mask = []
         
-        # Move to CPU for processing
-        prompt_completion_ids = prompt_completion_ids.cpu()
-        prompt_ids = generate_inputs["input_ids"].cpu()
-        prompt_mask = generate_inputs["attention_mask"].cpu()
+        with torch.no_grad():
+            for prompt_idx in range(num_unique):
+                # Extract single prompt inputs
+                single_input_ids = generate_inputs["input_ids"][prompt_idx:prompt_idx+1]
+                single_attention_mask = generate_inputs["attention_mask"][prompt_idx:prompt_idx+1]
+                
+                # Generate num_generations completions for this prompt
+                for _ in range(self.num_generations):
+                    prompt_completion_ids = self.generator_model.generate(
+                        input_ids=single_input_ids,
+                        attention_mask=single_attention_mask,
+                        max_new_tokens=self.max_completion_length,
+                        pad_token_id=self.pad_token_id,
+                        eos_token_id=self.eos_token_id,
+                        do_sample=self.generation_config.do_sample,
+                        temperature=self.generation_config.temperature,
+                        top_p=self.generation_config.top_p,
+                        top_k=self.generation_config.top_k,
+                    )
+                    all_prompt_completion_ids.append(prompt_completion_ids.cpu())
+                    all_prompt_ids.append(single_input_ids.cpu())
+                    all_prompt_mask.append(single_attention_mask.cpu())
+        
+        # Stack all generations
+        prompt_completion_ids = torch.cat(all_prompt_completion_ids, dim=0)
+        prompt_ids = torch.cat(all_prompt_ids, dim=0)
+        prompt_mask = torch.cat(all_prompt_mask, dim=0)
         
         prompt_length = prompt_ids.size(1)
         completion_ids = prompt_completion_ids[:, prompt_length:]
@@ -443,9 +486,24 @@ class NeuronGRPOTrainer(NeuronTrainer):
         prompts_decoded = self.processing_class.batch_decode(prompt_ids, skip_special_tokens=True)
         rewards = self._calculate_rewards(inputs, prompts_decoded, completions, completion_ids_list)
         
+        # Validate rewards shape before reshaping
+        num_completions = len(completions)
+        rewards_size = rewards.numel()
+        
+        if rewards_size == 0:
+            raise ValueError(f"Rewards tensor is empty. Completions: {num_completions}")
+        
+        if rewards_size % self.num_generations != 0:
+            raise ValueError(
+                f"Cannot reshape rewards: size {rewards_size} is not divisible by num_generations "
+                f"({self.num_generations}). Expected size: num_unique_prompts * {self.num_generations}. "
+                f"Completions: {num_completions}"
+            )
+        
         # Compute advantages (group-relative normalization)
         # Group rewards by num_generations and normalize
-        rewards_reshaped = rewards.view(-1, self.num_generations)  # (num_prompts, num_generations)
+        num_unique_prompts = rewards_size // self.num_generations
+        rewards_reshaped = rewards.view(num_unique_prompts, self.num_generations)  # (num_prompts, num_generations)
         mean_grouped_rewards = rewards_reshaped.mean(dim=1)  # (num_prompts,)
         mean_grouped_rewards = mean_grouped_rewards.repeat_interleave(self.num_generations, dim=0)  # (total_samples,)
         advantages = rewards - mean_grouped_rewards
@@ -484,22 +542,42 @@ class NeuronGRPOTrainer(NeuronTrainer):
         """Calculate rewards using reward functions."""
         if not self.reward_funcs:
             # Default to zero rewards if no reward functions provided
-            return torch.zeros(len(completions), device="cpu")
+            rewards = torch.zeros(len(completions), device="cpu")
+            logger.info(f"[_calculate_rewards] No reward functions, returning zeros. Shape: {rewards.shape}")
+            return rewards
         
         rewards = []
         for reward_func in self.reward_funcs:
             func_rewards = reward_func(prompts, completions)
-            rewards.append(torch.tensor(func_rewards, device="cpu"))
+            if isinstance(func_rewards, list):
+                func_rewards = torch.tensor(func_rewards, device="cpu")
+            elif not isinstance(func_rewards, torch.Tensor):
+                func_rewards = torch.tensor(func_rewards, device="cpu")
+            rewards.append(func_rewards)
         
         # Average rewards from multiple functions
         if len(rewards) > 1:
             rewards = torch.stack(rewards).mean(dim=0)
         else:
             rewards = rewards[0]
-
-        logger.info(f"[_calculate_rewards] Prompts shape: {len(prompts)}")
-        logger.info(f"[_calculate_rewards] Completions shape: {len(completions)}")
-        logger.info(f"[_calculate_rewards] Rewards shape: {len(rewards)}")
+        
+        # Validate rewards shape matches completions
+        expected_size = len(completions)
+        actual_size = rewards.numel() if rewards.dim() == 0 else len(rewards)
+        
+        if actual_size != expected_size:
+            raise ValueError(
+                f"Rewards shape mismatch: expected {expected_size} rewards for {expected_size} completions, "
+                f"but got {actual_size}. Rewards shape: {rewards.shape}, Completions: {len(completions)}"
+            )
+        
+        # Ensure 1D tensor
+        if rewards.dim() == 0:
+            rewards = rewards.unsqueeze(0)
+        elif rewards.dim() > 1:
+            rewards = rewards.flatten()
+        
+        logger.info(f"[_calculate_rewards] Prompts: {len(prompts)}, Completions: {len(completions)}, Rewards shape: {rewards.shape}")
         return rewards
 
     def _get_per_token_logps_and_entropies(
@@ -695,6 +773,10 @@ class NeuronGRPOTrainer(NeuronTrainer):
         """Training step that works with GRPO's prepared inputs."""
         manager = self.autocast_smart_context_manager()
 
+        # Extract metrics from inputs before computation
+        rewards = inputs.get("rewards")
+        advantages = inputs.get("advantages")
+        
         # Always compute GRPO loss using TRL's compute_loss
         with manager:
             loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
@@ -712,6 +794,64 @@ class NeuronGRPOTrainer(NeuronTrainer):
         else:
             # Standard backward pass for non-pipeline models
             self.accelerator.backward(loss)
+        
+        # Compute and log metrics
+        mode = "train" if model.training else "eval"
+        
+        # Log loss
+        if loss is not None and isinstance(loss, torch.Tensor):
+            loss_item = loss.item() if loss.numel() == 1 else loss.mean().item()
+            self._metrics[mode]["loss"].append(loss_item)
+        
+        # Log rewards statistics
+        if rewards is not None and isinstance(rewards, torch.Tensor):
+            if rewards.numel() > 0:
+                # Gather on original device (XLA or CPU) first, then move to CPU for stats
+                if hasattr(self, 'accelerator') and self.accelerator is not None:
+                    # Gather on current device (XLA gather requires XLA tensors)
+                    rewards_gathered = self.accelerator.gather(rewards)
+                    rewards_for_stats = rewards_gathered.cpu()
+                else:
+                    rewards_for_stats = rewards.cpu() if rewards.device.type == "xla" else rewards
+                
+                if rewards_for_stats.numel() > 0:
+                    rewards_flat = rewards_for_stats.flatten()
+                    self._metrics[mode]["rewards/mean"].append(rewards_flat.mean().item())
+                    self._metrics[mode]["rewards/max"].append(rewards_flat.max().item())
+                    self._metrics[mode]["rewards/min"].append(rewards_flat.min().item())
+                    self._metrics[mode]["rewards/std"].append(rewards_flat.std().item())
+        
+        # Log advantages statistics
+        if advantages is not None and isinstance(advantages, torch.Tensor):
+            if advantages.numel() > 0:
+                # Gather on original device (XLA or CPU) first, then move to CPU for stats
+                if hasattr(self, 'accelerator') and self.accelerator is not None:
+                    # Gather on current device (XLA gather requires XLA tensors)
+                    advantages_gathered = self.accelerator.gather(advantages)
+                    advantages_for_stats = advantages_gathered.cpu()
+                else:
+                    advantages_for_stats = advantages.cpu() if advantages.device.type == "xla" else advantages
+                
+                if advantages_for_stats.numel() > 0:
+                    advantages_flat = advantages_for_stats.flatten()
+                    self._metrics[mode]["advantages/mean"].append(advantages_flat.mean().item())
+                    self._metrics[mode]["advantages/max"].append(advantages_flat.max().item())
+                    self._metrics[mode]["advantages/min"].append(advantages_flat.min().item())
+        
+        # Compute and log gradient norm
+        try:
+            total_norm = 0.0
+            param_count = 0
+            for p in model.parameters():
+                if p.grad is not None:
+                    param_norm = p.grad.data.norm(2)
+                    total_norm += param_norm.item() ** 2
+                    param_count += 1
+            if param_count > 0:
+                total_norm = total_norm ** (1. / 2)
+                self._metrics[mode]["grad_norm"].append(total_norm)
+        except Exception as e:
+            logger.debug(f"Could not compute grad norm: {e}")
         
         return loss
 
