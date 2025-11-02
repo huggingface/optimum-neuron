@@ -1,4 +1,5 @@
 from typing import Any, Iterator
+from collections import defaultdict
 import inspect
 import os
 import torch
@@ -21,9 +22,29 @@ from .trl_utils import TRL_VERSION
 
 
 logger = logging.get_logger()
+logger.setLevel(logging.INFO)
 
 
 if is_trl_available():
+    import trl.trainer.utils
+    
+    def safe_nanmin(tensor: torch.Tensor) -> torch.Tensor:
+        """ XLA-compatible nanmin that handles empty tensors """
+        logger.info("[safe_nanmin] Called")
+        if tensor.numel() == 0:
+            return torch.tensor(float('nan'), device=tensor.device)
+        return torch.min(tensor)
+    
+    def safe_nanmax(tensor: torch.Tensor) -> torch.Tensor:
+        """ XLA-compatible nanmax that handles empty tensors """
+        logger.info("[safe_nanmax] Called")
+        if tensor.numel() == 0:
+            return torch.tensor(float('nan'), device=tensor.device)
+        return torch.max(tensor)
+    
+    trl.trainer.utils.nanmin = safe_nanmin
+    trl.trainer.utils.nanmax = safe_nanmax
+    
     from trl import GRPOConfig, GRPOTrainer
     from trl.data_utils import is_conversational
     from trl.trainer.utils import (
@@ -206,6 +227,11 @@ class NeuronGRPOTrainer(NeuronTrainer):
         self.top_entropy_quantile = getattr(self.args, "top_entropy_quantile", 1.0)
         self.beta = getattr(self.args, "beta", 0.0)
         
+        # Epsilon parameters
+        self.epsilon_low = getattr(self.args, "epsilon", 0.2)
+        _eps_high = getattr(self.args, "epsilon_high", None)
+        self.epsilon_high = _eps_high if _eps_high is not None else self.epsilon_low
+        
         # Additional GRPO config attributes that TRL might expect (always set with defaults)
         common_grpo_attrs = {
             "alpha": 0.0,
@@ -214,9 +240,24 @@ class NeuronGRPOTrainer(NeuronTrainer):
             "cliprange_value": 0.2,
             "vf_coef": 0.1,
             "ref_free": False,
+            "importance_sampling_level": "token",
         }
         for attr, default_value in common_grpo_attrs.items():
             setattr(self, attr, getattr(self.args, attr, default_value))
+        
+        # Reference model setup (before super().__init__ to avoid distribution issues)
+        if self.beta != 0.0 and not self.ref_free:
+            logger.info("[PRE-INIT] Loading reference model before distributed setup...")
+            self.ref_model = AutoModelForCausalLM.from_pretrained(
+                self.model_name_or_path,
+                torch_dtype=torch.float16,
+                low_cpu_mem_usage=True,
+            )
+            self.ref_model = self.ref_model.to("cpu")
+            self.ref_model.eval()
+            logger.info("[PRE-INIT] Reference model ready")
+        else:
+            self.ref_model = None
         
         self.mode = "train"
         
@@ -226,25 +267,8 @@ class NeuronGRPOTrainer(NeuronTrainer):
         self.eos_token_id = self._generator_tokenizer.eos_token_id
         self.model_wrapped = self.model
         
-        # Distributed params
-        self.dp_size = get_data_parallel_replica_groups() if hasattr(self, 'accelerator') else 1
-        self.pp_size = getattr(self.args, "pipeline_parallel_size", 1)
-        self.pp_rank = getattr(self.args, "pipeline_parallel_rank", 0)
-        
         # Metrics tracking
-        self._metrics = {"train": {}, "eval": {}}
-        for mode in ["train", "eval"]:
-            for metric in [
-                "num_tokens",
-                "completions/mean_length",
-                "completions/min_length",
-                "completions/max_length",
-                "completions/mean_terminated_length",
-                "completions/min_terminated_length",
-                "completions/max_terminated_length",
-                "completions/clipped_ratio",
-            ]:
-                self._metrics[mode][metric] = []
+        self._metrics = {"train": defaultdict(list), "eval": defaultdict(list)}
         
         # Generation buffer for batching
         self._buffered_inputs = None
@@ -262,8 +286,6 @@ class NeuronGRPOTrainer(NeuronTrainer):
         # TRL's GRPO trainer uses this for generation frequency
         self.num_iterations = self.args.gradient_accumulation_steps
         
-        logger.info(f"[INIT] NeuronGRPOTrainer initialized with dp_size={self.dp_size}, pp_size={self.pp_size}")
-
     def _generate_single_turn(self, prompts, images=None):
         """
         Override to use CPU generator model for XLA compatibility.
@@ -388,14 +410,14 @@ class NeuronGRPOTrainer(NeuronTrainer):
         logits_to_keep = completion_ids.size(1)
         batch_size = self.args.per_device_train_batch_size if mode == "train" else self.args.per_device_eval_batch_size
         
-        # Compute old_per_token_logps if needed (keep on CPU)
+        # Compute old_per_token_logps if needed
         with torch.no_grad():
             generate_every = self.args.steps_per_generation * self.num_iterations
             if self.args.gradient_accumulation_steps % generate_every != 0:
-                # We'll move to XLA only when needed in _get_per_token_logps_and_entropies
+                # Policy model logps will be on XLA; moved to XLA in get_batch_samples before loss
                 old_per_token_logps, _ = self._get_per_token_logps_and_entropies(
                     self.model,
-                    prompt_completion_ids,  # CPU tensors
+                    prompt_completion_ids,  # CPU tensors, moved to XLA in _get_per_token_logps_and_entropies
                     attention_mask,
                     logits_to_keep,
                     batch_size,
@@ -403,12 +425,32 @@ class NeuronGRPOTrainer(NeuronTrainer):
             else:
                 old_per_token_logps = None
         
+        # Compute ref_per_token_logps if reference model exists
+        ref_per_token_logps = None
+        if self.beta != 0.0 and self.ref_model is not None:
+            with torch.no_grad():
+                # Ref model logps stay on CPU; moved to XLA in get_batch_samples before loss
+                ref_per_token_logps, _ = self._get_per_token_logps_and_entropies(
+                    self.ref_model,
+                    prompt_completion_ids,
+                    attention_mask,
+                    logits_to_keep,
+                    batch_size,
+                )
+        
         # Calculate rewards on CPU
         completions = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
         prompts_decoded = self.processing_class.batch_decode(prompt_ids, skip_special_tokens=True)
         rewards = self._calculate_rewards(inputs, prompts_decoded, completions, completion_ids_list)
         
-        # Build output dict with CPU tensors
+        # Compute advantages (group-relative normalization)
+        # Group rewards by num_generations and normalize
+        rewards_reshaped = rewards.view(-1, self.num_generations)  # (num_prompts, num_generations)
+        mean_grouped_rewards = rewards_reshaped.mean(dim=1)  # (num_prompts,)
+        mean_grouped_rewards = mean_grouped_rewards.repeat_interleave(self.num_generations, dim=0)  # (total_samples,)
+        advantages = rewards - mean_grouped_rewards
+        
+        # Build output dict (policy model logps on XLA, ref model logps on CPU; both moved to XLA in get_batch_samples)
         output = {
             "prompt_ids": prompt_ids,
             "completion_ids": completion_ids,
@@ -418,15 +460,23 @@ class NeuronGRPOTrainer(NeuronTrainer):
             "attention_mask": attention_mask,
             "logits_to_keep": logits_to_keep,
             "rewards": rewards,
+            "advantages": advantages,
             "old_per_token_logps": old_per_token_logps,
             "sampling_per_token_logps": sampling_per_token_logps,
+            "num_items_in_batch": num_items_in_batch,
             **extra_fields,
         }
+        if ref_per_token_logps is not None:
+            output["ref_per_token_logps"] = ref_per_token_logps
         
-        # Log that tensors are on CPU
+        # Log output structure
         logger.info(f"[_generate_and_score_completions] Output keys: {list(output.keys())}")
         if "prompt_ids" in output:
-            logger.info(f"[_generate_and_score_completions] Tensors on device: {output['prompt_ids'].device}")
+            logger.info(f"[_generate_and_score_completions] Input tensors on device: {output['prompt_ids'].device}")
+        if "old_per_token_logps" in output and output["old_per_token_logps"] is not None:
+            logger.info(f"[_generate_and_score_completions] old_per_token_logps on device: {output['old_per_token_logps'].device}")
+        if "ref_per_token_logps" in output and output["ref_per_token_logps"] is not None:
+            logger.info(f"[_generate_and_score_completions] ref_per_token_logps on device: {output['ref_per_token_logps'].device}")
         
         return output
     
@@ -446,7 +496,10 @@ class NeuronGRPOTrainer(NeuronTrainer):
             rewards = torch.stack(rewards).mean(dim=0)
         else:
             rewards = rewards[0]
-        
+
+        logger.info(f"[_calculate_rewards] Prompts shape: {len(prompts)}")
+        logger.info(f"[_calculate_rewards] Completions shape: {len(completions)}")
+        logger.info(f"[_calculate_rewards] Rewards shape: {len(rewards)}")
         return rewards
 
     def _get_per_token_logps_and_entropies(
@@ -462,13 +515,42 @@ class NeuronGRPOTrainer(NeuronTrainer):
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """
         Override to handle CPU->XLA tensor movement and padding for Neuron.
-        Filters out image-related parameters that are not needed.
+        Handles both ref_model (CPU) and policy_model (XLA) cases.
         """
         # Filter out image-related parameters
         image_keys = ["pixel_values", "image_grid_thw", "num_images", "pixel_attention_mask", "image_sizes"]
         filtered_kwargs = {k: v for k, v in kwargs.items() if k not in image_keys}
         
-        # Move tensors to XLA device if they're on CPU
+        # Detect model device to determine tensor placement
+        model_device = next(model.parameters()).device
+        
+        # If model is on CPU (ref_model), keep everything on CPU
+        if model_device.type == "cpu":
+            # Use tensors as-is on CPU
+            input_ids_cpu = input_ids
+            attention_mask_cpu = attention_mask
+            cpu_kwargs = {}
+            if token_type_ids is not None:
+                cpu_kwargs["token_type_ids"] = token_type_ids
+            
+            cpu_kwargs.update(filtered_kwargs)
+            
+            # Call TRL's implementation with CPU tensors
+            logps, entropies = _GRPO._get_per_token_logps_and_entropies(
+                self,
+                model,
+                input_ids_cpu,
+                attention_mask_cpu,
+                logits_to_keep,
+                batch_size=batch_size,
+                compute_entropy=compute_entropy,
+                **cpu_kwargs,
+            )
+            
+            # Return CPU tensors
+            return logps, entropies
+        
+        # Otherwise, model is on XLA (policy_model), move tensors to XLA
         xla_device = xm.xla_device()
         
         if input_ids.device.type != "xla":
@@ -487,7 +569,6 @@ class NeuronGRPOTrainer(NeuronTrainer):
                 token_type_ids.to(xla_device) if token_type_ids.device.type != "xla" else token_type_ids, 0
             )
         
-        # Add any other filtered kwargs
         xla_kwargs.update(filtered_kwargs)
         
         # Call TRL's implementation with XLA tensors
@@ -502,8 +583,7 @@ class NeuronGRPOTrainer(NeuronTrainer):
             **xla_kwargs,
         )
         
-        # Return only the non-padded part, but keep on XLA for now
-        # Move back to CPU only when needed
+        # Return only the non-padded part, keep on XLA for computation graph
         return logps[:, :logits_to_keep], entropies[:, :logits_to_keep] if entropies is not None else None
 
     _compute_loss = _GRPO._compute_loss
@@ -603,7 +683,7 @@ class NeuronGRPOTrainer(NeuronTrainer):
         if return_outputs:
             raise ValueError("return_outputs=True is not supported for GRPO")
         
-        loss = self._compute_loss(model, inputs)
+        loss = self._compute_loss(model, inputs) 
         return loss
 
     def train_step(
@@ -615,43 +695,22 @@ class NeuronGRPOTrainer(NeuronTrainer):
         """Training step that works with GRPO's prepared inputs."""
         manager = self.autocast_smart_context_manager()
 
+        # Always compute GRPO loss using TRL's compute_loss
+        with manager:
+            loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
+        
+        # Handle backward pass based on model type
         if isinstance(model, NxDPPModel):
-            # Transform GRPO inputs to standard model inputs for pipeline parallelism
-            if "prompt_ids" in inputs and "completion_ids" in inputs:
-                input_ids = torch.cat([inputs["prompt_ids"], inputs["completion_ids"]], dim=1)
-                attention_mask = torch.cat([inputs["prompt_mask"], inputs["completion_mask"]], dim=1)
-                seq_len = input_ids.size(1)
-                
-                # Pad to Neuron flash attention requirement
-                input_ids = pad_to_neuron_sequence_length(input_ids, self.pad_token_id)
-                attention_mask = pad_to_neuron_sequence_length(attention_mask, 0)
-                
-                # Create labels
-                labels = torch.full_like(input_ids, -100)
-                labels[:, :seq_len][:, self.max_prompt_length:] = inputs["completion_ids"]
-                
-                model_inputs = {
-                    "input_ids": input_ids,
-                    "attention_mask": attention_mask,
-                    "labels": labels,
-                }
-                
-                if "token_type_ids" in inputs:
-                    model_inputs["token_type_ids"] = inputs["token_type_ids"]
-                
-                with manager:
-                    loss = model.run_train(**model_inputs)
-            else:
-                with manager:
-                    loss = model.run_train(**inputs)
+            # For pipeline parallelism, handle backward pass through pipeline
+            # The loss is already computed, so we can use accelerator.backward
+            self.accelerator.backward(loss)
             
+            # Zero out loss on non-last pipeline stages (as before)
             if self.pp_rank != self.pp_size - 1:
                 dtype = torch.bfloat16 if self.args.bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
         else:
-            with manager:
-                loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
-            
+            # Standard backward pass for non-pipeline models
             self.accelerator.backward(loss)
         
         return loss
