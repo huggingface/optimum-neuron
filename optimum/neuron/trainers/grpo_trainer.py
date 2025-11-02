@@ -2,6 +2,9 @@ from typing import Any, Iterator
 from collections import defaultdict
 import inspect
 import os
+import json
+import time
+from datetime import datetime
 import torch
 import torch_xla.core.xla_model as xm
 from optimum.utils import logging
@@ -16,6 +19,7 @@ from neuronx_distributed.pipeline import NxDPPModel
 from neuronx_distributed.parallel_layers.parallel_state import get_data_parallel_replica_groups
 
 from ..utils import is_trl_available
+from ..utils.misc import is_precompilation
 from .grpo_config import NeuronGRPOConfig
 from .transformers import NeuronTrainer
 from .trl_utils import TRL_VERSION
@@ -29,15 +33,13 @@ if is_trl_available():
     import trl.trainer.utils
     
     def safe_nanmin(tensor: torch.Tensor) -> torch.Tensor:
-        """ XLA-compatible nanmin that handles empty tensors """
-        logger.info("[safe_nanmin] Called")
+        """XLA-compatible nanmin that handles empty tensors."""
         if tensor.numel() == 0:
             return torch.tensor(float('nan'), device=tensor.device)
         return torch.min(tensor)
     
     def safe_nanmax(tensor: torch.Tensor) -> torch.Tensor:
-        """ XLA-compatible nanmax that handles empty tensors """
-        logger.info("[safe_nanmax] Called")
+        """XLA-compatible nanmax that handles empty tensors."""
         if tensor.numel() == 0:
             return torch.tensor(float('nan'), device=tensor.device)
         return torch.max(tensor)
@@ -286,34 +288,39 @@ class NeuronGRPOTrainer(NeuronTrainer):
         # TRL's GRPO trainer uses this for generation frequency
         self.num_iterations = self.args.gradient_accumulation_steps
         
+        # JSONL metrics logger - separate file per run with timestamp
+        self._jsonl_log_file = None
+        self._is_precompilation = is_precompilation()
+        if hasattr(self.args, 'output_dir') and self.args.output_dir:
+            os.makedirs(self.args.output_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"grpo_metrics_{timestamp}.jsonl"
+            self._jsonl_log_file = os.path.join(self.args.output_dir, filename)
+        self._step_start_time = None
+        
+        if self._is_precompilation:
+            logger.warning(
+                "⚠️  Running in NEURON_EXTRACT_GRAPHS_ONLY=1 mode (precompilation). "
+                "Metrics may be inaccurate as computations are stubbed for graph extraction. "
+                "Generation may produce dummy/placeholder outputs. "
+                "This mode is for compilation, not actual training. "
+                "Remove NEURON_EXTRACT_GRAPHS_ONLY=1 for real training metrics."
+            )
+        
     def _generate_single_turn(self, prompts, images=None):
-        """
-        Override to use CPU generator model for XLA compatibility.
-        Returns prompt_ids, completion_ids, logprobs, extra_fields as expected by TRL.
-        """
+        """Override to use CPU generator model for XLA compatibility."""
         generator_device = next(self.generator_model.parameters()).device
         
-        # Prompts are duplicated num_generations times by RepeatSampler
-        # Deduplicate to get unique prompts
-        if len(prompts) > 0:
-            # Check if prompts appear to be duplicated (every num_generations-th prompt should be same)
-            # Take unique prompts by sampling every num_generations-th item
-            if len(prompts) >= self.num_generations:
-                unique_prompts = prompts[::self.num_generations]
-                num_unique = len(unique_prompts)
-                # Verify expected structure: num_unique * num_generations should equal total
-                expected_total = num_unique * self.num_generations
-                if expected_total != len(prompts):
-                    # If structure doesn't match, generate once per prompt (fallback)
-                    logger.warning(
-                        f"Prompt structure mismatch: expected {expected_total} prompts "
-                        f"(from {num_unique} unique * {self.num_generations}), got {len(prompts)}. "
-                        "Generating once per prompt."
-                    )
-                    unique_prompts = prompts
-                    num_unique = len(unique_prompts)
-            else:
-                # Fewer prompts than num_generations, generate once per prompt
+        # Deduplicate prompts (RepeatSampler duplicates them num_generations times)
+        if len(prompts) >= self.num_generations:
+            unique_prompts = prompts[::self.num_generations]
+            num_unique = len(unique_prompts)
+            expected_total = num_unique * self.num_generations
+            if expected_total != len(prompts):
+                logger.warning(
+                    f"Prompt structure mismatch: expected {expected_total}, got {len(prompts)}. "
+                    "Generating once per prompt."
+                )
                 unique_prompts = prompts
                 num_unique = len(unique_prompts)
         else:
@@ -329,15 +336,35 @@ class NeuronGRPOTrainer(NeuronTrainer):
             "add_special_tokens": False,
         }
         
-        if is_conversational({"prompt": unique_prompts[0]}):
-            generate_inputs = self._generator_tokenizer.apply_chat_template(
-                conversation=unique_prompts,
-                **processor_kwargs,
-                add_generation_prompt=True,
-                tokenize=True,
-                return_dict=True,
-                **self.chat_template_kwargs,
-            )
+        # Apply chat template if available (required for Qwen-like models)
+        has_chat_template = hasattr(self._generator_tokenizer, 'apply_chat_template')
+        
+        if has_chat_template:
+            try:
+                if is_conversational({"prompt": unique_prompts[0]}):
+                    generate_inputs = self._generator_tokenizer.apply_chat_template(
+                        conversation=unique_prompts,
+                        **processor_kwargs,
+                        add_generation_prompt=True,
+                        tokenize=True,
+                        return_dict=True,
+                        **self.chat_template_kwargs,
+                    )
+                elif hasattr(self._generator_tokenizer, 'chat_template') and self._generator_tokenizer.chat_template:
+                    formatted_prompts = []
+                    for prompt in unique_prompts:
+                        formatted = self._generator_tokenizer.apply_chat_template(
+                            [{"role": "user", "content": prompt}],
+                            tokenize=False,
+                            add_generation_prompt=True,
+                        )
+                        formatted_prompts.append(formatted)
+                    generate_inputs = self._generator_tokenizer(text=formatted_prompts, **processor_kwargs)
+                else:
+                    generate_inputs = self._generator_tokenizer(text=unique_prompts, **processor_kwargs)
+            except Exception as e:
+                logger.warning(f"Chat template failed, using plain tokenization: {e}")
+                generate_inputs = self._generator_tokenizer(text=unique_prompts, **processor_kwargs)
         else:
             generate_inputs = self._generator_tokenizer(text=unique_prompts, **processor_kwargs)
         
@@ -346,7 +373,6 @@ class NeuronGRPOTrainer(NeuronTrainer):
             for k, v in generate_inputs.items()
         }
         
-        # Generate num_generations completions per unique prompt
         all_prompt_completion_ids = []
         all_prompt_ids = []
         all_prompt_mask = []
@@ -357,8 +383,8 @@ class NeuronGRPOTrainer(NeuronTrainer):
                 single_input_ids = generate_inputs["input_ids"][prompt_idx:prompt_idx+1]
                 single_attention_mask = generate_inputs["attention_mask"][prompt_idx:prompt_idx+1]
                 
-                # Generate num_generations completions for this prompt
-                for _ in range(self.num_generations):
+                prompt_length = single_input_ids.size(1)
+                for gen_idx in range(self.num_generations):
                     prompt_completion_ids = self.generator_model.generate(
                         input_ids=single_input_ids,
                         attention_mask=single_attention_mask,
@@ -370,6 +396,7 @@ class NeuronGRPOTrainer(NeuronTrainer):
                         top_p=self.generation_config.top_p,
                         top_k=self.generation_config.top_k,
                     )
+                    
                     all_prompt_completion_ids.append(prompt_completion_ids.cpu())
                     all_prompt_ids.append(single_input_ids.cpu())
                     all_prompt_mask.append(single_attention_mask.cpu())
@@ -382,7 +409,10 @@ class NeuronGRPOTrainer(NeuronTrainer):
         prompt_length = prompt_ids.size(1)
         completion_ids = prompt_completion_ids[:, prompt_length:]
         
-        # Create completion mask
+        if prompt_completion_ids.size(1) < prompt_length:
+            raise ValueError(
+                f"prompt_completion_ids length ({prompt_completion_ids.size(1)}) < prompt_length ({prompt_length})"
+            )
         is_eos = completion_ids == self.eos_token_id
         eos_idx = torch.full((is_eos.size(0),), completion_ids.size(1), dtype=torch.long)
         eos_idx[is_eos.any(dim=1)] = is_eos.int().argmax(dim=1)[is_eos.any(dim=1)]
@@ -417,13 +447,14 @@ class NeuronGRPOTrainer(NeuronTrainer):
         mode = "train" if self.model.training else "eval"
         
         prompts = [x["prompt"] for x in inputs]
+        self._last_generated_prompts = prompts
         
         # Generate completions (returns lists)
         prompt_ids_list, completion_ids_list, num_items_in_batch, sampling_per_token_logps_list, extra_fields = (
             self._generate(prompts, None)
         )
         
-        # Convert lists to tensors on CPU (not XLA device)
+        # Create tensors on CPU (moved to XLA in get_batch_samples)
         prompt_ids = [torch.tensor(ids, device=device) for ids in prompt_ids_list]
         prompt_mask = [torch.ones_like(ids, dtype=torch.long) for ids in prompt_ids]
         prompt_ids = pad(prompt_ids, padding_value=self.pad_token_id, padding_side="left")
@@ -453,14 +484,13 @@ class NeuronGRPOTrainer(NeuronTrainer):
         logits_to_keep = completion_ids.size(1)
         batch_size = self.args.per_device_train_batch_size if mode == "train" else self.args.per_device_eval_batch_size
         
-        # Compute old_per_token_logps if needed
+        # Compute old_per_token_logps if needed (policy model logps stay on XLA)
         with torch.no_grad():
             generate_every = self.args.steps_per_generation * self.num_iterations
             if self.args.gradient_accumulation_steps % generate_every != 0:
-                # Policy model logps will be on XLA; moved to XLA in get_batch_samples before loss
                 old_per_token_logps, _ = self._get_per_token_logps_and_entropies(
                     self.model,
-                    prompt_completion_ids,  # CPU tensors, moved to XLA in _get_per_token_logps_and_entropies
+                    prompt_completion_ids,
                     attention_mask,
                     logits_to_keep,
                     batch_size,
@@ -468,11 +498,10 @@ class NeuronGRPOTrainer(NeuronTrainer):
             else:
                 old_per_token_logps = None
         
-        # Compute ref_per_token_logps if reference model exists
+        # Compute ref_per_token_logps if reference model exists (stays on CPU)
         ref_per_token_logps = None
         if self.beta != 0.0 and self.ref_model is not None:
             with torch.no_grad():
-                # Ref model logps stay on CPU; moved to XLA in get_batch_samples before loss
                 ref_per_token_logps, _ = self._get_per_token_logps_and_entropies(
                     self.ref_model,
                     prompt_completion_ids,
@@ -481,10 +510,20 @@ class NeuronGRPOTrainer(NeuronTrainer):
                     batch_size,
                 )
         
-        # Calculate rewards on CPU
         completions = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
-        prompts_decoded = self.processing_class.batch_decode(prompt_ids, skip_special_tokens=True)
-        rewards = self._calculate_rewards(inputs, prompts_decoded, completions, completion_ids_list)
+        prompts_for_rewards = [x["prompt"] for x in inputs]
+        
+        expected_completions = len(prompts_for_rewards)
+        if len(completions) != expected_completions:
+            logger.warning(
+                f"[_generate_and_score_completions] Mismatch: {len(prompts_for_rewards)} prompts but {len(completions)} completions. "
+                f"Expected {expected_completions}. This may indicate a data flow issue."
+            )
+            # Fallback: use decoded prompt_ids (may include chat template)
+            prompts_decoded = self.processing_class.batch_decode(prompt_ids, skip_special_tokens=True)
+            rewards = self._calculate_rewards(inputs, prompts_decoded, completions, completion_ids_list)
+        else:
+            rewards = self._calculate_rewards(inputs, prompts_for_rewards, completions, completion_ids_list)
         
         # Validate rewards shape before reshaping
         num_completions = len(completions)
@@ -501,14 +540,16 @@ class NeuronGRPOTrainer(NeuronTrainer):
             )
         
         # Compute advantages (group-relative normalization)
-        # Group rewards by num_generations and normalize
         num_unique_prompts = rewards_size // self.num_generations
         rewards_reshaped = rewards.view(num_unique_prompts, self.num_generations)  # (num_prompts, num_generations)
         mean_grouped_rewards = rewards_reshaped.mean(dim=1)  # (num_prompts,)
         mean_grouped_rewards = mean_grouped_rewards.repeat_interleave(self.num_generations, dim=0)  # (total_samples,)
         advantages = rewards - mean_grouped_rewards
         
-        # Build output dict (policy model logps on XLA, ref model logps on CPU; both moved to XLA in get_batch_samples)
+        original_prompts_for_debug = prompts[:len(completions)] if len(prompts) >= len(completions) else prompts
+        
+        # Policy model logps: XLA (preserves computation graph)
+        # Ref model logps: CPU (moved to XLA in get_batch_samples when needed)
         output = {
             "prompt_ids": prompt_ids,
             "completion_ids": completion_ids,
@@ -522,28 +563,18 @@ class NeuronGRPOTrainer(NeuronTrainer):
             "old_per_token_logps": old_per_token_logps,
             "sampling_per_token_logps": sampling_per_token_logps,
             "num_items_in_batch": num_items_in_batch,
+            "_original_prompts": original_prompts_for_debug,
             **extra_fields,
         }
         if ref_per_token_logps is not None:
             output["ref_per_token_logps"] = ref_per_token_logps
-        
-        # Log output structure
-        logger.info(f"[_generate_and_score_completions] Output keys: {list(output.keys())}")
-        if "prompt_ids" in output:
-            logger.info(f"[_generate_and_score_completions] Input tensors on device: {output['prompt_ids'].device}")
-        if "old_per_token_logps" in output and output["old_per_token_logps"] is not None:
-            logger.info(f"[_generate_and_score_completions] old_per_token_logps on device: {output['old_per_token_logps'].device}")
-        if "ref_per_token_logps" in output and output["ref_per_token_logps"] is not None:
-            logger.info(f"[_generate_and_score_completions] ref_per_token_logps on device: {output['ref_per_token_logps'].device}")
         
         return output
     
     def _calculate_rewards(self, inputs, prompts, completions, completion_ids_list):
         """Calculate rewards using reward functions."""
         if not self.reward_funcs:
-            # Default to zero rewards if no reward functions provided
             rewards = torch.zeros(len(completions), device="cpu")
-            logger.info(f"[_calculate_rewards] No reward functions, returning zeros. Shape: {rewards.shape}")
             return rewards
         
         rewards = []
@@ -577,7 +608,6 @@ class NeuronGRPOTrainer(NeuronTrainer):
         elif rewards.dim() > 1:
             rewards = rewards.flatten()
         
-        logger.info(f"[_calculate_rewards] Prompts: {len(prompts)}, Completions: {len(completions)}, Rewards shape: {rewards.shape}")
         return rewards
 
     def _get_per_token_logps_and_entropies(
@@ -591,20 +621,15 @@ class NeuronGRPOTrainer(NeuronTrainer):
         token_type_ids=None,
         **kwargs,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        """
-        Override to handle CPU->XLA tensor movement and padding for Neuron.
-        Handles both ref_model (CPU) and policy_model (XLA) cases.
-        """
+        """Override to handle CPU->XLA tensor movement and Neuron padding."""
         # Filter out image-related parameters
         image_keys = ["pixel_values", "image_grid_thw", "num_images", "pixel_attention_mask", "image_sizes"]
         filtered_kwargs = {k: v for k, v in kwargs.items() if k not in image_keys}
         
-        # Detect model device to determine tensor placement
         model_device = next(model.parameters()).device
         
-        # If model is on CPU (ref_model), keep everything on CPU
         if model_device.type == "cpu":
-            # Use tensors as-is on CPU
+            # Ref model: keep tensors on CPU
             input_ids_cpu = input_ids
             attention_mask_cpu = attention_mask
             cpu_kwargs = {}
@@ -613,7 +638,6 @@ class NeuronGRPOTrainer(NeuronTrainer):
             
             cpu_kwargs.update(filtered_kwargs)
             
-            # Call TRL's implementation with CPU tensors
             logps, entropies = _GRPO._get_per_token_logps_and_entropies(
                 self,
                 model,
@@ -624,11 +648,9 @@ class NeuronGRPOTrainer(NeuronTrainer):
                 compute_entropy=compute_entropy,
                 **cpu_kwargs,
             )
-            
-            # Return CPU tensors
             return logps, entropies
         
-        # Otherwise, model is on XLA (policy_model), move tensors to XLA
+        # Policy model: move tensors to XLA
         xla_device = xm.xla_device()
         
         if input_ids.device.type != "xla":
@@ -636,7 +658,7 @@ class NeuronGRPOTrainer(NeuronTrainer):
         if attention_mask.device.type != "xla":
             attention_mask = attention_mask.to(xla_device)
         
-        # Pad to Neuron's flash attention requirement
+        # Pad to Neuron flash attention requirement (2048 multiple)
         input_ids_padded = pad_to_neuron_sequence_length(input_ids, self.pad_token_id)
         attention_mask_padded = pad_to_neuron_sequence_length(attention_mask, 0)
         
@@ -649,7 +671,6 @@ class NeuronGRPOTrainer(NeuronTrainer):
         
         xla_kwargs.update(filtered_kwargs)
         
-        # Call TRL's implementation with XLA tensors
         logps, entropies = _GRPO._get_per_token_logps_and_entropies(
             self,
             model,
@@ -661,8 +682,11 @@ class NeuronGRPOTrainer(NeuronTrainer):
             **xla_kwargs,
         )
         
-        # Return only the non-padded part, keep on XLA for computation graph
-        return logps[:, :logits_to_keep], entropies[:, :logits_to_keep] if entropies is not None else None
+        # Keep on XLA to preserve computation graph (CPU->XLA move breaks gradients)
+        logps_trimmed = logps[:, :logits_to_keep]
+        entropies_trimmed = entropies[:, :logits_to_keep] if entropies is not None else None
+        
+        return logps_trimmed, entropies_trimmed
 
     _compute_loss = _GRPO._compute_loss
 
@@ -681,8 +705,6 @@ class NeuronGRPOTrainer(NeuronTrainer):
         """Override to handle GRPO generation and buffering logic."""
         generate_every = self.args.steps_per_generation * self.num_iterations
         if self._generation_step_counter % generate_every == 0 or self._buffered_inputs is None:
-            logger.info(f"[get_batch_samples] Generating at step {self._generation_step_counter}")
-            
             total_batches_needed = self.args.steps_per_generation
             raw_batches = []
             
@@ -703,33 +725,33 @@ class NeuronGRPOTrainer(NeuronTrainer):
                 else:
                     raw_samples.append(batch)
             
-            # Generate and score (returns CPU tensors)
             generation_batch = self._generate_and_score_completions(raw_samples)
             
-            logger.info(f"[get_batch_samples] Generated batch with tensors on: {generation_batch.get('prompt_ids', torch.tensor(0)).device}")
-            
-            # Separate sequence-like values (tensors, lists) from scalar values (int, float, None)
             sequence_dict = {}
             scalar_dict = {}
+            original_prompts_list = generation_batch.pop("_original_prompts", None)
+            
             for key, val in generation_batch.items():
                 if val is None:
                     scalar_dict[key] = val
                 elif isinstance(val, torch.Tensor) and val.ndim >= 1:
                     sequence_dict[key] = val
-                elif isinstance(val, (list, tuple)):
+                elif isinstance(val, (list, tuple)) and key != "_original_prompts":
                     sequence_dict[key] = val
                 else:
                     scalar_dict[key] = val
             
-            # Shuffle only sequence-like values
             shuffled_sequences = shuffle_sequence_dict(sequence_dict)
-            
-            # Split sequence-like values
             generation_batches = split_tensor_dict(shuffled_sequences, self.args.steps_per_generation)
             
-            # Add scalar values to each batch (scalars are shared across all batches)
-            for batch in generation_batches:
-                batch.update(scalar_dict)
+            if original_prompts_list is not None:
+                for batch in generation_batches:
+                    batch["_original_prompts"] = original_prompts_list
+                    batch.update(scalar_dict)
+            else:
+                for batch in generation_batches:
+                    batch.update(scalar_dict)
+            
             self._buffered_inputs = generation_batches
             self._buffer_index = 0
         
@@ -740,9 +762,8 @@ class NeuronGRPOTrainer(NeuronTrainer):
         if self._buffer_index >= len(self._buffered_inputs):
             self._buffer_index = 0
         
-        # Move to XLA device now for training
+        # Move tensors to XLA device for training
         if device is not None and device.type == "xla":
-            logger.info(f"[get_batch_samples] Moving batch to XLA device")
             current_batch = {
                 k: v.to(device) if isinstance(v, torch.Tensor) else v
                 for k, v in current_batch.items()
@@ -771,28 +792,21 @@ class NeuronGRPOTrainer(NeuronTrainer):
         num_items_in_batch: int | torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Training step that works with GRPO's prepared inputs."""
+        self._step_start_time = time.time()
         manager = self.autocast_smart_context_manager()
 
         # Extract metrics from inputs before computation
         rewards = inputs.get("rewards")
         advantages = inputs.get("advantages")
         
-        # Always compute GRPO loss using TRL's compute_loss
         with manager:
             loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
-        
-        # Handle backward pass based on model type
         if isinstance(model, NxDPPModel):
-            # For pipeline parallelism, handle backward pass through pipeline
-            # The loss is already computed, so we can use accelerator.backward
             self.accelerator.backward(loss)
-            
-            # Zero out loss on non-last pipeline stages (as before)
             if self.pp_rank != self.pp_size - 1:
                 dtype = torch.bfloat16 if self.args.bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
         else:
-            # Standard backward pass for non-pipeline models
             self.accelerator.backward(loss)
         
         # Compute and log metrics
@@ -806,9 +820,7 @@ class NeuronGRPOTrainer(NeuronTrainer):
         # Log rewards statistics
         if rewards is not None and isinstance(rewards, torch.Tensor):
             if rewards.numel() > 0:
-                # Gather on original device (XLA or CPU) first, then move to CPU for stats
                 if hasattr(self, 'accelerator') and self.accelerator is not None:
-                    # Gather on current device (XLA gather requires XLA tensors)
                     rewards_gathered = self.accelerator.gather(rewards)
                     rewards_for_stats = rewards_gathered.cpu()
                 else:
@@ -824,9 +836,7 @@ class NeuronGRPOTrainer(NeuronTrainer):
         # Log advantages statistics
         if advantages is not None and isinstance(advantages, torch.Tensor):
             if advantages.numel() > 0:
-                # Gather on original device (XLA or CPU) first, then move to CPU for stats
                 if hasattr(self, 'accelerator') and self.accelerator is not None:
-                    # Gather on current device (XLA gather requires XLA tensors)
                     advantages_gathered = self.accelerator.gather(advantages)
                     advantages_for_stats = advantages_gathered.cpu()
                 else:
@@ -838,20 +848,107 @@ class NeuronGRPOTrainer(NeuronTrainer):
                     self._metrics[mode]["advantages/max"].append(advantages_flat.max().item())
                     self._metrics[mode]["advantages/min"].append(advantages_flat.min().item())
         
-        # Compute and log gradient norm
+        # Compute gradient norm
+        grad_norm = None
         try:
             total_norm = 0.0
             param_count = 0
             for p in model.parameters():
                 if p.grad is not None:
-                    param_norm = p.grad.data.norm(2)
-                    total_norm += param_norm.item() ** 2
-                    param_count += 1
+                    grad_data = p.grad.data
+                    try:
+                        if hasattr(grad_data, 'cpu'):
+                            param_norm = grad_data.cpu().norm(2).item()
+                        else:
+                            param_norm = grad_data.norm(2).item()
+                        total_norm += param_norm ** 2
+                        param_count += 1
+                    except Exception:
+                        pass
             if param_count > 0:
-                total_norm = total_norm ** (1. / 2)
-                self._metrics[mode]["grad_norm"].append(total_norm)
+                grad_norm = total_norm ** (1. / 2)
+                self._metrics[mode]["grad_norm"].append(grad_norm)
         except Exception as e:
             logger.debug(f"Could not compute grad norm: {e}")
+        
+        loss_item = None
+        if loss is not None and isinstance(loss, torch.Tensor):
+            try:
+                if hasattr(loss, 'cpu'):
+                    loss_cpu = loss.cpu()
+                    loss_item = loss_cpu.item() if loss_cpu.numel() == 1 else loss_cpu.mean().item()
+                else:
+                    loss_item = loss.item() if loss.numel() == 1 else loss.mean().item()
+            except Exception:
+                try:
+                    loss_item = loss.item()
+                except Exception:
+                    loss_item = None
+        
+        reward_mean = None
+        reward_std = None
+        if rewards is not None and isinstance(rewards, torch.Tensor) and rewards.numel() > 0:
+            if hasattr(self, 'accelerator') and self.accelerator is not None:
+                rewards_gathered = self.accelerator.gather(rewards)
+                rewards_for_stats = rewards_gathered.cpu()
+            else:
+                rewards_for_stats = rewards.cpu() if rewards.device.type == "xla" else rewards
+            if rewards_for_stats.numel() > 0:
+                rewards_flat = rewards_for_stats.flatten()
+                reward_mean = rewards_flat.mean().item()
+                reward_std = rewards_flat.std().item()
+        
+        kl_loss = None
+        if mode in self._metrics and "kl" in self._metrics[mode] and len(self._metrics[mode]["kl"]) > 0:
+            kl_loss = self._metrics[mode]["kl"][-1]
+        
+        learning_rate = None
+        if hasattr(self, 'lr_scheduler') and self.lr_scheduler is not None:
+            try:
+                learning_rate = self.lr_scheduler.get_last_lr()[0]
+            except Exception:
+                pass
+        
+        tokens_generated = None
+        if "completion_ids" in inputs:
+            completion_ids = inputs["completion_ids"]
+            if isinstance(completion_ids, torch.Tensor):
+                tokens_generated = completion_ids.numel()
+            elif isinstance(completion_ids, list):
+                tokens_generated = sum(len(ids) if isinstance(ids, (list, torch.Tensor)) else 0 for ids in completion_ids)
+        
+        time_per_step_s = None
+        if self._step_start_time is not None:
+            time_per_step_s = time.time() - self._step_start_time
+        
+        # Log to JSONL
+        if self._jsonl_log_file and hasattr(self, 'state') and self.state is not None:
+            step = self.state.global_step
+            epoch = getattr(self.state, 'epoch', 0.0)
+            
+            metrics = {
+                "timestamp_iso": datetime.now().isoformat(),
+                "step": step,
+                "epoch": epoch,
+                "grpo_loss": loss_item,
+                "policy_loss": loss_item,
+                "kl_loss": kl_loss,
+                "reward_mean": reward_mean,
+                "reward_std": reward_std,
+                "grad_norm": grad_norm,
+                "learning_rate": learning_rate,
+                "time_per_step_s": time_per_step_s,
+                "tokens_generated": tokens_generated,
+                "is_precompilation": self._is_precompilation,
+            }
+            
+            if hasattr(self, 'accelerator') and self.accelerator is not None:
+                if self.accelerator.is_main_process:
+                    with open(self._jsonl_log_file, 'a') as f:
+                        f.write(json.dumps(metrics) + '\n')
+            else:
+                with open(self._jsonl_log_file, 'a') as f:
+                    f.write(json.dumps(metrics) + '\n')
         
         return loss
 
