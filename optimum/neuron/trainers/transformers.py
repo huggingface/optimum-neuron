@@ -958,7 +958,6 @@ class NeuronTrainer:
             if num_items_in_batch is not None:
                 inputs = dict(**inputs, reduction="sum")
 
-            print("zaza", inputs)
             outputs = model(**inputs)
 
             if isinstance(outputs, dict) and "loss" not in outputs:

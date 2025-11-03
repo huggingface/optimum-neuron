@@ -29,13 +29,13 @@ from transformers import (
 )
 from transformers.trainer_callback import TrainerCallback
 
-from ..accelerate import NeuronPartialState
 from ..peft import NeuronPeftModel, get_peft_model
 from ..utils import (
     is_trl_available,
 )
 from ..utils.import_utils import is_peft_available
 from .sft_config import NeuronSFTConfig
+from .training_args import NeuronTrainingArguments
 from .transformers import NeuronTrainer
 from .trl_utils import TRL_VERSION
 
@@ -111,89 +111,55 @@ class NeuronSFTTrainer(_SFTTrainer):
         preprocess_logits_for_metrics: Callable | None = None,
         peft_config: PeftConfig | None = None,
         formatting_func: Callable | None = None,
-        tokenizer: PreTrainedTokenizerBase | None = None,
     ):
         if not is_trl_available(required_version=TRL_VERSION):
             raise RuntimeError(f"Using NeuronSFTTrainer requires trl=={TRL_VERSION}.")
 
-        from trl.extras.dataset_formatting import get_formatting_func_from_dataset
-        from trl.trainer.callbacks import RichProgressCallback
-        from trl.trainer.utils import peft_module_casting_to_bf16
+        from trl.models import clone_chat_template
+        from trl.trainer.sft_trainer import DataCollatorForLanguageModeling, DataCollatorForVisionLanguageModeling
 
         if is_peft_available():
-            from peft import PeftConfig
+            pass
 
-        if tokenizer is not None and processing_class is None:
-            processing_class = tokenizer
-
-        args_is_none = args is None
+        # Args
         if args is None:
             model_name = model if isinstance(model, str) else model.config._name_or_path
             model_name = model_name.split("/")[-1]
             args = NeuronSFTConfig(f"{model_name}-SFT")
-        elif args is not None and args.__class__.__name__ == "NeuronTrainingArguments":
-            args_as_dict = args.to_dict()
-            args_as_dict.update({k: getattr(args, k) for k in args_as_dict.keys() if k.endswith("_token")})
-            args = NeuronSFTConfig(**args_as_dict)
+        elif isinstance(args, NeuronTrainingArguments) and not isinstance(args, NeuronSFTConfig):
+            dict_args = args.to_dict()
+            dict_args["hub_token"] = args.hub_token
+            dict_args.pop("push_to_hub_token", None)
+            args = NeuronSFTConfig(**dict_args)
 
-        log_level = args.get_process_log_level()
-        logging.set_verbosity(log_level)
-
-        if args_is_none:
-            logging.warning(f"No `SFTConfig` passed, using `output_dir={args.output_dir}`.")
-
-        if args.model_init_kwargs is None:
-            model_init_kwargs = {}
-        elif not isinstance(model, str):
-            raise ValueError("You passed model_init_kwargs to the SFTConfig, but your model is already instantiated.")
-        else:
-            model_init_kwargs = args.model_init_kwargs
-            torch_dtype = model_init_kwargs.get("dtype")
-            if torch_dtype is not None:
-                if isinstance(torch_dtype, str) and torch_dtype != "auto":
-                    torch_dtype = getattr(torch, torch_dtype)
-                if torch_dtype != "auto" and not isinstance(torch_dtype, torch.dtype):
-                    raise ValueError(
-                        f"Invalid `torch_dtype` passed to the SFTConfig. Expected a string with either `torch.dtype` or 'auto', but got {torch_dtype}."
-                    )
-                model_init_kwargs["dtype"] = torch_dtype
-
+        # Model
         if isinstance(model, str):
-            model_id = model
-            dtype = model_init_kwargs.get("dtype")
-            if isinstance(dtype, torch.dtype) or dtype == "auto" or dtype is None:
-                pass
-            elif isinstance(dtype, str) and dtype in ["bfloat16", "float16", "float32"]:
-                dtype = getattr(torch, dtype)
-                model_init_kwargs["dtype"] = dtype
-            else:
-                raise ValueError(
-                    "Invalid `dtype` passed to `SFTConfig`. Expected either 'auto' or a string representing "
-                    f"a valid `torch.dtype` (e.g., 'float32'), but got {dtype}."
-                )
-            model = AutoModelForCausalLM.from_pretrained(model_id, **model_init_kwargs)
+            model = AutoModelForCausalLM.from_pretrained(model, **args.model_init_kwargs or {})
         else:
-            model_id = model.config._name_or_path
             if args.model_init_kwargs is not None:
                 logger.warning(
                     "You passed `model_init_kwargs` to the `SFTConfig`, but your model is already instantiated. "
                     "The `model_init_kwargs` will be ignored."
                 )
+        model_id = model.config._name_or_path
 
+        # Processing class
         if processing_class is None:
             from transformers import AutoProcessor
+
             processing_class = AutoProcessor.from_pretrained(model_id)
 
+        # Handle pad token for processors or tokenizers
         if isinstance(processing_class, ProcessorMixin):
-            self._is_vlm = True
             tokenizer = processing_class.tokenizer
+            self._is_vlm = True
         elif isinstance(processing_class, PreTrainedTokenizerBase):
-            self._is_vlm = False
             tokenizer = processing_class
+            self._is_vlm = False
         else:
             raise TypeError("The `processing_class` must be either a `PreTrainedTokenizerBase` or a `ProcessorMixin`")
 
-        if hasattr(args, "eos_token") and args.eos_token is not None:
+        if args.eos_token is not None:
             eos_token = args.eos_token
             eos_token_id = tokenizer.convert_tokens_to_ids(eos_token)
             if eos_token_id is None:
@@ -204,45 +170,33 @@ class NeuronSFTTrainer(_SFTTrainer):
                 )
             tokenizer.eos_token_id = eos_token_id
 
-        if hasattr(args, "chat_template_path") and args.chat_template_path is not None:
-            from trl.models import clone_chat_template
-
+        if args.chat_template_path is not None:
             if os.path.isfile(args.chat_template_path) and args.chat_template_path.endswith((".jinja", ".j2")):
                 with open(args.chat_template_path, encoding="utf-8") as chat_template_file:
                     processing_class.chat_template = chat_template_file.read()
                 added_tokens = []
             else:
-                try:
-                    model, processing_class, added_tokens = clone_chat_template(
-                        model, processing_class, args.chat_template_path
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to clone chat template from {args.chat_template_path}: {e}. "
-                        "Continuing without custom chat template."
-                    )
-                    added_tokens = []
+                model, processing_class, added_tokens = clone_chat_template(
+                    model, processing_class, args.chat_template_path
+                )
         else:
             added_tokens = []
 
+        # Catch some wrong configurations related to VLMs
         if self._is_vlm and args.packing:
             raise ValueError(
                 "Packing is not supported for vision-language models. Please set `packing=False` in the SFTConfig."
             )
         if self._is_vlm and args.padding_free:
             raise ValueError(
-                "Padding-free training is not yet supported for vision-language models. Please set "
+                "Padding-free training is yet not supported for vision-language models. Please set "
                 "`padding_free=False` in the `SFTConfig`."
             )
 
-        if is_peft_available() and peft_config is not None:
-            if not isinstance(peft_config, PeftConfig):
-                raise ValueError(
-                    "If you want to use the NeuronPeftModel, you need to pass a PeftConfig object to the NeuronSFTTrainer."
-                    f" and you passed a {type(peft_config)}."
-                )
-
+        # PEFT configuration and model wrapping
+        if peft_config is not None:
             if added_tokens:
+                # Ensure that the added tokens are trainable
                 if peft_config.trainable_token_indices is None:
                     peft_config.trainable_token_indices = {"embed_tokens": added_tokens}
                 elif "embed_tokens" not in peft_config.trainable_token_indices:
@@ -250,6 +204,7 @@ class NeuronSFTTrainer(_SFTTrainer):
                 else:
                     peft_config.trainable_token_indices["embed_tokens"].extend(added_tokens)
 
+                # Ensure that the lm_head is trainable
                 if peft_config.modules_to_save is None or "lm_head" not in peft_config.modules_to_save:
                     logger.warning(
                         "Cloning chat template added new tokens to the tokenizer, but 'lm_head' is not in PEFT's "
@@ -257,40 +212,33 @@ class NeuronSFTTrainer(_SFTTrainer):
                         "tokens, leading to degraded generation quality. To fix this, add "
                         "`modules_to_save=['lm_head']` to your PEFT configuration."
                     )
+
                     if peft_config.modules_to_save is None:
                         peft_config.modules_to_save = ["lm_head"]
                     else:
                         peft_config.modules_to_save.append("lm_head")
 
             if not isinstance(model, NeuronPeftModel):
+                # Enable gradient checkpointing if needed
                 gradient_checkpointing_kwargs = getattr(args, "gradient_checkpointing_kwargs", None) or {}
-                if getattr(args, "gradient_checkpointing", False) and (
+                gradient_checkpointing_kwargs = args.gradient_checkpointing_kwargs
+                if args.gradient_checkpointing and (
                     "use_reentrant" not in gradient_checkpointing_kwargs
                     or gradient_checkpointing_kwargs["use_reentrant"]
                 ):
                     if hasattr(model, "enable_input_require_grads"):
                         model.enable_input_require_grads()
                     else:
+
                         def make_inputs_require_grad(module, input, output):
                             output.requires_grad_(True)
+
                         model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
                 model = get_peft_model(model, peft_config)
-                if args is not None and args.bf16:
-                    peft_module_casting_to_bf16(model)
 
-        if hasattr(processing_class, "pad_token") and getattr(processing_class, "pad_token", None) is None:
-            processing_class.pad_token = processing_class.eos_token
-
-        if args.max_length is None:
-            args.max_length = min(processing_class.model_max_length, 1024)
-            logger.warning(
-                f"You didn't pass a `max_length` argument to the SFTTrainer, this will default to {args.max_length}"
-            )
-
-        self.dataset_num_proc = args.dataset_num_proc
-        self._trainer_supports_neftune = False
-
+        # Data collator
+        # Neuron-specific: padding_free must always be False for Neuron devices
         self.padding_free = False
         if args.padding_free:
             logger.warning(
@@ -299,79 +247,83 @@ class NeuronSFTTrainer(_SFTTrainer):
             )
             args.padding_free = False
 
-        if args.dataset_kwargs is None:
-            args.dataset_kwargs = {}
-
-        if train_dataset is not None:
-            dataset_sample = next(iter(train_dataset))
-            if args.completion_only_loss is None:
-                self.completion_only_loss = "prompt" in dataset_sample and "completion" in dataset_sample
-            else:
-                self.completion_only_loss = args.completion_only_loss
-            self._is_vision_dataset = "image" in dataset_sample or "images" in dataset_sample
-
-            if self._is_vision_dataset and not self._is_vlm:
-                raise ValueError(
-                    "The dataset appears to be vision-related (contains 'image' or 'images' keys), but the provided "
-                    "model does not seem to be a vision-language model. Please check your model and dataset."
-                )
+        # Decide whether to use completion-only loss
+        dataset_sample = next(iter(train_dataset))
+        if args.completion_only_loss is None:
+            self.completion_only_loss = "prompt" in dataset_sample and "completion" in dataset_sample
         else:
-            self.completion_only_loss = False
-            self._is_vision_dataset = False
+            self.completion_only_loss = args.completion_only_loss
 
-        if data_collator is not None and hasattr(data_collator, "padding_free"):
-            data_collator.padding_free = False
-
-        if formatting_func is None and args.dataset_text_field is None:
-            formatting_func = get_formatting_func_from_dataset(train_dataset, tokenizer)
-            if formatting_func is not None:
-                args.dataset_kwargs["add_special_tokens"] = False
-
-        if not args.packing:
-            if (
-                args.dataset_text_field is None
-                and formatting_func is None
-                and not args.dataset_kwargs.get("skip_prepare_dataset", False)
-            ):
-                raise ValueError(
-                    "You passed `packing=False` to the SFTTrainer/SFTConfig, but you didn't pass a `dataset_text_field` or `formatting_func` argument."
-                )
-
-        with NeuronPartialState().local_main_process_first():
-            if train_dataset is not None:
-                train_dataset = self._prepare_dataset(
-                    train_dataset, processing_class, args, args.packing, formatting_func, "train"
-                )
-            if eval_dataset is not None:
-                _multiple = isinstance(eval_dataset, dict)
-                _eval_datasets = eval_dataset if _multiple else {"singleton": eval_dataset}
-
-                for _eval_dataset_name, _eval_dataset in _eval_datasets.items():
-                    _eval_datasets[_eval_dataset_name] = self._prepare_dataset(
-                        _eval_dataset,
-                        processing_class,
-                        args,
-                        args.eval_packing if args.eval_packing is not None else args.packing,
-                        formatting_func,
-                        _eval_dataset_name,
-                    )
-                if not _multiple:
-                    eval_dataset = _eval_datasets["singleton"]
-
-        if (
-            hasattr(processing_class, "padding_side")
-            and processing_class.padding_side is not None
-            and processing_class.padding_side != "right"
-        ):
-            logger.warning(
-                "You passed a processing_class with `padding_side` not equal to `right` to the SFTTrainer. This might lead to some unexpected behaviour due to "
-                'overflow issues when training a model in half-precision. You might consider adding `processing_class.padding_side = "right"` to your code.'
+        self._is_vision_dataset = "image" in dataset_sample or "images" in dataset_sample
+        if self._is_vision_dataset and not self._is_vlm:
+            raise ValueError(
+                "The dataset appears to be vision-related (contains 'image' or 'images' keys), but the provided "
+                "model does not seem to be a vision-language model. Please check your model and dataset."
             )
 
+        if data_collator is None and not self._is_vision_dataset:
+            # Get the pad token
+            pad_token = args.pad_token or tokenizer.pad_token or tokenizer.eos_token
+            pad_token_id = tokenizer.convert_tokens_to_ids(pad_token)
+            if pad_token_id is None:
+                raise ValueError(
+                    f"The specified `pad_token` ('{pad_token}') is not found in the vocabulary of the given "
+                    f"`processing_class` ({processing_class.__class__.__name__}). Ensure that the `pad_token` exists "
+                    "in the vocabulary before using it as a padding token."
+                )
+            # Neuron-specific: always pad to max_length for fixed input shapes
+            data_collator = DataCollatorForLanguageModeling(
+                pad_token_id=pad_token_id,
+                completion_only_loss=self.completion_only_loss,
+                padding_free=self.padding_free,
+                pad_to_multiple_of=args.pad_to_multiple_of,
+            )
+        elif data_collator is None and self._is_vision_dataset:
+            data_collator = DataCollatorForVisionLanguageModeling(
+                processor=processing_class,
+                max_length=args.max_length,
+                completion_only_loss=self.completion_only_loss,
+                pad_to_multiple_of=args.pad_to_multiple_of,
+                dataset_text_field=args.dataset_text_field,
+            )
+
+        # Dataset
+        skip_prepare_dataset = (
+            args.dataset_kwargs is not None
+            and args.dataset_kwargs.get("skip_prepare_dataset", False)
+            or self._is_vision_dataset
+        )
+        if not skip_prepare_dataset:
+            if self.completion_only_loss and formatting_func:
+                raise ValueError(
+                    "A formatting function was provided while `completion_only_loss=True`, which is incompatible. "
+                    "Using a formatter converts the dataset to a language modeling type, conflicting with "
+                    "completion-only loss. To resolve this, apply your formatting function before passing the "
+                    "dataset, or disable `completion_only_loss` in `SFTConfig`."
+                )
+            train_dataset = self._prepare_dataset(
+                train_dataset, processing_class, args, args.packing, formatting_func, "train"
+            )
+            if eval_dataset is not None:
+                packing = args.packing if args.eval_packing is None else args.eval_packing
+                if isinstance(eval_dataset, dict):
+                    eval_dataset = {
+                        key: self._prepare_dataset(dataset, processing_class, args, packing, formatting_func, key)
+                        for key, dataset in eval_dataset.items()
+                    }
+                else:
+                    eval_dataset = self._prepare_dataset(
+                        eval_dataset, processing_class, args, packing, formatting_func, "eval"
+                    )
+
+        # Neuron-specific: we don't support NeFTune
+        self._trainer_supports_neftune = False
+
+        # Initialize NeuronTrainer
         NeuronTrainer.__init__(
             self,
-            model,
-            args,
+            model=model,
+            args=args,
             data_collator=data_collator,
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
@@ -384,20 +336,6 @@ class NeuronSFTTrainer(_SFTTrainer):
         # Add tags for models that have been loaded with the correct transformers version
         if hasattr(self.model, "add_model_tags"):
             self.model.add_model_tags(self._tag_names)
-
-        if self.args.max_steps > 0 and args.packing:
-            logger.warning(
-                "You passed `packing=True` to the NeuronSFTTrainer/SFTConfig, and you are training your model with `max_steps` strategy. The dataset will be iterated until the `max_steps` are reached."
-            )
-            self.train_dataset.infinite = True
-        elif self.args.max_steps == -1 and args.packing:
-            self.train_dataset.infinite = False
-
-        if any(isinstance(callback, RichProgressCallback) for callback in self.callback_handler.callbacks):
-            for callback in self.callback_handler.callbacks:
-                # Remove the PrinterCallback to avoid duplicated prints in case we passed a `RichProgressCallback`
-                if callback.__class__.__name__ == "PrinterCallback":
-                    self.callback_handler.pop_callback(callback)
 
     def train(
         self,

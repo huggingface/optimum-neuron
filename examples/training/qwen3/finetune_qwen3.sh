@@ -6,6 +6,9 @@ export NEURON_FUSE_SOFTMAX=1
 export NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS=3 # Async Runtime
 export MALLOC_ARENA_MAX=64 # Host OOM mitigation
 
+# Enable Neuron logging
+export NEURON_RT_LOG_LEVEL=INFO
+
 # Variables for training
 PROCESSES_PER_NODE=32
 NUM_EPOCHS=3
