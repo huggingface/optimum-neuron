@@ -23,7 +23,7 @@ from ..neuron.utils import is_neuron_available, is_neuronx_available
 from ..neuron.version import __sdk_version__ as neuron_sdk_version
 from ..neuron.version import __version__ as optimum_neuron_version
 from ..version import __version__ as optimum_version
-from . import BaseOptimumCLICommand, CommandInfo
+from .base import BaseOptimumCLICommand, CommandInfo
 
 
 class EnvironmentCommand(BaseOptimumCLICommand):
