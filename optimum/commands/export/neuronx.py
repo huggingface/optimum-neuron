@@ -19,7 +19,7 @@ import sys
 from argparse import SUPPRESS, ArgumentParser, Namespace, _SubParsersAction
 from pathlib import Path
 
-from ...exporters import TasksManager
+from ...exporters.tasks import TasksManager
 from ...neuron.utils.instance import SUPPORTED_INSTANCE_TYPES, normalize_instance_type
 from ...neuron.utils.system import get_neuron_major
 from ..base import BaseOptimumCLICommand, CommandInfo

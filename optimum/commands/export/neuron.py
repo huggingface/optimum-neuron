@@ -18,7 +18,7 @@ import sys
 from argparse import ArgumentParser, Namespace, _SubParsersAction
 from pathlib import Path
 
-from ...exporters import TasksManager
+from ...exporters.tasks import TasksManager
 from ..base import BaseOptimumCLICommand, CommandInfo
 
 

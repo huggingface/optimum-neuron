@@ -23,8 +23,7 @@ import torch
 from huggingface_hub import HfApi, get_token
 from huggingface_hub.errors import EntryNotFoundError
 from huggingface_hub.hf_api import RepoFile
-
-from optimum.exporters import TasksManager
+from optimum.exporters.tasks import TasksManager
 
 from ..utils.argument_utils import DTYPE_MAPPER
 from ..utils.cache_utils import get_hf_hub_cache_repo
