@@ -1060,7 +1060,7 @@ class NeuronModelForSemanticSegmentationIntegrationTest(NeuronModelTestMixin):
     TASK = "semantic-segmentation"
     ATOL_FOR_VALIDATION = 1e-3
     SUPPORTED_ARCHITECTURES = [
-        "mobilenet-v2",
+        "mobilenet_v2",
         "mobilevit",
     ]
 
