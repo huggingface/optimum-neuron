@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+from pathlib import Path
 from typing import Any, Callable
 
 import datasets
@@ -395,19 +396,17 @@ class NeuronSFTTrainer(_SFTTrainer):
     def _save_checkpoint(self, model=None, trial=None, metrics=None):
         """
         Override SFTTrainer's _save_checkpoint to use NeuronTrainer's implementation.
-
-        SFTTrainer has a custom checkpoint saving method, but we use NeuronTrainer's
-        which is compatible with Neuron's distributed training and async saving.
-        NeuronTrainer._save_checkpoint only takes self, so we ignore the extra arguments.
         """
+        if self.args.hub_model_id is None:
+            model_name = Path(self.args.output_dir).name
+        else:
+            model_name = self.args.hub_model_id.split("/")[-1]
+        self.create_model_card(model_name=model_name)
         return NeuronTrainer._save_checkpoint(self)
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         """
         Compute training loss for Neuron-optimized training.
-
-        Overrides TRL SFTTrainer's compute_loss to set use_cache=False for gradient
-        checkpointing compatibility and delegate to NeuronTrainer's compute_loss.
         """
         # Set use_cache to False to avoid warnings with gradient checkpointing
         inputs["use_cache"] = False
@@ -420,8 +419,5 @@ class NeuronSFTTrainer(_SFTTrainer):
     ) -> torch.Tensor:
         """
         Perform a training step for Neuron-optimized training.
-
-        Overrides SFTTrainer.training_step to delegate to NeuronTrainer's implementation,
-        which is compatible with Neuron's distributed training setup.
         """
         return NeuronTrainer.training_step(self, model, inputs, num_items_in_batch=num_items_in_batch)
