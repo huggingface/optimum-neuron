@@ -151,7 +151,7 @@ def test_neuron_sft_trainer_peft_training(tmpdir, set_cache_for_ci):
         context = f"### Context\n{sample['context']}" if len(sample["context"]) > 0 else None
         response = f"### Answer\n{sample['response']}"
         prompt = "\n\n".join([i for i in [instruction, context, response] if i is not None])
-        return [prompt]  # No packing for simplicity
+        return prompt
 
     args = NeuronTrainingArguments(
         output_dir=str(tmpdir),
