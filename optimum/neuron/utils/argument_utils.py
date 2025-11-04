@@ -90,6 +90,7 @@ class InputShapesArguments:
     feature_size: int | None = None
     nb_max_frames: int | None = None
     audio_sequence_length: int | None = None
+    visual_seq_length: int | None = None
     point_batch_size: int | None = None
     nb_points_per_image: int | None = None
     num_beams: int | None = None
