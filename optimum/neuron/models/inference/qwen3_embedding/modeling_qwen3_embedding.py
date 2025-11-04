@@ -28,13 +28,14 @@ from transformers.models.qwen3.configuration_qwen3 import Qwen3Config
 
 from ..backend.config import NxDNeuronConfig
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
-from ..backend.modules.decoder import NxDDecoderModel
+from ..backend.modules.encoder import NxDEncoderModel
 from ..backend.modules.rms_norm import NeuronRMSNorm
 from ..qwen3.modeling_qwen3 import (
     NeuronQwen3Attention,
     NeuronQwen3DecoderLayer,
     
 )
+from ..backend.modules.encoder import NxDModelForEmbeddingLM
 from ..llama.modeling_llama import (
     LlamaNxDModelForCausalLM,
     LlamaRotaryEmbedding,
@@ -45,7 +46,7 @@ from ..llama.modeling_llama import (
 
 logger = logging.getLogger("Neuron")
 
-class NxDQwen3EmbeddingModel(NxDDecoderModel):
+class NxDQwen3EmbeddingModel(NxDEncoderModel):
     """
     The neuron version of the Qwen3Model with output_hidden_states support
     """
@@ -67,78 +68,78 @@ class NxDQwen3EmbeddingModel(NxDDecoderModel):
         )
         self.norm = NeuronRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
-    def forward(
-        self,
-        input_ids,
-        attention_mask,
-        position_ids,
-        seq_ids,
-        sampling_params,
-        scatter_index=None,
-        inputs_embeds: torch.FloatTensor | None = None,
-        kv_cache: torch.Tensor | None = None,
-    ):
-        """
-        Forward pass that can return either logits or hidden states.
-        Keep the exact same computation graph, just change the return.
-        """
-        # Use parent forward logic to maintain compilation compatibility
-        is_for_context_encoding = self._is_context_encoding(input_ids)
-        is_for_speculation = self._is_for_speculation(input_ids)
+    # def forward(
+    #     self,
+    #     input_ids,
+    #     attention_mask,
+    #     position_ids,
+    #     seq_ids,
+    #     sampling_params,
+    #     scatter_index=None,
+    #     inputs_embeds: torch.FloatTensor | None = None,
+    #     kv_cache: torch.Tensor | None = None,
+    # ):
+    #     """
+    #     Forward pass that can return either logits or hidden states.
+    #     Keep the exact same computation graph, just change the return.
+    #     """
+    #     # Use parent forward logic to maintain compilation compatibility
+    #     is_for_context_encoding = self._is_context_encoding(input_ids)
+    #     is_for_speculation = self._is_for_speculation(input_ids)
 
-        cache_size = self.n_positions
+    #     cache_size = self.n_positions
 
-        if is_for_context_encoding:
-            past_key_values = None
-        else:
-            if kv_cache is None:
-                past_key_values = self.kv_mgr.get_cache(cache_size)
-            else:
-                past_key_values = self._slice_kv_cache(kv_cache, cache_size)
+    #     if is_for_context_encoding:
+    #         past_key_values = None
+    #     else:
+    #         if kv_cache is None:
+    #             past_key_values = self.kv_mgr.get_cache(cache_size)
+    #         else:
+    #             past_key_values = self._slice_kv_cache(kv_cache, cache_size)
 
-        # Prepare attention mask(s)
-        attention_mask = self.create_attn_mask(
-            attention_mask,
-            is_for_context_encoding,
-            is_for_speculation,
-        )
-        active_mask = None
+    #     # Prepare attention mask(s)
+    #     attention_mask = self.create_attn_mask(
+    #         attention_mask,
+    #         is_for_context_encoding,
+    #         is_for_speculation,
+    #     )
+    #     active_mask = None
 
-        # FD masks
-        active_mask_2d = None
+    #     # FD masks
+    #     active_mask_2d = None
 
-        hidden_states, past_key_values = self.get_model_output(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            active_mask=active_mask,
-            inputs_embeds=inputs_embeds,
-        )
+    #     hidden_states, past_key_values = self.get_model_output(
+    #         input_ids=input_ids,
+    #         attention_mask=attention_mask,
+    #         position_ids=position_ids,
+    #         past_key_values=past_key_values,
+    #         active_mask=active_mask,
+    #         inputs_embeds=inputs_embeds,
+    #     )
         
-        updated_kv_cache = self.kv_mgr.update_cache(
-            is_for_context_encoding=is_for_context_encoding,
-            seq_ids=seq_ids,
-            position_ids=position_ids,
-            new_key_values=past_key_values,
-            seq_len=cache_size,
-            scatter_index=scatter_index,
-            active_mask=active_mask_2d,
-            kvcache_buffer=kv_cache,
-        )
+    #     updated_kv_cache = self.kv_mgr.update_cache(
+    #         is_for_context_encoding=is_for_context_encoding,
+    #         seq_ids=seq_ids,
+    #         position_ids=position_ids,
+    #         new_key_values=past_key_values,
+    #         seq_len=cache_size,
+    #         scatter_index=scatter_index,
+    #         active_mask=active_mask_2d,
+    #         kvcache_buffer=kv_cache,
+    #     )
 
-        batch_size, num_tokens, hidden_size = hidden_states.shape
-        if not (position_ids.shape[-1] == self.speculation_length or position_ids.shape[-1] == 1):
-            # context encoding
-            index = torch.max(position_ids, dim=1, keepdim=True).indices
-            index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
-            hidden_states = torch.gather(hidden_states, dim=1, index=index)
+    #     batch_size, num_tokens, hidden_size = hidden_states.shape
+    #     if not (position_ids.shape[-1] == self.speculation_length or position_ids.shape[-1] == 1):
+    #         # context encoding
+    #         index = torch.max(position_ids, dim=1, keepdim=True).indices
+    #         index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
+    #         hidden_states = torch.gather(hidden_states, dim=1, index=index)
 
-        outputs = [hidden_states]
-        outputs += updated_kv_cache
-        return outputs
+    #     outputs = [hidden_states]
+    #     outputs += updated_kv_cache
+    #     return outputs
 
-class Qwen3NxDModelForCausalLMEmbedding(LlamaNxDModelForCausalLM):
+class Qwen3NxDModelForCausalLMEmbedding(NxDModelForEmbeddingLM):
 
     _model_cls = NxDQwen3EmbeddingModel
 
@@ -161,6 +162,10 @@ class Qwen3NxDModelForCausalLMEmbedding(LlamaNxDModelForCausalLM):
         state_dict["rank_util.rank"] = torch.arange(0, tp_degree, dtype=torch.int32)
         return state_dict
 
+    @staticmethod
+    def update_state_dict_for_tied_weights(state_dict):
+        state_dict["lm_head.weight"] = state_dict["embed_tokens.weight"].clone()
+
     @classmethod
     def _get_neuron_config(
         cls,
@@ -174,7 +179,6 @@ class Qwen3NxDModelForCausalLMEmbedding(LlamaNxDModelForCausalLM):
     ):
         continuous_batching = False  # Disable for embeddings
         on_device_sampling = False  # Disable for embeddings
-        
         return NxDNeuronConfig(
             checkpoint_id=checkpoint_id,
             checkpoint_revision=checkpoint_revision,
@@ -186,8 +190,8 @@ class Qwen3NxDModelForCausalLMEmbedding(LlamaNxDModelForCausalLM):
             on_device_sampling=on_device_sampling,
             fused_qkv=True,
             continuous_batching=continuous_batching,
-            embedding_model=True,
         )
+
     
     def encode(
         self,
@@ -228,6 +232,6 @@ class Qwen3NxDModelForCausalLMEmbedding(LlamaNxDModelForCausalLM):
         hidden_states = outputs.hidden_states
         return hidden_states
     
-    def forward(self, input_ids, attention_mask=None, position_ids=None, seq_ids=None, sampling_params=None):
-        # vLLM compatibility: accept but ignore extra parameters
-        return self.encode(input_ids, attention_mask)
+    # def forward(self, input_ids, attention_mask=None, position_ids=None, seq_ids=None, sampling_params=None):
+    #     # vLLM compatibility: accept but ignore extra parameters
+    #     return self.encode(input_ids, attention_mask)

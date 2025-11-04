@@ -75,7 +75,6 @@ class NxDNeuronConfig(NeuronConfig):
         local_ranks_size: int | None = None,
         capacity_factor: float = None,
         glu_mlp: bool = True,
-        embedding_model: bool = False
     ) -> None:
         # Required to retrieve a checkpoint from the hub
         self.checkpoint_id = checkpoint_id
@@ -129,9 +128,6 @@ class NxDNeuronConfig(NeuronConfig):
         # MoE specific
         self.capacity_factor = float(capacity_factor) if capacity_factor is not None else None
         self.glu_mlp = glu_mlp
-
-        # Embedding model flag to disable TKG model graph:
-        self.embedding_model = embedding_model
 
     @property
     def ctx_batch_size(self) -> int:
