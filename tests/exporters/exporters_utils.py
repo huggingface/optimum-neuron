@@ -50,7 +50,7 @@ EXPORT_MODELS_TINY = {
     "hubert": "hf-internal-testing/tiny-random-HubertModel",
     "levit": "hf-internal-testing/tiny-random-LevitModel",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
-    "mobilenet-v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
+    "mobilenet_v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
     # "mobilevit": "hf-internal-testing/tiny-random-mobilevit",  # blocked since neuron sdk 2.23: timeout
     "modernbert": "hf-internal-testing/tiny-random-ModernBertModel",
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
@@ -80,7 +80,7 @@ SENTENCE_TRANSFORMERS_MODELS = {
     "clip": "sentence-transformers/clip-ViT-B-32",
 }
 
-WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH = ["camembert", "roberta", "mobilenet-v2"]
+WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH = ["camembert", "roberta", "mobilenet_v2"]
 
 # Diffusers
 

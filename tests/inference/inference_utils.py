@@ -48,7 +48,7 @@ MODEL_NAMES = {
     "gpt2": "hf-internal-testing/tiny-random-gpt2",
     "levit": "hf-internal-testing/tiny-random-LevitModel",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
-    "mobilenet-v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
+    "mobilenet_v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
     "mobilevit": "hf-internal-testing/tiny-random-mobilevit",
     "modernbert": "hf-internal-testing/tiny-random-ModernBertModel",
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
