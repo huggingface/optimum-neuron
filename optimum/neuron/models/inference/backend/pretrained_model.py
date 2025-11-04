@@ -123,7 +123,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
 
     # NxDPretrainedModel abstract API
     @abstractmethod
-    def forward(self, **kwargs):
+    def forward(self, *args, **kwargs):
         """Forward pass for this model."""
         raise NotImplementedError("forward is not implemented")
 
