@@ -390,3 +390,29 @@ class NeuronModelForCausalLM(NeuronPreTrainedModel):
         **kwargs,
     ) -> torch.LongTensor:
         raise NotImplementedError
+
+
+@add_start_docstrings(
+    r"""
+    Neuron model for language feature-extraction for inference on Neuron devices.
+    """,
+    NEURON_CAUSALLM_MODEL_START_DOCSTRING,
+)
+class NeuronModelForFeatureExtractionLM(NeuronPreTrainedModel):
+    task = "feature-extraction"
+
+    # @add_start_docstrings(
+    #     NEURON_CAUSALLM_MODEL_GENERATE_DOCSTRING
+    #     + TEXT_GENERATION_EXAMPLE.format(
+    #         checkpoint="Qwen/Qwen2.5-0.5B-Instruct",
+    #     )
+    # )
+    def encode(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        # generation_config: "GenerationConfig | None" = None,
+        # stopping_criteria: "StoppingCriteriaList | None" = None,
+        **kwargs,
+    ) -> torch.Tensor:
+        raise NotImplementedError

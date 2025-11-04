@@ -16,36 +16,29 @@
 """PyTorch Qwen3 model for NXD inference."""
 
 import logging
-import warnings
 
 import torch
 from neuronx_distributed.parallel_layers.layers import (
-    ColumnParallelLinear,
     ParallelEmbedding,
 )
 from torch import nn
 from transformers.models.qwen3.configuration_qwen3 import Qwen3Config
 
 from ..backend.config import NxDNeuronConfig
-from ..backend.modules.attention.attention_base import NeuronAttentionBase
-from ..backend.modules.decoder import NxDDecoderModel
+from ..backend.modules.decoder import NxDDecoderModelForEmbedding, NxDModelForEmbeddingLM
 from ..backend.modules.rms_norm import NeuronRMSNorm
-from ..qwen3.modeling_qwen3 import (
-    NeuronQwen3Attention,
-    NeuronQwen3DecoderLayer,
-    
-)
 from ..llama.modeling_llama import (
-    LlamaNxDModelForCausalLM,
-    LlamaRotaryEmbedding,
-    NeuronLlamaDecoderLayer,
     convert_state_dict_to_fused_qkv,
+)
+from ..qwen3.modeling_qwen3 import (
+    NeuronQwen3DecoderLayer,
 )
 
 
 logger = logging.getLogger("Neuron")
 
-class NxDQwen3EmbeddingModel(NxDDecoderModel):
+
+class NxDQwen3EmbeddingModel(NxDDecoderModelForEmbedding):
     """
     The neuron version of the Qwen3Model with output_hidden_states support
     """
@@ -67,79 +60,8 @@ class NxDQwen3EmbeddingModel(NxDDecoderModel):
         )
         self.norm = NeuronRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
-    def forward(
-        self,
-        input_ids,
-        attention_mask,
-        position_ids,
-        seq_ids,
-        sampling_params,
-        scatter_index=None,
-        inputs_embeds: torch.FloatTensor | None = None,
-        kv_cache: torch.Tensor | None = None,
-    ):
-        """
-        Forward pass that can return either logits or hidden states.
-        Keep the exact same computation graph, just change the return.
-        """
-        # Use parent forward logic to maintain compilation compatibility
-        is_for_context_encoding = self._is_context_encoding(input_ids)
-        is_for_speculation = self._is_for_speculation(input_ids)
 
-        cache_size = self.n_positions
-
-        if is_for_context_encoding:
-            past_key_values = None
-        else:
-            if kv_cache is None:
-                past_key_values = self.kv_mgr.get_cache(cache_size)
-            else:
-                past_key_values = self._slice_kv_cache(kv_cache, cache_size)
-
-        # Prepare attention mask(s)
-        attention_mask = self.create_attn_mask(
-            attention_mask,
-            is_for_context_encoding,
-            is_for_speculation,
-        )
-        active_mask = None
-
-        # FD masks
-        active_mask_2d = None
-
-        hidden_states, past_key_values = self.get_model_output(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            active_mask=active_mask,
-            inputs_embeds=inputs_embeds,
-        )
-        
-        updated_kv_cache = self.kv_mgr.update_cache(
-            is_for_context_encoding=is_for_context_encoding,
-            seq_ids=seq_ids,
-            position_ids=position_ids,
-            new_key_values=past_key_values,
-            seq_len=cache_size,
-            scatter_index=scatter_index,
-            active_mask=active_mask_2d,
-            kvcache_buffer=kv_cache,
-        )
-
-        batch_size, num_tokens, hidden_size = hidden_states.shape
-        if not (position_ids.shape[-1] == self.speculation_length or position_ids.shape[-1] == 1):
-            # context encoding
-            index = torch.max(position_ids, dim=1, keepdim=True).indices
-            index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
-            hidden_states = torch.gather(hidden_states, dim=1, index=index)
-
-        outputs = [hidden_states]
-        outputs += updated_kv_cache
-        return outputs
-
-class Qwen3NxDModelForCausalLMEmbedding(LlamaNxDModelForCausalLM):
-
+class Qwen3NxDModelForCausalLMEmbedding(NxDModelForEmbeddingLM):
     _model_cls = NxDQwen3EmbeddingModel
 
     @staticmethod
@@ -161,6 +83,10 @@ class Qwen3NxDModelForCausalLMEmbedding(LlamaNxDModelForCausalLM):
         state_dict["rank_util.rank"] = torch.arange(0, tp_degree, dtype=torch.int32)
         return state_dict
 
+    @staticmethod
+    def update_state_dict_for_tied_weights(state_dict):
+        state_dict["lm_head.weight"] = state_dict["embed_tokens.weight"].clone()
+
     @classmethod
     def _get_neuron_config(
         cls,
@@ -170,24 +96,23 @@ class Qwen3NxDModelForCausalLMEmbedding(LlamaNxDModelForCausalLM):
         batch_size: int,
         sequence_length: int,
         tensor_parallel_size: int,
-        auto_cast_type: str,
+        dtype: torch.dtype,
     ):
         continuous_batching = False  # Disable for embeddings
         on_device_sampling = False  # Disable for embeddings
-        
         return NxDNeuronConfig(
             checkpoint_id=checkpoint_id,
             checkpoint_revision=checkpoint_revision,
             batch_size=batch_size,
             sequence_length=sequence_length,
             tp_degree=tensor_parallel_size,
-            torch_dtype=auto_cast_type,
+            torch_dtype=dtype,
             target=instance_type,
             on_device_sampling=on_device_sampling,
             fused_qkv=True,
             continuous_batching=continuous_batching,
         )
-    
+
     def encode(
         self,
         input_ids: torch.Tensor,
@@ -199,7 +124,7 @@ class Qwen3NxDModelForCausalLMEmbedding(LlamaNxDModelForCausalLM):
         Get embeddings using the parent's forward infrastructure.
         """
         batch_size, seq_len = input_ids.shape
-        
+
         # Create position_ids
         if attention_mask is not None:
             position_ids = attention_mask.long().cumsum(-1) - 1
@@ -207,25 +132,23 @@ class Qwen3NxDModelForCausalLMEmbedding(LlamaNxDModelForCausalLM):
         else:
             position_ids = torch.arange(seq_len, dtype=torch.long, device=input_ids.device)
             position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
-        
+
         # Create dummy sampling_params (required by parent forward but not used for embeddings)
         from ..backend.modules.generation.sampling import prepare_sampling_params
+
         sampling_params = prepare_sampling_params(
             batch_size=batch_size,
             top_k=1,
             top_p=1.0,
             temperature=1.0,
         )
-        
+
         outputs = super().forward(
-            input_ids=input_ids, 
+            input_ids=input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
             sampling_params=sampling_params,
         )
-        
+
         hidden_states = outputs.hidden_states
         return hidden_states
-    
-    def forward(self, input_ids, attention_mask):
-        return self.encode(input_ids, attention_mask)

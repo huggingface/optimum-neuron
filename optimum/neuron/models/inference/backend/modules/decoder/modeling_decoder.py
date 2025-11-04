@@ -43,12 +43,13 @@ from ..kvcache.kv_cache_manager import (
     KVCacheManager,
     _slice_kv_cacheline,
 )
-from .decoder_builders import NxDDecoderBuilderForCausalLM
+from .decoder_builders import NxDDecoderBuilderForCausalLM, NxDDecoderBuilderForEmbedding
 from .decoder_wrappers import (
     CONTEXT_ENCODING_MODEL_TAG,
     SPECULATION_MODEL_TAG,
     TOKEN_GENERATION_MODEL_TAG,
     NxDDecoderWrapperForCausalLM,
+    NxDDecoderWrapperForEmbedding,
 )
 
 
@@ -564,6 +565,361 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         OutputParams.tokens = next_tokens
 
         return OutputParams
+
+    def reset(self):
+        # We need to reset the KV cache flag for a new batch of inference.
+        # When the flag is reset, the subsequent run will invoke the
+        # context encoding model.
+        self.kv_cache_populated = False
+
+    def get_required_kwargs(self) -> list[str]:
+        """The list of required kwargs to the model's forward"""
+        return []
+
+    @classmethod
+    def get_compiler_args(cls, neuron_config: NxDNeuronConfig) -> str:
+        tensorizer_options = "--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2 --vectorize-strided-dma "
+
+        compiler_args = (
+            "--auto-cast=none --model-type=transformer "
+            f"--tensorizer-options='{tensorizer_options}'"
+            " -O2 "
+            f" --lnc={neuron_config.logical_nc_config}"
+        )
+
+        if neuron_config.target:
+            compiler_args += f" --target {neuron_config.target}"
+
+        logging.info(f"neuronx-cc compiler_args are: {compiler_args}")
+        return compiler_args
+
+
+class NxDDecoderModelForEmbedding(nn.Module):
+    """A decoder model used for text embedding and ranking tasks.
+
+    It uses a single model graph for encoding the input text and extracting the embeddings.
+    """
+
+    def __init__(self, config: PretrainedConfig, neuron_config: NxDNeuronConfig):
+        super().__init__()
+
+        self.config = config
+        self.sampler = None
+        self.kv_mgr = None
+        self.neuron_config = neuron_config
+        self.batch_size = neuron_config.batch_size
+        self.n_positions = neuron_config.sequence_length
+        self.vocab_size = config.vocab_size
+        self.speculation_length = neuron_config.speculation_length
+        self.max_length = neuron_config.sequence_length
+        self.rank_util = SPMDRank(world_size=neuron_config.tp_degree)
+        self.kv_mgr = KVCacheManager(config, neuron_config, num_kv_head=config.num_key_value_heads)
+
+    def initialize_process_group(self, seed: int = 0):
+        if not torch.dist.is_initialized():
+            torch.dist.init_process_group(backend="xla")
+        else:
+            logging.warning("torch.distributed was already initialized, skipping...")
+
+        if not nxd.parallel_layers.parallel_state.model_parallel_is_initialized():
+            nxd.parallel_layers.initialize_model_parallel(
+                tensor_model_parallel_size=self.neuron_config.tp_degree,
+                pipeline_model_parallel_size=self.neuron_config.pp_degree,
+                expert_model_parallel_size=self.neuron_config.ep_degree,
+            )
+        else:
+            logging.warning("NxD was already initialized, skipping...")
+
+        # set seed
+        set_random_seed(seed)
+
+    def _is_context_encoding(self, input_ids: torch.Tensor):
+        return input_ids.shape[-1] > 1 and input_ids.shape[-1] != self.speculation_length
+
+    def _is_for_speculation(self, input_ids: torch.Tensor):
+        return input_ids.shape[-1] == self.speculation_length
+
+    def _create_context_attn_mask(self, attention_mask, **kwargs):
+        # Lower triangle causal mask for classic attention
+        mask = torch.full((self.n_positions, self.n_positions), True, device=attention_mask.device).tril(diagonal=0)
+        mask = mask[None, None, :, :].expand(self.batch_size, 1, self.n_positions, self.n_positions)
+        return mask
+
+    def _create_spec_attn_mask(self, attention_mask):
+        return (
+            attention_mask[:, None, None, :]
+            .expand(self.batch_size, 1, self.speculation_length, self.n_positions)
+            .to(torch.bool)
+        )
+
+    def _create_simple_attn_mask(self, attention_mask):
+        return attention_mask[:, None, None, :].expand(self.batch_size, 1, 1, self.n_positions).to(torch.bool)
+
+    def create_attn_mask(self, attention_mask, is_for_context_encoding, is_for_speculation, **kwargs):
+        if is_for_context_encoding:
+            return self._create_context_attn_mask(attention_mask, **kwargs)
+        elif is_for_speculation:
+            return self._create_spec_attn_mask(attention_mask)
+        else:
+            return self._create_simple_attn_mask(attention_mask)
+
+    def _slice_kv_cache(self, kv_cache, n_positions):
+        past_key_values = []
+        for idx in range(len(kv_cache)):
+            k_cache = _slice_kv_cacheline(n_positions, kv_cache[idx][0])
+            v_cache = _slice_kv_cacheline(n_positions, kv_cache[idx][1])
+            past_key_values.append([k_cache, v_cache])
+        return past_key_values
+
+    def _is_reorder_needed(self, is_for_context_encoding, is_for_speculation):
+        return not is_for_context_encoding and not is_for_speculation and self.neuron_config.continuous_batching
+
+    def forward(
+        self,
+        input_ids,
+        attention_mask,
+        position_ids,
+        seq_ids,
+        sampling_params,
+        scatter_index=None,
+        # In llava context encoding model, input_embeds is precomputed
+        inputs_embeds: torch.FloatTensor | None = None,
+        kv_cache: torch.Tensor | None = None,
+    ):
+        is_for_context_encoding = self._is_context_encoding(input_ids)
+        is_for_speculation = self._is_for_speculation(input_ids)
+
+        past_key_values = None
+
+        # Prepare attention mask(s)
+        attention_mask = self.create_attn_mask(
+            attention_mask,
+            is_for_context_encoding,
+            is_for_speculation,
+        )
+        active_mask = None
+
+        hidden_states = self.get_model_output(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            active_mask=active_mask,
+            inputs_embeds=inputs_embeds,
+        )
+
+        batch_size, num_tokens, hidden_size = hidden_states.shape
+        if not (position_ids.shape[-1] == self.speculation_length or position_ids.shape[-1] == 1):
+            # context encoding
+            index = torch.max(position_ids, dim=1, keepdim=True).indices
+            index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
+            hidden_states = torch.gather(hidden_states, dim=1, index=index)
+
+        outputs = [hidden_states]
+
+        return outputs
+
+    def get_input_embeddings(self):
+        return self.embed_tokens
+
+    def set_input_embeddings(self, value):
+        self.embed_tokens = value
+
+    def get_model_output(
+        self,
+        input_ids: torch.LongTensor = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_values: list[torch.FloatTensor] | None = None,
+        active_mask: list[torch.FloatTensor] | None = None,
+        # In llava context encoding model, input_embeds is precomputed
+        inputs_embeds: torch.FloatTensor | None = None,
+    ):
+        batch_size, seq_length = input_ids.shape[:2]
+
+        past_key_values_length = 0
+        if past_key_values is not None:
+            past_key_values_length = past_key_values[0][0].shape[2]
+
+        if inputs_embeds is None:
+            inputs_embeds = self.embed_tokens(input_ids)
+
+        if position_ids is None:
+            device = input_ids.device if input_ids is not None else inputs_embeds.device  # noqa
+            position_ids = torch.arange(
+                past_key_values_length,
+                seq_length + past_key_values_length,
+                dtype=torch.long,
+                device=device,
+            )
+            position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
+        else:
+            position_ids = position_ids.view(-1, seq_length).long()
+
+        # embed positions
+        hidden_states = inputs_embeds
+
+        # encoder layers
+        # next_encoder_cache = ()
+        cos_cache = None
+        sin_cache = None
+        for idx, encoder_layer in enumerate(self.layers):
+            past_key_value = past_key_values[idx] if past_key_values is not None else None
+
+            layer_outputs = encoder_layer(
+                hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+                active_mask=active_mask,
+                cos_cache=cos_cache,
+                sin_cache=sin_cache,
+            )
+
+            hidden_states = layer_outputs[0]
+
+        hidden_states = self.norm(hidden_states)
+
+        return hidden_states
+
+
+class NxDModelForEmbeddingLM(NxDPreTrainedModel):
+    """Base class for neuron feature extraction language modeling."""
+
+    _model_cls = None
+    task = "feature-extraction"
+
+    def __init__(
+        self,
+        config: PretrainedConfig,
+        neuron_config: NxDNeuronConfig,
+        traced_model: torch.jit.ScriptModule,
+        graph_builders: list[NxDGraphBuilder],
+    ):
+        super().__init__(
+            config=config, neuron_config=neuron_config, traced_model=traced_model, graph_builders=graph_builders
+        )
+        ctx_neuron_config = NxDModelForEmbeddingLM._create_context_encoding_config(neuron_config)
+        self.context_encoding_model = NxDDecoderWrapperForEmbedding(
+            config=config, neuron_config=ctx_neuron_config, model=traced_model
+        )
+
+        self.text_config = self.config.get_text_config()
+        self.vocab_size = self.text_config.vocab_size
+
+    @staticmethod
+    def _create_context_encoding_config(neuron_config: NxDNeuronConfig) -> NxDNeuronConfig:
+        ctx_neuron_config = copy.deepcopy(neuron_config)
+        ctx_neuron_config.batch_size = neuron_config.ctx_batch_size
+        return ctx_neuron_config
+
+    @classmethod
+    def create_graph_builders(cls, config, neuron_config):
+        if cls._model_cls is None:
+            raise SystemError(f"No underlying model class defined for {cls}.")
+        graph_builders = {}
+        ctx_neuron_config = NxDModelForEmbeddingLM._create_context_encoding_config(neuron_config)
+        graph_builders["context_encoding"] = NxDDecoderBuilderForEmbedding(
+            config=config,
+            neuron_config=ctx_neuron_config,
+            max_tokens=ctx_neuron_config.max_context_length,
+            active_tokens=ctx_neuron_config.max_context_length,
+            model_cls=cls._model_cls,
+        )
+        return graph_builders
+
+    def forward(
+        self,
+        input_ids: torch.LongTensor,
+        attention_mask: torch.Tensor,
+        position_ids: torch.LongTensor | None = None,
+        seq_ids: torch.LongTensor | None = None,
+        sampling_params: torch.FloatTensor | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+    ) -> tuple | CausalLMOutputWithPast:
+        # Create position_ids
+        position_ids = attention_mask.long().cumsum(-1) - 1
+        position_ids.masked_fill_(attention_mask == 0, 1)
+
+        if seq_ids is None:
+            seq_ids = torch.arange(input_ids.shape[0])
+
+        if sampling_params is None:
+            # if self.neuron_config.on_device_sampling:
+            #     raise ValueError("The sampling params tensor is required for on-device sampling.")
+            # # Just pass a dummy tensor to the model, it will be ignored
+            sampling_params = prepare_sampling_params(seq_ids.shape[0])
+        # elif self.neuron_config.on_device_sampling:
+        #     validate_sampling_params(sampling_params, self.neuron_config.max_topk)
+
+        output_attentions, output_hidden_states, return_dict = self._setup_func_config(
+            output_attentions, output_hidden_states, return_dict
+        )
+
+        logits_or_next_tokens = self._get_model_outputs(
+            input_ids,
+            attention_mask,
+            position_ids,
+            seq_ids,
+            sampling_params,
+        )
+
+        return logits_or_next_tokens[0]
+
+    def _setup_func_config(self, output_attentions, output_hidden_states, return_dict):
+        output_attentions = output_attentions if output_attentions is not None else self.text_config.output_attentions
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.text_config.output_hidden_states
+        )
+        return_dict = return_dict if return_dict is not None else getattr(self.config, "use_return_dict", None)
+        return output_attentions, output_hidden_states, return_dict
+
+    def _infer_attention_mask(self, position_ids):
+        assert position_ids is not None, "need to call forward with position_ids if attention_mask is not provided"
+        batch_size, seq_len = position_ids.shape
+        if position_ids.shape[-1] == 1:
+            seq_len = self.neuron_config.sequence_length
+            position_ids_to_compare = position_ids.expand(batch_size, seq_len) - 1
+        else:
+            seq_len = position_ids.shape[-1]
+            position_ids_to_compare = position_ids
+        mask = torch.arange(seq_len).view(1, -1).expand(batch_size, seq_len)
+        attention_mask = (position_ids_to_compare >= mask).to(dtype=position_ids.dtype)
+        return attention_mask
+
+    def _get_async_output(
+        self,
+        ranked_async_tensor,
+    ):
+        outputs = [[async_tensor[0].cpu()] for async_tensor in ranked_async_tensor]
+        return outputs[0][0]
+
+    def _get_model_outputs(
+        self,
+        input_ids,
+        attention_mask,
+        position_ids,
+        seq_ids,
+        sampling_params,
+    ):
+        # casting inputs to int32
+        input_ids = input_ids.to(torch.int32)
+        attention_mask = attention_mask.to(torch.int32)
+        position_ids = position_ids.to(torch.int32)
+        seq_ids = seq_ids.to(torch.int32)
+
+        if input_ids.shape[-1] > 1 and not position_ids.min().item():
+            outputs = self.context_encoding_model(
+                input_ids,
+                attention_mask,
+                position_ids,
+                seq_ids,
+                sampling_params,
+            )
+
+        return outputs
 
     def reset(self):
         # We need to reset the KV cache flag for a new batch of inference.

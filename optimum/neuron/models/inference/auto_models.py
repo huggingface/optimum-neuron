@@ -106,6 +106,7 @@ class Qwen3NeuronModelForCausalLM(Qwen3NxDModelForCausalLM):
 
     pass
 
+
 @register_neuron_model_for_inference("qwen3", "feature-extraction")
 class Qwen3NeuronModelForCausalLMEmbedding(Qwen3NxDModelForCausalLMEmbedding):
     """
@@ -113,6 +114,7 @@ class Qwen3NeuronModelForCausalLMEmbedding(Qwen3NxDModelForCausalLMEmbedding):
     """
 
     pass
+
 
 @register_neuron_model_for_inference("qwen3_moe", "text-generation")
 class Qwen3MoeNeuronModelForCausalLM(Qwen3MoeNxDModelForCausalLM):
