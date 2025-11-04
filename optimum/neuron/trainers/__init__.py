@@ -18,3 +18,5 @@ from .sft_trainer import NeuronSFTTrainer
 from .training_args import NeuronTrainingArguments
 from .transformers import NeuronTrainer
 from .trl_utils import TRL_VERSION
+from .grpo_trainer import NeuronGRPOTrainer
+from .grpo_config import NeuronGRPOConfig
