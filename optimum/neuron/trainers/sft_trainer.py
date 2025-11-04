@@ -21,7 +21,6 @@ import torch
 from optimum.utils import logging
 from torch.utils.data import Dataset, IterableDataset
 from transformers import (
-    AutoModelForCausalLM,
     DataCollator,
     PreTrainedModel,
     PreTrainedTokenizerBase,
@@ -29,6 +28,7 @@ from transformers import (
 )
 from transformers.trainer_callback import TrainerCallback
 
+from ..models.training import NeuronModelForCausalLM
 from ..peft import NeuronPeftModel, get_peft_model
 from ..utils import (
     is_trl_available,
@@ -79,6 +79,52 @@ _SFTTrainer = type(
 logger = logging.get_logger()
 
 
+class NeuronDataCollatorForLanguageModeling(DataCollatorForLanguageModeling):
+    """
+    Data collator for Neuron that ensures all sequences are padded to exactly max_length.
+
+    This is required for Neuron devices to maintain fixed input shapes and avoid recompilation.
+    Inherits from trl's DataCollatorForLanguageModeling but adds max_length enforcement.
+    """
+
+    def __init__(self, max_length: int, **kwargs):
+        super().__init__(**kwargs)
+        self.max_length = max_length
+
+    def __call__(self, examples):
+        # Pad/truncate all sequences to max_length before calling parent
+        for example in examples:
+            if "input_ids" in example:
+                input_ids = example["input_ids"]
+                current_length = len(input_ids)
+
+                if current_length > self.max_length:
+                    # Truncate to max_length
+                    example["input_ids"] = input_ids[: self.max_length]
+                elif current_length < self.max_length:
+                    # Pad to max_length
+                    example["input_ids"] = input_ids + [self.pad_token_id] * (self.max_length - current_length)
+
+                # Handle other fields if present
+                for key in ["labels", "attention_mask", "completion_mask"]:
+                    if key in example:
+                        field = example[key]
+                        field_length = len(field)
+                        if field_length > self.max_length:
+                            example[key] = field[: self.max_length]
+                        elif field_length < self.max_length:
+                            # Pad with appropriate value
+                            if key == "labels":
+                                pad_value = -100
+                            elif key == "attention_mask":
+                                pad_value = 0
+                            elif key == "completion_mask":
+                                pad_value = 0
+                            example[key] = field + [pad_value] * (self.max_length - field_length)
+
+        return super().__call__(examples)
+
+
 class NeuronSFTTrainer(_SFTTrainer):
     """
     `SFTTrainer` adapted for Neuron (Trainium) devices.
@@ -87,7 +133,6 @@ class NeuronSFTTrainer(_SFTTrainer):
         - Uses NeuronTrainer.__init__() instead of transformers.Trainer.__init__()
         - Uses NeuronTrainer.train() for Neuron-optimized training
         - Enforces padding_free=False for fixed input shapes (required for Trainium)
-        - Simplifies _prepare_dataset to delegate to parent with Neuron constraints
 
     Neuron-specific constraints:
         - padding_free is always False to avoid recompilation
@@ -116,10 +161,7 @@ class NeuronSFTTrainer(_SFTTrainer):
             raise RuntimeError(f"Using NeuronSFTTrainer requires trl=={TRL_VERSION}.")
 
         from trl.models import clone_chat_template
-        from trl.trainer.sft_trainer import DataCollatorForLanguageModeling, DataCollatorForVisionLanguageModeling
-
-        if is_peft_available():
-            pass
+        from trl.trainer.sft_trainer import DataCollatorForVisionLanguageModeling
 
         # Args
         if args is None:
@@ -134,7 +176,7 @@ class NeuronSFTTrainer(_SFTTrainer):
 
         # Model
         if isinstance(model, str):
-            model = AutoModelForCausalLM.from_pretrained(model, **args.model_init_kwargs or {})
+            model = NeuronModelForCausalLM.from_pretrained(model, **args.model_init_kwargs or {})
         else:
             if args.model_init_kwargs is not None:
                 logger.warning(
@@ -218,24 +260,31 @@ class NeuronSFTTrainer(_SFTTrainer):
                     else:
                         peft_config.modules_to_save.append("lm_head")
 
-            if not isinstance(model, NeuronPeftModel):
-                # Enable gradient checkpointing if needed
-                gradient_checkpointing_kwargs = getattr(args, "gradient_checkpointing_kwargs", None) or {}
-                gradient_checkpointing_kwargs = args.gradient_checkpointing_kwargs
-                if args.gradient_checkpointing and (
-                    "use_reentrant" not in gradient_checkpointing_kwargs
-                    or gradient_checkpointing_kwargs["use_reentrant"]
-                ):
-                    if hasattr(model, "enable_input_require_grads"):
-                        model.enable_input_require_grads()
-                    else:
+        # In Prompt Tuning a small set of trainable virtual tokens (continuous prompt embeddings) is prepended to the
+        # input. We store the number of these tokens so we can account for them correctly when calculating accuracy.
+        self.num_virtual_tokens = 0
 
-                        def make_inputs_require_grad(module, input, output):
-                            output.requires_grad_(True)
+        if peft_config is not None and not isinstance(model, NeuronPeftModel):
+            # Enable gradient checkpointing if needed
+            gradient_checkpointing_kwargs = getattr(args, "gradient_checkpointing_kwargs", None) or {}
+            gradient_checkpointing_kwargs = args.gradient_checkpointing_kwargs
+            if args.gradient_checkpointing and (
+                "use_reentrant" not in gradient_checkpointing_kwargs or gradient_checkpointing_kwargs["use_reentrant"]
+            ):
+                if hasattr(model, "enable_input_require_grads"):
+                    model.enable_input_require_grads()
+                else:
 
-                        model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
+                    def make_inputs_require_grad(module, input, output):
+                        output.requires_grad_(True)
 
-                model = get_peft_model(model, peft_config)
+                    model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
+
+            model = get_peft_model(model, peft_config)
+
+            if model.active_adapter in model.peft_config:
+                peft_model_config = model.peft_config[model.active_adapter]
+                self.num_virtual_tokens = getattr(peft_model_config, "num_virtual_tokens", 0)
 
         # Data collator
         # Neuron-specific: padding_free must always be False for Neuron devices
@@ -271,8 +320,9 @@ class NeuronSFTTrainer(_SFTTrainer):
                     f"`processing_class` ({processing_class.__class__.__name__}). Ensure that the `pad_token` exists "
                     "in the vocabulary before using it as a padding token."
                 )
-            # Neuron-specific: always pad to max_length for fixed input shapes
-            data_collator = DataCollatorForLanguageModeling(
+            # Neuron-specific: use NeuronDataCollatorForLanguageModeling to ensure fixed max_length padding
+            data_collator = NeuronDataCollatorForLanguageModeling(
+                max_length=args.max_length,
                 pad_token_id=pad_token_id,
                 completion_only_loss=self.completion_only_loss,
                 padding_free=self.padding_free,
@@ -343,6 +393,24 @@ class NeuronSFTTrainer(_SFTTrainer):
     ):
         return NeuronTrainer.train(self, resume_from_checkpoint=resume_from_checkpoint)
 
+    def log(self, logs: dict[str, float]) -> None:
+        """
+        Override SFTTrainer's log method to use NeuronTrainer's implementation.
+
+        SFTTrainer has custom metrics tracking that we don't use for Neuron training.
+        """
+        return NeuronTrainer.log(self, logs)
+
+    def _save_checkpoint(self, model=None, trial=None, metrics=None):
+        """
+        Override SFTTrainer's _save_checkpoint to use NeuronTrainer's implementation.
+
+        SFTTrainer has a custom checkpoint saving method, but we use NeuronTrainer's
+        which is compatible with Neuron's distributed training and async saving.
+        NeuronTrainer._save_checkpoint only takes self, so we ignore the extra arguments.
+        """
+        return NeuronTrainer._save_checkpoint(self)
+
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         """
         Compute training loss for Neuron-optimized training.
@@ -366,35 +434,3 @@ class NeuronSFTTrainer(_SFTTrainer):
         which is compatible with Neuron's distributed training setup.
         """
         return NeuronTrainer.training_step(self, model, inputs, num_items_in_batch=num_items_in_batch)
-
-    def _prepare_dataset(
-        self,
-        dataset,
-        processing_class,
-        args,
-        packing,
-        formatting_func=None,
-        dataset_name="train",
-    ):
-        """
-        Prepare dataset for Neuron training.
-
-        Delegates to parent SFTTrainer._prepare_dataset, which handles:
-        - Dataset type detection (language modeling, prompt-completion, conversational)
-        - Chat template application
-        - Tokenization
-        - Packing (if enabled)
-
-        Neuron-specific behavior:
-        - Ensures padding_free=False to avoid recompilation
-        - Enforces padding to max_length for fixed input shapes
-        """
-        # Ensure padding_free is disabled for Neuron - this is critical for Trainium devices
-        if args.padding_free:
-            raise ValueError(
-                "padding_free must be False for Neuron training. "
-                "Neuron devices require fixed input shapes to avoid recompilation."
-            )
-
-        # Call parent implementation from SFTTrainer
-        return super()._prepare_dataset(dataset, processing_class, args, packing, formatting_func, dataset_name)
