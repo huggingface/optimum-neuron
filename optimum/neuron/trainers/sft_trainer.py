@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import os
-from pathlib import Path
 from typing import Any, Callable
 
 import datasets
@@ -396,12 +395,9 @@ class NeuronSFTTrainer(_SFTTrainer):
     def _save_checkpoint(self, model=None, trial=None, metrics=None):
         """
         Override SFTTrainer's _save_checkpoint to use NeuronTrainer's implementation.
+        The only difference is that this method does not create a model card after saving the checkpoint, it can be
+        added if needed.
         """
-        if self.args.hub_model_id is None:
-            model_name = Path(self.args.output_dir).name
-        else:
-            model_name = self.args.hub_model_id.split("/")[-1]
-        self.create_model_card(model_name=model_name)
         return NeuronTrainer._save_checkpoint(self)
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
