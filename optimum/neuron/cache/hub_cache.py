@@ -427,7 +427,7 @@ def select_hub_cached_entries(
             continue
         if torch_dtype is not None:
             target_value = DTYPE_MAPPER.pt(torch_dtype) if isinstance(torch_dtype, str) else torch_dtype
-            entry_value = DTYPE_MAPPER.pt(entry.get("torch_dtype"))
+            entry_value = DTYPE_MAPPER.pt(entry.get("torch_dtype", entry.get("dtype")))
             if target_value != entry_value:
                 continue
         selected.append(entry)

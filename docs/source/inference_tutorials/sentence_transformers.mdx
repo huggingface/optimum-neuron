@@ -24,29 +24,29 @@ This guide explains how to compile, load, and use [Sentence Transformers (SBERT)
 
 ### Convert Sentence Transformers model to AWS Inferentia2
 
-First, you need to convert your Sentence Transformers model to a format compatible with AWS Inferentia2. You can compile Sentence Transformers models with Optimum Neuron using the `optimum-cli` or `NeuronModelForSentenceTransformers` class. Below you will find an example for both approaches. We have to make sure `sentence-transformers` is installed. That's only needed for exporting the model.
+First, you need to convert your Sentence Transformers model to a format compatible with AWS Inferentia2. You can compile Sentence Transformers models with Optimum Neuron using the `optimum-cli` or `NeuronSentenceTransformers` class. Below you will find an example for both approaches. We have to make sure `sentence-transformers` is installed. That's only needed for exporting the model.
 
 ```bash
 pip install sentence-transformers
 ```
 
-Here we will use the `NeuronModelForSentenceTransformers`, which can be used to convert any Sentence Transformers model to a format compatible with AWS Inferentia2 or load already converted models. When exporting models with the `NeuronModelForSentenceTransformers` you need to set `export=True` and define the input shape and batch size. The input shape is defined by the `sequence_length` and the batch size by `batch_size`.
+Here we will use the `NeuronSentenceTransformers`, which can be used to convert any Sentence Transformers model to a format compatible with AWS Inferentia2 or load already converted models. When exporting models with the `NeuronSentenceTransformers` you need to set `export=True` and define the input shape and batch size. The input shape is defined by the `sequence_length` and the batch size by `batch_size`.
 
 ```python
-from optimum.neuron import NeuronModelForSentenceTransformers
+from optimum.neuron import NeuronSentenceTransformers
 
 # Sentence Transformers model from HuggingFace
 model_id = "BAAI/bge-small-en-v1.5"
 input_shapes = {"batch_size": 1, "sequence_length": 384}  # mandatory shapes
 
 # Load Transformers model and export it to AWS Inferentia2
-model = NeuronModelForSentenceTransformers.from_pretrained(model_id, export=True, **input_shapes)
+model = NeuronSentenceTransformers.from_pretrained(model_id, export=True, **input_shapes)
 
 # Save model to disk
 model.save_pretrained("bge_emb_inf2/")
 ```
 
-Here we will use the `optimum-cli` to convert the model. Similar to the `NeuronModelForSentenceTransformers` we need to define our input shape and batch size. The input shape is defined by the `sequence_length` and the batch size by `batch_size`. The `optimum-cli` will automatically convert the model to a format compatible with AWS Inferentia2 and save it to the specified output directory.
+Here we will use the `optimum-cli` to convert the model. Similar to the `NeuronSentenceTransformers` we need to define our input shape and batch size. The input shape is defined by the `sequence_length` and the batch size by `batch_size`. The `optimum-cli` will automatically convert the model to a format compatible with AWS Inferentia2 and save it to the specified output directory.
 
 ```bash
 optimum-cli export neuron -m BAAI/bge-small-en-v1.5 --sequence_length 384 --batch_size 1 --task feature-extraction bge_emb_inf2/
@@ -54,29 +54,19 @@ optimum-cli export neuron -m BAAI/bge-small-en-v1.5 --sequence_length 384 --batc
 
 ### Load compiled Sentence Transformers model and run inference
 
-Once we have a compiled Sentence Transformers model, which we either exported ourselves or is available on the Hugging Face Hub, we can load it and run inference. For loading the model we can use the `NeuronModelForSentenceTransformers` class, which is an abstraction layer for the `SentenceTransformer` class. The `NeuronModelForSentenceTransformers` class will automatically pad the input to the specified `sequence_length` and run inference on AWS Inferentia2.
+Once we have a compiled Sentence Transformers model, which we either exported ourselves or is available on the Hugging Face Hub, we can load it and run inference. For loading the model we can use the `NeuronSentenceTransformers` class, which is an abstraction layer for the `SentenceTransformer` class. The `NeuronSentenceTransformers` class will automatically pad the input to the specified `sequence_length` and run inference on AWS Inferentia2.
 
 ```python
-from optimum.neuron import NeuronModelForSentenceTransformers
-from transformers import AutoTokenizer
+from optimum.neuron import NeuronSentenceTransformers
 
 model_id_or_path = "bge_emb_inf2/"
-tokenizer_id = "BAAI/bge-small-en-v1.5"
 
 # Load model and tokenizer
-model = NeuronModelForSentenceTransformers.from_pretrained(model_id_or_path)
-tokenizer = AutoTokenizer.from_pretrained(tokenizer_id)
+model = NeuronSentenceTransformers.from_pretrained(model_id_or_path)
 
 # Run inference
-prompt = "I like to eat apples"
-encoded_input = tokenizer(prompt, return_tensors='pt')
-outputs = model(**encoded_input)
-
-token_embeddings = outputs.token_embeddings
-sentence_embedding = outputs.sentence_embedding
-
-print(f"token embeddings: {token_embeddings.shape}") # torch.Size([1, 7, 384])
-print(f"sentence_embedding: {sentence_embedding.shape}") # torch.Size([1, 384])
+token_embeddings = model.encode(output_value="token_embeddings")
+sentence_embedding = model.encode(output_value="sentence_embedding")
 ```
 
 ### Production Usage
@@ -89,7 +79,7 @@ For deploying these models in a production environment, refer to the [Amazon Sag
 
 ### Compile CLIP for AWS Inferentia2
 
-You can compile CLIP models with Optimum Neuron either by using the `optimum-cli` or `NeuronModelForSentenceTransformers` class. Adopt one approach that you prefer:
+You can compile CLIP models with Optimum Neuron either by using the `optimum-cli` or `NeuronSentenceTransformers` class. Adopt one approach that you prefer:
 
 * With the Optimum CLI
 
@@ -97,10 +87,10 @@ You can compile CLIP models with Optimum Neuron either by using the `optimum-cli
 optimum-cli export neuron -m sentence-transformers/clip-ViT-B-32 --sequence_length 64 --text_batch_size 3 --image_batch_size 1 --num_channels 3 --height 224 --width 224 --task feature-extraction --subfolder 0_CLIPModel clip_emb/
 ```
 
-* With the `NeuronModelForSentenceTransformers` class
+* With the `NeuronSentenceTransformers` class
 
 ```python
-from optimum.neuron import NeuronModelForSentenceTransformers
+from optimum.neuron import NeuronSentenceTransformers
 
 model_id = "sentence-transformers/clip-ViT-B-32"
 
@@ -114,7 +104,7 @@ input_shapes = {
     "sequence_length": 64,
 }
 
-emb_model = NeuronModelForSentenceTransformers.from_pretrained(
+emb_model = NeuronSentenceTransformers.from_pretrained(
     model_id, subfolder="0_CLIPModel", export=True, library_name="sentence_transformers", dynamic_batch_size=False, **input_shapes
 )
 
@@ -130,10 +120,10 @@ from PIL import Image
 from sentence_transformers import util
 from transformers import CLIPProcessor
 
-from optimum.neuron import NeuronModelForSentenceTransformers
+from optimum.neuron import NeuronSentenceTransformers
 
 save_directory = "clip_emb"
-emb_model = NeuronModelForSentenceTransformers.from_pretrained(save_directory)
+emb_model = NeuronSentenceTransformers.from_pretrained(save_directory)
 
 processor = CLIPProcessor.from_pretrained(save_directory)
 inputs = processor(
@@ -154,7 +144,7 @@ print(cos_scores)
 
 **Caveat**
 
-Since compiled models with dynamic batching enabled only accept input tensors with the same batch size, we cannot set `dynamic_batch_size=True` if the input texts and images have different batch sizes. And as `NeuronModelForSentenceTransformers` class pads the inputs to the batch sizes (`text_batch_size` and `image_batch_size`) used during the compilation, you could use relatively larger batch sizes during the compilation for flexibility with the trade-off of compute.
+Since compiled models with dynamic batching enabled only accept input tensors with the same batch size, we cannot set `dynamic_batch_size=True` if the input texts and images have different batch sizes. And as `NeuronSentenceTransformers` class pads the inputs to the batch sizes (`text_batch_size` and `image_batch_size`) used during the compilation, you could use relatively larger batch sizes during the compilation for flexibility with the trade-off of compute.
 
 eg. if you want to encode 3 or 4 or 5 texts and 1 image, you could set `text_batch_size = 5 = max(3, 4, 5)` and `image_batch_size = 1` during the compilation.
 
