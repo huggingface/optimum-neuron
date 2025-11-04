@@ -37,8 +37,10 @@ _import_structure = {
     "trainers": [
         "NeuronTrainer",
         "NeuronSFTTrainer",
+        "NeuronGRPOTrainer",
         "NeuronTrainingArguments",
         "NeuronSFTConfig",
+        "NeuronGRPOConfig",
     ],
     "modeling_traced": ["NeuronTracedModel"],
     "modeling": [
@@ -158,6 +160,8 @@ if TYPE_CHECKING:
     from .trainers import (
         NeuronSFTConfig,
         NeuronSFTTrainer,
+        NeuronGRPOConfig,
+        NeuronGRPOTrainer,
         NeuronTrainer,
         NeuronTrainingArguments,
     )
