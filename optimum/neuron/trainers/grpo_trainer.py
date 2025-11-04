@@ -15,13 +15,14 @@
 
 import inspect
 from collections import defaultdict, deque
+from functools import partial
 from typing import Any, Callable
 
 import datasets
 import torch
 from accelerate.utils import set_seed
 from optimum.utils import logging
-from torch.utils.data import Dataset, IterableDataset
+from torch.utils.data import DataLoader, Dataset, IterableDataset
 from transformers import (
     AutoConfig,
     AutoModelForSequenceClassification,
@@ -31,6 +32,8 @@ from transformers import (
     ProcessorMixin,
     TrainerCallback,
 )
+from transformers.trainer_utils import seed_worker
+from transformers.utils import is_datasets_available
 
 from ..models.training import NeuronModelForCausalLM
 from ..peft import NeuronPeftModel, get_peft_model
@@ -346,20 +349,35 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         # vLLM setup - server mode only
         from ..utils import is_vllm_available
 
-        if not is_vllm_available():
-            raise ImportError("vLLM is not available. Please install vLLM to use NeuronGRPOTrainer.")
+        # For now, use mock vLLM client for development
+        # TODO: Set to False when real vLLM server is ready for Neuron
+        USE_MOCK_VLLM = True
 
-        # Setup vLLM server client (only on main process)
-        if self.accelerator.is_main_process:
-            from trl.extras.vllm_client import VLLMClient
+        if USE_MOCK_VLLM:
+            logger.warning(
+                "Using MOCK vLLM client for development. This generates placeholder completions "
+                "and should only be used for testing and development. Set USE_MOCK_VLLM=False in "
+                "grpo_trainer.py to use real vLLM server."
+            )
+            from .grpo_mocks import create_mock_vllm_client
 
-            if args.vllm_server_base_url is not None:
-                base_url = args.vllm_server_base_url
-            else:
-                base_url = f"http://{args.vllm_server_host}:{args.vllm_server_port}"
+            if self.accelerator.is_main_process:
+                self.vllm_client = create_mock_vllm_client(tokenizer, args)
+        else:
+            if not is_vllm_available():
+                raise ImportError("vLLM is not available. Please install vLLM to use NeuronGRPOTrainer.")
 
-            self.vllm_client = VLLMClient(base_url=base_url, connection_timeout=args.vllm_server_timeout)
-            self.vllm_client.init_communicator(device=torch.cuda.current_device())
+            # Setup vLLM server client (only on main process)
+            if self.accelerator.is_main_process:
+                from trl.extras.vllm_client import VLLMClient
+
+                if args.vllm_server_base_url is not None:
+                    base_url = args.vllm_server_base_url
+                else:
+                    base_url = f"http://{args.vllm_server_host}:{args.vllm_server_port}"
+
+                self.vllm_client = VLLMClient(base_url=base_url, connection_timeout=args.vllm_server_timeout)
+                self.vllm_client.init_communicator(device=torch.cuda.current_device())
 
         # vLLM specific sampling arguments
         self.guided_decoding_regex = args.vllm_guided_decoding_regex
@@ -557,20 +575,21 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         """
         Set signature columns for GRPO-specific data preprocessing.
 
-        TODO: Implement signature column handling for Neuron devices.
+        In GRPOTrainer, we preprocess data differently than standard Trainer,
+        so we set the signature columns to those expected by the training_step method.
         """
-        raise NotImplementedError(
-            "_set_signature_columns_if_needed is not yet implemented for NeuronGRPOTrainer. "
-            "This requires implementing signature column handling for GRPO on Neuron devices."
-        )
+        if self._signature_columns is None:
+            self._signature_columns = ["prompt", "image", "images"]
 
     def prediction_step(self, model, inputs, prediction_loss_only, ignore_keys: list[str] | None = None):
         """
-        Perform a prediction step during evaluation.
+        Evaluation and prediction are not supported in NeuronGRPOTrainer.
 
-        TODO: Implement prediction step for GRPO evaluation on Neuron devices.
+        The trainer is designed for training only. NeuronTrainer does not provide
+        evaluation loop functionality, and GRPO-specific evaluation would require
+        significant additional implementation.
         """
         raise NotImplementedError(
-            "prediction_step is not yet implemented for NeuronGRPOTrainer. "
-            "This requires implementing the prediction step for Neuron devices."
+            "Evaluation and prediction are not supported in NeuronGRPOTrainer. "
+            "The trainer is designed for training only."
         )
