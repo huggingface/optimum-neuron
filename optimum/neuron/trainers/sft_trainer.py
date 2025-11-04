@@ -42,6 +42,7 @@ from .trl_utils import TRL_VERSION
 
 if is_trl_available():
     from trl import SFTConfig, SFTTrainer
+    from trl.models import clone_chat_template
     from trl.trainer.sft_trainer import DataCollatorForLanguageModeling, DataCollatorForVisionLanguageModeling
 else:
 
@@ -55,6 +56,9 @@ else:
         pass
 
     class DataCollatorForVisionLanguageModeling:
+        pass
+
+    def clone_chat_template(*args, **kwargs):
         pass
 
 
@@ -128,16 +132,6 @@ class NeuronDataCollatorForLanguageModeling(DataCollatorForLanguageModeling):
 class NeuronSFTTrainer(_SFTTrainer):
     """
     `SFTTrainer` adapted for Neuron (Trainium) devices.
-
-    Overrides key methods for Neuron compatibility:
-        - Uses NeuronTrainer.__init__() instead of transformers.Trainer.__init__()
-        - Uses NeuronTrainer.train() for Neuron-optimized training
-        - Enforces padding_free=False for fixed input shapes (required for Trainium)
-
-    Neuron-specific constraints:
-        - padding_free is always False to avoid recompilation
-        - VLM training is not yet supported
-        - NeFTune training is not supported
     """
 
     def __init__(
@@ -159,9 +153,6 @@ class NeuronSFTTrainer(_SFTTrainer):
     ):
         if not is_trl_available(required_version=TRL_VERSION):
             raise RuntimeError(f"Using NeuronSFTTrainer requires trl=={TRL_VERSION}.")
-
-        from trl.models import clone_chat_template
-        from trl.trainer.sft_trainer import DataCollatorForVisionLanguageModeling
 
         # Args
         if args is None:
