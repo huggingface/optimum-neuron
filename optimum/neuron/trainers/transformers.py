@@ -996,9 +996,11 @@ class NeuronTrainer:
         with manager:
             loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
 
-        # Time backward pass.
-        with self.metrics_collector.time_metric("backward_pass", inputs=inputs):
-            self.accelerator.backward(loss)
+        # Backward pass is only done on non-pipeline parallel models, otherwise it's done inside run_train.
+        if self.pp_size == 1:
+            # Time backward pass.
+            with self.metrics_collector.time_metric("backward_pass", inputs=inputs):
+                self.accelerator.backward(loss)
 
         return loss
 

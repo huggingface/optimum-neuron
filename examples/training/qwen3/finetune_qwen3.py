@@ -27,7 +27,7 @@ from optimum.neuron.models.training import NeuronModelForCausalLM
 # =============================================================================
 # Data Loading and Preprocessing Function
 # =============================================================================
-# NOTE: this section can be adapted to laod any dataset you want.
+# NOTE: this section can be adapted to load any dataset you want.
 dataset_id = "tengomucho/simple_recipes"
 recipes = load_dataset(dataset_id, split="train")
 
