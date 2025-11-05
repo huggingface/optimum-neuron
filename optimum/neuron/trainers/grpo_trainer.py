@@ -447,29 +447,25 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             "This requires implementing GRPO-specific loss computation for Neuron devices."
         )
 
-    def training_step(
-        self, model: torch.nn.Module, inputs: dict[str, Any], num_items_in_batch: int | None = None
-    ) -> torch.Tensor:
+    def _prepare_inputs(self, inputs: Any) -> dict[str, Any]:
         """
-        Perform a training step for Neuron-optimized training.
+        Prepare inputs for GRPO training.
 
-        TODO: Implement GRPO-specific training step adapted for Neuron devices.
-        """
-        raise NotImplementedError(
-            "training_step is not yet implemented for NeuronGRPOTrainer. "
-            "This requires implementing GRPO-specific training logic for Neuron devices."
-        )
+        This method overrides NeuronTrainer._prepare_inputs to use GRPOTrainer's
+        implementation, which handles:
+        1. Generation of completions using vLLM
+        2. Scoring completions using reward functions
+        3. Buffering completions for reuse across multiple gradient steps
+        4. Tokenization and conversion to model inputs
 
-    def _prepare_inputs(self, inputs):
-        """
-        Prepare inputs for GRPO training, including generation and reward computation.
+        Args:
+            inputs: Raw batch from dataloader (list of prompt dicts for GRPO)
 
-        TODO: Implement input preparation with Neuron-compatible generation and reward scoring.
+        Returns:
+            Dictionary of tokenized tensors ready for the model
         """
-        raise NotImplementedError(
-            "_prepare_inputs is not yet implemented for NeuronGRPOTrainer. "
-            "This requires implementing prompt generation and reward computation for Neuron devices."
-        )
+        # Explicitly call GRPOTrainer's _prepare_inputs
+        return GRPOTrainer._prepare_inputs(self, inputs)
 
     def _generate(self, prompts: list[str], images: list | None):
         """

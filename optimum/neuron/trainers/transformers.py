@@ -986,9 +986,23 @@ class NeuronTrainer:
 
         return (loss, outputs) if return_outputs else loss
 
+    def _prepare_inputs(self, inputs: Any) -> Any:
+        """
+        Prepare inputs before feeding them to the model.
+
+        This is a no-op for standard NeuronTrainer as inputs are already moved to device in get_batch_samples().
+        Subclasses can override this method for custom preprocessing (e.g., GRPOTrainer uses
+        this for generation, scoring, and tokenization).
+
+        """
+        return inputs
+
     def training_step(
         self, model: nn.Module, inputs: dict[str, Any], num_items_in_batch: int | torch.Tensor | None = None
     ) -> torch.Tensor:
+        # Prepare inputs (no-op for base trainer, overridden by subclasses for custom preprocessing)
+        inputs = self._prepare_inputs(inputs)
+
         manager = self.autocast_smart_context_manager()
         with manager:
             loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
