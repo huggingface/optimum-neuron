@@ -45,9 +45,6 @@ from transformers import (
     PretrainedConfig,
     set_seed,
 )
-from transformers import (
-    __version__ as transformers_version,
-)
 
 from optimum.neuron import (
     NeuronModelForAudioClassification,
@@ -1027,11 +1024,6 @@ class NeuronModelForImageClassificationIntegrationTest(NeuronModelTestMixin):
             "model_arch": model_arch,
             "dynamic_batch_size": True,
         }
-        # REMOVEME: convnextv2 contains a bug in the GRN layer, which is used in the convnextv2 model, but the bug has
-        # been fixed in the transformers library on newer versions. For more info see:
-        # https://github.com/huggingface/transformers/issues/38015
-        if model_arch == "convnextv2" and transformers_version.startswith("4.51"):
-            self.skipTest("convnextv2 contains a bug in this version of transformers.")
         self._setup(model_args)
         self._validate_outputs(model_arch, "_dyn_bs_true", batch_size=2)
 
