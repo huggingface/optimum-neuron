@@ -39,8 +39,13 @@ class OptimumNeuronModelForCausalLM(nn.Module):
     def __init__(self, model: NeuronModelForCausalLM) -> None:
         super().__init__()
         self.model = model
-        self.logits_processor = LogitsProcessor(self.model.config.vocab_size, logits_as_input=True)
-        self.sampler = Sampler()
+        self.is_embedding_model = getattr(self.model.neuron_config, 'embedding_model', False)
+        if not self.is_embedding_model:
+            self.logits_processor = LogitsProcessor(self.model.config.vocab_size, logits_as_input=True)
+            self.sampler = Sampler()
+        else:
+            self.logits_processor = None
+            self.sampler = None
 
     def forward(
         self,
@@ -53,19 +58,32 @@ class OptimumNeuronModelForCausalLM(nn.Module):
         sorted_seq_ids, sorted_indices = torch.sort(seq_ids)
         input_ids = torch.index_select(input_ids, 0, sorted_indices)
         position_ids = torch.index_select(position_ids, 0, sorted_indices)
-        sampling_params = torch.index_select(sampling_params, 0, sorted_indices)
-        output = self.model(
-            input_ids,
-            attention_mask=None,
-            position_ids=position_ids,
-            seq_ids=sorted_seq_ids,
-            sampling_params=sampling_params,
-        )
-        # on-device sampling
-        if self.model.neuron_config.on_device_sampling:
-            output = output.hidden_states
+        
+        if self.is_embedding_model:
+            # Embedding models don't use sampling_params
+            # Create dummy tensors for compatibility
+            dummy_sampling = torch.zeros((input_ids.shape[0], 3), dtype=torch.float32, device=input_ids.device)
+            output = self.model(
+                input_ids,
+                attention_mask=None,
+                position_ids=position_ids,
+                seq_ids=sorted_seq_ids,
+                sampling_params=dummy_sampling,
+            )
         else:
-            output = output.logits[:, -1, :]
+            sampling_params = torch.index_select(sampling_params, 0, sorted_indices)
+            output = self.model(
+                input_ids,
+                attention_mask=None,
+                position_ids=position_ids,
+                seq_ids=sorted_seq_ids,
+                sampling_params=sampling_params,
+            )
+            # on-device sampling
+            if self.model.neuron_config.on_device_sampling:
+                output = output.hidden_states
+            else:
+                output = output.logits[:, -1, :]
 
         restored_indices = torch.argsort(sorted_indices)
         if seq_ids.shape[0] != 1:
@@ -74,6 +92,8 @@ class OptimumNeuronModelForCausalLM(nn.Module):
         return output
 
     def compute_logits(self, hidden_states: torch.Tensor, sampling_metadata: SamplingMetadata) -> torch.Tensor:
+        if self.is_embedding_model:
+            return hidden_states
         logits = self.logits_processor(None, hidden_states, sampling_metadata)
         return logits
 
@@ -82,6 +102,8 @@ class OptimumNeuronModelForCausalLM(nn.Module):
         logits: torch.Tensor,
         sampling_metadata: SamplingMetadata,
     ) -> SamplerOutput | None:
+        if self.is_embedding_model:
+            return None
         # on-device sampling
         if self.model.neuron_config.on_device_sampling:
             batch_size = logits.shape

@@ -75,6 +75,11 @@ class OptimumNeuronWorker(LocalOrDistributedWorkerBase):
 
         We configure num_gpu_blocks to be equal to max_num_seqs.
         """
+        # Embedding models don't use KV cache
+        is_embedding_model = getattr(self.model_config, 'embedding_model', False)
+        if is_embedding_model:
+            return 0, 0
+        
         # Set the number of GPU blocks to be the same as the maximum number of
         # sequences that can be processed in a single batch. This is equivalent
         # to schedule without PagedAttention.
@@ -87,6 +92,13 @@ class OptimumNeuronWorker(LocalOrDistributedWorkerBase):
 
     def initialize_cache(self, num_gpu_blocks: int, num_cpu_blocks: int) -> None:
         """Initialize the KV cache."""
+        is_embedding_model = getattr(self.model_config, 'embedding_model', False)
+        
+        if is_embedding_model:
+            # Embedding models don't use KV cache
+            self.cache_config.num_gpu_blocks = 0
+            self.cache_config.num_cpu_blocks = 0
+            return
 
         # Different values are not tested.
         assert num_cpu_blocks == 0

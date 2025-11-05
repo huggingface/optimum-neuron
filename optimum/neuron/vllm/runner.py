@@ -147,7 +147,14 @@ class OptimumNeuronModelRunner(ModelRunnerBase[ModelInputForOptimumNeuron]):
         if num_steps > 1:
             raise ValueError("OptimumNeuronModelRunner does not support multi-step execution.")
 
-        sampling_params = self.get_nxd_sampling_params(model_input.sampling_metadata)
+        is_embedding_model = getattr(self.model.model.neuron_config, 'embedding_model', False)
+        
+        if is_embedding_model:
+            # Embedding models don't need sampling params, pass dummy tensor
+            batch_size = model_input.input_ids.shape[0]
+            sampling_params = torch.zeros((batch_size, 3), dtype=torch.float32, device=self.device)
+        else:
+            sampling_params = self.get_nxd_sampling_params(model_input.sampling_metadata)
 
         hidden_states = self.model(
             input_ids=model_input.input_ids,
@@ -156,6 +163,10 @@ class OptimumNeuronModelRunner(ModelRunnerBase[ModelInputForOptimumNeuron]):
             sampling_params=sampling_params,
         )
 
+        if is_embedding_model:
+            # For embedding models, return embeddings directly without sampling
+            return [hidden_states]
+        
         output = self.model.sample(
             logits=hidden_states,
             sampling_metadata=model_input.sampling_metadata,
@@ -257,12 +268,15 @@ class OptimumNeuronModelRunner(ModelRunnerBase[ModelInputForOptimumNeuron]):
             (input_ids, position_ids, seq_ids) = self._prepare_decode(seq_group_metadata_list)
             seq_lens = None
 
-        for seq_group_metadata in seq_group_metadata_list:
-            sampling_params = seq_group_metadata.sampling_params
-            top_k, top_p, temperature = self._convert_to_neuron_sampling_params(sampling_params)
-            sampling_params.top_k = top_k
-            sampling_params.top_p = top_p
-            sampling_params.temperature = temperature
+        is_embedding_model = getattr(self.model.model.neuron_config, 'embedding_model', False)
+        
+        if not is_embedding_model:
+            for seq_group_metadata in seq_group_metadata_list:
+                sampling_params = seq_group_metadata.sampling_params
+                top_k, top_p, temperature = self._convert_to_neuron_sampling_params(sampling_params)
+                sampling_params.top_k = top_k
+                sampling_params.top_p = top_p
+                sampling_params.temperature = temperature
 
         sampling_metadata = SamplingMetadata.prepare(
             seq_group_metadata_list,
