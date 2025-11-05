@@ -158,10 +158,10 @@ if TYPE_CHECKING:
     from .models.inference.yolos import NeuronYolosForObjectDetection
     from .pipelines import pipeline
     from .trainers import (
-        NeuronSFTConfig,
-        NeuronSFTTrainer,
         NeuronGRPOConfig,
         NeuronGRPOTrainer,
+        NeuronSFTConfig,
+        NeuronSFTTrainer,
         NeuronTrainer,
         NeuronTrainingArguments,
     )

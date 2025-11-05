@@ -13,27 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import inspect
 from collections import defaultdict, deque
-from functools import partial
 from typing import Any, Callable
 
 import datasets
 import torch
 from accelerate.utils import set_seed
 from optimum.utils import logging
-from torch.utils.data import DataLoader, Dataset, IterableDataset
+from torch.utils.data import Dataset, IterableDataset, Sampler
 from transformers import (
-    AutoConfig,
-    AutoModelForSequenceClassification,
-    AutoTokenizer,
     PreTrainedModel,
     PreTrainedTokenizerBase,
     ProcessorMixin,
     TrainerCallback,
 )
-from transformers.trainer_utils import seed_worker
-from transformers.utils import is_datasets_available
 
 from ..models.training import NeuronModelForCausalLM
 from ..peft import NeuronPeftModel, get_peft_model
@@ -279,7 +272,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         if (
             isinstance(train_dataset, IterableDataset)
             or isinstance(eval_dataset, IterableDataset)
-            or (isinstance(eval_dataset, dict) and any(isinstance(ds, IterableDataset) for ds in eval_dataset.values()))
+            or (
+                isinstance(eval_dataset, dict) and any(isinstance(ds, IterableDataset) for ds in eval_dataset.values())
+            )
         ):
             raise NotImplementedError(
                 "Iterable datasets are not yet supported in NeuronGRPOTrainer. Please use a standard dataset instead."
@@ -310,6 +305,10 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             optimizers=optimizers,
             optimizer_cls_and_kwargs=optimizer_cls_and_kwargs,
         )
+
+        # Set _train_batch_size for compatibility with GRPOTrainer's get_train_dataloader
+        # NeuronTrainer doesn't set this, but GRPOTrainer expects it
+        self._train_batch_size = args.train_batch_size
 
         # Reference model
         self.beta = args.beta
@@ -516,37 +515,17 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             "This requires implementing the core GRPO loss computation for Neuron devices."
         )
 
-    def get_train_dataloader(self):
-        """
-        Get the training dataloader with GRPO-specific batching strategy.
-
-        TODO: Implement GRPO-specific dataloader with proper batching for Neuron devices.
-        """
-        raise NotImplementedError(
-            "get_train_dataloader is not yet implemented for NeuronGRPOTrainer. "
-            "This requires implementing GRPO's custom batching strategy for Neuron devices."
-        )
-
-    def _get_train_sampler(self, dataset: Dataset | None = None):
-        """
-        Get the training sampler with GRPO-specific sampling strategy.
-
-        TODO: Implement RepeatSampler strategy for GRPO on Neuron devices.
-        """
-        raise NotImplementedError(
-            "_get_train_sampler is not yet implemented for NeuronGRPOTrainer. "
-            "This requires implementing GRPO's RepeatSampler strategy for Neuron devices."
-        )
-
-    def _get_eval_sampler(self, eval_dataset):
+    def _get_eval_sampler(self, eval_dataset) -> Sampler:
         """
         Get the evaluation sampler.
 
-        TODO: Implement evaluation sampler for GRPO on Neuron devices.
+        Note: Evaluation is not supported in NeuronGRPOTrainer as NeuronTrainer does not
+        provide evaluation loops. This method is kept for interface compatibility but will
+        raise NotImplementedError if called.
         """
         raise NotImplementedError(
-            "_get_eval_sampler is not yet implemented for NeuronGRPOTrainer. "
-            "This requires implementing the evaluation sampler for Neuron devices."
+            "Evaluation is not supported in NeuronGRPOTrainer. "
+            "NeuronTrainer does not provide evaluation loops for Trainium devices."
         )
 
     def _get_per_token_logps_and_entropies(self, *args, **kwargs):

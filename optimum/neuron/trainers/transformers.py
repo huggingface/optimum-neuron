@@ -101,7 +101,7 @@ from ..utils.import_utils import is_peft_available
 from ..utils.misc import is_main_worker, is_precompilation
 from .metrics import TrainingMetricsCollector
 from .training_args import NeuronTrainingArguments
-from .utils import XLAPrefetchIterator
+from .utils import XLAPrefetchIterator, move_inputs_to_device
 
 
 logger = logging.get_logger()
@@ -933,10 +933,7 @@ class NeuronTrainer:
 
         if self.pp_size == 1 and device is not None and device.type == "xla":
             if prefetch_size is None:
-                for idx, batch in enumerate(batch_samples):
-                    batch_samples[idx] = {
-                        k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()
-                    }
+                batch_samples = move_inputs_to_device(batch_samples, device)
             else:
                 batch_samples = XLAPrefetchIterator(batch_samples, prefetch_size)
 
