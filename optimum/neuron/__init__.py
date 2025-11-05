@@ -43,7 +43,6 @@ _import_structure = {
     "modeling_traced": ["NeuronTracedModel"],
     "modeling": [
         "NeuronModelForFeatureExtraction",
-        "NeuronModelForSentenceTransformers",
         "NeuronModelForMaskedLM",
         "NeuronModelForQuestionAnswering",
         "NeuronModelForSequenceClassification",
@@ -75,10 +74,10 @@ _import_structure = {
         "NeuronFluxKontextPipeline",
         "NeuronFluxInpaintPipeline",
     ],
-    "modeling_decoder": ["NeuronModelForCausalLM"],
     "modeling_seq2seq": [
         "NeuronModelForSeq2SeqLM",
     ],
+    "modeling_sentence_transformers": ["NeuronSentenceTransformers"],
     "models": [],
     "accelerate": [
         "NeuronAccelerator",
@@ -100,6 +99,7 @@ _import_structure["models.inference.bert"] = [
 _import_structure["models.inference.clip"] = ["NeuronCLIPModel", "NeuronCLIPForImageClassification"]
 _import_structure["models.inference.whisper"] = ["NeuronWhisperForConditionalGeneration"]
 _import_structure["models.inference.yolos"] = ["NeuronYolosForObjectDetection"]
+_import_structure["models.inference.modeling_utils"] = ["NeuronModelForCausalLM"]
 
 if TYPE_CHECKING:
     from .accelerate import NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
@@ -115,12 +115,10 @@ if TYPE_CHECKING:
         NeuronModelForObjectDetection,
         NeuronModelForQuestionAnswering,
         NeuronModelForSemanticSegmentation,
-        NeuronModelForSentenceTransformers,
         NeuronModelForSequenceClassification,
         NeuronModelForTokenClassification,
         NeuronModelForXVector,
     )
-    from .modeling_decoder import NeuronModelForCausalLM
     from .modeling_diffusion import (
         NeuronDiffusionPipelineBase,
         NeuronFluxInpaintPipeline,
@@ -139,6 +137,7 @@ if TYPE_CHECKING:
         NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
     )
+    from .modeling_sentence_transformers import NeuronSentenceTransformers
     from .modeling_seq2seq import NeuronModelForSeq2SeqLM
     from .modeling_traced import NeuronTracedModel
 
@@ -152,6 +151,7 @@ if TYPE_CHECKING:
         NeuronBertModel,
     )
     from .models.inference.clip import NeuronCLIPForImageClassification, NeuronCLIPModel
+    from .models.inference.modeling_utils import NeuronModelForCausalLM
     from .models.inference.whisper import NeuronWhisperForConditionalGeneration
     from .models.inference.yolos import NeuronYolosForObjectDetection
     from .pipelines import pipeline

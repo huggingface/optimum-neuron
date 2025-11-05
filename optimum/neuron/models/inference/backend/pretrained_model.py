@@ -15,21 +15,26 @@
 import copy
 import logging
 import os
+from abc import ABC, abstractmethod
 from functools import partial
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import neuronx_distributed.trace.hlo_utils as hlo_utils
 import torch
-from huggingface_hub import snapshot_download
+from huggingface_hub import HfApi, snapshot_download
 from neuronx_distributed.trace.model_builder import ModelBuilder
 from safetensors.torch import load_file
-from transformers import AutoModelForCausalLM, PretrainedConfig
+from transformers import AutoConfig, AutoModelForCausalLM, PretrainedConfig
 
+from ....cache.entries.single_model import SingleModelCacheEntry
+from ....cache.hub_cache import hub_neuronx_cache
+from ....utils.instance import align_compilation_target, current_instance_type
+from ....utils.system import get_available_cores
+from ..modeling_utils import NeuronPreTrainedModel
 from .config import NxDNeuronConfig
-from .model_wrapper import NxDModelWrapper
-from .modules.checkpoint import (
-    load_state_dict,
-)
+from .graph_builder import NxDGraphBuilder
+from .modules.checkpoint import load_state_dict
 
 
 logger = logging.getLogger("Neuron")
@@ -47,7 +52,7 @@ def get_shards_path(dest_path):
 
 def get_builder(
     neuron_config: NxDNeuronConfig,
-    model_wrappers: list[NxDModelWrapper],
+    graph_builders: dict[str, NxDGraphBuilder],
     debug: bool = False,
     checkpoint_loader=None,
     compiler_args: str = None,
@@ -61,7 +66,7 @@ def get_builder(
 
     Args:
         neuron_config (NxDNeuronConfig): The Neuron configuration.
-        model_wrappers (list[NxDModelWrapper]): The model wrappers to be added to the builder.
+        graph_builders (list[NxDGraphBuilder]): The model graphs to be added to the builder.
         debug (bool): Whether to enable debug mode.
         checkpoint_loader (callable): A function to load the model's state dictionary and weights.
         compiler_args (str): Compiler arguments to be passed to the builder.
@@ -84,19 +89,18 @@ def get_builder(
         logical_nc_config=neuron_config.logical_nc_config,
         weights_to_skip_layout_optimization=neuron_config.weights_to_skip_layout_optimization,
     )
-    for model in model_wrappers:
+    for tag, graph_builder in graph_builders.items():
         builder.add(
-            key=model.tag,
-            model_instance=model.get_model_instance(),
-            example_inputs=model.input_generator(),
+            key=tag,
+            model_instance=graph_builder.get_model_instance(),
+            example_inputs=graph_builder.input_generator(),
             compiler_args=compiler_args,
-            bucket_config=model.get_bucket_config(),
-            priority_model_idx=model.priority_model_idx,
+            priority_model_idx=graph_builder.priority_model_idx,
         )
     return builder
 
 
-class NxDPreTrainedModel:
+class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
     _STATE_DICT_MODEL_PREFIX = "model."
     _NEW_STATE_DICT_MODEL_PREFIX = ""
     _FUSED_PREFIX = ""
@@ -108,34 +112,39 @@ class NxDPreTrainedModel:
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
         traced_model: torch.jit.ScriptModule,
-        model_wrappers: list[NxDModelWrapper],
+        graph_builders: dict[str, NxDGraphBuilder],
     ):
         self.config = copy.deepcopy(config)
         self.neuron_config = copy.deepcopy(neuron_config)
         # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
         self.config.torch_dtype = self.neuron_config.torch_dtype
         self._traced_model = traced_model
-        self.model_wrappers = model_wrappers  # Required for loading weights
-        for model_wrapper in self.model_wrappers:
-            model_wrapper.model = self._traced_model
+        self.graph_builders = graph_builders  # Required for loading weights
 
+    # NxDPretrainedModel abstract API
+    @abstractmethod
     def forward(self, **kwargs):
         """Forward pass for this model."""
         raise NotImplementedError("forward is not implemented")
 
     @classmethod
-    def get_config_cls(cls) -> PretrainedConfig:
-        """Gets the config class for this model."""
-        raise NotImplementedError("get_config_cls is not implemented")
-
-    @classmethod
-    def get_compiler_args(cls, neuron_config) -> str:
+    @abstractmethod
+    def get_compiler_args(cls, neuron_config) -> str | None:
         """Gets the Neuron compiler arguments to use when compiling this model."""
         return None
 
+    @classmethod
+    @abstractmethod
+    def create_graph_builders(
+        cls, config: PretrainedConfig, neuron_config: NxDNeuronConfig
+    ) -> dict[str, NxDGraphBuilder]:
+        raise NotImplementedError(
+            "The child class must provide a method to return the model graph builders dictionary."
+        )
+
     @staticmethod
-    def compile(neuron_config, model_wrappers: list[NxDModelWrapper], compiler_args: str, debug: bool = False):
-        builder = get_builder(neuron_config, model_wrappers, debug=debug, compiler_args=compiler_args)
+    def compile(neuron_config, graph_builders: dict[str, NxDGraphBuilder], compiler_args: str, debug: bool = False):
+        builder = get_builder(neuron_config, graph_builders, debug=debug, compiler_args=compiler_args)
         return builder.trace(initialize_model_weights=False)
 
     def save(self, dest_path, weight_path: str | None = None):
@@ -156,7 +165,7 @@ class NxDPreTrainedModel:
         checkpoint_loader = partial(self.checkpoint_loader_fn, src_path, self.config, self.neuron_config)
         sharder = get_builder(
             self.neuron_config,
-            self.model_wrappers,
+            self.graph_builders,
             debug=debug,
             checkpoint_loader=checkpoint_loader,
             compiler_args=self.get_compiler_args(self.neuron_config),
@@ -194,7 +203,7 @@ class NxDPreTrainedModel:
             checkpoint_loader = partial(self.checkpoint_loader_fn, weights_path, self.config, self.neuron_config)
             sharder = get_builder(
                 self.neuron_config,
-                self.model_wrappers,
+                self.graph_builders,
                 debug=False,
                 checkpoint_loader=checkpoint_loader,
                 compiler_args=self.get_compiler_args(self.neuron_config),
@@ -299,6 +308,170 @@ class NxDPreTrainedModel:
         # We dont want HF to move parameters to device
         return torch.device("cpu")
 
-    def reset(self):
-        """Resets the model state. Can be implemented by subclasses."""
-        pass
+    # NeuronPreTrainedModel methods
+    @classmethod
+    def _export(
+        cls,
+        model_id: str,
+        config: "PretrainedConfig | None",
+        neuron_config: "NxDNeuronConfig",
+        token: bool | str | None = None,
+        revision: str | None = None,
+        cache_dir: str | None = None,
+        force_download: bool | None = False,
+        local_files_only: bool | None = False,
+        trust_remote_code: bool | None = False,
+        load_weights: bool | None = False,
+        **kwargs,
+    ) -> NeuronPreTrainedModel:
+        if len(kwargs) > 0:
+            logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
+        # Try to align compilation target. We do not allow override as neuronx-distributed is already initialized.
+        compilation_target = align_compilation_target(neuron_config.target, override=False)
+        if compilation_target != neuron_config.target:
+            raise ValueError(
+                f"The compilation target is {neuron_config.target} but the NEURON_PLATFORM_TARGET_OVERRIDE"
+                f" environment variable is set to {compilation_target}, Please set it to the correct value."
+            )
+        if config is None:
+            # Get the text config if not provided
+            config = AutoConfig.from_pretrained(
+                model_id,
+                token=token,
+                revision=revision,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                trust_remote_code=trust_remote_code,
+            ).get_text_config()
+        # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
+        config.torch_dtype = neuron_config.torch_dtype
+        # Evaluate head_dim if it is defined but set to null (like in Mixtral for transformers 4.54+)
+        if hasattr(config, "head_dim") and config.head_dim is None:
+            config.head_dim = config.hidden_size // config.num_attention_heads
+        graph_builders = cls.create_graph_builders(
+            config=config,
+            neuron_config=neuron_config,
+        )
+        # The model NEFF files will be cached locally, but if the model_id corresponds
+        # to a hub model, we also create a cache entry for it.
+        cache_entry = (
+            None
+            if os.path.exists(model_id)
+            else SingleModelCacheEntry(model_id, task="text-generation", config=config, neuron_config=neuron_config)
+        )
+        with hub_neuronx_cache(entry=cache_entry):
+            traced_model = NxDPreTrainedModel.compile(
+                neuron_config=neuron_config,
+                graph_builders=graph_builders,
+                compiler_args=cls.get_compiler_args(neuron_config),
+            )
+        model = cls(
+            config=config,
+            neuron_config=neuron_config,
+            traced_model=traced_model,
+            graph_builders=graph_builders,
+        )
+        if load_weights:
+            model.load_weights(
+                model_id,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                local_files_only=local_files_only,
+                token=token,
+            )
+        return model
+
+    @classmethod
+    def _from_pretrained(
+        cls,
+        model_id: "str | Path",
+        config: "PretrainedConfig",
+        revision: str | None = None,
+        token: bool | str | None = None,
+        cache_dir: str | None = None,
+        force_download: bool | None = False,
+        local_files_only: bool | None = False,
+        **kwargs,
+    ) -> NeuronPreTrainedModel:
+        if len(kwargs) > 0:
+            logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
+        neuron_config = NxDNeuronConfig.from_pretrained(model_id)
+        # Check the current instance type is compatible with the one used to compile the model
+        if neuron_config.target != current_instance_type():
+            raise ValueError(
+                f"The model was compiled for {neuron_config.target} but the current instance type is "
+                f"{current_instance_type()}. Please use a compatible instance type."
+            )
+        # Also check the number of cores is at least equal to the tensor parallel size
+        if get_available_cores() < neuron_config.tp_degree:
+            raise ValueError(
+                f"The model requires at least {neuron_config.tp_degree} Neuron cores but only "
+                f"{get_available_cores()} are available. Please use a compatible instance type."
+            )
+        if not os.path.exists(model_id):
+            # The model_id is a model hub id: download the model from the hub.
+            with TemporaryDirectory() as tmpdir:
+                snapshot_download(
+                    repo_id=model_id,
+                    revision=revision,
+                    cache_dir=cache_dir,
+                    local_dir=tmpdir,
+                    force_download=force_download,
+                    local_files_only=local_files_only,
+                    token=token,
+                    allow_patterns=[cls.COMPILED_MODEL_FILE_NAME],
+                )
+                traced_model = torch.jit.load(os.path.join(tmpdir, cls.COMPILED_MODEL_FILE_NAME))
+        else:
+            traced_model = torch.jit.load(os.path.join(model_id, cls.COMPILED_MODEL_FILE_NAME))
+        graph_builders = cls.create_graph_builders(config=config, neuron_config=neuron_config)
+        model = cls(
+            config=config,
+            neuron_config=neuron_config,
+            traced_model=traced_model,
+            graph_builders=graph_builders,
+        )
+        model.load_weights(
+            model_id,
+            cache_dir=cache_dir,
+            force_download=force_download,
+            local_files_only=local_files_only,
+            token=token,
+        )
+        return model
+
+    def _save_pretrained(self, save_directory: str | Path, **kwargs):
+        model_name_or_path = getattr(self.config, "_name_or_path")
+        # If the model was exported from a local path, we need to save the checkpoint (not that we also shard it)
+        weight_path = model_name_or_path if os.path.isdir(model_name_or_path) else None
+        self.save(save_directory, weight_path=weight_path)
+
+    def push_to_hub(
+        self,
+        save_directory: str,
+        repository_id: str,
+        private: bool | None = None,
+        revision: str | None = None,
+        token: bool | str = True,
+        endpoint: str | None = None,
+    ) -> str:
+        api = HfApi(endpoint=endpoint)
+
+        api.create_repo(
+            token=token,
+            repo_id=repository_id,
+            exist_ok=True,
+            private=private,
+        )
+        ignore_patterns = []
+        checkpoint_id = self.neuron_config.checkpoint_id
+        if checkpoint_id is not None:
+            # Avoid uploading checkpoints when the original model is available on the hub
+            ignore_patterns = [self.CHECKPOINT_DIR + "/*"]
+        api.upload_folder(
+            repo_id=repository_id,
+            folder_path=save_directory,
+            token=token,
+            revision=revision,
+            ignore_patterns=ignore_patterns,
+        )

@@ -70,11 +70,10 @@ When deploying a standard hub model, you can customize the way it will be export
 
 ```console
 optimum-cli neuron serve \
-    --model="unsloth/Llama-3.1-1B-Intruct" \
+    --model="unsloth/Llama-3.1-1B-Instruct" \
     --batch_size=4 \
     --sequence_length=4096 \
     --tensor_parallel_size=2 \
-    --dtype="bfloat16"
 ```
 
 Note: by default `optimum-cli` will only `serve` standard models for which a cached configuration exists.

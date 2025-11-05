@@ -18,6 +18,7 @@ import math
 import os
 from dataclasses import dataclass, field, fields
 from enum import Enum
+from functools import cached_property
 from typing import Any
 
 import torch
@@ -30,9 +31,6 @@ from transformers.trainer_utils import (
     get_last_checkpoint,
 )
 from transformers.training_args import OptimizerNames, _convert_str_dict, default_logdir, trainer_log_levels
-from transformers.utils import (
-    cached_property,
-)
 
 from ...utils import logging
 from ..accelerate import NeuronAcceleratorState, NeuronPartialState
@@ -329,6 +327,28 @@ class NeuronTrainingArguments:
         default=True,
         metadata={"help": "Whether to enable stochastic rounding when using bf16 training."},
     )
+    optimizer_use_master_weights: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to use FP32 master weights for the optimizer when using bf16 training. "
+                "This is more stable than bf16 training without master weights, at the cost of using more memory. "
+                "It is only supported with the ZeRO-1 optimizer, and enabled by default when using bf16 with ZeRO-1. "
+                "Set it to false to disable."
+            )
+        },
+    )
+    optimizer_use_fp32_grad_acc: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to use FP32 gradient accumulation when using bf16 training. This is more stable than bf16 "
+                "training without FP32 gradient accumulation, at the cost of using more memory. It is only supported "
+                "with the ZeRO-1 optimizer, and enabled by default when using bf16 with ZeRO-1. Set it to false to "
+                "disable."
+            )
+        },
+    )
     optimizer_save_master_weights_in_ckpt: bool = field(
         default=False,
         metadata={
@@ -404,6 +424,43 @@ class NeuronTrainingArguments:
                 "causal mask computed from the attention mask to the attention layers but it does not support custom "
                 "attention masks."
             ),
+        },
+    )
+
+    # Training metrics configuration
+    enable_throughput_metrics: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to calculate and log throughput metrics (tokens/sec, samples/sec, both general and per-neuron-core)."
+            )
+        },
+    )
+    enable_mfu_metrics: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to calculate and log Model FLOPs Utilization (MFU) metrics. "
+                "This requires additional computation and is disabled by default."
+            )
+        },
+    )
+    enable_efficiency_metrics: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to calculate and log training efficiency metrics. "
+                "This requires additional computation and is disabled by default."
+            )
+        },
+    )
+    metrics_window_size: int = field(
+        default=50,
+        metadata={
+            "help": (
+                "Size of the moving average window for metrics calculation. "
+                "Larger windows provide more stable metrics but react slower to changes."
+            )
         },
     )
 
@@ -598,6 +655,8 @@ class NeuronTrainingArguments:
 
         # It is not supported so disabling it
         if not self.zero_1:
+            self.optimizer_use_master_weights = False
+            self.optimizer_use_fp32_grad_acc = False
             self.optimizer_save_master_weights_in_ckpt = False
 
         self.trn_config = TrainingNeuronConfig(
@@ -735,8 +794,8 @@ class NeuronTrainingArguments:
         converts torch.dtype to a string of just the type. For example, `torch.float32` get converted into *"float32"*
         string, which can then be stored in the json format.
         """
-        if d.get("torch_dtype", None) is not None and not isinstance(d["torch_dtype"], str):
-            d["torch_dtype"] = str(d["torch_dtype"]).split(".")[1]
+        if d.get("dtype", None) is not None and not isinstance(d["dtype"], str):
+            d["dtype"] = str(d["dtype"]).split(".")[1]
         for value in d.values():
             if isinstance(value, dict):
                 self._dict_torch_dtype_to_str(value)

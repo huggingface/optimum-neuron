@@ -210,7 +210,7 @@ class LlamaMLP(nn.Module, CustomModule):
             init_method=init_method,
             sequence_parallel_enabled=self.trn_config.sequence_parallel_enabled,
             sequence_dimension=0,
-            dtype=self.config.torch_dtype,
+            dtype=self.config.dtype,
         )
         self.down_proj = RowParallelLinear(
             self.intermediate_size,
@@ -220,7 +220,7 @@ class LlamaMLP(nn.Module, CustomModule):
             init_method=init_method,
             sequence_parallel_enabled=self.trn_config.sequence_parallel_enabled,
             sequence_dimension=0,
-            dtype=self.config.torch_dtype,
+            dtype=self.config.dtype,
         )
 
     def forward(self, x):
@@ -333,7 +333,7 @@ class LlamaAttention(nn.Module, CustomModule):
                 sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
                 kv_size_multiplier=self.kv_size_multiplier,
                 fuse_qkv=trn_config.fuse_qkv,
-                dtype=self.config.torch_dtype,
+                dtype=self.config.dtype,
             )
 
             gqa_qkv_specs = GQAQKVColumnParallelLinearSpec(
@@ -361,7 +361,7 @@ class LlamaAttention(nn.Module, CustomModule):
                 init_method=init_method,
                 sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
                 sequence_dimension=0,
-                dtype=self.config.torch_dtype,
+                dtype=self.config.dtype,
             )
             self.specs.add_spec(
                 FusedLinearsSpec(
@@ -382,7 +382,7 @@ class LlamaAttention(nn.Module, CustomModule):
                 init_method=init_method,
                 sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
                 sequence_dimension=0,
-                dtype=self.config.torch_dtype,
+                dtype=self.config.dtype,
             )
             self.k_proj = ColumnParallelLinear(
                 self.hidden_size,
@@ -392,7 +392,7 @@ class LlamaAttention(nn.Module, CustomModule):
                 init_method=init_method,
                 sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
                 sequence_dimension=0,
-                dtype=self.config.torch_dtype,
+                dtype=self.config.dtype,
             )
             self.v_proj = ColumnParallelLinear(
                 self.hidden_size,
@@ -402,7 +402,7 @@ class LlamaAttention(nn.Module, CustomModule):
                 init_method=init_method,
                 sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
                 sequence_dimension=0,
-                dtype=self.config.torch_dtype,
+                dtype=self.config.dtype,
             )
         self.o_proj = RowParallelLinear(
             self.num_heads * self.head_dim,
@@ -412,7 +412,7 @@ class LlamaAttention(nn.Module, CustomModule):
             init_method=init_method,
             sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
             sequence_dimension=0,
-            dtype=self.config.torch_dtype,
+            dtype=self.config.dtype,
         )
         self.num_heads = neuronx_dist_utils.divide(config.num_attention_heads, tp_size)
         self.num_key_value_heads = neuronx_dist_utils.divide(
@@ -606,7 +606,7 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
             self.padding_idx,
             init_method=init_method,
             sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
-            dtype=config.torch_dtype,
+            dtype=config.dtype,
         )
         self.layers = nn.ModuleList(
             [LlamaDecoderLayer(config, trn_config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
@@ -715,7 +715,7 @@ class LlamaForCausalLM(NeuronModelMixin, LlamaPreTrainedModel):
             init_method=init_method,
             sequence_parallel_enabled=trn_config.sequence_parallel_enabled,
             sequence_dimension=0,
-            dtype=self.config.torch_dtype,
+            dtype=self.config.dtype,
         )
 
         self.vocab_size = config.vocab_size // get_tensor_model_parallel_size()

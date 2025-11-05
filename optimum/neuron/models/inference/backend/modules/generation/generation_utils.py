@@ -13,10 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import copy
+from abc import ABC, abstractmethod
 from typing import Any
 
 import torch
-from transformers import GenerationConfig
+from transformers import GenerationConfig, PreTrainedModel
 from transformers.generation import GenerationMixin, SampleDecoderOnlyOutput
 from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import StoppingCriteriaList
@@ -28,7 +29,7 @@ from .sampling import (
 )
 
 
-class NxDGenerationMixin(GenerationMixin):
+class NxDGenerationMixin(GenerationMixin, ABC):
     """A generation Mixin that can be used to extend NxDPreTrainedModel based classes"""
 
     # These are expected to be set by the GenerationMixin code
@@ -269,14 +270,13 @@ class NxDGenerationMixin(GenerationMixin):
     def _assisted_decoding(
         self,
         input_ids: torch.LongTensor,
-        candidate_generator: "CandidateGenerator",  # noqa
         stopping_criteria: StoppingCriteriaList,
         generation_config: GenerationConfig,
+        assistant_model: "PreTrainedModel | None" = None,
         **model_kwargs,
     ):
         pad_token_id = generation_config.pad_token_id
         eos_token_id = generation_config.eos_token_id
-        assistant_model = candidate_generator.assistant_model
 
         if assistant_model.neuron_config.on_device_sampling:
             raise ValueError("Assistant model must not use on-device sampling")
@@ -425,3 +425,7 @@ class NxDGenerationMixin(GenerationMixin):
         """
         # We dont want HF to move parameters to device
         return torch.device("cpu")
+
+    @abstractmethod
+    def reset(self):
+        raise SystemError(f"The reset method must be implemented by {self.__class__.__name__}")

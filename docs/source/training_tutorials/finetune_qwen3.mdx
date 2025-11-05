@@ -137,7 +137,7 @@ dtype = torch.bfloat16 if training_args.bf16 else torch.float32
 model = NeuronModelForCausalLM.from_pretrained(
     model_id,
     trn_config,
-    torch_dtype=dtype,
+    dtype=dtype,
     # Use FlashAttention2 for better performance and to be able to use larger sequence lengths.
     attn_implementation="flash_attention_2",
 )
@@ -164,7 +164,7 @@ lora_config = LoraConfig(
 args = training_args.to_dict()
 
 sft_config = NeuronSFTConfig(
-    max_seq_length=4096,
+    max_length=4096,
     packing=True,
     **args,
 )
@@ -181,7 +181,7 @@ dataset = preprocess_dataset_with_eos(tokenizer.eos_token)
      args=sft_config,
      model=model,
      peft_config=lora_config,
-     tokenizer=tokenizer,
+     processing_class=tokenizer,
      train_dataset=dataset,
      formatting_func=formatting_function,
  )

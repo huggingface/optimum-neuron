@@ -56,11 +56,11 @@ from ...modeling import (
     NeuronModelForMaskedLM,
     NeuronModelForQuestionAnswering,
     NeuronModelForSemanticSegmentation,
-    NeuronModelForSentenceTransformers,
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
 )
-from ...modeling_decoder import NeuronModelForCausalLM
+from ...modeling_sentence_transformers import NeuronSentenceTransformers
+from ...models.inference.modeling_utils import NeuronModelForCausalLM
 
 
 logger = logging.getLogger(__name__)
@@ -171,7 +171,7 @@ def load_pipeline(
             model, token=token, revision=revision
         ):
             logger.info("Using Sentence Transformers compatible Feature extraction pipeline")
-            neuronx_model_class = NeuronModelForSentenceTransformers
+            neuronx_model_class = NeuronSentenceTransformers
 
         if issubclass(neuronx_model_class, NeuronModelForCausalLM):
             if export:
@@ -298,7 +298,6 @@ def pipeline(
                 "batch_size": batch_size,
                 "sequence_length": kwargs.pop("sequence_length", None),
                 "tensor_parallel_size": kwargs.pop("tensor_parallel_size", num_cores),
-                "auto_cast_type": kwargs.pop("auto_cast_type", None),
             }
     else:
         if neuron_config is None:

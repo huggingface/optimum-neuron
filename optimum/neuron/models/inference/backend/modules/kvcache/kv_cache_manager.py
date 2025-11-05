@@ -93,7 +93,7 @@ class KVCacheManager(nn.Module):
         """
         Return network (all layers)'s previously cached K and V, up to seq_len.
 
-        :param seq_len: sequence length (or bucket size from auto-bucketing e.g. 128, 512, 1024 etc.)
+        :param seq_len: sequence length
         :return: list of tuple of (K, V)
         """
         slice_index, gather_index = None, None
@@ -129,9 +129,9 @@ class KVCacheManager(nn.Module):
         :param scatter_index: tensor representing index to update
         :param is_for_context_encoding: bool
         :param seq_ids: tensor of size (batch_sz)
-        :param position_ids: tensor of size (batch_sz, bucket_sz)
+        :param position_ids: tensor of size (batch_sz, seq_len)
         :param new_key_values: list of tuple, the latest kv obtained at the end of the network from forward pass
-        :param seq_len: sequence length (or bucket size from auto-bucketing e.g. 128, 512, 1024 etc.)
+        :param seq_len: sequence length
         :param scatter_index: tensor representing index to update
         :param active_mask: tensor representing index to update
         :param kvcache_buffer: if passed key states are updates to this buffer.

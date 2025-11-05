@@ -14,10 +14,12 @@
 # limitations under the License.
 
 import inspect
+import json
 import math
 import os
 import re
 import sys
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Iterator, Type
@@ -97,6 +99,7 @@ from ..utils.cache_utils import (
 )
 from ..utils.import_utils import is_peft_available
 from ..utils.misc import is_main_worker, is_precompilation
+from .metrics import TrainingMetricsCollector
 from .training_args import NeuronTrainingArguments
 from .utils import XLAPrefetchIterator
 
@@ -260,6 +263,9 @@ class NeuronTrainer:
             ],
         )
 
+        # Initialize training metrics collector - auto-detects if metrics are enabled
+        self.metrics_collector = TrainingMetricsCollector(self.model, args)
+
         if isinstance(self.model, NeuronPeftModel) and self.args.label_names is None:
             logger.warning(
                 f"No label_names provided for model class `{self.model.__class__.__name__}`."
@@ -348,8 +354,8 @@ class NeuronTrainer:
         self.mixed_precision_config = MixedPrecisionConfig(
             mode=mode,
             stochastic_rounding=self.args.stochastic_rounding_enabled,
-            optimizer_use_master_weights=self.args.zero_1,
-            optimizer_use_fp32_grad_acc=self.args.zero_1,
+            optimizer_use_master_weights=self.args.optimizer_use_master_weights,
+            optimizer_use_fp32_grad_acc=self.args.optimizer_use_fp32_grad_acc,
             optimizer_save_master_weights_in_ckpt=self.args.optimizer_save_master_weights_in_ckpt,
         )
 
@@ -936,26 +942,37 @@ class NeuronTrainer:
 
         return batch_samples, num_items_in_batch
 
-    def train_step(
-        self, model: nn.Module, inputs: dict[str, Any], num_items_in_batch: int | torch.Tensor | None = None
-    ) -> torch.Tensor:
+    def compute_loss(
+        self,
+        model: nn.Module,
+        inputs: dict[str, torch.Tensor | Any],
+        return_outputs: bool = False,
+        num_items_in_batch: torch.Tensor | None = None,
+    ):
         manager = self.autocast_smart_context_manager()
 
         if isinstance(model, NxDPPModel):
-            with manager:
-                loss = model.run_train(**inputs)
+            # Time forward pass for pipeline parallel models (run_train includes both forward and backward for PP)
+            with self.metrics_collector.time_metric("forward_pass", inputs=inputs):
+                with manager:
+                    loss = model.run_train(**inputs)
 
             # When using pipeline parallelism, the loss is only computed on the last stage.
             # So we set the loss to zero on other stages.
             if self.pp_rank != self.pp_size - 1:
                 dtype = torch.bfloat16 if self.args.bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
+
+            # PP does not return any outputs except the loss
+            outputs = {"loss": loss}
         else:
             if num_items_in_batch is not None:
                 inputs = dict(**inputs, reduction="sum")
 
-            with manager:
-                outputs = model(**inputs)
+            # Time forward pass
+            with self.metrics_collector.time_metric("forward_pass", inputs=inputs):
+                with manager:
+                    outputs = model(**inputs)
 
             if isinstance(outputs, dict) and "loss" not in outputs:
                 raise ValueError(
@@ -970,8 +987,20 @@ class NeuronTrainer:
             else:
                 loss = loss / self.args.gradient_accumulation_steps
 
-            # Backward pass
-            self.accelerator.backward(loss)
+        return (loss, outputs) if return_outputs else loss
+
+    def training_step(
+        self, model: nn.Module, inputs: dict[str, Any], num_items_in_batch: int | torch.Tensor | None = None
+    ) -> torch.Tensor:
+        manager = self.autocast_smart_context_manager()
+        with manager:
+            loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
+
+        # Backward pass is only done on non-pipeline parallel models, otherwise it's done inside run_train.
+        if self.pp_size == 1:
+            # Time backward pass.
+            with self.metrics_collector.time_metric("backward_pass", inputs=inputs):
+                self.accelerator.backward(loss)
 
         return loss
 
@@ -998,6 +1027,18 @@ class NeuronTrainer:
             reduced_loss = reduced_loss.detach()
             self.running_loss.zero_()
 
+            # Calculate metrics here to avoid complications with closure execution
+            metrics = {}
+            if self.metrics_collector.enabled:
+                try:
+                    metrics = self.metrics_collector.calculate_metric("all")
+                    # Reset the metrics window after calculation
+                    self.metrics_collector.reset_window()
+                except Exception as e:
+                    # Log error but don't fail training
+                    logger.warning(f"Failed to calculate training metrics: {e}")
+                    metrics = {}
+
             def log_closure():
                 # We need to check that self.state.global_step > self._globalstep_last_logged because if two
                 # closures are added in a row (which can happen at the end of the training), then it will fail the
@@ -1016,6 +1057,10 @@ class NeuronTrainer:
                             if isinstance(self.grad_norm, torch.Tensor)
                             else self.grad_norm
                         )
+
+                    # Add metrics to the logs
+                    logs.update(metrics)
+
                     self.log(logs)
 
                 self.global_step_last_logged = self.state.global_step
@@ -1094,6 +1139,13 @@ class NeuronTrainer:
                     prefetch_size=args.dataloader_prefetch_size,
                 )
 
+                # Start gradient accumulation cycle and cycle-level timing
+                # Note: throughput and total_step span the entire gradient accumulation cycle,
+                # so we use start/stop rather than context manager for better clarity
+                self.metrics_collector.start_gradient_accumulation_cycle()
+                self.metrics_collector.start_metric("throughput")
+                self.metrics_collector.start_metric("total_step")
+
                 for inputs in batch_samples:
                     xm.mark_step()
                     step += 1
@@ -1102,7 +1154,11 @@ class NeuronTrainer:
                     if step % args.gradient_accumulation_steps == 0:
                         self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
-                    loss_step = self.train_step(self.model, inputs, num_items_in_batch=num_items_in_batch)
+                    self.metrics_collector.update_metric_batch_data("throughput", inputs)
+
+                    with self.metrics_collector.time_metric("mfu", inputs=inputs):
+                        loss_step = self.training_step(self.model, inputs, num_items_in_batch=num_items_in_batch)
+
                     self.running_loss += loss_step.detach()
 
                     if do_sync_step:
@@ -1112,8 +1168,10 @@ class NeuronTrainer:
 
                         self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
 
-                        self.optimizer.step()
-                        self.grad_norm = self.optimizer.grad_norm
+                        # Time optimizer step
+                        with self.metrics_collector.time_metric("optimizer_step", inputs=inputs):
+                            self.optimizer.step()
+                            self.grad_norm = self.optimizer.grad_norm
 
                         self.control = self.callback_handler.on_optimizer_step(args, self.state, self.control)
 
@@ -1127,6 +1185,9 @@ class NeuronTrainer:
                         self.state.epoch = epoch + (step + 1) / steps_in_epoch
                         self.control = self.callback_handler.on_step_end(args, self.state, self.control)
                         xm.mark_step()
+                        self.metrics_collector.stop_metric("throughput")
+                        self.metrics_collector.stop_metric("total_step")
+                        self.metrics_collector.end_gradient_accumulation_cycle(step_number=self.state.global_step)
                     else:
                         self.accelerator.gradient_state.sync_gradients = False
                         self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
@@ -1159,6 +1220,9 @@ class NeuronTrainer:
 
             if self.control.should_training_stop:
                 break
+
+        # Report and save training summary metrics
+        self.report_and_save_summary_metrics()
 
         logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
         self.control = self.callback_handler.on_train_end(args, self.state, self.control)
@@ -1237,6 +1301,65 @@ class NeuronTrainer:
         output = {**logs, **{"step": self.state.global_step}}
         self.state.log_history.append(output)
         self.control = self.callback_handler.on_log(self.args, self.state, self.control, logs)
+
+    def report_and_save_summary_metrics(self):
+        """Report and save comprehensive training summary metrics at the end of training."""
+        try:
+            summary_metrics = self.metrics_collector.calculate_summary_metrics()
+            if not summary_metrics:
+                return
+
+            # Save summary metrics to file
+            summary_file_path = os.path.join(self.args.output_dir, "training_summary_metrics.json")
+
+            # Add metadata to the summary
+            summary_with_metadata = {
+                "metadata": {
+                    "timestamp": datetime.now().isoformat(),
+                    "total_training_steps": self.state.global_step,
+                    "total_epochs": self.state.epoch,
+                    "model_name": getattr(self.model, "_name_or_path", "unknown"),
+                    "gradient_accumulation_steps": self.args.gradient_accumulation_steps,
+                    "per_device_train_batch_size": self.args.per_device_train_batch_size,
+                    "learning_rate": self.args.learning_rate,
+                    "tensor_parallel_size": getattr(self.args, "tensor_parallel_size", 1),
+                    "pipeline_parallel_size": getattr(self.args, "pipeline_parallel_size", 1),
+                    "total_neuron_cores": self.metrics_collector.total_neuron_cores,
+                },
+                "metrics": summary_metrics,
+            }
+
+            with open(summary_file_path, "w") as f:
+                json.dump(summary_with_metadata, f, indent=2)
+
+            logger.info("=" * 80)
+            logger.info("TRAINING SUMMARY METRICS")
+            logger.info("=" * 80)
+
+            # Group and format metrics for better readability
+            for metric_name, value in summary_metrics.items():
+                if isinstance(value, float):
+                    if "time" in metric_name:
+                        logger.info(f"{metric_name}: {value:.4f}s")
+                    elif "per_sec" in metric_name:
+                        logger.info(f"{metric_name}: {value:.2f}")
+                    elif (
+                        "mfu" in metric_name
+                        or "efficiency" in metric_name
+                        or "consistency" in metric_name
+                        or "percent" in metric_name
+                    ):
+                        logger.info(f"{metric_name}: {value:.2f}%")
+                    else:
+                        logger.info(f"{metric_name}: {value:.2f}")
+                else:
+                    logger.info(f"{metric_name}: {value}")
+            logger.info("=" * 80)
+            logger.info(f"Summary metrics saved to: {summary_file_path}")
+            logger.info("=" * 80)
+
+        except Exception as e:
+            logger.warning(f"Failed to calculate training summary metrics: {e}")
 
     def _save_checkpoint(self):
         # Save model checkpoint

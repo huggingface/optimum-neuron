@@ -39,16 +39,16 @@ optimum-cli export neuron -m sentence-transformers/clip-ViT-B-32 --sequence_leng
 * Example - Text embeddings
 
 ```python
-from optimum.neuron import NeuronModelForSentenceTransformers
+from optimum.neuron import NeuronSentenceTransformers
 
 # configs for compiling model
 input_shapes = {
     "batch_size": 1,
-    "sequence_length": 384,
+    "sequence_length": 512,
 }
 compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 
-neuron_model = NeuronModelForSentenceTransformers.from_pretrained(
+neuron_model = NeuronSentenceTransformers.from_pretrained(
     "BAAI/bge-large-en-v1.5",
     export=True,
     **input_shapes,
@@ -63,12 +63,17 @@ neuron_model.push_to_hub(
     "bge_emb_neuron/", repository_id="optimum/bge-base-en-v1.5-neuronx"  # Replace with your HF Hub repo id
 )
 
+sentences_1 = ["Life is pain au chocolat", "Life is galette des rois"]
+sentences_2 = ["Life is eclaire au cafe", "Life is mille feuille"]
+embeddings_1 = neuron_model.encode(sentences_1, normalize_embeddings=True)
+embeddings_2 = neuron_model.encode(sentences_2, normalize_embeddings=True)
+similarity = neuron_model.similarity(embeddings_1, embeddings_2)
 ```
 
 * Example - Image Search
 
 ```python
-from optimum.neuron import NeuronModelForSentenceTransformers
+from optimum.neuron import NeuronSentenceTransformers
 
 # configs for compiling model
 input_shapes = {
@@ -81,7 +86,7 @@ input_shapes = {
 }
 compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 
-neuron_model = NeuronModelForSentenceTransformers.from_pretrained(
+neuron_model = NeuronSentenceTransformers.from_pretrained(
     "sentence-transformers/clip-ViT-B-32",
     subfolder="0_CLIPModel",
     export=True,
@@ -98,7 +103,3 @@ neuron_model.push_to_hub(
     "clip_emb_neuron/", repository_id="optimum/clip_vit_emb_neuronx"  # Replace with your HF Hub repo id
 )
 ```
-
-## NeuronModelForSentenceTransformers
-
-[[autodoc]] modeling.NeuronModelForSentenceTransformers

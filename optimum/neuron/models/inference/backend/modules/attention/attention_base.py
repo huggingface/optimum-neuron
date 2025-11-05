@@ -266,7 +266,6 @@ class NeuronAttentionBase(nn.Module):
         These constraints may change later.
 
         TODO: Throw an exception instead of disabling flash attention if explicitly enabled but not eligible.
-              This must consider bucketing to avoid throwing an exception for smaller buckets.
         """
         if self._qk_scale is not None:
             # If a custom qk_scale is provided, flash attention is not supported.
