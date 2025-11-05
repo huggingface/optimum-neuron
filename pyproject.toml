@@ -75,7 +75,7 @@ quality = [
     "isort",
 ]
 training = [
-    "trl == 0.11.4",
+    "trl == 0.24.0",
     "peft == 0.17.0",
     "evaluate == 0.4.3",
 ]

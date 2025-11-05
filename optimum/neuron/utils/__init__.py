@@ -85,7 +85,6 @@ _import_structure = {
         "patch_within_function",
         "replace_class_in_inheritance_hierarchy",
     ],
-    "trl_utils": ["NeuronSFTConfig", "NeuronORPOConfig"],
 }
 
 if TYPE_CHECKING:
@@ -155,7 +154,6 @@ if TYPE_CHECKING:
         patch_within_function,
         replace_class_in_inheritance_hierarchy,
     )
-    from .trl_utils import NeuronORPOConfig, NeuronSFTConfig
 else:
     import sys
 

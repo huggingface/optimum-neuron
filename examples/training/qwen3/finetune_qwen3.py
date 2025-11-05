@@ -84,7 +84,7 @@ def train(model_id, tokenizer, dataset, training_args):
     args = training_args.to_dict()
 
     sft_config = NeuronSFTConfig(
-        max_seq_length=4096,
+        max_length=4096,
         packing=True,
         **args,
     )
@@ -98,7 +98,7 @@ def train(model_id, tokenizer, dataset, training_args):
         args=sft_config,
         model=model,
         peft_config=lora_config,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         train_dataset=dataset,
         formatting_func=formatting_function,
     )

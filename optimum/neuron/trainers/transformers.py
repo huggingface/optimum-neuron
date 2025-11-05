@@ -942,9 +942,13 @@ class NeuronTrainer:
 
         return batch_samples, num_items_in_batch
 
-    def train_step(
-        self, model: nn.Module, inputs: dict[str, Any], num_items_in_batch: int | torch.Tensor | None = None
-    ) -> torch.Tensor:
+    def compute_loss(
+        self,
+        model: nn.Module,
+        inputs: dict[str, torch.Tensor | Any],
+        return_outputs: bool = False,
+        num_items_in_batch: torch.Tensor | None = None,
+    ):
         manager = self.autocast_smart_context_manager()
 
         if isinstance(model, NxDPPModel):
@@ -958,6 +962,9 @@ class NeuronTrainer:
             if self.pp_rank != self.pp_size - 1:
                 dtype = torch.bfloat16 if self.args.bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
+
+            # PP does not return any outputs except the loss
+            outputs = {"loss": loss}
         else:
             if num_items_in_batch is not None:
                 inputs = dict(**inputs, reduction="sum")
@@ -980,7 +987,18 @@ class NeuronTrainer:
             else:
                 loss = loss / self.args.gradient_accumulation_steps
 
-            # Time backward pass
+        return (loss, outputs) if return_outputs else loss
+
+    def training_step(
+        self, model: nn.Module, inputs: dict[str, Any], num_items_in_batch: int | torch.Tensor | None = None
+    ) -> torch.Tensor:
+        manager = self.autocast_smart_context_manager()
+        with manager:
+            loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
+
+        # Backward pass is only done on non-pipeline parallel models, otherwise it's done inside run_train.
+        if self.pp_size == 1:
+            # Time backward pass.
             with self.metrics_collector.time_metric("backward_pass", inputs=inputs):
                 self.accelerator.backward(loss)
 
@@ -1139,7 +1157,7 @@ class NeuronTrainer:
                     self.metrics_collector.update_metric_batch_data("throughput", inputs)
 
                     with self.metrics_collector.time_metric("mfu", inputs=inputs):
-                        loss_step = self.train_step(self.model, inputs, num_items_in_batch=num_items_in_batch)
+                        loss_step = self.training_step(self.model, inputs, num_items_in_batch=num_items_in_batch)
 
                     self.running_loss += loss_step.detach()
 

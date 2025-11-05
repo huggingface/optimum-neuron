@@ -53,9 +53,7 @@ def test_neuron_sft_trainer_basic_training_loop(world_size, tp_size, pp_size, pa
             context = f"### Context\n{sample['context']}" if len(sample["context"]) > 0 else None
             response = f"### Answer\n{sample['response']}"
             prompt = "\n\n".join([i for i in [instruction, context, response] if i is not None])
-            if packing:
-                return prompt
-            return [prompt]
+            return prompt
 
         args = NeuronTrainingArguments(
             output_dir=str(tmpdir),
@@ -77,7 +75,7 @@ def test_neuron_sft_trainer_basic_training_loop(world_size, tp_size, pp_size, pa
         args = args.to_dict()
         sft_config = NeuronSFTConfig(
             # Using a small sequence-length since we are not validating the outputs.
-            max_seq_length=128,
+            max_length=128,
             packing=packing,
             dataset_num_proc=1,
             **args,
@@ -86,7 +84,7 @@ def test_neuron_sft_trainer_basic_training_loop(world_size, tp_size, pp_size, pa
         # Create Trainer instance
         trainer = NeuronSFTTrainer(
             model=model,
-            tokenizer=tokenizer,
+            processing_class=tokenizer,
             train_dataset=dataset,
             formatting_func=format_dolly,
             args=sft_config,
@@ -97,6 +95,18 @@ def test_neuron_sft_trainer_basic_training_loop(world_size, tp_size, pp_size, pa
 
         # Verify initial state
         assert trainer.state.global_step == 0, f"Expected initial global_step=0, got {trainer.state.global_step}"
+
+        # Verify that all inputs are padded to max_length
+        sample_batch = next(iter(trainer.get_train_dataloader()))
+        assert sample_batch["input_ids"].shape[1] == sft_config.max_length, (
+            f"Expected input_ids to have length {sft_config.max_length}, got {sample_batch['input_ids'].shape[1]}"
+        )
+        assert sample_batch["labels"].shape[1] == sft_config.max_length, (
+            f"Expected labels to have length {sft_config.max_length}, got {sample_batch['labels'].shape[1]}"
+        )
+        assert sample_batch["attention_mask"].shape[1] == sft_config.max_length, (
+            f"Expected attention_mask to have length {sft_config.max_length}, got {sample_batch['attention_mask'].shape[1]}"
+        )
 
         # Run training
         trainer.train()
@@ -141,7 +151,7 @@ def test_neuron_sft_trainer_peft_training(tmpdir, set_cache_for_ci):
         context = f"### Context\n{sample['context']}" if len(sample["context"]) > 0 else None
         response = f"### Answer\n{sample['response']}"
         prompt = "\n\n".join([i for i in [instruction, context, response] if i is not None])
-        return [prompt]  # No packing for simplicity
+        return prompt
 
     args = NeuronTrainingArguments(
         output_dir=str(tmpdir),
@@ -172,7 +182,7 @@ def test_neuron_sft_trainer_peft_training(tmpdir, set_cache_for_ci):
 
     args = args.to_dict()
     sft_config = NeuronSFTConfig(
-        max_seq_length=128,
+        max_length=128,
         packing=False,  # No packing for PEFT test simplicity
         dataset_num_proc=1,
         **args,
@@ -181,7 +191,7 @@ def test_neuron_sft_trainer_peft_training(tmpdir, set_cache_for_ci):
     # Create SFT Trainer instance with PEFT model
     trainer = NeuronSFTTrainer(
         model=base_model,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         train_dataset=dataset,
         formatting_func=format_dolly,
         args=sft_config,
