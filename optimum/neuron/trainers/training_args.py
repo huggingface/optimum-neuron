@@ -18,6 +18,7 @@ import math
 import os
 from dataclasses import dataclass, field, fields
 from enum import Enum
+from functools import cached_property
 from typing import Any
 
 import torch
@@ -30,9 +31,6 @@ from transformers.trainer_utils import (
     get_last_checkpoint,
 )
 from transformers.training_args import OptimizerNames, _convert_str_dict, default_logdir, trainer_log_levels
-from transformers.utils import (
-    cached_property,
-)
 
 from ...utils import logging
 from ..accelerate import NeuronAcceleratorState, NeuronPartialState
@@ -429,6 +427,43 @@ class NeuronTrainingArguments:
         },
     )
 
+    # Training metrics configuration
+    enable_throughput_metrics: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to calculate and log throughput metrics (tokens/sec, samples/sec, both general and per-neuron-core)."
+            )
+        },
+    )
+    enable_mfu_metrics: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to calculate and log Model FLOPs Utilization (MFU) metrics. "
+                "This requires additional computation and is disabled by default."
+            )
+        },
+    )
+    enable_efficiency_metrics: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to calculate and log training efficiency metrics. "
+                "This requires additional computation and is disabled by default."
+            )
+        },
+    )
+    metrics_window_size: int = field(
+        default=50,
+        metadata={
+            "help": (
+                "Size of the moving average window for metrics calculation. "
+                "Larger windows provide more stable metrics but react slower to changes."
+            )
+        },
+    )
+
     def __post_init__(self):
         # Set the verbosity so that each process logs according to its rank.
         log_level = self.get_process_log_level()
@@ -759,8 +794,8 @@ class NeuronTrainingArguments:
         converts torch.dtype to a string of just the type. For example, `torch.float32` get converted into *"float32"*
         string, which can then be stored in the json format.
         """
-        if d.get("torch_dtype", None) is not None and not isinstance(d["torch_dtype"], str):
-            d["torch_dtype"] = str(d["torch_dtype"]).split(".")[1]
+        if d.get("dtype", None) is not None and not isinstance(d["dtype"], str):
+            d["dtype"] = str(d["dtype"]).split(".")[1]
         for value in d.values():
             if isinstance(value, dict):
                 self._dict_torch_dtype_to_str(value)

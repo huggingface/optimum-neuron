@@ -15,7 +15,6 @@
 """NeuronModelForXXX classes for inference on neuron devices using the same API as Transformers."""
 
 import logging
-from typing import TYPE_CHECKING
 
 import torch
 from transformers import (
@@ -66,18 +65,12 @@ from .utils.doc import (
     NEURON_OBJECT_DETECTION_EXAMPLE,
     NEURON_QUESTION_ANSWERING_EXAMPLE,
     NEURON_SEMANTIC_SEGMENTATION_EXAMPLE,
-    NEURON_SENTENCE_TRANSFORMERS_IMAGE_EXAMPLE,
-    NEURON_SENTENCE_TRANSFORMERS_TEXT_EXAMPLE,
     NEURON_SEQUENCE_CLASSIFICATION_EXAMPLE,
     NEURON_TEXT_INPUTS_DOCSTRING,
     NEURON_TOKEN_CLASSIFICATION_EXAMPLE,
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
 )
-
-
-if TYPE_CHECKING:
-    pass
 
 
 logger = logging.getLogger(__name__)
@@ -133,72 +126,6 @@ class NeuronModelForFeatureExtraction(NeuronTracedModel):
                 pooler_output = None
 
         return BaseModelOutputWithPooling(last_hidden_state=last_hidden_state, pooler_output=pooler_output)
-
-
-@add_start_docstrings(
-    """
-    Neuron Model for Sentence Transformers.
-    """,
-    NEURON_MODEL_START_DOCSTRING,
-)
-class NeuronModelForSentenceTransformers(NeuronTracedModel):
-    """
-    Sentence Transformers model on Neuron devices.
-    """
-
-    auto_model_class = AutoModel
-    library_name = "sentence_transformers"
-
-    @add_start_docstrings_to_model_forward(
-        NEURON_TEXT_INPUTS_DOCSTRING.format("batch_size, sequence_length")
-        + NEURON_SENTENCE_TRANSFORMERS_TEXT_EXAMPLE.format(
-            processor_class=_TOKENIZER_FOR_DOC,
-            model_class="NeuronModelForSentenceTransformers",
-            checkpoint="optimum/bge-base-en-v1.5-neuronx",
-        )
-        + NEURON_SENTENCE_TRANSFORMERS_IMAGE_EXAMPLE.format(
-            processor_class=_GENERIC_PROCESSOR,
-            model_class="NeuronModelForSentenceTransformers",
-            checkpoint="optimum/clip_vit_emb_neuronx",
-        )
-    )
-    def forward(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        pixel_values: torch.Tensor | None = None,
-        token_type_ids: torch.Tensor | None = None,
-        **kwargs,
-    ):
-        model_type = self.config.neuron["model_type"]
-        neuron_inputs = {"input_ids": input_ids}
-        if pixel_values is not None:
-            neuron_inputs["pixel_values"] = pixel_values
-        neuron_inputs["attention_mask"] = (
-            attention_mask  # The input order for clip is: input_ids, pixel_values, attention_mask.
-        )
-
-        with self.neuron_padding_manager(neuron_inputs) as inputs:
-            outputs = self.model(*inputs)
-            if "clip" in model_type:
-                text_embeds = self.remove_padding([outputs[0]], dims=[0], indices=[input_ids.shape[0]])[
-                    0
-                ]  # Remove padding on batch_size(0)
-                image_embeds = self.remove_padding([outputs[1]], dims=[0], indices=[pixel_values.shape[0]])[
-                    0
-                ]  # Remove padding on batch_size(0)
-                return ModelOutput(text_embeds=text_embeds, image_embeds=image_embeds)
-            else:
-                # token_embeddings -> (batch_size, sequencen_len, hidden_size)
-                token_embeddings = self.remove_padding(
-                    [outputs[0]], dims=[0, 1], indices=[input_ids.shape[0], input_ids.shape[1]]
-                )[0]  # Remove padding on batch_size(0), and sequence_length(1)
-                # sentence_embedding -> (batch_size, hidden_size)
-                sentence_embedding = self.remove_padding([outputs[1]], dims=[0], indices=[input_ids.shape[0]])[
-                    0
-                ]  # Remove padding on batch_size(0)
-
-                return ModelOutput(token_embeddings=token_embeddings, sentence_embedding=sentence_embedding)
 
 
 @add_start_docstrings(

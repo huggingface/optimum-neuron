@@ -219,7 +219,7 @@ if __name__ == "__main__":
                     task=model_config.get("task", None),
                     auto_cast=model_config.get("auto_cast", None),
                     auto_cast_type=model_config.get("auto_cast_type", None),
-                    torch_dtype=model_config.get("torch_dtype", None),
+                    torch_dtype=model_config.get("dtype", None) or model_config.get("torch_dtype", None),
                 )
     elif args.hf_model_id is None:
         raise ValueError("You must provide --hf_model_id to compile a model without a config file.")
@@ -235,4 +235,5 @@ if __name__ == "__main__":
             task=args.task,
             auto_cast=args.auto_cast,
             auto_cast_type=args.auto_cast_type,
+            torch_dtype=args.torch_dtype,
         )
