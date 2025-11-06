@@ -27,7 +27,7 @@ from torch import nn
 from transformers.models.granite.configuration_granite import GraniteConfig
 
 from ..backend.config import NxDNeuronConfig
-from ..backend.modules.decoder import NxDDecoderModel
+from ..backend.modules.decoder import NxDDecoderModelForCausalLM
 from ..backend.modules.rms_norm import NeuronRMSNorm
 from ..llama.modeling_llama import LlamaNxDModelForCausalLM, NeuronLlamaAttention, NeuronLlamaMLP
 
@@ -135,7 +135,7 @@ class NxDGraniteHead(ColumnParallelLinear):
         return logits / self.config.logits_scaling
 
 
-class NxDGraniteModel(NxDDecoderModel):
+class NxDGraniteModel(NxDDecoderModelForCausalLM):
     """
     The differences with the standard neuron decoder are:
     - the use of scaled embeddings,

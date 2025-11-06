@@ -34,7 +34,7 @@ from ..backend.modules.attention.attention_base import NeuronAttentionBase
 from ..backend.modules.attention.utils import (
     RotaryEmbedding,
 )
-from ..backend.modules.decoder import NxDDecoderModel, NxDModelForCausalLM
+from ..backend.modules.decoder import NxDDecoderModelForCausalLM, NxDModelForCausalLM
 from ..backend.modules.rms_norm import NeuronRMSNorm
 
 
@@ -276,7 +276,7 @@ class NeuronLlamaDecoderLayer(nn.Module):
         return hidden_states, present_key_value, cos_cache, sin_cache
 
 
-class NxDLlamaModel(NxDDecoderModel):
+class NxDLlamaModel(NxDDecoderModelForCausalLM):
     """
     The neuron version of the LlamaModel
     """
