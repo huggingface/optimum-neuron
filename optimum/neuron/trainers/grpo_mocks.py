@@ -152,6 +152,28 @@ class MockVLLMClient:
         """
         pass
 
+    def update_named_param(self, name, data):
+        """
+        Mock update of named parameter.
+
+        In a real vLLM setup, this would sync model weights to the vLLM server.
+        For mock mode, this is a no-op since we're not using a real server.
+
+        Args:
+            name: Parameter name
+            data: Parameter data tensor (not used in mock)
+        """
+        pass
+
+    def reset_prefix_cache(self):
+        """
+        Mock reset of prefix cache.
+
+        In a real vLLM setup, this would clear the KV cache for prefix caching.
+        For mock mode, this is a no-op since we're not using a real server.
+        """
+        pass
+
 
 def create_mock_vllm_client(tokenizer, args):
     """

@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from collections import defaultdict, deque
+import inspect
 from typing import Any, Callable
 
 import datasets
@@ -113,7 +114,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
         # Model
         if isinstance(model, str):
-            model = NeuronModelForCausalLM.from_pretrained(model, **args.model_init_kwargs or {})
+            model = NeuronModelForCausalLM.from_pretrained(model, args.trn_config, **args.model_init_kwargs or {})
         else:
             if args.model_init_kwargs is not None:
                 logger.warning(
@@ -140,6 +141,18 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
+
+        # Store tokens and token IDs for generation and reward computation
+        self.pad_token = tokenizer.pad_token
+        self.pad_token_id = tokenizer.pad_token_id
+        self.eos_token_id = tokenizer.eos_token_id
+
+        # Store model forward signature keys for checking supported kwargs
+        self.model_kwarg_keys = (
+            inspect.signature(model.forward).parameters.keys()
+            if not hasattr(model, "get_base_model")
+            else inspect.signature(model.get_base_model().forward).parameters.keys()
+        )
 
         # PEFT configuration and model wrapping
         # In Prompt Tuning a small set of trainable virtual tokens (continuous prompt embeddings) is prepended to the
@@ -310,6 +323,10 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         # NeuronTrainer doesn't set this, but GRPOTrainer expects it
         self._train_batch_size = args.train_batch_size
 
+        # Set FSDP flag to False (NeuronTrainer doesn't support FSDP)
+        # GRPOTrainer's methods check this attribute
+        self.is_fsdp_enabled = False
+
         # Reference model
         self.beta = args.beta
         if self.beta == 0.0:
@@ -318,7 +335,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             self.ref_model = None
         else:
             # Create reference model using NeuronModelForCausalLM
-            self.ref_model = NeuronModelForCausalLM.from_pretrained(model_id, **args.model_init_kwargs or {})
+            self.ref_model = NeuronModelForCausalLM.from_pretrained(model_id, args.trn_config, **args.model_init_kwargs or {})
 
         # Disable dropout in the models
         if args.disable_dropout:
@@ -467,27 +484,64 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         # Explicitly call GRPOTrainer's _prepare_inputs
         return GRPOTrainer._prepare_inputs(self, inputs)
 
-    def _generate(self, prompts: list[str], images: list | None):
-        """
-        Generate completions for the given prompts.
-
-        TODO: Implement Neuron-compatible text generation.
-        """
-        raise NotImplementedError(
-            "_generate is not yet implemented for NeuronGRPOTrainer. "
-            "This requires implementing generation logic compatible with Neuron devices."
-        )
+    # _generate is inherited from GRPOTrainer via the type() trick
 
     def _generate_single_turn(self, prompts: list[str], images: list | None):
         """
-        Generate a single turn of completions.
+        Generate a single turn of completions using mock vLLM.
 
-        TODO: Implement single-turn generation for Neuron devices.
+        This overrides GRPOTrainer's implementation to work with Neuron/XLA devices.
+        The main difference is avoiding gather_object which doesn't work on XLA.
+        Since we're using mock vLLM, we generate locally on each process without
+        gathering/broadcasting.
+
+        Args:
+            prompts: List of prompt strings
+            images: Optional list of images
+
+        Returns:
+            Tuple of (prompt_ids, completion_ids, logprobs, forward_kwargs)
         """
-        raise NotImplementedError(
-            "_generate_single_turn is not yet implemented for NeuronGRPOTrainer. "
-            "This requires implementing single-turn generation for Neuron devices."
+        # Move model weights to vLLM if needed (no-op for mock)
+        if self.state.global_step != getattr(self, "_last_loaded_step", -1):
+            self._move_model_to_vllm()
+            self._last_loaded_step = self.state.global_step
+
+        # For mock vLLM, generate locally on each process (no gather/broadcast needed)
+        # Take unique prompts since we have num_generations duplicates
+        prompts_text = [prompt if isinstance(prompt, str) else prompt["content"] for prompt in prompts]
+        ordered_set_of_prompts = prompts_text[:: self.num_generations]
+
+        if images is not None:
+            ordered_set_of_images = images[:: self.num_generations]
+        else:
+            ordered_set_of_images = None
+
+        # Generate using mock vLLM client
+        output = self.vllm_client.generate(
+            prompts=ordered_set_of_prompts,
+            images=ordered_set_of_images,
+            n=self.num_generations,
+            repetition_penalty=self.repetition_penalty,
+            temperature=self.temperature,
+            top_p=self.top_p,
+            top_k=-1 if self.top_k is None else self.top_k,
+            min_p=0.0 if self.min_p is None else self.min_p,
+            max_tokens=self.max_completion_length,
+            truncate_prompt_tokens=self.max_prompt_length,
+            guided_decoding_regex=self.guided_decoding_regex,
+            generation_kwargs=self.args.generation_kwargs,
         )
+
+        # Repeat prompt_ids num_generations times to match completion_ids
+        prompt_ids = [ids for ids in output["prompt_ids"] for _ in range(self.num_generations)]
+        completion_ids = output["completion_ids"]
+        logprobs = output["logprobs"]
+
+        # No forward_kwargs for mock vLLM
+        forward_kwargs = {}
+
+        return prompt_ids, completion_ids, logprobs, forward_kwargs
 
     def _calculate_rewards(self, inputs, prompts, completions, completion_ids_list):
         """
@@ -524,27 +578,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             "NeuronTrainer does not provide evaluation loops for Trainium devices."
         )
 
-    def _get_per_token_logps_and_entropies(self, *args, **kwargs):
-        """
-        Compute per-token log probabilities and entropies.
-
-        TODO: Implement log probability and entropy computation for Neuron devices.
-        """
-        raise NotImplementedError(
-            "_get_per_token_logps_and_entropies is not yet implemented for NeuronGRPOTrainer. "
-            "This requires implementing log probability computation for Neuron devices."
-        )
-
-    def get_high_entropy_mask(self, entropies: torch.Tensor, mask: torch.Tensor, threshold: float) -> torch.Tensor:
-        """
-        Get mask for high-entropy tokens.
-
-        TODO: Implement entropy-based masking for Neuron devices.
-        """
-        raise NotImplementedError(
-            "get_high_entropy_mask is not yet implemented for NeuronGRPOTrainer. "
-            "This requires implementing entropy-based masking for Neuron devices."
-        )
+    # _get_per_token_logps_and_entropies and get_high_entropy_mask are inherited from GRPOTrainer
+    # They work with standard PyTorch operations and don't need Neuron-specific implementations
 
     def _set_signature_columns_if_needed(self):
         """
