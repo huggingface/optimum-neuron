@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections import defaultdict, deque
 import inspect
+from collections import defaultdict, deque
 from typing import Any, Callable
 
 import datasets
@@ -362,14 +362,17 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         # Ensure each process receives a unique seed
         set_seed(args.seed, device_specific=True)
 
+        # ===================================================================================
+        # MOCK CONTROL: Set USE_MOCK_VLLM to False when using real vLLM server
+        # ===================================================================================
         # vLLM setup - server mode only
         from ..utils import is_vllm_available
 
-        # For now, use mock vLLM client for development
-        # TODO: Set to False when real vLLM server is ready for Neuron
+        # MOCK FLAG: Change this to False when real vLLM server is ready
         USE_MOCK_VLLM = True
 
         if USE_MOCK_VLLM:
+            # ============= MOCK-SPECIFIC BRANCH =============
             logger.warning(
                 "Using MOCK vLLM client for development. This generates placeholder completions "
                 "and should only be used for testing and development. Set USE_MOCK_VLLM=False in "
@@ -377,9 +380,11 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             )
             from .grpo_mocks import create_mock_vllm_client
 
-            if self.accelerator.is_main_process:
-                self.vllm_client = create_mock_vllm_client(tokenizer, args)
+            # MOCK: Each process needs its own client (generates locally, no server)
+            self.vllm_client = create_mock_vllm_client(tokenizer, args)
+            # ============= END MOCK-SPECIFIC BRANCH =============
         else:
+            # ============= REAL vLLM SERVER BRANCH =============
             if not is_vllm_available():
                 raise ImportError("vLLM is not available. Please install vLLM to use NeuronGRPOTrainer.")
 
@@ -394,6 +399,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
                 self.vllm_client = VLLMClient(base_url=base_url, connection_timeout=args.vllm_server_timeout)
                 self.vllm_client.init_communicator(device=torch.cuda.current_device())
+            # ============= END REAL vLLM SERVER BRANCH =============
 
         # vLLM specific sampling arguments
         self.guided_decoding_regex = args.vllm_guided_decoding_regex
@@ -486,14 +492,20 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
     # _generate is inherited from GRPOTrainer via the type() trick
 
+    # ===================================================================================
+    # MOCK-SPECIFIC OVERRIDE: This method is needed for mock vLLM mode
+    # When using real vLLM server, test if TRL's implementation works or if this
+    # override is still needed to avoid gather_object on XLA
+    # ===================================================================================
     def _generate_single_turn(self, prompts: list[str], images: list | None):
         """
-        Generate a single turn of completions using mock vLLM.
+        Generate a single turn of completions using vLLM (mock or real server).
 
         This overrides GRPOTrainer's implementation to work with Neuron/XLA devices.
         The main difference is avoiding gather_object which doesn't work on XLA.
-        Since we're using mock vLLM, we generate locally on each process without
-        gathering/broadcasting.
+
+        MOCK MODE: Each process generates locally without gathering/broadcasting.
+        REAL SERVER MODE: May need gather_object workaround - test when implementing!
 
         Args:
             prompts: List of prompt strings
