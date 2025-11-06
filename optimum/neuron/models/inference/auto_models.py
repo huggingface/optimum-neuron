@@ -22,7 +22,6 @@ automatically by the neuron factory classes such as NeuronModelForCausalLM.
 import os
 
 from ..auto_model import register_neuron_model
-from .clip.modeling_clip import CLIPTextNxDModel
 from .granite.modeling_granite import GraniteNxDModelForCausalLM
 from .llama.modeling_llama import LlamaNxDModelForCausalLM
 from .llama4.modeling_llama4 import Llama4NxDModelForCausalLM
@@ -120,15 +119,6 @@ class Qwen3MoeNeuronModelForCausalLM(Qwen3MoeNxDModelForCausalLM):
 class SmolLM3NeuronModelForCausalLM(SmolLM3NxDModelForCausalLM):
     """
     SomlLM3 model with NxD backend for inference on AWS Neuron.
-    """
-
-    pass
-
-
-@register_neuron_model_for_inference("clip-text-model", "feature-extraction")
-class CLIPTextModel(CLIPTextNxDModel):
-    """
-    Clip text model with NxD backend for inference on AWS Neuron.
     """
 
     pass
