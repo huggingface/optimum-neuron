@@ -634,8 +634,6 @@ class NxDDecoderModelForEmbedding(nn.Module):
         input_ids,
         attention_mask,
         position_ids,
-        seq_ids,
-        sampling_params,
     ):
         # Prepare attention mask(s)
         attention_mask = torch.full((self.n_positions, self.n_positions), True, device=attention_mask.device).tril(
@@ -703,24 +701,20 @@ class NxDModelForEmbeddingLM(NxDPreTrainedModel):
     def create_graph_builders(cls, config, neuron_config):
         if cls._model_cls is None:
             raise SystemError(f"No underlying model class defined for {cls}.")
-        graph_builders = {}
-        ctx_neuron_config = NxDModelForEmbeddingLM._create_context_encoding_config(neuron_config)
-        graph_builders["context_encoding"] = NxDDecoderBuilderForEmbedding(
-            config=config,
-            neuron_config=ctx_neuron_config,
-            max_tokens=ctx_neuron_config.max_context_length,
-            active_tokens=ctx_neuron_config.max_context_length,
-            model_cls=cls._model_cls,
-        )
-        return graph_builders
+        return {
+            "encoding": NxDDecoderBuilderForEmbedding(
+                config=config,
+                neuron_config=neuron_config,
+                max_tokens=neuron_config.max_context_length,
+                model_cls=cls._model_cls,
+            )
+        }
 
     def forward(
         self,
         input_ids: torch.LongTensor,
         attention_mask: torch.Tensor,
         position_ids: torch.LongTensor | None = None,
-        seq_ids: torch.LongTensor | None = None,
-        sampling_params: torch.FloatTensor | None = None,
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
@@ -728,17 +722,6 @@ class NxDModelForEmbeddingLM(NxDPreTrainedModel):
         # Create position_ids
         position_ids = attention_mask.long().cumsum(-1) - 1
         position_ids.masked_fill_(attention_mask == 0, 1)
-
-        if seq_ids is None:
-            seq_ids = torch.arange(input_ids.shape[0])
-
-        if sampling_params is None:
-            # if self.neuron_config.on_device_sampling:
-            #     raise ValueError("The sampling params tensor is required for on-device sampling.")
-            # # Just pass a dummy tensor to the model, it will be ignored
-            sampling_params = prepare_sampling_params(seq_ids.shape[0])
-        # elif self.neuron_config.on_device_sampling:
-        #     validate_sampling_params(sampling_params, self.neuron_config.max_topk)
 
         output_attentions, output_hidden_states, return_dict = self._setup_func_config(
             output_attentions, output_hidden_states, return_dict
@@ -748,8 +731,6 @@ class NxDModelForEmbeddingLM(NxDPreTrainedModel):
             input_ids,
             attention_mask,
             position_ids,
-            seq_ids,
-            sampling_params,
         )
 
         return logits_or_next_tokens[0]
@@ -787,31 +768,17 @@ class NxDModelForEmbeddingLM(NxDPreTrainedModel):
         input_ids,
         attention_mask,
         position_ids,
-        seq_ids,
-        sampling_params,
     ):
         # casting inputs to int32
         input_ids = input_ids.to(torch.int32)
         attention_mask = attention_mask.to(torch.int32)
         position_ids = position_ids.to(torch.int32)
-        seq_ids = seq_ids.to(torch.int32)
 
-        if input_ids.shape[-1] > 1 and not position_ids.min().item():
-            outputs = self.context_encoding_model(
-                input_ids,
-                attention_mask,
-                position_ids,
-                seq_ids,
-                sampling_params,
-            )
-
-        return outputs
-
-    def reset(self):
-        # We need to reset the KV cache flag for a new batch of inference.
-        # When the flag is reset, the subsequent run will invoke the
-        # context encoding model.
-        self.kv_cache_populated = False
+        return self.context_encoding_model(
+            input_ids,
+            attention_mask,
+            position_ids,
+        )
 
     def get_required_kwargs(self) -> list[str]:
         """The list of required kwargs to the model's forward"""

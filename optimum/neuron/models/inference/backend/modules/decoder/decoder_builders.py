@@ -132,7 +132,6 @@ class NxDDecoderBuilderForEmbedding(NxDGraphBuilder):
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
         max_tokens: int,
-        active_tokens: int,
         model_cls,
         priority_model_idx: int = None,
     ) -> None:
@@ -140,32 +139,16 @@ class NxDDecoderBuilderForEmbedding(NxDGraphBuilder):
         self.config = config
         self.neuron_config = neuron_config
         self.max_tokens = max_tokens
-        self.active_tokens = active_tokens
-
-        if not self.neuron_config.torch_dtype:
-            self.neuron_config.torch_dtype = torch.float32
-
-        if config.pad_token_id is None:
-            config.pad_token_id = 0
-
         self.model_cls = model_cls
 
     def input_generator(
         self,
     ):
-        inputs = []
-
-        input_ids = torch.zeros((self.neuron_config.batch_size, self.active_tokens), dtype=torch.int32)
+        input_ids = torch.zeros((self.neuron_config.batch_size, self.max_tokens), dtype=torch.int32)
         attention_mask = torch.zeros((self.neuron_config.batch_size, self.max_tokens), dtype=torch.int32)
-        position_ids = torch.zeros((self.neuron_config.batch_size, self.active_tokens), dtype=torch.int32)
-        seq_ids = torch.zeros((self.neuron_config.batch_size), dtype=torch.int32)
-        # Get the count of sampling params currently supported.
-        sampling_params_len = prepare_sampling_params(1).shape[1]
-        sampling_params = torch.zeros((self.neuron_config.batch_size, sampling_params_len), dtype=torch.float32)
+        position_ids = torch.zeros((self.neuron_config.batch_size, self.max_tokens), dtype=torch.int32)
 
-        inputs.append((input_ids, attention_mask, position_ids, seq_ids, sampling_params))
-
-        return inputs
+        return [(input_ids, attention_mask, position_ids)]
 
     def get_model_instance(self):
         return DecoderModelInstanceForEmbedding(
