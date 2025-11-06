@@ -604,16 +604,12 @@ class NxDDecoderModelForEmbedding(nn.Module):
         super().__init__()
 
         self.config = config
-        self.sampler = None
-        self.kv_mgr = None
         self.neuron_config = neuron_config
         self.batch_size = neuron_config.batch_size
         self.n_positions = neuron_config.sequence_length
         self.vocab_size = config.vocab_size
-        self.speculation_length = neuron_config.speculation_length
         self.max_length = neuron_config.sequence_length
         self.rank_util = SPMDRank(world_size=neuron_config.tp_degree)
-        self.kv_mgr = KVCacheManager(config, neuron_config, num_kv_head=config.num_key_value_heads)
 
     def initialize_process_group(self, seed: int = 0):
         if not torch.dist.is_initialized():
@@ -633,47 +629,6 @@ class NxDDecoderModelForEmbedding(nn.Module):
         # set seed
         set_random_seed(seed)
 
-    def _is_context_encoding(self, input_ids: torch.Tensor):
-        return input_ids.shape[-1] > 1 and input_ids.shape[-1] != self.speculation_length
-
-    def _is_for_speculation(self, input_ids: torch.Tensor):
-        return input_ids.shape[-1] == self.speculation_length
-
-    def _create_context_attn_mask(self, attention_mask, **kwargs):
-        # Lower triangle causal mask for classic attention
-        mask = torch.full((self.n_positions, self.n_positions), True, device=attention_mask.device).tril(diagonal=0)
-        mask = mask[None, None, :, :].expand(self.batch_size, 1, self.n_positions, self.n_positions)
-        return mask
-
-    def _create_spec_attn_mask(self, attention_mask):
-        return (
-            attention_mask[:, None, None, :]
-            .expand(self.batch_size, 1, self.speculation_length, self.n_positions)
-            .to(torch.bool)
-        )
-
-    def _create_simple_attn_mask(self, attention_mask):
-        return attention_mask[:, None, None, :].expand(self.batch_size, 1, 1, self.n_positions).to(torch.bool)
-
-    def create_attn_mask(self, attention_mask, is_for_context_encoding, is_for_speculation, **kwargs):
-        if is_for_context_encoding:
-            return self._create_context_attn_mask(attention_mask, **kwargs)
-        elif is_for_speculation:
-            return self._create_spec_attn_mask(attention_mask)
-        else:
-            return self._create_simple_attn_mask(attention_mask)
-
-    def _slice_kv_cache(self, kv_cache, n_positions):
-        past_key_values = []
-        for idx in range(len(kv_cache)):
-            k_cache = _slice_kv_cacheline(n_positions, kv_cache[idx][0])
-            v_cache = _slice_kv_cacheline(n_positions, kv_cache[idx][1])
-            past_key_values.append([k_cache, v_cache])
-        return past_key_values
-
-    def _is_reorder_needed(self, is_for_context_encoding, is_for_speculation):
-        return not is_for_context_encoding and not is_for_speculation and self.neuron_config.continuous_batching
-
     def forward(
         self,
         input_ids,
@@ -681,106 +636,37 @@ class NxDDecoderModelForEmbedding(nn.Module):
         position_ids,
         seq_ids,
         sampling_params,
-        scatter_index=None,
-        # In llava context encoding model, input_embeds is precomputed
-        inputs_embeds: torch.FloatTensor | None = None,
-        kv_cache: torch.Tensor | None = None,
     ):
-        is_for_context_encoding = self._is_context_encoding(input_ids)
-        is_for_speculation = self._is_for_speculation(input_ids)
-
-        past_key_values = None
-
         # Prepare attention mask(s)
-        attention_mask = self.create_attn_mask(
-            attention_mask,
-            is_for_context_encoding,
-            is_for_speculation,
+        attention_mask = torch.full((self.n_positions, self.n_positions), True, device=attention_mask.device).tril(
+            diagonal=0
         )
-        active_mask = None
-
-        hidden_states = self.get_model_output(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            active_mask=active_mask,
-            inputs_embeds=inputs_embeds,
+        attention_mask = attention_mask[None, None, :, :].expand(
+            self.batch_size, 1, self.n_positions, self.n_positions
         )
 
-        batch_size, num_tokens, hidden_size = hidden_states.shape
-        if not (position_ids.shape[-1] == self.speculation_length or position_ids.shape[-1] == 1):
-            # context encoding
-            index = torch.max(position_ids, dim=1, keepdim=True).indices
-            index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
-            hidden_states = torch.gather(hidden_states, dim=1, index=index)
+        inputs_embeds = self.embed_tokens(input_ids)
 
-        outputs = [hidden_states]
-
-        return outputs
-
-    def get_input_embeddings(self):
-        return self.embed_tokens
-
-    def set_input_embeddings(self, value):
-        self.embed_tokens = value
-
-    def get_model_output(
-        self,
-        input_ids: torch.LongTensor = None,
-        attention_mask: torch.Tensor | None = None,
-        position_ids: torch.LongTensor | None = None,
-        past_key_values: list[torch.FloatTensor] | None = None,
-        active_mask: list[torch.FloatTensor] | None = None,
-        # In llava context encoding model, input_embeds is precomputed
-        inputs_embeds: torch.FloatTensor | None = None,
-    ):
-        batch_size, seq_length = input_ids.shape[:2]
-
-        past_key_values_length = 0
-        if past_key_values is not None:
-            past_key_values_length = past_key_values[0][0].shape[2]
-
-        if inputs_embeds is None:
-            inputs_embeds = self.embed_tokens(input_ids)
-
-        if position_ids is None:
-            device = input_ids.device if input_ids is not None else inputs_embeds.device  # noqa
-            position_ids = torch.arange(
-                past_key_values_length,
-                seq_length + past_key_values_length,
-                dtype=torch.long,
-                device=device,
-            )
-            position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
-        else:
-            position_ids = position_ids.view(-1, seq_length).long()
-
-        # embed positions
         hidden_states = inputs_embeds
-
-        # encoder layers
-        # next_encoder_cache = ()
         cos_cache = None
         sin_cache = None
-        for idx, encoder_layer in enumerate(self.layers):
-            past_key_value = past_key_values[idx] if past_key_values is not None else None
-
-            layer_outputs = encoder_layer(
+        for decoder_layer in self.layers:
+            hidden_states, _, cos_cache, sin_cache = decoder_layer(
                 hidden_states,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
-                past_key_value=past_key_value,
-                active_mask=active_mask,
                 cos_cache=cos_cache,
                 sin_cache=sin_cache,
             )
 
-            hidden_states = layer_outputs[0]
-
         hidden_states = self.norm(hidden_states)
 
-        return hidden_states
+        batch_size, _, hidden_size = hidden_states.shape
+        index = torch.max(position_ids, dim=1, keepdim=True).indices
+        index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
+        hidden_states = torch.gather(hidden_states, dim=1, index=index)
+
+        return [hidden_states]
 
 
 class NxDModelForEmbeddingLM(NxDPreTrainedModel):
