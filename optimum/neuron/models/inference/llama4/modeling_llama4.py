@@ -30,7 +30,7 @@ from ..backend.config import NxDNeuronConfig
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
 from ..backend.modules.attention.gqa import BaseGroupQueryAttention
 from ..backend.modules.attention.rope import apply_rotary_polar_compatible, precompute_freqs_cis
-from ..backend.modules.decoder import NxDDecoderModel, NxDModelForCausalLM
+from ..backend.modules.decoder import NxDDecoderModelForCausalLM, NxDModelForCausalLM
 from ..backend.modules.moe_v2 import initialize_moe_module
 from ..backend.modules.rms_norm import NeuronRMSNorm
 from ..llama.modeling_llama import NeuronLlamaMLP
@@ -201,7 +201,7 @@ class NeuronLlama4TextDecoderLayer(nn.Module):
         return hidden_states, present_key_value, cos_cache, sin_cache
 
 
-class NeuronLlama4TextModel(NxDDecoderModel):
+class NeuronLlama4TextModel(NxDDecoderModelForCausalLM):
     def __init__(self, config: Llama4TextConfig, neuron_config: NxDNeuronConfig):
         super().__init__(config, neuron_config)
 

@@ -25,7 +25,7 @@ from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
 from ..backend.config import NxDNeuronConfig
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
 from ..backend.modules.attention.utils import RotaryEmbedding
-from ..backend.modules.decoder import NxDDecoderModel, NxDModelForCausalLM
+from ..backend.modules.decoder import NxDDecoderModelForCausalLM, NxDModelForCausalLM
 from ..backend.modules.moe import initialize_moe_module
 from ..backend.modules.rms_norm import NeuronRMSNorm
 from ..llama.modeling_llama import NeuronLlamaMLP
@@ -166,7 +166,7 @@ class NeuronQwen3MoeDecoderLayer(NeuronMixtralDecoderLayer):
         )
 
 
-class NxDQwen3MoeModel(NxDDecoderModel):
+class NxDQwen3MoeModel(NxDDecoderModelForCausalLM):
     """
     NxDQwen3MoeModel extends the Qwen3MoeModel to be traceable.
     The forward function of this class is traced.

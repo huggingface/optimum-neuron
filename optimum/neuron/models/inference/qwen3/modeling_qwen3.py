@@ -28,7 +28,7 @@ from transformers.models.qwen3.configuration_qwen3 import Qwen3Config
 
 from ..backend.config import NxDNeuronConfig
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
-from ..backend.modules.decoder import NxDDecoderModel
+from ..backend.modules.decoder import NxDDecoderModelForCausalLM
 from ..backend.modules.rms_norm import NeuronRMSNorm
 from ..llama.modeling_llama import (
     LlamaNxDModelForCausalLM,
@@ -64,7 +64,7 @@ class NeuronQwen3DecoderLayer(NeuronLlamaDecoderLayer):
         self.self_attn = NeuronQwen3Attention(config, neuron_config)
 
 
-class NxDQwen3Model(NxDDecoderModel):
+class NxDQwen3Model(NxDDecoderModelForCausalLM):
     """
     The neuron version of the Qwen3Model
     """

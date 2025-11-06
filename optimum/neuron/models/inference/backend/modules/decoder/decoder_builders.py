@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# Graph builders used at compilation time to trace decoder models.
 
 import torch
 from neuronx_distributed.trace.model_builder import BaseModelInstance
@@ -22,7 +23,15 @@ from ...graph_builder import NxDGraphBuilder
 from ..generation.sampling import prepare_sampling_params
 
 
-class NxDDecoderBuilder(NxDGraphBuilder):
+class NxDDecoderBuilderForCausalLM(NxDGraphBuilder):
+    """A graph builder for decoder models used in causal language modeling.
+
+    It supports multiple graphs for:
+    - context encoding -> multiple tokens are encoded, and one token is generated
+    - token generation -> only one token is encoded and one token is generated
+    - speculation -> only one token is encoded and multiple tokens are generated
+    """
+
     def __init__(
         self,
         config: PretrainedConfig,
@@ -64,7 +73,7 @@ class NxDDecoderBuilder(NxDGraphBuilder):
         return inputs
 
     def get_model_instance(self):
-        return DecoderModelInstance(
+        return DecoderModelInstanceForCausalLM(
             model_cls=self.model_cls,
             config=self.config,
             neuron_config=self.neuron_config,
@@ -72,7 +81,12 @@ class NxDDecoderBuilder(NxDGraphBuilder):
         )
 
 
-class DecoderModelInstance(BaseModelInstance):
+class DecoderModelInstanceForCausalLM(BaseModelInstance):
+    """Decoder model instance for causal language modeling.
+
+    Aliases the past key values outputs/inputs for faster access during runtime.
+    """
+
     def __init__(self, model_cls, config: PretrainedConfig, neuron_config: NxDNeuronConfig, n_positions: int):
         self.model_cls = model_cls
         self.module = None

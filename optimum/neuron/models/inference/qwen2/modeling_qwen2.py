@@ -27,7 +27,7 @@ from torch import nn
 from transformers.models.qwen2.modeling_qwen2 import Qwen2Config
 
 from ..backend.config import NxDNeuronConfig
-from ..backend.modules.decoder import NxDDecoderModel
+from ..backend.modules.decoder import NxDDecoderModelForCausalLM
 from ..backend.modules.rms_norm import NeuronRMSNorm
 from ..llama.modeling_llama import (
     LlamaNxDModelForCausalLM,
@@ -64,7 +64,7 @@ class NeuronQwen2DecoderLayer(NeuronLlamaDecoderLayer):
         self.config = config
 
 
-class NxDQwen2Model(NxDDecoderModel):
+class NxDQwen2Model(NxDDecoderModelForCausalLM):
     """
     Just use the NeuronQwen2DecoderLayer instead of the NeuronLlamaDecoderLayer
     """

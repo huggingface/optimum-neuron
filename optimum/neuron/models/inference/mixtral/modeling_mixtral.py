@@ -30,7 +30,7 @@ from transformers.models.mixtral.modeling_mixtral import MixtralConfig
 from ..backend.config import NxDNeuronConfig
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
 from ..backend.modules.attention.utils import RotaryEmbedding
-from ..backend.modules.decoder import NxDDecoderModel, NxDModelForCausalLM
+from ..backend.modules.decoder import NxDDecoderModelForCausalLM, NxDModelForCausalLM
 from ..backend.modules.moe import initialize_moe_module
 from ..backend.modules.rms_norm import NeuronRMSNorm
 
@@ -193,9 +193,8 @@ class NeuronMixtralDecoderLayer(nn.Module):
         return outputs
 
 
-class NxDMixtralModel(NxDDecoderModel):
+class NxDMixtralModel(NxDDecoderModelForCausalLM):
     """
-    NeuronMixtralModel extends the MixtralModel to be traceable.
     The forward function of this class is traced.
     """
 
