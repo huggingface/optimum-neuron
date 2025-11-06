@@ -631,9 +631,9 @@ class NxDDecoderModelForEmbedding(nn.Module):
 
     def forward(
         self,
-        input_ids,
-        attention_mask,
-        position_ids,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        position_ids: torch.Tensor,
     ):
         # Prepare attention mask(s)
         attention_mask = torch.full((self.n_positions, self.n_positions), True, device=attention_mask.device).tril(
@@ -664,7 +664,7 @@ class NxDDecoderModelForEmbedding(nn.Module):
         index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
         hidden_states = torch.gather(hidden_states, dim=1, index=index)
 
-        return [hidden_states]
+        return hidden_states
 
 
 class NxDModelForEmbeddingLM(NxDPreTrainedModel):
@@ -683,19 +683,11 @@ class NxDModelForEmbeddingLM(NxDPreTrainedModel):
         super().__init__(
             config=config, neuron_config=neuron_config, traced_model=traced_model, graph_builders=graph_builders
         )
-        ctx_neuron_config = NxDModelForEmbeddingLM._create_context_encoding_config(neuron_config)
-        self.context_encoding_model = NxDDecoderWrapperForEmbedding(
-            config=config, neuron_config=ctx_neuron_config, model=traced_model
+        self.encoding_model = NxDDecoderWrapperForEmbedding(
+            config=config, neuron_config=neuron_config, model=traced_model
         )
-
         self.text_config = self.config.get_text_config()
         self.vocab_size = self.text_config.vocab_size
-
-    @staticmethod
-    def _create_context_encoding_config(neuron_config: NxDNeuronConfig) -> NxDNeuronConfig:
-        ctx_neuron_config = copy.deepcopy(neuron_config)
-        ctx_neuron_config.batch_size = neuron_config.ctx_batch_size
-        return ctx_neuron_config
 
     @classmethod
     def create_graph_builders(cls, config, neuron_config):
@@ -714,75 +706,19 @@ class NxDModelForEmbeddingLM(NxDPreTrainedModel):
         self,
         input_ids: torch.LongTensor,
         attention_mask: torch.Tensor,
-        position_ids: torch.LongTensor | None = None,
-        output_attentions: bool | None = None,
-        output_hidden_states: bool | None = None,
-        return_dict: bool | None = None,
-    ) -> tuple | CausalLMOutputWithPast:
+    ) -> tuple:
         # Create position_ids
         position_ids = attention_mask.long().cumsum(-1) - 1
         position_ids.masked_fill_(attention_mask == 0, 1)
 
-        output_attentions, output_hidden_states, return_dict = self._setup_func_config(
-            output_attentions, output_hidden_states, return_dict
-        )
-
-        logits_or_next_tokens = self._get_model_outputs(
-            input_ids,
-            attention_mask,
-            position_ids,
-        )
-
-        return logits_or_next_tokens[0]
-
-    def _setup_func_config(self, output_attentions, output_hidden_states, return_dict):
-        output_attentions = output_attentions if output_attentions is not None else self.text_config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.text_config.output_hidden_states
-        )
-        return_dict = return_dict if return_dict is not None else getattr(self.config, "use_return_dict", None)
-        return output_attentions, output_hidden_states, return_dict
-
-    def _infer_attention_mask(self, position_ids):
-        assert position_ids is not None, "need to call forward with position_ids if attention_mask is not provided"
-        batch_size, seq_len = position_ids.shape
-        if position_ids.shape[-1] == 1:
-            seq_len = self.neuron_config.sequence_length
-            position_ids_to_compare = position_ids.expand(batch_size, seq_len) - 1
-        else:
-            seq_len = position_ids.shape[-1]
-            position_ids_to_compare = position_ids
-        mask = torch.arange(seq_len).view(1, -1).expand(batch_size, seq_len)
-        attention_mask = (position_ids_to_compare >= mask).to(dtype=position_ids.dtype)
-        return attention_mask
-
-    def _get_async_output(
-        self,
-        ranked_async_tensor,
-    ):
-        outputs = [[async_tensor[0].cpu()] for async_tensor in ranked_async_tensor]
-        return outputs[0][0]
-
-    def _get_model_outputs(
-        self,
-        input_ids,
-        attention_mask,
-        position_ids,
-    ):
-        # casting inputs to int32
         input_ids = input_ids.to(torch.int32)
         attention_mask = attention_mask.to(torch.int32)
         position_ids = position_ids.to(torch.int32)
-
-        return self.context_encoding_model(
+        return self.encoding_model(
             input_ids,
             attention_mask,
             position_ids,
         )
-
-    def get_required_kwargs(self) -> list[str]:
-        """The list of required kwargs to the model's forward"""
-        return []
 
     @classmethod
     def get_compiler_args(cls, neuron_config: NxDNeuronConfig) -> str:

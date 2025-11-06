@@ -98,8 +98,6 @@ class Qwen3NxDModelForCausalLMEmbedding(NxDModelForEmbeddingLM):
         tensor_parallel_size: int,
         dtype: torch.dtype,
     ):
-        continuous_batching = False  # Disable for embeddings
-        on_device_sampling = False  # Disable for embeddings
         return NxDNeuronConfig(
             checkpoint_id=checkpoint_id,
             checkpoint_revision=checkpoint_revision,
@@ -108,47 +106,5 @@ class Qwen3NxDModelForCausalLMEmbedding(NxDModelForEmbeddingLM):
             tp_degree=tensor_parallel_size,
             torch_dtype=dtype,
             target=instance_type,
-            on_device_sampling=on_device_sampling,
             fused_qkv=True,
-            continuous_batching=continuous_batching,
         )
-
-    def encode(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor | None = None,
-        pooling_type: str = "last",
-        normalize: bool = False,
-    ) -> torch.Tensor:
-        """
-        Get embeddings using the parent's forward infrastructure.
-        """
-        batch_size, seq_len = input_ids.shape
-
-        # Create position_ids
-        if attention_mask is not None:
-            position_ids = attention_mask.long().cumsum(-1) - 1
-            position_ids.masked_fill_(attention_mask == 0, 1)
-        else:
-            position_ids = torch.arange(seq_len, dtype=torch.long, device=input_ids.device)
-            position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
-
-        # Create dummy sampling_params (required by parent forward but not used for embeddings)
-        from ..backend.modules.generation.sampling import prepare_sampling_params
-
-        sampling_params = prepare_sampling_params(
-            batch_size=batch_size,
-            top_k=1,
-            top_p=1.0,
-            temperature=1.0,
-        )
-
-        outputs = super().forward(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            sampling_params=sampling_params,
-        )
-
-        hidden_states = outputs.hidden_states
-        return hidden_states

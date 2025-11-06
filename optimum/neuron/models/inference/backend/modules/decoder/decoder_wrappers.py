@@ -263,7 +263,7 @@ class NxDDecoderWrapperForEmbedding(NxDModelWrapper):
                 )
                 outputs = self._forward_with_pad(*[arg[cur_batch:input_batch_size] for arg in args])
 
-            output_logits.append(outputs[0])
+            output_logits.append(outputs)
             cur_batch += self.neuron_config.batch_size
 
-        return [torch.cat(output_logits, dim=0)]
+        return torch.cat(output_logits, dim=0)
