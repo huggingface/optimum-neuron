@@ -37,6 +37,8 @@ _import_structure = {
     "trainers": [
         "NeuronTrainer",
         "NeuronSFTTrainer",
+        "NeuronGRPOTrainer",
+        "NeuronGRPOConfig",
         "NeuronTrainingArguments",
         "NeuronSFTConfig",
     ],
@@ -156,6 +158,8 @@ if TYPE_CHECKING:
     from .models.inference.yolos import NeuronYolosForObjectDetection
     from .pipelines import pipeline
     from .trainers import (
+        NeuronGRPOConfig,
+        NeuronGRPOTrainer,
         NeuronSFTConfig,
         NeuronSFTTrainer,
         NeuronTrainer,
