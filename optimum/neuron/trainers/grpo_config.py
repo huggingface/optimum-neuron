@@ -13,10 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .sft_config import NeuronSFTConfig
-from .sft_trainer import NeuronSFTTrainer
+from dataclasses import dataclass
+
+from ..utils.import_utils import is_trl_available
 from .training_args import NeuronTrainingArguments
-from .transformers import NeuronTrainer
 from .trl_utils import TRL_VERSION
-from .grpo_trainer import NeuronGRPOTrainer
-from .grpo_config import NeuronGRPOConfig
+
+
+if is_trl_available():
+    from trl import GRPOConfig
+else:
+
+    @dataclass
+    class GRPOConfig:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError(f"You need to install the `trl=={TRL_VERSION}` library to use the `NeuronGRPOConfig`.")
+
+
+@dataclass
+class NeuronGRPOConfig(NeuronTrainingArguments, GRPOConfig):
+    pass
