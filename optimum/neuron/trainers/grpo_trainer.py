@@ -248,6 +248,7 @@ class NeuronGRPOTrainer(NeuronTrainer):
             setattr(self, attr, getattr(self.args, attr, default_value))
         
         # Reference model setup (before super().__init__ to avoid distribution issues)
+
         if self.beta != 0.0 and not self.ref_free:
             logger.info("[PRE-INIT] Loading reference model before distributed setup...")
             self.ref_model = AutoModelForCausalLM.from_pretrained(
@@ -255,11 +256,22 @@ class NeuronGRPOTrainer(NeuronTrainer):
                 torch_dtype=torch.float16,
                 low_cpu_mem_usage=True,
             )
-            self.ref_model = self.ref_model.to("cpu")
+            try:
+                xla_dev = xm.xla_device()
+                self.ref_model = self.ref_model.to(xla_dev)
+                self.ref_model_on_xla = True
+                logger.info(f"[PRE-INIT] Reference model moved to XLA device: {xla_dev}")
+            except Exception as e:
+                # Fall back gracefully to CPU if XLA device not available
+                self.ref_model = self.ref_model.to("cpu")
+                self.ref_model_on_xla = False
+                logger.info(f"[PRE-INIT] Could not move ref_model to XLA, keeping on CPU: {e}")
             self.ref_model.eval()
             logger.info("[PRE-INIT] Reference model ready")
+
         else:
             self.ref_model = None
+             self.ref_model_on_xla = False
         
         self.mode = "train"
         
@@ -483,16 +495,6 @@ class NeuronGRPOTrainer(NeuronTrainer):
         
         logits_to_keep = completion_ids.size(1)
         batch_size = self.args.per_device_train_batch_size if mode == "train" else self.args.per_device_eval_batch_size
-
-        msg = (
-                    f"[rank{rank}] shapes (pre-split): "
-                    f"prompt_ids={tuple(prompt_ids.shape)}, "
-                    f"completion_ids={tuple(completion_ids.shape)}, "
-                    f"prompt_completion_ids={tuple(prompt_completion_ids.shape)}, "
-                    f"attention_mask={tuple(attention_mask.shape)}"
-            )
-        
-        logger.info(msg)
         
         # Compute old_per_token_logps if needed (policy model logps stay on XLA)
         with torch.no_grad():
@@ -510,16 +512,45 @@ class NeuronGRPOTrainer(NeuronTrainer):
         
         # Compute ref_per_token_logps if reference model exists (stays on CPU)
         ref_per_token_logps = None
+        entropies_trimmed = None
+
         if self.beta != 0.0 and self.ref_model is not None:
             with torch.no_grad():
-                ref_per_token_logps, _ = self._get_per_token_logps_and_entropies(
-                    self.ref_model,
-                    prompt_completion_ids,
-                    attention_mask,
-                    logits_to_keep,
-                    batch_size,
-                )
-        
+                try:
+                    if getattr(self, "ref_model_on_xla", False):
+                        xla_dev = xm.xla_device()
+                        # pad to Neuron multiple before moving (if needed)
+                        pc_ids_xla = pad_to_neuron_sequence_length(prompt_completion_ids.to(xla_dev), self.pad_token_id)
+                        attn_mask_xla = pad_to_neuron_sequence_length(attention_mask.to(xla_dev), 0)
+
+                        ref_per_token_logps, ref_entropies = self._get_per_token_logps_and_entropies(
+                            self.ref_model,
+                            pc_ids_xla,
+                            attn_mask_xla,
+                            logits_to_keep,
+                            batch_size,
+                        )
+
+                        # Move XLA tensors to CPU
+                        if isinstance(ref_per_token_logps, torch.Tensor) and ref_per_token_logps.device.type == "xla":
+                            ref_per_token_logps = ref_per_token_logps.detach().cpu()
+                        if ref_entropies is not None and ref_entropies.device.type == "xla":
+                            entropies_trimmed = ref_entropies.detach().cpu()
+
+                    else:
+                        ref_per_token_logps, entropies_trimmed = self._get_per_token_logps_and_entropies(
+                            self.ref_model,
+                            prompt_completion_ids,
+                            attention_mask,
+                            logits_to_keep,
+                            batch_size,
+                        )
+
+                except Exception as e:
+                    logger.warning(f"Reference model logps computation failed: {e}")
+                    ref_per_token_logps = None
+                    entropies_trimmed = None
+
         completions = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
         prompts_for_rewards = [x["prompt"] for x in inputs]
         
