@@ -255,9 +255,9 @@ class NeuronGRPOTrainer(NeuronTrainer):
                 torch_dtype=torch.float16,
                 low_cpu_mem_usage=True,
             )
-            self.ref_model = self.ref_model.to("cpu")
+            self.ref_model = self.ref_model.to(xm.xla_device())
             self.ref_model.eval()
-            logger.info("[PRE-INIT] Reference model ready")
+            logger.info("[PRE-INIT] Reference model loaded on XLA device")
         else:
             self.ref_model = None
         
@@ -621,36 +621,12 @@ class NeuronGRPOTrainer(NeuronTrainer):
         token_type_ids=None,
         **kwargs,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        """Override to handle CPU->XLA tensor movement and Neuron padding."""
+        """Only handling tensors on XLA with Neuron padding."""
         # Filter out image-related parameters
         image_keys = ["pixel_values", "image_grid_thw", "num_images", "pixel_attention_mask", "image_sizes"]
         filtered_kwargs = {k: v for k, v in kwargs.items() if k not in image_keys}
         
-        model_device = next(model.parameters()).device
-        
-        if model_device.type == "cpu":
-            # Ref model: keep tensors on CPU
-            input_ids_cpu = input_ids
-            attention_mask_cpu = attention_mask
-            cpu_kwargs = {}
-            if token_type_ids is not None:
-                cpu_kwargs["token_type_ids"] = token_type_ids
-            
-            cpu_kwargs.update(filtered_kwargs)
-            
-            logps, entropies = _GRPO._get_per_token_logps_and_entropies(
-                self,
-                model,
-                input_ids_cpu,
-                attention_mask_cpu,
-                logits_to_keep,
-                batch_size=batch_size,
-                compute_entropy=compute_entropy,
-                **cpu_kwargs,
-            )
-            return logps, entropies
-        
-        # Policy model: move tensors to XLA
+        # Policy model and reference model: move tensors to XLA
         xla_device = xm.xla_device()
         
         if input_ids.device.type != "xla":
