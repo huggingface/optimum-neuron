@@ -483,6 +483,16 @@ class NeuronGRPOTrainer(NeuronTrainer):
         
         logits_to_keep = completion_ids.size(1)
         batch_size = self.args.per_device_train_batch_size if mode == "train" else self.args.per_device_eval_batch_size
+
+        msg = (
+                    f"[rank{rank}] shapes (pre-split): "
+                    f"prompt_ids={tuple(prompt_ids.shape)}, "
+                    f"completion_ids={tuple(completion_ids.shape)}, "
+                    f"prompt_completion_ids={tuple(prompt_completion_ids.shape)}, "
+                    f"attention_mask={tuple(attention_mask.shape)}"
+            )
+        
+        logger.info(msg)
         
         # Compute old_per_token_logps if needed (policy model logps stay on XLA)
         with torch.no_grad():
