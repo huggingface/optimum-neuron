@@ -18,10 +18,12 @@ import logging
 import torch
 from vllm.config import VllmConfig
 from vllm.distributed import ensure_model_parallel_initialized, init_distributed_environment
-from vllm.lora.request import LoRARequest
 from vllm.model_executor import set_random_seed
-from vllm.sequence import ExecuteModelRequest
-from vllm.worker.worker_base import LocalOrDistributedWorkerBase, WorkerBase, WorkerInput
+from vllm.tasks import SupportedTask
+from vllm.v1.core.sched.output import SchedulerOutput
+from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheSpec
+from vllm.v1.outputs import ModelRunnerOutput
+from vllm.worker.worker_base import WorkerBase
 
 from .runner import OptimumNeuronModelRunner
 
@@ -29,7 +31,7 @@ from .runner import OptimumNeuronModelRunner
 logger = logging.getLogger("Neuron")
 
 
-class OptimumNeuronWorker(LocalOrDistributedWorkerBase):
+class OptimumNeuronWorker(WorkerBase):
     """A worker class that executes the model on a group of neuron cores."""
 
     model_runner: OptimumNeuronModelRunner
@@ -59,71 +61,12 @@ class OptimumNeuronWorker(LocalOrDistributedWorkerBase):
 
         self.model_runner = OptimumNeuronModelRunner(vllm_config=vllm_config)
 
+    # WorkerBase methods that are expected to be implemented
+    # Note that some of the methods related to features we explicitly don't support
+    # (e.g., prefix caching, lora) are omitted here because they won't be called
+
     def init_device(self) -> None:
-        self.init_distributed_environment()
-
-        # Set random seed.
-        set_random_seed(self.model_config.seed)
-
-    def load_model(self):
-        self.model_runner.load_model()
-
-    def determine_num_available_blocks(self) -> tuple[int, int]:
-        """Determine the number of available KV blocks.
-
-        Swapping is not yet supported, so always return num_cpu_blocks=0.
-
-        We configure num_gpu_blocks to be equal to max_num_seqs.
-        """
-        # Set the number of GPU blocks to be the same as the maximum number of
-        # sequences that can be processed in a single batch. This is equivalent
-        # to schedule without PagedAttention.
-        num_gpu_blocks = self.scheduler_config.max_num_seqs + 1
-
-        # Swap not yet supported with Neuron backend.
-        num_cpu_blocks = 0
-
-        return num_gpu_blocks, num_cpu_blocks
-
-    def initialize_cache(self, num_gpu_blocks: int, num_cpu_blocks: int) -> None:
-        """Initialize the KV cache."""
-
-        # Different values are not tested.
-        assert num_cpu_blocks == 0
-        assert num_gpu_blocks == self.scheduler_config.max_num_seqs + 1
-
-        self.cache_config.num_gpu_blocks = num_gpu_blocks
-        self.cache_config.num_cpu_blocks = num_cpu_blocks
-
-    @property
-    def do_metadata_broadcast(self) -> bool:
-        return False
-
-    @property
-    def kv_cache(self) -> list[list[torch.Tensor]] | None:
-        return None
-
-    @torch.inference_mode()
-    def prepare_worker_input(self, execute_model_req: ExecuteModelRequest) -> WorkerInput:
-        return WorkerInput(
-            num_seq_groups=len(execute_model_req.seq_group_metadata_list),
-        )
-
-    def execute_worker(self, worker_input: WorkerInput) -> None:
-        pass
-
-    def get_cache_block_size_bytes(self) -> int:
-        """Determine the size in bytes of a cache block.
-
-        This is required for speculative decoding; it is not yet implemented.
-        """
-        raise NotImplementedError
-
-    def init_distributed_environment(self):
-        """Neuron uses transformers-neuronx for tensor parallelism.
-
-        vLLM still needs the environment initialized when TP/PP > 1
-        """
+        # Initialize distributed environment.
         init_distributed_environment(
             world_size=1,
             rank=self.rank,
@@ -132,19 +75,37 @@ class OptimumNeuronWorker(LocalOrDistributedWorkerBase):
             backend="gloo",
         )
 
-        ensure_model_parallel_initialized(
-            1,
-            1,
-        )
+        ensure_model_parallel_initialized(1, 1)
 
-    def add_lora(self, lora_request: LoRARequest) -> bool:
-        raise NotImplementedError(f"{type(self)} does not support LoRA with Optimum Neuron platform")
+        # Set random seed.
+        set_random_seed(self.model_config.seed)
 
-    def remove_lora(self, lora_id: int) -> bool:
-        raise NotImplementedError(f"{type(self)} does not support LoRA with Optimum Neuron platform")
+    def load_model(self):
+        self.model_runner.load_model()
 
-    def pin_lora(self, lora_id: int) -> bool:
-        raise NotImplementedError(f"{type(self)} does not support LoRA with Optimum Neuron platform")
+    def get_kv_cache_spec(self) -> dict[str, KVCacheSpec]:
+        # Return empty dict since we disabled prefix caching.
+        return {}
 
-    def list_loras(self) -> set[int]:
-        raise NotImplementedError(f"{type(self)} does not support LoRA with Optimum Neuron platform")
+    def initialize_cache(self, num_gpu_blocks: int, num_cpu_blocks: int) -> None:
+        # Nothing to do here as the KV cache is instantiated and managed internally
+        # by the optimum-neuron model.
+        assert num_cpu_blocks == 0
+        assert num_gpu_blocks == 1
+
+    def initialize_from_config(self, kv_cache_config: KVCacheConfig) -> None:
+        # We don't need to do anything since we disabled prefix caching.
+        pass
+
+    def compile_or_warm_up_model(self) -> None:
+        # Not required since the compilation happens implicitly when loading the model.
+        pass
+
+    def get_supported_tasks(self) -> tuple[SupportedTask, ...]:
+        # The optimum-neuron vLLM plugin only supports text generation.
+        return ("generate",)
+
+    @torch.inference_mode()
+    def execute_model(self, scheduler_output: SchedulerOutput) -> ModelRunnerOutput | None:
+        # Main execution method called repeatedly by the vLLM scheduler.
+        return self.model_runner.execute_model(scheduler_output)
