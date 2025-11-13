@@ -104,7 +104,6 @@ class MockVLLMClient:
             if truncate_prompt_tokens is not None and len(prompt_tokens) > truncate_prompt_tokens:
                 prompt_tokens = prompt_tokens[-truncate_prompt_tokens:]
 
-            # Store one copy of prompt tokens (will be repeated n times by caller)
             prompt_ids.append(prompt_tokens)
 
             # Generate n completions per prompt
@@ -114,22 +113,8 @@ class MockVLLMClient:
                 # In real scenario, this would be actual LLM generation
                 completion_length = min(max_tokens, self.max_completion_length)
 
-                # Create a simple deterministic completion based on prompt and index
-                # This helps with debugging as completions will be consistent
-                if len(prompt_tokens) > 0:
-                    # Use last prompt token as seed for variety
-                    seed_token = prompt_tokens[-1]
-                else:
-                    seed_token = self.tokenizer.eos_token_id
-
-                # Generate completion: alternate between seed_token and eos_token
-                completion = []
-                for j in range(completion_length):
-                    if j % 2 == i % 2:  # Use index for variation
-                        completion.append(seed_token)
-                    else:
-                        completion.append(self.tokenizer.eos_token_id)
-
+                # Generate completion: cycle through safe token IDs
+                completion = [self.tokenizer.eos_token_id] * completion_length
                 completion_ids.append(completion)
 
                 # Generate mock logprobs (uniform negative values)
