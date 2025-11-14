@@ -20,6 +20,7 @@ from typing import Any, Callable
 import datasets
 import numpy as np
 import torch
+import torch_xla
 from accelerate.utils import set_seed
 from optimum.utils import logging
 from torch.utils.data import Dataset, IterableDataset
@@ -43,7 +44,7 @@ from .trl_utils import TRL_VERSION
 if is_trl_available():
     from trl import GRPOConfig, GRPOTrainer
     from trl.data_utils import is_conversational
-    from trl.trainer.utils import disable_dropout_in_model, identity, nanmax, nanmin, nanstd
+    from trl.trainer.utils import disable_dropout_in_model, identity
 else:
 
     class GRPOTrainer:
@@ -136,6 +137,69 @@ def neuron_parallel_compile_tokenizer_decoder_method(
     # Returns a dummy string, we do not care about the value in this context.
     return "dummy"
 
+
+def nanmin(tensor: torch.Tensor) -> torch.Tensor:
+    """
+    XLA-compatible version of nanmin that doesn't use dynamic indexing.
+
+    Compute the minimum value of a tensor, ignoring NaNs.
+
+    Args:
+        tensor: Input tensor of shape `(N,)`.
+
+    Returns:
+        Minimum value of the tensor, ignoring NaNs. Returns NaN if all values are NaN.
+    """
+    # Replace NaN with a very large value before computing min
+    # This avoids dynamic indexing which XLA can't handle
+    mask = torch.isnan(tensor)
+    if mask.all():
+        return torch.tensor(float("nan"), dtype=tensor.dtype, device=tensor.device)
+
+    # Replace NaNs with max float value so they don't affect min
+    filled = torch.where(mask, torch.tensor(float("inf"), dtype=tensor.dtype, device=tensor.device), tensor)
+    return torch.min(filled)
+
+
+def nanmax(tensor: torch.Tensor) -> torch.Tensor:
+    """
+    XLA-compatible version of nanmax that doesn't use dynamic indexing.
+
+    Compute the maximum value of a tensor, ignoring NaNs.
+
+    Args:
+        tensor: Input tensor of shape `(N,)`.
+
+    Returns:
+        Maximum value of the tensor, ignoring NaNs. Returns NaN if all values are NaN.
+    """
+    # Replace NaN with a very small value before computing max
+    mask = torch.isnan(tensor)
+    if mask.all():
+        return torch.tensor(float("nan"), dtype=tensor.dtype, device=tensor.device)
+
+    # Replace NaNs with min float value so they don't affect max
+    filled = torch.where(mask, torch.tensor(float("-inf"), dtype=tensor.dtype, device=tensor.device), tensor)
+    return torch.max(filled)
+
+
+def nanstd(tensor: torch.Tensor) -> torch.Tensor:
+    """
+    XLA-compatible version of nanstd.
+
+    Compute the standard deviation of a tensor, ignoring NaNs.
+
+    Args:
+        tensor: Input tensor of shape `(N,)`.
+
+    Returns:
+        Standard deviation of the tensor, ignoring NaNs.
+    """
+    # Use torch's built-in nanmean and compute variance with Bessel's correction
+    variance = torch.nanmean((tensor - torch.nanmean(tensor, keepdim=True)) ** 2)
+    count = torch.sum(~torch.isnan(tensor))
+    variance *= count / (count - 1).clamp(min=1.0)  # Bessel's correction, avoid division by zero
+    return torch.sqrt(variance)
 
 
 class NeuronGRPOTrainer(_GRPOTrainer):
@@ -536,6 +600,46 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         # Explicitly call GRPOTrainer's _prepare_inputs
         return GRPOTrainer._prepare_inputs(self, inputs)
 
+    def _calculate_rewards(self, inputs, prompts, completions, completion_ids_list):
+        """
+        Override to use NeuronAccelerator.gather instead of standalone gather function.
+
+        The standalone gather from accelerate.utils may not be XLA-compatible,
+        so we use self.accelerator.gather which uses _xla_gather internally.
+        """
+        device = self.accelerator.device
+        rewards_per_func = torch.zeros(len(prompts), len(self.reward_funcs), device=device)
+
+        keys = [key for key in inputs[0] if key not in ["prompt", "completion", "completion_ids"]]
+        reward_kwargs = {key: [example[key] for example in inputs] for key in keys}
+        reward_kwargs["trainer_state"] = self.state
+
+        for i, (reward_func, reward_processing_class, reward_func_name) in enumerate(
+            zip(self.reward_funcs, self.reward_processing_classes, self.reward_func_names)
+        ):
+            if isinstance(reward_func, torch.nn.Module):
+                if is_conversational(inputs[0]):
+                    from trl.data_utils import apply_chat_template
+                    messages = [{"messages": p + c} for p, c in zip(prompts, completions)]
+                    texts = [apply_chat_template(x, reward_processing_class)["text"] for x in messages]
+                else:
+                    texts = [p + c for p, c in zip(prompts, completions)]
+                reward_inputs = reward_processing_class(
+                    text=texts, return_tensors="pt", padding=True, padding_side="right", add_special_tokens=False
+                )
+                reward_inputs = NeuronTrainer._prepare_inputs(self, reward_inputs)
+                with torch.inference_mode():
+                    rewards_per_func[:, i] = reward_func(**reward_inputs).logits[:, 0]
+            else:
+                output_reward_func = reward_func(
+                    prompts=prompts, completions=completions, completion_ids=completion_ids_list, **reward_kwargs
+                )
+                output_reward_func = [reward if reward is not None else torch.nan for reward in output_reward_func]
+                rewards_per_func[:, i] = torch.tensor(output_reward_func, dtype=torch.float32, device=device)
+
+        rewards_per_func = self.accelerator.gather(rewards_per_func)
+        return rewards_per_func
+
     def _generate_single_turn(self, prompts: list[str], images: list | None):
         """
         Generate a single turn of completions using vLLM (mock or real server).
@@ -745,6 +849,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                     num_images=num_images,
                     **forward_kwargs,  # may contain pixel_values, image_grid_thw, pixel_attention_mask and image_sizes
                 )
+                torch_xla.sync()
             else:
                 old_per_token_logps = None
 
@@ -767,6 +872,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                         num_images=num_images,
                         **forward_kwargs,  # may contain pixel_values, image_grid_thw, pixel_attention_mask and image_sizes
                     )
+                    torch_xla.sync()
                 else:
                     with self.accelerator.unwrap_model(self.model).disable_adapter():
                         ref_per_token_logps, _ = self._get_per_token_logps_and_entropies(
@@ -778,6 +884,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                             num_images=num_images,
                             **forward_kwargs,  # may contain pixel_values, image_grid_thw, pixel_attention_mask and image_sizes
                         )
+                    torch_xla.sync()
             else:
                 ref_per_token_logps = None
 
@@ -940,6 +1047,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             image_sizes=inputs.get("image_sizes"),
             token_type_ids=inputs.get("token_type_ids"),
         )
+        torch_xla.sync()
 
         if self.top_entropy_quantile < 1.0:
             entropy_mask = self.get_high_entropy_mask(entropies, completion_mask, 1 - self.top_entropy_quantile)
@@ -1002,7 +1110,11 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         elif self.loss_type == "bnpo":
             loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=1.0)
             loss = loss / self.current_gradient_accumulation_steps
-            normalizer = inputs["num_items_in_batch"] / self.accelerator.num_pro
+        elif self.loss_type == "dr_grpo":
+            loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)
+            loss = loss / self.current_gradient_accumulation_steps
+        elif self.loss_type == "dapo":
+            normalizer = inputs["num_items_in_batch"] / self.accelerator.num_processes
             loss = (per_token_loss * completion_mask).sum() / normalizer
         else:
             raise ValueError(f"Unknown loss type: {self.loss_type}")
