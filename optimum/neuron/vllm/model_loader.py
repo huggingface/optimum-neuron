@@ -19,6 +19,9 @@ import torch
 import torch.nn as nn
 from vllm.config import LoadConfig, ModelConfig, ParallelConfig, SchedulerConfig
 from vllm.model_executor.layers.logits_processor import LogitsProcessor
+from vllm.sampling_params import SamplingParams
+from vllm.v1.outputs import SamplerOutput
+from vllm.v1.sample.sampler import Sampler
 
 from ..cache.hub_cache import select_hub_cached_entries
 from ..configuration_utils import NeuronConfig
@@ -37,7 +40,7 @@ class OptimumNeuronModelForCausalLM(nn.Module):
         super().__init__()
         self.model = model
         self.logits_processor = LogitsProcessor(self.model.config.vocab_size, logits_as_input=True)
-        self.sampler = None
+        self.sampler = None if model.neuron_config.on_device_sampling else Sampler()
 
     def forward(
         self,
@@ -73,10 +76,27 @@ class OptimumNeuronModelForCausalLM(nn.Module):
     def sample(
         self,
         logits: torch.Tensor,
-        sampling_params: torch.Tensor,
-    ) -> torch.Tensor:
-        # TODO: implement sampling using the new vLLM Sampler
-        return torch.ones(logits.shape[0], dtype=torch.long, device=logits.device)
+        seq_ids: torch.Tensor,
+        sampling_params_list: list[SamplingParams],
+    ) -> SamplerOutput:
+        assert self.sampler is not None
+        for seq_id in torch.unique(seq_ids):
+            indices = (seq_ids == seq_id).nonzero(as_tuple=True)[0]
+            logits_seq = logits[indices]
+            sampling_params = sampling_params_list[seq_id.item()]
+            sampled_token_ids = self.sampler.sample(
+                logits_seq,
+                sampling_params,
+            ).sampled_token_ids
+            if seq_id == 0:
+                all_sampled_token_ids = sampled_token_ids
+            else:
+                all_sampled_token_ids = torch.cat((all_sampled_token_ids, sampled_token_ids), dim=0)
+        return SamplerOutput(sampled_token_ids=all_sampled_token_ids)
+        return self.sampler.sample(
+            logits,
+            sampling_params,
+        )
 
 
 def get_optimum_neuron_model(

@@ -159,20 +159,20 @@ class OptimumNeuronModelRunner:
         # because they use different graphs.
 
         def get_next_tokens(
-            input_ids: torch.LongTensor,
-            position_ids: torch.LongTensor,
-            seq_ids: torch.LongTensor,
-            sampling_params: SamplingParams,
+            input_ids: torch.Tensor,
+            position_ids: torch.Tensor,
+            seq_ids: torch.Tensor,
+            sampling_params: list[SamplingParams],
         ):
             assert self.model is not None
 
-            sampling_params = self.tensor_for_sampling_params(sampling_params)
+            sampling_params_tensor = self.tensor_for_sampling_params(sampling_params)
 
             logits_or_tokens = self.model(
                 input_ids=input_ids,
                 position_ids=position_ids,
                 seq_ids=seq_ids,
-                sampling_params=sampling_params,
+                sampling_params=sampling_params_tensor,
             )
 
             if self.model.model.neuron_config.on_device_sampling:
@@ -181,8 +181,9 @@ class OptimumNeuronModelRunner:
                 # Sample tokens from logits
                 return self.model.sample(
                     logits=logits_or_tokens,
-                    sampling_params=sampling_params,
-                )
+                    seq_ids=seq_ids,
+                    sampling_params_list=sampling_params,
+                ).sampled_token_ids
 
         # We start by decoding the next tokens for the requests already in the batch.
         req_ids = []
