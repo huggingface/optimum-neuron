@@ -61,9 +61,14 @@ async def vllm_docker_service_from_model(request, vllm_docker_launcher, base_neu
 
 
 @pytest.mark.asyncio
-async def test_vllm_docker_service_from_model(vllm_docker_service_from_model):
-    prompt = "What is the colour of the sky ?"
-    max_output_tokens = 24
+@pytest.mark.parametrize(
+    "prompt, max_output_tokens",
+    [
+        ("What is Deep Learning ?", 17),
+        ("What is the colour of the sky ?", 24),
+    ],
+)
+async def test_vllm_docker_service_from_model(vllm_docker_service_from_model, prompt, max_output_tokens):
     greedy_tokens, greedy_text = await vllm_docker_service_from_model.client.greedy(
         prompt, max_output_tokens=max_output_tokens
     )

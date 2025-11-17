@@ -23,16 +23,3 @@ class NeuronGRPOConfig(NeuronTrainingArguments, GRPOConfig):
         self.eval_strategy = "no"
         self.eval_steps = None
         super().__post_init__()
-
-        # TRL>=0.24 expects steps_per_generation to be defined
-        try:
-            steps_pg = getattr(self, "steps_per_generation", None)
-        except Exception:
-            steps_pg = None
-
-        if steps_pg is None:
-            mapped_value = getattr(self, "num_generations", 1)
-            try:
-                self.steps_per_generation = int(mapped_value)
-            except Exception:
-                self.steps_per_generation = 1

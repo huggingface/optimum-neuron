@@ -53,12 +53,6 @@ class ServeCommand(BaseOptimumCLICommand):
             help="Model ID on huggingface.co or path on disk to load model from.",
         )
         parser.add_argument(
-            "--served_model_name",
-            type=str,
-            default=None,
-            help="The model name(s) used in the API. If not specified, the model name will be the same as the `--model` argument.",
-        )
-        parser.add_argument(
             "--tensor_parallel_size",
             type=int,
             help="Tensor parallelism size, the number of neuron cores on which to shard the model.",
@@ -100,7 +94,7 @@ class ServeCommand(BaseOptimumCLICommand):
         batch_size = self.args.batch_size
         sequence_length = self.args.sequence_length
         tensor_parallel_size = self.args.tensor_parallel_size
-        config = AutoConfig.from_pretrained(model_name_or_path)
+        config = AutoConfig.from_pretrained(model_id, revision=revision)
         torch_dtype = DTYPE_MAPPER.pt(config.torch_dtype)
         try:
             # Look for a NeuronConfig in the model directory
@@ -134,7 +128,7 @@ class ServeCommand(BaseOptimumCLICommand):
                     f"The specified tensor parallel size {tensor_parallel_size} is inconsistent"
                     f"with the one used to export the neuron model ({neuron_config.tp_degree})"
                 )
-            logger.info(f"Loading Neuron model: {model_name_or_path}")
+            logger.info(f"Loading Neuron model: {self.args.model}")
         else:
             # Model needs to be exported: look for compatible hub cached configs
             cached_entries = select_hub_cached_entries(
