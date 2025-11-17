@@ -71,6 +71,8 @@ if is_sentence_transformers_available():
     from sentence_transformers import SentenceTransformer
 
 import neuronx_distributed
+import neuronx_distributed.trace.hlo_utils as hlo_utils
+from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.trace.model_builder import BaseModelInstance, ModelBuilder
 
 
@@ -352,6 +354,10 @@ def export_models(
     failed_models = []
     total_compilation_time = 0
     compile_configs = {}
+    # models_and_neuron_configs.pop("text_encoder")
+    # models_and_neuron_configs.pop("text_encoder_2")
+    # models_and_neuron_configs.pop("vae_encoder")
+    # models_and_neuron_configs.pop("vae_decoder")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -573,14 +579,13 @@ def export_neuronx(
         inline_weights_to_neff = True
 
     # Start trace
-    tensor_parallel_size = config.tensor_parallel_size
     trace_neuronx(
         model=checked_model,
         config=config,
         dummy_inputs=dummy_inputs_tuple,
         compiler_args=compiler_args,
         output=output,
-        tensor_parallel_size=tensor_parallel_size,
+        tensor_parallel_size=config.tensor_parallel_size,
         aliases=aliases,
         inline_weights_to_neff=inline_weights_to_neff,
         compiler_workdir=compiler_workdir,
@@ -610,6 +615,9 @@ def prepare_compiler_flags(
     auto_cast_type: str = "bf16",
     optlevel: str = "2",
 ):
+    if hasattr(config, "get_compiler_args"):
+        compiler_args = config.get_compiler_args()
+        return compiler_args
     if auto_cast is not None:
         logger.info(f"Using Neuron: --auto-cast {auto_cast}")
         auto_cast = "matmult" if auto_cast == "matmul" else auto_cast
@@ -654,6 +662,44 @@ def prepare_compiler_flags(
     return compiler_args_str
 
 
+def get_builder(
+    model,
+    config,
+    dummy_inputs,
+    compiler_args,
+    tensor_parallel_size: int,
+    compiler_workdir: Path | None = None,
+    priority_model_idx: int = 0,
+    tag: str | None = None,
+    debug: bool = False,
+):
+    builder = ModelBuilder(
+        router=None,
+        tp_degree=tensor_parallel_size,
+        checkpoint_loader=config.checkpoint_loader_fn,
+        compiler_workdir=compiler_workdir,
+        debug=debug,
+    )
+    builder.add(
+        key=tag,
+        model_instance=model,
+        example_inputs=[dummy_inputs],
+        compiler_args=compiler_args,
+        priority_model_idx=priority_model_idx,
+    )
+    return builder
+
+
+def shard_weights(model_builder, path):
+    sharded_checkpoint_dir = os.path.join(path, "weights/")
+    model_builder.shard_checkpoint(serialize_path=sharded_checkpoint_dir)
+
+    if hlo_utils.NXD_LAYOUT_TRANSFORMATION_OPTIONS in os.environ:
+        model_builder.transform_weight_layout_with_overriden_option(
+            sharded_checkpoint_dir=sharded_checkpoint_dir
+        )
+
+
 def trace_neuronx(
     model,
     config,
@@ -665,45 +711,38 @@ def trace_neuronx(
     inline_weights_to_neff: bool = True,
     compiler_workdir: Path | None = None,
 ):
-    if tensor_parallel_size > 1:
-        # Tensor Parallelism
-        if isinstance(model, BaseModelInstance):
-            # Case 1: Using `neuronx_distributed.trace.model_builder`
-            model_builder = ModelBuilder(
-                router=None,
-                debug=False,
-                tp_degree=tensor_parallel_size,
-                checkpoint_loader=config.get_checkpoint_loader_fn,
-                compiler_workdir=compiler_workdir,
-            )
-            subfolder = output.parts[1]
-            model_builder.add(
-                key=subfolder,
-                model_instance=model,
-                example_inputs=[dummy_inputs],
-                priority_model_idx=0,
+    if isinstance(model, BaseModelInstance):
+        # Case 1: Using `neuronx_distributed.trace.model_builder`
+        model_builder = get_builder(
+            model=model,
+            config=config,
+            dummy_inputs=dummy_inputs,
+            compiler_args=compiler_args,
+            tensor_parallel_size=tensor_parallel_size,
+            compiler_workdir=compiler_workdir,
+            priority_model_idx=0,
+            tag=output.parts[1],
+            debug=False,
+        )
+        neuron_model = model_builder.trace(initialize_model_weights=False)
+        torch.jit.save(neuron_model, output)
+        shard_weights(model_builder, path=output.parent)
+    elif tensor_parallel_size > 1:
+        # Case 2: Using `neuronx_distributed.trace.parallel_model_trace`
+        os.environ["LOCAL_WORLD_SIZE"] = str(tensor_parallel_size)
+        # TODO: To remove when migrating from `parallel_model_trace` to ModelBuilderV2. `parallel_model_trace` doesn't support custom target.
+        if "--target" in compiler_args:
+            compiler_args = re.sub(r"--target\s+\S+", "", compiler_args).strip()
+        with torch.no_grad():
+            neuron_model = neuronx_distributed.trace.parallel_model_trace(
+                model,
+                dummy_inputs,
                 compiler_args=compiler_args,
+                inline_weights_to_neff=inline_weights_to_neff,
+                compiler_workdir=compiler_workdir,
+                tp_degree=tensor_parallel_size,
             )
-            neuron_model = model_builder.trace(initialize_model_weights=False)
-
-            model_builder.shard_checkpoint(serialize_path=output.parent / "weights/")
-            torch.jit.save(neuron_model, output)
-        else:
-            # Case 2: Using `neuronx_distributed.trace.parallel_model_trace`
-            os.environ["LOCAL_WORLD_SIZE"] = str(tensor_parallel_size)
-            # TODO: To remove when migrating from `parallel_model_trace` to ModelBuilderV2. `parallel_model_trace` doesn't support custom target.
-            if "--target" in compiler_args:
-                compiler_args = re.sub(r"--target\s+\S+", "", compiler_args).strip()
-            with torch.no_grad():
-                neuron_model = neuronx_distributed.trace.parallel_model_trace(
-                    model,
-                    dummy_inputs,
-                    compiler_args=compiler_args,
-                    inline_weights_to_neff=inline_weights_to_neff,
-                    compiler_workdir=compiler_workdir,
-                    tp_degree=tensor_parallel_size,
-                )
-            neuronx_distributed.trace.parallel_model_save(neuron_model, output)
+        neuronx_distributed.trace.parallel_model_save(neuron_model, output)
     else:
         # Case 3: Using `torch_neuronx.trace`
         cpu_backend = get_neuron_major() == -1

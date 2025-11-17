@@ -150,6 +150,9 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         compiler_type: str | None = None,
         compiler_version: str | None = None,
         tensor_parallel_size: int = 1,
+        pipeline_parallel_size: int = 1,
+        expert_parallel_size: int = 1,
+        world_size: int | None = None,
         dynamic_batch_size: bool = False,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
@@ -160,11 +163,16 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         self._normalized_config = self.NORMALIZED_CONFIG_CLASS(self._config)
         self.mandatory_axes = ()
         self.tensor_parallel_size = tensor_parallel_size
+        self.pipeline_parallel_size = pipeline_parallel_size
+        self.expert_parallel_size = expert_parallel_size
+        self.world_size = world_size
+        if self.world_size is None:
+            self.world_size = self.tensor_parallel_size * self.pipeline_parallel_size * self.expert_parallel_size
         self.task = task
         self._axes: dict[str, int] = {}
         self.dynamic_batch_size = dynamic_batch_size
-        self.int_dtype = int_dtype
-        self.float_dtype = float_dtype
+        self.int_dtype = DTYPE_MAPPER.pt(int_dtype)
+        self.float_dtype = DTYPE_MAPPER.pt(float_dtype)
 
         if self.dynamic_batch_size is True and is_neuron_available():
             logger.info("Overwriting batch size to 1 for neuron dynamic batch size support.")
@@ -241,6 +249,30 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
     @tensor_parallel_size.setter
     def tensor_parallel_size(self, value: int):
         self._tensor_parallel_size = value
+    
+    @property
+    def pipeline_parallel_size(self) -> int:
+        return self._pipeline_parallel_size
+
+    @pipeline_parallel_size.setter
+    def pipeline_parallel_size(self, value: int):
+        self._pipeline_parallel_size = value
+    
+    @property
+    def expert_parallel_size(self) -> int:
+        return self._expert_parallel_size
+
+    @expert_parallel_size.setter
+    def expert_parallel_size(self, value: int):
+        self._expert_parallel_size = value
+    
+    @property
+    def world_size(self) -> int:
+        return self._world_size
+
+    @world_size.setter
+    def world_size(self, value: int):
+        self._world_size = value
 
     def __getattr__(self, attr_name) -> Any:
         if attr_name != "_axes" and attr_name in self._axes:
