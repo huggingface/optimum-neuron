@@ -19,6 +19,7 @@ def test_vllm_optimum_neuron_platform():
 def _test_vllm_generation(llm):
     prompts = ["One of my fondest memory is"]
 
+    print(f"Prompt: {prompts[0]}")
     # First generation using greedy sampling
     sampling_params = [SamplingParams(top_k=1, max_tokens=10)]
 
@@ -26,17 +27,20 @@ def _test_vllm_generation(llm):
     assert outputs is not None and len(outputs) == 1
     assert isinstance(outputs[0], RequestOutput)
     first_token_ids = outputs[0].outputs[0].token_ids
+    print(f"Greedy output #1: {outputs[0].outputs[0].text}")
     assert len(first_token_ids) == 10
 
     # Second generation, still using greedy sampling
     outputs = llm.generate(prompts, sampling_params)
     second_token_ids = outputs[0].outputs[0].token_ids
+    print(f"Greedy output #2: {outputs[0].outputs[0].text}")
     assert first_token_ids == second_token_ids
 
     # Third generation, now using top-k sampling
     sampling_params = [SamplingParams(top_k=10, max_tokens=10)]
     outputs = llm.generate(prompts, sampling_params)
     third_token_ids = outputs[0].outputs[0].token_ids
+    print(f"Sample output: {outputs[0].outputs[0].text}")
     assert first_token_ids != third_token_ids
 
 
