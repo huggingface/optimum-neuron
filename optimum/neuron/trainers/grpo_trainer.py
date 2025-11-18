@@ -20,7 +20,10 @@ from typing import Any, Callable
 import datasets
 import numpy as np
 import torch
+import torch.utils._pytree as pytree
 import torch_xla
+import torch_xla.core.xla_model as xm
+from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
 from accelerate.utils import set_seed
 from optimum.utils import logging
 from torch.utils.data import Dataset, IterableDataset
@@ -168,10 +171,9 @@ def nanstd(tensor: torch.Tensor) -> torch.Tensor:
     Compute the standard deviation of a tensor, ignoring NaNs.
     """
     # Use torch's built-in nanmean and compute variance with Bessel's correction
-    # variance = torch.nanmean((tensor - torch.nanmean(tensor, keepdim=True)) ** 2)
-    # count = torch.sum(~torch.isnan(tensor))
-    # variance *= count / (count - 1).clamp(min=1.0)  # Bessel's correction, avoid division by zero
-    return torch.tensor(1)
+    variance = torch.nanmean((tensor - torch.nanmean(tensor, keepdim=True)) ** 2)
+    count = torch.sum(~torch.isnan(tensor))
+    variance *= count / (count - 1).clamp(min=1.0)  # Bessel's correction, avoid division by zero
     return torch.sqrt(variance)
 
 
@@ -318,6 +320,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             self.reward_weights = torch.tensor(args.reward_weights, dtype=torch.float32)
         else:
             self.reward_weights = torch.ones(len(reward_funcs), dtype=torch.float32)
+        self.reward_weights = self.reward_weights.to(xm.xla_device())
 
         # Reward processing class
         if reward_processing_classes is None:
@@ -764,7 +767,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             sampling_per_token_logps_list,
             forward_kwargs,
         ) = self._generate(prompts, images)
-        torch_xla.sync()
 
         # Convert lists of token IDs to padded tensors
         prompt_ids = [torch.tensor(ids, device=device) for ids in prompt_ids_list]
@@ -780,7 +782,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             sampling_per_token_logps = pad(sampling_per_token_logps, padding_value=0.0, padding_side="right")
         else:
             sampling_per_token_logps = None
-        torch_xla.sync()
 
         # If mask_truncated_completions is enabled, zero out truncated completions in completion_mask
         if self.mask_truncated_completions:
@@ -803,6 +804,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
         num_images = [len(img_list) for img_list in images] if images is not None else None
 
+        # Graph break before computing the log probabilities.
+        torch_xla.sync()
+
         with torch.no_grad():
             # If the generation and optimization steps are misaligned—i.e., if generation does not occur at the end of
             # a full optimizer step (when gradient_accumulation_steps is not a multiple of generate_every)—then the
@@ -824,9 +828,10 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                     num_images=num_images,
                     **forward_kwargs,  # may contain pixel_values, image_grid_thw, pixel_attention_mask and image_sizes
                 )
-                torch_xla.sync()
             else:
                 old_per_token_logps = None
+
+            torch_xla.sync()
 
             # Compute the importance sampling ratio when using vLLM, to correct for potential distribution mismatch
             if self.use_vllm and self.vllm_importance_sampling_correction:
@@ -834,6 +839,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 importance_sampling_ratio = torch.clamp(
                     importance_sampling_ratio, max=self.vllm_importance_sampling_cap
                 )
+
+            torch_xla.sync()
 
             # Compute the per-token log probabilities for the reference model
             if self.beta != 0.0:
@@ -847,7 +854,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                         num_images=num_images,
                         **forward_kwargs,  # may contain pixel_values, image_grid_thw, pixel_attention_mask and image_sizes
                     )
-                    torch_xla.sync()
                 else:
                     with self.accelerator.unwrap_model(self.model).disable_adapter():
                         ref_per_token_logps, _ = self._get_per_token_logps_and_entropies(
@@ -859,12 +865,11 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                             num_images=num_images,
                             **forward_kwargs,  # may contain pixel_values, image_grid_thw, pixel_attention_mask and image_sizes
                         )
-                    torch_xla.sync()
             else:
                 ref_per_token_logps = None
 
-        # Decode
         torch_xla.sync()
+
         prompts_text = self.processing_class.batch_decode(prompt_ids, skip_special_tokens=True)
         completions_text = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
         if is_conversational(inputs[0]):
@@ -879,10 +884,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         # important because rewards will be normalized per group, and completions are distributed. We will later slice
         # rewards_per_func to extract each process's subset.
         rewards_per_func = self._calculate_rewards(inputs, prompts, completions, completion_ids_list)
-        torch_xla.sync()
 
         # Apply weights to each reward function's output and sum
-        rewards = (rewards_per_func * self.reward_weights.to(device).unsqueeze(0)).nansum(dim=1)
+        rewards = (rewards_per_func * self.reward_weights.unsqueeze(0)).nansum(dim=1)
 
         # Compute grouped-wise rewards
         mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
@@ -914,60 +918,78 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         )
         all_process_advantages = advantages.clone()  # keep the aggregated advantages for logging
         advantages = advantages[process_slice]
-        torch_xla.sync()
+
+        metrics = defaultdict(list)
+        logs = {}
 
         # Calculate mean reward per function, but only for samples where the function was applied (non-NaN values)
         for i, reward_func_name in enumerate(self.reward_func_names):
-            mean_rewards = torch.nanmean(rewards_per_func[:, i]).item()
-            self._metrics[mode][f"rewards/{reward_func_name}/mean"].append(mean_rewards)
-            std_func_rewards = nanstd(rewards_per_func[:, i]).item()
-            self._metrics[mode][f"rewards/{reward_func_name}/std"].append(std_func_rewards)
-        self._metrics[mode]["reward"].append(mean_grouped_rewards.mean().item())
-        self._metrics[mode]["reward_std"].append(std_rewards.mean().item())
-        self._metrics[mode]["frac_reward_zero_std"].append(is_std_zero.float().mean().item())
+            mean_rewards = torch.nanmean(rewards_per_func[:, i])
+            metrics[f"rewards/{reward_func_name}/mean"].append(mean_rewards)
+            std_func_rewards = nanstd(rewards_per_func[:, i])
+            metrics[f"rewards/{reward_func_name}/std"].append(std_func_rewards)
+
+        metrics["reward"].append(mean_grouped_rewards.mean())
+        metrics["reward_std"].append(std_rewards.mean())
+        metrics["frac_reward_zero_std"].append(is_std_zero.float().mean())
 
         # Log prompt and completion texts
-        # TODO: handle this later.
         # self._logs["prompt"].extend(gather_object(prompts_text))
         # self._logs["completion"].extend(gather_object(completions_text))
-        # for i, name in enumerate(self.reward_func_names):
-        #     self._logs["rewards"][name].extend(rewards_per_func[:, i].tolist())
-        # self._logs["advantages"].extend(all_process_advantages.tolist())
+        logs["rewards"] = {}
+        logs["advantages"] = []
+        for i, name in enumerate(self.reward_func_names):
+            logs["rewards"][name] = rewards_per_func[:, i]
+        logs["advantages"] = all_process_advantages
 
         # if images is not None:
         #     self._logs["images"].extend(gather_object(images))
 
-        # if self.use_vllm and self.vllm_importance_sampling_correction:
-        #     delta = torch.abs(old_per_token_logps - sampling_per_token_logps)
-        #     delta = delta[completion_mask.bool()]
-        #     mean_delta = torch.mean(delta) if delta.numel() > 0 else torch.tensor(0.0, device=device)
-        #     max_delta = torch.max(delta) if delta.numel() > 0 else torch.tensor(0.0, device=device)
-        #     self._metrics[mode]["sampling/sampling_logp_difference/mean"].append(
-        #         self.accelerator.gather(mean_delta).mean().item()
-        #     )
-        #     self._metrics[mode]["sampling/sampling_logp_difference/max"].append(
-        #         self.accelerator.gather(max_delta).max().item()
-        #     )
+        if self.use_vllm and self.vllm_importance_sampling_correction:
+            delta = torch.abs(old_per_token_logps - sampling_per_token_logps)
+            delta = delta[completion_mask.bool()]
+            mean_delta = torch.mean(delta) if delta.numel() > 0 else torch.tensor(0.0, device=device)
+            max_delta = torch.max(delta) if delta.numel() > 0 else torch.tensor(0.0, device=device)
+            metrics["sampling/sampling_logp_difference/mean"].append(
+                self.accelerator.gather(mean_delta).mean()
+            )
+            self._metrics[mode]["sampling/sampling_logp_difference/max"].append(
+                self.accelerator.gather(max_delta).max()
+            )
 
-        #     flat_is_ratio = importance_sampling_ratio[completion_mask.bool()]
-        #     min_importance_sampling_ratio = (
-        #         torch.min(flat_is_ratio) if flat_is_ratio.numel() > 0 else torch.tensor(0.0, device=device)
-        #     )
-        #     mean_importance_sampling_ratio = (
-        #         torch.mean(flat_is_ratio) if flat_is_ratio.numel() > 0 else torch.tensor(0.0, device=device)
-        #     )
-        #     max_importance_sampling_ratio = (
-        #         torch.max(flat_is_ratio) if flat_is_ratio.numel() > 0 else torch.tensor(0.0, device=device)
-        #     )
-        #     self._metrics[mode]["sampling/importance_sampling_ratio/min"].append(
-        #         nanmin(self.accelerator.gather(min_importance_sampling_ratio)).item()
-        #     )
-        #     self._metrics[mode]["sampling/importance_sampling_ratio/mean"].append(
-        #         self.accelerator.gather(mean_importance_sampling_ratio).nanmean().item()
-        #     )
-        #     self._metrics[mode]["sampling/importance_sampling_ratio/max"].append(
-        #         nanmax(self.accelerator.gather(max_importance_sampling_ratio)).item()
-        #     )
+            flat_is_ratio = importance_sampling_ratio[completion_mask.bool()]
+            min_importance_sampling_ratio = (
+                torch.min(flat_is_ratio) if flat_is_ratio.numel() > 0 else torch.tensor(0.0, device=device)
+            )
+            mean_importance_sampling_ratio = (
+                torch.mean(flat_is_ratio) if flat_is_ratio.numel() > 0 else torch.tensor(0.0, device=device)
+            )
+            max_importance_sampling_ratio = (
+                torch.max(flat_is_ratio) if flat_is_ratio.numel() > 0 else torch.tensor(0.0, device=device)
+            )
+            metrics["sampling/importance_sampling_ratio/min"].append(
+                nanmin(self.accelerator.gather(min_importance_sampling_ratio))
+            )
+            metrics["sampling/importance_sampling_ratio/mean"].append(
+                self.accelerator.gather(mean_importance_sampling_ratio).nanmean()
+            )
+            metrics["sampling/importance_sampling_ratio/max"].append(
+                nanmax(self.accelerator.gather(max_importance_sampling_ratio))
+            )
+
+        # Graph break after metrics and logs computation.
+        torch_xla.sync()
+
+        # Move metrics and logs to CPU.
+        metrics = pytree.tree_map(move_all_tensor_to_cpu, metrics)
+        logs = pytree.tree_map(move_all_tensor_to_cpu, logs)
+
+        # Update the actual metrics and logs.
+        self._metrics[mode].update(metrics)
+        for name in self.reward_func_names:
+            self._logs["rewards"][name].extend(logs["rewards"][name].tolist())
+        self._logs["advantages"].extend(logs["advantages"].tolist())
+
 
         output = {
             "prompt_ids": prompt_ids,
