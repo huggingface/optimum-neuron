@@ -1,5 +1,6 @@
 from typing import Any, Iterator
 
+import inspect
 import torch
 import torch_xla.core.xla_model as xm
 from optimum.utils import logging
@@ -10,6 +11,8 @@ from .grpo_config import NeuronGRPOConfig
 from .transformers import NeuronTrainer
 from .trl_utils import TRL_VERSION
 from neuronx_distributed.pipeline import NxDPPModel
+
+from collections import defaultdict
 
 
 logger = logging.get_logger()
@@ -73,10 +76,18 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             logging.set_verbosity(log_level)
             logging.warning(f"No `GRPOConfig` passed, using `output_dir={args.output_dir}`.")
 
+        # Ensure a generator tokenizer is available for GRPO-specific generation helpers.
+        # If a `tokenizer` was passed use it, otherwise fall back to `processing_class`.
+        if tokenizer is not None:
+            self._generator_tokenizer = tokenizer
+        else:
+            # processing_class may be None in some call-sites; default to None in that case.
+            self._generator_tokenizer = processing_class
+
         NeuronTrainer.__init__(
             self,
             model,
-            args, 
+            args,
             data_collator=data_collator,
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
@@ -158,14 +169,17 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         self.model_wrapped = self.model
         
         # Metrics tracking
-        self._metrics = {"train": defaultdict(list), "eval": defaultdict(list)}
+        self._metrics = {
+            "train": defaultdict(list), 
+            "eval": defaultdict(list)
+        }
         
         # Generation buffer for batching
         self._buffered_inputs = None
         self._buffer_index = 0
         self._generation_step_counter = 0
         
-        # Store reward functions
+        reward_funcs = kwargs.pop("reward_funcs", None) if "reward_funcs" in kwargs else None
         self.reward_funcs = reward_funcs or []
         
         # vLLM flags (not used in Neuron but kept for TRL compatibility)
@@ -176,7 +190,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         # TRL's GRPO trainer uses this for generation frequency
         self.num_iterations = self.args.gradient_accumulation_steps
         
-        # JSONL metrics logger - separate file per run with timestamp
+        # JSONL metrics logger
+        # separate file per run with timestamp
         self._jsonl_log_file = None
         self._is_precompilation = is_precompilation()
         if hasattr(self.args, 'output_dir') and self.args.output_dir:
@@ -186,20 +201,10 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             self._jsonl_log_file = os.path.join(self.args.output_dir, filename)
         self._step_start_time = None
         
-        if self._is_precompilation:
-            logger.warning(
-                "⚠️  Running in NEURON_EXTRACT_GRAPHS_ONLY=1 mode (precompilation). "
-                "Metrics may be inaccurate as computations are stubbed for graph extraction. "
-                "Generation may produce dummy/placeholder outputs. "
-                "This mode is for compilation, not actual training. "
-                "Remove NEURON_EXTRACT_GRAPHS_ONLY=1 for real training metrics."
-            )
-        
     def _generate_single_turn(self, prompts, images=None):
         """Override to use CPU generator model for XLA compatibility."""
         generator_device = next(self.generator_model.parameters()).device
         
-        # Deduplicate prompts (RepeatSampler duplicates them num_generations times)
         if len(prompts) >= self.num_generations:
             unique_prompts = prompts[::self.num_generations]
             num_unique = len(unique_prompts)
@@ -224,37 +229,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             "add_special_tokens": False,
         }
         
-        # Apply chat template if available (required for Qwen-like models)
-        has_chat_template = hasattr(self._generator_tokenizer, 'apply_chat_template')
-        
-        if has_chat_template:
-            try:
-                if is_conversational({"prompt": unique_prompts[0]}):
-                    generate_inputs = self._generator_tokenizer.apply_chat_template(
-                        conversation=unique_prompts,
-                        **processor_kwargs,
-                        add_generation_prompt=True,
-                        tokenize=True,
-                        return_dict=True,
-                        **self.chat_template_kwargs,
-                    )
-                elif hasattr(self._generator_tokenizer, 'chat_template') and self._generator_tokenizer.chat_template:
-                    formatted_prompts = []
-                    for prompt in unique_prompts:
-                        formatted = self._generator_tokenizer.apply_chat_template(
-                            [{"role": "user", "content": prompt}],
-                            tokenize=False,
-                            add_generation_prompt=True,
-                        )
-                        formatted_prompts.append(formatted)
-                    generate_inputs = self._generator_tokenizer(text=formatted_prompts, **processor_kwargs)
-                else:
-                    generate_inputs = self._generator_tokenizer(text=unique_prompts, **processor_kwargs)
-            except Exception as e:
-                logger.warning(f"Chat template failed, using plain tokenization: {e}")
-                generate_inputs = self._generator_tokenizer(text=unique_prompts, **processor_kwargs)
-        else:
-            generate_inputs = self._generator_tokenizer(text=unique_prompts, **processor_kwargs)
+        generate_inputs = self._generator_tokenizer(text=unique_prompts, **processor_kwargs)
         
         generate_inputs = {
             k: v.to(generator_device) if isinstance(v, torch.Tensor) else v 
