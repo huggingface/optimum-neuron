@@ -148,7 +148,7 @@ def test_decoder_cache(cache_repos):
     [
         ("CUSTOM_CACHE_REPO", "foo/bar", "The foo/bar repository does not exist"),
         ("HF_ENDPOINT", "https://foo.bar.baz", "Name or service not known"),
-        ("HF_TOKEN", "foo", "401 Client Error: Unauthorized"),
+        ("HF_TOKEN", "foo", "you don't have access to it"),
     ],
     ids=["invalid_repo", "invalid_endpoint", "invalid_token"],
 )
