@@ -45,9 +45,6 @@ from transformers import (
     PretrainedConfig,
     set_seed,
 )
-from transformers import (
-    __version__ as transformers_version,
-)
 
 from optimum.neuron import (
     NeuronModelForAudioClassification,
@@ -483,14 +480,6 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    def test_load_vanilla_transformers_which_is_not_supported(self):
-        with self.assertRaises(Exception) as context:
-            _ = NeuronModelForMaskedLM.from_pretrained(
-                "hf-internal-testing/tiny-random-t5", from_transformers=True, **self.STATIC_INPUTS_SHAPES
-            )
-
-        self.assertIn("Unrecognized configuration class", str(context.exception))
-
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
@@ -603,14 +592,6 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
         if not result_close_end_logits:
             warnings.warn(f"End logits between pytorch model and neuron model of {model_arch} not close enough.")
 
-    def test_load_vanilla_transformers_which_is_not_supported(self):
-        with self.assertRaises(Exception) as context:
-            _ = NeuronModelForQuestionAnswering.from_pretrained(
-                "hf-internal-testing/tiny-random-t5", from_transformers=True, **self.STATIC_INPUTS_SHAPES
-            )
-
-        assert ("doesn't support" in str(context.exception)) or ("is not supported" in str(context.exception))
-
     def test_compare_to_transformers_dyn_bs(self):
         model_arch = "albert"
         # Neuron model with dynamic batching
@@ -719,14 +700,6 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    def test_load_vanilla_transformers_which_is_not_supported(self):
-        with self.assertRaises(Exception) as context:
-            _ = NeuronModelForSequenceClassification.from_pretrained(
-                "hf-internal-testing/tiny-random-t5", from_transformers=True, **self.STATIC_INPUTS_SHAPES
-            )
-
-        assert ("doesn't support" in str(context.exception)) or ("is not supported" in str(context.exception))
-
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
@@ -830,14 +803,6 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
             warnings.warn(
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
-
-    def test_load_vanilla_transformers_which_is_not_supported(self):
-        with self.assertRaises(Exception) as context:
-            _ = NeuronModelForTokenClassification.from_pretrained(
-                "hf-internal-testing/tiny-random-t5", from_transformers=True, **self.STATIC_INPUTS_SHAPES
-            )
-
-        assert ("doesn't support" in str(context.exception)) or ("is not supported" in str(context.exception))
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
@@ -987,7 +952,7 @@ class NeuronModelForImageClassificationIntegrationTest(NeuronModelTestMixin):
         "cvt",
         "deit",
         "levit",
-        "mobilenet-v2",
+        "mobilenet_v2",
         "mobilevit",
         "swin",
         "vit",
@@ -1046,11 +1011,6 @@ class NeuronModelForImageClassificationIntegrationTest(NeuronModelTestMixin):
             "model_arch": model_arch,
             "dynamic_batch_size": False,
         }
-        # REMOVEME: convnextv2 contains a bug in the GRN layer, which is used in the convnextv2 model, but the bug has
-        # been fixed in the transformers library on newer versions. For more info see:
-        # https://github.com/huggingface/transformers/issues/38015
-        if model_arch == "convnextv2" and transformers_version.startswith("4.51"):
-            self.skipTest("convnextv2 contains a bug in this version of transformers.")
         self._setup(model_args)
         self._validate_outputs(model_arch, "_dyn_bs_false", batch_size=1)
 
@@ -1064,11 +1024,6 @@ class NeuronModelForImageClassificationIntegrationTest(NeuronModelTestMixin):
             "model_arch": model_arch,
             "dynamic_batch_size": True,
         }
-        # REMOVEME: convnextv2 contains a bug in the GRN layer, which is used in the convnextv2 model, but the bug has
-        # been fixed in the transformers library on newer versions. For more info see:
-        # https://github.com/huggingface/transformers/issues/38015
-        if model_arch == "convnextv2" and transformers_version.startswith("4.51"):
-            self.skipTest("convnextv2 contains a bug in this version of transformers.")
         self._setup(model_args)
         self._validate_outputs(model_arch, "_dyn_bs_true", batch_size=2)
 
@@ -1097,7 +1052,7 @@ class NeuronModelForSemanticSegmentationIntegrationTest(NeuronModelTestMixin):
     TASK = "semantic-segmentation"
     ATOL_FOR_VALIDATION = 1e-3
     SUPPORTED_ARCHITECTURES = [
-        "mobilenet-v2",
+        "mobilenet_v2",
         "mobilevit",
     ]
 

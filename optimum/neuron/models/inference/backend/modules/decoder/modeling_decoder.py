@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# Task-specific decoder model implementations for inference on AWS Neuron.
 import copy
 import logging
 
@@ -42,23 +43,29 @@ from ..kvcache.kv_cache_manager import (
     KVCacheManager,
     _slice_kv_cacheline,
 )
-from .decoder_builder import NxDDecoderBuilder
-from .decoder_wrapper import (
+from .decoder_builders import NxDDecoderBuilderForCausalLM, NxDDecoderBuilderForEmbedding
+from .decoder_wrappers import (
     CONTEXT_ENCODING_MODEL_TAG,
     SPECULATION_MODEL_TAG,
     TOKEN_GENERATION_MODEL_TAG,
-    NxDDecoderWrapper,
+    NxDDecoderWrapperForCausalLM,
+    NxDDecoderWrapperForEmbedding,
 )
 
 
 logger = logging.getLogger("Neuron")
 
 
-class NxDDecoderModel(nn.Module):
-    """
-    Base model that NeuronXXXModel classes inherit from.
+class NxDDecoderModelForCausalLM(nn.Module):
+    """A decoder model used for causal language modeling.
 
-    The forward() function will be traced and compiled by NxD.
+    The forward() function will be traced and compiled for different use cases:
+    - context encoding -> multiple tokens are encoded, and one token is generated
+    - token generation -> only one token is encoded and one token is generated
+    - speculation -> only one token is encoded and multiple tokens are generated
+
+    The model manages its own KV cache and sampling logic. It supports on-device sampling.
+    and continuous batching.
     """
 
     def __init__(self, config: PretrainedConfig, neuron_config: NxDNeuronConfig):
@@ -150,6 +157,19 @@ class NxDDecoderModel(nn.Module):
         inputs_embeds: torch.FloatTensor | None = None,
         kv_cache: torch.Tensor | None = None,
     ):
+        """Forward pass that can return either logits or hidden states.
+
+        Args:
+            input_ids (torch.LongTensor): Input token IDs.
+            attention_mask (torch.Tensor): Attention mask.
+            position_ids (torch.LongTensor): Position IDs.
+            seq_ids (torch.LongTensor): Sequence IDs. Used in continuous batching
+            sampling_params (torch.FloatTensor): Sampling parameters.
+            scatter_index (torch.Tensor, optional): Scatter index for KV cache update.
+            inputs_embeds (torch.FloatTensor, optional): Precomputed input embeddings.
+            kv_cache (torch.Tensor, optional): KV cache tensor.
+
+        """
         is_for_context_encoding = self._is_context_encoding(input_ids)
         is_for_speculation = self._is_for_speculation(input_ids)
 
@@ -323,6 +343,12 @@ class NxDDecoderModel(nn.Module):
 
 
 class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelForCausalLM):
+    """Base class for neuron causal language modeling.
+
+    It uses separate model graphs for context encoding, token generation and speculation.
+
+    """
+
     _model_cls = None
 
     def __init__(
@@ -336,16 +362,16 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             config=config, neuron_config=neuron_config, traced_model=traced_model, graph_builders=graph_builders
         )
         ctx_neuron_config = NxDModelForCausalLM._create_context_encoding_config(neuron_config)
-        self.context_encoding_model = NxDDecoderWrapper(
+        self.context_encoding_model = NxDDecoderWrapperForCausalLM(
             config=config, neuron_config=ctx_neuron_config, model=traced_model, tag=CONTEXT_ENCODING_MODEL_TAG
         )
         tkg_neuron_config = NxDModelForCausalLM._create_token_generation_config(neuron_config)
-        self.token_generation_model = NxDDecoderWrapper(
+        self.token_generation_model = NxDDecoderWrapperForCausalLM(
             config=config, neuron_config=tkg_neuron_config, model=traced_model, tag=TOKEN_GENERATION_MODEL_TAG
         )
         if neuron_config.speculation_length > 0:
             spec_neuron_config = NxDModelForCausalLM._create_speculation_config(neuron_config)
-            self.speculation_model = NxDDecoderWrapper(
+            self.speculation_model = NxDDecoderWrapperForCausalLM(
                 config=config,
                 neuron_config=spec_neuron_config,
                 model=traced_model,
@@ -381,7 +407,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             raise SystemError(f"No underlying model class defined for {cls}.")
         graph_builders = {}
         ctx_neuron_config = NxDModelForCausalLM._create_context_encoding_config(neuron_config)
-        graph_builders["context_encoding"] = NxDDecoderBuilder(
+        graph_builders["context_encoding"] = NxDDecoderBuilderForCausalLM(
             config=config,
             neuron_config=ctx_neuron_config,
             max_tokens=ctx_neuron_config.max_context_length,
@@ -389,7 +415,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             model_cls=cls._model_cls,
         )
         tkg_neuron_config = NxDModelForCausalLM._create_token_generation_config(neuron_config)
-        graph_builders["token_generation"] = NxDDecoderBuilder(
+        graph_builders["token_generation"] = NxDDecoderBuilderForCausalLM(
             config=config,
             neuron_config=tkg_neuron_config,
             max_tokens=tkg_neuron_config.sequence_length,
@@ -399,7 +425,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         )
         if neuron_config.speculation_length > 0:
             spec_neuron_config = NxDModelForCausalLM._create_speculation_config(neuron_config)
-            graph_builders["speculation_model"] = NxDDecoderBuilder(
+            graph_builders["speculation_model"] = NxDDecoderBuilderForCausalLM(
                 config=config,
                 neuron_config=spec_neuron_config,
                 max_tokens=spec_neuron_config.sequence_length,
@@ -549,6 +575,152 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     def get_required_kwargs(self) -> list[str]:
         """The list of required kwargs to the model's forward"""
         return []
+
+    @classmethod
+    def get_compiler_args(cls, neuron_config: NxDNeuronConfig) -> str:
+        tensorizer_options = "--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2 --vectorize-strided-dma "
+
+        compiler_args = (
+            "--auto-cast=none --model-type=transformer "
+            f"--tensorizer-options='{tensorizer_options}'"
+            " -O2 "
+            f" --lnc={neuron_config.logical_nc_config}"
+        )
+
+        if neuron_config.target:
+            compiler_args += f" --target {neuron_config.target}"
+
+        logging.info(f"neuronx-cc compiler_args are: {compiler_args}")
+        return compiler_args
+
+
+class NxDDecoderModelForEmbedding(nn.Module):
+    """A decoder model used for text embedding and ranking tasks.
+
+    It uses a single model graph for encoding the input text and extracting the embeddings.
+    """
+
+    def __init__(self, config: PretrainedConfig, neuron_config: NxDNeuronConfig):
+        super().__init__()
+
+        self.config = config
+        self.neuron_config = neuron_config
+        self.batch_size = neuron_config.batch_size
+        self.n_positions = neuron_config.sequence_length
+        self.vocab_size = config.vocab_size
+        self.max_length = neuron_config.sequence_length
+        self.rank_util = SPMDRank(world_size=neuron_config.tp_degree)
+
+    def initialize_process_group(self, seed: int = 0):
+        if not torch.dist.is_initialized():
+            torch.dist.init_process_group(backend="xla")
+        else:
+            logging.warning("torch.distributed was already initialized, skipping...")
+
+        if not nxd.parallel_layers.parallel_state.model_parallel_is_initialized():
+            nxd.parallel_layers.initialize_model_parallel(
+                tensor_model_parallel_size=self.neuron_config.tp_degree,
+                pipeline_model_parallel_size=self.neuron_config.pp_degree,
+                expert_model_parallel_size=self.neuron_config.ep_degree,
+            )
+        else:
+            logging.warning("NxD was already initialized, skipping...")
+
+        # set seed
+        set_random_seed(seed)
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        position_ids: torch.Tensor,
+    ):
+        # Prepare attention mask(s)
+        attention_mask = torch.full((self.n_positions, self.n_positions), True, device=attention_mask.device).tril(
+            diagonal=0
+        )
+        attention_mask = attention_mask[None, None, :, :].expand(
+            self.batch_size, 1, self.n_positions, self.n_positions
+        )
+
+        hidden_states = self.embed_tokens(input_ids)
+
+        cos_cache = None
+        sin_cache = None
+        for decoder_layer in self.layers:
+            hidden_states, _, cos_cache, sin_cache = decoder_layer(
+                hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                cos_cache=cos_cache,
+                sin_cache=sin_cache,
+            )
+
+        hidden_states = self.norm(hidden_states)
+
+        batch_size, _, hidden_size = hidden_states.shape
+        index = torch.max(position_ids, dim=1, keepdim=True).indices
+        index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
+        hidden_states = torch.gather(hidden_states, dim=1, index=index)
+
+        return hidden_states
+
+
+class NxDModelForEmbedding(NxDPreTrainedModel):
+    """Base class for neuron embeddings."""
+
+    _model_cls = None
+    task = "feature-extraction"
+
+    def __init__(
+        self,
+        config: PretrainedConfig,
+        neuron_config: NxDNeuronConfig,
+        traced_model: torch.jit.ScriptModule,
+        graph_builders: list[NxDGraphBuilder],
+    ):
+        super().__init__(
+            config=config, neuron_config=neuron_config, traced_model=traced_model, graph_builders=graph_builders
+        )
+        self.encoding_model = NxDDecoderWrapperForEmbedding(
+            config=config,
+            neuron_config=neuron_config,
+            model=traced_model,
+        )
+        self.text_config = self.config.get_text_config()
+        self.vocab_size = self.text_config.vocab_size
+
+    @classmethod
+    def create_graph_builders(cls, config, neuron_config):
+        if cls._model_cls is None:
+            raise SystemError(f"No underlying model class defined for {cls}.")
+        return {
+            "encoding": NxDDecoderBuilderForEmbedding(
+                config=config,
+                neuron_config=neuron_config,
+                max_tokens=neuron_config.max_context_length,
+                model_cls=cls._model_cls,
+            )
+        }
+
+    def forward(
+        self,
+        input_ids: torch.LongTensor,
+        attention_mask: torch.Tensor,
+    ) -> tuple:
+        batch_size, seq_len = input_ids.shape
+        # Create position_ids
+        position_ids = attention_mask.long().cumsum(-1) - 1
+        position_ids.masked_fill_(attention_mask == 0, 1)
+
+        input_ids = input_ids.to(torch.int32)
+        attention_mask = attention_mask.to(torch.int32)
+        position_ids = position_ids.to(torch.int32)
+        return self.encoding_model(
+            input_ids,
+            attention_mask,
+            position_ids,
+        )
 
     @classmethod
     def get_compiler_args(cls, neuron_config: NxDNeuronConfig) -> str:

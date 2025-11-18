@@ -90,6 +90,7 @@ class InputShapesArguments:
     feature_size: int | None = None
     nb_max_frames: int | None = None
     audio_sequence_length: int | None = None
+    visual_seq_length: int | None = None
     point_batch_size: int | None = None
     nb_points_per_image: int | None = None
     num_beams: int | None = None
@@ -301,7 +302,7 @@ def store_compilation_config(
     original_model_type = getattr(config, "export_model_type", None) or getattr(
         config, "model_type", None
     )  # prioritize sentence_transformers to transformers
-    neuron_model_type = str(model_type).replace("_", "-") if model_type is not None else model_type
+    neuron_model_type = str(model_type) if model_type is not None else model_type
     if original_model_type is None:
         update_func(
             "model_type", neuron_model_type

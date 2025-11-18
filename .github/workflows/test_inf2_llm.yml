@@ -85,6 +85,7 @@ jobs:
           pytest -sv tests/decoder/test_fused_logits_warper.py
           pytest -sv tests/decoder/test_decoder_export.py
           pytest -sv tests/decoder/test_decoder_generation.py
+          pytest -sv tests/decoder/test_decoder_embedding.py
           pytest -sv tests/decoder/test_decoder_hub.py
           pytest -sv tests/decoder/test_decoder_pipelines.py
           pytest -sv tests/decoder/test_modules.py tests/decoder/test_attention.py

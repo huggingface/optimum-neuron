@@ -48,7 +48,7 @@ MODEL_NAMES = {
     "gpt2": "hf-internal-testing/tiny-random-gpt2",
     "levit": "hf-internal-testing/tiny-random-LevitModel",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
-    "mobilenet-v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
+    "mobilenet_v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
     "mobilevit": "hf-internal-testing/tiny-random-mobilevit",
     "modernbert": "hf-internal-testing/tiny-random-ModernBertModel",
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
@@ -108,6 +108,7 @@ class NeuronModelIntegrationTestMixin(unittest.TestCase):
 
 class NeuronModelTestMixin(unittest.TestCase):
     ARCH_MODEL_MAP = {}
+    TASK = None
     STATIC_INPUTS_SHAPES = {"batch_size": 1, "sequence_length": 32}
 
     @classmethod
@@ -141,6 +142,7 @@ class NeuronModelTestMixin(unittest.TestCase):
                 model_id,
                 **model_args,
                 export=True,
+                task=self.TASK,
                 torch_dtype=torch.float32,
                 dynamic_batch_size=dynamic_batch_size,
                 **self.STATIC_INPUTS_SHAPES,

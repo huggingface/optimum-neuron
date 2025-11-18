@@ -38,12 +38,9 @@ from ...neuron.utils import (
     neuron_scaled_dot_product_attention,
 )
 from ...utils import (
-    DIFFUSERS_MINIMUM_VERSION,
-    check_if_diffusers_greater,
     is_diffusers_available,
     logging,
 )
-from ...utils.import_utils import _diffusers_version
 from ..tasks import TasksManager
 
 
@@ -51,11 +48,6 @@ logger = logging.get_logger()
 
 
 if is_diffusers_available():
-    if not check_if_diffusers_greater(DIFFUSERS_MINIMUM_VERSION.base_version):
-        raise ImportError(
-            f"We found an older version of diffusers {_diffusers_version} but we require diffusers to be >= {DIFFUSERS_MINIMUM_VERSION}. "
-            "Please update diffusers by running `pip install --upgrade diffusers`"
-        )
     from diffusers import (
         ControlNetModel,
         DiffusionPipeline,
