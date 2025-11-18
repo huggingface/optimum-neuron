@@ -11,6 +11,7 @@ import huggingface_hub
 import pytest
 
 from optimum.neuron.utils.import_utils import is_package_available
+from optimum.neuron.version import __version__
 
 
 if is_package_available("docker"):
@@ -23,7 +24,7 @@ from .vllm_service import LauncherHandle
 
 OPTIMUM_CACHE_REPO_ID = "optimum-internal-testing/neuron-testing-cache"
 HF_TOKEN = huggingface_hub.get_token()
-DEFAULT_LLM_SERVICE = "optimum-neuron-vllm"
+DEFAULT_LLM_SERVICE = f"optimum-neuron-vllm:{__version__}"
 
 
 logging.basicConfig(
@@ -37,12 +38,18 @@ logger = logging.getLogger(__file__)
 def get_docker_image():
     docker_image = os.getenv("DOCKER_IMAGE", None)
     if docker_image is None:
-        client = docker.from_env()
-        logger.info("No image specified, trying to identify an image locally")
-        images = client.images.list(filters={"reference": DEFAULT_LLM_SERVICE})
-        if not images:
-            raise ValueError(f"No {DEFAULT_LLM_SERVICE} image found on this host to run tests.")
-        docker_image = images[0].tags[0]
+        logger.info(f"No base test image specified in environment, trying {DEFAULT_LLM_SERVICE}")
+        docker_image = DEFAULT_LLM_SERVICE
+    # Check the image is actually available
+    client = docker.from_env()
+    images = client.images.list(filters={"reference": docker_image})
+    if not images:
+        raise ValueError(
+            f"No {docker_image} image found on this host to run tests."
+            "You can generate the latest image using 'make optimum-neuron-vllm'."
+        )
+    logger.info(f"Using {docker_image} as base test image")
+    docker_image = images[0].tags[0]
     return docker_image
 
 
