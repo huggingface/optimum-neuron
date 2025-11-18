@@ -8,8 +8,10 @@ from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
 from ..utils import is_trl_available
 from ..utils.misc import is_precompilation
+
 from .grpo_config import NeuronGRPOConfig
 from .transformers import NeuronTrainer
+
 from .trl_utils import TRL_VERSION
 from neuronx_distributed.pipeline import NxDPPModel
 
@@ -20,13 +22,10 @@ import datetime
 logger = logging.get_logger()
 
 if is_trl_available():
-    # Import TRL classes only when available to avoid hard dependency at import time.
-    from trl import GRPOConfig, GRPOTrainer  # type: ignore
+    from trl import GRPOConfig, GRPOTrainer
 else:
-
     class GRPOTrainer:
         """Placeholder used when `trl` is not installed."""
-
 
     class GRPOConfig:
         """Placeholder config used when `trl` is not installed."""
