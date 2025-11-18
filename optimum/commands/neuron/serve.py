@@ -105,7 +105,7 @@ class ServeCommand(BaseOptimumCLICommand):
         try:
             # Look for a NeuronConfig in the model directory
             neuron_config = NeuronConfig.from_pretrained(model_name_or_path)
-        except Exception:
+        except EnvironmentError:
             neuron_config = None
         if neuron_config is not None:
             # This is a Neuron model: retrieve and check the export arguments
