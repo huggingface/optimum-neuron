@@ -1,22 +1,23 @@
 from typing import Any, Iterator
 
 import inspect
-import torch
+import torch, os
 import torch_xla.core.xla_model as xm
 from optimum.utils import logging
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
 from ..utils import is_trl_available
+from ..utils.misc import is_precompilation
 from .grpo_config import NeuronGRPOConfig
 from .transformers import NeuronTrainer
 from .trl_utils import TRL_VERSION
 from neuronx_distributed.pipeline import NxDPPModel
 
 from collections import defaultdict
+import datetime
 
 
 logger = logging.get_logger()
-
 
 if is_trl_available():
     # Import TRL classes only when available to avoid hard dependency at import time.
@@ -196,7 +197,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         self._is_precompilation = is_precompilation()
         if hasattr(self.args, 'output_dir') and self.args.output_dir:
             os.makedirs(self.args.output_dir, exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"grpo_metrics_{timestamp}.jsonl"
             self._jsonl_log_file = os.path.join(self.args.output_dir, filename)
         self._step_start_time = None

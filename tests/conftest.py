@@ -37,7 +37,7 @@ def init_torch_distributed():
             pipeline_model_parallel_size=1,
             context_parallel_size=1,
             expert_model_parallel_size=1,
-            skip_collective_init=True,
+            skip_collective_init=False,
             lnc_size=1,
             mesh_only=False,
         )
