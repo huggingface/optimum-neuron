@@ -49,7 +49,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
     def __init__(
         self,
         model: PreTrainedModel | torch.nn.Module | str,
-        
+        ref_model: PreTrainedModel | torch.nn.Module | None = None,
         args: GRPOConfig | None = None,
         data_collator: Any | None = None,
         train_dataset: Any = None,
@@ -88,7 +88,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         NeuronTrainer.__init__(
             self,
             model,
-            args,
+            ref_model=ref_model,
+            args=args,
             data_collator=data_collator,
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
@@ -135,31 +136,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         for attr, default_value in common_grpo_attrs.items():
             setattr(self, attr, getattr(self.args, attr, default_value))
         
-        # Reference model setup (before super().__init__ to avoid distribution issues)
-
-        if self.beta != 0.0 and not self.ref_free:
-            logger.info("[PRE-INIT] Loading reference model before distributed setup...")
-            self.ref_model = AutoModelForCausalLM.from_pretrained(
-                self.model_name_or_path,
-                torch_dtype=torch.float16,
-                low_cpu_mem_usage=True,
-            )
-            try:
-                xla_dev = xm.xla_device()
-                self.ref_model = self.ref_model.to(xla_dev)
-                self.ref_model_on_xla = True
-                logger.info(f"[PRE-INIT] Reference model moved to XLA device: {xla_dev}")
-            except Exception as e:
-                # Fall back gracefully to CPU if XLA device not available
-                self.ref_model = self.ref_model.to("cpu")
-                self.ref_model_on_xla = False
-                logger.info(f"[PRE-INIT] Could not move ref_model to XLA, keeping on CPU: {e}")
-            self.ref_model.eval()
-            logger.info("[PRE-INIT] Reference model ready")
-
-        else:
-            self.ref_model = None
-            self.ref_model_on_xla = False
+        # Reference model tracking (actual preparation happens in setup_training via parent)
+        # ref_model is passed to NeuronTrainer and will be prepared/sharded there
+        self.ref_model_on_xla = self.ref_model is not None
         
         self.mode = "train"
         
