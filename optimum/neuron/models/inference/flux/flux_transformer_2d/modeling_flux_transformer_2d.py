@@ -21,7 +21,6 @@ import logging
 import math
 import os
 from typing import Any, TYPE_CHECKING
-from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -43,11 +42,11 @@ from neuronx_distributed.parallel_layers.parallel_state import (
     get_tensor_model_parallel_size,
     get_world_group,
 )
+
 from ...backend.modules.rms_norm import NeuronRMSNorm
-from ...backend.modules.attention.utils import transpose_parallel_linear_layer
 from ...backend.utils.distributed import get_dp_rank_spmd, split_along_dim
+from ...backend.modules.attention.utils import transpose_parallel_linear_layer
 from ...backend.utils.layer_boundary_marker import ModuleMarkerStartWrapper, ModuleMarkerEndWrapper
-from .modules.kernels import matmul_o_proj_kernel
 from .modules.activations import NeuronGELU
 from .modules.embeddings import (
     FluxPosEmbed,
@@ -55,6 +54,7 @@ from .modules.embeddings import (
     NeuronCombinedTimestepTextProjEmbeddings,
     apply_rotary_emb,
 )
+from .modules.kernels import matmul_o_proj_kernel
 from .modules.normalization import (
     NeuronAdaLayerNormContinuous,
     NeuronAdaLayerNormZero,
@@ -72,9 +72,10 @@ from torch_neuronx.utils import get_platform_target
 from torch_neuronx.xla_impl.ops import nki_jit  # noqa: E402
 
 if TYPE_CHECKING:
-    from .......exporters.neuron.base import NeuronDefaultConfig
+    from ........exporters.neuron.base import NeuronDefaultConfig
 
 _HARDWARE = hardware(get_platform_target())
+
 
 _flash_fwd_call = nki_jit()(attention_isa_kernel)
 
@@ -104,34 +105,6 @@ def attention_wrapper_sharded_without_swap(query, key, value):
     return attn_output
 
 
-class FluxNxDConfig: 
-    def __init__(
-        self, 
-        neuron_config,
-        patch_size, 
-        in_channels, 
-        out_channels, 
-        num_layers, 
-        num_single_layers, 
-        attention_head_dim, 
-        num_attention_heads, 
-        joint_attention_dim, 
-        pooled_projection_dim, 
-        guidance_embeds, 
-    ): 
-        self.neuron_config = neuron_config
-        self.patch_size = patch_size 
-        self.in_channels = in_channels 
-        self.out_channels = out_channels 
-        self.num_layers = num_layers 
-        self.num_single_layers = num_single_layers 
-        self.attention_head_dim = attention_head_dim 
-        self.num_attention_heads = num_attention_heads 
-        self.joint_attention_dim = joint_attention_dim 
-        self.pooled_projection_dim = pooled_projection_dim 
-        self.guidance_embeds = guidance_embeds
-
-
 class NeuronFluxTransformer2DModel(torch.nn.Module):
     """
     The Transformer model introduced in Flux.
@@ -156,13 +129,17 @@ class NeuronFluxTransformer2DModel(torch.nn.Module):
     ):
         super().__init__()
         self.config = config
-
+        
         self.data_parallel_group = get_data_parallel_group()
         self.global_rank = SPMDRank(world_size=get_world_group().size())
-        self.context_parallel_enabled = (self.config.world_size != self.config.tensor_parallel_size)
-        self.enable_out_proj_kernel = (
-            _HARDWARE == hardware.TRN2 and self.config.world_size != self.config.tensor_parallel_size
-        )  # only supports 1024x1024 inputs for now
+        
+        #TODO: context parallel and out_proj_kernel are not working correctly so far
+        # self.context_parallel_enabled = (self.config.world_size != self.config.tensor_parallel_size)
+        # self.enable_out_proj_kernel = (
+        #     _HARDWARE == hardware.TRN2 and self.config.world_size != self.config.tensor_parallel_size
+        # )  # only supports 1024x1024 inputs for now
+        self.context_parallel_enabled = False
+        self.enable_out_proj_kernel = False
 
         self.out_channels = self.config._config.in_channels
         self.inner_dim = self.config._config.num_attention_heads * self.config._config.attention_head_dim
@@ -212,7 +189,7 @@ class NeuronFluxTransformer2DModel(torch.nn.Module):
                     num_attention_heads=self.config._config.num_attention_heads,
                     attention_head_dim=self.config._config.attention_head_dim,
                     reduce_dtype=self.config.float_dtype,
-                    context_parallel_enabled=self.context_parallel_enabled,
+                    # context_parallel_enabled=self.context_parallel_enabled,  # weird TorchScript interpreter error if we pass the arg, even when `context_parallel_enabled=False`.
                 )
                 for i in range(self.config._config.num_single_layers)
             ]
@@ -418,17 +395,14 @@ class NeuronFluxSingleTransformerBlock(nn.Module):
         attention_head_dim,
         reduce_dtype=torch.bfloat16,
         mlp_ratio=4.0,
-        context_parallel_enabled=False,
     ):
         super().__init__()
-
-        self.context_parallel_enabled = context_parallel_enabled
+        #TODO: context_parallel is not supported yet
+        self.context_parallel_enabled = False
         self.mlp_hidden_dim = int(dim * mlp_ratio)
 
         self.norm = NeuronAdaLayerNormZeroSingle(dim, use_parallel_layer=True)
-        self.proj_mlp = ColumnParallelLinear(
-            dim, self.mlp_hidden_dim, gather_output=False, reduce_dtype=reduce_dtype
-        )
+        self.proj_mlp = ColumnParallelLinear(dim, self.mlp_hidden_dim, gather_output=False, reduce_dtype=reduce_dtype)
         self.act_mlp = nn.GELU(approximate="tanh")
         # To avoid all_gathers after Q K V projections in the Attention block, we use two separated proj_outs,
         # one for the MLP output and one for the Attention output at the end we simply add them together, it's same as
@@ -529,8 +503,9 @@ class NeuronFluxTransformerBlock(nn.Module):
     ):
         super().__init__()
 
-        self.context_parallel_enabled = context_parallel_enabled
-        self.enable_out_proj_kernel = enable_out_proj_kernel
+        #TODO: context_parallel and ut_proj_kernel are not supported yet
+        self.context_parallel_enabled = False
+        self.enable_out_proj_kernel = False
         self.norm1 = NeuronAdaLayerNormZero(dim)
 
         self.norm1_context = NeuronAdaLayerNormZero(dim)
@@ -552,9 +527,7 @@ class NeuronFluxTransformerBlock(nn.Module):
         )
 
         self.norm2 = LayerNorm(dim, elementwise_affine=False, eps=1e-6)
-        self.ff = NeuronFeedForward(
-            dim=dim, dim_out=dim, activation_fn="gelu-approximate", reduce_dtype=reduce_dtype
-        )
+        self.ff = NeuronFeedForward(dim=dim, dim_out=dim, activation_fn="gelu-approximate", reduce_dtype=reduce_dtype)
 
         self.norm2_context = LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.ff_context = NeuronFeedForward(
@@ -575,11 +548,7 @@ class NeuronFluxTransformerBlock(nn.Module):
         rotary_emb_image=None,
         joint_attention_kwargs=None,
     ):
-        norm_hidden_states, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.norm1(
-            hidden_states,
-            emb=temb,
-            hlomarker=True,
-        )
+        norm_hidden_states, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.norm1(hidden_states, emb=temb)
 
         (
             norm_encoder_hidden_states,
@@ -615,9 +584,7 @@ class NeuronFluxTransformerBlock(nn.Module):
         encoder_hidden_states = encoder_hidden_states + context_attn_output
 
         norm_encoder_hidden_states = self.norm2_context(encoder_hidden_states)
-        norm_encoder_hidden_states = (
-            norm_encoder_hidden_states * (1 + c_scale_mlp[:, None]) + c_shift_mlp[:, None]
-        )
+        norm_encoder_hidden_states = norm_encoder_hidden_states * (1 + c_scale_mlp[:, None]) + c_shift_mlp[:, None]
 
         context_ff_output = self.ff_context(norm_encoder_hidden_states)
         encoder_hidden_states = encoder_hidden_states + c_gate_mlp.unsqueeze(1) * context_ff_output
@@ -675,9 +642,7 @@ class NeuronFeedForward(nn.Module):
         self.net.append(nn.Dropout(dropout))
         # project out
         self.net.append(
-            RowParallelLinear(
-                inner_dim, dim_out, bias=bias, input_is_parallel=True, reduce_dtype=reduce_dtype
-            )
+            RowParallelLinear(inner_dim, dim_out, bias=bias, input_is_parallel=True, reduce_dtype=reduce_dtype)
         )
         # FF as used in Vision Transformer, MLP-Mixer, etc. have a final dropout
         if final_dropout:
@@ -777,9 +742,11 @@ class NeuronFluxAttention(nn.Module):
     ):
         super().__init__()
 
-        self.data_parallel_group = get_data_parallel_group()
-        self.context_parallel_enabled = context_parallel_enabled
-        self.enable_out_proj_kernel = enable_out_proj_kernel
+        # self.data_parallel_group = get_data_parallel_group()
+        # self.context_parallel_enabled = context_parallel_enabled
+        self.context_parallel_enabled = False
+        # self.enable_out_proj_kernel = enable_out_proj_kernel
+        self.enable_out_proj_kernel = False
         self.query_dim = query_dim
         self.use_bias = bias
         self.is_cross_attention = cross_attention_dim is not None
@@ -1196,4 +1163,3 @@ def attention_wrapper_context_parallel_single_transformer(query, key, value, pro
 
     attn_output = attn_output.reshape((bs, n_head, q_len, d_head))
     return attn_output
-    

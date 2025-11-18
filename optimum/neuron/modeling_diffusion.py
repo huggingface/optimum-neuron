@@ -511,10 +511,9 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             # load model with weights
             model = NeuronTracedModel.load_model(model_path)
             start_rank_tensor = torch.tensor([0], dtype=torch.int32, device="cpu")
-            # import pdb
-            # pdb.set_trace()
-            # model.nxd_model.weight_loader
             model.nxd_model.initialize(weights, start_rank_tensor)
+            import pdb
+            pdb.set_trace()
             return model
 
         # define the mode for loading the models
@@ -527,14 +526,14 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             # submodels["text_encoder"] = _load_sharded_model(
             #     "text_encoder", submodels["text_encoder"], 1
             # )
-            # Load T5 text encoder
-            submodels["text_encoder_2"] = _load_sharded_model(
-                "text_encoder_2", submodels["text_encoder_2"], tensor_parallel_size
-            )
-            # # Load Flux transformer
-            # submodels["transformer"] = _load_sharded_model(
-            #     "transformer", submodels["transformer"], tensor_parallel_size
+            # # Load T5 text encoder
+            # submodels["text_encoder_2"] = _load_sharded_model(
+            #     "text_encoder_2", submodels["text_encoder_2"], tensor_parallel_size
             # )
+            # Load Flux transformer
+            submodels["transformer"] = _load_sharded_model(
+                "transformer", submodels["transformer"], tensor_parallel_size
+            )
             submodels.update(models_on_a_single_core)
         elif data_parallel_mode == "all":
             submodels = _load_models_to_both_cores(submodels)
