@@ -18,6 +18,8 @@ import os
 import warnings
 from argparse import ArgumentParser
 
+from optimum.commands.base import BaseOptimumCLICommand
+from optimum.utils import logging
 from transformers import AutoConfig
 
 from ...neuron.cache.hub_cache import select_hub_cached_entries
@@ -27,8 +29,6 @@ from ...neuron.utils.import_utils import is_vllm_available
 from ...neuron.utils.instance import current_instance_type
 from ...neuron.utils.require_utils import requires_torch_neuronx, requires_vllm
 from ...neuron.utils.system import get_available_cores
-from ...utils import logging
-from ..base import BaseOptimumCLICommand
 
 
 if is_vllm_available():
@@ -45,6 +45,22 @@ logger = logging.get_logger()
 class ServeCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
+        # The optimum-cli uses a strict parsing and does not allow unknown args.
+        # However, parser.parse_args still internally calls parser.parse_known_args.
+        # We therefore patch parser.parse_known_args to avoid returning the unknown
+        # args for this command, and store them in the args instead.
+        parser._original_parse_known_args = parser.parse_known_args
+
+        def parse_known_args(args, namespace):
+            args, unknown_args = parser._original_parse_known_args(args, namespace)
+            if hasattr(args, "func") and type(args.func(args)) is ServeCommand:
+                # Just for this command, instead of returning the unknown args, we store them
+                args._unknown_args = unknown_args
+                return args, None
+            return args, unknown_args
+
+        parser.parse_known_args = parse_known_args
+        # Add arguments that are explicitly used by the run command
         parser.add_argument(
             "-m",
             "--model",
@@ -231,6 +247,8 @@ class ServeCommand(BaseOptimumCLICommand):
         ]
         if self.args.allow_non_cached_model:
             command.append("--model-loader-extra-config=allow_non_cached_model")
+        if hasattr(self.args, "_unknown_args"):
+            command.extend(self.args._unknown_args)
         vllm_args = vllm_parser.parse_args(command)
         validate_parsed_serve_args(vllm_args)
 
