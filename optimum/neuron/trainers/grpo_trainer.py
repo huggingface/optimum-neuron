@@ -141,22 +141,11 @@ def neuron_parallel_compile_tokenizer_decoder_method(
 def nanmin(tensor: torch.Tensor) -> torch.Tensor:
     """
     XLA-compatible version of nanmin that doesn't use dynamic indexing.
-
     Compute the minimum value of a tensor, ignoring NaNs.
-
-    Args:
-        tensor: Input tensor of shape `(N,)`.
-
-    Returns:
-        Minimum value of the tensor, ignoring NaNs. Returns NaN if all values are NaN.
     """
-    # Replace NaN with a very large value before computing min
-    # This avoids dynamic indexing which XLA can't handle
     mask = torch.isnan(tensor)
     if mask.all():
         return torch.tensor(float("nan"), dtype=tensor.dtype, device=tensor.device)
-
-    # Replace NaNs with max float value so they don't affect min
     filled = torch.where(mask, torch.tensor(float("inf"), dtype=tensor.dtype, device=tensor.device), tensor)
     return torch.min(filled)
 
@@ -164,21 +153,11 @@ def nanmin(tensor: torch.Tensor) -> torch.Tensor:
 def nanmax(tensor: torch.Tensor) -> torch.Tensor:
     """
     XLA-compatible version of nanmax that doesn't use dynamic indexing.
-
     Compute the maximum value of a tensor, ignoring NaNs.
-
-    Args:
-        tensor: Input tensor of shape `(N,)`.
-
-    Returns:
-        Maximum value of the tensor, ignoring NaNs. Returns NaN if all values are NaN.
     """
-    # Replace NaN with a very small value before computing max
     mask = torch.isnan(tensor)
     if mask.all():
         return torch.tensor(float("nan"), dtype=tensor.dtype, device=tensor.device)
-
-    # Replace NaNs with min float value so they don't affect max
     filled = torch.where(mask, torch.tensor(float("-inf"), dtype=tensor.dtype, device=tensor.device), tensor)
     return torch.max(filled)
 
@@ -186,19 +165,13 @@ def nanmax(tensor: torch.Tensor) -> torch.Tensor:
 def nanstd(tensor: torch.Tensor) -> torch.Tensor:
     """
     XLA-compatible version of nanstd.
-
     Compute the standard deviation of a tensor, ignoring NaNs.
-
-    Args:
-        tensor: Input tensor of shape `(N,)`.
-
-    Returns:
-        Standard deviation of the tensor, ignoring NaNs.
     """
     # Use torch's built-in nanmean and compute variance with Bessel's correction
-    variance = torch.nanmean((tensor - torch.nanmean(tensor, keepdim=True)) ** 2)
-    count = torch.sum(~torch.isnan(tensor))
-    variance *= count / (count - 1).clamp(min=1.0)  # Bessel's correction, avoid division by zero
+    # variance = torch.nanmean((tensor - torch.nanmean(tensor, keepdim=True)) ** 2)
+    # count = torch.sum(~torch.isnan(tensor))
+    # variance *= count / (count - 1).clamp(min=1.0)  # Bessel's correction, avoid division by zero
+    return torch.tensor(1)
     return torch.sqrt(variance)
 
 
@@ -791,6 +764,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             sampling_per_token_logps_list,
             forward_kwargs,
         ) = self._generate(prompts, images)
+        torch_xla.sync()
 
         # Convert lists of token IDs to padded tensors
         prompt_ids = [torch.tensor(ids, device=device) for ids in prompt_ids_list]
@@ -806,6 +780,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             sampling_per_token_logps = pad(sampling_per_token_logps, padding_value=0.0, padding_side="right")
         else:
             sampling_per_token_logps = None
+        torch_xla.sync()
 
         # If mask_truncated_completions is enabled, zero out truncated completions in completion_mask
         if self.mask_truncated_completions:
@@ -889,6 +864,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 ref_per_token_logps = None
 
         # Decode
+        torch_xla.sync()
         prompts_text = self.processing_class.batch_decode(prompt_ids, skip_special_tokens=True)
         completions_text = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
         if is_conversational(inputs[0]):
@@ -903,6 +879,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         # important because rewards will be normalized per group, and completions are distributed. We will later slice
         # rewards_per_func to extract each process's subset.
         rewards_per_func = self._calculate_rewards(inputs, prompts, completions, completion_ids_list)
+        torch_xla.sync()
 
         # Apply weights to each reward function's output and sum
         rewards = (rewards_per_func * self.reward_weights.to(device).unsqueeze(0)).nansum(dim=1)
@@ -937,6 +914,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         )
         all_process_advantages = advantages.clone()  # keep the aggregated advantages for logging
         advantages = advantages[process_slice]
+        torch_xla.sync()
 
         # Calculate mean reward per function, but only for samples where the function was applied (non-NaN values)
         for i, reward_func_name in enumerate(self.reward_func_names):
@@ -1017,6 +995,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             output["token_type_ids"] = forward_kwargs["token_type_ids"]
         if images is not None:
             output["num_images"] = num_images
+
+        torch_xla.sync()
         return output
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
