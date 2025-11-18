@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Iterator
 
 import torch
 import torch_xla.core.xla_model as xm
@@ -35,6 +35,7 @@ _GRPOTrainer = type(
     GRPOTrainer.__dict__.copy()
 )
 
+_GRPO = _GRPOTrainer # TODO 
 
 class NeuronGRPOTrainer(_GRPOTrainer):
     """
@@ -146,7 +147,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
         else:
             self.ref_model = None
-             self.ref_model_on_xla = False
+            self.ref_model_on_xla = False
         
         self.mode = "train"
         

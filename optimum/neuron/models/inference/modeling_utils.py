@@ -26,12 +26,11 @@ from transformers import AutoConfig, GenerationConfig, PretrainedConfig
 from transformers.file_utils import add_start_docstrings
 from transformers.generation import StoppingCriteriaList
 
-from .configuration_utils import NeuronConfig
-from .modeling_base import NeuronModel
-from .models.auto_model import get_neuron_model_class
-from .utils.argument_utils import DTYPE_MAPPER
-from .utils.instance import get_default_compilation_target, normalize_instance_type
-from .utils.system import get_available_cores
+from ...configuration_utils import NeuronConfig
+from ...modeling_base import NeuronModel
+from ...utils.argument_utils import DTYPE_MAPPER
+from ...utils.instance import get_default_compilation_target, normalize_instance_type
+from ...utils.system import get_available_cores
 
 
 logger = logging.getLogger(__name__)
@@ -390,3 +389,5 @@ class NeuronModelForCausalLM(NeuronPreTrainedModel):
         **kwargs,
     ) -> torch.LongTensor:
         raise NotImplementedError
+
+from ..auto_model import get_neuron_model_class

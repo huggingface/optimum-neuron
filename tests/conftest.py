@@ -1,3 +1,59 @@
+import os
+import pytest
+import torch
+
+
+@pytest.fixture(scope="session", autouse=True)
+def init_torch_distributed():
+    """Initialize a single-process torch.distributed process group for tests.
+
+    This lets tests that check `torch.distributed.is_initialized()` run without
+    launching with `torchrun`. If a launcher already initialized the group,
+    this fixture is a no-op.
+    """
+    if not torch.distributed.is_available():
+        pytest.skip("torch.distributed is not available")
+
+    os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
+    os.environ.setdefault("MASTER_PORT", "29500")
+
+    initialized_here = False
+    if not torch.distributed.is_initialized():
+        try:
+            torch.distributed.init_process_group(backend="gloo", rank=0, world_size=1)
+            initialized_here = True
+        except Exception:
+            # If init fails, tests that require a proper distributed environment
+            # will still fail later — we don't want to hide unexpected errors here.
+            pass
+
+    # Initialize neuronx distributed model-parallel groups (1:1:1)
+    try:
+        from neuronx_distributed.parallel_layers.parallel_state import initialize_model_parallel
+
+        # Create trivial model-parallel mesh: TP=1, PP=1, context=1, EP=1
+        initialize_model_parallel(
+            tensor_model_parallel_size=1,
+            pipeline_model_parallel_size=1,
+            context_parallel_size=1,
+            expert_model_parallel_size=1,
+            skip_collective_init=True,
+            lnc_size=1,
+            mesh_only=False,
+        )
+    except Exception:
+        # If neuronx isn't available or initialization fails, allow tests to proceed
+        # so that pytest will show the appropriate error. Don't mask failures.
+        pass
+
+    yield
+
+    # teardown
+    try:
+        if initialized_here and torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()
+    except Exception:
+        pass
 # coding=utf-8
 # Copyright 2023 The HuggingFace Team. All rights reserved.
 #
