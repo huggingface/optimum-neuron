@@ -23,8 +23,8 @@ import torch
 import torch.utils._pytree as pytree
 import torch_xla
 import torch_xla.core.xla_model as xm
-from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
 from accelerate.utils import set_seed
+from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
 from optimum.utils import logging
 from torch.utils.data import Dataset, IterableDataset
 from transformers import (
@@ -91,7 +91,7 @@ def pad(
   ) -> torch.Tensor:
     """
     Pads a list of tensors to the same shape along the first dimension.
-    It differs from `trl` by enfoncing the same sequence length for all tensors, which is required to avoid 
+    It differs from `trl` by enfoncing the same sequence length for all tensors, which is required to avoid
     recompilation.
     """
     batch_size = len(tensors)
@@ -934,16 +934,16 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         metrics["frac_reward_zero_std"].append(is_std_zero.float().mean())
 
         # Log prompt and completion texts
-        # self._logs["prompt"].extend(gather_object(prompts_text))
-        # self._logs["completion"].extend(gather_object(completions_text))
+        self._logs["prompt"].extend(self.accelerator.gather_object(prompts_text))
+        self._logs["completion"].extend(self.accelerator.gather_object(completions_text))
         logs["rewards"] = {}
         logs["advantages"] = []
         for i, name in enumerate(self.reward_func_names):
             logs["rewards"][name] = rewards_per_func[:, i]
         logs["advantages"] = all_process_advantages
 
-        # if images is not None:
-        #     self._logs["images"].extend(gather_object(images))
+        if images is not None:
+            self._logs["images"].extend(self.accelerator.gather_object(images))
 
         if self.use_vllm and self.vllm_importance_sampling_correction:
             delta = torch.abs(old_per_token_logps - sampling_per_token_logps)
@@ -977,12 +977,12 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 nanmax(self.accelerator.gather(max_importance_sampling_ratio))
             )
 
-        # Graph break after metrics and logs computation.
-        torch_xla.sync()
-
         # Move metrics and logs to CPU.
         metrics = pytree.tree_map(move_all_tensor_to_cpu, metrics)
         logs = pytree.tree_map(move_all_tensor_to_cpu, logs)
+
+        # Graph break after metrics and logs computation.
+        torch_xla.sync()
 
         # Update the actual metrics and logs.
         self._metrics[mode].update(metrics)
@@ -1018,7 +1018,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         if images is not None:
             output["num_images"] = num_images
 
-        torch_xla.sync()
         return output
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):

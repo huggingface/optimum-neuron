@@ -15,6 +15,7 @@
 
 import contextlib
 import os
+import pickle
 import re
 import shutil
 import sys
@@ -23,6 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import torch
+import torch_xla
 import torch_xla.core.xla_model as xm
 import torch_xla.runtime as xr
 from accelerate import Accelerator
@@ -33,6 +35,7 @@ from neuronx_distributed import parallel_layers
 from neuronx_distributed.optimizer import NeuronZero1Optimizer
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_context_model_parallel_size,
+    get_data_parallel_group,
     get_data_parallel_replica_groups,
     get_data_parallel_size,
     get_tensor_model_parallel_replica_groups,
@@ -66,7 +69,6 @@ from .utils.misc import (
     apply_activation_checkpointing,
     create_patched_save_pretrained,
 )
-from .utils.operations import _xla_gather
 
 
 # Setup logging so that the main process logs at the INFO level and the others are silent.
@@ -547,10 +549,65 @@ class NeuronAccelerator(Accelerator):
             output_dir=output_dir, safe_serialization=safe_serialization, **save_model_func_kwargs
         )
 
-    def gather(self, tensor, out_of_graph: bool = False):
-        return _xla_gather(tensor, out_of_graph=out_of_graph)
+    def gather(self, tensor, sync: bool = False):
+        groups = get_data_parallel_group(as_list=True)
+        gathered = xm.all_gather(tensor, groups=groups, pin_layout=False)
+        if sync:
+            torch_xla.sync()
+        return gathered
 
-    def gather_for_metrics(self, input_data, use_gather_object: bool = False):
+    def gather_object(self, obj: Any) -> list[Any]:
+        """
+        Gathers arbitrary objects across XLA-distributed processes.
+        Returns list of objects from all ranks on all ranks.
+
+        Note: Requires two all-gather operations (lengths then data).
+        For small objects, this overhead may be significant.
+        """
+        world_size = get_data_parallel_size()
+
+        # Early exit for single process
+        if world_size == 1:
+            return [obj]
+
+        groups = get_data_parallel_group(as_list=True)
+
+        # Step 1: Serialize to bytes
+        serialized = pickle.dumps(obj)
+        byte_len = len(serialized)
+
+        # Step 2: Convert to tensor on XLA device
+        byte_tensor = torch.frombuffer(serialized, dtype=torch.uint8).clone()
+        byte_tensor = byte_tensor.to(xm.xla_device())
+
+        # Step 3: Gather lengths
+        len_tensor = torch.tensor([byte_len], dtype=torch.int64, device=byte_tensor.device)
+        len_list = [torch.zeros_like(len_tensor) for _ in range(world_size)]
+        xm.all_gather(len_list, len_tensor, groups=groups, pin_layout=False)
+
+        # Step 4: Pad to max length (fixed shape for XLA)
+        max_len = max(int(l.item()) for l in len_list)
+        padded = torch.zeros(max_len, dtype=torch.uint8, device=byte_tensor.device)
+        padded[:byte_len] = byte_tensor
+
+        # Step 5: Gather padded data
+        gathered_tensors = [torch.zeros_like(padded) for _ in range(world_size)]
+        xm.all_gather(gathered_tensors, padded, groups=groups, pin_layout=False)
+
+        # Step 6: Sync once, then transfer to CPU
+        torch_xla.sync()
+        cpu_tensors = [t.cpu() for t in gathered_tensors]
+
+        # Step 7: Deserialize
+        results = []
+        for tensor, length in zip(cpu_tensors, len_list):
+            actual_len = int(length.item())
+            valid_bytes = tensor[:actual_len].numpy().tobytes()
+            results.append(pickle.loads(valid_bytes))
+
+        return results
+
+    def gather_for_metrics(self, input_data, use_gather_object: bool = False, sync: bool = False):
         try:
             recursively_apply(lambda x: x, input_data, error_on_other_type=True)
             all_tensors = True
@@ -562,8 +619,7 @@ class NeuronAccelerator(Accelerator):
         if use_gather_object:
             data = gather_object(input_data)
         else:
-            # It is needed to perform out-of-graph gather otherwise re-compilation happens at every evaluation step.
-            data = self.gather(input_data, out_of_graph=True)
+            data = self.gather(input_data, sync=sync)
 
         try:
             if self.gradient_state.end_of_dataloader:
