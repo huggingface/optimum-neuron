@@ -112,7 +112,15 @@ ALL_ATTENTION_FUNCTIONS: dict[str, dict[str, Callable]] = {
 }
 
 
-def _wait_previous_async_save(checkpoint_dir: Path):
+def _wait_previous_async_save(checkpoint_dir: Path | None = None):
+    """
+    Wait for the previous asynchronous save to finish before starting a new one.
+    This function is required because neuronx_distributed's async save mechanism breaks when changing
+    the name of the directory between saves.
+
+    Args:
+        checkpoint_dir (Path | None): The new directory where the checkpoint is will be saved.
+    """
     # Async save: wait for the previous async save to finish before starting a new one.
     # There is this mechanism in neuronx_distributed already, but it breaks when we change the name of the
     # directory between saves, which we done (checkpoint-10, checkpoint-20, etc).
@@ -121,7 +129,7 @@ def _wait_previous_async_save(checkpoint_dir: Path):
     g_iostate = neuronx_distributed.trainer.checkpoint.g_iostate
     if g_iostate is not None:
         g_iostate.wait_save(async_remove=True)
-        if xr.global_ordinal() == 0:
+        if checkpoint_dir is not None and xr.global_ordinal() == 0:
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
             (checkpoint_dir / "done").touch(exist_ok=True)
 
