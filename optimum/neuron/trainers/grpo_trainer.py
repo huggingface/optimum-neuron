@@ -47,7 +47,12 @@ from .trl_utils import TRL_VERSION
 if is_trl_available():
     from trl import GRPOConfig, GRPOTrainer
     from trl.data_utils import is_conversational
-    from trl.trainer.utils import disable_dropout_in_model, identity
+    from trl.trainer.utils import (
+        disable_dropout_in_model,
+        entropy_from_logits,
+        identity,
+        selective_log_softmax,
+    )
 else:
 
     class GRPOTrainer:
@@ -682,13 +687,51 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         # with patcher:
         return GRPOTrainer._generate_and_score_completions(self, inputs)
 
+    def _to_fixed_length(
+        self,
+        tensor: torch.Tensor,
+        padding_value: int = 0,
+        padding_side: str = "right"
+    ) -> torch.Tensor:
+        """
+        Pads or truncates tensor to fixed length for XLA compilation.
+
+        XLA requires static shapes at graph construction time. This method ensures
+        all tensors (input_ids, attention_mask) have the same fixed length to enable
+        graph reuse across training steps.
+
+        Args:
+            tensor: Input tensor to pad/truncate (2D: batch × seq_len)
+            padding_value: Value to use for padding (default: 0)
+            padding_side: "left" or "right" padding (default: "right")
+
+        Returns:
+            Tensor with fixed length = max_prompt_length + max_completion_length
+        """
+        fixed_length = self.max_prompt_length + self.max_completion_length
+        seq_len = tensor.shape[1]
+
+        if seq_len == fixed_length:
+            return tensor
+        elif seq_len < fixed_length:
+            # Pad to fixed length
+            pad_amount = fixed_length - seq_len
+            pad_config = (pad_amount, 0) if padding_side == "left" else (0, pad_amount)
+            return torch.nn.functional.pad(tensor, pad_config, value=padding_value)
+        else:
+            # Truncate to fixed length
+            if padding_side == "left":
+                return tensor[:, -fixed_length:]
+            else:
+                return tensor[:, :fixed_length]
+
     def _get_per_token_logps_and_entropies(
         self,
         model,
         input_ids,
         attention_mask,
         logits_to_keep,
-        batch_size=None,
+        batch_size, # Compared to the original `trl` implementation, `batch_size` must be specified.
         compute_entropy=False,
         pixel_values=None,
         image_grid_thw=None,
@@ -696,51 +739,80 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         pixel_attention_mask=None,
         image_sizes=None,
         token_type_ids=None,
-    ):
-        """
-        Override to pad sequences to max_length for XLA compilation.
-
-        GRPO generates variable-length prompts + completions. XLA compilation requires
-        fixed shapes, so we pad all sequences to max_length (max_prompt_length + max_completion_length).
-        """
-        # Calculate max_length from GRPO config
-        max_length = self.max_prompt_length + self.max_completion_length
-        seq_len = input_ids.shape[1]
-
-        if seq_len < max_length:
-            pad_amount = max_length - seq_len
-
-            # Pad input_ids with pad_token_id
-            input_ids = torch.nn.functional.pad(
-                input_ids,
-                (0, pad_amount),
-                value=self.pad_token_id
-            )
-
-            # Pad attention_mask
-            if attention_mask is not None:
-                attention_mask = torch.nn.functional.pad(
-                    attention_mask,
-                    (0, pad_amount),
-                    value=0  # Padded positions should be masked out
-                )
-
-        # Call parent implementation with padded tensors
-        return GRPOTrainer._get_per_token_logps_and_entropies(
-            self,
-            model,
-            input_ids,
-            attention_mask,
-            logits_to_keep,
-            batch_size=batch_size,
-            compute_entropy=compute_entropy,
-            pixel_values=pixel_values,
-            image_grid_thw=image_grid_thw,
-            num_images=num_images,
-            pixel_attention_mask=pixel_attention_mask,
-            image_sizes=image_sizes,
-            token_type_ids=token_type_ids,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        # Make sure the inputs have a fixed shape.
+        input_ids = self._to_fixed_length(
+            input_ids, padding_value=self.pad_token_id, padding_side="left"
         )
+        attention_mask = self._to_fixed_length(
+            attention_mask, padding_value=0, padding_side="left"
+        )
+
+        # Force synchronization before starting computation to re-use the same graph.
+        torch_xla.sync()
+
+        batch_size = batch_size or input_ids.size(0)  # Chunk inputs into smaller batches to reduce memory peak
+        all_logps = []
+        all_entropies = []
+        # TODO: check if it's ok with TORCH XLA
+        for start in range(0, input_ids.size(0), batch_size):
+            input_ids_batch = input_ids[start : start + batch_size]
+            attention_mask_batch = attention_mask[start : start + batch_size]
+
+            # Build model inputs - check if the model supports logits_to_keep (some models and VLMs don't)
+            model_inputs = {"input_ids": input_ids_batch, "attention_mask": attention_mask_batch}
+            if image_grid_thw is not None and pixel_values is not None:
+                rows_per_image = image_grid_thw.prod(dim=-1)
+                rows_per_sample = torch.split(rows_per_image, num_images)
+                rows_per_sample = torch.stack([s.sum() for s in rows_per_sample])
+                cum_rows = torch.cat([torch.tensor([0], device=rows_per_sample.device), rows_per_sample.cumsum(0)])
+                # TODO: not support with torch XLA, fix it later.
+                row_start, row_end = cum_rows[start].item(), cum_rows[start + batch_size].item()
+                model_inputs["pixel_values"] = pixel_values[row_start:row_end]
+                cum_imgs = torch.tensor([0] + num_images).cumsum(0)
+                img_start, img_end = cum_imgs[start], cum_imgs[start + batch_size]
+                model_inputs["image_grid_thw"] = image_grid_thw[img_start:img_end]
+            elif pixel_values is not None:
+                model_inputs["pixel_values"] = pixel_values[start : start + batch_size]
+            if pixel_attention_mask is not None:
+                model_inputs["pixel_attention_mask"] = pixel_attention_mask[start : start + batch_size]
+            if image_sizes is not None:
+                model_inputs["image_sizes"] = image_sizes[start : start + batch_size]
+            if token_type_ids is not None:
+                model_inputs["token_type_ids"] = token_type_ids[start : start + batch_size]
+
+            # Only add logits_to_keep if the model supports it
+            if "logits_to_keep" in self.model_kwarg_keys:
+                # We add 1 to `logits_to_keep` because the last logits of the sequence is later excluded
+                model_inputs["logits_to_keep"] = logits_to_keep + 1
+
+            model_inputs["use_cache"] = False  # only used in generation; set False to suppress warnings
+
+            logits = model(**model_inputs).logits
+            # Exclude the last value: it corresponds to the next token pred
+            logits = logits[:, :-1, :]  # (B, L-1, H)
+            # Only keep the last logits_to_keep. For model that support logits_to_keep, this is a no-op.
+            logits = logits[:, -logits_to_keep:, :]  # (B, logits_to_keep, H)
+            # Divide logits by sampling temperature.
+            # See https://huggingface.co/blog/the_n_implementation_details_of_rlhf_with_ppo#policy-training-implementation-details
+            logits = logits / self.temperature
+
+            completion_ids = input_ids_batch[:, -logits_to_keep:]
+            logps = selective_log_softmax(logits, completion_ids)  # compute logprobs
+            all_logps.append(logps)
+
+            if compute_entropy:
+                with torch.no_grad():
+                    entropies = entropy_from_logits(logits)
+                all_entropies.append(entropies)
+
+        logps = torch.cat(all_logps, dim=0)
+        entropies = torch.cat(all_entropies, dim=0) if compute_entropy else None
+
+        # Force synchronization after computation to ensure graph is re-used.
+        torch_xla.sync()
+
+        return logps, entropies
 
     def _generate_and_score_completions(
         self, inputs: list[dict[str,torch.Tensor | Any]]
@@ -804,9 +876,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
         num_images = [len(img_list) for img_list in images] if images is not None else None
 
-        # Graph break before computing the log probabilities.
-        torch_xla.sync()
-
         with torch.no_grad():
             # If the generation and optimization steps are misaligned—i.e., if generation does not occur at the end of
             # a full optimizer step (when gradient_accumulation_steps is not a multiple of generate_every)—then the
@@ -831,16 +900,12 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             else:
                 old_per_token_logps = None
 
-            torch_xla.sync()
-
             # Compute the importance sampling ratio when using vLLM, to correct for potential distribution mismatch
             if self.use_vllm and self.vllm_importance_sampling_correction:
                 importance_sampling_ratio = torch.exp(old_per_token_logps - sampling_per_token_logps)
                 importance_sampling_ratio = torch.clamp(
                     importance_sampling_ratio, max=self.vllm_importance_sampling_cap
                 )
-
-            torch_xla.sync()
 
             # Compute the per-token log probabilities for the reference model
             if self.beta != 0.0:
@@ -867,8 +932,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                         )
             else:
                 ref_per_token_logps = None
-
-        torch_xla.sync()
 
         prompts_text = self.processing_class.batch_decode(prompt_ids, skip_special_tokens=True)
         completions_text = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
@@ -934,16 +997,16 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         metrics["frac_reward_zero_std"].append(is_std_zero.float().mean())
 
         # Log prompt and completion texts
-        self._logs["prompt"].extend(self.accelerator.gather_object(prompts_text))
-        self._logs["completion"].extend(self.accelerator.gather_object(completions_text))
+        # self._logs["prompt"].extend(self.accelerator.gather_object(prompts_text))
+        # self._logs["completion"].extend(self.accelerator.gather_object(completions_text))
         logs["rewards"] = {}
         logs["advantages"] = []
         for i, name in enumerate(self.reward_func_names):
             logs["rewards"][name] = rewards_per_func[:, i]
         logs["advantages"] = all_process_advantages
 
-        if images is not None:
-            self._logs["images"].extend(self.accelerator.gather_object(images))
+        # if images is not None:
+        #     self._logs["images"].extend(self.accelerator.gather_object(images))
 
         if self.use_vllm and self.vllm_importance_sampling_correction:
             delta = torch.abs(old_per_token_logps - sampling_per_token_logps)
@@ -1040,6 +1103,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             input_ids,
             attention_mask,
             logits_to_keep,
+            batch_size=self.args.per_device_train_batch_size,
             compute_entropy=True,
             pixel_values=inputs.get("pixel_values"),
             image_grid_thw=inputs.get("image_grid_thw"),
@@ -1048,7 +1112,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             image_sizes=inputs.get("image_sizes"),
             token_type_ids=inputs.get("token_type_ids"),
         )
-        torch_xla.sync()
 
         if self.top_entropy_quantile < 1.0:
             entropy_mask = self.get_high_entropy_mask(entropies, completion_mask, 1 - self.top_entropy_quantile)
@@ -1131,12 +1194,14 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             else:
                 return (x * completion_mask).sum() / completion_token_count
 
+        metrics = defaultdict(list)
+
         if self.beta != 0.0:
             mean_kl = masked_batch_mean(per_token_kl)
-            self._metrics[mode]["kl"].append(self.accelerator.gather(mean_kl).nanmean().item())
+            metrics["kl"].append(self.accelerator.gather(mean_kl).nanmean())
 
         mean_entropy = masked_batch_mean(entropies)
-        self._metrics[mode]["entropy"].append(self.accelerator.gather(mean_entropy).nanmean().item())
+        metrics["entropy"].append(self.accelerator.gather(mean_entropy).nanmean())
 
         # Compute the clipped probability ratios
         is_low_clipped = (coef_1 < 1 - self.epsilon_low) & (advantages.unsqueeze(1) < 0)
@@ -1148,13 +1213,18 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         clip_ratio = masked_batch_mean(is_region_clipped.float())
 
         gathered_low_clip = self.accelerator.gather(low_clip)
-        self._metrics[mode]["clip_ratio/low_mean"].append(gathered_low_clip.nanmean().item())
-        self._metrics[mode]["clip_ratio/low_min"].append(nanmin(gathered_low_clip).item())
+        metrics["clip_ratio/low_mean"].append(gathered_low_clip.nanmean())
+        metrics["clip_ratio/low_min"].append(nanmin(gathered_low_clip))
         gathered_high_clip = self.accelerator.gather(high_clip)
-        self._metrics[mode]["clip_ratio/high_mean"].append(gathered_high_clip.nanmean().item())
-        self._metrics[mode]["clip_ratio/high_max"].append(nanmax(gathered_high_clip).item())
+        metrics["clip_ratio/high_mean"].append(gathered_high_clip.nanmean())
+        metrics["clip_ratio/high_max"].append(nanmax(gathered_high_clip))
         gathered_clip_ratio = self.accelerator.gather(clip_ratio)
-        self._metrics[mode]["clip_ratio/region_mean"].append(gathered_clip_ratio.nanmean().item())
+        metrics["clip_ratio/region_mean"].append(gathered_clip_ratio.nanmean())
+
+        torch_xla.sync()  # Graph break before moving metrics to CPU.
+        metrics = pytree.tree_map(move_all_tensor_to_cpu, metrics)
+        self._metrics[mode].update(metrics)
+
         return loss
 
     def prediction_step(self, model, inputs, prediction_loss_only, ignore_keys: list[str] | None = None):

@@ -551,7 +551,11 @@ class NeuronAccelerator(Accelerator):
 
     def gather(self, tensor, sync: bool = False):
         groups = get_data_parallel_group(as_list=True)
-        gathered = xm.all_gather(tensor, groups=groups, pin_layout=False)
+
+        # Ensure tensor is at least 1D for all_gather (scalars need to be unsqueezed)
+        input_tensor = tensor.unsqueeze(0) if tensor.ndim == 0 else tensor
+        gathered = xm.all_gather(input_tensor, dim=0, groups=groups, pin_layout=False)
+
         if sync:
             torch_xla.sync()
         return gathered
@@ -572,38 +576,36 @@ class NeuronAccelerator(Accelerator):
 
         groups = get_data_parallel_group(as_list=True)
 
-        # Step 1: Serialize to bytes
         serialized = pickle.dumps(obj)
         byte_len = len(serialized)
 
-        # Step 2: Convert to tensor on XLA device
         byte_tensor = torch.frombuffer(serialized, dtype=torch.uint8).clone()
         byte_tensor = byte_tensor.to(xm.xla_device())
 
-        # Step 3: Gather lengths
         len_tensor = torch.tensor([byte_len], dtype=torch.int64, device=byte_tensor.device)
-        len_list = [torch.zeros_like(len_tensor) for _ in range(world_size)]
-        xm.all_gather(len_list, len_tensor, groups=groups, pin_layout=False)
+        # all_gather concatenates along dim=0, so [1] -> [world_size]
+        gathered_lengths = xm.all_gather(len_tensor, dim=0, groups=groups, pin_layout=False)
 
-        # Step 4: Pad to max length (fixed shape for XLA)
-        max_len = max(int(l.item()) for l in len_list)
+        torch_xla.sync()
+        max_len = int(gathered_lengths.max().item())
+
         padded = torch.zeros(max_len, dtype=torch.uint8, device=byte_tensor.device)
         padded[:byte_len] = byte_tensor
 
-        # Step 5: Gather padded data
-        gathered_tensors = [torch.zeros_like(padded) for _ in range(world_size)]
-        xm.all_gather(gathered_tensors, padded, groups=groups, pin_layout=False)
+        # all_gather concatenates, so [max_len] -> [world_size * max_len]
+        gathered_data = xm.all_gather(padded, dim=0, groups=groups, pin_layout=False)
 
-        # Step 6: Sync once, then transfer to CPU
         torch_xla.sync()
-        cpu_tensors = [t.cpu() for t in gathered_tensors]
+        gathered_data_cpu = gathered_data.cpu()
+        gathered_lengths_cpu = gathered_lengths.cpu()
 
-        # Step 7: Deserialize
         results = []
-        for tensor, length in zip(cpu_tensors, len_list):
-            actual_len = int(length.item())
-            valid_bytes = tensor[:actual_len].numpy().tobytes()
+        offset = 0
+        for i in range(world_size):
+            actual_len = int(gathered_lengths_cpu[i].item())
+            valid_bytes = gathered_data_cpu[offset:offset + max_len][:actual_len].numpy().tobytes()
             results.append(pickle.loads(valid_bytes))
+            offset += max_len
 
         return results
 
