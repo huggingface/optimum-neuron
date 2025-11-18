@@ -142,7 +142,7 @@ def get_optimum_neuron_model(
     try:
         # Look for a NeuronConfig in the model directory
         neuron_config = NeuronConfig.from_pretrained(model_name_or_path, revision=revision, token=token)
-    except Exception:
+    except EnvironmentError:
         neuron_config = None
     if neuron_config is not None:
         neuron_model = NeuronModelForCausalLM.from_pretrained(
