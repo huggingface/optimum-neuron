@@ -49,6 +49,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
     def __init__(
         self,
         model: PreTrainedModel | torch.nn.Module | str,
+        
         args: GRPOConfig | None = None,
         data_collator: Any | None = None,
         train_dataset: Any = None,

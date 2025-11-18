@@ -115,6 +115,7 @@ class NeuronTrainer:
     def __init__(
         self,
         model: PreTrainedModel | nn.Module,
+        ref_model: PreTrainedModel | nn.Module | None = None,
         args: NeuronTrainingArguments,
         data_collator: DataCollator | None = None,
         train_dataset: "Dataset | IterableDataset | datasets.Dataset | None" = None,
@@ -170,6 +171,8 @@ class NeuronTrainer:
             )
 
         self.model = model
+        self.ref_model = ref_model
+
         self.create_accelerator_and_postprocess()
 
         if self.args.use_liger_kernel:
@@ -839,10 +842,21 @@ class NeuronTrainer:
             self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
 
         self.model = self.accelerator.prepare_model(self.model)
+        if self.ref_model is not None:
+            self.ref_model = self.accelerator.prepare_model(
+                self.ref_model,
+                evaluation_mode=True
+            )
+            self.ref_model.eval()
+            for param in self.ref_model.parameters():
+                param.requires_grad = False
+
         self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
         if not isinstance(self.model, NxDPPModel):
             self.model.train()
+
+        # TODO: potentially need edge case handler for ref_model
 
         if hasattr(self.lr_scheduler, "step"):
             self.optimizer = self.accelerator.prepare(self.optimizer)
