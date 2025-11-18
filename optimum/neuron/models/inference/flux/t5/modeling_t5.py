@@ -727,11 +727,11 @@ class NeuronT5EncoderModel(nn.Module):
         input_ids: torch.LongTensor | None = None,
         attention_mask: torch.FloatTensor | None = None,
         head_mask: torch.FloatTensor | None = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[Tuple[torch.FloatTensor], BaseModelOutput]:
+        inputs_embeds: torch.FloatTensor| None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+    ) -> tuple[torch.FloatTensor] | BaseModelOutput:
         # Default to True to match with T5Config
         return_dict = return_dict if return_dict is not None else True
 

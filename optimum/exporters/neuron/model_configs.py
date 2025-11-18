@@ -1131,8 +1131,8 @@ class T5EncoderForDiffusersNeuronConfig(NxDNeuronConfig, T5EncoderBaseNeuronConf
 
         # Parallelize Flux transformer with NxD backend modeling
         model = NeuronT5EncoderModel(self)
-        model = model.to(self.float_dtype)
         model.eval()
+        model = model.to(self.float_dtype)
 
         return model
     

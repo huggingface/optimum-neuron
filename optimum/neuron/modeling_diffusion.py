@@ -523,13 +523,13 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 {k: v for k, v in submodels.items() if k not in tp_models}
             )
             # Load CLIP Text Encoder
-            # submodels["text_encoder"] = _load_sharded_model(
-            #     "text_encoder", submodels["text_encoder"], 1
-            # )
-            # # Load T5 text encoder
-            # submodels["text_encoder_2"] = _load_sharded_model(
-            #     "text_encoder_2", submodels["text_encoder_2"], tensor_parallel_size
-            # )
+            submodels["text_encoder"] = _load_sharded_model(
+                "text_encoder", submodels["text_encoder"], 1
+            )
+            # Load T5 text encoder
+            submodels["text_encoder_2"] = _load_sharded_model(
+                "text_encoder_2", submodels["text_encoder_2"], tensor_parallel_size
+            )
             # Load Flux transformer
             submodels["transformer"] = _load_sharded_model(
                 "transformer", submodels["transformer"], tensor_parallel_size
