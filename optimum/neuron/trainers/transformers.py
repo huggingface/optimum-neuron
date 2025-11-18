@@ -27,7 +27,6 @@ from typing import Any, Callable, Iterator, Type
 import torch
 import torch.nn as nn
 import torch_xla.core.xla_model as xm
-import torch_xla.runtime as xr
 from accelerate.utils import AutocastKwargs, DataLoaderConfiguration
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_data_parallel_replica_groups,
@@ -735,12 +734,11 @@ class NeuronTrainer:
 
     def synchronize_hub_cache(self):
         repo_id = get_hf_hub_cache_repos()[0]
-        if not self.args.skip_cache_push and xr.global_ordinal() == 0:
+        if not self.args.skip_cache_push:
             has_write_access = has_write_access_to_repo(repo_id)
             if has_write_access:
                 cache_path = get_neuron_cache_path()
                 synchronize_hub_cache(cache_path=cache_path, cache_repo_id=repo_id)
-        xm.rendezvous("Hub cache synchronization done")
 
     def autocast_smart_context_manager(self, cache_enabled: bool | None = True):
         """
