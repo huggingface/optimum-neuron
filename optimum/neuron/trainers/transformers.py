@@ -116,7 +116,7 @@ class NeuronTrainer:
         self,
         model: PreTrainedModel | nn.Module,
         ref_model: PreTrainedModel | nn.Module | None = None,
-        args: NeuronTrainingArguments,
+        args: NeuronTrainingArguments | None = None,
         data_collator: DataCollator | None = None,
         train_dataset: "Dataset | IterableDataset | datasets.Dataset | None" = None,
         eval_dataset: "Dataset | dict[str, Dataset] | datasets.Dataset | None" = None,

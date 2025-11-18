@@ -63,15 +63,48 @@ class DummyModel(nn.Module):
 
 
 from optimum.neuron.trainers.grpo_trainer import NeuronGRPOTrainer
+from optimum.neuron.trainers.training_args import NeuronTrainingArguments
+from datasets import Dataset
+
+# Create a simple dataset with prompts
+train_data = {
+    "prompt": [
+        "What is 2+2?",
+        "What is the capital of France?",
+        "Explain gravity in simple terms.",
+        "Write a haiku about coding.",
+    ]
+}
+train_dataset = Dataset.from_dict(train_data)
 
 model = DummyModel()
-tokenizer = DummyTokenizer()
+tokenizer = AutoTokenizer.from_pretrained("gpt2")
+tokenizer.pad_token = tokenizer.eos_token
+
+# Training args for 1 step
+training_args = NeuronTrainingArguments(
+    output_dir="./test_output",
+    max_steps=1,
+    per_device_train_batch_size=2,
+    logging_steps=1,
+    report_to="none",
+)
 
 trainer = NeuronGRPOTrainer(
     model=model,
-    tokenizer=tokenizer,
-    args=None,
-    reward_funcs=[lambda prompts, completions: [1.0] * len(completions)],
+    processing_class=tokenizer,
+    args=training_args,
+    train_dataset=train_dataset,
+    reward_funcs=[lambda prompts, completions, **kwargs: [1.0] * len(completions)],
 )
 
 print("Trainer instantiated successfully!")
+print("Starting one training step...")
+
+try:
+    trainer.train()
+    print("Training step completed successfully!")
+except Exception as e:
+    print(f"Training failed with error: {e}")
+    import traceback
+    traceback.print_exc()
