@@ -1,9 +1,0 @@
-model_id,concurrent requests,throughput (t/s),Time-to-first-token @ P50 (s),average latency (ms)
-huggingface/NousResearch/Meta-Llama-3-70B-Instruct,1,33.13623382956197,0.847853995503101,29.194137679169646
-huggingface/NousResearch/Meta-Llama-3-70B-Instruct,2,55.61050569710368,1.2736788609981886,32.90289103801151
-huggingface/NousResearch/Meta-Llama-3-70B-Instruct,4,86.58456489701315,3.34435009349545,39.293303536708166
-huggingface/NousResearch/Meta-Llama-3-70B-Instruct,8,90.20366126074002,5.904863483490772,55.9280860250687
-huggingface/NousResearch/Meta-Llama-3-70B-Instruct,16,93.46094649258835,16.161018327497004,108.1654402765888
-huggingface/NousResearch/Meta-Llama-3-70B-Instruct,32,94.60090167352047,37.34856389850029,182.42863576574968
-huggingface/NousResearch/Meta-Llama-3-70B-Instruct,64,97.6200946608771,80.71991845800221,357.9967863853603
-huggingface/NousResearch/Meta-Llama-3-70B-Instruct,128,98.4129882974856,165.12605451900163,684.5967867979082
