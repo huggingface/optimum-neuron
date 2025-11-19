@@ -85,7 +85,6 @@ class OptimumNeuronCachedBatch:
             if cached_request is not None and cached_request.req_id in req_ids:
                 logger.info(f"Removed request {cached_request.req_id} at index {i} from the cached batch.")
                 self.cached_requests[i] = None
-                break
 
     def request(self, req_id: str) -> OptimumNeuronCachedRequest:
         for cached_request in self.cached_requests:
