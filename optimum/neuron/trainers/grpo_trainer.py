@@ -18,9 +18,7 @@ from collections import defaultdict, deque
 from typing import Any, Callable
 
 import datasets
-import numpy as np
 import torch
-import torch.utils._pytree as pytree
 import torch_xla
 import torch_xla.core.xla_model as xm
 from accelerate.utils import set_seed
@@ -32,7 +30,9 @@ from transformers import (
     PreTrainedTokenizerBase,
     ProcessorMixin,
     TrainerCallback,
+    is_wandb_available,
 )
+from transformers.utils import is_rich_available
 
 from ..models.training import NeuronModelForCausalLM
 from ..peft import NeuronPeftModel, get_peft_model
@@ -41,8 +41,11 @@ from ..utils.import_utils import is_peft_available
 from .grpo_config import NeuronGRPOConfig
 from .training_args import NeuronTrainingArguments
 from .transformers import NeuronTrainer
-from .trl_utils import TRL_VERSION
+from .trl_utils import TRL_VERSION, nanmax, nanmin, nanstd, neuron_parallel_compile_tokenizer_decoder_method, pad
 
+
+if is_wandb_available():
+    import wandb
 
 if is_trl_available():
     from trl import GRPOConfig, GRPOTrainer
@@ -51,6 +54,7 @@ if is_trl_available():
         disable_dropout_in_model,
         entropy_from_logits,
         identity,
+        print_prompt_completions_sample,
         selective_log_softmax,
     )
 else:
@@ -86,100 +90,6 @@ logger = logging.get_logger()
 # What we call a reward function is a callable that takes a list of prompts and completions and returns a list of
 # rewards. When it's a string, it's a model ID, so it's loaded as a pretrained model.
 RewardFunc = str | PreTrainedModel | Callable[[list, list], list[float]]
-
-
-def pad(
-    tensors: list[torch.Tensor],
-    padding_value: int = 0,
-    padding_side: str = "right",
-    max_length: int | None = None,
-  ) -> torch.Tensor:
-    """
-    Pads a list of tensors to the same shape along the first dimension.
-    It differs from `trl` by enfoncing the same sequence length for all tensors, which is required to avoid
-    recompilation.
-    """
-    batch_size = len(tensors)
-    if max_length is None:
-        max_length = np.max([t.shape[0] for t in tensors]).tolist()
-
-    output_shape = (max_length,) + tensors[0].shape[1:]
-
-    # Create an output tensor filled with the padding value
-    output = torch.full((batch_size, *output_shape), padding_value, dtype=tensors[0].dtype, device=tensors[0].device)
-
-    for i, t in enumerate(tensors):
-        if padding_side == "left":
-            seq_start = output_shape[0] - t.shape[0]
-        elif padding_side == "right":
-            seq_start = 0
-        else:
-            raise ValueError("padding_side must be 'left' or 'right'")
-
-        # Define the slices
-        seq_slice = slice(seq_start, seq_start + t.shape[0])
-        slices = (seq_slice,) + tuple(slice(0, s) for s in t.shape[1:])
-        output[i][slices] = t
-
-    return output
-
-
-def neuron_parallel_compile_tokenizer_decoder_method(
-    self,
-    token_ids: int | list[int],
-    skip_special_tokens: bool = False,
-    clean_up_tokenization_spaces: bool | None = None,
-    **kwargs,
-) -> str:
-    """
-    Patched `tokenizer._decode` method for Neuron parallel compilation.
-    This is needed because any tensor operation during `neuron_parallel_compile` produces rubbish results, which is not
-    an issue in general, but causes failure when the token IDS end up being out of range for the tokenizer vocabulary.
-    """
-    if not is_precompilation():
-        raise RuntimeError("This patch method should only be used with `neuron_parallel_compile`.")
-
-    # We log the token IDs to force the data mouvement to CPU, which would happen during actual decoding.
-    logger.debug("Using patched tokenizer.decode method for Neuron parallel compilation, token_ids = ", token_ids)
-
-    # Returns a dummy string, we do not care about the value in this context.
-    return "dummy"
-
-
-def nanmin(tensor: torch.Tensor) -> torch.Tensor:
-    """
-    XLA-compatible version of nanmin that doesn't use dynamic indexing.
-    Compute the minimum value of a tensor, ignoring NaNs.
-    """
-    mask = torch.isnan(tensor)
-    if mask.all():
-        return torch.tensor(float("nan"), dtype=tensor.dtype, device=tensor.device)
-    filled = torch.where(mask, torch.tensor(float("inf"), dtype=tensor.dtype, device=tensor.device), tensor)
-    return torch.min(filled)
-
-
-def nanmax(tensor: torch.Tensor) -> torch.Tensor:
-    """
-    XLA-compatible version of nanmax that doesn't use dynamic indexing.
-    Compute the maximum value of a tensor, ignoring NaNs.
-    """
-    mask = torch.isnan(tensor)
-    if mask.all():
-        return torch.tensor(float("nan"), dtype=tensor.dtype, device=tensor.device)
-    filled = torch.where(mask, torch.tensor(float("-inf"), dtype=tensor.dtype, device=tensor.device), tensor)
-    return torch.max(filled)
-
-
-def nanstd(tensor: torch.Tensor) -> torch.Tensor:
-    """
-    XLA-compatible version of nanstd.
-    Compute the standard deviation of a tensor, ignoring NaNs.
-    """
-    # Use torch's built-in nanmean and compute variance with Bessel's correction
-    variance = torch.nanmean((tensor - torch.nanmean(tensor, keepdim=True)) ** 2)
-    count = torch.sum(~torch.isnan(tensor))
-    variance *= count / (count - 1).clamp(min=1.0)  # Bessel's correction, avoid division by zero
-    return torch.sqrt(variance)
 
 
 class NeuronGRPOTrainer(_GRPOTrainer):
@@ -539,55 +449,65 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         self,
         resume_from_checkpoint: str | bool | None = None,
     ):
-        """
-        Main training entry point.
-
-        Args:
-            resume_from_checkpoint: Path to a checkpoint to resume from, or True to resume from the latest checkpoint.
-        """
         return NeuronTrainer.train(self, resume_from_checkpoint=resume_from_checkpoint)
 
-    def log(self, logs: dict[str, float]) -> None:
-        """
-        Override GRPOTrainer's log method to use NeuronTrainer's implementation.
+    def log(self, logs: dict[str, float], start_time: float | None = None) -> None:
+        mode = "train" if self.model.training else "eval"
+        metrics = {key: sum(val) / len(val) for key, val in self._metrics[mode].items()}  # average the metrics
 
-        GRPOTrainer has custom metrics tracking that we don't use for Neuron training.
-        """
-        return NeuronTrainer.log(self, logs)
+        # This method can be called both in training and evaluation. When called in evaluation, the keys in `logs`
+        # start with "eval_". We need to add the prefix "eval_" to the keys in `metrics` to match the format.
+        if mode == "eval":
+            metrics = {f"eval_{key}": val for key, val in metrics.items()}
+
+        logs = {**logs, **metrics}
+
+        # Using the NeuronTrainer log method instead of super().log.
+        NeuronTrainer.log(self, logs)
+
+        self._metrics[mode].clear()
+
+        if self.accelerator.is_main_process and self.log_completions:
+            if is_rich_available():
+                print_prompt_completions_sample(
+                    self._logs["prompt"],
+                    self._logs["completion"],
+                    self._logs["rewards"],
+                    self._logs["advantages"],
+                    self.state.global_step,
+                    self.num_completions_to_print,
+                )
+
+            if self.args.report_to and "wandb" in self.args.report_to and wandb.run is not None:
+                import pandas as pd
+
+                table = {
+                    "step": [str(self.state.global_step)] * len(self._logs["prompt"]),
+                    "prompt": self._logs["prompt"],
+                    "completion": self._logs["completion"],
+                    **self._logs["rewards"],
+                    "advantage": self._logs["advantages"],
+                }
+
+                if self._logs["images"]:
+                    table["images"] = []
+                    for image_list in self._logs["images"]:
+                        # Convert images to wandb Image objects for proper visualization
+                        table["images"].append([wandb.Image(image) for image in image_list])
+
+                df = pd.DataFrame(table)
+                if self.wandb_log_unique_prompts:
+                    df = df.drop_duplicates(subset=["prompt"])
+                wandb.log({"completions": wandb.Table(dataframe=df)})
 
     def _save_checkpoint(self, model=None, trial=None, metrics=None):
-        """
-        Override GRPOTrainer's _save_checkpoint to use NeuronTrainer's implementation.
-        """
         return NeuronTrainer._save_checkpoint(self)
 
     def _prepare_inputs(self, inputs: Any) -> dict[str, Any]:
-        """
-        Prepare inputs for GRPO training.
-
-        This method overrides NeuronTrainer._prepare_inputs to use GRPOTrainer's
-        implementation, which handles:
-        1. Generation of completions using vLLM
-        2. Scoring completions using reward functions
-        3. Buffering completions for reuse across multiple gradient steps
-        4. Tokenization and conversion to model inputs
-
-        Args:
-            inputs: Raw batch from dataloader (list of prompt dicts for GRPO)
-
-        Returns:
-            Dictionary of tokenized tensors ready for the model
-        """
         # Explicitly call GRPOTrainer's _prepare_inputs
         return GRPOTrainer._prepare_inputs(self, inputs)
 
     def _calculate_rewards(self, inputs, prompts, completions, completion_ids_list):
-        """
-        Override to use NeuronAccelerator.gather instead of standalone gather function.
-
-        The standalone gather from accelerate.utils may not be XLA-compatible,
-        so we use self.accelerator.gather which uses _xla_gather internally.
-        """
         device = self.accelerator.device
         rewards_per_func = torch.zeros(len(prompts), len(self.reward_funcs), device=device)
 
@@ -611,6 +531,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 reward_inputs = NeuronTrainer._prepare_inputs(self, reward_inputs)
                 with torch.inference_mode():
                     rewards_per_func[:, i] = reward_func(**reward_inputs).logits[:, 0]
+                torch_xla.sync()
             else:
                 output_reward_func = reward_func(
                     prompts=prompts, completions=completions, completion_ids=completion_ids_list, **reward_kwargs
@@ -619,6 +540,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 rewards_per_func[:, i] = torch.tensor(output_reward_func, dtype=torch.float32, device=device)
 
         rewards_per_func = self.accelerator.gather(rewards_per_func)
+        torch_xla.sync()
         return rewards_per_func
 
     def _generate_single_turn(self, prompts: list[str], images: list | None):
@@ -679,14 +601,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
         return prompt_ids, completion_ids, logprobs, forward_kwargs
 
-    def _generate_and_score_completions(
-          self, inputs: list[dict[str, torch.Tensor | Any]]
-    ) -> dict[str, torch.Tensor | Any]:
-        # We patch the pad function to make it compatible with `neuron_parallel_compile`.
-        # patcher = Patcher([("trl.trainer.grpo_trainer.pad", pad)])
-        # with patcher:
-        return GRPOTrainer._generate_and_score_completions(self, inputs)
-
     def _to_fixed_length(
         self,
         tensor: torch.Tensor,
@@ -694,19 +608,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         padding_side: str = "right"
     ) -> torch.Tensor:
         """
-        Pads or truncates tensor to fixed length for XLA compilation.
-
-        XLA requires static shapes at graph construction time. This method ensures
-        all tensors (input_ids, attention_mask) have the same fixed length to enable
-        graph reuse across training steps.
-
-        Args:
-            tensor: Input tensor to pad/truncate (2D: batch × seq_len)
-            padding_value: Value to use for padding (default: 0)
-            padding_side: "left" or "right" padding (default: "right")
-
-        Returns:
-            Tensor with fixed length = max_prompt_length + max_completion_length
+        Pads or truncates tensor to fixed length = max_prompt_length + max_completion_length.
         """
         fixed_length = self.max_prompt_length + self.max_completion_length
         seq_len = tensor.shape[1]
@@ -1010,26 +912,49 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
         if self.use_vllm and self.vllm_importance_sampling_correction:
             delta = torch.abs(old_per_token_logps - sampling_per_token_logps)
-            delta = delta[completion_mask.bool()]
-            mean_delta = torch.mean(delta) if delta.numel() > 0 else torch.tensor(0.0, device=device)
-            max_delta = torch.max(delta) if delta.numel() > 0 else torch.tensor(0.0, device=device)
+            # Original code was:
+            # delta = delta[completion_mask.bool()]
+            # mean_delta = torch.mean(delta) if delta.numel() > 0 else torch.tensor(0.0, device=device)
+            # max_delta = torch.max(delta) if delta.numel() > 0 else torch.tensor(0.0, device=device)
+            # But it is not XLA friendly because it involves dynamic indexing before reduction, so we rewrite it as:
+            completion_mask_count = completion_mask.sum()
+            delta_masked = delta * completion_mask
+            sum_delta = delta_masked.sum()
+            mean_delta = sum_delta / (completion_mask_count + 1e-10)
+            # We can simply take the max of the masked delta because values in delta are >= 0 (torch.abs).
+            max_delta = delta_masked.max()
+
             metrics["sampling/sampling_logp_difference/mean"].append(
                 self.accelerator.gather(mean_delta).mean()
             )
-            self._metrics[mode]["sampling/sampling_logp_difference/max"].append(
+            metrics["sampling/sampling_logp_difference/max"].append(
                 self.accelerator.gather(max_delta).max()
             )
 
-            flat_is_ratio = importance_sampling_ratio[completion_mask.bool()]
-            min_importance_sampling_ratio = (
-                torch.min(flat_is_ratio) if flat_is_ratio.numel() > 0 else torch.tensor(0.0, device=device)
+            # Original code was:
+            # flat_is_ratio = importance_sampling_ratio[completion_mask.bool()]
+            # min_importance_sampling_ratio = (
+            #     torch.min(flat_is_ratio) if flat_is_ratio.numel() > 0 else torch.tensor(0.0, device=device)
+            # )
+            # mean_importance_sampling_ratio = (
+            #     torch.mean(flat_is_ratio) if flat_is_ratio.numel() > 0 else torch.tensor(0.0, device=device)
+            # )
+            # max_importance_sampling_ratio = (
+            #     torch.max(flat_is_ratio) if flat_is_ratio.numel() > 0 else torch.tensor(0.0, device=device)
+            # )
+            # But it is not XLA friendly because it involves dynamic indexing before reduction, so we rewrite it as:
+            masked_is_ratio_for_min = torch.where(
+                completion_mask.bool(),
+                importance_sampling_ratio,
+                torch.tensor(float('inf'), device=device, dtype=importance_sampling_ratio.dtype)
             )
-            mean_importance_sampling_ratio = (
-                torch.mean(flat_is_ratio) if flat_is_ratio.numel() > 0 else torch.tensor(0.0, device=device)
-            )
-            max_importance_sampling_ratio = (
-                torch.max(flat_is_ratio) if flat_is_ratio.numel() > 0 else torch.tensor(0.0, device=device)
-            )
+            min_importance_sampling_ratio = masked_is_ratio_for_min.min()
+            # importance_sampling_ratio values are >= 0 (torch.exp) so we can use the same computation as for delta.
+            flat_is_ratio_masked = importance_sampling_ratio * completion_mask
+            sum_flat_is_ratio = flat_is_ratio_masked.sum()
+            mean_importance_sampling_ratio = sum_flat_is_ratio / (completion_mask_count + 1e-10)
+            max_importance_sampling_ratio = flat_is_ratio_masked.max()
+
             metrics["sampling/importance_sampling_ratio/min"].append(
                 nanmin(self.accelerator.gather(min_importance_sampling_ratio))
             )
@@ -1040,12 +965,13 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 nanmax(self.accelerator.gather(max_importance_sampling_ratio))
             )
 
-        # Move metrics and logs to CPU.
-        metrics = pytree.tree_map(move_all_tensor_to_cpu, metrics)
-        logs = pytree.tree_map(move_all_tensor_to_cpu, logs)
-
         # Graph break after metrics and logs computation.
         torch_xla.sync()
+
+        # Move metrics and logs to CPU.
+        metrics = move_all_tensor_to_cpu(metrics)
+        metrics = {key: [val.item() for val in value] for key, value in metrics.items()}
+        logs = move_all_tensor_to_cpu(logs)
 
         # Update the actual metrics and logs.
         self._metrics[mode].update(metrics)
@@ -1082,6 +1008,66 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             output["num_images"] = num_images
 
         return output
+
+    def get_high_entropy_mask(self, entropies: torch.Tensor, mask: torch.Tensor, threshold: float) -> torch.Tensor:
+        # Original code does the following:
+        # local = entropies[mask.bool()].float()
+        # # Use a negative pad_value as a sentinel because entropy values are always >= 0.
+        # # This guarantees that the sentinel cannot collide with any real entropy value.
+        # pad_value = -1e9
+
+        # # Pad across processes so that every rank has the same tensor length
+        # padded = self.accelerator.pad_across_processes(local, dim=0, pad_index=pad_value)
+        # gathered = self.accelerator.gather(padded)
+
+        # # Drop sentinel values (safe because no entropy can be negative)
+        # gathered = gathered[gathered != pad_value]
+
+        # if gathered.numel() == 0:
+        #     return torch.zeros_like(entropies, dtype=torch.bool)
+
+        # entropy_threshold = torch.quantile(gathered, threshold)
+        # masked_entropies = entropies * mask.float()
+        # entropy_mask = masked_entropies >= entropy_threshold
+        # return entropy_mask & mask.bool()  # ensure padding tokens are always masked out
+
+        pad_value = -1e9
+        device = entropies.device
+
+        masked_entropies = torch.where(
+            mask.bool(),
+            entropies,
+            torch.tensor(pad_value, device=device, dtype=entropies.dtype),
+        )
+
+        local_flat = masked_entropies.view(-1)
+        gathered = self.accelerator.gather(local_flat)
+
+        # Sort gathered values, so that pad_value sentinels are at the beginning
+        sorted_values, _ = torch.sort(gathered)
+
+        # Compute the number of valid (non-sentinel) values
+        num_valid = (sorted_values != pad_value).sum()
+        num_sentinels = (sorted_values == pad_value).sum()
+        valid_start_idx = num_sentinels
+        num_valid_values = gathered.numel() - num_sentinels
+
+        # Get the quantile index and the corresponding entropy threshold value
+        quantile_idx = valid_start_idx + (threshold * num_valid_values).long()
+        quantile_idx = quantile_idx.clamp(max=gathered.numel() - 1)
+        entropy_threshold = sorted_values[quantile_idx]
+
+        # Handle empty case, if everything is sentinel, set threshold to +inf so no token is selected
+        has_valid = num_valid > 0
+        entropy_threshold = torch.where(
+            has_valid,
+            entropy_threshold,
+            torch.tensor(float('inf'), device=device, dtype=entropies.dtype)
+        )
+
+        entropy_mask = (entropies > entropy_threshold) & mask.bool()
+        return entropy_mask
+
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         if return_outputs:
@@ -1222,7 +1208,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         metrics["clip_ratio/region_mean"].append(gathered_clip_ratio.nanmean())
 
         torch_xla.sync()  # Graph break before moving metrics to CPU.
-        metrics = pytree.tree_map(move_all_tensor_to_cpu, metrics)
+        metrics = move_all_tensor_to_cpu(metrics)
+        metrics = {key: [val.item() for val in value] for key, value in metrics.items()}
+
         self._metrics[mode].update(metrics)
 
         return loss
