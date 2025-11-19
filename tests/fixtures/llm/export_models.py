@@ -213,11 +213,13 @@ def base_neuron_llm_config(request):
 
     This fixture is used to test the export of models that do not have a predefined configuration.
     It will create a temporary directory and yield its path.
+
+    If the param is not provided, it will use the first model configuration in the list.
     """
-    model_id = getattr(request, "param", "llama")
+    config_name = getattr(request, "param", getattr(request, "param", LLM_MODEL_CONFIGURATIONS.keys()[0]))
     with TemporaryDirectory() as neuron_model_path:
-        model_config = LLM_MODEL_CONFIGURATIONS[model_id]
-        neuron_model_config = _get_neuron_model_for_config("base", model_config, neuron_model_path)
+        model_config = LLM_MODEL_CONFIGURATIONS[config_name]
+        neuron_model_config = _get_neuron_model_for_config(config_name, model_config, neuron_model_path)
         logger.info("Base neuron model ready for testing ...")
         yield neuron_model_config
         logger.info("Done with base neuron model testing")
