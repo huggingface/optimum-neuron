@@ -708,6 +708,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                     entropies = entropy_from_logits(logits)
                 all_entropies.append(entropies)
 
+            torch_xla.sync()
+
         logps = torch.cat(all_logps, dim=0)
         entropies = torch.cat(all_entropies, dim=0) if compute_entropy else None
 
