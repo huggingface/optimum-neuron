@@ -249,7 +249,7 @@ class OptimumNeuronModelRunner:
         n_decode_reqs = len(scheduler_output.scheduled_cached_reqs.req_ids)
 
         if n_prompt_reqs == 0 and n_decode_reqs == 0:
-            logger.info("No requests to schedule.")
+            logger.debug("No requests to schedule.")
             return ModelRunnerOutput(
                 req_ids=[],
                 req_id_to_index={},
