@@ -208,14 +208,15 @@ def neuron_llm_path(neuron_llm_config):
 
 
 @pytest.fixture(scope="module")
-def base_neuron_llm_config():
+def base_neuron_llm_config(request):
     """Expose a base neuron llm model path for testing purposes.
 
     This fixture is used to test the export of models that do not have a predefined configuration.
     It will create a temporary directory and yield its path.
     """
+    model_id = getattr(request, "param", "llama")
     with TemporaryDirectory() as neuron_model_path:
-        model_config = LLM_MODEL_CONFIGURATIONS["llama"]
+        model_config = LLM_MODEL_CONFIGURATIONS[model_id]
         neuron_model_config = _get_neuron_model_for_config("base", model_config, neuron_model_path)
         logger.info("Base neuron model ready for testing ...")
         yield neuron_model_config
