@@ -117,8 +117,14 @@ def vllm_launcher(event_loop):
             Used to identify test configurations and adjust test expectations,
         model_name_or_path (`str`):
             The model to use (can be a hub model or a path)
-        trust_remote_code (`bool`):
-            Must be set to True for gated models.
+        served_model_name (`str`):
+            The name of the model to serve.
+        batch_size (`int`):
+            The batch size to use for the model.
+        sequence_length (`int`):
+            The sequence length to use for the model.
+        tensor_parallel_size (`int`):
+            The tensor parallel size to use for the model.
 
     Returns:
         A `LauncherHandle` containing both a vLLM server and OpenAI client.
