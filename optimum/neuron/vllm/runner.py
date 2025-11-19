@@ -387,7 +387,7 @@ class OptimumNeuronModelRunner:
         assert len(scheduled_req_ids) > 0
 
         if self.batch.req_ids != scheduled_req_ids:
-            if self.batch.req_ids.issubset(scheduled_req_ids):
+            if not scheduled_req_ids.issubset(self.batch.req_ids):
                 logger.error(
                     "The scheduled cached requests contain request ids not present in the batch."
                     f" Scheduled: {scheduled_req_ids}, Batch: {self.batch.req_ids}"
