@@ -75,6 +75,7 @@ class OptimumNeuronCachedBatch:
                     prompt_token_ids=new_request_data.prompt_token_ids,
                     sampling_params=new_request_data.sampling_params,
                 )
+                logger.info(f"Added new request {request.req_id} at index {i} to the cached batch.")
                 self.cached_requests[i] = request
                 break
         return request
@@ -82,7 +83,7 @@ class OptimumNeuronCachedBatch:
     def remove_requests(self, req_ids: set[str]) -> None:
         for i, cached_request in enumerate(self.cached_requests):
             if cached_request is not None and cached_request.req_id in req_ids:
-                logger.info(f"Removing request {cached_request.req_id} at index {i} from the cached batch.")
+                logger.info(f"Removed request {cached_request.req_id} at index {i} from the cached batch.")
                 self.cached_requests[i] = None
                 break
 
@@ -99,6 +100,14 @@ class OptimumNeuronCachedBatch:
             if cached_request is not None:
                 req_ids.append(cached_request.req_id)
         return req_ids
+
+    @property
+    def capacity(self) -> int:
+        return len(self.cached_requests)
+
+    @property
+    def num_cached_requests(self) -> int:
+        return sum(1 for r in self.cached_requests if r is not None)
 
 
 def create_sampling_metadata(
@@ -231,7 +240,11 @@ class OptimumNeuronModelRunner:
     @torch.inference_mode()
     def execute_model(self, scheduler_output: SchedulerOutput) -> ModelRunnerOutput:
         # Remove finished requests from the cached states.
-        self.batch.remove_requests(scheduler_output.finished_req_ids)
+        if len(scheduler_output.finished_req_ids) > 0:
+            self.batch.remove_requests(scheduler_output.finished_req_ids)
+            logger.info(
+                f"Number of cached requests in the batch: {self.batch.num_cached_requests}/{self.batch.capacity}"
+            )
 
         n_prompt_reqs = len(scheduler_output.scheduled_new_reqs)
         n_decode_reqs = len(scheduler_output.scheduled_cached_reqs.req_ids)
@@ -292,7 +305,7 @@ class OptimumNeuronModelRunner:
                 scheduler_output.scheduled_cached_reqs
             )
             tokens, logprobs = get_next_tokens(requests, input_ids, position_ids, seq_ids, sampling_params)
-            logger.info(f"Generated {n_decode_reqs} new tokens from cached requests: {tokens}")
+            logger.debug(f"Generated {n_decode_reqs} new tokens from cached requests: {tokens}")
 
         # Then process new prompt requests.
         if n_prompt_reqs > 0:
@@ -301,7 +314,10 @@ class OptimumNeuronModelRunner:
             prompt_tokens, prompt_logprobs = get_next_tokens(
                 requests, input_ids, position_ids, seq_ids, sampling_params
             )
-            logger.info(f"Generated {n_prompt_reqs} tokens from new requests: {prompt_tokens}")
+            logger.info(
+                f"Number of cached requests in the batch: {self.batch.num_cached_requests}/{self.batch.capacity}"
+            )
+            logger.debug(f"Generated {n_prompt_reqs} tokens from new requests: {prompt_tokens}")
             tokens = prompt_tokens if tokens is None else torch.cat([tokens, prompt_tokens], dim=0)
             logprobs = prompt_logprobs if logprobs is None else torch.cat([logprobs, prompt_logprobs], dim=0)
 
