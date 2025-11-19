@@ -46,11 +46,11 @@ on:
       - "optimum/neuron/models/inference/qwen2/**.py"
       - "optimum/neuron/models/inference/qwen3/**.py"
       - "optimum/neuron/models/inference/qwen3_moe/**.py"
-      - "optimum/neuron/pipelines/transformers/base.py"
+      - "optimum/neuron/vllm/**.py"
       - "optimum/neuron/utils/**.py"
       - "optimum/neuron/version.py"
       - "tests/vllm/**.py"
-      - ".github/workflows/test_inf2_llm.yml"
+      - ".github/workflows/test_inf2_vllm.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
