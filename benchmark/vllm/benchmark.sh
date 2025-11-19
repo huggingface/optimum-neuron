@@ -8,7 +8,7 @@ output_path="${model//\//_}#${date_str}_guidellm_report.json"
 
 export HF_TOKEN=$(cat ~/.cache/huggingface/token)
 
-export GUIDELLM__NUM_SWEEP_PROFILES=1
+export GUIDELLM__NUM_SWEEP_PROFILES=0
 export GUIDELLM__MAX_CONCURRENCY=${users}
 export GUIDELLM__REQUEST_TIMEOUT=60
 
