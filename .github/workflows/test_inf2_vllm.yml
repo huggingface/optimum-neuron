@@ -24,6 +24,7 @@ on:
       - "optimum/neuron/vllm/**.py"
       - "optimum/neuron/utils/**.py"
       - "optimum/neuron/version.py"
+      - "tests/fixtures/llm/**.py"
       - "tests/vllm/**.py"
       - ".github/workflows/test_inf2_vllm.yml"
   pull_request:
