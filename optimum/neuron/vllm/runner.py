@@ -93,11 +93,11 @@ class OptimumNeuronCachedBatch:
         raise KeyError(f"Request id {req_id} not found in the cached requests.")
 
     @property
-    def req_ids(self) -> list[str]:
-        req_ids: list[str] = []
+    def req_ids(self) -> set[str]:
+        req_ids: set[str] = set()
         for cached_request in self.cached_requests:
             if cached_request is not None:
-                req_ids.append(cached_request.req_id)
+                req_ids.add(cached_request.req_id)
         return req_ids
 
     @property
@@ -382,16 +382,22 @@ class OptimumNeuronModelRunner:
         self,
         cached_request_data: CachedRequestData,
     ) -> tuple[list[OptimumNeuronCachedRequest], torch.Tensor, torch.Tensor, torch.Tensor, list[SamplingParams]]:
+        scheduled_req_ids = set(cached_request_data.req_ids)
         # Sanity check
-        assert len(cached_request_data.req_ids) > 0
+        assert len(scheduled_req_ids) > 0
 
-        if sorted(self.batch.req_ids) != sorted(cached_request_data.req_ids):
-            # FIXME: This should not happen, log a warning for now.
-            # The reason is probably that we don't remove finished requests from the batch
-            # when we generated an EOS token for them.
-            logger.warning("Mismatch between batch cached requests and scheduler cached requests.")
-            logger.warning(f"Batch req_ids: {self.batch.req_ids}")
-            logger.warning(f"Cached req_ids: {cached_request_data.req_ids}")
+        if self.batch.req_ids != scheduled_req_ids:
+            if self.batch.req_ids.issubset(scheduled_req_ids):
+                logger.error(
+                    "The scheduled cached requests contain request ids not present in the batch."
+                    f" Scheduled: {scheduled_req_ids}, Batch: {self.batch.req_ids}"
+                )
+                raise RuntimeError("Inconsistent scheduled cached requests and batch state.")
+            # Unscheduled requests are in the batch but not scheduled for decoding.
+            # Theoretically they could be rescheduled in the next iteration.
+            # For now we log a warning since it is unexpected.
+            unscheduled_req_ids = self.batch.req_ids - scheduled_req_ids
+            logger.warning(f"Request ids {unscheduled_req_ids} are in the batch but not scheduled for decoding.")
 
         requests: list[OptimumNeuronCachedRequest] = []
         input_tokens: list[list[int]] = []
