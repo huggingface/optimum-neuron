@@ -185,7 +185,7 @@ class ServeCommand(BaseOptimumCLICommand):
                     if torch_dtype is not None:
                         error_msg += f", dtype = {torch_dtype}"
                     error_msg += (
-                        f".You can start a discussion to request it on {hub_cache_url}"
+                        f".You can start a discussion to request it on {hub_cache_url} "
                         "Alternatively, you can export your own neuron model "
                         f"as explained in {neuron_export_url}"
                     )
