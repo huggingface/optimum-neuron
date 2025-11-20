@@ -35,6 +35,7 @@ if is_peft_available():
     from peft.tuners.lora import Linear as LoraLinear
     from peft.tuners.lora import LoraLayer
     from peft.tuners.lora.variants import LoraVariant
+    from peft.tuners.tuners_utils import check_adapters_to_merge
     from peft.utils.integrations import gather_params_ctx
 else:
 
@@ -52,6 +53,9 @@ else:
 
     def gather_params_ctx(param):
         pass
+
+    def check_adapters_to_merge(layer, adapter_names):
+        return []
 
 
 def use_peft_instead_of_optimum_neuron(neuron_lora_layer_method):
@@ -262,9 +266,131 @@ class ParallelLinear(nn.Module, NeuronLoraLayer):
 
         return DoraLinearVariant()
 
-    merge = use_peft_instead_of_optimum_neuron(LoraLinear.merge)
-    unmerge = use_peft_instead_of_optimum_neuron(LoraLinear.unmerge)
-    get_delta_weight = use_peft_instead_of_optimum_neuron(LoraLinear.get_delta_weight)
+    def get_delta_weight(self, adapter: str) -> torch.Tensor:
+        """
+        Compute the delta weight for the given adapter.
+
+        For parallel linear layers, this handles both RowParallelLinear (lora_A) and
+        ColumnParallelLinear (lora_B) cases. The delta is computed in the sharded form.
+
+        Args:
+            adapter: The name of the adapter for which the delta weight should be computed.
+
+        Returns:
+            The delta weight tensor (sharded if the base layer is sharded).
+        """
+        lora_A = self.lora_A[adapter]
+        lora_B = self.lora_B[adapter]
+
+        device = lora_B.weight.device
+        dtype = lora_B.weight.dtype
+
+        # Cast to fp32 on CPU for better performance with bf16
+        cast_to_fp32 = device.type == "cpu" and (dtype == torch.float16 or dtype == torch.bfloat16)
+
+        weight_A = lora_A.weight
+        weight_B = lora_B.weight
+
+        if cast_to_fp32:
+            weight_A = weight_A.float()
+            weight_B = weight_B.float()
+
+        # Compute delta: B @ A * scaling
+        # The result is sharded the same way as the base layer:
+        # - If lora_A is RowParallelLinear: delta is sharded along input dimension
+        # - If lora_B is ColumnParallelLinear: delta is sharded along output dimension
+        output_tensor = (weight_B @ weight_A) * self.scaling[adapter]
+
+        if self.fan_in_fan_out:
+            output_tensor = output_tensor.transpose(0, 1)
+
+        if cast_to_fp32:
+            output_tensor = output_tensor.to(dtype=dtype)
+            # Cast weights back
+            lora_A.weight.data = weight_A.to(dtype)
+            lora_B.weight.data = weight_B.to(dtype)
+
+        return output_tensor
+
+    def merge(self, safe_merge: bool = False, adapter_names: list[str] | None = None) -> None:
+        """
+        Merge the active adapter weights into the base weights.
+
+        This works with distributed parallel linear layers (RowParallelLinear, ColumnParallelLinear).
+        The merge happens on the sharded weights - each rank merges its own shard.
+
+        Args:
+            safe_merge: If True, perform merge in a copy and check for NaNs before merging.
+            adapter_names: List of adapter names to merge. If None, all active adapters will be merged.
+        """
+
+        adapter_names = check_adapters_to_merge(self, adapter_names)
+        if not adapter_names:
+            return
+
+        for active_adapter in adapter_names:
+            if active_adapter in self.lora_A.keys():
+                base_layer = self.get_base_layer()
+
+                if self.use_dora[active_adapter]:
+                    raise NotImplementedError("DoRA is not yet supported for merge with Neuron parallel layers")
+
+                if safe_merge:
+                    orig_weights = base_layer.weight.data.clone()
+                    delta_weight = self.get_delta_weight(active_adapter)
+                    orig_weights += delta_weight
+
+                    if not torch.isfinite(orig_weights).all():
+                        raise ValueError(
+                            f"NaNs detected in the merged weights. The adapter {active_adapter} seems to be broken"
+                        )
+                    base_layer.weight.data = orig_weights
+
+                    if self.lora_bias[active_adapter]:
+                        lora_B = self.lora_B[active_adapter]
+                        if hasattr(base_layer, "bias") and base_layer.bias is not None:
+                            new_bias = base_layer.bias + lora_B.bias
+                            if not torch.isfinite(new_bias).all():
+                                raise ValueError(
+                                    f"NaNs detected in the merged bias. The adapter {active_adapter} seems to be broken"
+                                )
+                            base_layer.bias.data = new_bias
+                else:
+                    delta_weight = self.get_delta_weight(active_adapter)
+                    base_layer.weight.data += delta_weight
+
+                    if self.lora_bias[active_adapter]:
+                        lora_B = self.lora_B[active_adapter]
+                        if hasattr(base_layer, "bias") and base_layer.bias is not None:
+                            base_layer.bias.data += lora_B.bias
+
+                self.merged_adapters.append(active_adapter)
+
+    def unmerge(self) -> None:
+        """
+        Unmerge all merged adapter layers from the base weights.
+
+        This works with distributed parallel linear layers (RowParallelLinear, ColumnParallelLinear).
+        The unmerge happens on the sharded weights - each rank unmerges its own shard.
+        """
+        if not self.merged:
+            return
+
+        while len(self.merged_adapters) > 0:
+            active_adapter = self.merged_adapters.pop()
+            if active_adapter in self.lora_A.keys():
+                base_layer = self.get_base_layer()
+
+                if self.use_dora[active_adapter]:
+                    raise NotImplementedError("DoRA is not yet supported for unmerge with Neuron parallel layers")
+
+                delta_weight = self.get_delta_weight(active_adapter)
+                base_layer.weight.data -= delta_weight
+
+                if self.lora_bias[active_adapter]:
+                    lora_B = self.lora_B[active_adapter]
+                    if hasattr(base_layer, "bias") and base_layer.bias is not None:
+                        base_layer.bias.data -= lora_B.bias
 
     def forward(self, x: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
         self._check_forward_args(x, *args, **kwargs)

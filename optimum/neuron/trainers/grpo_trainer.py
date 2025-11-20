@@ -586,7 +586,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         if isinstance(self.model, NeuronPeftModel):
             self.model.merge_adapter()
 
-            # DeepSpeed ZeRO-3 with PEFT
             for name, param in self.model.named_parameters():
                 # When using PEFT, we need to recover the original parameter name and discard some parameters
                 name = name.removeprefix("base_model.model.").replace(".base_layer", "")
