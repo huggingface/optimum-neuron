@@ -202,12 +202,12 @@ def neuron_llm_config(request):
         logger.info(f"Done with {config_name}")
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def neuron_llm_path(neuron_llm_config):
     yield neuron_llm_config["neuron_model_path"]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def base_neuron_llm_config(request):
     """Expose a base neuron llm model path for testing purposes.
 
@@ -226,12 +226,12 @@ def base_neuron_llm_config(request):
         logger.info("Done with base neuron model testing")
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def base_neuron_llm_path(base_neuron_llm_config):
     yield base_neuron_llm_config["neuron_model_path"]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def speculation():
     model_id = "unsloth/Llama-3.2-1B-Instruct"
     neuron_model_id = f"{_get_hub_neuron_model_prefix()}-speculation"
