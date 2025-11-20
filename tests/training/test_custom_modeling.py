@@ -732,3 +732,103 @@ def test_peft_adapters_with_pp(set_cache_for_ci):
         if param.requires_grad:  # Skip parameters that might be trainable (like embeddings)
             continue
         assert param.grad is None, f"Base parameter {name} should not have gradients"
+
+
+@distributed_test(world_size=2, tp_size=2, pp_size=1)
+def test_peft_merge_unmerge(set_cache_for_ci):
+    tp_size = get_tensor_model_parallel_size()
+    pp_size = get_pipeline_model_parallel_size()
+
+    trn_config = TrainingNeuronConfig(
+        tensor_parallel_size=tp_size,
+        pipeline_parallel_size=pp_size,
+    )
+    accelerator = NeuronAccelerator(trn_config=trn_config)
+
+    tok = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
+    inputs = tok("Hello, my dog is cute", return_tensors="pt")
+    inputs = {k: v.to("xla") for k, v in inputs.items()}
+    xm.mark_step()
+
+    model = NeuronModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, trn_config, torch_dtype=torch.float32)
+
+    peft_config = LoraConfig(
+        r=8,
+        lora_alpha=16,
+        lora_dropout=0.0,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        bias="none",
+        task_type="CAUSAL_LM",
+    )
+
+    model = get_peft_model(model, peft_config)
+
+    # Store original base weights for verification
+    original_weights = {}
+    for name, param in model.named_parameters():
+        if "lora" not in name.lower() and "weight" in name:
+            original_weights[name] = param.data.clone()
+        elif "lora_B" in name:
+            # LoRA B weights should be initialized to zero, we change that for the test otherwise the delta is zero, 
+            # which prevents meaningful checks.
+            assert torch.all(param.data == 0), f"LoRA B weight {name} should be initialized to zero"
+            param.data += 0.1
+           
+    model = accelerator.prepare_model(model)
+    model.eval()
+
+    # Get output with LoRA (unmerged)
+    with torch.no_grad():
+        output_unmerged = model(**inputs)
+        logits_unmerged = output_unmerged.logits.clone()
+    xm.mark_step()
+
+    # Merge LoRA adapters
+    model.merge_adapter()
+    xm.mark_step()
+
+    # Verify weights changed after merge (at least one weight should change)
+    current_weights = move_all_tensor_to_cpu(dict(model.named_parameters()))
+    xm.mark_step()
+    weights_changed = False
+    for name, original_weight in original_weights.items():
+        current_weight = current_weights[name].data
+        if not torch.allclose(original_weight, current_weight, rtol=1e-4):
+            weights_changed = True
+            break
+
+    assert weights_changed, "At least one base weight should change after merge"
+
+    # Get output with merged weights
+    with torch.no_grad():
+        output_merged = model(**inputs)
+        logits_merged = output_merged.logits.clone()
+    xm.mark_step()
+
+    print(output_merged)
+    print(output_unmerged)
+
+    # Outputs should match
+    assert torch.allclose(logits_unmerged, logits_merged, rtol=1e-3, atol=1e-3), \
+        f"Merged and unmerged outputs should match. Max diff: {(logits_unmerged - logits_merged).abs().max().item()}"
+
+    # Unmerge LoRA adapters
+    model.unmerge_adapter()
+    xm.mark_step()
+
+    # Verify weights restored after unmerge
+    current_weights = move_all_tensor_to_cpu(dict(model.named_parameters()))
+    xm.mark_step()
+    for name, original_weight in original_weights.items():
+        current_weight = current_weights[name].data
+        assert torch.allclose(original_weight, current_weight, rtol=1e-5, atol=1e-6), \
+            f"Weight {name} should be restored after unmerge. Max diff: {(original_weight - current_weight).abs().max().item()}"
+
+    # Final output check
+    with torch.no_grad():
+        output_final = model(**inputs)
+        logits_final = output_final.logits.clone()
+    xm.mark_step()
+
+    assert torch.allclose(logits_unmerged, logits_final, rtol=1e-5, atol=1e-5), \
+        f"Final output should match original unmerged output. Max diff: {(logits_unmerged - logits_final).abs().max().item()}"

@@ -267,18 +267,6 @@ class ParallelLinear(nn.Module, NeuronLoraLayer):
         return DoraLinearVariant()
 
     def get_delta_weight(self, adapter: str) -> torch.Tensor:
-        """
-        Compute the delta weight for the given adapter.
-
-        For parallel linear layers, this handles both RowParallelLinear (lora_A) and
-        ColumnParallelLinear (lora_B) cases. The delta is computed in the sharded form.
-
-        Args:
-            adapter: The name of the adapter for which the delta weight should be computed.
-
-        Returns:
-            The delta weight tensor (sharded if the base layer is sharded).
-        """
         lora_A = self.lora_A[adapter]
         lora_B = self.lora_B[adapter]
 
@@ -295,6 +283,7 @@ class ParallelLinear(nn.Module, NeuronLoraLayer):
             weight_A = weight_A.float()
             weight_B = weight_B.float()
 
+        base_layer = self.get_base_layer()
         # Compute delta: B @ A * scaling
         # The result is sharded the same way as the base layer:
         # - If lora_A is RowParallelLinear: delta is sharded along input dimension
@@ -587,13 +576,13 @@ class GQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
         """
         Compute the delta weights for Q, K, V for the given adapter.
 
-        Returns a dict with keys 'q', 'k', 'v' (or 'qkv' if fused) containing the delta tensors.
+        Returns a dict with keys "q", "k", "v" (or "qkv" if fused) containing the delta tensors.
 
         Args:
             adapter: The name of the adapter for which the delta weight should be computed.
 
         Returns:
-            Dict mapping 'q'/'k'/'v' (or 'qkv') to their delta weight tensors (sharded).
+            Dict mapping "q"/"k"/"v" (or "qkv") to their delta weight tensors (sharded).
         """
         lora_A = self.lora_A[adapter]
         lora_B = self.lora_B[adapter]
@@ -807,17 +796,6 @@ class ParallelEmbedding(nn.Module, NeuronLoraLayer):
     _embed = LoraEmbedding._embed
 
     def get_delta_weight(self, adapter: str) -> torch.Tensor:
-        """
-        Compute the delta weight for the given adapter.
-
-        For parallel embedding layers, the delta is computed in the sharded form.
-
-        Args:
-            adapter: The name of the adapter for which the delta weight should be computed.
-
-        Returns:
-            The delta weight tensor (sharded if the base layer is sharded).
-        """
         device = self.lora_embedding_B[adapter].device
         dtype = self.lora_embedding_A[adapter].dtype
 
