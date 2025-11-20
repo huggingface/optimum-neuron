@@ -49,6 +49,7 @@ on:
       - "optimum/neuron/pipelines/transformers/base.py"
       - "optimum/neuron/utils/**.py"
       - "optimum/neuron/version.py"
+      - "tests/fixtures/llm/**.py"
       - "tests/decoder/**.py"
       - ".github/workflows/test_inf2_llm.yml"
 
