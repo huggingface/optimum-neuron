@@ -76,7 +76,10 @@ def test_decoder_similarity(batch_size, expected_scores):
     print(cpu_scores.tolist())
 
     neuron_config = Qwen3NeuronModelForEmbedding.get_neuron_config(
-        "Qwen/Qwen3-Embedding-0.6B", batch_size=batch_size, sequence_length=1024
+        "Qwen/Qwen3-Embedding-0.6B",
+        batch_size=batch_size,
+        sequence_length=1024,
+        tensor_parallel_size=2,
     )
     neuron_model = Qwen3NeuronModelForEmbedding.export(
         model_id="Qwen/Qwen3-Embedding-0.6B", neuron_config=neuron_config, load_weights=True
