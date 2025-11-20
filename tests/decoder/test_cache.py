@@ -29,7 +29,7 @@ from optimum.neuron.cache import get_hub_cached_entries, get_hub_cached_models, 
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def cache_repos():
     # Setup: create temporary Hub repository and local cache directory
     api = HfApi()
