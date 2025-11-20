@@ -13,9 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
+
 import numpy as np
 import torch
+import torch.distributed as dist
 from optimum.utils import logging
+from torch.utils.data import Dataset
+from torch.utils.data.distributed import DistributedSampler
 
 from ..utils import is_precompilation
 
@@ -117,3 +122,123 @@ def nanstd(tensor: torch.Tensor) -> torch.Tensor:
     count = torch.sum(~torch.isnan(tensor))
     variance *= count / (count - 1).clamp(min=1.0)  # Bessel's correction, avoid division by zero
     return torch.sqrt(variance)
+
+
+class DistributedRepeatSampler(DistributedSampler):
+    """
+    Sampler that repeats the indices of a dataset in a structured manner.
+    Same as `trl.trainer.utils.RepeatSampler` but adapted to work with distributed training.
+
+    To implement it, we simply combine the logic from https://github.com/pytorch/pytorch/blob/main/torch/utils/data/distributed.py
+    with the logic from https://github.com/huggingface/trl/blob/main/trl/trainer/utils.py#L1692.
+
+    First, we distribute the dataset indices across the different ranks, then we repeat the indices on each rank.
+
+    We inherit from `torch.utils.data.DistributedSampler` even though we override all of its methods to pass the checks
+    "isinstance(sampler, DistributedSampler)" done in `torch.utils.data.DataLoader` when using distributed training.
+    """
+
+    def __init__(
+        self,
+        dataset: Dataset,
+        mini_repeat_count: int,
+        batch_size: int = 1,
+        repeat_count: int = 1,
+        num_replicas: int | None = None,
+        rank: int | None = None,
+        shuffle: bool = True,
+        seed: int = 0,
+        drop_last: bool = False,
+    ):
+        if num_replicas is None:
+            if not dist.is_available():
+                raise RuntimeError("Requires distributed package to be available")
+            num_replicas = dist.get_world_size()
+        if rank is None:
+            if not dist.is_available():
+                raise RuntimeError("Requires distributed package to be available")
+            rank = dist.get_rank()
+        if rank >= num_replicas or rank < 0:
+            raise ValueError(
+                f"Invalid rank {rank}, rank should be in the interval [0, {num_replicas - 1}]"
+            )
+        self.dataset = dataset
+        self.num_replicas = num_replicas
+        self.rank = rank
+        self.epoch = 0
+        self.drop_last = drop_last
+        # If the dataset length is evenly divisible by # of replicas, then there
+        # is no need to drop any data, since the dataset will be split equally.
+        if self.drop_last and len(self.dataset) % self.num_replicas != 0:  # type: ignore[arg-type]
+            # Split to nearest available length that is evenly divisible.
+            # This is to ensure each rank receives the same amount of data when
+            # using this Sampler.
+            self.num_samples = math.ceil(
+                (len(self.dataset) - self.num_replicas) / self.num_replicas  # type: ignore[arg-type]
+            )
+        else:
+            self.num_samples = math.ceil(len(self.dataset) / self.num_replicas)  # type: ignore[arg-type]
+        self.total_size = self.num_samples * self.num_replicas
+        self.shuffle = shuffle
+        self.seed = seed
+
+        self.mini_repeat_count = mini_repeat_count
+        self.batch_size = batch_size
+        self.repeat_count = repeat_count
+        self.shuffle = shuffle
+
+        if shuffle:
+            self.generator = torch.Generator()  # Create a local random generator
+            self.generator.manual_seed(seed)
+
+    def __iter__(self):
+        # First, we produce indices for each rank.
+        # That is the distributed part of the sampler.
+        if self.shuffle:
+            # deterministically shuffle based on epoch and seed
+            g = torch.Generator()
+            g.manual_seed(self.seed + self.epoch)
+            indices = torch.randperm(len(self.dataset), generator=g).tolist()  # type: ignore[arg-type]
+        else:
+            indices = list(range(len(self.dataset)))  # type: ignore[arg-type]
+
+        if not self.drop_last:
+            # add extra samples to make it evenly divisible
+            padding_size = self.total_size - len(indices)
+            if padding_size <= len(indices):
+                indices += indices[:padding_size]
+            else:
+                indices += (indices * math.ceil(padding_size / len(indices)))[
+                    :padding_size
+                ]
+        else:
+            # remove tail of data to make it evenly divisible.
+            indices = indices[: self.total_size]
+        assert len(indices) == self.total_size
+
+        # subsample
+        indices = indices[self.rank : self.total_size : self.num_replicas]
+        assert len(indices) == self.num_samples
+
+        # Second, we repeat the indices on each rank.
+        # This is the non-distributed part of the sampler.
+        #    [2, 4, 3, 1, 0, 6, 5]
+        # -> [[2, 4, 3], [1, 0, 6], [5]]  (batch_size = 3)
+        indices = [indices[i : i + self.batch_size] for i in range(0, len(indices), self.batch_size)]
+
+        #    [[2, 4, 3], [1, 0, 6], [5]]
+        # -> [[2, 4, 3], [1, 0, 6]]
+        indices = [chunk for chunk in indices if len(chunk) == self.batch_size]
+
+        for chunk in indices:
+            for _ in range(self.repeat_count):
+                for index in chunk:
+                    for _ in range(self.mini_repeat_count):
+                        yield index
+
+    def __len__(self) -> int:
+        return (self.num_samples // self.batch_size) * self.batch_size * self.mini_repeat_count * self.repeat_count
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
+

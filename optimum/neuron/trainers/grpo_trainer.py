@@ -22,9 +22,10 @@ import torch
 import torch_xla
 import torch_xla.core.xla_model as xm
 from accelerate.utils import set_seed
+from neuronx_distributed import parallel_layers
 from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
 from optimum.utils import logging
-from torch.utils.data import Dataset, IterableDataset
+from torch.utils.data import Dataset, IterableDataset, Sampler
 from transformers import (
     PreTrainedModel,
     PreTrainedTokenizerBase,
@@ -41,7 +42,15 @@ from ..utils.import_utils import is_peft_available
 from .grpo_config import NeuronGRPOConfig
 from .training_args import NeuronTrainingArguments
 from .transformers import NeuronTrainer
-from .trl_utils import TRL_VERSION, nanmax, nanmin, nanstd, neuron_parallel_compile_tokenizer_decoder_method, pad
+from .trl_utils import (
+    TRL_VERSION,
+    DistributedRepeatSampler,
+    nanmax,
+    nanmin,
+    nanstd,
+    neuron_parallel_compile_tokenizer_decoder_method,
+    pad,
+)
 
 
 if is_wandb_available():
@@ -51,6 +60,7 @@ if is_trl_available():
     from trl import GRPOConfig, GRPOTrainer
     from trl.data_utils import is_conversational
     from trl.trainer.utils import (
+        RepeatSampler,
         disable_dropout_in_model,
         entropy_from_logits,
         identity,
@@ -444,6 +454,34 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 self.reward_funcs[i] = self.accelerator.prepare_model(
                     reward_func, evaluation_mode=True, device_placement=True
                 )
+    def _get_train_sampler(self, dataset: Dataset | None = None) -> Sampler:
+        if dataset is None:
+            dataset = self.train_dataset
+        if self.accelerator.num_processes == 1:
+            sampler = RepeatSampler(
+                data_source=dataset,
+                mini_repeat_count=self.num_generations,
+                batch_size=self.args.generation_batch_size // self.num_generations,
+                repeat_count=self.num_iterations * self.args.steps_per_generation,
+                shuffle=self.shuffle_dataset,
+                seed=self.args.seed,
+            )
+        else:
+            trn_config = self.accelerator.state.trn_config
+            num_replicas = trn_config.data_parallel_size
+            rank = parallel_layers.parallel_state.get_data_parallel_rank()
+            sampler = DistributedRepeatSampler(
+                dataset=dataset,
+                mini_repeat_count=self.num_generations,
+                batch_size=self.args.generation_batch_size // self.num_generations,
+                repeat_count=self.num_iterations * self.args.steps_per_generation,
+                shuffle=self.shuffle_dataset,
+                seed=self.args.seed,
+                num_replicas=num_replicas,
+                rank=rank,
+            )
+        return sampler
+
 
     def train(
         self,
@@ -500,6 +538,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                     df = df.drop_duplicates(subset=["prompt"])
                 wandb.log({"completions": wandb.Table(dataframe=df)})
 
+
     def _save_checkpoint(self, model=None, trial=None, metrics=None):
         return NeuronTrainer._save_checkpoint(self)
 
@@ -542,6 +581,44 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         rewards_per_func = self.accelerator.gather(rewards_per_func)
         torch_xla.sync()
         return rewards_per_func
+
+    def _move_model_to_vllm(self):
+        if isinstance(self.model, NeuronPeftModel):
+            self.model.merge_adapter()
+
+            # DeepSpeed ZeRO-3 with PEFT
+            for name, param in self.model.named_parameters():
+                # When using PEFT, we need to recover the original parameter name and discard some parameters
+                name = name.removeprefix("base_model.model.").replace(".base_layer", "")
+                if self.model.prefix in name:
+                    continue
+                # When module to save, remove its prefix and discard the original module
+                if "original_module" in name:
+                    continue
+                name = self._fix_param_name_to_vllm(name, extra_prefixes=["modules_to_save.default."])
+
+                if self.vllm_mode == "server" and self.accelerator.is_main_process:
+                    self.vllm_client.update_named_param(name, param.data)
+                elif self.vllm_mode == "colocate":
+                    llm_model = self.llm.llm_engine.model_executor.driver_worker.model_runner.model
+                    llm_model.load_weights([(name, param.data)])
+            # Unmerge adapters while parameters are still gathered
+            self.model.unmerge_adapter()
+            # Parameters will automatically be repartitioned when exiting the context
+        else:
+            for name, param in self.model.named_parameters():
+                name = self._fix_param_name_to_vllm(name)
+                if self.vllm_mode == "server" and self.accelerator.is_main_process:
+                    self.vllm_client.update_named_param(name, param.data)
+                elif self.vllm_mode == "colocate":
+                    llm_model = self.llm.llm_engine.model_executor.driver_worker.model_runner.model
+                    llm_model.load_weights([(name, param.data)])
+
+        # Reset cache on vLLM
+        if self.vllm_mode == "server" and self.accelerator.is_main_process:
+            self.vllm_client.reset_prefix_cache()
+        elif self.vllm_mode == "colocate":
+            self.llm.reset_prefix_cache()
 
     def _generate_single_turn(self, prompts: list[str], images: list | None):
         """

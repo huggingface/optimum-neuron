@@ -192,7 +192,7 @@ def train(model_id, tokenizer, dataset, training_args):
         args=grpo_config,
         train_dataset=dataset,
         processing_class=tokenizer,
-        # peft_config=lora_config,
+        peft_config=lora_config,
     )
 
     # Train the model

@@ -32,6 +32,7 @@ BS=1
 GRADIENT_ACCUMULATION_STEPS=4  # Smaller for GRPO due to generation overhead
 LOGGING_STEPS=1
 MODEL_NAME="Qwen/Qwen3-0.6B"  # Use smaller model for testing
+# MODEL_NAME="michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random"
 OUTPUT_DIR="$(echo $MODEL_NAME | cut -d'/' -f2)-grpo-finetuned"
 DISTRIBUTED_ARGS="--nproc_per_node $PROCESSES_PER_NODE"
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
@@ -65,7 +66,9 @@ torchrun $DISTRIBUTED_ARGS finetune_grpo_qwen3.py \
   --learning_rate 5e-5 \
   --bf16 \
   --tensor_parallel_size $TP_DEGREE \
-  --zero_1 \
+  --zero_1 false \
+  --optimizer_use_master_weights false \
+  --optimizer_use_fp32_grad_acc false \
   --async_save \
   --logging_steps $LOGGING_STEPS \
   --output_dir $OUTPUT_DIR \
