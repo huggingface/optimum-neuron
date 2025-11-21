@@ -28,6 +28,7 @@ from neuronx_distributed.parallel_layers.parallel_state import (
     get_pipeline_model_parallel_rank,
     get_pipeline_model_parallel_size,
     get_tensor_model_parallel_group,
+    get_tensor_model_parallel_rank,
     get_tensor_model_parallel_size,
 )
 from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
@@ -45,6 +46,7 @@ from optimum.neuron.models.training.llama.modeling_llama import LlamaForCausalLM
 from optimum.neuron.models.training.modeling_auto import NeuronModelForCausalLM
 from optimum.neuron.models.training.transformations_utils import GQAQKVColumnParallelLinearSpec
 from optimum.neuron.peft import get_peft_model
+from optimum.neuron.peft.utils.vllm import get_original_merged_weights_for_vllm
 from optimum.neuron.utils.import_utils import (
     is_neuronx_available,
 )
@@ -836,12 +838,13 @@ def test_peft_merge_unmerge(set_cache_for_ci):
 
 @distributed_test(world_size=8, tp_size=2, pp_size=1)
 def test_get_original_merged_weights_for_vllm(set_cache_for_ci):
-    """Test that get_original_merged_weights_for_vllm produces correct unsharded, original-format weights."""
     tp_size = get_tensor_model_parallel_size()
     tp_rank = get_tensor_model_parallel_rank()
+    pp_size = get_pipeline_model_parallel_size()
 
     trn_config = TrainingNeuronConfig(
         tensor_parallel_size=tp_size,
+        pipeline_parallel_size=pp_size,
     )
     mixed_precision = MixedPrecisionConfig(mode="FULL_BF16")
     accelerator = NeuronAccelerator(trn_config=trn_config, mixed_precision_config=mixed_precision)
@@ -874,24 +877,20 @@ def test_get_original_merged_weights_for_vllm(set_cache_for_ci):
     model.eval()
 
     # Get original merged weights for vLLM
-    from optimum.neuron.peft.utils.vllm import get_original_merged_weights_for_vllm
     original_weights = get_original_merged_weights_for_vllm(model)
     xm.mark_step()
 
     # Only check on main process since get_original_merged_weights_for_vllm returns same weights on all ranks
     if tp_rank == 0:
-        # Test 1: Check weights are unsharded (full size)
-        # For Llama-2-7b with TP=2, hidden_size=4096
+        # Test 1: Check that we have unsharded weights (full size) and with the original naming / fusing / unfusing.
         hidden_size = model.config.hidden_size
         intermediate_size = model.config.intermediate_size
 
-        # Check attention projection sizes (should be full, not sharded)
         assert "model.layers.0.self_attn.q_proj.weight" in original_weights
         q_proj_weight = original_weights["model.layers.0.self_attn.q_proj.weight"]
         assert q_proj_weight.shape == (hidden_size, hidden_size), \
             f"q_proj should be unsharded {hidden_size}x{hidden_size}, got {q_proj_weight.shape}"
 
-        # Test 2: Check weights are in original format (separate gate/up, not fused)
         # The custom model uses fused gate_up_proj, but original format should have separate projections
         assert "model.layers.0.mlp.gate_proj.weight" in original_weights
         assert "model.layers.0.mlp.up_proj.weight" in original_weights
@@ -903,19 +902,19 @@ def test_get_original_merged_weights_for_vllm(set_cache_for_ci):
         assert gate_proj_weight.shape == (intermediate_size, hidden_size)
         assert up_proj_weight.shape == (intermediate_size, hidden_size)
 
-        # Test 3: Verify LoRA delta is merged
+        # Test 2: Verify LoRA delta is merged
         # Since we set lora_B += 0.1, the merged weights should differ from original base weights
         # Get the corresponding original base weight (need to map from PEFT name to base name)
         base_q_proj_name = "model.layers.0.self_attn.q_proj.weight"
         if base_q_proj_name in original_base_weights:
             original_q_proj = original_base_weights[base_q_proj_name]
-            merged_q_proj = original_weights["model.layers.0.self_attn.q_proj.weight"]
+            merged_q_proj = original_weights[base_q_proj_name]
 
             # Weights should be different (LoRA delta was merged)
             assert not torch.allclose(original_q_proj, merged_q_proj, rtol=1e-4), \
                 "Merged weight should differ from original base weight (LoRA delta should be added)"
 
-    # Test 4: Verify model state is restored (adapters are unmerged)
+    # Test 3: Verify model state is restored (adapters are unmerged)
     # After calling get_original_merged_weights_for_vllm, the model should be back to unmerged state
     for module in model.modules():
         if hasattr(module, "merged"):

@@ -283,7 +283,6 @@ class ParallelLinear(nn.Module, NeuronLoraLayer):
             weight_A = weight_A.float()
             weight_B = weight_B.float()
 
-        base_layer = self.get_base_layer()
         # Compute delta: B @ A * scaling
         # The result is sharded the same way as the base layer:
         # - If lora_A is RowParallelLinear: delta is sharded along input dimension
