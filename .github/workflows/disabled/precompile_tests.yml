@@ -1,10 +1,10 @@
 name: Neuron Parallel Compile Training Tests
 
 on:
-  release:
-    types: [published]
-  schedule:
-    - cron: '0 9 * * 6'  # Saturday at 9:00 AM UTC
+  #release:
+  #  types: [published]
+  #schedule:
+  #  - cron: '0 9 * * 6'  # Saturday at 9:00 AM UTC
   workflow_dispatch:
     inputs:
       test_path:
