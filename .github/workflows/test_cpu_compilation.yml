@@ -22,7 +22,7 @@ on:
       - "tests/exporters/test_cpu_compilation.py"
       - ".github/workflows/test_cpu_compilation.yml"
   schedule:
-    - cron: "0 8 * * 1-5"  # 8 AM UTC, Monday-Friday
+    - cron: "0 5 * * 1-5"  # 5 AM UTC, Monday-Friday
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
