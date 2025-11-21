@@ -25,6 +25,10 @@ from neuronx_distributed.parallel_layers.layers import (
 )
 from neuronx_distributed.parallel_layers.layers import ParallelEmbedding as NxDParallelEmbedding
 from neuronx_distributed.parallel_layers.mappings import scatter_to_sequence_parallel_region
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_tensor_model_parallel_rank,
+    get_tensor_model_parallel_size,
+)
 from torch import nn
 
 from ....utils.import_utils import is_peft_available
@@ -500,7 +504,7 @@ class GQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
         self.lora_B[adapter_name] = NxDGQAQKVColumnParallelLinear(
             input_size=r,
             output_sizes=self.out_features,
-            bias=False,
+            bias=lora_bias,
             gather_output=self.base_layer.gather_output,
             dtype=self.base_layer.dtype,
             init_method=self.base_layer.arg_init_method,
@@ -816,6 +820,23 @@ class ParallelEmbedding(nn.Module, NeuronLoraLayer):
             # Cast weights back
             self.lora_embedding_A[adapter] = weight_A.to(dtype)
             self.lora_embedding_B[adapter] = weight_B.to(dtype)
+
+        tp_size = get_tensor_model_parallel_size()
+        if tp_size > 1:
+            tp_rank = get_tensor_model_parallel_rank()
+            base_layer = self.get_base_layer()
+            # We need to slice the delta weight to match the local shard
+            # The ParallelEmbedding layer pads the weight so we need to handle that
+            vocab_size_per_partition = base_layer.weight.shape[0]
+            start_idx = tp_rank * vocab_size_per_partition
+            end_idx = start_idx + vocab_size_per_partition
+
+            # Pad output_tensor if needed (last rank might need padding)
+            if end_idx > output_tensor.shape[0]:
+                pad_len = end_idx - output_tensor.shape[0]
+                output_tensor = torch.nn.functional.pad(output_tensor, (0, 0, 0, pad_len))
+
+            output_tensor = output_tensor[start_idx:end_idx, :]
 
         return output_tensor
 

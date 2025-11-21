@@ -840,6 +840,7 @@ def test_peft_merge_unmerge(set_cache_for_ci):
 def test_get_original_merged_weights_for_vllm(set_cache_for_ci):
     tp_size = get_tensor_model_parallel_size()
     tp_rank = get_tensor_model_parallel_rank()
+    tp_group = get_tensor_model_parallel_group(as_list=True)
     pp_size = get_pipeline_model_parallel_size()
 
     trn_config = TrainingNeuronConfig(
@@ -876,8 +877,14 @@ def test_get_original_merged_weights_for_vllm(set_cache_for_ci):
     model = accelerator.prepare_model(model)
     model.eval()
 
+    base_q_proj_name = "model.layers.0.self_attn.q_proj.weight"
+    original_q_proj = original_base_weights[base_q_proj_name].to("xla")
+    original_q_proj = xm.all_gather(original_q_proj, dim=0, groups=tp_group)
+    original_q_proj = original_q_proj.cpu()
+
     # Get original merged weights for vLLM
     original_weights = get_original_merged_weights_for_vllm(model)
+    original_weights = {k: v.cpu() for k, v in original_weights.items()}
     xm.mark_step()
 
     # Only check on main process since get_original_merged_weights_for_vllm returns same weights on all ranks
@@ -903,16 +910,11 @@ def test_get_original_merged_weights_for_vllm(set_cache_for_ci):
         assert up_proj_weight.shape == (intermediate_size, hidden_size)
 
         # Test 2: Verify LoRA delta is merged
-        # Since we set lora_B += 0.1, the merged weights should differ from original base weights
-        # Get the corresponding original base weight (need to map from PEFT name to base name)
-        base_q_proj_name = "model.layers.0.self_attn.q_proj.weight"
-        if base_q_proj_name in original_base_weights:
-            original_q_proj = original_base_weights[base_q_proj_name]
-            merged_q_proj = original_weights[base_q_proj_name]
+        merged_q_proj = original_weights[base_q_proj_name]
 
-            # Weights should be different (LoRA delta was merged)
-            assert not torch.allclose(original_q_proj, merged_q_proj, rtol=1e-4), \
-                "Merged weight should differ from original base weight (LoRA delta should be added)"
+        # Weights should be different (LoRA delta was merged)
+        assert not torch.allclose(original_q_proj, merged_q_proj, rtol=1e-4), \
+            "Merged weight should differ from original base weight (LoRA delta should be added)"
 
     # Test 3: Verify model state is restored (adapters are unmerged)
     # After calling get_original_merged_weights_for_vllm, the model should be back to unmerged state
