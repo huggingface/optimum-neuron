@@ -12,6 +12,7 @@ on:
     branches: [ main ]
     paths:
       - "tools/cache/auto_fill_diffusion_cache.py"
+      - ".github/workflows/cache_diffusion.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
