@@ -35,7 +35,9 @@ class OptimumNeuronPlatform(UnspecifiedPlatform):
 
     @classmethod
     def pre_register_and_update(cls, parser: FlexibleArgumentParser | None = None) -> None:
-        from vllm import config
+        from vllm.config import model
+
+        logger.info("Patching ModelConfig verification with parallel config for Optimum Neuron platform.")
 
         # Patch ModelConfig to avoid hard-coded check in vLLM
         def verify_with_parallel_config(self, parallel_config) -> None:
@@ -43,9 +45,10 @@ class OptimumNeuronPlatform(UnspecifiedPlatform):
             # the number of attention heads, which is not necessarily true for
             # Neuron models (e.g., Llama 4 Scout 17B with TP=32).
             # We override the method to skip this check.
+            logger.info("Skipping ModelConfig verification with parallel config for Optimum Neuron platform.")
             pass
 
-        config.ModelConfig.verify_with_parallel_config = verify_with_parallel_config
+        model.ModelConfig.verify_with_parallel_config = verify_with_parallel_config
 
     @classmethod
     def check_and_update_config(cls, vllm_config) -> None:
