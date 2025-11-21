@@ -809,10 +809,8 @@ class ParallelEmbedding(nn.Module, NeuronLoraLayer):
             weight_A = weight_A.float()
             weight_B = weight_B.float()
 
-        # Compute delta: B @ A (transposed if fan_in_fan_out)
-        output_tensor = (weight_B @ weight_A) * self.scaling[adapter]
-        if self.fan_in_fan_out:
-            output_tensor = output_tensor.T
+        # Compute delta: (B @ A).T * scaling
+        output_tensor = (weight_B @ weight_A).T * self.scaling[adapter]
 
         if cast_to_fp32:
             output_tensor = output_tensor.to(dtype=dtype)

@@ -37,6 +37,7 @@ from transformers.utils import is_rich_available
 
 from ..models.training import NeuronModelForCausalLM
 from ..peft import NeuronPeftModel, get_peft_model
+from ..peft.utils.vllm import get_original_merged_weights_for_vllm
 from ..utils import is_precompilation, is_trl_available
 from ..utils.import_utils import is_peft_available
 from .grpo_config import NeuronGRPOConfig
@@ -193,8 +194,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
         if peft_config is not None and not isinstance(model, NeuronPeftModel):
             # Enable gradient checkpointing if needed
-            gradient_checkpointing_kwargs = getattr(args, "gradient_checkpointing_kwargs", None) or {}
             gradient_checkpointing_kwargs = args.gradient_checkpointing_kwargs
+            if gradient_checkpointing_kwargs is None:
+                gradient_checkpointing_kwargs = {}
             if args.gradient_checkpointing and (
                 "use_reentrant" not in gradient_checkpointing_kwargs or gradient_checkpointing_kwargs["use_reentrant"]
             ):
@@ -584,26 +586,19 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
     def _move_model_to_vllm(self):
         if isinstance(self.model, NeuronPeftModel):
-            self.model.merge_adapter()
+            # Get original (unsharded, untransformed) merged weights for vLLM
+            original_weights = get_original_merged_weights_for_vllm(self.model)
 
-            for name, param in self.model.named_parameters():
-                # When using PEFT, we need to recover the original parameter name and discard some parameters
-                name = name.removeprefix("base_model.model.").replace(".base_layer", "")
-                if self.model.prefix in name:
-                    continue
-                # When module to save, remove its prefix and discard the original module
-                if "original_module" in name:
-                    continue
-                name = self._fix_param_name_to_vllm(name, extra_prefixes=["modules_to_save.default."])
+            # Send weights to vLLM server (only main process for server mode)
+            for name, weight in original_weights.items():
+                # Clean up parameter name for vLLM
+                name = self._fix_param_name_to_vllm(name)
 
                 if self.vllm_mode == "server" and self.accelerator.is_main_process:
-                    self.vllm_client.update_named_param(name, param.data)
+                    self.vllm_client.update_named_param(name, weight)
                 elif self.vllm_mode == "colocate":
                     llm_model = self.llm.llm_engine.model_executor.driver_worker.model_runner.model
-                    llm_model.load_weights([(name, param.data)])
-            # Unmerge adapters while parameters are still gathered
-            self.model.unmerge_adapter()
-            # Parameters will automatically be repartitioned when exiting the context
+                    llm_model.load_weights([(name, weight)])
         else:
             for name, param in self.model.named_parameters():
                 name = self._fix_param_name_to_vllm(name)
