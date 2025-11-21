@@ -103,7 +103,7 @@ from ..utils.import_utils import is_peft_available
 from ..utils.misc import is_main_worker, is_precompilation
 from .metrics import TrainingMetricsCollector
 from .training_args import NeuronTrainingArguments
-from .utils import XLAPrefetchIterator
+from .utils import XLAPrefetchIterator, move_inputs_to_device
 
 
 logger = logging.get_logger()
@@ -943,10 +943,7 @@ class NeuronTrainer:
 
         if self.pp_size == 1 and device is not None and device.type == "xla":
             if prefetch_size is None:
-                for idx, batch in enumerate(batch_samples):
-                    batch_samples[idx] = {
-                        k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()
-                    }
+                batch_samples = move_inputs_to_device(batch_samples, device)
             else:
                 batch_samples = XLAPrefetchIterator(batch_samples, prefetch_size)
 
@@ -999,9 +996,23 @@ class NeuronTrainer:
 
         return (loss, outputs) if return_outputs else loss
 
+    def _prepare_inputs(self, inputs: Any) -> Any:
+        """
+        Prepare inputs before feeding them to the model.
+
+        This is a no-op for standard NeuronTrainer as inputs are already moved to device in get_batch_samples().
+        Subclasses can override this method for custom preprocessing (e.g., GRPOTrainer uses
+        this for generation, scoring, and tokenization).
+
+        """
+        return inputs
+
     def training_step(
         self, model: nn.Module, inputs: dict[str, Any], num_items_in_batch: int | torch.Tensor | None = None
     ) -> torch.Tensor:
+        # Prepare inputs (no-op for base trainer, overridden by subclasses for custom preprocessing)
+        inputs = self._prepare_inputs(inputs)
+
         manager = self.autocast_smart_context_manager()
         with manager:
             loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)

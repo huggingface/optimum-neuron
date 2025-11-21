@@ -199,3 +199,13 @@ def is_custom_modeling_model(model) -> bool:
     if isinstance(model, PeftModel):
         model_to_consider = model.get_base_model()
     return inspect.getmodule(model_to_consider.__class__).__name__.startswith("optimum.neuron.models.training")
+
+
+def checkpoint_with_kwargs(fn, *args, **kwargs):
+    """XLA-compatible gradient checkpointing that accepts keyword arguments via functools.partial."""
+    from functools import partial
+
+    from torch_xla.utils.checkpoint import checkpoint
+
+    fn_with_kwargs = partial(fn, **kwargs)
+    return checkpoint(fn_with_kwargs, *args)
