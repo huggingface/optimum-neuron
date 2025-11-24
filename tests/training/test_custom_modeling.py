@@ -807,9 +807,6 @@ def test_peft_merge_unmerge(set_cache_for_ci):
         logits_merged = output_merged.logits.clone()
     xm.mark_step()
 
-    print(output_merged)
-    print(output_unmerged)
-
     # Outputs should match
     assert torch.allclose(logits_unmerged, logits_merged, rtol=1e-3, atol=1e-3), \
         f"Merged and unmerged outputs should match. Max diff: {(logits_unmerged - logits_merged).abs().max().item()}"

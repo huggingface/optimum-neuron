@@ -141,7 +141,8 @@ def train(model_id, tokenizer, dataset, training_args):
         trn_config,
         torch_dtype=dtype,
         # Use FlashAttention2 for better performance
-        attn_implementation="flash_attention_2",
+        # attn_implementation="flash_attention_2",
+        attn_implementation="eager",
     )
 
     # LoRA configuration for efficient fine-tuning
@@ -160,8 +161,8 @@ def train(model_id, tokenizer, dataset, training_args):
     # GRPO-specific configuration
     grpo_config = NeuronGRPOConfig(
         # Generation parameters
-        max_prompt_length=1024,  # Maximum prompt length
-        max_completion_length=1024,  # Maximum completion length
+        max_prompt_length=512,  # Maximum prompt length
+        max_completion_length=268,  # Maximum completion length
         num_generations=4,  # Number of completions to generate per prompt (G in paper)
         temperature=0.8,  # Sampling temperature
         # GRPO algorithm parameters

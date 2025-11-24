@@ -1664,9 +1664,7 @@ def create_parameter_metadata(model) -> dict[str, dict[str, Any]]:
     consolidating the sharded state dicts.
     """
     metadata = {"parameters": {}, "model_weight_transformation_specs": []}
-    print("micka", model.parameters_for_current_stage)
     for name, param in model.named_parameters():
-        print(name)
         if name not in model.parameters_for_current_stage:
             continue
         tensor_model_parallel = getattr(param, "tensor_model_parallel", False)
