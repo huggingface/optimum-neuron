@@ -57,7 +57,6 @@ from optimum.neuron.utils import (
     DummyMaskedPosGenerator,
     DummyTimestepInputGenerator,
     WhisperDummyTextInputGenerator,
-    get_checkpoint_shard_files,
     saved_model_in_temporary_directory,
 )
 
@@ -365,7 +364,8 @@ class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
 
 
 @register_in_tasks_manager("clip-text-model", *["feature-extraction"], library_name="diffusers")
-class CLIPTextNeuronConfig(NxDNeuronConfig, CLIPTextWithProjectionNeuronConfig):
+class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
+# class CLIPTextNeuronConfig(NxDNeuronConfig, CLIPTextWithProjectionNeuronConfig):
     MODEL_TYPE = "clip-text-model"
 
     @property
@@ -377,44 +377,44 @@ class CLIPTextNeuronConfig(NxDNeuronConfig, CLIPTextWithProjectionNeuronConfig):
 
         return common_outputs
 
-    def get_parallel_callable(self):
-        from optimum.neuron.models.inference.clip.modeling_clip import NeuronCLIPTextModel
+    #TODO: causes the loading error for model built with different tp size
+    # def get_parallel_callable(self):
+    #     from optimum.neuron.models.inference.clip.modeling_clip import NeuronCLIPTextModel
 
-        # Parallelize Flux transformer with NxD backend modeling
-        model = NeuronCLIPTextModel(self)
-        model.eval()
-        if self.float_dtype == torch.bfloat16:
-            model.bfloat16()
+    #     # Parallelize Flux transformer with NxD backend modeling
+    #     model = NeuronCLIPTextModel(self)
+    #     model.eval()
+    #     if self.float_dtype == torch.bfloat16:
+    #         model.bfloat16()
 
-        return model
+    #     return model
     
-    @staticmethod
-    def convert_hf_to_neuron_state_dict(state_dict: dict, config) -> dict:
-        new_load = {
-            key.replace("text_model.", "neuron_text_encoder."): state_dict[key]
-            .clone()
-            .detach()
-            .contiguous()
-            for key in list(state_dict.keys())
-        }
-        state_dict.update(new_load)
-        return state_dict
+    # def convert_hf_to_neuron_state_dict(self, state_dict: dict) -> dict:
+    #     new_load = {
+    #         key.replace("text_model.", "neuron_text_encoder."): state_dict[key]
+    #         .clone()
+    #         .detach()
+    #         .contiguous()
+    #         for key in list(state_dict.keys())
+    #     }
+    #     state_dict.update(new_load)
+    #     return state_dict
     
-    @staticmethod
-    def update_state_dict_for_tied_weights(state_dict):
-        pass
+    # @staticmethod
+    # def update_state_dict_for_tied_weights(state_dict):
+    #     pass
     
-    def get_compiler_args(self):
-        compiler_args = "--model-type=transformer -O1"
-        compiler_args += (
-            " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'"
-        )
-        compiler_args += " --auto-cast=none --internal-hlo2tensorizer-options='--verify-hlo=true'"
+    # def get_compiler_args(self):
+    #     compiler_args = "--model-type=transformer -O1"
+    #     compiler_args += (
+    #         " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'"
+    #     )
+    #     compiler_args += " --auto-cast=none --internal-hlo2tensorizer-options='--verify-hlo=true'"
 
-        if _HARDWARE == hardware.TRN2:
-            os.environ["LOCAL_WORLD_SIZE"] = str(self.config.neuron_config.world_size)
-            os.environ["NEURON_RT_VIRTUAL_CORE_SIZE"] = "2"
-        return compiler_args
+    #     if _HARDWARE == hardware.TRN2:
+    #         os.environ["LOCAL_WORLD_SIZE"] = str(self.config.neuron_config.world_size)
+    #         os.environ["NEURON_RT_VIRTUAL_CORE_SIZE"] = "2"
+    #     return compiler_args
 
 
 # TODO: We should decouple clip text and vision, this would need fix on Optimum main. For the current workaround
@@ -874,12 +874,13 @@ class FluxTransformerNeuronConfig(NxDNeuronConfig, VisionNeuronConfig):
             "encoder_hidden_states",
             "pooled_projections",
             "timestep",
-            # Q: Why `image_rotary_emb` but not `txt_ids` and `img_ids`? We compute the rotary positional embeddings in CPU to save Neuron memory.
-            # shape: [txt_ids.shape(0)+img_ids.shape(0), sum(axes_dim), 2]
-            "image_rotary_emb",
         ]
         if getattr(self._config, "guidance_embeds", False):
             common_inputs.append("guidance")
+        
+        # Q: Why `image_rotary_emb` but not `txt_ids` and `img_ids`? We compute the rotary positional embeddings in CPU to save Neuron memory.
+        # shape: [txt_ids.shape(0)+img_ids.shape(0), sum(axes_dim), 2]
+        common_inputs.append("image_rotary_emb")
 
         return common_inputs
 
@@ -898,54 +899,27 @@ class FluxTransformerNeuronConfig(NxDNeuronConfig, VisionNeuronConfig):
 
         return model
 
-    # Adapted from diffusers.models.modeling_utils.ModelMixin.from_pretrained, this is a helper function for loading checkpoints required by `ModelBuilder`.
-    def checkpoint_loader_fn(self):
-        is_local = os.path.isdir(self.pretrained_model_name_or_path)
-        subfolder = getattr(self, "subfolder", "transformer")
-        if is_local:
-            index_file = Path(
-                self.pretrained_model_name_or_path,
-                subfolder or "",
-                SAFE_WEIGHTS_INDEX_NAME,
-            )
-        else:
-            index_file_in_repo = Path(
-                subfolder or "",
-                SAFE_WEIGHTS_INDEX_NAME,
-            ).as_posix()
-            index_file = _get_model_file(
-                self.pretrained_model_name_or_path,
-                weights_name=index_file_in_repo,
-                # TODO: add extra args, eg. revision, trust_remote_code, etc.
-            )
-
-        model_shards_file_paths, _ = get_checkpoint_shard_files(
-            pretrained_model_name_or_path=self.pretrained_model_name_or_path,
-            index_filename=index_file,
-            subfolder=subfolder,
-        )
-
-        merged_state_dict = {}
-        for shard_file in model_shards_file_paths:
-            state_dict = load_file(shard_file)
-            merged_state_dict.update(state_dict)
-
-        merged_state_dict["global_rank.rank"] = torch.arange(
+    def convert_hf_to_neuron_state_dict(self, state_dict: dict) -> dict:
+        state_dict["global_rank.rank"] = torch.arange(
             0, self.world_size, dtype=torch.int32
         )
         inner_dim = self._config.num_attention_heads * self._config.attention_head_dim
         for i in range(self._config.num_single_layers):
-            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_attn.weight"] = merged_state_dict[
+            state_dict[f"single_transformer_blocks.{i}.proj_out_attn.weight"] = state_dict[
                 f"single_transformer_blocks.{i}.proj_out.weight"
             ][:, :inner_dim].contiguous()
-            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_attn.bias"] = (
-                merged_state_dict[f"single_transformer_blocks.{i}.proj_out.bias"].clone().detach().contiguous()
+            state_dict[f"single_transformer_blocks.{i}.proj_out_attn.bias"] = (
+                state_dict[f"single_transformer_blocks.{i}.proj_out.bias"]
+                .clone()
+                .detach()
+                .contiguous()
             )
-            merged_state_dict[f"single_transformer_blocks.{i}.proj_out_mlp.weight"] = merged_state_dict[
+            state_dict[f"single_transformer_blocks.{i}.proj_out_mlp.weight"] = state_dict[
                 f"single_transformer_blocks.{i}.proj_out.weight"
             ][:, inner_dim:].contiguous()
-
-        return merged_state_dict
+        for k, v in state_dict.items():
+            state_dict[k] = v.clone().detach().contiguous()
+        return state_dict
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
         if self.is_flux_kontext:
@@ -1131,13 +1105,12 @@ class T5EncoderForDiffusersNeuronConfig(NxDNeuronConfig, T5EncoderBaseNeuronConf
 
         # Parallelize Flux transformer with NxD backend modeling
         model = NeuronT5EncoderModel(self)
-        model.eval()
         model = model.to(self.float_dtype)
+        model.eval()
 
         return model
     
-    @staticmethod
-    def convert_hf_to_neuron_state_dict(state_dict: dict, config) -> dict:
+    def convert_hf_to_neuron_state_dict(self, state_dict: dict) -> dict:
         for k, v in state_dict.items():
             state_dict[k] = v.clone().detach().contiguous()
         return state_dict

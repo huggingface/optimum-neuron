@@ -18,6 +18,7 @@ import copy
 import os
 import re
 import time
+from functools import partial
 from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -356,7 +357,8 @@ def export_models(
     compile_configs = {}
     # models_and_neuron_configs.pop("text_encoder")
     # models_and_neuron_configs.pop("text_encoder_2")
-    # models_and_neuron_configs.pop("vae_encoder")
+    # models_and_neuron_configs.pop("transformer")
+    models_and_neuron_configs.pop("vae_encoder")
     # models_and_neuron_configs.pop("vae_decoder")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
@@ -426,17 +428,17 @@ def export_models(
 
     logger.info(f"[Total compilation Time] {np.round(total_compilation_time, 2)} seconds.")
 
-    # cache neuronx model
-    if not disable_neuron_cache and is_neuronx_available():
-        model_id = get_model_name_or_path(model_config) if model_name_or_path is None else model_name_or_path
-        if len(compile_configs) == 1:
-            # FIXME: this is overly complicated just to pass the config
-            cache_config = list(compile_configs.values())[0]
-            cache_entry = SingleModelCacheEntry(model_id=model_id, task=task, config=cache_config)
-        else:
-            cache_entry = MultiModelCacheEntry(model_id=model_id, configs=compile_configs)
+    # # cache neuronx model
+    # if not disable_neuron_cache and is_neuronx_available():
+    #     model_id = get_model_name_or_path(model_config) if model_name_or_path is None else model_name_or_path
+    #     if len(compile_configs) == 1:
+    #         # FIXME: this is overly complicated just to pass the config
+    #         cache_config = list(compile_configs.values())[0]
+    #         cache_entry = SingleModelCacheEntry(model_id=model_id, task=task, config=cache_config)
+    #     else:
+    #         cache_entry = MultiModelCacheEntry(model_id=model_id, configs=compile_configs)
 
-        cache_traced_neuron_artifacts(neuron_dir=output_dir, cache_entry=cache_entry)
+    #     cache_traced_neuron_artifacts(neuron_dir=output_dir, cache_entry=cache_entry)
 
     # remove models failed to export
     for i, model_name in failed_models:
@@ -661,7 +663,14 @@ def prepare_compiler_flags(
     compiler_args_str = " ".join(compiler_args)
     return compiler_args_str
 
+def init_custom_process_group_fn(config):
+    neuronx_distributed.parallel_state.initialize_model_parallel(tensor_model_parallel_siz=config.tensor_parallel_size)
+    if hasattr(config, "fused_spec_config") and config.fused_spec_config is not None:
+        if config.fused_spec_config.draft_config.neuron_config.tp_degree is not None:
+            draft_tp = config.fused_spec_config.draft_config.neuron_config.tp_degree
+            parallel_state.initialize_speculative_draft_group(draft_tp)
 
+            
 def get_builder(
     model,
     config,
@@ -673,6 +682,10 @@ def get_builder(
     tag: str | None = None,
     debug: bool = False,
 ):
+    # Use this function to initialize non-standard TP/PP/DP distributed
+    # process groups.
+    # custom_group_fn = partial(init_custom_process_group_fn, config)
+    
     builder = ModelBuilder(
         router=None,
         tp_degree=tensor_parallel_size,
@@ -721,7 +734,7 @@ def trace_neuronx(
             tensor_parallel_size=tensor_parallel_size,
             compiler_workdir=compiler_workdir,
             priority_model_idx=0,
-            tag=output.parts[1],
+            tag=model.__class__.__name__,
             debug=False,
         )
         neuron_model = model_builder.trace(initialize_model_weights=False)

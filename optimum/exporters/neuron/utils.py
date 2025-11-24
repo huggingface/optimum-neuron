@@ -200,6 +200,7 @@ def get_diffusion_models_for_export(
             text_encoder.config,
             task="feature-extraction",
             dynamic_batch_size=dynamic_batch_size,
+            float_dtype=text_encoder.dtype,
             output_hidden_states=output_hidden_states,
             input_shapes=text_encoder_input_shapes,
         )
@@ -218,6 +219,7 @@ def get_diffusion_models_for_export(
             task="feature-extraction",
             tensor_parallel_size=tensor_parallel_size,
             dynamic_batch_size=dynamic_batch_size,
+            float_dtype=text_encoder_2.dtype,
             output_hidden_states=output_hidden_states,
             input_shapes=text_encoder_2_input_shapes,
         )

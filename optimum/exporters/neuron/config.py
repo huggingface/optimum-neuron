@@ -139,24 +139,23 @@ class NxDNeuronConfig:
                         )
                         _model_sd[name] = param.to(current_dtype)
 
-        model_sd = self.get_state_dict(model_path, self._config)
+        model_sd = self.get_state_dict(model_path)
 
-        if self._config.dtype != torch.float32:
+        if self.float_dtype != torch.float32:
             _cast_helper(model_sd)
 
         return model_sd
     
-    @classmethod
-    def get_state_dict(cls, model_path: str, config) -> dict:
+    def get_state_dict(self, model_path: str) -> dict:
         """Gets the state dict for this model."""
         from optimum.neuron.models.inference.backend.modules.checkpoint import load_state_dict
         model_sd = load_state_dict(model_path)
         param_name_list = list(model_sd.keys())
         for param_name in param_name_list:
             updated_param_name = param_name
-            if param_name.startswith(cls._STATE_DICT_MODEL_PREFIX):
+            if param_name.startswith(self._STATE_DICT_MODEL_PREFIX):
                 updated_param_name = param_name.replace(
-                    cls._STATE_DICT_MODEL_PREFIX, cls._NEW_STATE_DICT_MODEL_PREFIX, 1
+                    self._STATE_DICT_MODEL_PREFIX, self._NEW_STATE_DICT_MODEL_PREFIX, 1
                 )
             if param_name.endswith(".weight_scale"):
                 updated_param_name = updated_param_name.replace(".weight_scale", ".scale")
@@ -164,19 +163,19 @@ class NxDNeuronConfig:
                 model_sd[updated_param_name] = model_sd[param_name]
                 del model_sd[param_name]
 
-        model_sd = cls.convert_hf_to_neuron_state_dict(model_sd, config)
-        if getattr(config, "tie_word_embeddings", False):
-            cls.update_state_dict_for_tied_weights(model_sd)
+        model_sd = self.convert_hf_to_neuron_state_dict(model_sd)
+        if getattr(self._config, "tie_word_embeddings", False):
+            self.update_state_dict_for_tied_weights(model_sd)
 
         param_name_list = list(model_sd.keys())
-        if cls._FUSED_PREFIX != "":
+        if self._FUSED_PREFIX != "":
             for param_name in param_name_list:
-                model_sd[f"{cls._FUSED_PREFIX}.{param_name}"] = model_sd[param_name]
+                model_sd[f"{self._FUSED_PREFIX}.{param_name}"] = model_sd[param_name]
                 del model_sd[param_name]
         return model_sd
     
     @staticmethod
-    def convert_hf_to_neuron_state_dict(state_dict: dict, config) -> dict:
+    def convert_hf_to_neuron_state_dict(state_dict: dict) -> dict:
         """This function should be over-ridden in child classes as needed"""
         return state_dict
     

@@ -512,19 +512,13 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             model = NeuronTracedModel.load_model(model_path)
             start_rank_tensor = torch.tensor([0], dtype=torch.int32, device="cpu")
             model.nxd_model.initialize(weights, start_rank_tensor)
-            import pdb
-            pdb.set_trace()
             return model
 
         # define the mode for loading the models
         if tensor_parallel_size > 1:
-            tp_models = ["text_encoder", "text_encoder_2", "transformer"]
+            tp_models = ["text_encoder_2", "transformer"]
             models_on_a_single_core = _load_models_to_single_core(
                 {k: v for k, v in submodels.items() if k not in tp_models}
-            )
-            # Load CLIP Text Encoder
-            submodels["text_encoder"] = _load_sharded_model(
-                "text_encoder", submodels["text_encoder"], 1
             )
             # Load T5 text encoder
             submodels["text_encoder_2"] = _load_sharded_model(
