@@ -734,10 +734,7 @@ class NeuronFluxAttention(nn.Module):
     ):
         super().__init__()
 
-        # self.data_parallel_group = get_data_parallel_group()
-        # self.context_parallel_enabled = context_parallel_enabled
         self.context_parallel_enabled = False
-        # self.enable_out_proj_kernel = enable_out_proj_kernel
         self.enable_out_proj_kernel = False
         self.query_dim = query_dim
         self.use_bias = bias
