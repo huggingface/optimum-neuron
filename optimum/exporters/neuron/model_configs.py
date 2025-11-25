@@ -372,45 +372,6 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
 
         return common_outputs
 
-    # TODO: causes the loading error for model built with different tp size
-    # def get_parallel_callable(self):
-    #     from optimum.neuron.models.inference.clip.modeling_clip import NeuronCLIPTextModel
-
-    #     # Parallelize Flux transformer with NxD backend modeling
-    #     model = NeuronCLIPTextModel(self)
-    #     model.eval()
-    #     if self.float_dtype == torch.bfloat16:
-    #         model.bfloat16()
-
-    #     return model
-
-    # def convert_hf_to_neuron_state_dict(self, state_dict: dict) -> dict:
-    #     new_load = {
-    #         key.replace("text_model.", "neuron_text_encoder."): state_dict[key]
-    #         .clone()
-    #         .detach()
-    #         .contiguous()
-    #         for key in list(state_dict.keys())
-    #     }
-    #     state_dict.update(new_load)
-    #     return state_dict
-
-    # @staticmethod
-    # def update_state_dict_for_tied_weights(state_dict):
-    #     pass
-
-    # def get_compiler_args(self):
-    #     compiler_args = "--model-type=transformer -O1"
-    #     compiler_args += (
-    #         " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'"
-    #     )
-    #     compiler_args += " --auto-cast=none --internal-hlo2tensorizer-options='--verify-hlo=true'"
-
-    #     if _HARDWARE == hardware.TRN2:
-    #         os.environ["LOCAL_WORLD_SIZE"] = str(self.config.neuron_config.world_size)
-    #         os.environ["NEURON_RT_VIRTUAL_CORE_SIZE"] = "2"
-    #     return compiler_args
-
 
 # TODO: We should decouple clip text and vision, this would need fix on Optimum main. For the current workaround
 # users can pass dummy text inputs when encoding image, vice versa.

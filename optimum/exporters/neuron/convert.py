@@ -27,6 +27,9 @@ import numpy as np
 import torch
 from transformers import PreTrainedModel
 
+from optimum.neuron.cache.entries.multi_model import MultiModelCacheEntry
+from optimum.neuron.cache.entries.single_model import SingleModelCacheEntry
+from optimum.neuron.cache.traced import cache_traced_neuron_artifacts
 from optimum.neuron.utils import (
     DiffusersPretrainedConfig,
     convert_neuronx_compiler_args_to_neuron,
@@ -36,6 +39,7 @@ from optimum.neuron.utils import (
 )
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
+from ...neuron.utils.cache_utils import get_model_name_or_path
 from ...neuron.utils.system import get_neuron_major
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
 from ...utils import (
@@ -351,11 +355,6 @@ def export_models(
     failed_models = []
     total_compilation_time = 0
     compile_configs = {}
-    # models_and_neuron_configs.pop("text_encoder")
-    # models_and_neuron_configs.pop("text_encoder_2")
-    # models_and_neuron_configs.pop("transformer")
-    models_and_neuron_configs.pop("vae_encoder")
-    # models_and_neuron_configs.pop("vae_decoder")
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -424,17 +423,17 @@ def export_models(
 
     logger.info(f"[Total compilation Time] {np.round(total_compilation_time, 2)} seconds.")
 
-    # # cache neuronx model
-    # if not disable_neuron_cache and is_neuronx_available():
-    #     model_id = get_model_name_or_path(model_config) if model_name_or_path is None else model_name_or_path
-    #     if len(compile_configs) == 1:
-    #         # FIXME: this is overly complicated just to pass the config
-    #         cache_config = list(compile_configs.values())[0]
-    #         cache_entry = SingleModelCacheEntry(model_id=model_id, task=task, config=cache_config)
-    #     else:
-    #         cache_entry = MultiModelCacheEntry(model_id=model_id, configs=compile_configs)
+    # cache neuronx model
+    if not disable_neuron_cache and is_neuronx_available():
+        model_id = get_model_name_or_path(model_config) if model_name_or_path is None else model_name_or_path
+        if len(compile_configs) == 1:
+            # FIXME: this is overly complicated just to pass the config
+            cache_config = list(compile_configs.values())[0]
+            cache_entry = SingleModelCacheEntry(model_id=model_id, task=task, config=cache_config)
+        else:
+            cache_entry = MultiModelCacheEntry(model_id=model_id, configs=compile_configs)
 
-    #     cache_traced_neuron_artifacts(neuron_dir=output_dir, cache_entry=cache_entry)
+        cache_traced_neuron_artifacts(neuron_dir=output_dir, cache_entry=cache_entry)
 
     # remove models failed to export
     for i, model_name in failed_models:
