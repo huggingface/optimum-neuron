@@ -21,6 +21,7 @@ from torch import Tensor, nn
 from transformers import PretrainedConfig
 
 from ...config import NxDNeuronConfig
+from ..flash_decode.utils import get_cache_size
 from .utils import dynamic_update_slice, fill_prefix
 
 
@@ -42,10 +43,21 @@ class KVCacheManager(nn.Module):
     def __init__(self, config: PretrainedConfig, neuron_config: NxDNeuronConfig, actual_num_key_value_heads: int):
         super().__init__()
         self.is_continuous_batching = neuron_config.continuous_batching
+        self.flash_decoding_enabled = False
+        self.num_cores_per_group = 1
 
         max_batch_size = neuron_config.max_batch_size
         num_kv_heads_per_rank = utils.divide(actual_num_key_value_heads, neuron_config.tp_degree)
         max_len = neuron_config.sequence_length
+        if self.flash_decoding_enabled:
+            padded_max_len = max_len
+            if max_len % self.num_cores_per_group != 0:
+                padded_max_len += self.num_cores_per_group - max_len % self.num_cores_per_group
+                logging.warning(
+                    f"Max length needs to be multiples of num_cores_per_group {self.num_cores_per_group}"
+                    f" but got {max_len}. Padding it to {padded_max_len} meet the requirement."
+                )
+            max_len = get_cache_size(padded_max_len, self.num_cores_per_group)
         head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
 
         # KV cache layout : BHSD
@@ -109,7 +121,7 @@ class KVCacheManager(nn.Module):
         position_ids: Tensor,
         new_key_values: list[Tensor],
         seq_len: int,
-        active_mask=None,
+        kv_active_mask=None,
     ):
         """
         Given the passed-in new_key_values, update the cache
@@ -120,7 +132,7 @@ class KVCacheManager(nn.Module):
         :param position_ids: tensor of size (batch_sz, seq_len)
         :param new_key_values: list of tuple, the latest kv obtained at the end of the network from forward pass
         :param seq_len: sequence length
-        :param active_mask: tensor representing index to update
+        :param kv_active_mask: tensor representing index to update
         :return: list of tuple of (K, V)
         """
         updated_kv_cache = []
@@ -149,8 +161,15 @@ class KVCacheManager(nn.Module):
                     k_cache = fill_prefix(k_cache, latest_k)
                     v_cache = fill_prefix(v_cache, latest_v)
             else:
-                # Copy the tensor of the new position into kv cache (no need to align as inputs are right padded)
-                scatter_index_new = self._get_index_to_update_new_position(position_ids, latest_k)
+                if self.flash_decoding_enabled:
+                    assert kv_active_mask is not None, "active_mask should be specified for flash decoding!"
+                    garbage_pos = seq_len - 1  # treat last pos as garbage
+                    updated_pos_ids = position_ids // self.num_cores_per_group
+                    scatter_index = torch.where(kv_active_mask == 1, updated_pos_ids, garbage_pos)
+                    scatter_index_new = scatter_index.view(-1, 1, scatter_index.shape[-1], 1).expand_as(latest_k)
+                else:
+                    # Copy the tensor of the new position into kv cache (no need to align as inputs are right padded)
+                    scatter_index_new = self._get_index_to_update_new_position(position_ids, latest_k)
                 k_cache = torch.scatter(input=k_cache, dim=2, index=scatter_index_new, src=latest_k)
                 v_cache = torch.scatter(input=v_cache, dim=2, index=scatter_index_new, src=latest_v)
 

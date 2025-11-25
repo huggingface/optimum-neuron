@@ -33,6 +33,7 @@ from ...graph_builder import NxDGraphBuilder
 from ...pretrained_model import NxDPreTrainedModel
 from ...utils.random import set_random_seed
 from ..attention.gqa import get_shardable_head_counts
+from ..flash_decode.utils import get_cache_size, mask_util, turn_2d_mask_to_4d
 from ..generation.generation_utils import NxDGenerationMixin
 from ..generation.sampling import (
     Sampler,
@@ -84,6 +85,9 @@ class NxDDecoderModelForCausalLM(nn.Module):
         if neuron_config.on_device_sampling:
             # Instantiate a multinomial Sampler (it can still be used for greedy by passing topk=1)
             self.sampler = Sampler(neuron_config, do_sample=True)
+        # FIXME: FlashDecoding is disabled for now
+        self.flash_decoding_enabled = False
+        self.num_cores_per_group = 1
         # Evaluate the sharding strategy and number of kv heads per rank
         _, num_attention_heads, num_key_value_heads = get_shardable_head_counts(
             neuron_config.tp_degree, config.num_attention_heads, config.num_key_value_heads
@@ -166,7 +170,11 @@ class NxDDecoderModelForCausalLM(nn.Module):
         is_for_context_encoding = self._is_context_encoding(input_ids)
         is_for_speculation = self._is_for_speculation(input_ids)
 
-        cache_size = self.n_positions
+        cache_size = (
+            get_cache_size(self.n_positions, self.num_cores_per_group, is_for_context_encoding)
+            if self.flash_decoding_enabled
+            else self.n_positions
+        )
 
         # It is either for context encoding or for token generation
         if is_for_context_encoding:
@@ -175,7 +183,7 @@ class NxDDecoderModelForCausalLM(nn.Module):
             past_key_values = self.kv_mgr.get_cache(cache_size)
 
         # Prepare attention mask(s)
-        attention_mask = self.create_attn_mask(
+        attn_mask = self.create_attn_mask(
             attention_mask,
             is_for_context_encoding,
             is_for_speculation,
@@ -191,12 +199,29 @@ class NxDDecoderModelForCausalLM(nn.Module):
                 self.batch_size, 1, self.speculation_length, self.speculation_length
             )
 
-        # FD masks
+        # FlashDecoding masks, for KV cache updates
         active_mask_2d = None
+        if self.flash_decoding_enabled and not is_for_context_encoding:
+            rank_id = self.rank_util.get_rank()
+            active_mask_tmp, attention_mask_tmp = mask_util(
+                pos_ids=position_ids,
+                rank_id=rank_id,
+                num_cores_per_group=self.num_cores_per_group,
+                cache_size=cache_size,
+            )
+            if is_for_speculation:
+                active_mask = active_mask_tmp[:, None, :, :].expand(self.batch_size, 1, -1, -1)
+                attn_mask = attention_mask_tmp[:, None, :, :].expand(self.batch_size, 1, -1, -1)
+                # only for cache udpate
+                active_mask_2d = active_mask_tmp.sum(dim=-2, keepdims=False).to(torch.bool)
+            else:
+                active_mask = turn_2d_mask_to_4d(active_mask_tmp, n_positions=1, batch_size=self.batch_size)
+                attn_mask = turn_2d_mask_to_4d(attention_mask_tmp, n_positions=cache_size, batch_size=self.batch_size)
+                active_mask_2d = active_mask_tmp
 
         hidden_states, past_key_values = self.get_model_output(
             input_ids=input_ids,
-            attention_mask=attention_mask,
+            attention_mask=attn_mask,
             position_ids=position_ids,
             past_key_values=past_key_values,
             active_mask=active_mask,
@@ -208,7 +233,7 @@ class NxDDecoderModelForCausalLM(nn.Module):
             position_ids=position_ids,
             new_key_values=past_key_values,
             seq_len=cache_size,
-            active_mask=active_mask_2d,
+            kv_active_mask=active_mask_2d,
         )
 
         batch_size, num_tokens, hidden_size = hidden_states.shape

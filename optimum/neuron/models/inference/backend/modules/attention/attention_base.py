@@ -19,12 +19,15 @@ import warnings
 from enum import Enum
 
 import torch
+import torch_xla.core.xla_model as xm
 from torch import Tensor, nn
 from torch.distributed import ProcessGroup
 from transformers import PretrainedConfig
 
+from .gqa import GQA
 from .utils import (
     apply_rotary_pos_emb,
+    distributed_softmax,
     manual_softmax,
     repeat_kv,
 )
@@ -39,6 +42,7 @@ except ImportError:
 import neuronx_distributed as nxd
 from neuronx_distributed.parallel_layers import parallel_state, utils  # noqa: E402
 from neuronx_distributed.parallel_layers.layers import SPMDRank
+from neuronx_distributed.parallel_layers.parallel_state import get_kv_shared_group
 from neuronxcc.nki.language import nc
 from torch_neuronx.xla_impl.ops import nki_jit  # noqa: E402
 
@@ -100,6 +104,8 @@ class NeuronAttentionBase(nn.Module):
         self.max_position_embeddings = config.max_position_embeddings
         self.rope_theta = config.rope_theta
         self.torch_dtype = neuron_config.torch_dtype
+        self.flash_decoding_enabled = False
+        self.num_cores_per_group = 1
         self.rms_norm_eps = config.rms_norm_eps
         self._qk_scale = qk_scale
 
@@ -252,6 +258,22 @@ class NeuronAttentionBase(nn.Module):
             attn_output = torch.matmul(active_scores, V_active)
         return attn_output, flash_attn_strategy
 
+    def _filter_kv_for_flash_decoding(self, K, V, q_len, Q):
+        assert self.qkv_proj.sharding_strategy == GQA.REPLICATE_TO_TP_DEGREE, (
+            "Flash decoding lives in the context of GQA (grouped query attention) and traditional MHA "
+            "multi-head attention) won't work!"
+        )
+        rank_id = self.rank_util.get_rank()
+        rank_id_in_kv_group = torch.remainder(rank_id, self.num_cores_per_group).to(torch.int64)
+        # shard KV by seq len and pick the values based on rank
+        assert q_len == Q.shape[2], f"Q shape is {Q.shape}"
+        # selecting positions (on S dim) that belongs to the current rank
+        offset = torch.arange(0, q_len, self.num_cores_per_group, dtype=torch.int64, device=Q.device)
+        selected_seq_pos = offset + rank_id_in_kv_group
+        K = torch.index_select(input=K, dim=2, index=selected_seq_pos)
+        V = torch.index_select(input=V, dim=2, index=selected_seq_pos)
+        return K, V
+
     def get_flash_attention_strategy(self, q_len) -> FlashAttentionStrategy:
         """
         Gets the flash attention strategy.
@@ -287,7 +309,18 @@ class NeuronAttentionBase(nn.Module):
         return FlashAttentionStrategy.NONE
 
     def compute_for_token_gen(self, Q, K, V, position_ids, past_key_value, attention_mask, active_mask) -> Tensor:
-        """attention computation at token generation phase"""
+        """
+        Attention computation at token generation phase
+
+        This implementation decomposes TKG attention into a prior part and an
+        active part, to read the KV cache and compute matmul in parallel. More
+        details are available in document lqdaAJbPvsfV.
+
+        To correctly use this decomposed TKG attention, ensure that the
+        attention_mask is a boolean mask of shape (batch_size, num_kv_heads,
+        q_seq_len, kv_seq_len), and attention_mask[:, :, :, i] = True only
+        when i < computed_context_len.
+        """
         is_speculation = position_ids.shape[-1] > 1
 
         # Attention computation: softmax((Q.K/√dkv) + mask).V
@@ -315,6 +348,30 @@ class NeuronAttentionBase(nn.Module):
         attn_active = torch.matmul(softmax_active, V_active)
         attn_output = attn_prior + attn_active
 
+        return attn_output
+
+    def compute_for_flash_decoding(self, Q, K, V, past_key_value, attention_mask, active_mask) -> Tensor:
+        # TODO: refactor/decompose this to reduce duplication with compute_for_token_gen
+        # active attention
+        n_repeat = Q.shape[1]
+        K_active = repeat_kv(K, n_repeat)
+        V_active = repeat_kv(V, n_repeat)
+        active_scores = (torch.matmul(Q, K_active.transpose(2, 3)) * self.qk_scale).to(torch.float32)
+        active_scores = torch.where(active_mask, active_scores, torch.finfo(active_scores.dtype).min)
+
+        # prior attention
+        K_prior = repeat_kv(past_key_value[0], n_repeat)
+        V_prior = repeat_kv(past_key_value[1], n_repeat)
+        prior_scores = torch.matmul(Q, K_prior.transpose(2, 3)) * self.qk_scale
+        prior_scores = torch.where(attention_mask, prior_scores, torch.finfo(prior_scores.dtype).min)
+        prior_scores = prior_scores.to(torch.float32)
+
+        # attention scores
+        softmax_prior, softmax_active = distributed_softmax(prior_scores, active_scores)
+        softmax_prior, softmax_active = softmax_prior.to(Q.dtype), softmax_active.to(Q.dtype)
+        attn_prior = torch.matmul(softmax_prior, V_prior)
+        attn_active = torch.matmul(softmax_active, V_active)
+        attn_output = attn_prior + attn_active
         return attn_output
 
     def forward(
@@ -348,21 +405,40 @@ class NeuronAttentionBase(nn.Module):
             sin_cache=sin_cache,
         )
 
-        flash_attn_strategy = FlashAttentionStrategy.NONE
         if past_key_value is None:
             attn_output, flash_attn_strategy = self.perform_prefill(Q, K, V, q_len, bsz, attention_mask)
+            if self.flash_decoding_enabled:
+                K, V = self._filter_kv_for_flash_decoding(K, V, q_len, Q)
+            if flash_attn_strategy != FlashAttentionStrategy.NONE:
+                # transpose BHDS -> BSHD
+                # this layout avoids additional transposes between attention kernel and output projection
+                attn_output = attn_output.permute(0, 3, 1, 2)
+            else:
+                # transpose BHSD -> BSHD
+                attn_output = attn_output.transpose(1, 2).contiguous()
         else:
-            attn_output = self.compute_for_token_gen(
-                Q, K, V, position_ids, past_key_value, attention_mask, active_mask
-            )
+            if self.flash_decoding_enabled:
+                assert active_mask is not None, "Flash decoding requires active mask is not None!"
+                # gather Q from all cores in its KV group
+                groups = get_kv_shared_group(as_list=True)
+                Q = xm.all_gather(Q, dim=1, groups=groups, pin_layout=False)
 
-        if flash_attn_strategy != FlashAttentionStrategy.NONE:
-            # transpose BHDS -> BSHD
-            # this layout avoids additional transposes between attention kernel and output projection
-            attn_output = attn_output.permute(0, 3, 1, 2)
-        else:
-            # transpose BHSD -> BSHD
-            attn_output = attn_output.transpose(1, 2).contiguous()
+                attn_output = self.compute_for_flash_decoding(Q, K, V, past_key_value, attention_mask, active_mask)
+                attn_output = xm.reduce_scatter(
+                    xm.REDUCE_SUM,
+                    attn_output,
+                    scale=1,
+                    scatter_dim=1,
+                    shard_count=len(groups[0]),
+                    groups=groups,
+                    pin_layout=False,
+                )
+            else:
+                attn_output = self.compute_for_token_gen(
+                    Q, K, V, position_ids, past_key_value, attention_mask, active_mask
+                )
+                # transpose BHSD -> BSHD
+                attn_output = attn_output.transpose(1, 2).contiguous()
 
         # merge multi head hidden
         attn_output = attn_output.reshape(bsz, q_len, self.num_heads * self.head_dim)
