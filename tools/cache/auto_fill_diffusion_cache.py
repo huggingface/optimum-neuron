@@ -22,8 +22,8 @@ import tempfile
 import time
 
 import requests
+from optimum.exporters.tasks import TasksManager
 
-from optimum.exporters import TasksManager
 from optimum.neuron.utils.instance import SUPPORTED_INSTANCE_TYPES
 
 

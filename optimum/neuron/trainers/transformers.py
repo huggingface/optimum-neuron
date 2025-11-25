@@ -87,7 +87,7 @@ from transformers.utils import (
 
 from ..accelerate import NeuronAccelerator
 from ..accelerate.utils.dataclasses import MixedPrecisionConfig
-from ..cache.hub_cache import hub_neuronx_cache
+from ..cache.hub_cache import hub_neuronx_cache, synchronize_hub_cache
 from ..cache.training import patch_neuron_cc_wrapper
 from ..models.training.training_utils import (
     get_model_param_count,
@@ -95,7 +95,9 @@ from ..models.training.training_utils import (
 )
 from ..peft import NeuronPeftModel
 from ..utils.cache_utils import (
+    get_hf_hub_cache_repos,
     get_neuron_cache_path,
+    has_write_access_to_repo,
 )
 from ..utils.import_utils import is_peft_available
 from ..utils.misc import is_main_worker, is_precompilation
@@ -730,6 +732,14 @@ class NeuronTrainer:
         train_tokens = train_tokens * dp_size
         return train_tokens
 
+    def synchronize_hub_cache(self):
+        repo_id = get_hf_hub_cache_repos()[0]
+        if not self.args.skip_cache_push:
+            has_write_access = has_write_access_to_repo(repo_id)
+            if has_write_access:
+                cache_path = get_neuron_cache_path()
+                synchronize_hub_cache(cache_path=cache_path, cache_repo_id=repo_id)
+
     def autocast_smart_context_manager(self, cache_enabled: bool | None = True):
         """
         A helper wrapper that creates an appropriate context manager for `autocast` while feeding it the desired
@@ -1078,7 +1088,7 @@ class NeuronTrainer:
 
             xm.add_step_closure(save_closure, (self,))
 
-    def train(
+    def _train(
         self,
         resume_from_checkpoint: str | bool | None = None,
     ):
@@ -1226,6 +1236,17 @@ class NeuronTrainer:
 
         logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
         self.control = self.callback_handler.on_train_end(args, self.state, self.control)
+
+    def train(self, resume_from_checkpoint: str | bool | None = None):
+        """
+        Main training entry point.
+        Wraps around `self._train()` to handle cache synchronization.
+        """
+        with hub_neuronx_cache(cache_dir=get_neuron_cache_path()):
+            output = self._train(resume_from_checkpoint=resume_from_checkpoint)
+        if not is_precompilation():
+            self.synchronize_hub_cache()
+        return output
 
     def is_local_process_zero(self) -> bool:
         """

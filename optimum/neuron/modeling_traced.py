@@ -253,11 +253,6 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         )
 
     @classmethod
-    def _from_transformers(cls, *args, **kwargs):
-        # Deprecate it when optimum uses `_export` as from_pretrained_method in a stable release.
-        return cls._export(*args, **kwargs)
-
-    @classmethod
     def _export(
         cls,
         model_id: str,
@@ -492,7 +487,6 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         task = neuron_config.get("task", None) or TasksManager.infer_task_from_model(cls.auto_model_class)
         task = TasksManager.map_from_synonym(task)
         model_type = neuron_config.get("model_type", None) or config.model_type
-        model_type = model_type.replace("_", "-")
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model_type=model_type,
             exporter="neuron",

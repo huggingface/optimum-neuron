@@ -6,11 +6,11 @@ services:
     ports:
       - "8081:8081"
     environment:
-      - SM_VLLM_PORT=8081
-      - SM_VLLM_MODEL=${MODEL_ID}
-      - SM_VLLM_TENSOR_PARALLEL_SIZE=16
-      - SM_VLLM_MAX_NUM_SEQS=${MAX_BATCH_SIZE}
-      - SM_VLLM_MAX_MODEL_LEN=${MAX_TOTAL_TOKENS}
+      - SM_ON_PORT=8081
+      - SM_ON_MODEL=${MODEL_ID}
+      - SM_ON_TENSOR_PARALLEL_SIZE=16
+      - SM_ON_BATCH_SIZE=${MAX_BATCH_SIZE}
+      - SM_ON_SEQUENCE_LENGTH=${MAX_TOTAL_TOKENS}
       - HF_TOKEN=${HF_TOKEN}
     devices:
       - "/dev/neuron0"
@@ -27,11 +27,11 @@ services:
     ports:
       - "8082:8082"
     environment:
-      - SM_VLLM_PORT=8082
-      - SM_VLLM_MODEL=${MODEL_ID}
-      - SM_VLLM_TENSOR_PARALLEL_SIZE=16
-      - SM_VLLM_MAX_NUM_SEQS=${MAX_BATCH_SIZE}
-      - SM_VLLM_MAX_MODEL_LEN=${MAX_TOTAL_TOKENS}
+      - SM_ON_PORT=8082
+      - SM_ON_MODEL=${MODEL_ID}
+      - SM_ON_TENSOR_PARALLEL_SIZE=16
+      - SM_ON_BATCH_SIZE=${MAX_BATCH_SIZE}
+      - SM_ON_SEQUENCE_LENGTH=${MAX_TOTAL_TOKENS}
       - HF_TOKEN=${HF_TOKEN}
     devices:
       - "/dev/neuron8"

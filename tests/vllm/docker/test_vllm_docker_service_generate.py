@@ -9,7 +9,6 @@ pytest.importorskip("docker")
 pytest.importorskip("vllm")
 
 
-@pytest.mark.asyncio
 @pytest.fixture(params=["local_neuron", "hub_neuron", "hub_explicit", "hub_implicit", "local_implicit"])
 async def vllm_docker_service_from_model(request, vllm_docker_launcher, base_neuron_llm_config):
     service_name = base_neuron_llm_config["name"]

@@ -50,7 +50,7 @@ EXPORT_MODELS_TINY = {
     "hubert": "hf-internal-testing/tiny-random-HubertModel",
     "levit": "hf-internal-testing/tiny-random-LevitModel",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
-    "mobilenet-v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
+    "mobilenet_v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
     # "mobilevit": "hf-internal-testing/tiny-random-mobilevit",  # blocked since neuron sdk 2.23: timeout
     "modernbert": "hf-internal-testing/tiny-random-ModernBertModel",
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
@@ -80,7 +80,7 @@ SENTENCE_TRANSFORMERS_MODELS = {
     "clip": "sentence-transformers/clip-ViT-B-32",
 }
 
-WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH = ["camembert", "roberta", "mobilenet-v2"]
+WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH = ["camembert", "roberta", "mobilenet_v2"]
 
 # Diffusers
 
@@ -109,7 +109,6 @@ def get_models_to_test(
 ):
     models_to_test = []
     for model_type, model_names_tasks in export_models_dict.items():
-        model_type = model_type.replace("_", "-")
         if exclude_model_types is None or (model_type not in exclude_model_types):
             task_config_mapping = TasksManager.get_supported_tasks_for_model_type(
                 model_type, "neuron", library_name=library_name

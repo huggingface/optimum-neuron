@@ -138,7 +138,7 @@ def get_input_shapes(task: str, args: argparse.Namespace) -> dict[str, int]:
 def get_neuron_config_class(task: str, model_id: str) -> NeuronExportConfig:
     config = AutoConfig.from_pretrained(model_id)
 
-    model_type = config.model_type.replace("_", "-")
+    model_type = config.model_type
     if config.is_encoder_decoder:
         model_type = model_type + "-encoder"
 

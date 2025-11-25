@@ -39,10 +39,10 @@ classifiers = [
 dependencies = [
     "transformers ~= 4.57.1",
     "accelerate == 1.8.1",
-    "optimum ~= 1.24.0",
-    "huggingface_hub >= 0.31.4",
+    "optimum ~= 2.0.0",
+    "huggingface_hub >= 0.35.3",
     "numpy>=1.22.2, <=1.26.4",
-    "protobuf>=3.20.3, <4",
+    "protobuf>=3.20.3",
 ]
 
 [project.urls]
@@ -108,12 +108,13 @@ sentence-transformers = [
     "sentence-transformers >= 2.2.0",
 ]
 vllm = [
-    "vllm == 0.10.2",
+    "vllm == 0.11.0",
 ]
 vllm-tests = [
     "docker",
     "pytest-asyncio",
     "openai",
+    "smolagents[openai]",
 ]
 
 [project.scripts]
