@@ -41,7 +41,6 @@ from ..generation.sampling import (
 )
 from ..kvcache.kv_cache_manager import (
     KVCacheManager,
-    _slice_kv_cacheline,
 )
 from .decoder_builders import NxDDecoderBuilderForCausalLM, NxDDecoderBuilderForEmbedding
 from .decoder_wrappers import (
@@ -134,17 +133,6 @@ class NxDDecoderModelForCausalLM(nn.Module):
         else:
             return self._create_simple_attn_mask(attention_mask)
 
-    def _slice_kv_cache(self, kv_cache, n_positions):
-        past_key_values = []
-        for idx in range(len(kv_cache)):
-            k_cache = _slice_kv_cacheline(n_positions, kv_cache[idx][0])
-            v_cache = _slice_kv_cacheline(n_positions, kv_cache[idx][1])
-            past_key_values.append([k_cache, v_cache])
-        return past_key_values
-
-    def _is_reorder_needed(self, is_for_context_encoding, is_for_speculation):
-        return not is_for_context_encoding and not is_for_speculation and self.neuron_config.continuous_batching
-
     def forward(
         self,
         input_ids,
@@ -152,10 +140,6 @@ class NxDDecoderModelForCausalLM(nn.Module):
         position_ids,
         seq_ids,
         sampling_params,
-        scatter_index=None,
-        # In llava context encoding model, input_embeds is precomputed
-        inputs_embeds: torch.FloatTensor | None = None,
-        kv_cache: torch.Tensor | None = None,
     ):
         """Forward pass that can return either logits or hidden states.
 
@@ -165,10 +149,6 @@ class NxDDecoderModelForCausalLM(nn.Module):
             position_ids (torch.LongTensor): Position IDs.
             seq_ids (torch.LongTensor): Sequence IDs. Used in continuous batching
             sampling_params (torch.FloatTensor): Sampling parameters.
-            scatter_index (torch.Tensor, optional): Scatter index for KV cache update.
-            inputs_embeds (torch.FloatTensor, optional): Precomputed input embeddings.
-            kv_cache (torch.Tensor, optional): KV cache tensor.
-
         """
         is_for_context_encoding = self._is_context_encoding(input_ids)
         is_for_speculation = self._is_for_speculation(input_ids)
@@ -179,10 +159,7 @@ class NxDDecoderModelForCausalLM(nn.Module):
         if is_for_context_encoding:
             past_key_values = None
         else:
-            if kv_cache is None:
-                past_key_values = self.kv_mgr.get_cache(cache_size)
-            else:
-                past_key_values = self._slice_kv_cache(kv_cache, cache_size)
+            past_key_values = self.kv_mgr.get_cache(cache_size)
 
         # Prepare attention mask(s)
         attention_mask = self.create_attn_mask(
@@ -210,7 +187,6 @@ class NxDDecoderModelForCausalLM(nn.Module):
             position_ids=position_ids,
             past_key_values=past_key_values,
             active_mask=active_mask,
-            inputs_embeds=inputs_embeds,
         )
 
         updated_kv_cache = self.kv_mgr.update_cache(
@@ -219,9 +195,7 @@ class NxDDecoderModelForCausalLM(nn.Module):
             position_ids=position_ids,
             new_key_values=past_key_values,
             seq_len=cache_size,
-            scatter_index=scatter_index,
             active_mask=active_mask_2d,
-            kvcache_buffer=kv_cache,
         )
 
         batch_size, num_tokens, hidden_size = hidden_states.shape
@@ -266,12 +240,6 @@ class NxDDecoderModelForCausalLM(nn.Module):
 
         return outputs
 
-    def get_input_embeddings(self):
-        return self.embed_tokens
-
-    def set_input_embeddings(self, value):
-        self.embed_tokens = value
-
     def get_model_output(
         self,
         input_ids: torch.LongTensor = None,
@@ -279,8 +247,6 @@ class NxDDecoderModelForCausalLM(nn.Module):
         position_ids: torch.LongTensor | None = None,
         past_key_values: list[torch.FloatTensor] | None = None,
         active_mask: list[torch.FloatTensor] | None = None,
-        # In llava context encoding model, input_embeds is precomputed
-        inputs_embeds: torch.FloatTensor | None = None,
     ):
         batch_size, seq_length = input_ids.shape[:2]
 
@@ -288,8 +254,7 @@ class NxDDecoderModelForCausalLM(nn.Module):
         if past_key_values is not None:
             past_key_values_length = past_key_values[0][0].shape[2]
 
-        if inputs_embeds is None:
-            inputs_embeds = self.embed_tokens(input_ids)
+        inputs_embeds = self.embed_tokens(input_ids)
 
         if position_ids is None:
             device = input_ids.device if input_ids is not None else inputs_embeds.device  # noqa
