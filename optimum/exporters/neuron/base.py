@@ -249,7 +249,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
     @tensor_parallel_size.setter
     def tensor_parallel_size(self, value: int):
         self._tensor_parallel_size = value
-    
+
     @property
     def pipeline_parallel_size(self) -> int:
         return self._pipeline_parallel_size
@@ -257,7 +257,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
     @pipeline_parallel_size.setter
     def pipeline_parallel_size(self, value: int):
         self._pipeline_parallel_size = value
-    
+
     @property
     def expert_parallel_size(self) -> int:
         return self._expert_parallel_size
@@ -265,7 +265,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
     @expert_parallel_size.setter
     def expert_parallel_size(self, value: int):
         self._expert_parallel_size = value
-    
+
     @property
     def world_size(self) -> int:
         return self._world_size

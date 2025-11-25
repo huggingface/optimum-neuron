@@ -23,6 +23,7 @@ import numpy as np
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronxcc.nki._private_kernels.llama3_transformer import matmul_o_proj
 
+
 # Global SPMD grid variables used throughout the code.
 n_prgs, prg_id = 1, 0
 

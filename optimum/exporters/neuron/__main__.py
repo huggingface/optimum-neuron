@@ -392,7 +392,7 @@ def get_submodels_and_neuron_configs(
         output_model_names = {model_name: "model.neuron"}
         models_and_neuron_configs = {model_name: (model, neuron_config)}
         maybe_save_preprocessors(model_name_or_path, output, src_subfolder=subfolder)
-    
+
     models_and_neuron_configs = _reorder_models_and_neuron_configs(models_and_neuron_configs)
 
     return models_and_neuron_configs, output_model_names

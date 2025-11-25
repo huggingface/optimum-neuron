@@ -18,8 +18,8 @@ import copy
 import os
 import re
 import time
-from functools import partial
 from collections import OrderedDict
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -27,9 +27,6 @@ import numpy as np
 import torch
 from transformers import PreTrainedModel
 
-from optimum.neuron.cache.entries.multi_model import MultiModelCacheEntry
-from optimum.neuron.cache.entries.single_model import SingleModelCacheEntry
-from optimum.neuron.cache.traced import cache_traced_neuron_artifacts
 from optimum.neuron.utils import (
     DiffusersPretrainedConfig,
     convert_neuronx_compiler_args_to_neuron,
@@ -39,7 +36,6 @@ from optimum.neuron.utils import (
 )
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
-from ...neuron.utils.cache_utils import get_model_name_or_path
 from ...neuron.utils.system import get_neuron_major
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
 from ...utils import (
@@ -664,13 +660,12 @@ def prepare_compiler_flags(
     return compiler_args_str
 
 def init_custom_process_group_fn(config):
-    neuronx_distributed.parallel_state.initialize_model_parallel(tensor_model_parallel_siz=config.tensor_parallel_size)
     if hasattr(config, "fused_spec_config") and config.fused_spec_config is not None:
         if config.fused_spec_config.draft_config.neuron_config.tp_degree is not None:
             draft_tp = config.fused_spec_config.draft_config.neuron_config.tp_degree
             parallel_state.initialize_speculative_draft_group(draft_tp)
 
-            
+
 def get_builder(
     model,
     config,
@@ -684,14 +679,23 @@ def get_builder(
 ):
     # Use this function to initialize non-standard TP/PP/DP distributed
     # process groups.
-    # custom_group_fn = partial(init_custom_process_group_fn, config)
-    
+    custom_group_fn = partial(init_custom_process_group_fn, config)
+
     builder = ModelBuilder(
         router=None,
         tp_degree=tensor_parallel_size,
+        pp_degree=1,
+        ep_degree=1,
+        world_size=tensor_parallel_size,
+        start_rank_id=0,
+        local_ranks_size=tensor_parallel_size,
         checkpoint_loader=config.checkpoint_loader_fn,
         compiler_workdir=compiler_workdir,
         debug=debug,
+        num_cores_per_group=1,
+        init_custom_process_group_fn=custom_group_fn,
+        logical_nc_config=1,
+        weights_to_skip_layout_optimization=[],
     )
     builder.add(
         key=tag,

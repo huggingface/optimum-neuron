@@ -15,8 +15,11 @@
 """CLIP model on Neuron devices."""
 
 import logging
+
 import torch
 import torch.nn as nn
+from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, RowParallelLinear
+from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 from transformers import (
     AutoModel,
     AutoModelForImageClassification,
@@ -28,9 +31,6 @@ from transformers.modeling_attn_mask_utils import (
 )
 from transformers.modeling_outputs import BaseModelOutput, BaseModelOutputWithPooling, ImageClassifierOutput
 from transformers.models.clip.modeling_clip import CLIPOutput
-
-from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, RowParallelLinear
-from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
 from optimum.neuron.modeling_traced import NeuronTracedModel
 from optimum.neuron.utils.doc import (
@@ -531,4 +531,3 @@ class NeuronCLIPTextModel(nn.Module):
             output_hidden_states=output_hidden_states,
             return_dict=True,
         )
-        

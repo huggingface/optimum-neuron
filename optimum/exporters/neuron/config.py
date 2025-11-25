@@ -18,6 +18,7 @@ configurations.
 """
 import torch
 from neuronx_distributed.trace.model_builder import BaseModelInstance
+
 from ...utils import (
     DummyAudioInputGenerator,
     DummyBboxInputGenerator,
@@ -108,7 +109,7 @@ class NxDNeuronConfig:
     _STATE_DICT_MODEL_PREFIX = "model."
     _NEW_STATE_DICT_MODEL_PREFIX = ""
     _FUSED_PREFIX = ""
-    
+
     def patch_model_and_prepare_aliases(self, model_or_path, *args):
         base_model_instance = BaseModelInstance(
             self.get_parallel_callable,
@@ -145,7 +146,7 @@ class NxDNeuronConfig:
             _cast_helper(model_sd)
 
         return model_sd
-    
+
     def get_state_dict(self, model_path: str) -> dict:
         """Gets the state dict for this model."""
         from optimum.neuron.models.inference.backend.modules.checkpoint import load_state_dict
@@ -173,17 +174,17 @@ class NxDNeuronConfig:
                 model_sd[f"{self._FUSED_PREFIX}.{param_name}"] = model_sd[param_name]
                 del model_sd[param_name]
         return model_sd
-    
+
     @staticmethod
     def convert_hf_to_neuron_state_dict(state_dict: dict) -> dict:
         """This function should be over-ridden in child classes as needed"""
         return state_dict
-    
+
     @staticmethod
     def update_state_dict_for_tied_weights(state_dict):
         """Implement state_dict update for each model class with tied weights"""
         raise NotImplementedError("State-dict update not implemented")
-    
+
     def get_compiler_args(self) -> str:
         """Gets the Neuron compiler arguments to use when compiling this model."""
         return None

@@ -16,15 +16,11 @@
 
 import copy
 import inspect
-import json
 import os
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 import torch
-from huggingface_hub import model_info, snapshot_download
-from requests import HTTPError
 from transformers import PretrainedConfig
 
 from ...utils import is_diffusers_available, logging

@@ -15,16 +15,12 @@
 """Model specific Neuron configurations."""
 
 import copy
-import inspect
 import os
 from functools import partial
-from pathlib import Path
 from typing import Any
 
 import neuronx_distributed
 import torch
-from torch_neuronx.utils import get_platform_target
-from neuronx_distributed.trace.model_builder import BaseModelInstance
 from neuronx_distributed.utils.utils import hardware
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import (
@@ -44,10 +40,9 @@ from optimum.utils import (
     is_diffusers_available,
     logging,
 )
-from safetensors.torch import load_file
+from torch_neuronx.utils import get_platform_target
 
 from optimum.neuron.utils import (
-    SAFE_WEIGHTS_INDEX_NAME,
     ASTDummyAudioInputGenerator,
     DummyBeamValuesGenerator,
     DummyControNetInputGenerator,
@@ -62,11 +57,11 @@ from optimum.neuron.utils import (
 
 from .config import (
     AudioNeuronConfig,
+    NxDNeuronConfig,
     TextAndVisionNeuronConfig,
     TextEncoderNeuronConfig,
     TextSeq2SeqNeuronConfig,
     VisionNeuronConfig,
-    NxDNeuronConfig,
 )
 from .model_wrappers import (
     CLIPVisionWithProjectionNeuronWrapper,
@@ -83,12 +78,12 @@ from .model_wrappers import (
     WhisperEncoderWrapper,
 )
 
+
 _HARDWARE = hardware(get_platform_target())
 
 
 if is_diffusers_available():
     from diffusers.models.autoencoders.vae import Decoder as VaeDecoder
-    from diffusers.models.model_loading_utils import _get_model_file
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -388,7 +383,7 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
     #         model.bfloat16()
 
     #     return model
-    
+
     # def convert_hf_to_neuron_state_dict(self, state_dict: dict) -> dict:
     #     new_load = {
     #         key.replace("text_model.", "neuron_text_encoder."): state_dict[key]
@@ -399,11 +394,11 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
     #     }
     #     state_dict.update(new_load)
     #     return state_dict
-    
+
     # @staticmethod
     # def update_state_dict_for_tied_weights(state_dict):
     #     pass
-    
+
     # def get_compiler_args(self):
     #     compiler_args = "--model-type=transformer -O1"
     #     compiler_args += (
@@ -877,7 +872,7 @@ class FluxTransformerNeuronConfig(NxDNeuronConfig, VisionNeuronConfig):
         ]
         if getattr(self._config, "guidance_embeds", False):
             common_inputs.append("guidance")
-        
+
         # Q: Why `image_rotary_emb` but not `txt_ids` and `img_ids`? We compute the rotary positional embeddings in CPU to save Neuron memory.
         # shape: [txt_ids.shape(0)+img_ids.shape(0), sum(axes_dim), 2]
         common_inputs.append("image_rotary_emb")
@@ -889,7 +884,9 @@ class FluxTransformerNeuronConfig(NxDNeuronConfig, VisionNeuronConfig):
         return ["out_hidden_states"]
 
     def get_parallel_callable(self):
-        from optimum.neuron.models.inference.flux.flux_transformer_2d.modeling_flux_transformer_2d import NeuronFluxTransformer2DModel
+        from optimum.neuron.models.inference.flux.flux_transformer_2d.modeling_flux_transformer_2d import (
+            NeuronFluxTransformer2DModel,
+        )
 
         # Parallelize Flux transformer with NxD backend modeling
         model = NeuronFluxTransformer2DModel(self)
@@ -940,7 +937,7 @@ class FluxTransformerNeuronConfig(NxDNeuronConfig, VisionNeuronConfig):
             return tuple(dummy_inputs.values())
         else:
             return dummy_inputs
-    
+
     def get_compiler_args(self):
         compiler_args = "--model-type=transformer -O1"
         self.context_parallel_enabled = (self.world_size != self.tensor_parallel_size)
@@ -1099,7 +1096,7 @@ class T5EncoderForDiffusersNeuronConfig(NxDNeuronConfig, T5EncoderBaseNeuronConf
     @property
     def is_encoder_decoder(self) -> bool:
         return False
-    
+
     def get_parallel_callable(self):
         from optimum.neuron.models.inference.flux.t5.modeling_t5 import NeuronT5EncoderModel
 
@@ -1109,16 +1106,16 @@ class T5EncoderForDiffusersNeuronConfig(NxDNeuronConfig, T5EncoderBaseNeuronConf
         model.eval()
 
         return model
-    
+
     def convert_hf_to_neuron_state_dict(self, state_dict: dict) -> dict:
         for k, v in state_dict.items():
             state_dict[k] = v.clone().detach().contiguous()
         return state_dict
-    
+
     @staticmethod
     def update_state_dict_for_tied_weights(state_dict):
         pass
-    
+
     def get_compiler_args(self):
         compiler_args = "--model-type=transformer -O1"
         compiler_args += (

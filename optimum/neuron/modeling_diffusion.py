@@ -27,7 +27,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Literal
 
-import neuronx_distributed
 import torch
 import torch_neuronx
 from huggingface_hub import snapshot_download
@@ -1327,11 +1326,12 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
         timestep = timestep.to(self.neuron_config.float_dtype)
         if self.neuron_config.MODEL_TYPE == "flux-transformer-2d":
             ids = torch.cat((txt_ids, img_ids), dim=0)
-            image_rotary_emb = torch.stack(self.pos_embed(ids), dim=2).to(self.neuron_config.float_dtype)
-            inputs = (hidden_states, encoder_hidden_states, pooled_projections, timestep, image_rotary_emb)
+            inputs = (hidden_states, encoder_hidden_states, pooled_projections, timestep)
             if guidance is not None:
                 guidance = guidance.to(self.neuron_config.float_dtype)
                 inputs += (guidance,)
+            image_rotary_emb = torch.stack(self.pos_embed(ids), dim=2).to(self.neuron_config.float_dtype)
+            inputs += (image_rotary_emb,)
         elif self.neuron_config.MODEL_TYPE == "pixart-transformer-2d":
             inputs = (hidden_states, encoder_hidden_states, timestep, encoder_attention_mask)
 

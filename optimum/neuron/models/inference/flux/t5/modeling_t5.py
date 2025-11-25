@@ -15,9 +15,8 @@
 """T5 encoder on Neuron devices."""
 
 import copy
-import math
 import logging
-from typing import List, Optional, Tuple, Union
+import math
 
 import torch
 from neuronx_distributed.parallel_layers.layers import (
@@ -694,7 +693,7 @@ class NeuronT5EncoderModel(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        
+
         self.shared = ParallelEmbedding(
             config._config.vocab_size,
             config._config.d_model,

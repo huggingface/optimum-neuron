@@ -20,13 +20,12 @@ Adapted from `neuronx_distributed_inference/models/diffusers/flux/modeling_flux.
 import logging
 import math
 import os
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from neuronx_distributed.utils.utils import hardware
 from neuronx_distributed.parallel_layers.layer_norm import LayerNorm
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
@@ -38,15 +37,16 @@ from neuronx_distributed.parallel_layers.mappings import (
     reduce_from_tensor_model_parallel_region,
 )
 from neuronx_distributed.parallel_layers.parallel_state import (
-    get_data_parallel_group, 
+    get_data_parallel_group,
     get_tensor_model_parallel_size,
     get_world_group,
 )
+from neuronx_distributed.utils.utils import hardware
 
+from ...backend.modules.attention.utils import transpose_parallel_linear_layer
 from ...backend.modules.rms_norm import NeuronRMSNorm
 from ...backend.utils.distributed import get_dp_rank_spmd, split_along_dim
-from ...backend.modules.attention.utils import transpose_parallel_linear_layer
-from ...backend.utils.layer_boundary_marker import ModuleMarkerStartWrapper, ModuleMarkerEndWrapper
+from ...backend.utils.layer_boundary_marker import ModuleMarkerEndWrapper, ModuleMarkerStartWrapper
 from .modules.activations import NeuronGELU
 from .modules.embeddings import (
     FluxPosEmbed,
@@ -70,6 +70,7 @@ except ImportError:
 from neuronxcc.nki.language import nc
 from torch_neuronx.utils import get_platform_target
 from torch_neuronx.xla_impl.ops import nki_jit  # noqa: E402
+
 
 if TYPE_CHECKING:
     from ........exporters.neuron.base import NeuronDefaultConfig
@@ -129,10 +130,10 @@ class NeuronFluxTransformer2DModel(torch.nn.Module):
     ):
         super().__init__()
         self.config = config
-        
+
         self.data_parallel_group = get_data_parallel_group()
         self.global_rank = SPMDRank(world_size=get_world_group().size())
-        
+
         #TODO: context parallel and out_proj_kernel are not working correctly so far
         # self.context_parallel_enabled = (self.config.world_size != self.config.tensor_parallel_size)
         # self.enable_out_proj_kernel = (

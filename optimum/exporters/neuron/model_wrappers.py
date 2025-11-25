@@ -21,19 +21,16 @@ from transformers.cache_utils import EncoderDecoderCache
 from transformers.models.t5.modeling_t5 import T5LayerCrossAttention
 
 from ...neuron.utils import is_neuronx_available
-from .utils import f32Wrapper
 
 
 if is_neuronx_available():
     import torch_xla.core.xla_model as xm
 
 import neuronx_distributed
-from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, RowParallelLinear
 
 
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
-    from transformers.models.t5.modeling_t5 import T5Attention, T5LayerFF
 
 
 class UnetNeuronWrapper(torch.nn.Module):
