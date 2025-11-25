@@ -69,9 +69,7 @@ class NeuronAdaLayerNormZeroSingle(nn.Module):
         if norm_type == "layer_norm":
             self.norm = LayerNorm(embedding_dim, elementwise_affine=False, eps=1e-6)
         else:
-            raise ValueError(
-                f"Unsupported `norm_type` ({norm_type}) provided. Supported ones are: 'layer_norm'."
-            )
+            raise ValueError(f"Unsupported `norm_type` ({norm_type}) provided. Supported ones are: 'layer_norm'.")
 
     def forward(
         self,
@@ -123,9 +121,7 @@ class NeuronAdaLayerNormZero(nn.Module):
         if norm_type == "layer_norm":
             self.norm = LayerNorm(embedding_dim, elementwise_affine=False, eps=1e-6)
         else:
-            raise ValueError(
-                f"Unsupported `norm_type` ({norm_type}) provided. Supported ones are: 'layer_norm'."
-            )
+            raise ValueError(f"Unsupported `norm_type` ({norm_type}) provided. Supported ones are: 'layer_norm'.")
 
     def forward(
         self,

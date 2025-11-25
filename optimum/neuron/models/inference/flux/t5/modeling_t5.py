@@ -85,12 +85,8 @@ class NeuronT5DenseActDense(nn.Module):
 class NeuronT5DenseGatedActDense(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.wi_0 = ColumnParallelLinear(
-            config.d_model, config.d_ff, bias=False, gather_output=False
-        )
-        self.wi_1 = ColumnParallelLinear(
-            config.d_model, config.d_ff, bias=False, gather_output=False
-        )
+        self.wi_0 = ColumnParallelLinear(config.d_model, config.d_ff, bias=False, gather_output=False)
+        self.wi_1 = ColumnParallelLinear(config.d_model, config.d_ff, bias=False, gather_output=False)
         self.wo = RowParallelLinear(config.d_ff, config.d_model, bias=False, input_is_parallel=True)
         self.dropout = nn.Dropout(config.dropout_rate)
         self.act = ACT2FN[config.dense_act_fn]
@@ -163,9 +159,7 @@ class NeuronT5Attention(nn.Module):
         self.gradient_checkpointing = False
 
     @staticmethod
-    def _relative_position_bucket(
-        relative_position, bidirectional=True, num_buckets=32, max_distance=128
-    ):
+    def _relative_position_bucket(relative_position, bidirectional=True, num_buckets=32, max_distance=128):
         """
         Adapted from Mesh Tensorflow:
         https://github.com/tensorflow/mesh/blob/0cb87fe07da627bf0b7e60475d59f95ed6b5be3d/mesh_tensorflow/transformer/transformer_layers.py#L593
@@ -225,12 +219,8 @@ class NeuronT5Attention(nn.Module):
             num_buckets=self.relative_attention_num_buckets,
             max_distance=self.relative_attention_max_distance,
         )
-        values = self.relative_attention_bias(
-            relative_position_bucket
-        )  # shape (query_length, key_length, num_heads)
-        values = values.permute([2, 0, 1]).unsqueeze(
-            0
-        )  # shape (1, num_heads, query_length, key_length)
+        values = self.relative_attention_bias(relative_position_bucket)  # shape (query_length, key_length, num_heads)
+        values = values.permute([2, 0, 1]).unsqueeze(0)  # shape (1, num_heads, query_length, key_length)
         return values
 
     def forward(
@@ -258,7 +248,7 @@ class NeuronT5Attention(nn.Module):
         if past_key_value is not None:
             if len(past_key_value) != 2:
                 raise ValueError(
-                    f"past_key_value should have 2 past states: keys and values. Got { len(past_key_value)} past states"
+                    f"past_key_value should have 2 past states: keys and values. Got {len(past_key_value)} past states"
                 )
             real_seq_length += past_key_value[0].shape[2] if query_length is None else query_length
 
@@ -266,9 +256,7 @@ class NeuronT5Attention(nn.Module):
 
         def shape(states):
             """projection"""
-            return states.view(batch_size, -1, self.n_heads, self.key_value_proj_dim).transpose(
-                1, 2
-            )
+            return states.view(batch_size, -1, self.n_heads, self.key_value_proj_dim).transpose(1, 2)
 
         def unshape(states):
             """reshape"""
@@ -302,9 +290,7 @@ class NeuronT5Attention(nn.Module):
             return hidden_states
 
         # get query states
-        query_states = shape(
-            self.q(hidden_states)
-        )  # (batch_size, n_heads, seq_length, dim_per_head)
+        query_states = shape(self.q(hidden_states))  # (batch_size, n_heads, seq_length, dim_per_head)
 
         # get key/value states
         key_states = project(
@@ -341,9 +327,7 @@ class NeuronT5Attention(nn.Module):
                 position_bias = position_bias[:, :, -hidden_states.size(1) :, :]
 
             if mask is not None:
-                position_bias = (
-                    position_bias + mask
-                )  # (batch_size, n_heads, seq_length, key_length)
+                position_bias = position_bias + mask  # (batch_size, n_heads, seq_length, key_length)
 
         if self.pruned_heads:
             mask = torch.ones(position_bias.shape[1])
@@ -364,14 +348,10 @@ class NeuronT5Attention(nn.Module):
         if layer_head_mask is not None:
             attn_weights = attn_weights * layer_head_mask
 
-        attn_output = unshape(
-            torch.matmul(attn_weights, value_states)
-        )  # (batch_size, seq_length, dim)
+        attn_output = unshape(torch.matmul(attn_weights, value_states))  # (batch_size, seq_length, dim)
         attn_output = self.o(attn_output)
 
-        present_key_value_state = (
-            (key_states, value_states) if (self.is_decoder and use_cache) else None
-        )
+        present_key_value_state = (key_states, value_states) if (self.is_decoder and use_cache) else None
         outputs = (attn_output,) + (present_key_value_state,) + (position_bias,)
 
         if output_attentions:
@@ -382,9 +362,7 @@ class NeuronT5Attention(nn.Module):
 class NeuronT5LayerSelfAttention(nn.Module):
     def __init__(self, config, has_relative_attention_bias=False):
         super().__init__()
-        self.SelfAttention = NeuronT5Attention(
-            config, has_relative_attention_bias=has_relative_attention_bias
-        )
+        self.SelfAttention = NeuronT5Attention(config, has_relative_attention_bias=has_relative_attention_bias)
         self.layer_norm = T5LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout_rate)
 
@@ -418,11 +396,7 @@ class NeuronT5Block(nn.Module):
         super().__init__()
         self.is_decoder = config.is_decoder
         self.layer = nn.ModuleList()
-        self.layer.append(
-            NeuronT5LayerSelfAttention(
-                config, has_relative_attention_bias=has_relative_attention_bias
-            )
-        )
+        self.layer.append(NeuronT5LayerSelfAttention(config, has_relative_attention_bias=has_relative_attention_bias))
 
         self.layer.append(NeuronT5LayerFF(config))
 
@@ -443,9 +417,7 @@ class NeuronT5Block(nn.Module):
     ):
         if past_key_value is not None:
             if not self.is_decoder:
-                logger.warning(
-                    "`past_key_values` is passed to the encoder. Please make sure this is intended."
-                )
+                logger.warning("`past_key_values` is passed to the encoder. Please make sure this is intended.")
             expected_num_past_key_values = 2 if encoder_hidden_states is None else 4
 
             if len(past_key_value) != expected_num_past_key_values:
@@ -469,9 +441,7 @@ class NeuronT5Block(nn.Module):
             output_attentions=output_attentions,
         )
         hidden_states, present_key_value_state = self_attention_outputs[:2]
-        attention_outputs = self_attention_outputs[
-            2:
-        ]  # Keep self-attention outputs and relative position weights
+        attention_outputs = self_attention_outputs[2:]  # Keep self-attention outputs and relative position weights
 
         # clamp inf values to enable fp16 training
         if hidden_states.dtype == torch.float16:
@@ -513,10 +483,7 @@ class NeuronT5Stack(nn.Module):
         self.is_decoder = config.is_decoder
 
         self.block = nn.ModuleList(
-            [
-                NeuronT5Block(config, has_relative_attention_bias=bool(i == 0))
-                for i in range(config.num_layers)
-            ]
+            [NeuronT5Block(config, has_relative_attention_bias=bool(i == 0)) for i in range(config.num_layers)]
         )
         self.final_layer_norm = T5LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout_rate)
@@ -543,13 +510,9 @@ class NeuronT5Stack(nn.Module):
         return_dict=None,
     ):
         use_cache = use_cache if use_cache is not None else self.config.use_cache
-        output_attentions = (
-            output_attentions if output_attentions is not None else self.config.output_attentions
-        )
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
-            output_hidden_states
-            if output_hidden_states is not None
-            else self.config.output_hidden_states
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
         # Default to True to match with T5Config
         return_dict = return_dict if return_dict is not None else True
@@ -566,9 +529,7 @@ class NeuronT5Stack(nn.Module):
             input_shape = inputs_embeds.size()[:-1]
         else:
             err_msg_prefix = "decoder_" if self.is_decoder else ""
-            raise ValueError(
-                f"You have to specify either {err_msg_prefix}input_ids or {err_msg_prefix}inputs_embeds"
-            )
+            raise ValueError(f"You have to specify either {err_msg_prefix}input_ids or {err_msg_prefix}inputs_embeds")
 
         if inputs_embeds is None:
             if self.embed_tokens is None:
@@ -578,17 +539,11 @@ class NeuronT5Stack(nn.Module):
         batch_size, seq_length = input_shape
 
         # required mask seq length can be calculated via length of past
-        mask_seq_length = (
-            past_key_values[0][0].shape[2] + seq_length
-            if past_key_values is not None
-            else seq_length
-        )
+        mask_seq_length = past_key_values[0][0].shape[2] + seq_length if past_key_values is not None else seq_length
 
         if use_cache is True:
             if not self.is_decoder:
-                raise ValueError(
-                    f"`use_cache` can only be set to `True` if {self} is used as a decoder"
-                )
+                raise ValueError(f"`use_cache` can only be set to `True` if {self} is used as a decoder")
 
         # initialize past_key_values with `None` if past does not exist
         if past_key_values is None:
@@ -726,7 +681,7 @@ class NeuronT5EncoderModel(nn.Module):
         input_ids: torch.LongTensor | None = None,
         attention_mask: torch.FloatTensor | None = None,
         head_mask: torch.FloatTensor | None = None,
-        inputs_embeds: torch.FloatTensor| None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,

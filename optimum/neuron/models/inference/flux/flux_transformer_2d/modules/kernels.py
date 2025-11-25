@@ -34,8 +34,9 @@ def __init_spmd_grid_size():
     Initializes the spmd global variables n_prgs, prg_id
     """
     grid_ndim = nl.program_ndim()
-    assert grid_ndim == 0 or grid_ndim == 1, \
+    assert grid_ndim == 0 or grid_ndim == 1, (
         "llama3_transfomer_fwd_<tp|rmsnorm_sp> only supports no specialization or specialization along one axis"
+    )
 
     global n_prgs, prg_id
     if grid_ndim != 0 and nl.num_programs(axes=0) > 1:

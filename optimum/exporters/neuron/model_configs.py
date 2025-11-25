@@ -360,7 +360,7 @@ class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
 
 @register_in_tasks_manager("clip-text-model", *["feature-extraction"], library_name="diffusers")
 class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
-# class CLIPTextNeuronConfig(NxDNeuronConfig, CLIPTextWithProjectionNeuronConfig):
+    # class CLIPTextNeuronConfig(NxDNeuronConfig, CLIPTextWithProjectionNeuronConfig):
     MODEL_TYPE = "clip-text-model"
 
     @property
@@ -372,7 +372,7 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
 
         return common_outputs
 
-    #TODO: causes the loading error for model built with different tp size
+    # TODO: causes the loading error for model built with different tp size
     # def get_parallel_callable(self):
     #     from optimum.neuron.models.inference.clip.modeling_clip import NeuronCLIPTextModel
 
@@ -895,19 +895,14 @@ class FluxTransformerNeuronConfig(NxDNeuronConfig, VisionNeuronConfig):
         return model
 
     def convert_hf_to_neuron_state_dict(self, state_dict: dict) -> dict:
-        state_dict["global_rank.rank"] = torch.arange(
-            0, self.world_size, dtype=torch.int32
-        )
+        state_dict["global_rank.rank"] = torch.arange(0, self.world_size, dtype=torch.int32)
         inner_dim = self._config.num_attention_heads * self._config.attention_head_dim
         for i in range(self._config.num_single_layers):
             state_dict[f"single_transformer_blocks.{i}.proj_out_attn.weight"] = state_dict[
                 f"single_transformer_blocks.{i}.proj_out.weight"
             ][:, :inner_dim].contiguous()
             state_dict[f"single_transformer_blocks.{i}.proj_out_attn.bias"] = (
-                state_dict[f"single_transformer_blocks.{i}.proj_out.bias"]
-                .clone()
-                .detach()
-                .contiguous()
+                state_dict[f"single_transformer_blocks.{i}.proj_out.bias"].clone().detach().contiguous()
             )
             state_dict[f"single_transformer_blocks.{i}.proj_out_mlp.weight"] = state_dict[
                 f"single_transformer_blocks.{i}.proj_out.weight"
@@ -938,7 +933,7 @@ class FluxTransformerNeuronConfig(NxDNeuronConfig, VisionNeuronConfig):
 
     def get_compiler_args(self):
         compiler_args = "--model-type=transformer -O1"
-        self.context_parallel_enabled = (self.world_size != self.tensor_parallel_size)
+        self.context_parallel_enabled = self.world_size != self.tensor_parallel_size
         if self.context_parallel_enabled and _HARDWARE == hardware.TRN1:
             compiler_args = "--model-type=transformer -O2"
         if self.context_parallel_enabled and _HARDWARE == hardware.TRN2:
@@ -1116,9 +1111,7 @@ class T5EncoderForDiffusersNeuronConfig(NxDNeuronConfig, T5EncoderBaseNeuronConf
 
     def get_compiler_args(self):
         compiler_args = "--model-type=transformer -O1"
-        compiler_args += (
-            " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'"
-        )
+        compiler_args += " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'"
 
         compiler_args += " --auto-cast=none --internal-hlo2tensorizer-options='--verify-hlo=true'"
 

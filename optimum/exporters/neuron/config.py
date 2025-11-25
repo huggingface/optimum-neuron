@@ -16,6 +16,7 @@
 Common Neuron configuration classes that handle most of the features for building model specific
 configurations.
 """
+
 import torch
 from neuronx_distributed.trace.model_builder import BaseModelInstance
 
@@ -131,9 +132,7 @@ class NxDNeuronConfig:
                     current_dtype = self.float_dtype
                     # only cast floating types
                     if name.endswith("scale"):
-                        logger.warning(
-                            f"Found {param.dtype} scales, skip converting to {current_dtype}"
-                        )
+                        logger.warning(f"Found {param.dtype} scales, skip converting to {current_dtype}")
                     elif param.dtype != current_dtype:
                         logger.warning(
                             f"Found {param.dtype} weights in checkpoint: {name}. Will convert to {current_dtype}"
@@ -150,6 +149,7 @@ class NxDNeuronConfig:
     def get_state_dict(self, model_path: str) -> dict:
         """Gets the state dict for this model."""
         from optimum.neuron.models.inference.backend.modules.checkpoint import load_state_dict
+
         model_sd = load_state_dict(model_path)
         param_name_list = list(model_sd.keys())
         for param_name in param_name_list:

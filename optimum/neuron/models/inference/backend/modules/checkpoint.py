@@ -49,17 +49,11 @@ def load_state_dict(state_dict_dir: str) -> dict[str, torch.Tensor]:
     """
     # Standard checkpoint filenames
     state_dict_safetensor_path = os.path.join(state_dict_dir, _SAFETENSORS_MODEL_FILENAME)
-    state_dict_safetensor_diffusers_path = os.path.join(
-        state_dict_dir, _SAFETENSORS_DIFFUSERS_MODEL_FILENAME
-    )
+    state_dict_safetensor_diffusers_path = os.path.join(state_dict_dir, _SAFETENSORS_DIFFUSERS_MODEL_FILENAME)
     safetensors_index_path = os.path.join(state_dict_dir, _SAFETENSORS_MODEL_INDEX_FILENAME_JSON)
     state_dict_path = os.path.join(state_dict_dir, _PYTORCH_MODEL_BIN_FILENAME)
-    pytorch_model_bin_index_path = os.path.join(
-        state_dict_dir, _PYTORCH_MODEL_BIN_INDEX_FILENAME_JSON
-    )
-    safetensors_diffusers_index_path = os.path.join(
-        state_dict_dir, _SAFETENSORS_DIFFUSERS_MODEL_INDEX_FILENAME_JSON
-    )
+    pytorch_model_bin_index_path = os.path.join(state_dict_dir, _PYTORCH_MODEL_BIN_INDEX_FILENAME_JSON)
+    safetensors_diffusers_index_path = os.path.join(state_dict_dir, _SAFETENSORS_DIFFUSERS_MODEL_INDEX_FILENAME_JSON)
 
     # Non-sharded safetensors checkpoint
     if os.path.isfile(state_dict_safetensor_path):
@@ -78,9 +72,7 @@ def load_state_dict(state_dict_dir: str) -> dict[str, torch.Tensor]:
     elif os.path.isfile(pytorch_model_bin_index_path):
         state_dict = load_pytorch_model_bin_sharded(state_dict_dir)
     else:
-        raise FileNotFoundError(
-            f"Can not find model.safetensors or pytorch_model.bin in {state_dict_dir}"
-        )
+        raise FileNotFoundError(f"Can not find model.safetensors or pytorch_model.bin in {state_dict_dir}")
 
     return state_dict
 

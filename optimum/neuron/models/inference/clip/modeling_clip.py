@@ -148,6 +148,7 @@ class NeuronCLIPForImageClassification(NeuronTracedModel):
 ##############            NxD            ##############
 #######################################################
 
+
 class NeuronCLIPAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
@@ -168,7 +169,9 @@ class NeuronCLIPAttention(nn.Module):
         self.q_proj = ColumnParallelLinear(config._config.hidden_size, config._config.hidden_size, gather_output=False)
         self.k_proj = ColumnParallelLinear(config._config.hidden_size, config._config.hidden_size, gather_output=False)
         self.v_proj = ColumnParallelLinear(config._config.hidden_size, config._config.hidden_size, gather_output=False)
-        self.out_proj = RowParallelLinear(config._config.hidden_size, config._config.hidden_size, input_is_parallel=True)
+        self.out_proj = RowParallelLinear(
+            config._config.hidden_size, config._config.hidden_size, input_is_parallel=True
+        )
 
         tp_size = get_tensor_model_parallel_size()
         self.num_heads = self.num_heads // tp_size
@@ -262,8 +265,12 @@ class NeuronCLIPMLP(nn.Module):
         super().__init__()
         self.config = config
         self.activation_fn = ACT2FN[config._config.hidden_act]
-        self.fc1 = ColumnParallelLinear(config._config.hidden_size, config._config.intermediate_size, gather_output=False)
-        self.fc2 = RowParallelLinear(config._config.intermediate_size, config._config.hidden_size, input_is_parallel=True)
+        self.fc1 = ColumnParallelLinear(
+            config._config.hidden_size, config._config.intermediate_size, gather_output=False
+        )
+        self.fc2 = RowParallelLinear(
+            config._config.intermediate_size, config._config.hidden_size, input_is_parallel=True
+        )
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         hidden_states = self.fc1(hidden_states)
@@ -509,6 +516,7 @@ class NeuronCLIPTextTransformer(nn.Module):
             attentions=encoder_outputs.attentions,
         )
 
+
 class NeuronCLIPTextModel(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -521,7 +529,7 @@ class NeuronCLIPTextModel(nn.Module):
         position_ids: torch.Tensor | None = None,
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
-        return_dict:bool | None = None,
+        return_dict: bool | None = None,
     ) -> tuple | BaseModelOutputWithPooling:
         return self.neuron_text_encoder(
             input_ids=input_ids,

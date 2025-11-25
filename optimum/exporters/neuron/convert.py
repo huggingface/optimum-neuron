@@ -659,6 +659,7 @@ def prepare_compiler_flags(
     compiler_args_str = " ".join(compiler_args)
     return compiler_args_str
 
+
 def init_custom_process_group_fn(config):
     if hasattr(config, "fused_spec_config") and config.fused_spec_config is not None:
         if config.fused_spec_config.draft_config.neuron_config.tp_degree is not None:
@@ -712,9 +713,7 @@ def shard_weights(model_builder, path):
     model_builder.shard_checkpoint(serialize_path=sharded_checkpoint_dir)
 
     if hlo_utils.NXD_LAYOUT_TRANSFORMATION_OPTIONS in os.environ:
-        model_builder.transform_weight_layout_with_overriden_option(
-            sharded_checkpoint_dir=sharded_checkpoint_dir
-        )
+        model_builder.transform_weight_layout_with_overriden_option(sharded_checkpoint_dir=sharded_checkpoint_dir)
 
 
 def trace_neuronx(

@@ -34,6 +34,7 @@ def get_init_rank() -> int:
             return int(os.environ[var])
     return -1
 
+
 def get_dp_rank_spmd(global_rank: torch.tensor, tp_degree: int):
     dp_rank = torch.div(
         global_rank,
@@ -41,6 +42,7 @@ def get_dp_rank_spmd(global_rank: torch.tensor, tp_degree: int):
         rounding_mode="floor",
     ).to(torch.int32)
     return dp_rank
+
 
 def split_along_dim(tensor: torch.tensor, dim: int, rank: int, num_partitions: int):
     if tensor is None:
