@@ -78,9 +78,7 @@ class KVCacheManager(nn.Module):
             hidden_dim_per_head,
         )
 
-    def _fetch_cache(self, idx: int, kvcache_buffer=None):
-        if kvcache_buffer is not None:
-            return kvcache_buffer[idx][0], kvcache_buffer[idx][1]
+    def _fetch_cache(self, idx: int):
         k_cache, v_cache = self.past_key_values[idx * 2], self.past_key_values[idx * 2 + 1]
         return k_cache, v_cache
 
@@ -119,9 +117,7 @@ class KVCacheManager(nn.Module):
         position_ids: Tensor,
         new_key_values: list[Tensor],
         seq_len: int,
-        scatter_index=None,
         active_mask=None,
-        kvcache_buffer=None,
     ):
         """
         Given the passed-in new_key_values, update the cache
@@ -132,19 +128,13 @@ class KVCacheManager(nn.Module):
         :param position_ids: tensor of size (batch_sz, seq_len)
         :param new_key_values: list of tuple, the latest kv obtained at the end of the network from forward pass
         :param seq_len: sequence length
-        :param scatter_index: tensor representing index to update
         :param active_mask: tensor representing index to update
-        :param kvcache_buffer: if passed key states are updates to this buffer.
-               kvcache_buffer is 2D list where, 1st dim for layer and the second denotes K and V.
-               For example,
-                    kvcache_buffer[1][0] is the K cache of the 1st layer
-                    kvcache_buffer[4][1] is the V cache of the 4th layer
         :return: list of tuple of (K, V)
         """
         updated_kv_cache = []
         for idx, kv_per_layer in enumerate(new_key_values):
             latest_k, latest_v = kv_per_layer[0], kv_per_layer[1]
-            k_cache, v_cache = self._fetch_cache(idx, kvcache_buffer)
+            k_cache, v_cache = self._fetch_cache(idx)
 
             if is_for_context_encoding:
                 if self.is_continuous_batching:
@@ -168,7 +158,7 @@ class KVCacheManager(nn.Module):
                     v_cache = fill_prefix(v_cache, latest_v)
             else:
                 # Copy the tensor of the new position into kv cache (no need to align as inputs are right padded)
-                scatter_index_new = self._get_index_to_update_new_position(scatter_index, position_ids, latest_k)
+                scatter_index_new = self._get_index_to_update_new_position(position_ids, latest_k)
                 k_cache = torch.scatter(input=k_cache, dim=2, index=scatter_index_new, src=latest_k)
                 v_cache = torch.scatter(input=v_cache, dim=2, index=scatter_index_new, src=latest_v)
 
@@ -178,6 +168,6 @@ class KVCacheManager(nn.Module):
         # return updated kv cache to NxD runtime
         return updated_kv_cache
 
-    def _get_index_to_update_new_position(self, scatter_index, position_ids, full_k):
+    def _get_index_to_update_new_position(self, position_ids, full_k):
         scatter_index = position_ids.view(-1, 1, position_ids.shape[-1], 1).expand_as(full_k)
         return scatter_index
