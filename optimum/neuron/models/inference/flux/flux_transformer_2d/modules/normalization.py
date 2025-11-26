@@ -28,11 +28,12 @@ from neuronx_distributed.parallel_layers.layer_norm import LayerNorm
 from neuronx_distributed.parallel_layers.layers import (  # noqa: E402; noqa: E402; noqa: E402; noqa: E402; noqa: E402
     ColumnParallelLinear,
 )
-from neuronx_distributed_inference.models.diffusers.embeddings import (
+from torch import nn as nn
+
+from ....backend.utils.layer_boundary_marker import ModuleMarkerEndWrapper, ModuleMarkerStartWrapper
+from .embeddings import (
     NeuronCombinedTimestepLabelEmbeddings,
 )
-from neuronx_distributed_inference.models.layer_boundary_marker import ModuleMarkerEndWrapper, ModuleMarkerStartWrapper
-from torch import nn as nn
 
 
 class NeuronAdaLayerNormZeroSingle(nn.Module):

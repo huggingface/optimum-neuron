@@ -387,7 +387,7 @@ class NeuronSentenceTransformersIntegrationTest(NeuronModelTestMixin):
 
         texts = ["Two dogs in the snow", "A cat on a table", "A picture of London at night"]
         util.http_get(
-            "https://github.com/UKPLab/sentence-transformers/raw/master/examples/sentence_transformer/applications/image-search/two_dogs_in_snow.jpg",
+            "https://github.com/UKPLab/sentence-transformers/raw/main/examples/sentence_transformer/applications/image-search/two_dogs_in_snow.jpg",
             "two_dogs_in_snow.jpg",
         )
 
