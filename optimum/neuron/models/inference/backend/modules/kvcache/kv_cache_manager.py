@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/modules/kvcache/kv_cache_manager.py
+import logging
 
 import torch
 from neuronx_distributed.parallel_layers import utils
@@ -25,6 +26,9 @@ from ..attention.gqa import (
     get_shardable_head_counts,
 )
 from .utils import dynamic_update_slice, fill_prefix
+
+
+logger = logging.getLogger("Neuron")
 
 
 def _slice_kv_cacheline(seq_len: int, cache: Tensor):
@@ -50,6 +54,14 @@ class KVCacheManager(nn.Module):
         dtype = neuron_config.torch_dtype
         self.past_key_values = nn.ParameterList(
             [nn.Parameter(torch.zeros(self.kv_shape, dtype=dtype), requires_grad=False) for _ in range(num_layer * 2)]
+        )
+        cache_size = (
+            self.kv_shape[0] * self.kv_shape[1] * self.kv_shape[2] * self.kv_shape[3] * num_layer * 2 * dtype.itemsize
+        )
+        cache_size_in_mb = cache_size / (1024 * 1024)
+        total_cache_size_in_mb = cache_size_in_mb * neuron_config.tp_degree
+        logger.info(
+            f"Allocated {neuron_config.tp_degree}*{cache_size_in_mb:.2f} = {total_cache_size_in_mb:.2f} MB for KV cache."
         )
 
     def _get_num_kv_heads_per_rank(self, config: PretrainedConfig, neuron_config: NxDNeuronConfig):
