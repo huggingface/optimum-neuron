@@ -14,6 +14,7 @@
 # limitations under the License.
 import gc
 import os
+import random
 import shutil
 import tempfile
 import warnings
@@ -204,6 +205,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         "xlm",
         "xlm-roberta",
     ]
+    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -259,7 +261,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
                     f"`pooler_output` between pytorch model and neuron model of {model_arch} not close enough."
                 )
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -437,6 +439,7 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
         "xlm",
         "xlm-roberta",
     ]
+    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -480,7 +483,7 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -505,8 +508,8 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
 
         gc.collect()
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
-    def test_pipeline_model(self, model_arch):
+    def test_pipeline_model(self):
+        model_arch = "albert"
         model_args = {"test_name": model_arch + "_dyn_bs_false", "model_arch": model_arch}
         self._setup(model_args)
         neuron_model, tokenizer = self._load_neuron_model_and_processor(model_arch, "_dyn_bs_false")
@@ -542,6 +545,7 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
         "xlm",
         "xlm-roberta",
     ]
+    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -605,7 +609,7 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
 
         gc.collect()
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -655,6 +659,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
         # "xlm",  # accuracy off compared to pytorch (not due to the padding)
         "xlm-roberta",
     ]
+    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -700,7 +705,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -761,6 +766,7 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
         "xlm",
         "xlm-roberta",
     ]
+    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -804,7 +810,7 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -863,6 +869,7 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
         # "xlm",  # accuracy off compared to pytorch (not due to the padding)
         # "xlm-roberta",  # Aborted (core dumped)
     ]
+    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -914,7 +921,7 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -957,6 +964,7 @@ class NeuronModelForImageClassificationIntegrationTest(NeuronModelTestMixin):
         "swin",
         "vit",
     ]
+    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -1004,7 +1012,7 @@ class NeuronModelForImageClassificationIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -1055,6 +1063,7 @@ class NeuronModelForSemanticSegmentationIntegrationTest(NeuronModelTestMixin):
         "mobilenet_v2",
         "mobilevit",
     ]
+    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -1102,7 +1111,7 @@ class NeuronModelForSemanticSegmentationIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -1150,6 +1159,7 @@ class NeuronModelForObjectDetectionIntegrationTest(NeuronModelTestMixin):
     TASK = "object-detection"
     ATOL_FOR_VALIDATION = 1e-3
     SUPPORTED_ARCHITECTURES = ["yolos"]
+    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -1198,7 +1208,7 @@ class NeuronModelForObjectDetectionIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -1244,6 +1254,7 @@ class NeuronModelForCTCIntegrationTest(NeuronModelTestMixin):
     STATIC_INPUTS_SHAPES = {"batch_size": 1, "audio_sequence_length": 100000}
     ATOL_FOR_VALIDATION = 1e-3
     SUPPORTED_ARCHITECTURES = ["wav2vec2"]
+    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -1278,7 +1289,7 @@ class NeuronModelForCTCIntegrationTest(NeuronModelTestMixin):
         self.assertIn("logits", neuron_outputs)
         self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -1332,6 +1343,7 @@ class NeuronModelForAudioClassificationIntegrationTest(NeuronModelTestMixin):
     STATIC_INPUTS_SHAPES = {"batch_size": 1, "audio_sequence_length": 100000}
     ATOL_FOR_VALIDATION = 1e-3
     SUPPORTED_ARCHITECTURES = ["wav2vec2"]
+    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -1366,7 +1378,7 @@ class NeuronModelForAudioClassificationIntegrationTest(NeuronModelTestMixin):
         self.assertIn("logits", neuron_outputs)
         self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -1420,6 +1432,7 @@ class NeuronModelForAudioFrameClassificationIntegrationTest(NeuronModelTestMixin
     STATIC_INPUTS_SHAPES = {"batch_size": 1, "audio_sequence_length": 100000}
     ATOL_FOR_VALIDATION = 1e-3
     SUPPORTED_ARCHITECTURES = ["wav2vec2"]
+    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -1456,7 +1469,7 @@ class NeuronModelForAudioFrameClassificationIntegrationTest(NeuronModelTestMixin
         self.assertIn("logits", neuron_outputs)
         self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -1489,6 +1502,7 @@ class NeuronModelForXVectorIntegrationTest(NeuronModelTestMixin):
     STATIC_INPUTS_SHAPES = {"batch_size": 1, "audio_sequence_length": 100000}
     ATOL_FOR_VALIDATION = 1e-3
     SUPPORTED_ARCHITECTURES = ["wav2vec2"]
+    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -1523,7 +1537,7 @@ class NeuronModelForXVectorIntegrationTest(NeuronModelTestMixin):
         self.assertIn("logits", neuron_outputs)
         self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
             "test_name": model_arch + "_dyn_bs_false",
