@@ -570,6 +570,21 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         shutil.copytree(self.model_save_dir, save_directory, dirs_exist_ok=True)
 
     @classmethod
+    @contextmanager
+    def set_neuron_visible_cores(cls, value: int):
+        # We need to set explicitly the visible cores for nxd model, otherwise the world size will be automatically set to all available cores, leading to communication timeout.
+        old = os.environ.get("NEURON_RT_NUM_CORES")
+        if value > 1:
+            os.environ["NEURON_RT_NUM_CORES"] = str(value)
+        try:
+            yield
+        finally:
+            if old is None:
+                os.environ.pop("NEURON_RT_NUM_CORES", None)
+            else:
+                os.environ["NEURON_RT_NUM_CORES"] = old
+
+    @classmethod
     @requires_torch_neuronx
     def _from_pretrained(
         cls,
@@ -702,20 +717,21 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 neuron_configs[name] = sub_neuron_configs if len(sub_neuron_configs) > 1 else sub_neuron_configs[0]
 
         data_parallel_mode, tensor_parallel_size = NeuronDiffusionPipelineBase.set_parallel_mode(neuron_configs)
-        pipe = cls.load_model(
-            data_parallel_mode=data_parallel_mode,
-            text_encoder_path=model_and_config_save_paths["text_encoder"][0],
-            unet_path=model_and_config_save_paths["unet"][0],
-            transformer_path=model_and_config_save_paths["transformer"][0],
-            vae_decoder_path=model_and_config_save_paths["vae_decoder"][0],
-            vae_encoder_path=model_and_config_save_paths["vae_encoder"][0],
-            text_encoder_2_path=model_and_config_save_paths["text_encoder_2"][0],
-            image_encoder_path=model_and_config_save_paths["image_encoder"][0],
-            controlnet_paths=model_and_config_save_paths["controlnet"][0],
-            dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME].dynamic_batch_size,
-            to_neuron=not inline_weights_to_neff,
-            tensor_parallel_size=tensor_parallel_size,
-        )
+        with cls.set_neuron_visible_cores(tensor_parallel_size):
+            pipe = cls.load_model(
+                data_parallel_mode=data_parallel_mode,
+                text_encoder_path=model_and_config_save_paths["text_encoder"][0],
+                unet_path=model_and_config_save_paths["unet"][0],
+                transformer_path=model_and_config_save_paths["transformer"][0],
+                vae_decoder_path=model_and_config_save_paths["vae_decoder"][0],
+                vae_encoder_path=model_and_config_save_paths["vae_encoder"][0],
+                text_encoder_2_path=model_and_config_save_paths["text_encoder_2"][0],
+                image_encoder_path=model_and_config_save_paths["image_encoder"][0],
+                controlnet_paths=model_and_config_save_paths["controlnet"][0],
+                dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME].dynamic_batch_size,
+                to_neuron=not inline_weights_to_neff,
+                tensor_parallel_size=tensor_parallel_size,
+            )
 
         if model_save_dir is None:
             model_save_dir = new_model_save_dir

@@ -32,8 +32,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 @is_inferentia_test
 @requires_neuronx
 @require_diffusers
-def test_flux_txt2img(neuron_flux_tp2_path, monkeypatch):
-    monkeypatch.setenv("NEURON_RT_NUM_CORES", "2")
+def test_flux_txt2img(neuron_flux_tp2_path):
     neuron_pipeline = NeuronFluxPipeline.from_pretrained(neuron_flux_tp2_path)
 
     assert isinstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
@@ -52,8 +51,7 @@ def test_flux_txt2img(neuron_flux_tp2_path, monkeypatch):
 @is_inferentia_test
 @requires_neuronx
 @require_diffusers
-def test_flux_inpaint(neuron_flux_tp2_path, monkeypatch):
-    monkeypatch.setenv("NEURON_RT_NUM_CORES", "2")
+def test_flux_inpaint(neuron_flux_tp2_path):
     neuron_pipeline = NeuronFluxInpaintPipeline.from_pretrained(neuron_flux_tp2_path)
 
     assert isinstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
@@ -74,8 +72,7 @@ def test_flux_inpaint(neuron_flux_tp2_path, monkeypatch):
 @is_inferentia_test
 @requires_neuronx
 @require_diffusers
-def test_flux_kontext_img_edit(neuron_flux_kontext_tp2_path, monkeypatch):
-    monkeypatch.setenv("NEURON_RT_NUM_CORES", "2")
+def test_flux_kontext_img_edit(neuron_flux_kontext_tp2_path):
     neuron_pipeline = NeuronFluxKontextPipeline.from_pretrained(neuron_flux_kontext_tp2_path)
 
     assert isinstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)

@@ -61,6 +61,11 @@ jobs:
           sudo apt-get install ffmpeg -y
           source aws_neuron_venv_pytorch/bin/activate
           pip install datasets[audio]
+      - name: Run transformers cache tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
+          pytest -m is_inferentia_test tests/inference/transformers/test_cache.py
       - name: Run transformers export CLI tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
@@ -70,7 +75,7 @@ jobs:
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
-          pytest -m is_inferentia_test --ignore=tests/inference/transformers/test_export_cli.py tests/inference/transformers
+          pytest -m is_inferentia_test tests/inference/transformers/test_modeling.py
       - name: Run pipelines tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate

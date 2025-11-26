@@ -61,10 +61,8 @@ if __name__ == "__main__":
 * The guidance-distilled variant takes about 50 sampling steps for good-quality generation.
 
 ```python
-import os
 from optimum.neuron import NeuronFluxPipeline
 
-os.environ["NEURON_RT_NUM_CORES"] = "8"
 pipe = NeuronFluxPipeline.from_pretrained("flux_dev_neuron_1024_tp8/")
 prompt = "A cat holding a sign that says hello world"
 out = pipe(
@@ -94,10 +92,8 @@ optimum-cli export neuron --model black-forest-labs/FLUX.1-schnell --tensor_para
 ```
 
 ```python
-import os
 from optimum.neuron import NeuronFluxPipeline
 
-os.environ["NEURON_RT_NUM_CORES"] = "8"
 pipe = NeuronFluxPipeline.from_pretrained("flux_schnell_neuron_1024_tp8")
 prompt = "A cat holding a sign that says hello world"
 out = pipe(prompt, max_sequence_length=256, num_inference_steps=4).images[0]
@@ -127,11 +123,9 @@ The Flux pipeline for image inpainting.
 With `NeuronFluxInpaintPipeline`, pass the original image and a mask of what you want to replace in the original image. Then replace the masked area with content described in a prompt.
 
 ```python
-import os
 from diffusers.utils import load_image
 from optimum.neuron import NeuronFluxInpaintPipeline
 
-os.environ["NEURON_RT_NUM_CORES"] = "8"
 pipe = NeuronFluxInpaintPipeline.from_pretrained("Jingya/Flux.1-Schnell-1024x1024-neuronx-tp8")
 prompt = "Face of a yellow cat, high resolution, sitting on a park bench"
 img_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png"
@@ -151,11 +145,9 @@ The Flux pipeline for image editing.
 With `NeuronFluxKontextPipeline`, pass the original image and a prompt describing what you want to change about the original image.
 
 ```python
-import os
 from diffusers.utils import load_image
 from optimum.neuron import NeuronFluxKontextPipeline
 
-os.environ["NEURON_RT_NUM_CORES"] = "8"
 pipe = NeuronFluxKontextPipeline.from_pretrained("Jlonge4/FLUX.1-kontext-neuronx-1024x1024-tp8")
 prompt = "Change the cushions in the chair from red to green"
 img_url = "https://huggingface.co/datasets/Jlonge4/document_images/resolve/main/flux_optimum.png"
