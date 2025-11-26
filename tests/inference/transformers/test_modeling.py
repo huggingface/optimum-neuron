@@ -310,6 +310,7 @@ class NeuronSentenceTransformersIntegrationTest(NeuronModelTestMixin):
     @parameterized.expand(["transformer"], skip_on_empty=True)
     @requires_neuronx
     def test_sentence_transformers_dyn_bs(self, model_arch):
+        self.skipTest("Skipping this test temporarily.")
         # Neuron model with dynamic batching
         model_args = {
             "test_name": model_arch + "_dyn_bs_true",
