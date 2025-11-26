@@ -14,10 +14,13 @@
 # limitations under the License.
 
 import atexit
+import requests
 import time
 from typing import Union
+from collections import namedtuple
 
 import torch
+import torch_xla
 from trl.extras.vllm_client import VLLMClient as TRLVLLMClient
 
 from trl.import_utils import is_vllm_available
@@ -29,32 +32,48 @@ else:
     class StatelessProcessGroup:
         pass
 
+# Set up the communication group for weight broadcasting using CPU communicator
+Group = namedtuple('Group', 'barrier')
 
+class CPUCommunicator:
+    def __init__(self, store, rank):
+        self.rank = rank
+        self.store = store
+        self.group = Group(barrier=self.barrier)
 
+    def broadcast(self, tensor, src):
+        # Move tensor to CPU to ensure compatibility with vLLM server
+        if tensor.device.type == "xla":
+            tensor = tensor.cpu()
+            torch_xla.sync()
+        self.store.broadcast_obj(tensor, src=self.rank)
+
+    def barrier(self):
+        self.store.barrier()
+
+    def __del__(self):
+        del self.store
 
 class VLLMClient(TRLVLLMClient):
     """
-    Extension of TRL's VLLMClient that adds CPU support for development and testing.
+    VLLMClient for Neuron environments.
 
-    This class inherits all functionality from trl.extras.vllm_client.VLLMClient and only
-    overrides the init_communicator method to add CPU fallback support when neither CUDA
-    nor XPU devices are available.
+    This class inherits all functionality from trl.extras.vllm_client.VLLMClient and only overrides methods
+    to enable CPU-based communication suitable for Neuron setups and development/testing scenarios.
     """
 
     def init_communicator(self, device: Union[torch.device, str, int] = 0):
         """
         Initializes the weight update group in a distributed setup for model synchronization.
 
-        This method extends the parent implementation to support CPU-only environments by adding
-        a CPU fallback communicator when neither XPU nor CUDA devices are available.
+        This method uses CPU-based communication via object broadcasting, suitable for Neuron
+        environments and development/testing scenarios.
 
         Args:
             device (`torch.device`, `str`, or `int`, *optional*, defaults to `0`):
-                Device of trainer main process. It's the device that will be used for the weights synchronization. Can
-                be a `torch.device` object, a string like `'cuda:0'`, or an integer device index.
+                Device parameter for compatibility. Communication is handled via CPU.
         """
         # Get the world size from the server
-        import requests
         url = f"{self.base_url}/get_world_size/"
         response = requests.get(url)
         if response.status_code == 200:
@@ -67,17 +86,9 @@ class VLLMClient(TRLVLLMClient):
 
         # Initialize weight update group
         url = f"{self.base_url}/init_communicator/"
-        # Will simplify it after torch xpu 2.9 support get uuid.
-        if is_torch_xpu_available():
-            if hasattr(torch.xpu.get_device_properties(device), "uuid"):
-                client_device_uuid = str(torch.xpu.get_device_properties(device).uuid)
-            else:
-                client_device_uuid = "42"
-        elif torch.cuda.is_available():
-            client_device_uuid = str(torch.cuda.get_device_properties(device).uuid)
-        else:
-            # CPU fallback - use dummy UUID
-            client_device_uuid = "42"
+
+        # Use dummy UUID for CPU/Neuron environments
+        client_device_uuid = "42"
 
         # In the server side, the host is set to 0.0.0.0
         response = self.session.post(
@@ -97,49 +108,10 @@ class VLLMClient(TRLVLLMClient):
         # [W416 23:24:57.460001114 socket.cpp:204] [c10d] The hostname of the client socket cannot be retrieved. err=-3
         time.sleep(0.1)
 
-        # Set up the communication group for weight broadcasting
-        if is_torch_xpu_available():
-            store = torch.distributed.TCPStore(
-                host_name=self.host, port=self.group_port, world_size=world_size, is_master=(self.rank == 0)
-            )
-            prefixed_store = c10d.PrefixStore("client2server", store)
-            pg = c10d.ProcessGroupXCCL(
-                store=prefixed_store,
-                rank=self.rank,
-                size=world_size,
-            )
-            self.communicator = pg
-        elif torch.cuda.is_available():
-            pg = StatelessProcessGroup.create(
-                host=self.host, port=self.group_port, rank=self.rank, world_size=world_size
-            )
-            self.communicator = PyNcclCommunicator(pg, device=device)
-        else:
-            # CPU fallback - create a custom communicator that uses object broadcasting
-            from collections import namedtuple
-            Group = namedtuple('Group', 'barrier')
-
-            class CPUCommunicator:
-                def __init__(self, store, rank):
-                    self.rank = rank
-                    self.store = store
-                    self.group = Group(barrier=self.barrier)
-
-                def broadcast(self, tensor, src):
-                    # Move tensor to CPU to avoid issues on the server side when running vLLM+CPU
-                    tensor = tensor.cpu()
-                    self.store.broadcast_obj(tensor, src=self.rank)
-
-                def barrier(self):
-                    self.store.barrier()
-
-                def __del__(self):
-                    del self.store
-
-            pg = StatelessProcessGroup.create(
-                host=self.host, port=self.group_port, rank=self.rank, world_size=world_size
-            )
-            self.communicator = CPUCommunicator(pg, self.rank)
+        pg = StatelessProcessGroup.create(
+            host=self.host, port=self.group_port, rank=self.rank, world_size=world_size
+        )
+        self.communicator = CPUCommunicator(pg, self.rank)
 
         # When the client object is deleted, close the weight update group
         atexit.register(self.close_communicator)
