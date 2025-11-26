@@ -20,6 +20,7 @@ configurations.
 import torch
 from neuronx_distributed.trace.model_builder import BaseModelInstance
 
+from ...neuron.models.inference.backend.modules.checkpoint import load_state_dict
 from ...utils import (
     DummyAudioInputGenerator,
     DummyBboxInputGenerator,
@@ -148,8 +149,6 @@ class NxDNeuronConfig:
 
     def get_state_dict(self, model_path: str) -> dict:
         """Gets the state dict for this model."""
-        from optimum.neuron.models.inference.backend.modules.checkpoint import load_state_dict
-
         model_sd = load_state_dict(model_path)
         param_name_list = list(model_sd.keys())
         for param_name in param_name_list:
