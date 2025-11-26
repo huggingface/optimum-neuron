@@ -360,7 +360,6 @@ class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
 
 @register_in_tasks_manager("clip-text-model", *["feature-extraction"], library_name="diffusers")
 class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
-    # class CLIPTextNeuronConfig(NxDNeuronConfig, CLIPTextWithProjectionNeuronConfig):
     MODEL_TYPE = "clip-text-model"
 
     @property
