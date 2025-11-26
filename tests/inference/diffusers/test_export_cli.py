@@ -16,12 +16,10 @@ import subprocess
 import tempfile
 import unittest
 
-import pytest
 from optimum.utils import logging
 
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
-from optimum.neuron.version import __sdk_version__ as sdk_version
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -89,7 +87,6 @@ class TestExportCLI(unittest.TestCase):
                     check=True,
                 )
 
-    @pytest.mark.skipif(sdk_version == "2.26.0", reason="This test hangs with SDK 2.26.0")
     @requires_neuronx
     def test_flux_tp2(self):
         model_ids = ["hf-internal-testing/tiny-flux-pipe-gated-silu"]
