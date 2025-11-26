@@ -132,6 +132,9 @@ include = ["optimum*"]
 [tool.setuptools.package-data]
 "*" = ["*"]
 
+[tool.uv]
+extra-index-url = ["https://pip.repos.neuron.amazonaws.com"]
+
 [tool.ruff]
 line-length = 119
 

@@ -15,7 +15,6 @@
 
 import contextlib
 import os
-import pickle
 import re
 import shutil
 import sys
@@ -30,7 +29,7 @@ import torch_xla.runtime as xr
 from accelerate import Accelerator
 from accelerate.checkpointing import save_accelerator_state, save_custom_state
 from accelerate.utils import AutocastKwargs, DistributedType
-from accelerate.utils.operations import gather_object, recursively_apply
+from accelerate.utils.operations import recursively_apply
 from neuronx_distributed import parallel_layers
 from neuronx_distributed.optimizer import NeuronZero1Optimizer
 from neuronx_distributed.parallel_layers.parallel_state import (
@@ -61,14 +60,13 @@ from ..utils.misc import args_and_kwargs_to_kwargs_only
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
-from .utils import (
-    patch_accelerate_is_torch_xla_available,
-)
 from .utils.dataclasses import MixedPrecisionConfig, MixedPrecisionMode
 from .utils.misc import (
     apply_activation_checkpointing,
     create_patched_save_pretrained,
+    patch_accelerate_is_torch_xla_available,
 )
+from .utils.operations import gather_object
 
 
 # Setup logging so that the main process logs at the INFO level and the others are silent.
@@ -560,54 +558,6 @@ class NeuronAccelerator(Accelerator):
             torch_xla.sync()
         return gathered
 
-    def gather_object(self, obj: Any) -> list[Any]:
-        """
-        Gathers arbitrary objects across XLA-distributed processes.
-        Returns list of objects from all ranks on all ranks.
-
-        Note: Requires two all-gather operations (lengths then data).
-        For small objects, this overhead may be significant.
-        """
-        world_size = get_data_parallel_size()
-
-        # Early exit for single process
-        if world_size == 1:
-            return [obj]
-
-        groups = get_data_parallel_group(as_list=True)
-
-        serialized = pickle.dumps(obj)
-        byte_len = len(serialized)
-
-        byte_tensor = torch.frombuffer(serialized, dtype=torch.uint8).clone()
-        byte_tensor = byte_tensor.to(xm.xla_device())
-
-        len_tensor = torch.tensor([byte_len], dtype=torch.int64, device=byte_tensor.device)
-        # all_gather concatenates along dim=0, so [1] -> [world_size]
-        gathered_lengths = xm.all_gather(len_tensor, dim=0, groups=groups, pin_layout=False)
-
-        torch_xla.sync()
-        max_len = int(gathered_lengths.max().item())
-
-        padded = torch.zeros(max_len, dtype=torch.uint8, device=byte_tensor.device)
-        padded[:byte_len] = byte_tensor
-
-        # all_gather concatenates, so [max_len] -> [world_size * max_len]
-        gathered_data = xm.all_gather(padded, dim=0, groups=groups, pin_layout=False)
-
-        torch_xla.sync()
-        gathered_data_cpu = gathered_data.cpu()
-        gathered_lengths_cpu = gathered_lengths.cpu()
-
-        results = []
-        offset = 0
-        for i in range(world_size):
-            actual_len = int(gathered_lengths_cpu[i].item())
-            valid_bytes = gathered_data_cpu[offset:offset + max_len][:actual_len].numpy().tobytes()
-            results.append(pickle.loads(valid_bytes))
-            offset += max_len
-
-        return results
 
     def gather_for_metrics(self, input_data, use_gather_object: bool = False, sync: bool = False):
         try:

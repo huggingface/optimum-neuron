@@ -15,3 +15,10 @@
 
 from .dataclasses import MixedPrecisionConfig, MixedPrecisionMode
 from .misc import patch_accelerate_is_torch_xla_available
+from .operations import (
+    broadcast_object,
+    broadcast_object_to_data_parallel_group,
+    broadcast_object_to_pipeline_model_parallel_group,
+    broadcast_object_to_tensor_model_parallel_group,
+    gather_object,
+)

@@ -23,6 +23,11 @@ import torch_xla
 import torch_xla.core.xla_model as xm
 from accelerate.utils import set_seed
 from neuronx_distributed import parallel_layers
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_data_parallel_rank,
+    get_pipeline_model_parallel_rank,
+    get_tensor_model_parallel_rank,
+)
 from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
 from optimum.utils import logging
 from torch.utils.data import Dataset, IterableDataset, Sampler
@@ -35,6 +40,10 @@ from transformers import (
 )
 from transformers.utils import is_rich_available
 
+from ..accelerate.utils import (
+    broadcast_object_to_pipeline_model_parallel_group,
+    broadcast_object_to_tensor_model_parallel_group,
+)
 from ..models.training import NeuronModelForCausalLM
 from ..peft import NeuronPeftModel, get_peft_model
 from ..peft.utils.vllm import get_original_merged_weights_for_vllm
@@ -397,7 +406,10 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         from ..utils import is_vllm_available
 
         # MOCK FLAG: Change this to False when real vLLM server is ready
-        USE_MOCK_VLLM = True
+        USE_MOCK_VLLM = False
+        # TODO: Remove this when mock is no longer used - tracks mock usage to disable
+        # importance sampling correction which doesn't work with mock's random tokens
+        self._using_mock_vllm = USE_MOCK_VLLM
 
         if USE_MOCK_VLLM:
             logger.warning(
@@ -413,17 +425,18 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             if not is_vllm_available():
                 raise ImportError("vLLM is not available. Please install vLLM to use NeuronGRPOTrainer.")
 
-            # Setup vLLM server client (only on main process)
+            # Setup vLLM server client (all processes need it to call the server)
+            from trl.extras.vllm_client import VLLMClient
+
+            if args.vllm_server_base_url is not None:
+                base_url = args.vllm_server_base_url
+            else:
+                base_url = f"http://{args.vllm_server_host}:{args.vllm_server_port}"
+
+            self.vllm_client = VLLMClient(base_url=base_url, connection_timeout=args.vllm_server_timeout)
+            # Only main process initializes the communicator for weight updates
             if self.accelerator.is_main_process:
-                from trl.extras.vllm_client import VLLMClient
-
-                if args.vllm_server_base_url is not None:
-                    base_url = args.vllm_server_base_url
-                else:
-                    base_url = f"http://{args.vllm_server_host}:{args.vllm_server_port}"
-
-                self.vllm_client = VLLMClient(base_url=base_url, connection_timeout=args.vllm_server_timeout)
-                self.vllm_client.init_communicator(device=torch.cuda.current_device())
+                self.vllm_client.init_communicator(device="cpu")
 
         # vLLM specific sampling arguments
         self.guided_decoding_regex = args.vllm_guided_decoding_regex
@@ -456,6 +469,12 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 self.reward_funcs[i] = self.accelerator.prepare_model(
                     reward_func, evaluation_mode=True, device_placement=True
                 )
+
+
+        self.dp_rank = get_data_parallel_rank()
+        self.tp_rank = get_tensor_model_parallel_rank()
+        self.pp_rank = get_pipeline_model_parallel_rank()
+
     def _get_train_sampler(self, dataset: Dataset | None = None) -> Sampler:
         if dataset is None:
             dataset = self.train_dataset
@@ -595,7 +614,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 name = self._fix_param_name_to_vllm(name)
 
                 if self.vllm_mode == "server" and self.accelerator.is_main_process:
-                    self.vllm_client.update_named_param(name, weight)
+                    pass
+                    # self.vllm_client.update_named_param(name, weight)
                 elif self.vllm_mode == "colocate":
                     llm_model = self.llm.llm_engine.model_executor.driver_worker.model_runner.model
                     llm_model.load_weights([(name, weight)])
@@ -622,7 +642,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         The main difference is avoiding gather_object which doesn't work on XLA.
 
         MOCK MODE: Each process generates locally without gathering/broadcasting.
-        REAL SERVER MODE: May need gather_object workaround - test when implementing!
+        REAL SERVER MODE: Only main process generates, results are broadcast to all processes.
 
         Args:
             prompts: List of prompt strings
@@ -636,7 +656,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             self._move_model_to_vllm()
             self._last_loaded_step = self.state.global_step
 
-        # For mock vLLM, generate locally on each process (no gather/broadcast needed)
         # Take unique prompts since we have num_generations duplicates
         prompts_text = [prompt if isinstance(prompt, str) else prompt["content"] for prompt in prompts]
         ordered_set_of_prompts = prompts_text[:: self.num_generations]
@@ -646,21 +665,56 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         else:
             ordered_set_of_images = None
 
-        # Generate using mock vLLM client
-        output = self.vllm_client.generate(
-            prompts=ordered_set_of_prompts,
-            images=ordered_set_of_images,
-            n=self.num_generations,
-            repetition_penalty=self.repetition_penalty,
-            temperature=self.temperature,
-            top_p=self.top_p,
-            top_k=-1 if self.top_k is None else self.top_k,
-            min_p=0.0 if self.min_p is None else self.min_p,
-            max_tokens=self.max_completion_length,
-            truncate_prompt_tokens=self.max_prompt_length,
-            guided_decoding_regex=self.guided_decoding_regex,
-            generation_kwargs=self.args.generation_kwargs,
-        )
+        # For mock vLLM: each process generates independently
+        # For real vLLM server: only main process generates, then broadcast
+        if self._using_mock_vllm:
+            # Each process generates locally
+            output = self.vllm_client.generate(
+                prompts=ordered_set_of_prompts,
+                images=ordered_set_of_images,
+                n=self.num_generations,
+                repetition_penalty=self.repetition_penalty,
+                temperature=self.temperature,
+                top_p=self.top_p,
+                top_k=-1 if self.top_k is None else self.top_k,
+                min_p=0.0 if self.min_p is None else self.min_p,
+                max_tokens=self.max_completion_length,
+                truncate_prompt_tokens=self.max_prompt_length,
+                guided_decoding_regex=self.guided_decoding_regex,
+                generation_kwargs=self.args.generation_kwargs,
+            )
+        else:
+            # Real vLLM server mode: only main process generates
+            if self.tp_rank == self.pp_rank == 0:
+                output = self.vllm_client.generate(
+                    prompts=ordered_set_of_prompts,
+                    images=ordered_set_of_images,
+                    n=self.num_generations,
+                    repetition_penalty=self.repetition_penalty,
+                    temperature=self.temperature,
+                    top_p=self.top_p,
+                    top_k=-1 if self.top_k is None else self.top_k,
+                    min_p=0.0 if self.min_p is None else self.min_p,
+                    max_tokens=self.max_completion_length,
+                    truncate_prompt_tokens=self.max_prompt_length,
+                    guided_decoding_regex=self.guided_decoding_regex,
+                    generation_kwargs=self.args.generation_kwargs,
+                )
+            else:
+                output = {
+                    "prompt_ids": [[]],
+                    "completion_ids": [[]],
+                    "logprobs": [[]],
+                }
+                output = None
+
+            trn_config = self.accelerator.state.trn_config
+            # TODO: change that to a better default.
+            fixed_size = int(2e6) # 2MB fixed size for buffer, should be enough.
+            if trn_config.tensor_parallel_size > 1:
+                output = broadcast_object_to_tensor_model_parallel_group(output, fixed_size=fixed_size)
+            if trn_config.pipeline_parallel_size > 1:
+                output = broadcast_object_to_pipeline_model_parallel_group(output, fixed_size=fixed_size)
 
         # Repeat prompt_ids num_generations times to match completion_ids
         prompt_ids = [ids for ids in output["prompt_ids"] for _ in range(self.num_generations)]
@@ -876,7 +930,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 old_per_token_logps = None
 
             # Compute the importance sampling ratio when using vLLM, to correct for potential distribution mismatch
-            if self.use_vllm and self.vllm_importance_sampling_correction:
+            # TODO: Remove _using_mock_vllm check when mock is no longer used - mock's random tokens
+            # cause -inf logprobs from the model, leading to NaN in importance sampling computation
+            if self.use_vllm and self.vllm_importance_sampling_correction and not self._using_mock_vllm:
                 importance_sampling_ratio = torch.exp(old_per_token_logps - sampling_per_token_logps)
                 importance_sampling_ratio = torch.clamp(
                     importance_sampling_ratio, max=self.vllm_importance_sampling_cap
@@ -983,7 +1039,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         # if images is not None:
         #     self._logs["images"].extend(self.accelerator.gather_object(images))
 
-        if self.use_vllm and self.vllm_importance_sampling_correction:
+        # TODO: Remove _using_mock_vllm check when mock is no longer used
+        if self.use_vllm and self.vllm_importance_sampling_correction and not self._using_mock_vllm:
             delta = torch.abs(old_per_token_logps - sampling_per_token_logps)
             # Original code was:
             # delta = delta[completion_mask.bool()]
@@ -1063,7 +1120,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         }
         if old_per_token_logps is not None:
             output["old_per_token_logps"] = old_per_token_logps
-        if self.use_vllm and self.vllm_importance_sampling_correction:
+        # TODO: Remove _using_mock_vllm check when mock is no longer used
+        if self.use_vllm and self.vllm_importance_sampling_correction and not self._using_mock_vllm:
             output["importance_sampling_ratio"] = importance_sampling_ratio
         if ref_per_token_logps is not None:
             output["ref_per_token_logps"] = ref_per_token_logps
@@ -1221,7 +1279,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         if entropy_mask is not None:
             per_token_loss = per_token_loss * entropy_mask
 
-        if self.use_vllm and self.vllm_importance_sampling_correction:
+        # TODO: Remove _using_mock_vllm check when mock is no longer used
+        if self.use_vllm and self.vllm_importance_sampling_correction and not self._using_mock_vllm:
             per_token_loss = per_token_loss * inputs["importance_sampling_ratio"]
 
         if self.beta != 0.0:

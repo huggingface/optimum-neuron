@@ -21,6 +21,8 @@ to enable development and testing of NeuronGRPOTrainer without requiring a full
 vLLM server setup.
 """
 
+import random
+
 from optimum.utils import logging
 
 
@@ -108,18 +110,23 @@ class MockVLLMClient:
 
             # Generate n completions per prompt
             for i in range(n):
-                # Generate mock completion
-                # Use a simple pattern: repeat EOS token to create fixed-length completion
+                # Generate mock completion with realistic varied tokens
                 # In real scenario, this would be actual LLM generation
                 completion_length = min(max_tokens, self.max_completion_length)
 
-                # Generate completion: cycle through safe token IDs
-                completion = [self.tokenizer.eos_token_id] * completion_length
+                # Generate completion with varied tokens from the vocabulary
+                # Avoid special tokens by using a safe range of token IDs
+                vocab_size = self.tokenizer.vocab_size
+                # Use token IDs in a safe range (skip first 100 tokens which often include special tokens)
+                min_token_id = min(100, vocab_size - 1)
+                max_token_id = vocab_size - 1
+                completion = [random.randint(min_token_id, max_token_id) for _ in range(completion_length)]
                 completion_ids.append(completion)
 
-                # Generate mock logprobs (uniform negative values)
-                # Real logprobs would come from the model's probability distribution
-                completion_logprobs = [-1.0] * completion_length
+                # Generate realistic mock logprobs
+                # Real language model logprobs typically range from -2 to -10
+                # with occasional values outside this range
+                completion_logprobs = [-random.uniform(2.0, 8.0) for _ in range(completion_length)]
                 logprobs.append(completion_logprobs)
 
         return {

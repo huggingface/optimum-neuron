@@ -173,7 +173,7 @@ def train(model_id, tokenizer, dataset, training_args):
         # vLLM parameters
         use_vllm=True,  # Use vLLM for generation (required for Neuron)
         vllm_mode="server",  # Use vLLM server mode
-        vllm_server_host="localhost",
+        vllm_server_host="0.0.0.0",
         vllm_server_port=8000,
         # Standard training arguments from NeuronTrainingArguments
         **args,
