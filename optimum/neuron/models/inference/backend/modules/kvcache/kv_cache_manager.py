@@ -43,8 +43,8 @@ class KVCacheManager(nn.Module):
     def __init__(self, config: PretrainedConfig, neuron_config: NxDNeuronConfig, actual_num_key_value_heads: int):
         super().__init__()
         self.is_continuous_batching = neuron_config.continuous_batching
-        self.flash_decoding_enabled = False
-        self.num_cores_per_group = 1
+        self.flash_decoding_enabled = True
+        self.num_cores_per_group = 2
 
         max_batch_size = neuron_config.max_batch_size
         num_kv_heads_per_rank = utils.divide(actual_num_key_value_heads, neuron_config.tp_degree)

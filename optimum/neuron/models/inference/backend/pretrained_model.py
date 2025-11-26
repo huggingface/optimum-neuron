@@ -88,6 +88,7 @@ def get_builder(
         debug=debug,
         logical_nc_config=neuron_config.logical_nc_config,
         weights_to_skip_layout_optimization=neuron_config.weights_to_skip_layout_optimization,
+        num_cores_per_group=2,
     )
     for tag, graph_builder in graph_builders.items():
         builder.add(

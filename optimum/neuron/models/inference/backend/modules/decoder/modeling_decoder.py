@@ -85,9 +85,9 @@ class NxDDecoderModelForCausalLM(nn.Module):
         if neuron_config.on_device_sampling:
             # Instantiate a multinomial Sampler (it can still be used for greedy by passing topk=1)
             self.sampler = Sampler(neuron_config, do_sample=True)
-        # FIXME: FlashDecoding is disabled for now
-        self.flash_decoding_enabled = False
-        self.num_cores_per_group = 1
+        # FIXME: FlashDecoding is hard-coded for now
+        self.flash_decoding_enabled = True
+        self.num_cores_per_group = 2
         # Evaluate the sharding strategy and number of kv heads per rank
         _, num_attention_heads, num_key_value_heads = get_shardable_head_counts(
             neuron_config.tp_degree, config.num_attention_heads, config.num_key_value_heads

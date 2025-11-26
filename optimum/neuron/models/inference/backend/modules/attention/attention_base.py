@@ -104,8 +104,8 @@ class NeuronAttentionBase(nn.Module):
         self.max_position_embeddings = config.max_position_embeddings
         self.rope_theta = config.rope_theta
         self.torch_dtype = neuron_config.torch_dtype
-        self.flash_decoding_enabled = False
-        self.num_cores_per_group = 1
+        self.flash_decoding_enabled = True
+        self.num_cores_per_group = 2
         self.rms_norm_eps = config.rms_norm_eps
         self._qk_scale = qk_scale
 
