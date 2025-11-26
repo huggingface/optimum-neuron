@@ -156,7 +156,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         image_encoder: torch.jit._script.ScriptModule | None = None,
         safety_checker: torch.jit._script.ScriptModule | None = None,
         tokenizer: CLIPTokenizer | T5Tokenizer | None = None,
-        tokenizer_2: CLIPTokenizer | None = None,
+        tokenizer_2: CLIPTokenizer | T5Tokenizer | None = None,
         feature_extractor: CLIPFeatureExtractor | None = None,
         controlnet: "torch.jit._script.ScriptModule | list[torch.jit._script.ScriptModule]| NeuronControlNetModel | NeuronMultiControlNetModel | None" = None,
         # stable diffusion xl specific arguments
@@ -200,7 +200,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 Tokenizer of class
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer) for stable diffusion models,
                 or tokenizer of class [T5Tokenizer](https://huggingface.co/docs/transformers/model_doc/t5#transformers.T5Tokenizer) for diffusion transformers.
-            tokenizer_2 (`CLIPTokenizer | None`, defaults to `None`):
+            tokenizer_2 (`CLIPTokenizer | T5Tokenizer | None`, defaults to `None`):
                 Second tokenizer of class
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
             feature_extractor (`CLIPFeatureExtractor | None`, defaults to `None`):
