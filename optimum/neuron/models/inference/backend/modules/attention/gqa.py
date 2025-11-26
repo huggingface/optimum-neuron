@@ -197,6 +197,14 @@ class BaseGroupQueryAttention(nn.Module):
             self._src_num_key_value_heads,
             self.sharding_strategy,
         )
+        if self.num_attention_heads != self._src_num_attention_heads:
+            logger.info(
+                f"Number of attention heads updated from {self._src_num_attention_heads} to {self.num_attention_heads} for sharding."
+            )
+        if self.num_key_value_heads != self._src_num_key_value_heads:
+            logger.info(
+                f"Number of key/value heads updated from {self._src_num_key_value_heads} to {self.num_key_value_heads} for sharding."
+            )
 
     def get_sharding_strategy(self) -> GQA:
         return self.sharding_strategy
