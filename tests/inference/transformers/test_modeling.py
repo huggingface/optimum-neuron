@@ -309,19 +309,19 @@ class NeuronSentenceTransformersIntegrationTest(NeuronModelTestMixin):
 
     @parameterized.expand(["transformer"], skip_on_empty=True)
     @requires_neuronx
-    def test_sentence_transformers_dyn_bs(self, model_arch):
-        self.skipTest("Skipping this test temporarily.")
-        # Neuron model with dynamic batching
+    def test_sentence_transformers_transformer(self, model_arch):
         model_args = {
-            "test_name": model_arch + "_dyn_bs_true",
+            "test_name": model_arch + "_dyn_bs_false",
             "model_arch": model_arch,
-            "dynamic_batch_size": True,
+            "dynamic_batch_size": False,
         }
         self._setup(model_args)
 
         model_id = SENTENCE_TRANSFORMERS_MODEL_NAMES[model_arch]
 
-        neuron_model_dyn = self.NEURON_MODEL_CLASS.from_pretrained(self.neuron_model_dirs[model_arch + "_dyn_bs_true"])
+        neuron_model_dyn = self.NEURON_MODEL_CLASS.from_pretrained(
+            self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
+        )
         self.assertIsInstance(neuron_model_dyn.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(neuron_model_dyn.config, PretrainedConfig)
 
