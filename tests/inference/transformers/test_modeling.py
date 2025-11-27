@@ -310,16 +310,14 @@ class NeuronSentenceTransformersIntegrationTest(NeuronModelTestMixin):
     @parameterized.expand(["transformer"], skip_on_empty=True)
     @requires_neuronx
     def test_sentence_transformers_transformer(self, model_arch):
-        model_args = {
-            "test_name": model_arch + "_dyn_bs_false",
-            "model_arch": model_arch,
-            "dynamic_batch_size": False,
-        }
-        self._setup(model_args)
-
         model_id = SENTENCE_TRANSFORMERS_MODEL_NAMES[model_arch]
+        input_shapes = {
+            "batch_size": 1,
+            "sequence_length": 32,
+        }
 
-        neuron_model = self.NEURON_MODEL_CLASS.from_pretrained(self.neuron_model_dirs[model_arch + "_dyn_bs_false"])
+        neuron_model = self.NEURON_MODEL_CLASS.from_pretrained(model_id, export=True, **input_shapes)
+
         self.assertIsInstance(neuron_model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(neuron_model.config, PretrainedConfig)
 
