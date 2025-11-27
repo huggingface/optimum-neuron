@@ -319,40 +319,37 @@ class NeuronSentenceTransformersIntegrationTest(NeuronModelTestMixin):
 
         model_id = SENTENCE_TRANSFORMERS_MODEL_NAMES[model_arch]
 
-        neuron_model_dyn = self.NEURON_MODEL_CLASS.from_pretrained(
-            self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
-        )
-        self.assertIsInstance(neuron_model_dyn.model, torch.jit._script.ScriptModule)
-        self.assertIsInstance(neuron_model_dyn.config, PretrainedConfig)
+        neuron_model = self.NEURON_MODEL_CLASS.from_pretrained(self.neuron_model_dirs[model_arch + "_dyn_bs_false"])
+        self.assertIsInstance(neuron_model.model, torch.jit._script.ScriptModule)
+        self.assertIsInstance(neuron_model.config, PretrainedConfig)
 
         set_seed(SEED)
         sentence_transformers_model = SentenceTransformer(model_id)
 
-        text = ["This is a sample output"] * 2
-        tokens = neuron_model_dyn.tokenize(text, return_tensors="pt")
-        with torch.no_grad():
-            sentence_transformers_outputs = sentence_transformers_model(tokens)
+        text = ["This is a sample output"]
+        tokens = neuron_model.tokenize(text, return_tensors="pt")
+        sentence_transformers_outputs = sentence_transformers_model(tokens)
 
-        neuron_outputs_dyn = neuron_model_dyn(**tokens)
+        neuron_outputs = neuron_model(**tokens)
 
         # Validate token_embeddings
-        atol = neuron_model_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION
-        self.assertIn("token_embeddings", neuron_outputs_dyn)
-        self.assertIsInstance(neuron_outputs_dyn.token_embeddings, torch.Tensor)
+        atol = neuron_model.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION
+        self.assertIn("token_embeddings", neuron_outputs)
+        self.assertIsInstance(neuron_outputs.token_embeddings, torch.Tensor)
         self.assertTrue(
             torch.allclose(
-                neuron_outputs_dyn.token_embeddings,
+                neuron_outputs.token_embeddings,
                 sentence_transformers_outputs.token_embeddings,
                 atol=atol,
             )
         )
 
         # Validate sentence_embedding
-        self.assertIn("sentence_embedding", neuron_outputs_dyn)
-        self.assertIsInstance(neuron_outputs_dyn.sentence_embedding, torch.Tensor)
+        self.assertIn("sentence_embedding", neuron_outputs)
+        self.assertIsInstance(neuron_outputs.sentence_embedding, torch.Tensor)
         self.assertTrue(
             torch.allclose(
-                neuron_outputs_dyn.sentence_embedding,
+                neuron_outputs.sentence_embedding,
                 sentence_transformers_outputs.sentence_embedding,
                 atol=atol,
             )
@@ -361,9 +358,9 @@ class NeuronSentenceTransformersIntegrationTest(NeuronModelTestMixin):
         # Encode + Similarity
         sentences_1 = ["Life is pain au chocolat", "Life is galette des rois"]
         sentences_2 = ["Life is eclaire au cafe", "Life is mille feuille"]
-        embeddings_1 = neuron_model_dyn.encode(sentences_1, normalize_embeddings=True)
-        embeddings_2 = neuron_model_dyn.encode(sentences_2, normalize_embeddings=True)
-        similarity = neuron_model_dyn.similarity(embeddings_1, embeddings_2)
+        embeddings_1 = neuron_outputs.encode(sentences_1, normalize_embeddings=True)
+        embeddings_2 = neuron_outputs.encode(sentences_2, normalize_embeddings=True)
+        similarity = neuron_outputs.similarity(embeddings_1, embeddings_2)
         self.assertIsInstance(similarity, torch.Tensor)
 
         gc.collect()
