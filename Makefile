@@ -13,6 +13,8 @@
 #  limitations under the License.
 SHELL := /bin/bash
 CURRENT_DIR = $(shell pwd)
+UV = $(shell command -v uv)
+UV_ARGS = $(if $(UV),--index-strategy unsafe-best-match)
 
 .PHONY:	build_dist style style_check clean
 
@@ -37,6 +39,14 @@ PACKAGE_FILES = $(PACKAGE_PYTHON_FILES)  \
 # Package build recipe
 $(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)
 	python -m build
+
+# Installation
+install: $(PACKAGE_DIST)
+	# Force CPU version of torch to speed up installation time
+	$(UV) pip install --upgrade $(PACKAGE_DIST)[neuronx] \
+		--extra-index-url https://download.pytorch.org/whl/cpu \
+		--extra-index-url https://pip.repos.neuron.amazonaws.com \
+		$(UV_ARGS)
 
 # Run code quality checks
 style_check:
