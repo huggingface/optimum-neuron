@@ -13,9 +13,6 @@
 #  limitations under the License.
 SHELL := /bin/bash
 CURRENT_DIR = $(shell pwd)
-DEFAULT_CLONE_URL := https://github.com/huggingface/optimum-neuron.git
-# If CLONE_URL is empty, revert to DEFAULT_CLONE_URL
-REAL_CLONE_URL = $(if $(CLONE_URL),$(CLONE_URL),$(DEFAULT_CLONE_URL))
 
 .PHONY:	build_dist style style_check clean
 
