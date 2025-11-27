@@ -17,7 +17,7 @@
 import pytest
 
 from optimum.neuron import NeuronModelForSeq2SeqLM
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx
 
 
 @pytest.mark.parametrize(
@@ -27,7 +27,6 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
         [1, 64, 4],
     ],
 )
-@is_inferentia_test
 @requires_neuronx
 def test_seq2seq_export(export_seq2seq_id, batch_size, sequence_length, num_beams):
     model = NeuronModelForSeq2SeqLM.from_pretrained(
@@ -40,7 +39,6 @@ def test_seq2seq_export(export_seq2seq_id, batch_size, sequence_length, num_beam
     return model
 
 
-@is_inferentia_test
 @requires_neuronx
 def test_seq2seq_model_from_path(neuron_seq2seq_greedy_path):
     model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_greedy_path)

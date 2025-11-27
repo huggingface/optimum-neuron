@@ -66,4 +66,4 @@ jobs:
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           export RANDOM_TASK_PER_MODEL=TRUE
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/exporters --durations=0 --timeout=300
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest tests/exporters --durations=0 --timeout=300

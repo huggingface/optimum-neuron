@@ -66,7 +66,7 @@ from optimum.neuron import (
     pipeline,
 )
 from optimum.neuron.utils import NEURON_FILE_NAME
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx, slow
 
 from ..inference_utils import (
     MODEL_NAMES,
@@ -80,7 +80,6 @@ from ..inference_utils import (
 logger = logging.get_logger()
 
 
-@is_inferentia_test
 class NeuronModelIntegrationTest(NeuronModelIntegrationTestMixin):
     MODEL_ID = MODEL_NAMES["bert"]
     NEURON_MODEL_REPO = "tiny_random_bert_neuronx"
@@ -184,7 +183,6 @@ class NeuronModelIntegrationTest(NeuronModelIntegrationTestMixin):
             self.assertIsInstance(neuron_model.model, torch.jit._script.ScriptModule)
 
 
-@is_inferentia_test
 class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForFeatureExtraction
     TASK = "feature-extraction"
@@ -205,7 +203,6 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         "xlm",
         "xlm-roberta",
     ]
-    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -261,30 +258,29 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
                     f"`pooler_output` between pytorch model and neuron model of {model_arch} not close enough."
                 )
 
-    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
-    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+    def _run_compare_to_transformers(self, model_arch: str, dynamic_batch_size: bool, batch_size: int, tag: str):
         model_args = {
-            "test_name": model_arch + "_dyn_bs_false",
+            "test_name": model_arch + tag,
             "model_arch": model_arch,
-            "dynamic_batch_size": False,
+            "dynamic_batch_size": dynamic_batch_size,
         }
         self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_false", batch_size=1)
-
+        self._validate_outputs(model_arch, tag, batch_size=batch_size)
         gc.collect()
+
+    def test_compare_to_transformers_non_dyn_bs(self):
+        model_arch = "albert"
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @slow
+    def test_compare_to_transformers_non_dyn_bs_all_archs(self, model_arch):
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
 
     def test_compare_to_transformers_dyn_bs(self):
         model_arch = "albert"
         # Neuron model with dynamic batching
-        model_args = {
-            "test_name": model_arch + "_dyn_bs_true",
-            "model_arch": model_arch,
-            "dynamic_batch_size": True,
-        }
-        self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_true", batch_size=2)
-
-        gc.collect()
+        self._run_compare_to_transformers(model_arch, True, 2, "_dyn_bs_true")
 
     def test_pipeline_model(self):
         model_arch = "albert"
@@ -300,7 +296,6 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
 class NeuronSentenceTransformersIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronSentenceTransformers
     TASK = "feature-extraction"
@@ -414,7 +409,6 @@ class NeuronSentenceTransformersIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
 class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForMaskedLM
     TASK = "fill-mask"
@@ -435,7 +429,6 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
         "xlm",
         "xlm-roberta",
     ]
-    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -479,30 +472,29 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
-    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+    def _run_compare_to_transformers(self, model_arch: str, dynamic_batch_size: bool, batch_size: int, tag: str):
         model_args = {
-            "test_name": model_arch + "_dyn_bs_false",
+            "test_name": model_arch + tag,
             "model_arch": model_arch,
-            "dynamic_batch_size": False,
+            "dynamic_batch_size": dynamic_batch_size,
         }
         self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_false", batch_size=1)
-
+        self._validate_outputs(model_arch, tag, batch_size=batch_size)
         gc.collect()
+
+    def test_compare_to_transformers_non_dyn_bs(self):
+        model_arch = "albert"
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @slow
+    def test_compare_to_transformers_non_dyn_bs_all_archs(self, model_arch):
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
 
     def test_compare_to_transformers_dyn_bs(self):
         model_arch = "albert"
         # Neuron model with dynamic batching
-        model_args = {
-            "test_name": model_arch + "_dyn_bs_true",
-            "model_arch": model_arch,
-            "dynamic_batch_size": True,
-        }
-        self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_true", batch_size=2)
-
-        gc.collect()
+        self._run_compare_to_transformers(model_arch, True, 2, "_dyn_bs_true")
 
     def test_pipeline_model(self):
         model_arch = "albert"
@@ -520,7 +512,6 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
 class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForQuestionAnswering
     TASK = "question-answering"
@@ -541,7 +532,6 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
         "xlm",
         "xlm-roberta",
     ]
-    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -592,30 +582,29 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
         if not result_close_end_logits:
             warnings.warn(f"End logits between pytorch model and neuron model of {model_arch} not close enough.")
 
+    def _run_compare_to_transformers(self, model_arch: str, dynamic_batch_size: bool, batch_size: int, tag: str):
+        model_args = {
+            "test_name": model_arch + tag,
+            "model_arch": model_arch,
+            "dynamic_batch_size": dynamic_batch_size,
+        }
+        self._setup(model_args)
+        self._validate_outputs(model_arch, tag, batch_size=batch_size)
+        gc.collect()
+
+    def test_compare_to_transformers_non_dyn_bs(self):
+        model_arch = "albert"
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @slow
+    def test_compare_to_transformers_non_dyn_bs_all_archs(self, model_arch):
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
+
     def test_compare_to_transformers_dyn_bs(self):
         model_arch = "albert"
         # Neuron model with dynamic batching
-        model_args = {
-            "test_name": model_arch + "_dyn_bs_true",
-            "model_arch": model_arch,
-            "dynamic_batch_size": True,
-        }
-        self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_true", batch_size=2)
-
-        gc.collect()
-
-    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
-    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
-        model_args = {
-            "test_name": model_arch + "_dyn_bs_false",
-            "model_arch": model_arch,
-            "dynamic_batch_size": False,
-        }
-        self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_false", batch_size=1)
-
-        gc.collect()
+        self._run_compare_to_transformers(model_arch, True, 2, "_dyn_bs_true")
 
     def test_pipeline_model(self):
         model_arch = "albert"
@@ -634,7 +623,6 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
 class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForSequenceClassification
     TASK = "text-classification"
@@ -701,30 +689,29 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
-    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+    def _run_compare_to_transformers(self, model_arch: str, dynamic_batch_size: bool, batch_size: int, tag: str):
         model_args = {
-            "test_name": model_arch + "_dyn_bs_false",
+            "test_name": model_arch + tag,
             "model_arch": model_arch,
-            "dynamic_batch_size": False,
+            "dynamic_batch_size": dynamic_batch_size,
         }
         self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_false", batch_size=1)
-
+        self._validate_outputs(model_arch, tag, batch_size=batch_size)
         gc.collect()
+
+    def test_compare_to_transformers_non_dyn_bs(self):
+        model_arch = "albert"
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @slow
+    def test_compare_to_transformers_non_dyn_bs_all_archs(self, model_arch):
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
 
     def test_compare_to_transformers_dyn_bs(self):
         model_arch = "albert"
         # Neuron model with dynamic batching
-        model_args = {
-            "test_name": model_arch + "_dyn_bs_true",
-            "model_arch": model_arch,
-            "dynamic_batch_size": True,
-        }
-        self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_true", batch_size=2)
-
-        gc.collect()
+        self._run_compare_to_transformers(model_arch, True, 2, "_dyn_bs_true")
 
     def test_pipeline_model(self):
         model_arch = "albert"
@@ -741,7 +728,6 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
 class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForTokenClassification
     TASK = "token-classification"
@@ -806,30 +792,29 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
-    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+    def _run_compare_to_transformers(self, model_arch: str, dynamic_batch_size: bool, batch_size: int, tag: str):
         model_args = {
-            "test_name": model_arch + "_dyn_bs_false",
+            "test_name": model_arch + tag,
             "model_arch": model_arch,
-            "dynamic_batch_size": False,
+            "dynamic_batch_size": dynamic_batch_size,
         }
         self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_false", batch_size=1)
-
+        self._validate_outputs(model_arch, tag, batch_size=batch_size)
         gc.collect()
+
+    def test_compare_to_transformers_non_dyn_bs(self):
+        model_arch = "albert"
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @slow
+    def test_compare_to_transformers_non_dyn_bs_all_archs(self, model_arch):
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
 
     def test_compare_to_transformers_dyn_bs(self):
         model_arch = "albert"
         # Neuron model with dynamic batching
-        model_args = {
-            "test_name": model_arch + "_dyn_bs_true",
-            "model_arch": model_arch,
-            "dynamic_batch_size": True,
-        }
-        self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_true", batch_size=2)
-
-        gc.collect()
+        self._run_compare_to_transformers(model_arch, True, 2, "_dyn_bs_true")
 
     def test_pipeline_model(self):
         model_arch = "albert"
@@ -845,7 +830,6 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
 class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForMultipleChoice
     TASK = "multiple-choice"
@@ -917,33 +901,31 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
-    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+    def _run_compare_to_transformers(self, model_arch: str, dynamic_batch_size: bool, tag: str):
         model_args = {
-            "test_name": model_arch + "_dyn_bs_false",
+            "test_name": model_arch + tag,
             "model_arch": model_arch,
-            "dynamic_batch_size": False,
+            "dynamic_batch_size": dynamic_batch_size,
         }
         self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_false")
-
+        self._validate_outputs(model_arch, tag)
         gc.collect()
+
+    def test_compare_to_transformers_non_dyn_bs(self):
+        model_arch = "albert"
+        self._run_compare_to_transformers(model_arch, False, "_dyn_bs_false")
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @slow
+    def test_compare_to_transformers_non_dyn_bs_all_archs(self, model_arch):
+        self._run_compare_to_transformers(model_arch, False, "_dyn_bs_false")
 
     def test_compare_to_transformers_dyn_bs(self):
-        # Neuron model with dynamic batching
         model_arch = "albert"
-        model_args = {
-            "test_name": model_arch + "_dyn_bs_true",
-            "model_arch": model_arch,
-            "dynamic_batch_size": True,
-        }
-        self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_true")
-
-        gc.collect()
+        # Neuron model with dynamic batching
+        self._run_compare_to_transformers(model_arch, True, "_dyn_bs_true")
 
 
-@is_inferentia_test
 class NeuronModelForImageClassificationIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForImageClassification
     TASK = "image-classification"
@@ -1008,30 +990,29 @@ class NeuronModelForImageClassificationIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
-    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+    def _run_compare_to_transformers(self, model_arch: str, dynamic_batch_size: bool, batch_size: int, tag: str):
         model_args = {
-            "test_name": model_arch + "_dyn_bs_false",
+            "test_name": model_arch + tag,
             "model_arch": model_arch,
-            "dynamic_batch_size": False,
+            "dynamic_batch_size": dynamic_batch_size,
         }
         self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_false", batch_size=1)
-
+        self._validate_outputs(model_arch, tag, batch_size=batch_size)
         gc.collect()
+
+    def test_compare_to_transformers_non_dyn_bs(self):
+        model_arch = "vit"
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @slow
+    def test_compare_to_transformers_non_dyn_bs_all_archs(self, model_arch):
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
 
     def test_compare_to_transformers_dyn_bs(self):
-        # Neuron model with dynamic batching
         model_arch = "vit"
-        model_args = {
-            "test_name": model_arch + "_dyn_bs_true",
-            "model_arch": model_arch,
-            "dynamic_batch_size": True,
-        }
-        self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_true", batch_size=2)
-
-        gc.collect()
+        # Neuron model with dynamic batching
+        self._run_compare_to_transformers(model_arch, True, 2, "_dyn_bs_true")
 
     def test_pipeline_model(self):
         model_arch = "vit"
@@ -1050,7 +1031,6 @@ class NeuronModelForImageClassificationIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
 class NeuronModelForSemanticSegmentationIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForSemanticSegmentation
     TASK = "semantic-segmentation"
@@ -1059,7 +1039,6 @@ class NeuronModelForSemanticSegmentationIntegrationTest(NeuronModelTestMixin):
         "mobilenet_v2",
         "mobilevit",
     ]
-    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -1107,30 +1086,29 @@ class NeuronModelForSemanticSegmentationIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
-    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+    def _run_compare_to_transformers(self, model_arch: str, dynamic_batch_size: bool, batch_size: int, tag: str):
         model_args = {
-            "test_name": model_arch + "_dyn_bs_false",
+            "test_name": model_arch + tag,
             "model_arch": model_arch,
-            "dynamic_batch_size": False,
+            "dynamic_batch_size": dynamic_batch_size,
         }
         self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_false", batch_size=1)
-
+        self._validate_outputs(model_arch, tag, batch_size=batch_size)
         gc.collect()
+
+    def test_compare_to_transformers_non_dyn_bs(self):
+        model_arch = "mobilevit"
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @slow
+    def test_compare_to_transformers_non_dyn_bs_all_archs(self, model_arch):
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
 
     def test_compare_to_transformers_dyn_bs(self):
-        # Neuron model with dynamic batching
         model_arch = "mobilevit"
-        model_args = {
-            "test_name": model_arch + "_dyn_bs_true",
-            "model_arch": model_arch,
-            "dynamic_batch_size": True,
-        }
-        self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_true", batch_size=2)
-
-        gc.collect()
+        # Neuron model with dynamic batching
+        self._run_compare_to_transformers(model_arch, True, 2, "_dyn_bs_true")
 
     def test_pipeline_model(self):
         model_arch = "mobilevit"
@@ -1149,13 +1127,11 @@ class NeuronModelForSemanticSegmentationIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
 class NeuronModelForObjectDetectionIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForObjectDetection
     TASK = "object-detection"
     ATOL_FOR_VALIDATION = 1e-3
     SUPPORTED_ARCHITECTURES = ["yolos"]
-    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -1204,30 +1180,29 @@ class NeuronModelForObjectDetectionIntegrationTest(NeuronModelTestMixin):
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
             )
 
-    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
-    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+    def _run_compare_to_transformers(self, model_arch: str, dynamic_batch_size: bool, batch_size: int, tag: str):
         model_args = {
-            "test_name": model_arch + "_dyn_bs_false",
+            "test_name": model_arch + tag,
             "model_arch": model_arch,
-            "dynamic_batch_size": False,
+            "dynamic_batch_size": dynamic_batch_size,
         }
         self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_false", batch_size=1)
-
+        self._validate_outputs(model_arch, tag, batch_size=batch_size)
         gc.collect()
+
+    def test_compare_to_transformers_non_dyn_bs(self):
+        model_arch = "yolos"
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @slow
+    def test_compare_to_transformers_non_dyn_bs_all_archs(self, model_arch):
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
 
     def test_compare_to_transformers_dyn_bs(self):
-        # Neuron model with dynamic batching
         model_arch = "yolos"
-        model_args = {
-            "test_name": model_arch + "_dyn_bs_true",
-            "model_arch": model_arch,
-            "dynamic_batch_size": True,
-        }
-        self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_true", batch_size=2)
-
-        gc.collect()
+        # Neuron model with dynamic batching
+        self._run_compare_to_transformers(model_arch, True, 2, "_dyn_bs_true")
 
     def test_pipeline_model(self):
         model_arch = "yolos"
@@ -1243,14 +1218,12 @@ class NeuronModelForObjectDetectionIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
 class NeuronModelForCTCIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForCTC
     TASK = "automatic-speech-recognition"
     STATIC_INPUTS_SHAPES = {"batch_size": 1, "audio_sequence_length": 100000}
     ATOL_FOR_VALIDATION = 1e-3
     SUPPORTED_ARCHITECTURES = ["wav2vec2"]
-    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -1285,30 +1258,29 @@ class NeuronModelForCTCIntegrationTest(NeuronModelTestMixin):
         self.assertIn("logits", neuron_outputs)
         self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
 
-    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
-    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+    def _run_compare_to_transformers(self, model_arch: str, dynamic_batch_size: bool, batch_size: int, tag: str):
         model_args = {
-            "test_name": model_arch + "_dyn_bs_false",
+            "test_name": model_arch + tag,
             "model_arch": model_arch,
-            "dynamic_batch_size": False,
+            "dynamic_batch_size": dynamic_batch_size,
         }
         self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_false", batch_size=1)
-
+        self._validate_outputs(model_arch, tag, batch_size=batch_size)
         gc.collect()
+
+    def test_compare_to_transformers_non_dyn_bs(self):
+        model_arch = "wav2vec2"
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @slow
+    def test_compare_to_transformers_non_dyn_bs_all_archs(self, model_arch):
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
 
     def test_compare_to_transformers_dyn_bs(self):
-        # Neuron model with dynamic batching
         model_arch = "wav2vec2"
-        model_args = {
-            "test_name": model_arch + "_dyn_bs_true",
-            "model_arch": model_arch,
-            "dynamic_batch_size": True,
-        }
-        self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_true", batch_size=2)
-
-        gc.collect()
+        # Neuron model with dynamic batching
+        self._run_compare_to_transformers(model_arch, True, 2, "_dyn_bs_true")
 
     def test_pipeline_model(self):
         model_arch = "wav2vec2"
@@ -1332,14 +1304,12 @@ class NeuronModelForCTCIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
 class NeuronModelForAudioClassificationIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForAudioClassification
     TASK = "audio-classification"
     STATIC_INPUTS_SHAPES = {"batch_size": 1, "audio_sequence_length": 100000}
     ATOL_FOR_VALIDATION = 1e-3
     SUPPORTED_ARCHITECTURES = ["wav2vec2"]
-    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -1374,30 +1344,29 @@ class NeuronModelForAudioClassificationIntegrationTest(NeuronModelTestMixin):
         self.assertIn("logits", neuron_outputs)
         self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
 
-    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
-    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+    def _run_compare_to_transformers(self, model_arch: str, dynamic_batch_size: bool, batch_size: int, tag: str):
         model_args = {
-            "test_name": model_arch + "_dyn_bs_false",
+            "test_name": model_arch + tag,
             "model_arch": model_arch,
-            "dynamic_batch_size": False,
+            "dynamic_batch_size": dynamic_batch_size,
         }
         self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_false", batch_size=1)
-
+        self._validate_outputs(model_arch, tag, batch_size=batch_size)
         gc.collect()
+
+    def test_compare_to_transformers_non_dyn_bs(self):
+        model_arch = "wav2vec2"
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @slow
+    def test_compare_to_transformers_non_dyn_bs_all_archs(self, model_arch):
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
 
     def test_compare_to_transformers_dyn_bs(self):
-        # Neuron model with dynamic batching
         model_arch = "wav2vec2"
-        model_args = {
-            "test_name": model_arch + "_dyn_bs_true",
-            "model_arch": model_arch,
-            "dynamic_batch_size": True,
-        }
-        self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_true", batch_size=2)
-
-        gc.collect()
+        # Neuron model with dynamic batching
+        self._run_compare_to_transformers(model_arch, True, 2, "_dyn_bs_true")
 
     def test_pipeline_model(self):
         model_arch = "wav2vec2"
@@ -1421,14 +1390,12 @@ class NeuronModelForAudioClassificationIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
 class NeuronModelForAudioFrameClassificationIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForAudioFrameClassification
     TASK = "audio-frame-classification"
     STATIC_INPUTS_SHAPES = {"batch_size": 1, "audio_sequence_length": 100000}
     ATOL_FOR_VALIDATION = 1e-3
     SUPPORTED_ARCHITECTURES = ["wav2vec2"]
-    ONE_ARCH = [random.choice(SUPPORTED_ARCHITECTURES)]
 
     def _load_neuron_model_and_processor(self, model_arch, suffix):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
@@ -1465,33 +1432,31 @@ class NeuronModelForAudioFrameClassificationIntegrationTest(NeuronModelTestMixin
         self.assertIn("logits", neuron_outputs)
         self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
 
-    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
-    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+    def _run_compare_to_transformers(self, model_arch: str, dynamic_batch_size: bool, batch_size: int, tag: str):
         model_args = {
-            "test_name": model_arch + "_dyn_bs_false",
+            "test_name": model_arch + tag,
             "model_arch": model_arch,
-            "dynamic_batch_size": False,
+            "dynamic_batch_size": dynamic_batch_size,
         }
         self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_false", batch_size=1)
-
+        self._validate_outputs(model_arch, tag, batch_size=batch_size)
         gc.collect()
+
+    def test_compare_to_transformers_non_dyn_bs(self):
+        model_arch = "wav2vec2"
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @slow
+    def test_compare_to_transformers_non_dyn_bs_all_archs(self, model_arch):
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
 
     def test_compare_to_transformers_dyn_bs(self):
-        # Neuron model with dynamic batching
         model_arch = "wav2vec2"
-        model_args = {
-            "test_name": model_arch + "_dyn_bs_true",
-            "model_arch": model_arch,
-            "dynamic_batch_size": True,
-        }
-        self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_true", batch_size=2)
-
-        gc.collect()
+        # Neuron model with dynamic batching
+        self._run_compare_to_transformers(model_arch, True, 2, "_dyn_bs_true")
 
 
-@is_inferentia_test
 class NeuronModelForXVectorIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForXVector
     TASK = "audio-xvector"
@@ -1533,27 +1498,26 @@ class NeuronModelForXVectorIntegrationTest(NeuronModelTestMixin):
         self.assertIn("logits", neuron_outputs)
         self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
 
-    @parameterized.expand(ONE_ARCH, skip_on_empty=True)
-    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+    def _run_compare_to_transformers(self, model_arch: str, dynamic_batch_size: bool, batch_size: int, tag: str):
         model_args = {
-            "test_name": model_arch + "_dyn_bs_false",
+            "test_name": model_arch + tag,
             "model_arch": model_arch,
-            "dynamic_batch_size": False,
+            "dynamic_batch_size": dynamic_batch_size,
         }
         self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_false", batch_size=1)
-
+        self._validate_outputs(model_arch, tag, batch_size=batch_size)
         gc.collect()
+
+    def test_compare_to_transformers_non_dyn_bs(self):
+        model_arch = "wav2vec2"
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @slow
+    def test_compare_to_transformers_non_dyn_bs_all_archs(self, model_arch):
+        self._run_compare_to_transformers(model_arch, False, 1, "_dyn_bs_false")
 
     def test_compare_to_transformers_dyn_bs(self):
-        # Neuron model with dynamic batching
         model_arch = "wav2vec2"
-        model_args = {
-            "test_name": model_arch + "_dyn_bs_true",
-            "model_arch": model_arch,
-            "dynamic_batch_size": True,
-        }
-        self._setup(model_args)
-        self._validate_outputs(model_arch, "_dyn_bs_true", batch_size=2)
-
-        gc.collect()
+        # Neuron model with dynamic batching
+        self._run_compare_to_transformers(model_arch, True, 2, "_dyn_bs_true")

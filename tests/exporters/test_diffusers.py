@@ -31,7 +31,7 @@ from optimum.exporters.neuron import (
 from optimum.exporters.neuron.__main__ import get_submodels_and_neuron_configs
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.neuron.utils import LoRAAdapterArguments
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx
 
 from .exporters_utils import (
     LORA_WEIGHTS_TINY,
@@ -45,7 +45,6 @@ if is_diffusers_available():
 SEED = 42
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_vision
 @require_diffusers

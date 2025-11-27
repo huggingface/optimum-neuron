@@ -26,10 +26,9 @@ from optimum.neuron.modeling_diffusion import (
     NeuronModelVaeDecoder,
     NeuronModelVaeEncoder,
 )
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_flux_txt2img(neuron_flux_tp2_path):
@@ -48,7 +47,6 @@ def test_flux_txt2img(neuron_flux_tp2_path):
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_flux_inpaint(neuron_flux_tp2_path):
@@ -69,7 +67,6 @@ def test_flux_inpaint(neuron_flux_tp2_path):
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_flux_kontext_img_edit(neuron_flux_kontext_tp2_path):

@@ -49,7 +49,7 @@ from optimum.exporters.neuron import (
 from optimum.exporters.neuron.__main__ import get_submodels_and_neuron_configs
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.neuron.utils import InputShapesArguments, is_neuron_available
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx
 
 from .exporters_utils import (
     ENCODER_DECODER_MODELS_TINY,
@@ -134,7 +134,6 @@ class NeuronExportTestCase(unittest.TestCase):
                 self.fail(f"{model_type}, {task} -> {e}")
 
     @parameterized.expand(get_models_to_test(EXPORT_MODELS_TINY, library_name="transformers"))
-    @is_inferentia_test
     def test_export(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
 
@@ -146,14 +145,12 @@ class NeuronExportTestCase(unittest.TestCase):
         )
     )
     @slow
-    @is_inferentia_test
     def test_export_separated_weights(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(
             test_name, name, model_name, task, neuron_config_constructor, inline_weights_to_neff=False
         )
 
     @parameterized.expand(get_models_to_test(SENTENCE_TRANSFORMERS_MODELS, library_name="sentence_transformers"))
-    @is_inferentia_test
     @require_sentence_transformers
     @requires_neuronx
     def test_export_sentence_transformers(self, test_name, name, model_name, task, neuron_config_constructor):
@@ -161,13 +158,11 @@ class NeuronExportTestCase(unittest.TestCase):
 
     @parameterized.expand(get_models_to_test(EXPORT_MODELS_TINY, library_name="transformers"), skip_on_empty=True)
     @slow
-    @is_inferentia_test
     @requires_neuronx
     def test_export_with_dynamic_batch_size(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor, dynamic_batch_size=True)
 
 
-@is_inferentia_test
 @requires_neuronx
 class NeuronEncoderDecoderExportTestCase(unittest.TestCase):
     """

@@ -49,15 +49,15 @@ jobs:
       - name: Run export cli seq2seq tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/inference/seq2seq/test_export_cli.py
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest tests/inference/seq2seq/test_export_cli.py
       - name: Run single core seq2seq tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
-          pytest -m is_inferentia_test tests/inference/seq2seq/test_export.py
-          pytest -m is_inferentia_test tests/inference/seq2seq/test_generate.py
-          pytest -m is_inferentia_test tests/inference/seq2seq/test_hub.py
+          pytest tests/inference/seq2seq/test_export.py
+          pytest tests/inference/seq2seq/test_generate.py
+          pytest tests/inference/seq2seq/test_hub.py
       - name: Run parallel seq2seq tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/inference/seq2seq/test_parallel.py
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest tests/inference/seq2seq/test_parallel.py

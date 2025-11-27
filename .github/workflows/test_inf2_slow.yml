@@ -19,24 +19,9 @@ on:
       - "optimum/neuron/utils/**.py"
       - "tests/inference/transformers/**.py"
       - ".github/workflows/test_inf2_transformers.yml"
-  pull_request:
-    branches: [ main ]
-    paths:
-      - "pyproject.toml"
-      - "optimum/commands/export/neuronx.py"
-      - "optimum/exporters/**.py"
-      - "optimum/neuron/cache/**.py"
-      - "optimum/neuron/modeling_base.py"
-      - "optimum/neuron/modeling_traced.py"
-      - "optimum/neuron/models/inference/bert/**.py"
-      - "optimum/neuron/models/inference/clip/**.py"
-      - "optimum/neuron/models/inference/t5/**.py"
-      - "optimum/neuron/models/inference/whisper/**.py"
-      - "optimum/neuron/models/inference/yolos/**.py"
-      - "optimum/neuron/pipelines/transformers/**.py"
-      - "optimum/neuron/utils/**.py"
-      - "tests/inference/transformers/**.py"
-      - ".github/workflows/test_inf2_transformers.yml"
+  
+  schedule:
+    - cron: "0 1 * * *"  # every day at 01:00 UTC
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -61,22 +46,8 @@ jobs:
           sudo apt-get install ffmpeg -y
           source aws_neuron_venv_pytorch/bin/activate
           pip install datasets[audio]
-      - name: Run transformers cache tests
+      - name: Run transformers inference slow tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
-          pytest tests/inference/transformers/test_cache.py
-      - name: Run transformers export CLI tests
-        run: |
-          source aws_neuron_venv_pytorch/bin/activate
-          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
-          pytest tests/inference/transformers/test_export_cli.py
-      - name: Run transformers inference tests (fast)
-        run: |
-          source aws_neuron_venv_pytorch/bin/activate
-          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
-          pytest "not slow" tests/inference/transformers/test_modeling.py
-      - name: Run pipelines tests
-        run: |
-          source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest tests/pipelines
+          pytest -m slow tests/inference/transformers/test_modeling.py

@@ -157,7 +157,7 @@ known-first-party = ["optimum.neuron"]
 markers = [
     "is_staging_test",
     "is_trainium_test",
-    "is_inferentia_test",
+    "slow",
     "neuron_parallel_compile",
     "flagship_model",
 ]

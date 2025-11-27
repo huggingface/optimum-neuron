@@ -21,7 +21,7 @@ from optimum.neuron import (
     NeuronModelForSequenceClassification,
 )
 from optimum.neuron.cache import get_hub_cached_entries, synchronize_hub_cache
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx
 
 from ..cache_utils import (
     assert_local_and_hub_cache_sync,
@@ -51,7 +51,6 @@ def check_encoder_inference(model, tokenizer):
     assert "logits" in outputs
 
 
-@is_inferentia_test
 @requires_neuronx
 def test_encoder_cache(cache_repos):
     cache_path, cache_repo_id = cache_repos

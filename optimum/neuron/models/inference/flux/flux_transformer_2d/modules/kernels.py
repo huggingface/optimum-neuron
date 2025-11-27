@@ -15,6 +15,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Kernels copied from neuronx_distributed_inference.models.diffusers.flux.kernels."""
 
 import neuronxcc.nki as nki
 import neuronxcc.nki.language as nl
