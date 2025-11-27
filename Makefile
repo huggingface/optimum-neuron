@@ -38,11 +38,6 @@ PACKAGE_FILES = $(PACKAGE_PYTHON_FILES)  \
 $(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)
 	python -m build
 
-# Creates example scripts from Transformers
-transformers_examples:
-	rm -f examples/**/*.py
-	python tools/create_examples_from_transformers.py --version $(VERSION) examples
-
 # Run code quality checks
 style_check:
 	ruff check .
@@ -61,12 +56,6 @@ build_dist: ${PACKAGE_DIST} ${PACKAGE_WHEEL}
 
 pypi_upload: ${PACKAGE_DIST} ${PACKAGE_WHEEL}
 	python -m twine upload ${PACKAGE_DIST} ${PACKAGE_WHEEL}
-
-# Tests
-
-test_installs:
-	python -m pip install .[tests]
-	python -m pip install git+https://github.com/huggingface/transformers.git
 
 # Docker images
 
