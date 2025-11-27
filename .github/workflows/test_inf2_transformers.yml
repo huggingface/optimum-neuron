@@ -75,7 +75,7 @@ jobs:
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
-          pytest "not slow" tests/inference/transformers/test_modeling.py
+          pytest -m "not slow" tests/inference/transformers/test_modeling.py
       - name: Run pipelines tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
