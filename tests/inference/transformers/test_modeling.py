@@ -358,9 +358,9 @@ class NeuronSentenceTransformersIntegrationTest(NeuronModelTestMixin):
         # Encode + Similarity
         sentences_1 = ["Life is pain au chocolat", "Life is galette des rois"]
         sentences_2 = ["Life is eclaire au cafe", "Life is mille feuille"]
-        embeddings_1 = neuron_outputs.encode(sentences_1, normalize_embeddings=True)
-        embeddings_2 = neuron_outputs.encode(sentences_2, normalize_embeddings=True)
-        similarity = neuron_outputs.similarity(embeddings_1, embeddings_2)
+        embeddings_1 = neuron_model.encode(sentences_1, normalize_embeddings=True)
+        embeddings_2 = neuron_model.encode(sentences_2, normalize_embeddings=True)
+        similarity = neuron_model.similarity(embeddings_1, embeddings_2)
         self.assertIsInstance(similarity, torch.Tensor)
 
         gc.collect()
