@@ -14,10 +14,12 @@
 # limitations under the License.
 
 import math
+from typing import Literal
 
 import numpy as np
 import torch
 import torch.distributed as dist
+import torch.nn.functional as F
 from optimum.utils import logging
 from torch.utils.data import Dataset
 from torch.utils.data.distributed import DistributedSampler
@@ -64,6 +66,89 @@ def pad(
 
     return output
 
+
+def pad_or_truncate_to_length(
+    tensor: torch.Tensor,
+    length: int,
+    dim: int = 0,
+    padding_value: int = 0,
+    padding_or_truncate_side: Literal["left", "right"] = "right",
+) -> torch.Tensor:
+    """
+    Pads or truncates a tensor to a given length along the provided dimension.
+
+    Args:
+        tensor: Input tensor to pad or truncate
+        length: Target length
+        dim: Dimension along which to pad/truncate
+        padding_value: Value to use for padding
+        padding_or_truncate_side: Side for both padding and truncation
+            - "left": Pads on left, truncates from left (keeps last tokens)
+            - "right": Pads on right, truncates from right (keeps first tokens)
+    """
+    current_length = tensor.shape[dim]
+    if current_length == length:
+        return tensor
+    elif current_length > length:
+        # Truncate
+        slice_ = [slice(None)] * tensor.dim()
+        if padding_or_truncate_side == "left":
+            # Keep last tokens (truncate from left)
+            slice_[dim] = slice(current_length - length, current_length)
+        elif padding_or_truncate_side == "right":
+            # Keep first tokens (truncate from right)
+            slice_[dim] = slice(0, length)
+        else:
+            raise ValueError("padding_or_truncate_side must be 'left' or 'right'")
+        return tensor[slice_]
+    else:
+        # Pad
+        padding_shape = list(tensor.shape)
+        padding_shape[dim] = length - current_length
+        padding = torch.full(padding_shape, padding_value, dtype=tensor.dtype, device=tensor.device)
+        if padding_or_truncate_side == "left":
+            return torch.cat([padding, tensor], dim=dim)
+        elif padding_or_truncate_side == "right":
+            return torch.cat([tensor, padding], dim=dim)
+        else:
+            raise ValueError("padding_or_truncate_side must be 'left' or 'right'")
+
+
+def entropy_from_logits(logits: torch.Tensor, chunk_size: int = 128) -> torch.Tensor:
+    """
+    Compute the Shannon entropy (in nats) for each row of *logits* in a memory-efficient way.
+
+    Instead of materializing the full softmax for all rows at once, the logits are flattened to shape (N, num_classes),
+    where N is the product of all leading dimensions. Computation is then performed in chunks of size `chunk_size`
+    along this flattened dimension, reducing peak memory usage. The result is reshaped back to match the input's
+    leading dimensions.
+
+    Args:
+        logits (`torch.Tensor`):
+            Logits tensor of shape `(..., num_classes)`. Entropy is taken along the last axis; all leading dimensions
+            are preserved in the output.
+        chunk_size (`int`, *optional*, defaults to `128`):
+            Number of rows from the flattened logits to process per iteration. Smaller values reduce memory usage at
+            the cost of more iterations.
+
+    Returns:
+        `torch.Tensor`:
+            Entropy values with shape `logits.shape[:-1]`.
+    """
+    original_shape = logits.shape[:-1]  # all dims except num_classes
+    num_classes = logits.shape[-1]
+
+    # Flatten all leading dimensions into one
+    flat_logits = logits.reshape(-1, num_classes)
+
+    entropies = []
+    for chunk in flat_logits.split(chunk_size, dim=0):
+        logps = F.log_softmax(chunk, dim=-1)
+        chunk_entropy = -(torch.exp(logps) * logps).sum(-1)
+        entropies.append(chunk_entropy)
+
+    entropies = torch.cat(entropies, dim=0)
+    return entropies.reshape(original_shape)
 
 def neuron_parallel_compile_tokenizer_decoder_method(
     self,

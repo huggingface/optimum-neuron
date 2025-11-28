@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .vllm_client import VLLMClient
+from .vllm_client import MockVLLMClient, VLLMClient
 
 
-__all__ = ["VLLMClient"]
+__all__ = ["VLLMClient", "MockVLLMClient"]

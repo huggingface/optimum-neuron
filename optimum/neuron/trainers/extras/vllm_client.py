@@ -14,15 +14,16 @@
 # limitations under the License.
 
 import atexit
-import requests
+import random
 import time
-from typing import Union
 from collections import namedtuple
+from typing import Union
 
+import requests
 import torch
 import torch_xla
+from optimum.utils import logging
 from trl.extras.vllm_client import VLLMClient as TRLVLLMClient
-
 from trl.import_utils import is_vllm_available
 
 
@@ -31,6 +32,8 @@ if is_vllm_available():
 else:
     class StatelessProcessGroup:
         pass
+
+logger = logging.get_logger()
 
 # Set up the communication group for weight broadcasting using CPU communicator
 Group = namedtuple('Group', 'barrier')
@@ -55,24 +58,9 @@ class CPUCommunicator:
         del self.store
 
 class VLLMClient(TRLVLLMClient):
-    """
-    VLLMClient for Neuron environments.
-
-    This class inherits all functionality from trl.extras.vllm_client.VLLMClient and only overrides methods
-    to enable CPU-based communication suitable for Neuron setups and development/testing scenarios.
-    """
+    """VLLMClient with CPU-based communication for Neuron environments."""
 
     def init_communicator(self, device: Union[torch.device, str, int] = 0):
-        """
-        Initializes the weight update group in a distributed setup for model synchronization.
-
-        This method uses CPU-based communication via object broadcasting, suitable for Neuron
-        environments and development/testing scenarios.
-
-        Args:
-            device (`torch.device`, `str`, or `int`, *optional*, defaults to `0`):
-                Device parameter for compatibility. Communication is handled via CPU.
-        """
         # Get the world size from the server
         url = f"{self.base_url}/get_world_size/"
         response = requests.get(url)
@@ -115,3 +103,110 @@ class VLLMClient(TRLVLLMClient):
 
         # When the client object is deleted, close the weight update group
         atexit.register(self.close_communicator)
+
+class MockVLLMClient(VLLMClient):
+    """
+    Mock VLLMClient that generates random completions and triggers XLA compilation without vLLM server.
+
+    Used for neuron_parallel_compile and testing. Generates random tokens, not real LLM outputs.
+
+    Args:
+        tokenizer: Tokenizer for encoding/decoding
+        max_completion_length: Maximum completion length
+        min_completion_length: Minimum completion length (default: 10)
+        seed: Random seed for reproducibility
+    """
+
+    def __init__(self, tokenizer, max_completion_length=256, min_completion_length=10, seed=None):
+        # Don't call super().__init__() - we don't need server connection
+        self.tokenizer = tokenizer
+        self.max_completion_length = max_completion_length
+        self.min_completion_length = min(min_completion_length, max_completion_length)
+        self.random = random.Random(seed)
+
+        logger.warning(
+            "Using MockVLLMClient for neuron_parallel_compile or testing. "
+            "This generates random dummy completions and should only be used for compilation/testing."
+        )
+
+    def generate(
+        self,
+        prompts: list[str],
+        images=None,
+        n: int = 1,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
+        top_k: int = -1,
+        min_p: float = 0.0,
+        max_tokens: int = 256,
+        repetition_penalty: float = 1.0,
+        truncate_prompt_tokens=None,
+        guided_decoding_regex=None,
+        generation_kwargs=None,
+    ):
+        """
+        Generate random completions with random lengths.
+
+        Returns dict with prompt_ids, completion_ids, and logprobs.
+        """
+        prompt_ids = []
+        completion_ids = []
+        logprobs = []
+
+        # Determine vocab range (avoid special tokens)
+        vocab_size = self.tokenizer.vocab_size
+        min_token_id = min(100, vocab_size - 1)
+        max_token_id = vocab_size - 1
+
+        for prompt in prompts:
+            # Tokenize prompt
+            prompt_tokens = self.tokenizer.encode(prompt, add_special_tokens=False)
+
+            # Truncate if needed
+            if truncate_prompt_tokens is not None and len(prompt_tokens) > truncate_prompt_tokens:
+                prompt_tokens = prompt_tokens[-truncate_prompt_tokens:]
+
+            prompt_ids.append(prompt_tokens)
+
+            # Generate n completions per prompt
+            for _ in range(n):
+                # Random completion length within bounds
+                max_len = min(max_tokens, self.max_completion_length)
+                completion_length = self.random.randint(self.min_completion_length, max_len)
+
+                # Generate random tokens from safe vocab range
+                completion = [
+                    self.random.randint(min_token_id, max_token_id)
+                    for _ in range(completion_length)
+                ]
+                completion_ids.append(completion)
+
+                # Generate realistic random logprobs (typical range: -2 to -10)
+                completion_logprobs = [
+                    -self.random.uniform(2.0, 8.0)
+                    for _ in range(completion_length)
+                ]
+                logprobs.append(completion_logprobs)
+
+        return {
+            "prompt_ids": prompt_ids,
+            "completion_ids": completion_ids,
+            "logprobs": logprobs,
+        }
+
+    def init_communicator(self, device):
+        """No-op: mock has no communicator."""
+        pass
+
+    def update_named_param(self, name, weights):
+        """No-op: mock has no model to update."""
+        pass
+
+    def reset_prefix_cache(self):
+        """No-op: mock has no cache."""
+        pass
+
+    def close_communicator(self):
+        """No-op: mock has no communicator."""
+        pass
+

@@ -49,6 +49,7 @@ from ..peft import NeuronPeftModel, get_peft_model
 from ..peft.utils.vllm import get_original_merged_weights_for_vllm
 from ..utils import is_precompilation, is_trl_available
 from ..utils.import_utils import is_peft_available
+from .extras import MockVLLMClient, VLLMClient
 from .grpo_config import NeuronGRPOConfig
 from .training_args import NeuronTrainingArguments
 from .transformers import NeuronTrainer
@@ -59,7 +60,7 @@ from .trl_utils import (
     nanmin,
     nanstd,
     neuron_parallel_compile_tokenizer_decoder_method,
-    pad,
+    pad_or_truncate_to_length,
 )
 
 
@@ -69,6 +70,7 @@ if is_wandb_available():
 if is_trl_available():
     from trl import GRPOConfig, GRPOTrainer
     from trl.data_utils import is_conversational
+    from trl.extras.vllm_client import VLLMClient as TRLVLLMClient
     from trl.trainer.utils import (
         RepeatSampler,
         disable_dropout_in_model,
@@ -83,6 +85,9 @@ else:
         pass
 
     class GRPOConfig:
+        pass
+
+    class TRLVLLMClient:
         pass
 
 
@@ -133,6 +138,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         optimizers: tuple[torch.optim.Optimizer | None, torch.optim.lr_scheduler.LambdaLR | None] = (None, None),
         optimizer_cls_and_kwargs: tuple[type[torch.optim.Optimizer], dict[str, Any]] | None = None,
         peft_config: PeftConfig | None = None,
+        vllm_client: TRLVLLMClient | None = None,
     ):
         if not is_trl_available(required_version=TRL_VERSION):
             raise RuntimeError(f"Using NeuronGRPOTrainer requires trl=={TRL_VERSION}.")
@@ -403,37 +409,26 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         set_seed(args.seed, device_specific=True)
 
         # vLLM setup - server mode only
-        from ..utils import is_vllm_available
-
-        # MOCK FLAG: Change this to False when real vLLM server is ready
-        USE_MOCK_VLLM = False
-        # TODO: Remove this when mock is no longer used - tracks mock usage to disable
-        # importance sampling correction which doesn't work with mock's random tokens
-        self._using_mock_vllm = USE_MOCK_VLLM
-
-        if USE_MOCK_VLLM:
-            logger.warning(
-                "Using MOCK vLLM client for development. This generates placeholder completions "
-                "and should only be used for testing and development. Set USE_MOCK_VLLM=False in "
-                "grpo_trainer.py to use real vLLM server."
-            )
-            from .grpo_mocks import create_mock_vllm_client
-
-            # MOCK: Each process needs its own client (generates locally, no server)
-            self.vllm_client = create_mock_vllm_client(tokenizer, args)
+        if vllm_client is not None:
+            # Use injected client (for testing, mocking, or custom implementations)
+            self.vllm_client = vllm_client
         else:
+            # Default: Create VLLMClient from args
+            from ..utils import is_vllm_available
+
             if not is_vllm_available():
                 raise ImportError("vLLM is not available. Please install vLLM to use NeuronGRPOTrainer.")
-
-            # Setup vLLM server client (all processes need it to call the server)
-            from trl.extras.vllm_client import VLLMClient
 
             if args.vllm_server_base_url is not None:
                 base_url = args.vllm_server_base_url
             else:
                 base_url = f"http://{args.vllm_server_host}:{args.vllm_server_port}"
 
-            self.vllm_client = VLLMClient(base_url=base_url, connection_timeout=args.vllm_server_timeout)
+            # For `neuron_parallel_compile`, use a mock VLLM client that doesn't make actual server requests.
+            if is_precompilation():
+                self.vllm_client = MockVLLMClient(tokenizer, max_completion_length=self.max_completion_length)
+            else:
+                self.vllm_client = VLLMClient(base_url=base_url, connection_timeout=args.vllm_server_timeout)
             # Only main process initializes the communicator for weight updates
             if self.accelerator.is_main_process:
                 self.vllm_client.init_communicator(device="cpu")
@@ -596,6 +591,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 output_reward_func = reward_func(
                     prompts=prompts, completions=completions, completion_ids=completion_ids_list, **reward_kwargs
                 )
+                print("Reward function output:", reward_func_name, output_reward_func)
                 output_reward_func = [reward if reward is not None else torch.nan for reward in output_reward_func]
                 rewards_per_func[:, i] = torch.tensor(output_reward_func, dtype=torch.float32, device=device)
 
@@ -607,6 +603,11 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         if isinstance(self.model, NeuronPeftModel):
             # Get original (unsharded, untransformed) merged weights for vLLM
             original_weights = get_original_merged_weights_for_vllm(self.model)
+            # For now, we only support CPU communicator in Neuron environments.
+            # The CPU communicator moves weights to CPU before broadcasting, but to avoid a lot of device -> host moves,
+            # we move the weights to CPU here once before broadcasting, and the communicator will just broadcast them.
+            original_weights = move_all_tensor_to_cpu(original_weights)
+            torch_xla.sync()
 
             # Send weights to vLLM server (only main process for server mode)
             for name, weight in original_weights.items():
@@ -614,8 +615,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 name = self._fix_param_name_to_vllm(name)
 
                 if self.vllm_mode == "server" and self.accelerator.is_main_process:
-                    pass
-                    # self.vllm_client.update_named_param(name, weight)
+                    self.vllm_client.update_named_param(name, weight)
                 elif self.vllm_mode == "colocate":
                     llm_model = self.llm.llm_engine.model_executor.driver_worker.model_runner.model
                     llm_model.load_weights([(name, weight)])
@@ -665,10 +665,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         else:
             ordered_set_of_images = None
 
-        # For mock vLLM: each process generates independently
-        # For real vLLM server: only main process generates, then broadcast
-        if self._using_mock_vllm:
-            # Each process generates locally
+        # Generate on main process only, then broadcast to all ranks
+        if self.tp_rank == self.pp_rank == 0:
             output = self.vllm_client.generate(
                 prompts=ordered_set_of_prompts,
                 images=ordered_set_of_images,
@@ -684,37 +682,16 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 generation_kwargs=self.args.generation_kwargs,
             )
         else:
-            # Real vLLM server mode: only main process generates
-            if self.tp_rank == self.pp_rank == 0:
-                output = self.vllm_client.generate(
-                    prompts=ordered_set_of_prompts,
-                    images=ordered_set_of_images,
-                    n=self.num_generations,
-                    repetition_penalty=self.repetition_penalty,
-                    temperature=self.temperature,
-                    top_p=self.top_p,
-                    top_k=-1 if self.top_k is None else self.top_k,
-                    min_p=0.0 if self.min_p is None else self.min_p,
-                    max_tokens=self.max_completion_length,
-                    truncate_prompt_tokens=self.max_prompt_length,
-                    guided_decoding_regex=self.guided_decoding_regex,
-                    generation_kwargs=self.args.generation_kwargs,
-                )
-            else:
-                output = {
-                    "prompt_ids": [[]],
-                    "completion_ids": [[]],
-                    "logprobs": [[]],
-                }
-                output = None
+            output = None
 
-            trn_config = self.accelerator.state.trn_config
-            # TODO: change that to a better default.
-            fixed_size = int(2e6) # 2MB fixed size for buffer, should be enough.
-            if trn_config.tensor_parallel_size > 1:
-                output = broadcast_object_to_tensor_model_parallel_group(output, fixed_size=fixed_size)
-            if trn_config.pipeline_parallel_size > 1:
-                output = broadcast_object_to_pipeline_model_parallel_group(output, fixed_size=fixed_size)
+        # Broadcast output to all ranks
+        trn_config = self.accelerator.state.trn_config
+        # TODO: change that to a better default.
+        fixed_size = int(2e6)  # 2MB fixed size for buffer, should be enough.
+        if trn_config.tensor_parallel_size > 1:
+            output = broadcast_object_to_tensor_model_parallel_group(output, fixed_size=fixed_size)
+        if trn_config.pipeline_parallel_size > 1:
+            output = broadcast_object_to_pipeline_model_parallel_group(output, fixed_size=fixed_size)
 
         # Repeat prompt_ids num_generations times to match completion_ids
         prompt_ids = [ids for ids in output["prompt_ids"] for _ in range(self.num_generations)]
@@ -816,6 +793,10 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             model_inputs["use_cache"] = False  # only used in generation; set False to suppress warnings
 
             logits = model(**model_inputs).logits
+
+            # Synchronize after model forward to avoid recompiling multiple model graphs.
+            torch_xla.sync()
+
             # Exclude the last value: it corresponds to the next token pred
             logits = logits[:, :-1, :]  # (B, L-1, H)
             # Only keep the last logits_to_keep. For model that support logits_to_keep, this is a no-op.
@@ -870,17 +851,68 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         ) = self._generate(prompts, images)
 
         # Convert lists of token IDs to padded tensors
-        prompt_ids = [torch.tensor(ids, device=device) for ids in prompt_ids_list]
-        prompt_mask = [torch.ones_like(ids, dtype=torch.long) for ids in prompt_ids]
-        prompt_ids = pad(prompt_ids, padding_value=self.pad_token_id, padding_side="left")
-        prompt_mask = pad(prompt_mask, padding_value=0, padding_side="left")
-        completion_ids = [torch.tensor(ids, device=device) for ids in completion_ids_list]
-        completion_mask = [torch.ones_like(ids, dtype=torch.long) for ids in completion_ids]
-        completion_ids = pad(completion_ids, padding_value=self.pad_token_id, padding_side="right")
-        completion_mask = pad(completion_mask, padding_value=0, padding_side="right")
+        prompt_ids = [
+            pad_or_truncate_to_length(
+                torch.tensor(ids),
+                self.max_prompt_length,
+                padding_value=self.pad_token_id,
+                padding_or_truncate_side="left"
+            )
+            for ids in prompt_ids_list
+        ]
+        # prompt_ids = [torch.tensor(ids, device=device) for ids in prompt_ids_list]
+        # prompt_mask = [torch.ones_like(ids, dtype=torch.long) for ids in prompt_ids]
+        prompt_mask = [
+            pad_or_truncate_to_length(
+                torch.ones(len(ids), dtype=torch.long),
+                self.max_prompt_length,
+                padding_value=0,
+                padding_or_truncate_side="left",
+            )
+            for ids in prompt_ids_list
+        ]
+        prompt_ids = torch.stack(prompt_ids, dim=0).to(device)
+        prompt_mask = torch.stack(prompt_mask, dim=0).to(device)
+        # prompt_ids = pad(prompt_ids, padding_value=self.pad_token_id, padding_side="left")
+        # prompt_mask = pad(prompt_mask, padding_value=0, padding_side="left")
+        # completion_ids = [torch.tensor(ids, device=device) for ids in completion_ids_list]
+        # completion_mask = [torch.ones_like(ids, dtype=torch.long) for ids in completion_ids]
+        # completion_ids = pad(completion_ids, padding_value=self.pad_token_id, padding_side="right")
+        # completion_mask = pad(completion_mask, padding_value=0, padding_side="right")
+        completion_ids = [
+            pad_or_truncate_to_length(
+                torch.tensor(ids),
+                self.max_completion_length,
+                padding_value=self.pad_token_id,
+                padding_or_truncate_side="right"
+            )
+            for ids in completion_ids_list
+        ]
+        completion_mask = [
+            pad_or_truncate_to_length(
+                torch.ones(len(ids), dtype=torch.long),
+                self.max_completion_length,
+                padding_value=0,
+                padding_or_truncate_side="right",
+            )
+            for ids in completion_ids_list
+        ]
+        completion_ids = torch.stack(completion_ids, dim=0).to(device)
+        completion_mask = torch.stack(completion_mask, dim=0).to(device)
+
         if sampling_per_token_logps_list is not None:
-            sampling_per_token_logps = [torch.tensor(logps, device=device) for logps in sampling_per_token_logps_list]
-            sampling_per_token_logps = pad(sampling_per_token_logps, padding_value=0.0, padding_side="right")
+            # sampling_per_token_logps = [torch.tensor(logps, device=device) for logps in sampling_per_token_logps_list]
+            # sampling_per_token_logps = pad(sampling_per_token_logps, padding_value=0.0, padding_side="right")
+            sampling_per_token_logps = [
+                pad_or_truncate_to_length(
+                    torch.tensor(logps),
+                    self.max_completion_length,
+                    padding_value=0.0,
+                    padding_or_truncate_side="right",
+                )
+                for logps in sampling_per_token_logps_list
+            ]
+            sampling_per_token_logps = torch.stack(sampling_per_token_logps, dim=0).to(device)
         else:
             sampling_per_token_logps = None
 
@@ -930,9 +962,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 old_per_token_logps = None
 
             # Compute the importance sampling ratio when using vLLM, to correct for potential distribution mismatch
-            # TODO: Remove _using_mock_vllm check when mock is no longer used - mock's random tokens
-            # cause -inf logprobs from the model, leading to NaN in importance sampling computation
-            if self.use_vllm and self.vllm_importance_sampling_correction and not self._using_mock_vllm:
+            if self.use_vllm and self.vllm_importance_sampling_correction:
                 importance_sampling_ratio = torch.exp(old_per_token_logps - sampling_per_token_logps)
                 importance_sampling_ratio = torch.clamp(
                     importance_sampling_ratio, max=self.vllm_importance_sampling_cap
@@ -1039,8 +1069,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         # if images is not None:
         #     self._logs["images"].extend(self.accelerator.gather_object(images))
 
-        # TODO: Remove _using_mock_vllm check when mock is no longer used
-        if self.use_vllm and self.vllm_importance_sampling_correction and not self._using_mock_vllm:
+        if self.use_vllm and self.vllm_importance_sampling_correction:
             delta = torch.abs(old_per_token_logps - sampling_per_token_logps)
             # Original code was:
             # delta = delta[completion_mask.bool()]
@@ -1100,8 +1129,10 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
         # Move metrics and logs to CPU.
         metrics = move_all_tensor_to_cpu(metrics)
-        metrics = {key: [val.item() for val in value] for key, value in metrics.items()}
         logs = move_all_tensor_to_cpu(logs)
+        torch_xla.sync()
+
+        metrics = {key: [val.item() for val in value] for key, value in metrics.items()}
 
         # Update the actual metrics and logs.
         self._metrics[mode].update(metrics)
@@ -1120,8 +1151,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         }
         if old_per_token_logps is not None:
             output["old_per_token_logps"] = old_per_token_logps
-        # TODO: Remove _using_mock_vllm check when mock is no longer used
-        if self.use_vllm and self.vllm_importance_sampling_correction and not self._using_mock_vllm:
+        if self.use_vllm and self.vllm_importance_sampling_correction:
             output["importance_sampling_ratio"] = importance_sampling_ratio
         if ref_per_token_logps is not None:
             output["ref_per_token_logps"] = ref_per_token_logps
@@ -1230,6 +1260,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             token_type_ids=inputs.get("token_type_ids"),
         )
 
+        print("Per-token log probabilities:", per_token_logps)
+        print("Entropies:", entropies)
+
         if self.top_entropy_quantile < 1.0:
             entropy_mask = self.get_high_entropy_mask(entropies, completion_mask, 1 - self.top_entropy_quantile)
         else:
@@ -1279,8 +1312,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         if entropy_mask is not None:
             per_token_loss = per_token_loss * entropy_mask
 
-        # TODO: Remove _using_mock_vllm check when mock is no longer used
-        if self.use_vllm and self.vllm_importance_sampling_correction and not self._using_mock_vllm:
+        if self.use_vllm and self.vllm_importance_sampling_correction:
             per_token_loss = per_token_loss * inputs["importance_sampling_ratio"]
 
         if self.beta != 0.0:
@@ -1339,8 +1371,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         gathered_clip_ratio = self.accelerator.gather(clip_ratio)
         metrics["clip_ratio/region_mean"].append(gathered_clip_ratio.nanmean())
 
-        torch_xla.sync()  # Graph break before moving metrics to CPU.
+        # torch_xla.sync()  # Graph break before moving metrics to CPU.
         metrics = move_all_tensor_to_cpu(metrics)
+        torch_xla.sync()
         metrics = {key: [val.item() for val in value] for key, value in metrics.items()}
 
         self._metrics[mode].update(metrics)

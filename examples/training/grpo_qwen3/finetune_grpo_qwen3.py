@@ -31,6 +31,7 @@ from transformers import AutoTokenizer, HfArgumentParser
 
 from optimum.neuron import NeuronGRPOConfig, NeuronGRPOTrainer, NeuronTrainingArguments
 from optimum.neuron.models.training import NeuronModelForCausalLM
+from optimum.neuron.trainers.extras import MockVLLMClient
 
 
 # =============================================================================
@@ -113,9 +114,6 @@ def load_grpo_dataset():
     # This dataset has prompts in the "prompt" column
     dataset = load_dataset("trl-internal-testing/zen", "standard_prompt_only", split="train")
 
-    # Take a small subset for this example
-    dataset = dataset.select([0] * 100000)
-
     return dataset
 
 
@@ -150,7 +148,7 @@ def train(model_id, tokenizer, dataset, training_args):
         r=64,
         lora_alpha=128,
         lora_dropout=0.05,
-        target_modules=["embed_tokens", "q_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj", "gate_proj"],
+        target_modules=["q_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj", "gate_proj"],
         bias="none",
         task_type="CAUSAL_LM",
     )
@@ -194,6 +192,8 @@ def train(model_id, tokenizer, dataset, training_args):
         train_dataset=dataset,
         processing_class=tokenizer,
         peft_config=lora_config,
+        # To do: disable this fake client, only for development without vLLM server.
+        vllm_client=MockVLLMClient(tokenizer, max_completion_length=grpo_config.max_completion_length),
     )
 
     # Train the model
