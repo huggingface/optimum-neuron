@@ -32,6 +32,7 @@ from ...config import NxDNeuronConfig
 from ...graph_builder import NxDGraphBuilder
 from ...pretrained_model import NxDPreTrainedModel
 from ...utils.random import set_random_seed
+from ..attention.gqa import get_shardable_head_counts
 from ..generation.generation_utils import NxDGenerationMixin
 from ..generation.sampling import (
     Sampler,
@@ -83,7 +84,19 @@ class NxDDecoderModelForCausalLM(nn.Module):
         if neuron_config.on_device_sampling:
             # Instantiate a multinomial Sampler (it can still be used for greedy by passing topk=1)
             self.sampler = Sampler(neuron_config, do_sample=True)
-        self.kv_mgr = KVCacheManager(config, neuron_config, num_kv_head=config.num_key_value_heads)
+        # Evaluate the sharding strategy and number of kv heads per rank
+        _, num_attention_heads, num_key_value_heads = get_shardable_head_counts(
+            neuron_config.tp_degree, config.num_attention_heads, config.num_key_value_heads
+        )
+        if num_attention_heads != config.num_attention_heads:
+            logger.info(
+                f"Adjusting num_attention_heads from {config.num_attention_heads} to {num_attention_heads} for TP {neuron_config.tp_degree}."
+            )
+        if num_key_value_heads != config.num_key_value_heads:
+            logger.info(
+                f"Adjusting num_key_value_heads from {config.num_key_value_heads} to {num_key_value_heads} for TP {neuron_config.tp_degree}."
+            )
+        self.kv_mgr = KVCacheManager(config, neuron_config, actual_num_key_value_heads=num_key_value_heads)
 
     def initialize_process_group(self, seed: int = 0):
         if not torch.dist.is_initialized():
