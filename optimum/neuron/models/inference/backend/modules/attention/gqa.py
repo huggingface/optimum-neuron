@@ -55,20 +55,12 @@ class GQA(enum.Enum):
     REPLICATE_TO_TP_DEGREE = "replicate-to-tp-degree"
 
 
-def determine_sharding_strategy(
-    tp_degree: int, source_key_value_heads: int, desired_sharding_strategy: GQA | None = None
-) -> GQA:
-    sharding_strategy = desired_sharding_strategy if desired_sharding_strategy else GQA.REPLICATE_TO_TP_DEGREE
-
-    if sharding_strategy == GQA.REPLICATE_TO_TP_DEGREE and (tp_degree % source_key_value_heads != 0):
-        sharding_strategy = GQA.CONVERT_TO_MHA
-
-    return sharding_strategy
-
-
 def get_shardable_head_counts(
-    tp_degree: int, num_attention_heads: int, num_key_value_heads: int, sharding_strategy: GQA
-) -> tuple[int, int]:
+    tp_degree: int, num_attention_heads: int, num_key_value_heads: int
+) -> tuple[GQA, int, int]:
+    sharding_strategy = GQA.REPLICATE_TO_TP_DEGREE
+    if tp_degree % num_key_value_heads != 0:
+        sharding_strategy = GQA.CONVERT_TO_MHA
     # Pad attention heads
     updated_num_attention_heads = num_attention_heads + get_number_of_extra_heads(num_attention_heads, tp_degree)
 
@@ -86,7 +78,7 @@ def get_shardable_head_counts(
             elif sharding_strategy == GQA.CONVERT_TO_MHA:
                 updated_num_key_value_heads = updated_num_attention_heads
 
-    return updated_num_attention_heads, updated_num_key_value_heads
+    return sharding_strategy, updated_num_attention_heads, updated_num_key_value_heads
 
 
 def maybe_pad_interleaved(tensor, pad_dim: int, source_heads: int, target_heads: int, source_group_size: int):
@@ -159,7 +151,6 @@ class BaseGroupQueryAttention(nn.Module):
         tp_degree: int = 1,
         dtype: torch.dtype = torch.float32,
         bias: bool = False,
-        desired_sharding_strategy: GQA | None = None,
         tensor_model_parallel_group: ProcessGroup | None = None,
     ):
         super().__init__()
@@ -186,16 +177,10 @@ class BaseGroupQueryAttention(nn.Module):
         self._src_num_attention_heads = num_attention_heads
         self._src_num_key_value_heads = num_key_value_heads
 
-        self.sharding_strategy = determine_sharding_strategy(
-            tp_degree,
-            self._src_num_key_value_heads,
-            desired_sharding_strategy=desired_sharding_strategy,
-        )
-        self.num_attention_heads, self.num_key_value_heads = get_shardable_head_counts(
+        self.sharding_strategy, self.num_attention_heads, self.num_key_value_heads = get_shardable_head_counts(
             tp_degree,
             self._src_num_attention_heads,
             self._src_num_key_value_heads,
-            self.sharding_strategy,
         )
         if self.num_attention_heads != self._src_num_attention_heads:
             logger.info(
@@ -241,7 +226,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         tp_degree: int = 1,
         dtype: torch.dtype = torch.float32,
         bias: bool = False,
-        desired_sharding_strategy: GQA | None = None,
         gather_output: bool = True,
         fused_qkv: bool = False,
         clip_qkv: float | None = None,
@@ -257,7 +241,6 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
             tp_degree=tp_degree,
             dtype=dtype,
             bias=bias,
-            desired_sharding_strategy=desired_sharding_strategy,
             tensor_model_parallel_group=tensor_model_parallel_group,
         )
         if fused_qkv and gather_output:
@@ -655,7 +638,6 @@ class GroupQueryAttention_O(BaseGroupQueryAttention):
         tp_degree: int = 1,
         dtype: torch.dtype = torch.float32,
         bias: bool = False,
-        desired_sharding_strategy: GQA | None = None,
         input_is_parallel: bool = False,
         layer_name: str = "o_proj",
         tensor_model_parallel_group: ProcessGroup | None = None,
@@ -669,7 +651,6 @@ class GroupQueryAttention_O(BaseGroupQueryAttention):
             tp_degree=tp_degree,
             dtype=dtype,
             bias=bias,
-            desired_sharding_strategy=desired_sharding_strategy,
             tensor_model_parallel_group=tensor_model_parallel_group,
         )
 

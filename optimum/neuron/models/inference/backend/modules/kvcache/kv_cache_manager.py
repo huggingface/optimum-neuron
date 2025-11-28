@@ -21,10 +21,7 @@ from torch import Tensor, nn
 from transformers import PretrainedConfig
 
 from ...config import NxDNeuronConfig
-from ..attention.gqa import (
-    determine_sharding_strategy,
-    get_shardable_head_counts,
-)
+from ..attention.gqa import get_shardable_head_counts
 from .utils import dynamic_update_slice, fill_prefix
 
 
@@ -69,10 +66,7 @@ class KVCacheManager(nn.Module):
         num_kv_head = self.num_kv_head
         num_atten_head = config.num_attention_heads
 
-        gqa_sharding_strategy = determine_sharding_strategy(tp_degree, num_kv_head)
-        _, num_key_value_heads = get_shardable_head_counts(
-            tp_degree, num_atten_head, num_kv_head, gqa_sharding_strategy
-        )
+        _, _, num_key_value_heads = get_shardable_head_counts(tp_degree, num_atten_head, num_kv_head)
 
         return utils.divide(num_key_value_heads, tp_degree)
 
