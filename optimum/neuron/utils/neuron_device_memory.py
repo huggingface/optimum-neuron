@@ -172,7 +172,7 @@ class NeuronDeviceMemory:
             Formatted string (e.g., "1.23 GB", "456.78 MB")
         """
         for factor, suffix in {2**40: "TB", 2**30: "GB", 2**20: "MB", 2**10: "KB"}.items():
-            if memory_bytes > factor:
+            if memory_bytes >= factor:
                 return f"{memory_bytes / factor:.2f} {suffix}"
         return f"{memory_bytes} bytes"
 
