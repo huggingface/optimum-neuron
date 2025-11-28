@@ -114,7 +114,6 @@ class KVCacheManager(nn.Module):
         """
         Given the passed-in new_key_values, update the cache
 
-        :param scatter_index: tensor representing index to update
         :param is_for_context_encoding: bool
         :param seq_ids: tensor of size (batch_sz)
         :param position_ids: tensor of size (batch_sz, seq_len)
