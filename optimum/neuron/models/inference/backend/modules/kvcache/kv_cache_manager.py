@@ -21,7 +21,6 @@ from torch import Tensor, nn
 from transformers import PretrainedConfig
 
 from ...config import NxDNeuronConfig
-from ..attention.gqa import get_shardable_head_counts
 from .utils import dynamic_update_slice, fill_prefix
 
 
@@ -40,12 +39,22 @@ class KVCacheManager(nn.Module):
     and vends out read and write operations.
     """
 
-    def __init__(self, config: PretrainedConfig, neuron_config: NxDNeuronConfig, **kwargs):
+    def __init__(self, config: PretrainedConfig, neuron_config: NxDNeuronConfig, actual_num_key_value_heads: int):
         super().__init__()
         self.is_continuous_batching = neuron_config.continuous_batching
-        self.num_kv_head = kwargs["num_kv_head"]
 
-        self._init_kv_shape(config, neuron_config)
+        max_batch_size = neuron_config.max_batch_size
+        num_kv_heads_per_rank = utils.divide(actual_num_key_value_heads, neuron_config.tp_degree)
+        max_len = neuron_config.sequence_length
+        head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
+
+        # KV cache layout : BHSD
+        self.kv_shape = (
+            max_batch_size,
+            num_kv_heads_per_rank,
+            max_len,
+            head_dim,
+        )
 
         num_layer = config.num_hidden_layers
         dtype = neuron_config.torch_dtype
@@ -59,29 +68,6 @@ class KVCacheManager(nn.Module):
         total_cache_size_in_mb = cache_size_in_mb * neuron_config.tp_degree
         logger.info(
             f"Allocated {neuron_config.tp_degree}*{cache_size_in_mb:.2f} = {total_cache_size_in_mb:.2f} MB for KV cache."
-        )
-
-    def _get_num_kv_heads_per_rank(self, config: PretrainedConfig, neuron_config: NxDNeuronConfig):
-        tp_degree = neuron_config.tp_degree
-        num_kv_head = self.num_kv_head
-        num_atten_head = config.num_attention_heads
-
-        _, _, num_key_value_heads = get_shardable_head_counts(tp_degree, num_atten_head, num_kv_head)
-
-        return utils.divide(num_key_value_heads, tp_degree)
-
-    def _init_kv_shape(self, config: PretrainedConfig, neuron_config: NxDNeuronConfig):
-        max_batch_size = neuron_config.max_batch_size
-        max_len = neuron_config.sequence_length
-        num_kv_heads_per_rank = self._get_num_kv_heads_per_rank(config, neuron_config)
-        hidden_dim_per_head = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
-
-        # KV cache layout : BHSD
-        self.kv_shape = (
-            max_batch_size,
-            num_kv_heads_per_rank,
-            max_len,
-            hidden_dim_per_head,
         )
 
     def _fetch_cache(self, idx: int):
