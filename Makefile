@@ -38,7 +38,7 @@ PACKAGE_FILES = $(PACKAGE_PYTHON_FILES)  \
 
 # Package build recipe
 $(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)
-	python -m build
+	$(if $(UV), $(UV), python -m) build
 
 # Installation
 install: $(PACKAGE_DIST)
