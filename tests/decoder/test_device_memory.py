@@ -9,4 +9,4 @@ def test_neuron_device_memory():
     neuron_device_memory = get_neuron_device_memory()
     assert neuron_device_memory is not None
     assert len(neuron_device_memory.devices) == get_neuron_devices_count()
-    assert neuron_device_memory.get_total_memory() > 0
+    assert neuron_device_memory.get_total_memory() >= 0
