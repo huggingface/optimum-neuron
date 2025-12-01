@@ -46,15 +46,9 @@ def read_sysfs_value(file_path: Path) -> str:
     Returns:
         The content of the file as a string (stripped of whitespace)
 
-    Raises:
-        FileNotFoundError: If the file doesn't exist
-        PermissionError: If permission is denied
     """
-    try:
-        with open(file_path, "r") as f:
-            return f.read().strip()
-    except (FileNotFoundError, PermissionError) as e:
-        raise e
+    with open(file_path, "r") as f:
+        return f.read().strip()
 
 
 @dataclass
