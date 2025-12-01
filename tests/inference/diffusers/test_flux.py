@@ -30,7 +30,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 from optimum.neuron.version import __sdk_version__ as sdk_version
 
 
-@pytest.mark.skipif(sdk_version == "2.26.0", reason="This test hangs with SDK 2.26.0")
+@pytest.mark.skipif(sdk_version == "2.26.1", reason="This test hangs with SDK 2.26.1")
 @is_inferentia_test
 @requires_neuronx
 @require_diffusers
@@ -50,7 +50,7 @@ def test_flux_txt2img(neuron_flux_tp2_path):
     assert isinstance(image, PIL.Image.Image)
 
 
-@pytest.mark.skipif(sdk_version == "2.26.0", reason="This test hangs with SDK 2.26.0")
+@pytest.mark.skipif(sdk_version == "2.26.1", reason="This test hangs with SDK 2.26.1")
 @is_inferentia_test
 @requires_neuronx
 @require_diffusers
@@ -72,7 +72,7 @@ def test_flux_inpaint(neuron_flux_tp2_path):
     assert isinstance(image, PIL.Image.Image)
 
 
-@pytest.mark.skipif(sdk_version == "2.26.0", reason="This test hangs with SDK 2.26.0")
+@pytest.mark.skipif(sdk_version == "2.26.1", reason="This test hangs with SDK 2.26.1")
 @is_inferentia_test
 @requires_neuronx
 @require_diffusers
