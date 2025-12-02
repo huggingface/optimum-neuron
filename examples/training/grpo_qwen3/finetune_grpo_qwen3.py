@@ -47,25 +47,16 @@ x = MockVLLMClient  # To avoid linter warning about unused import
 # For this example, we use simple rule-based rewards for demonstration.
 
 
-def length_reward(prompts: list[str], completions: list[str], **kwargs) -> list[float]:
+def length_reward(
+    prompts: list[str], completions: list[str], completion_ids: list[list[int]], **kwargs
+) -> list[float]:
     """
     Simple reward function that rewards longer responses (up to a point).
-
-    This is a toy example. In practice, you'd want more sophisticated rewards
-    based on task-specific criteria (e.g., accuracy, coherence, helpfulness).
-
-    Args:
-        prompts: List of input prompts
-        completions: List of generated completions
-        **kwargs: Additional arguments (e.g., trainer_state)
-
-    Returns:
-        List of reward scores (one per completion)
     """
     rewards = []
-    for completion in completions:
+    for completion in completion_ids:
         # Reward based on length, but cap at 100 tokens to avoid overly long responses
-        length = len(completion.split())
+        length = len(completion)
         reward = min(length / 50.0, 2.0)  # Scale: 0-2
         rewards.append(reward)
     return rewards
@@ -74,17 +65,11 @@ def length_reward(prompts: list[str], completions: list[str], **kwargs) -> list[
 def unique_words_reward(prompts: list[str], completions: list[str], **kwargs) -> list[float]:
     """
     Reward function that encourages diversity by rewarding unique words.
-
-    Args:
-        prompts: List of input prompts
-        completions: List of generated completions
-        **kwargs: Additional arguments
-
-    Returns:
-        List of reward scores (one per completion)
     """
     rewards = []
     for completion in completions:
+        if isinstance(completion, list):
+            completion = completion[0]["content"]
         words = completion.lower().split()
         unique_words = len(set(words))
         total_words = len(words)
@@ -114,7 +99,7 @@ def load_grpo_dataset():
     """
     # Load a simple test dataset
     # This dataset has prompts in the "prompt" column
-    dataset = load_dataset("trl-internal-testing/zen", "standard_prompt_only", split="train")
+    dataset = load_dataset("trl-lib/DeepMath-103K", split="train")
 
     return dataset
 
@@ -162,7 +147,7 @@ def train(model_id, tokenizer, dataset, training_args):
     grpo_config = NeuronGRPOConfig(
         # Generation parameters
         max_prompt_length=512,  # Maximum prompt length
-        max_completion_length=268,  # Maximum completion length
+        max_completion_length=300,  # Maximum completion length
         num_generations=4,  # Number of completions to generate per prompt (G in paper)
         temperature=0.8,  # Sampling temperature
         # GRPO algorithm parameters

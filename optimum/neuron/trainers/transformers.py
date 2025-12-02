@@ -1371,19 +1371,8 @@ class NeuronTrainer:
             # Group and format metrics for better readability
             for metric_name, value in summary_metrics.items():
                 if isinstance(value, float):
-                    if "time" in metric_name:
-                        logger.info(f"{metric_name}: {value:.4f}s")
-                    elif "per_sec" in metric_name:
-                        logger.info(f"{metric_name}: {value:.2f}")
-                    elif (
-                        "mfu" in metric_name
-                        or "efficiency" in metric_name
-                        or "consistency" in metric_name
-                        or "percent" in metric_name
-                    ):
-                        logger.info(f"{metric_name}: {value:.2f}%")
-                    else:
-                        logger.info(f"{metric_name}: {value:.2f}")
+                    unit = self.metrics_collector.get_metric_unit(metric_name)
+                    logger.info(f"{metric_name}: {value:.2f}{unit}")
                 else:
                     logger.info(f"{metric_name}: {value}")
             logger.info("=" * 80)

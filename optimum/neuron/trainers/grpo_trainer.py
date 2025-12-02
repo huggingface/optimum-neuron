@@ -70,7 +70,7 @@ if is_wandb_available():
 
 if is_trl_available():
     from trl import GRPOConfig, GRPOTrainer
-    from trl.data_utils import is_conversational
+    from trl.data_utils import is_conversational, maybe_apply_chat_template
     from trl.extras.vllm_client import VLLMClient as TRLVLLMClient
     from trl.trainer.utils import (
         RepeatSampler,
@@ -638,29 +638,15 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             self.llm.reset_prefix_cache()
 
     def _generate_single_turn(self, prompts: list[str], images: list | None):
-        """
-        Generate a single turn of completions using vLLM (mock or real server).
-
-        This overrides GRPOTrainer's implementation to work with Neuron/XLA devices.
-        The main difference is avoiding gather_object which doesn't work on XLA.
-
-        MOCK MODE: Each process generates locally without gathering/broadcasting.
-        REAL SERVER MODE: Only main process generates, results are broadcast to all processes.
-
-        Args:
-            prompts: List of prompt strings
-            images: Optional list of images
-
-        Returns:
-            Tuple of (prompt_ids, completion_ids, logprobs, forward_kwargs)
-        """
-        # Move model weights to vLLM if needed (no-op for mock)
         if self.state.global_step != getattr(self, "_last_loaded_step", -1):
             self._move_model_to_vllm()
             self._last_loaded_step = self.state.global_step
 
         # Take unique prompts since we have num_generations duplicates
-        prompts_text = [prompt if isinstance(prompt, str) else prompt["content"] for prompt in prompts]
+        # Use maybe_apply_chat_template to handle both conversational and simple formats
+        prompts_text = [
+            maybe_apply_chat_template({"prompt": prompt}, self.processing_class)["prompt"] for prompt in prompts
+        ]
         ordered_set_of_prompts = prompts_text[:: self.num_generations]
 
         if images is not None:
@@ -707,29 +693,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         forward_kwargs = {}
 
         return prompt_ids, completion_ids, logprobs, forward_kwargs
-
-    def _to_fixed_length(
-        self, tensor: torch.Tensor, padding_value: int = 0, padding_side: str = "right"
-    ) -> torch.Tensor:
-        """
-        Pads or truncates tensor to fixed length = max_prompt_length + max_completion_length.
-        """
-        fixed_length = self.max_prompt_length + self.max_completion_length
-        seq_len = tensor.shape[1]
-
-        if seq_len == fixed_length:
-            return tensor
-        elif seq_len < fixed_length:
-            # Pad to fixed length
-            pad_amount = fixed_length - seq_len
-            pad_config = (pad_amount, 0) if padding_side == "left" else (0, pad_amount)
-            return torch.nn.functional.pad(tensor, pad_config, value=padding_value)
-        else:
-            # Truncate to fixed length
-            if padding_side == "left":
-                return tensor[:, -fixed_length:]
-            else:
-                return tensor[:, :fixed_length]
 
     def _get_per_token_logps_and_entropies(
         self,
@@ -1054,12 +1017,12 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         metrics["frac_reward_zero_std"].append(is_std_zero.float().mean())
 
         # Log prompt and completion texts
-        # self._logs["prompt"].extend(
-        #     gather_object_from_data_parallel_group(prompts_text, fixed_size=self.fixed_size_obj_collectives)
-        # )
-        # self._logs["completion"].extend(
-        #     gather_object_from_data_parallel_group(completions_text, fixed_size=self.fixed_size_obj_collectives)
-        # )
+        self._logs["prompt"].extend(
+            gather_object_from_data_parallel_group(prompts_text, fixed_size=self.fixed_size_obj_collectives)
+        )
+        self._logs["completion"].extend(
+            gather_object_from_data_parallel_group(completions_text, fixed_size=self.fixed_size_obj_collectives)
+        )
         logs["rewards"] = {}
         logs["advantages"] = []
         for i, name in enumerate(self.reward_func_names):
@@ -1123,9 +1086,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             )
 
         # Move metrics and logs to CPU.
+        torch_xla.sync()
         metrics = move_all_tensor_to_cpu(metrics)
         logs = move_all_tensor_to_cpu(logs)
-        torch_xla.sync()
 
         metrics = {key: [val.item() for val in value] for key, value in metrics.items()}
 
@@ -1235,136 +1198,139 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
         logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
 
-        # Compute the per_token_logps and the entropy at each position in the completion
-        per_token_logps, entropies = self._get_per_token_logps_and_entropies(
-            model,
-            input_ids,
-            attention_mask,
-            logits_to_keep,
-            batch_size=self.args.per_device_train_batch_size,
-            compute_entropy=True,
-            pixel_values=inputs.get("pixel_values"),
-            image_grid_thw=inputs.get("image_grid_thw"),
-            num_images=inputs.get("num_images"),
-            pixel_attention_mask=inputs.get("pixel_attention_mask"),
-            image_sizes=inputs.get("image_sizes"),
-            token_type_ids=inputs.get("token_type_ids"),
-        )
-
-        if self.top_entropy_quantile < 1.0:
-            entropy_mask = self.get_high_entropy_mask(entropies, completion_mask, 1 - self.top_entropy_quantile)
-        else:
-            entropy_mask = None
-
-        # Compute the KL divergence between the model and the reference model
-        if self.beta != 0.0:
-            ref_per_token_logps = inputs["ref_per_token_logps"]
-            per_token_kl = (
-                torch.exp(ref_per_token_logps - per_token_logps) - (ref_per_token_logps - per_token_logps) - 1
+        with self.metrics_collector.time_metric("forward_pass", inputs=inputs):
+            # Compute the per_token_logps and the entropy at each position in the completion
+            per_token_logps, entropies = self._get_per_token_logps_and_entropies(
+                model,
+                input_ids,
+                attention_mask,
+                logits_to_keep,
+                batch_size=self.args.per_device_train_batch_size,
+                compute_entropy=True,
+                pixel_values=inputs.get("pixel_values"),
+                image_grid_thw=inputs.get("image_grid_thw"),
+                num_images=inputs.get("num_images"),
+                pixel_attention_mask=inputs.get("pixel_attention_mask"),
+                image_sizes=inputs.get("image_sizes"),
+                token_type_ids=inputs.get("token_type_ids"),
             )
 
-        # Compute the loss
-        advantages = inputs["advantages"]
-        # When num_iterations == 1 and steps_per_generation <= gradient_accumulation_steps,
-        # old_per_token_logps == per_token_logps. In this case we can skip its computation
-        # (see _generate_and_score_completions) and instead use per_token_logps.detach().
-        # The exception is when using vLLM, where we always compute old_per_token_logps
-        # for importance sampling
-        old_per_token_logps = inputs.get("old_per_token_logps")
-        old_per_token_logps = per_token_logps.detach() if old_per_token_logps is None else old_per_token_logps
-
-        log_ratio = per_token_logps - old_per_token_logps
-        if self.importance_sampling_level == "token":
-            log_importance_weights = log_ratio
-        elif self.importance_sampling_level == "sequence":
-            log_importance_weights = (log_ratio * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1.0)
-            log_importance_weights = log_importance_weights.unsqueeze(-1)
-        else:
-            raise ValueError(
-                f"Unknown importance sampling level: {self.importance_sampling_level}. Possible values are 'token' "
-                "and 'sequence'."
-            )
-        # From here, log_importance_weights (and all subsequent tensors, coef_1, coef_2, etc.) shape depends on
-        # importance_sampling_level: "token" level: (B, T); "sequence" level: (B, 1)
-
-        coef_1 = torch.exp(log_importance_weights)
-        coef_2 = torch.clamp(coef_1, 1 - self.epsilon_low, 1 + self.epsilon_high)
-
-        # Two-sided clipping
-        if self.args.delta is not None:
-            coef_1 = torch.clamp(coef_1, max=self.args.delta)
-
-        per_token_loss1 = coef_1 * advantages.unsqueeze(1)
-        per_token_loss2 = coef_2 * advantages.unsqueeze(1)
-        per_token_loss = -torch.min(per_token_loss1, per_token_loss2)
-        if entropy_mask is not None:
-            per_token_loss = per_token_loss * entropy_mask
-
-        if self.use_vllm and self.vllm_importance_sampling_correction:
-            per_token_loss = per_token_loss * inputs["importance_sampling_ratio"]
-
-        if self.beta != 0.0:
-            per_token_loss = per_token_loss + self.beta * per_token_kl
-
-        if self.loss_type == "grpo":
-            loss = ((per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1.0)).mean()
-            loss = loss / self.current_gradient_accumulation_steps
-        elif self.loss_type == "bnpo":
-            loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=1.0)
-            loss = loss / self.current_gradient_accumulation_steps
-        elif self.loss_type == "dr_grpo":
-            loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)
-            loss = loss / self.current_gradient_accumulation_steps
-        elif self.loss_type == "dapo":
-            normalizer = inputs["num_items_in_batch"] / self.accelerator.num_processes
-            loss = (per_token_loss * completion_mask).sum() / normalizer
-        else:
-            raise ValueError(f"Unknown loss type: {self.loss_type}")
-
-        # Log the metrics
-        mode = "train" if self.model.training else "eval"
-
-        completion_token_count = completion_mask.sum().clamp(min=1.0)
-
-        def masked_batch_mean(x):
-            if x.shape[1] == 1:  # when importance_sampling_level == "sequence"
-                return x.mean()
+            if self.top_entropy_quantile < 1.0:
+                entropy_mask = self.get_high_entropy_mask(entropies, completion_mask, 1 - self.top_entropy_quantile)
             else:
-                return (x * completion_mask).sum() / completion_token_count
+                entropy_mask = None
 
-        metrics = defaultdict(list)
+            # Compute the KL divergence between the model and the reference model
+            if self.beta != 0.0:
+                ref_per_token_logps = inputs["ref_per_token_logps"]
+                per_token_kl = (
+                    torch.exp(ref_per_token_logps - per_token_logps) - (ref_per_token_logps - per_token_logps) - 1
+                )
 
-        if self.beta != 0.0:
-            mean_kl = masked_batch_mean(per_token_kl)
-            metrics["kl"].append(self.accelerator.gather(mean_kl).nanmean())
+            # Compute the loss
+            advantages = inputs["advantages"]
+            # When num_iterations == 1 and steps_per_generation <= gradient_accumulation_steps,
+            # old_per_token_logps == per_token_logps. In this case we can skip its computation
+            # (see _generate_and_score_completions) and instead use per_token_logps.detach().
+            # The exception is when using vLLM, where we always compute old_per_token_logps
+            # for importance sampling
+            old_per_token_logps = inputs.get("old_per_token_logps")
+            old_per_token_logps = per_token_logps.detach() if old_per_token_logps is None else old_per_token_logps
 
-        mean_entropy = masked_batch_mean(entropies)
-        metrics["entropy"].append(self.accelerator.gather(mean_entropy).nanmean())
+            log_ratio = per_token_logps - old_per_token_logps
+            if self.importance_sampling_level == "token":
+                log_importance_weights = log_ratio
+            elif self.importance_sampling_level == "sequence":
+                log_importance_weights = (log_ratio * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1.0)
+                log_importance_weights = log_importance_weights.unsqueeze(-1)
+            else:
+                raise ValueError(
+                    f"Unknown importance sampling level: {self.importance_sampling_level}. Possible values are 'token' "
+                    "and 'sequence'."
+                )
+            # From here, log_importance_weights (and all subsequent tensors, coef_1, coef_2, etc.) shape depends on
+            # importance_sampling_level: "token" level: (B, T); "sequence" level: (B, 1)
 
-        # Compute the clipped probability ratios
-        is_low_clipped = (coef_1 < 1 - self.epsilon_low) & (advantages.unsqueeze(1) < 0)
-        is_high_clipped = (coef_1 > 1 + self.epsilon_high) & (advantages.unsqueeze(1) > 0)
-        is_region_clipped = is_low_clipped | is_high_clipped
+            coef_1 = torch.exp(log_importance_weights)
+            coef_2 = torch.clamp(coef_1, 1 - self.epsilon_low, 1 + self.epsilon_high)
 
-        low_clip = masked_batch_mean(is_low_clipped.float())
-        high_clip = masked_batch_mean(is_high_clipped.float())
-        clip_ratio = masked_batch_mean(is_region_clipped.float())
+            # Two-sided clipping
+            if self.args.delta is not None:
+                coef_1 = torch.clamp(coef_1, max=self.args.delta)
 
-        gathered_low_clip = self.accelerator.gather(low_clip)
-        metrics["clip_ratio/low_mean"].append(gathered_low_clip.nanmean())
-        metrics["clip_ratio/low_min"].append(nanmin(gathered_low_clip))
-        gathered_high_clip = self.accelerator.gather(high_clip)
-        metrics["clip_ratio/high_mean"].append(gathered_high_clip.nanmean())
-        metrics["clip_ratio/high_max"].append(nanmax(gathered_high_clip))
-        gathered_clip_ratio = self.accelerator.gather(clip_ratio)
-        metrics["clip_ratio/region_mean"].append(gathered_clip_ratio.nanmean())
+            per_token_loss1 = coef_1 * advantages.unsqueeze(1)
+            per_token_loss2 = coef_2 * advantages.unsqueeze(1)
+            per_token_loss = -torch.min(per_token_loss1, per_token_loss2)
+            if entropy_mask is not None:
+                per_token_loss = per_token_loss * entropy_mask
 
-        # torch_xla.sync()  # Graph break before moving metrics to CPU.
-        metrics = move_all_tensor_to_cpu(metrics)
-        torch_xla.sync()
-        metrics = {key: [val.item() for val in value] for key, value in metrics.items()}
+            if self.use_vllm and self.vllm_importance_sampling_correction:
+                per_token_loss = per_token_loss * inputs["importance_sampling_ratio"]
 
-        self._metrics[mode].update(metrics)
+            if self.beta != 0.0:
+                per_token_loss = per_token_loss + self.beta * per_token_kl
+
+            if self.loss_type == "grpo":
+                loss = ((per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1.0)).mean()
+                loss = loss / self.current_gradient_accumulation_steps
+            elif self.loss_type == "bnpo":
+                loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=1.0)
+                loss = loss / self.current_gradient_accumulation_steps
+            elif self.loss_type == "dr_grpo":
+                loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)
+                loss = loss / self.current_gradient_accumulation_steps
+            elif self.loss_type == "dapo":
+                normalizer = inputs["num_items_in_batch"] / self.accelerator.num_processes
+                loss = (per_token_loss * completion_mask).sum() / normalizer
+            else:
+                raise ValueError(f"Unknown loss type: {self.loss_type}")
+
+            # Log the metrics
+            mode = "train" if self.model.training else "eval"
+
+            completion_token_count = completion_mask.sum().clamp(
+                min=torch.tensor(1.0, dtype=completion_mask.dtype, device=completion_mask.device)
+            )
+
+            def masked_batch_mean(x):
+                if x.shape[1] == 1:  # when importance_sampling_level == "sequence"
+                    return x.mean()
+                else:
+                    return (x * completion_mask).sum() / completion_token_count
+
+            metrics = defaultdict(list)
+
+            if self.beta != 0.0:
+                mean_kl = masked_batch_mean(per_token_kl)
+                metrics["kl"].append(self.accelerator.gather(mean_kl).nanmean())
+
+            mean_entropy = masked_batch_mean(entropies)
+            metrics["entropy"].append(self.accelerator.gather(mean_entropy).nanmean())
+
+            # Compute the clipped probability ratios
+            is_low_clipped = (coef_1 < 1 - self.epsilon_low) & (advantages.unsqueeze(1) < 0)
+            is_high_clipped = (coef_1 > 1 + self.epsilon_high) & (advantages.unsqueeze(1) > 0)
+            is_region_clipped = is_low_clipped | is_high_clipped
+
+            low_clip = masked_batch_mean(is_low_clipped.float())
+            high_clip = masked_batch_mean(is_high_clipped.float())
+            clip_ratio = masked_batch_mean(is_region_clipped.float())
+
+            gathered_low_clip = self.accelerator.gather(low_clip)
+            metrics["clip_ratio/low_mean"].append(gathered_low_clip.nanmean())
+            metrics["clip_ratio/low_min"].append(nanmin(gathered_low_clip))
+            gathered_high_clip = self.accelerator.gather(high_clip)
+            metrics["clip_ratio/high_mean"].append(gathered_high_clip.nanmean())
+            metrics["clip_ratio/high_max"].append(nanmax(gathered_high_clip))
+            gathered_clip_ratio = self.accelerator.gather(clip_ratio)
+            metrics["clip_ratio/region_mean"].append(gathered_clip_ratio.nanmean())
+
+            # torch_xla.sync()  # Graph break before moving metrics to CPU.
+            metrics = move_all_tensor_to_cpu(metrics)
+            torch_xla.sync()
+            metrics = {key: [val.item() for val in value] for key, value in metrics.items()}
+
+            self._metrics[mode].update(metrics)
 
         return loss
 

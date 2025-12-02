@@ -29,6 +29,8 @@ from neuronx_distributed.parallel_layers.parallel_state import (
     get_tensor_model_parallel_replica_groups,
 )
 
+from ...utils.misc import is_precompilation
+
 
 def broadcast_object(
     obj: Any,
@@ -78,7 +80,7 @@ def broadcast_object(
         np_buffer = np.frombuffer(bytes_, dtype=np.uint8)
         padding_length = target_length - length
         if padding_length > 0:
-            padding = np.zeros(padding_length, dtype=np.uint8)
+            padding = np.zeros([padding_length], dtype=np.uint8)
             np_buffer = np.concatenate([np_buffer, padding], axis=0)
         data_tensor = torch.from_numpy(np_buffer).to(xm.xla_device())
     else:
@@ -167,38 +169,44 @@ def gather_object(
         raise ValueError(f"Serialized object size {length} exceeds the specified fixed_size {fixed_size}")
 
     lengths = xm.all_gather(
-        torch.tensor([length], dtype=torch.int64, device=xm.xla_device()),
-        dim=0,
-        groups=groups,
-        pin_layout=False,
-    )
-    max_length = torch.max(lengths)
-    torch_xla.sync()
-
-    max_len = int(max_length.item())
-
-    if fixed_size is not None:
-        target_length = fixed_size
-    else:
-        target_length = max_len
-
-    np_buffer = np.frombuffer(serialized, dtype=np.uint8)
-    padding_length = target_length - length
-    if padding_length > 0:
-        padding = np.zeros(padding_length, dtype=np.uint8)
-        np_buffer = np.concatenate([np_buffer, padding], axis=0)
-    data_tensor = torch.from_numpy(np_buffer).to(xm.xla_device())
-
-    data_tensors = xm.all_gather(
-        data_tensor,
+        torch.tensor([length], dtype=torch.int64).to(device=xm.xla_device()),
         dim=0,
         groups=groups,
         pin_layout=False,
     )
     torch_xla.sync()
     lengths_cpu = lengths.cpu()
-    data_tensors_cpu = [t.cpu() for t in data_tensors]
+    max_length = lengths_cpu.max()
+    max_length = int(max_length.item())
+
+    if fixed_size is not None:
+        target_length = fixed_size
+    else:
+        target_length = max_length
+
+    np_buffer = np.frombuffer(serialized, dtype=np.uint8)
+    padding_length = target_length - length
+    if padding_length > 0:
+        padding = np.zeros([padding_length], dtype=np.uint8)
+        np_buffer = np.concatenate([np_buffer, padding], axis=0)
+    data_tensor = torch.from_numpy(np_buffer).to(xm.xla_device())
+
+    data_tensor = xm.all_gather(
+        data_tensor,
+        dim=0,
+        groups=groups,
+        pin_layout=False,
+    )
+    torch_xla.sync()
+
+    data_tensors_cpu = data_tensor.cpu().split(target_length)
     data_bytes = [t.numpy().tobytes() for t in data_tensors_cpu]
+
+    # During precompilation, all_gather returns tensors with uninitialized data or zeros,
+    # breaking the pickle.loads step below. So we return a list of the original object instead,
+    # it should not break anything since precompilation does not rely on the gathered objects.
+    if is_precompilation():
+        return [obj for _ in range(world_size)]
 
     results = []
     for i in range(world_size):

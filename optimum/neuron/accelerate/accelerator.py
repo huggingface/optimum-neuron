@@ -547,7 +547,7 @@ class NeuronAccelerator(Accelerator):
             output_dir=output_dir, safe_serialization=safe_serialization, **save_model_func_kwargs
         )
 
-    def gather(self, tensor, sync: bool = False):
+    def gather(self, tensor: torch.Tensor, sync: bool = False) -> torch.Tensor:
         groups = get_data_parallel_group(as_list=True)
 
         # Ensure tensor is at least 1D for all_gather (scalars need to be unsqueezed)
