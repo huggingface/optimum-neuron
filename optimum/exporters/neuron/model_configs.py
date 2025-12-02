@@ -15,7 +15,6 @@
 """Model specific Neuron configurations."""
 
 import copy
-import inspect
 import os
 from functools import partial
 from typing import Any
