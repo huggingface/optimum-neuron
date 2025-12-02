@@ -41,7 +41,6 @@ from neuronx_distributed.parallel_layers.parallel_state import (
     get_tensor_model_parallel_size,
     get_world_group,
 )
-from neuronx_distributed.utils.utils import hardware
 
 from ...backend.modules.attention.utils import transpose_parallel_linear_layer
 from ...backend.modules.rms_norm import NeuronRMSNorm
@@ -68,14 +67,11 @@ except ImportError:
     from neuronxcc.nki.kernels.attention import attention_isa_kernel  # noqa: E402
 
 from neuronxcc.nki.language import nc
-from torch_neuronx.utils import get_platform_target
 from torch_neuronx.xla_impl.ops import nki_jit  # noqa: E402
 
 
 if TYPE_CHECKING:
-    from ........exporters.neuron.base import NeuronDefaultConfig
-
-_HARDWARE = hardware(get_platform_target())
+    from transformers import PretrainedConfig
 
 
 _flash_fwd_call = nki_jit()(attention_isa_kernel)
@@ -126,7 +122,8 @@ class NeuronFluxTransformer2DModel(torch.nn.Module):
 
     def __init__(
         self,
-        config: "NeuronDefaultConfig",
+        config: "PretrainedConfig",
+        float_dtype: torch.dtype,
     ):
         super().__init__()
         self.config = config
@@ -134,55 +131,50 @@ class NeuronFluxTransformer2DModel(torch.nn.Module):
         self.data_parallel_group = get_data_parallel_group()
         self.global_rank = SPMDRank(world_size=get_world_group().size())
 
-        # TODO: context parallel and out_proj_kernel are not working correctly so far
-        # self.context_parallel_enabled = (self.config.world_size != self.config.tensor_parallel_size)
-        # self.enable_out_proj_kernel = (
-        #     _HARDWARE == hardware.TRN2 and self.config.world_size != self.config.tensor_parallel_size
-        # )  # only supports 1024x1024 inputs for now
         self.context_parallel_enabled = False
         self.enable_out_proj_kernel = False
 
-        self.out_channels = self.config._config.in_channels
-        self.inner_dim = self.config._config.num_attention_heads * self.config._config.attention_head_dim
+        self.out_channels = self.config.in_channels
+        self.inner_dim = self.config.num_attention_heads * self.config.attention_head_dim
 
         self.pos_embed = FluxPosEmbed(theta=10000, axes_dim=(16, 56, 56))
 
         text_time_guidance_cls = (
             NeuronCombinedTimestepGuidanceTextProjEmbeddings
-            if self.config._config.guidance_embeds
+            if self.config.guidance_embeds
             else NeuronCombinedTimestepTextProjEmbeddings
         )
         self.time_text_embed = text_time_guidance_cls(
             embedding_dim=self.inner_dim,
-            pooled_projection_dim=self.config._config.pooled_projection_dim,
-            reduce_dtype=self.config.float_dtype,
+            pooled_projection_dim=self.config.pooled_projection_dim,
+            reduce_dtype=float_dtype,
         )
 
         # We can't use gather_output=False, there is a LayerNorm at the beginning of the next FluxTransformerBlock
         self.context_embedder = ColumnParallelLinear(
-            self.config._config.joint_attention_dim,
+            self.config.joint_attention_dim,
             self.inner_dim,
             gather_output=True,
-            reduce_dtype=self.config.float_dtype,
+            reduce_dtype=float_dtype,
         )
         self.x_embedder = ColumnParallelLinear(
-            self.config._config.in_channels,
+            self.config.in_channels,
             self.inner_dim,
             gather_output=True,
-            reduce_dtype=self.config.float_dtype,
+            reduce_dtype=float_dtype,
         )
 
         self.transformer_blocks = nn.ModuleList(
             [
                 NeuronFluxTransformerBlock(
                     dim=self.inner_dim,
-                    num_attention_heads=self.config._config.num_attention_heads,
-                    attention_head_dim=self.config._config.attention_head_dim,
-                    reduce_dtype=self.config.float_dtype,
+                    num_attention_heads=self.config.num_attention_heads,
+                    attention_head_dim=self.config.attention_head_dim,
+                    reduce_dtype=float_dtype,
                     context_parallel_enabled=self.context_parallel_enabled,
                     enable_out_proj_kernel=self.enable_out_proj_kernel,
                 )
-                for i in range(self.config._config.num_layers)
+                for i in range(self.config.num_layers)
             ]
         )
 
@@ -190,12 +182,12 @@ class NeuronFluxTransformer2DModel(torch.nn.Module):
             [
                 NeuronFluxSingleTransformerBlock(
                     dim=self.inner_dim,
-                    num_attention_heads=self.config._config.num_attention_heads,
-                    attention_head_dim=self.config._config.attention_head_dim,
-                    reduce_dtype=self.config.float_dtype,
+                    num_attention_heads=self.config.num_attention_heads,
+                    attention_head_dim=self.config.attention_head_dim,
+                    reduce_dtype=float_dtype,
                     # context_parallel_enabled=self.context_parallel_enabled,  # weird TorchScript interpreter error if we pass the arg, even when `context_parallel_enabled=False`.
                 )
-                for i in range(self.config._config.num_single_layers)
+                for i in range(self.config.num_single_layers)
             ]
         )
 
@@ -214,7 +206,7 @@ class NeuronFluxTransformer2DModel(torch.nn.Module):
             self.config.patch_size * self.config.patch_size * self.out_channels,
             bias=True,
             gather_output=True,
-            reduce_dtype=self.config.float_dtype,
+            reduce_dtype=float_dtype,
         )
 
     def forward(
@@ -268,7 +260,7 @@ class NeuronFluxTransformer2DModel(torch.nn.Module):
 
         temb = (
             self.time_text_embed(timestep, pooled_projections)
-            if not self.config._config.guidance_embeds
+            if not self.config.guidance_embeds
             else self.time_text_embed(timestep, guidance, pooled_projections)
         )
         encoder_hidden_states = self.context_embedder(encoder_hidden_states)

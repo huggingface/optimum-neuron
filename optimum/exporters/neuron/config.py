@@ -107,7 +107,7 @@ class TextSeq2SeqNeuronConfig(NeuronDefaultConfig):
         return dummy_inputs_generators
 
 
-class NxDNeuronConfig:
+class NxDExportNeuronConfig:
     _STATE_DICT_MODEL_PREFIX = "model."
     _NEW_STATE_DICT_MODEL_PREFIX = ""
     _FUSED_PREFIX = ""

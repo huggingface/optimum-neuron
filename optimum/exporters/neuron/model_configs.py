@@ -15,6 +15,7 @@
 """Model specific Neuron configurations."""
 
 import copy
+import inspect
 import os
 from functools import partial
 from typing import Any
@@ -55,7 +56,7 @@ from optimum.neuron.utils import (
 
 from .config import (
     AudioNeuronConfig,
-    NxDNeuronConfig,
+    NxDExportNeuronConfig,
     TextAndVisionNeuronConfig,
     TextEncoderNeuronConfig,
     TextSeq2SeqNeuronConfig,
@@ -785,7 +786,7 @@ class PixartTransformerNeuronConfig(VisionNeuronConfig):
 
 
 @register_in_tasks_manager("flux-transformer-2d", *["semantic-segmentation"], library_name="diffusers")
-class FluxTransformerNeuronConfig(NxDNeuronConfig, VisionNeuronConfig):
+class FluxTransformerNeuronConfig(NxDExportNeuronConfig, VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     INPUT_ARGS = (
         "batch_size",
@@ -842,7 +843,7 @@ class FluxTransformerNeuronConfig(NxDNeuronConfig, VisionNeuronConfig):
         )
 
         # Parallelize Flux transformer with NxD backend modeling
-        model = NeuronFluxTransformer2DModel(self)
+        model = NeuronFluxTransformer2DModel(self._config, float_dtype=self.float_dtype)
         model.eval()
         if self.float_dtype == torch.bfloat16:
             model.bfloat16()
@@ -1028,7 +1029,7 @@ class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
 
 
 @register_in_tasks_manager("t5-encoder", *["feature-extraction"], library_name="diffusers")
-class T5EncoderForDiffusersNeuronConfig(NxDNeuronConfig, T5EncoderBaseNeuronConfig):
+class T5EncoderForDiffusersNeuronConfig(NxDExportNeuronConfig, T5EncoderBaseNeuronConfig):
     INPUT_ARGS = ("batch_size", "sequence_length")
     MODEL_TYPE = "t5-encoder"
     LIBRARY_NAME = "diffusers"
