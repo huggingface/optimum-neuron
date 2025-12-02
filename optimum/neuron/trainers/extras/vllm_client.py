@@ -30,13 +30,16 @@ from trl.import_utils import is_vllm_available
 if is_vllm_available():
     from vllm.distributed.utils import StatelessProcessGroup
 else:
+
     class StatelessProcessGroup:
         pass
+
 
 logger = logging.get_logger()
 
 # Set up the communication group for weight broadcasting using CPU communicator
-Group = namedtuple('Group', 'barrier')
+Group = namedtuple("Group", "barrier")
+
 
 class CPUCommunicator:
     def __init__(self, store, rank):
@@ -56,6 +59,7 @@ class CPUCommunicator:
 
     def __del__(self):
         del self.store
+
 
 class VLLMClient(TRLVLLMClient):
     """VLLMClient with CPU-based communication for Neuron environments."""
@@ -96,13 +100,12 @@ class VLLMClient(TRLVLLMClient):
         # [W416 23:24:57.460001114 socket.cpp:204] [c10d] The hostname of the client socket cannot be retrieved. err=-3
         time.sleep(0.1)
 
-        pg = StatelessProcessGroup.create(
-            host=self.host, port=self.group_port, rank=self.rank, world_size=world_size
-        )
+        pg = StatelessProcessGroup.create(host=self.host, port=self.group_port, rank=self.rank, world_size=world_size)
         self.communicator = CPUCommunicator(pg, self.rank)
 
         # When the client object is deleted, close the weight update group
         atexit.register(self.close_communicator)
+
 
 class MockVLLMClient(VLLMClient):
     """
@@ -175,17 +178,11 @@ class MockVLLMClient(VLLMClient):
                 completion_length = self.random.randint(self.min_completion_length, max_len)
 
                 # Generate random tokens from safe vocab range
-                completion = [
-                    self.random.randint(min_token_id, max_token_id)
-                    for _ in range(completion_length)
-                ]
+                completion = [self.random.randint(min_token_id, max_token_id) for _ in range(completion_length)]
                 completion_ids.append(completion)
 
                 # Generate realistic random logprobs (typical range: -2 to -10)
-                completion_logprobs = [
-                    -self.random.uniform(2.0, 8.0)
-                    for _ in range(completion_length)
-                ]
+                completion_logprobs = [-self.random.uniform(2.0, 8.0) for _ in range(completion_length)]
                 logprobs.append(completion_logprobs)
 
         return {
@@ -209,4 +206,3 @@ class MockVLLMClient(VLLMClient):
     def close_communicator(self):
         """No-op: mock has no communicator."""
         pass
-

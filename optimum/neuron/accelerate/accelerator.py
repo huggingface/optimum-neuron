@@ -558,7 +558,6 @@ class NeuronAccelerator(Accelerator):
             torch_xla.sync()
         return gathered
 
-
     def gather_for_metrics(self, input_data, use_gather_object: bool = False, sync: bool = False):
         try:
             recursively_apply(lambda x: x, input_data, error_on_other_type=True)

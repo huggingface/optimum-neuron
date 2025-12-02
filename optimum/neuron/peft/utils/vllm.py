@@ -87,7 +87,9 @@ def get_original_merged_weights_for_vllm(model) -> dict[str, torch.Tensor]:
             transformation_specs.append(copy.deepcopy(module.specs))
 
     for specs in transformation_specs:
-        specs.module_fully_qualified_name = specs.module_fully_qualified_name.removeprefix("base_model.model.").replace(".base_layer", "")
+        specs.module_fully_qualified_name = specs.module_fully_qualified_name.removeprefix(
+            "base_model.model."
+        ).replace(".base_layer", "")
         for spec in specs:
             spec.peft_type = None
 

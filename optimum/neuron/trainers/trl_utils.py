@@ -31,12 +31,13 @@ logger = logging.get_logger()
 
 TRL_VERSION = "0.24.0"
 
+
 def pad(
     tensors: list[torch.Tensor],
     padding_value: int = 0,
     padding_side: str = "right",
     max_length: int | None = None,
-  ) -> torch.Tensor:
+) -> torch.Tensor:
     """
     Pads a list of tensors to the same shape along the first dimension.
     It differs from `trl` by enfoncing the same sequence length for all tensors, which is required to avoid
@@ -150,6 +151,7 @@ def entropy_from_logits(logits: torch.Tensor, chunk_size: int = 128) -> torch.Te
     entropies = torch.cat(entropies, dim=0)
     return entropies.reshape(original_shape)
 
+
 def neuron_parallel_compile_tokenizer_decoder_method(
     self,
     token_ids: int | list[int],
@@ -202,10 +204,7 @@ def nanstd(tensor: torch.Tensor) -> torch.Tensor:
     XLA-compatible version of nanstd.
     Compute the standard deviation of a tensor, ignoring NaNs.
     """
-    # Use torch's built-in nanmean and compute variance with Bessel's correction
     variance = torch.nanmean((tensor - torch.nanmean(tensor, keepdim=True)) ** 2)
-    count = torch.sum(~torch.isnan(tensor))
-    variance *= count / (count - 1).clamp(min=1.0)  # Bessel's correction, avoid division by zero
     return torch.sqrt(variance)
 
 
@@ -244,9 +243,7 @@ class DistributedRepeatSampler(DistributedSampler):
                 raise RuntimeError("Requires distributed package to be available")
             rank = dist.get_rank()
         if rank >= num_replicas or rank < 0:
-            raise ValueError(
-                f"Invalid rank {rank}, rank should be in the interval [0, {num_replicas - 1}]"
-            )
+            raise ValueError(f"Invalid rank {rank}, rank should be in the interval [0, {num_replicas - 1}]")
         self.dataset = dataset
         self.num_replicas = num_replicas
         self.rank = rank
@@ -293,9 +290,7 @@ class DistributedRepeatSampler(DistributedSampler):
             if padding_size <= len(indices):
                 indices += indices[:padding_size]
             else:
-                indices += (indices * math.ceil(padding_size / len(indices)))[
-                    :padding_size
-                ]
+                indices += (indices * math.ceil(padding_size / len(indices)))[:padding_size]
         else:
             # remove tail of data to make it evenly divisible.
             indices = indices[: self.total_size]
@@ -326,4 +321,3 @@ class DistributedRepeatSampler(DistributedSampler):
 
     def set_epoch(self, epoch: int) -> None:
         self.epoch = epoch
-

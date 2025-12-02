@@ -79,15 +79,15 @@ training = [
     "peft == 0.17.0",
     "evaluate == 0.4.3",
 ]
-neuron = [
-    "wheel",
-    "torch-neuron==1.13.1.2.9.74.0",
-    "torch==1.13.1.*",
-    "neuron-cc[tensorflow]==1.22.0.0",
-    "protobuf",
-    "torchvision",
-    "numpy==1.22.3",
-]
+# neuron = [
+#     "wheel",
+#     "torch-neuron==1.13.1.2.9.74.0",
+#     "torch==1.13.1.*",
+#     "neuron-cc[tensorflow]==1.22.0.0",
+#     "protobuf",
+#     "torchvision",
+#     "numpy==1.22.3",
+# ]
 neuronx = [
     "wheel",
     "neuronx-cc==2.21.18209.0",
@@ -133,7 +133,16 @@ include = ["optimum*"]
 "*" = ["*"]
 
 [tool.uv]
-extra-index-url = ["https://pip.repos.neuron.amazonaws.com"]
+index-strategy = "unsafe-best-match"
+
+[[tool.uv.index]]
+name = "neuron"
+url = "https://pip.repos.neuron.amazonaws.com/"
+default = true
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
 
 [tool.ruff]
 line-length = 119

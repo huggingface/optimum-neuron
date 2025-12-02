@@ -808,8 +808,9 @@ def test_peft_merge_unmerge(set_cache_for_ci):
     xm.mark_step()
 
     # Outputs should match
-    assert torch.allclose(logits_unmerged, logits_merged, rtol=1e-3, atol=1e-3), \
+    assert torch.allclose(logits_unmerged, logits_merged, rtol=1e-3, atol=1e-3), (
         f"Merged and unmerged outputs should match. Max diff: {(logits_unmerged - logits_merged).abs().max().item()}"
+    )
 
     # Unmerge LoRA adapters
     model.unmerge_adapter()
@@ -820,8 +821,9 @@ def test_peft_merge_unmerge(set_cache_for_ci):
     xm.mark_step()
     for name, original_weight in original_weights.items():
         current_weight = current_weights[name].data
-        assert torch.allclose(original_weight, current_weight, rtol=1e-5, atol=1e-6), \
+        assert torch.allclose(original_weight, current_weight, rtol=1e-5, atol=1e-6), (
             f"Weight {name} should be restored after unmerge. Max diff: {(original_weight - current_weight).abs().max().item()}"
+        )
 
     # Final output check
     with torch.no_grad():
@@ -829,8 +831,9 @@ def test_peft_merge_unmerge(set_cache_for_ci):
         logits_final = output_final.logits.clone()
     xm.mark_step()
 
-    assert torch.allclose(logits_unmerged, logits_final, rtol=1e-5, atol=1e-5), \
+    assert torch.allclose(logits_unmerged, logits_final, rtol=1e-5, atol=1e-5), (
         f"Final output should match original unmerged output. Max diff: {(logits_unmerged - logits_final).abs().max().item()}"
+    )
 
 
 @distributed_test(world_size=8, tp_size=2, pp_size=1)
@@ -892,14 +895,16 @@ def test_get_original_merged_weights_for_vllm(set_cache_for_ci):
 
         assert "model.layers.0.self_attn.q_proj.weight" in original_weights
         q_proj_weight = original_weights["model.layers.0.self_attn.q_proj.weight"]
-        assert q_proj_weight.shape == (hidden_size, hidden_size), \
+        assert q_proj_weight.shape == (hidden_size, hidden_size), (
             f"q_proj should be unsharded {hidden_size}x{hidden_size}, got {q_proj_weight.shape}"
+        )
 
         # The custom model uses fused gate_up_proj, but original format should have separate projections
         assert "model.layers.0.mlp.gate_proj.weight" in original_weights
         assert "model.layers.0.mlp.up_proj.weight" in original_weights
-        assert "model.layers.0.mlp.gate_up_proj.weight" not in original_weights, \
+        assert "model.layers.0.mlp.gate_up_proj.weight" not in original_weights, (
             "Should use original format (separate gate/up), not custom format (fused gate_up)"
+        )
 
         gate_proj_weight = original_weights["model.layers.0.mlp.gate_proj.weight"]
         up_proj_weight = original_weights["model.layers.0.mlp.up_proj.weight"]
@@ -910,14 +915,16 @@ def test_get_original_merged_weights_for_vllm(set_cache_for_ci):
         merged_q_proj = original_weights[base_q_proj_name]
 
         # Weights should be different (LoRA delta was merged)
-        assert not torch.allclose(original_q_proj, merged_q_proj, rtol=1e-4), \
+        assert not torch.allclose(original_q_proj, merged_q_proj, rtol=1e-4), (
             "Merged weight should differ from original base weight (LoRA delta should be added)"
+        )
 
     # Test 3: Verify model state is restored (adapters are unmerged)
     # After calling get_original_merged_weights_for_vllm, the model should be back to unmerged state
     for module in model.modules():
         if hasattr(module, "merged"):
-            assert not module.merged, \
+            assert not module.merged, (
                 f"Module {module.__class__.__name__} should be unmerged after get_original_merged_weights_for_vllm"
+            )
 
     print("✓ All get_original_merged_weights_for_vllm tests passed")

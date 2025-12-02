@@ -34,6 +34,8 @@ from optimum.neuron.models.training import NeuronModelForCausalLM
 from optimum.neuron.trainers.extras import MockVLLMClient
 
 
+x = MockVLLMClient  # To avoid linter warning about unused import
+
 # =============================================================================
 # Reward Functions
 # =============================================================================

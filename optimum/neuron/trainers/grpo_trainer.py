@@ -43,6 +43,7 @@ from transformers.utils import is_rich_available
 from ..accelerate.utils import (
     broadcast_object_to_pipeline_model_parallel_group,
     broadcast_object_to_tensor_model_parallel_group,
+    gather_object_from_data_parallel_group,
 )
 from ..models.training import NeuronModelForCausalLM
 from ..peft import NeuronPeftModel, get_peft_model
@@ -139,6 +140,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         optimizer_cls_and_kwargs: tuple[type[torch.optim.Optimizer], dict[str, Any]] | None = None,
         peft_config: PeftConfig | None = None,
         vllm_client: TRLVLLMClient | None = None,
+        fixed_size_for_obj_collectives: int | None = 10 * 1024 * 1024,  # 10 MB
     ):
         if not is_trl_available(required_version=TRL_VERSION):
             raise RuntimeError(f"Using NeuronGRPOTrainer requires trl=={TRL_VERSION}.")
@@ -383,7 +385,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             self.ref_model = None
         else:
             # Create reference model using NeuronModelForCausalLM
-            self.ref_model = NeuronModelForCausalLM.from_pretrained(model_id, args.trn_config, **args.model_init_kwargs or {})
+            self.ref_model = NeuronModelForCausalLM.from_pretrained(
+                model_id, args.trn_config, **args.model_init_kwargs or {}
+            )
 
         # Disable dropout in the models
         if args.disable_dropout:
@@ -465,10 +469,11 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                     reward_func, evaluation_mode=True, device_placement=True
                 )
 
-
         self.dp_rank = get_data_parallel_rank()
         self.tp_rank = get_tensor_model_parallel_rank()
         self.pp_rank = get_pipeline_model_parallel_rank()
+
+        self.fixed_size_obj_collectives = fixed_size_for_obj_collectives
 
     def _get_train_sampler(self, dataset: Dataset | None = None) -> Sampler:
         if dataset is None:
@@ -497,7 +502,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 rank=rank,
             )
         return sampler
-
 
     def train(
         self,
@@ -554,7 +558,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                     df = df.drop_duplicates(subset=["prompt"])
                 wandb.log({"completions": wandb.Table(dataframe=df)})
 
-
     def _save_checkpoint(self, model=None, trial=None, metrics=None):
         return NeuronTrainer._save_checkpoint(self)
 
@@ -576,6 +579,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             if isinstance(reward_func, torch.nn.Module):
                 if is_conversational(inputs[0]):
                     from trl.data_utils import apply_chat_template
+
                     messages = [{"messages": p + c} for p, c in zip(prompts, completions)]
                     texts = [apply_chat_template(x, reward_processing_class)["text"] for x in messages]
                 else:
@@ -591,7 +595,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 output_reward_func = reward_func(
                     prompts=prompts, completions=completions, completion_ids=completion_ids_list, **reward_kwargs
                 )
-                print("Reward function output:", reward_func_name, output_reward_func)
                 output_reward_func = [reward if reward is not None else torch.nan for reward in output_reward_func]
                 rewards_per_func[:, i] = torch.tensor(output_reward_func, dtype=torch.float32, device=device)
 
@@ -686,12 +689,14 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
         # Broadcast output to all ranks
         trn_config = self.accelerator.state.trn_config
-        # TODO: change that to a better default.
-        fixed_size = int(2e6)  # 2MB fixed size for buffer, should be enough.
         if trn_config.tensor_parallel_size > 1:
-            output = broadcast_object_to_tensor_model_parallel_group(output, fixed_size=fixed_size)
+            output = broadcast_object_to_tensor_model_parallel_group(
+                output, fixed_size=self.fixed_size_obj_collectives
+            )
         if trn_config.pipeline_parallel_size > 1:
-            output = broadcast_object_to_pipeline_model_parallel_group(output, fixed_size=fixed_size)
+            output = broadcast_object_to_pipeline_model_parallel_group(
+                output, fixed_size=self.fixed_size_obj_collectives
+            )
 
         # Repeat prompt_ids num_generations times to match completion_ids
         prompt_ids = [ids for ids in output["prompt_ids"] for _ in range(self.num_generations)]
@@ -704,10 +709,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         return prompt_ids, completion_ids, logprobs, forward_kwargs
 
     def _to_fixed_length(
-        self,
-        tensor: torch.Tensor,
-        padding_value: int = 0,
-        padding_side: str = "right"
+        self, tensor: torch.Tensor, padding_value: int = 0, padding_side: str = "right"
     ) -> torch.Tensor:
         """
         Pads or truncates tensor to fixed length = max_prompt_length + max_completion_length.
@@ -735,7 +737,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         input_ids,
         attention_mask,
         logits_to_keep,
-        batch_size, # Compared to the original `trl` implementation, `batch_size` must be specified.
+        batch_size: int | None = None,
         compute_entropy=False,
         pixel_values=None,
         image_grid_thw=None,
@@ -744,21 +746,18 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         image_sizes=None,
         token_type_ids=None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        # Make sure the inputs have a fixed shape.
-        input_ids = self._to_fixed_length(
-            input_ids, padding_value=self.pad_token_id, padding_side="left"
-        )
-        attention_mask = self._to_fixed_length(
-            attention_mask, padding_value=0, padding_side="left"
-        )
-
-        # Force synchronization before starting computation to re-use the same graph.
         torch_xla.sync()
-
         batch_size = batch_size or input_ids.size(0)  # Chunk inputs into smaller batches to reduce memory peak
+
+        # Ensure input batch size is divisible by `batch_size` to avoid issues with XLA graph compilation.
+        if input_ids.size(0) % batch_size != 0:
+            raise ValueError(
+                f"The input_ids batch size must be divisible by `batch_size`, but got {input_ids.shape[0]} and "
+                f"{batch_size}."
+            )
+
         all_logps = []
         all_entropies = []
-        # TODO: check if it's ok with TORCH XLA
         for start in range(0, input_ids.size(0), batch_size):
             input_ids_batch = input_ids[start : start + batch_size]
             attention_mask_batch = attention_mask[start : start + batch_size]
@@ -794,9 +793,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
             logits = model(**model_inputs).logits
 
-            # Synchronize after model forward to avoid recompiling multiple model graphs.
-            torch_xla.sync()
-
             # Exclude the last value: it corresponds to the next token pred
             logits = logits[:, :-1, :]  # (B, L-1, H)
             # Only keep the last logits_to_keep. For model that support logits_to_keep, this is a no-op.
@@ -825,7 +821,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         return logps, entropies
 
     def _generate_and_score_completions(
-        self, inputs: list[dict[str,torch.Tensor | Any]]
+        self, inputs: list[dict[str, torch.Tensor | Any]]
     ) -> dict[str, torch.Tensor | Any]:
         device = self.accelerator.device
         mode = "train" if self.model.training else "eval"
@@ -856,7 +852,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 torch.tensor(ids),
                 self.max_prompt_length,
                 padding_value=self.pad_token_id,
-                padding_or_truncate_side="left"
+                padding_or_truncate_side="left",
             )
             for ids in prompt_ids_list
         ]
@@ -884,7 +880,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 torch.tensor(ids),
                 self.max_completion_length,
                 padding_value=self.pad_token_id,
-                padding_or_truncate_side="right"
+                padding_or_truncate_side="right",
             )
             for ids in completion_ids_list
         ]
@@ -1058,16 +1054,22 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         metrics["frac_reward_zero_std"].append(is_std_zero.float().mean())
 
         # Log prompt and completion texts
-        # self._logs["prompt"].extend(self.accelerator.gather_object(prompts_text))
-        # self._logs["completion"].extend(self.accelerator.gather_object(completions_text))
+        # self._logs["prompt"].extend(
+        #     gather_object_from_data_parallel_group(prompts_text, fixed_size=self.fixed_size_obj_collectives)
+        # )
+        # self._logs["completion"].extend(
+        #     gather_object_from_data_parallel_group(completions_text, fixed_size=self.fixed_size_obj_collectives)
+        # )
         logs["rewards"] = {}
         logs["advantages"] = []
         for i, name in enumerate(self.reward_func_names):
             logs["rewards"][name] = rewards_per_func[:, i]
         logs["advantages"] = all_process_advantages
 
-        # if images is not None:
-        #     self._logs["images"].extend(self.accelerator.gather_object(images))
+        if images is not None:
+            self._logs["images"].extend(
+                gather_object_from_data_parallel_group(images, fixed_size=self.fixed_size_obj_collectives)
+            )
 
         if self.use_vllm and self.vllm_importance_sampling_correction:
             delta = torch.abs(old_per_token_logps - sampling_per_token_logps)
@@ -1083,12 +1085,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             # We can simply take the max of the masked delta because values in delta are >= 0 (torch.abs).
             max_delta = delta_masked.max()
 
-            metrics["sampling/sampling_logp_difference/mean"].append(
-                self.accelerator.gather(mean_delta).mean()
-            )
-            metrics["sampling/sampling_logp_difference/max"].append(
-                self.accelerator.gather(max_delta).max()
-            )
+            metrics["sampling/sampling_logp_difference/mean"].append(self.accelerator.gather(mean_delta).mean())
+            metrics["sampling/sampling_logp_difference/max"].append(self.accelerator.gather(max_delta).max())
 
             # Original code was:
             # flat_is_ratio = importance_sampling_ratio[completion_mask.bool()]
@@ -1105,7 +1103,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             masked_is_ratio_for_min = torch.where(
                 completion_mask.bool(),
                 importance_sampling_ratio,
-                torch.tensor(float('inf'), device=device, dtype=importance_sampling_ratio.dtype)
+                torch.tensor(float("inf"), device=device, dtype=importance_sampling_ratio.dtype),
             )
             min_importance_sampling_ratio = masked_is_ratio_for_min.min()
             # importance_sampling_ratio values are >= 0 (torch.exp) so we can use the same computation as for delta.
@@ -1124,9 +1122,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 nanmax(self.accelerator.gather(max_importance_sampling_ratio))
             )
 
-        # Graph break after metrics and logs computation.
-        torch_xla.sync()
-
         # Move metrics and logs to CPU.
         metrics = move_all_tensor_to_cpu(metrics)
         logs = move_all_tensor_to_cpu(logs)
@@ -1139,7 +1134,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         for name in self.reward_func_names:
             self._logs["rewards"][name].extend(logs["rewards"][name].tolist())
         self._logs["advantages"].extend(logs["advantages"].tolist())
-
 
         output = {
             "prompt_ids": prompt_ids,
@@ -1221,14 +1215,11 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         # Handle empty case, if everything is sentinel, set threshold to +inf so no token is selected
         has_valid = num_valid > 0
         entropy_threshold = torch.where(
-            has_valid,
-            entropy_threshold,
-            torch.tensor(float('inf'), device=device, dtype=entropies.dtype)
+            has_valid, entropy_threshold, torch.tensor(float("inf"), device=device, dtype=entropies.dtype)
         )
 
         entropy_mask = (entropies > entropy_threshold) & mask.bool()
         return entropy_mask
-
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         if return_outputs:
@@ -1259,9 +1250,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             image_sizes=inputs.get("image_sizes"),
             token_type_ids=inputs.get("token_type_ids"),
         )
-
-        print("Per-token log probabilities:", per_token_logps)
-        print("Entropies:", entropies)
 
         if self.top_entropy_quantile < 1.0:
             entropy_mask = self.get_high_entropy_mask(entropies, completion_mask, 1 - self.top_entropy_quantile)
