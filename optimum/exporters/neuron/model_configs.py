@@ -21,7 +21,6 @@ from typing import Any
 
 import neuronx_distributed
 import torch
-from neuronx_distributed.utils.utils import hardware
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import (
     DummyFluxTransformerTextInputGenerator,
@@ -40,7 +39,6 @@ from optimum.utils import (
     is_diffusers_available,
     logging,
 )
-from torch_neuronx.utils import get_platform_target
 
 from optimum.neuron.utils import (
     ASTDummyAudioInputGenerator,
@@ -77,9 +75,6 @@ from .model_wrappers import (
     WhisperDecoderWrapper,
     WhisperEncoderWrapper,
 )
-
-
-_HARDWARE = hardware(get_platform_target())
 
 
 if is_diffusers_available():
@@ -891,12 +886,12 @@ class FluxTransformerNeuronConfig(NxDNeuronConfig, VisionNeuronConfig):
         else:
             return dummy_inputs
 
-    def get_compiler_args(self):
+    def get_compiler_args(self, instance_type):
         compiler_args = "--model-type=transformer -O1"
         self.context_parallel_enabled = self.world_size != self.tensor_parallel_size
-        if self.context_parallel_enabled and _HARDWARE == hardware.TRN1:
+        if self.context_parallel_enabled and instance_type in ["trn1", "inf2", "trn1n"]:
             compiler_args = "--model-type=transformer -O2"
-        if self.context_parallel_enabled and _HARDWARE == hardware.TRN2:
+        if self.context_parallel_enabled and instance_type == "trn2":
             compiler_args += " --tensorizer-options='--enable-ccop-compute-overlap'"
         else:
             compiler_args += " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'"
@@ -904,7 +899,7 @@ class FluxTransformerNeuronConfig(NxDNeuronConfig, VisionNeuronConfig):
         compiler_args += " --auto-cast=none --internal-hlo2tensorizer-options='--verify-hlo=true'"
 
         os.environ["LOCAL_WORLD_SIZE"] = str(self.world_size)
-        if _HARDWARE == hardware.TRN2:
+        if instance_type == "trn2":
             os.environ["NEURON_RT_VIRTUAL_CORE_SIZE"] = "2"
         return compiler_args
 
@@ -1069,13 +1064,13 @@ class T5EncoderForDiffusersNeuronConfig(NxDNeuronConfig, T5EncoderBaseNeuronConf
     def update_state_dict_for_tied_weights(state_dict):
         pass
 
-    def get_compiler_args(self):
+    def get_compiler_args(self, instance_type):
         compiler_args = "--model-type=transformer -O1"
         compiler_args += " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'"
 
         compiler_args += " --auto-cast=none --internal-hlo2tensorizer-options='--verify-hlo=true'"
 
-        if _HARDWARE == hardware.TRN2:
+        if instance_type == "trn2":
             os.environ["LOCAL_WORLD_SIZE"] = str(self.config.neuron_config.world_size)
             os.environ["NEURON_RT_VIRTUAL_CORE_SIZE"] = str(self.config.neuron_config.logical_nc_config)
         return compiler_args

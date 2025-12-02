@@ -613,7 +613,7 @@ def prepare_compiler_flags(
     optlevel: str = "2",
 ):
     if hasattr(config, "get_compiler_args"):
-        compiler_args = config.get_compiler_args()
+        compiler_args = config.get_compiler_args(instance_type)
         return compiler_args
     if auto_cast is not None:
         logger.info(f"Using Neuron: --auto-cast {auto_cast}")

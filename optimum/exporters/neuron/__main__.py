@@ -23,7 +23,7 @@ os.environ["TORCHDYNAMO_DISABLE"] = "1"  # Always turn off torchdynamo as it's i
 from argparse import ArgumentParser
 from dataclasses import fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import torch
 from optimum.exporters.error_utils import AtolError, OutputMatchError, ShapeError
@@ -743,7 +743,7 @@ def maybe_export_from_neuron_model_class(
     config: PretrainedConfig,
     output: str | Path,
     task: str,
-    instance_type,
+    instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
     cache_dir: str | None = None,
     subfolder: str = "",
     token: str | None = None,
