@@ -99,7 +99,8 @@ def load_grpo_dataset():
     """
     # Load a simple test dataset
     # This dataset has prompts in the "prompt" column
-    dataset = load_dataset("trl-lib/DeepMath-103K", split="train")
+    # dataset = load_dataset("trl-lib/DeepMath-103K", split="train")
+    dataset = load_dataset("trl-lib/ultrafeedback-prompt", split="train")
 
     return dataset
 

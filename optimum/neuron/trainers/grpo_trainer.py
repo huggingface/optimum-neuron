@@ -1241,7 +1241,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             if self.importance_sampling_level == "token":
                 log_importance_weights = log_ratio
             elif self.importance_sampling_level == "sequence":
-                log_importance_weights = (log_ratio * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1.0)
+                log_importance_weights = (log_ratio * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(
+                    min=torch.tensor(1.0, dtype=completion_mask.dtype, device=completion_mask.device)
+                )
                 log_importance_weights = log_importance_weights.unsqueeze(-1)
             else:
                 raise ValueError(
@@ -1271,16 +1273,23 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 per_token_loss = per_token_loss + self.beta * per_token_kl
 
             if self.loss_type == "grpo":
-                loss = ((per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1.0)).mean()
+                loss = (
+                    (per_token_loss * completion_mask).sum(-1)
+                    / completion_mask.sum(-1).clamp(
+                        min=torch.tensor(1.0, dtype=completion_mask.dtype, device=completion_mask.device)
+                    )
+                ).mean()
                 loss = loss / self.current_gradient_accumulation_steps
             elif self.loss_type == "bnpo":
-                loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=1.0)
+                loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(
+                    min=torch.tensor(1.0, dtype=completion_mask.dtype, device=completion_mask.device)
+                )
                 loss = loss / self.current_gradient_accumulation_steps
             elif self.loss_type == "dr_grpo":
                 loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)
                 loss = loss / self.current_gradient_accumulation_steps
             elif self.loss_type == "dapo":
-                normalizer = inputs["num_items_in_batch"] / self.accelerator.num_processes
+                normalizer = inputs["num_items_in_batch"]
                 loss = (per_token_loss * completion_mask).sum() / normalizer
             else:
                 raise ValueError(f"Unknown loss type: {self.loss_type}")
