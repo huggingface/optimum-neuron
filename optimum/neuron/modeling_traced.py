@@ -27,6 +27,7 @@ from optimum.exporters.tasks import TasksManager
 from optimum.modeling_base import OptimizedModel
 from optimum.utils import logging
 from optimum.utils.save_utils import maybe_load_preprocessors
+from safetensors.torch import load_file
 from transformers import AutoConfig, AutoModel, GenerationMixin
 
 from optimum.exporters.neuron import main_export
@@ -118,7 +119,9 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
 
     @staticmethod
-    def load_model(path: str | Path, to_neuron: bool = False, device_id: int = 0) -> torch.jit._script.ScriptModule:
+    def load_model(
+        path: str | Path, to_neuron: bool = False, device_id: int = 0, tensor_parallel_size: int = 1
+    ) -> torch.jit._script.ScriptModule:
         """
         Loads a TorchScript module compiled by neuron(x)-cc compiler. It will be first loaded onto CPU and then moved to
         one or multiple [NeuronCore](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/neuroncores-arch.html).
@@ -144,6 +147,15 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
                 )  # The inputs are allocated to nc:0 by default, this line ensures both input tensors and the model are on the same core.
                 if to_neuron:
                     move_trace_to_device(model, device_id)
+                # Load weights for nxd model
+                weights_path = path.parent / "weights"
+                if hasattr(model, "nxd_model") and weights_path.is_dir():
+                    weights = []
+                    for rank in range(tensor_parallel_size):
+                        ckpt = load_file(weights_path / f"tp{rank}_sharded_checkpoint.safetensors")
+                        weights.append(ckpt)
+                    start_rank_tensor = torch.tensor([0], dtype=torch.int32, device="cpu")
+                    model.nxd_model.initialize(weights, start_rank_tensor)
             return model
 
     def replace_weights(self, weights: dict[str, torch.Tensor] | torch.nn.Module | None = None):
@@ -234,7 +246,11 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
             new_model_save_dir = Path(model_file_path).parent
 
         # Load model
-        model = NeuronTracedModel.load_model(model_file_path, to_neuron=not inline_weights_to_neff)
+        model = NeuronTracedModel.load_model(
+            model_file_path,
+            to_neuron=not inline_weights_to_neff,
+            tensor_parallel_size=neuron_config.tensor_parallel_size,
+        )
 
         preprocessors = maybe_load_preprocessors(model_id, subfolder=subfolder)
 

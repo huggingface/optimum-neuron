@@ -23,7 +23,7 @@ os.environ["TORCHDYNAMO_DISABLE"] = "1"  # Always turn off torchdynamo as it's i
 from argparse import ArgumentParser
 from dataclasses import fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import torch
 from optimum.exporters.error_utils import AtolError, OutputMatchError, ShapeError
@@ -180,7 +180,7 @@ def customize_optional_outputs(args: argparse.Namespace) -> dict[str, bool]:
 
 def parse_optlevel(args: argparse.Namespace) -> dict[str, bool]:
     """
-    (NEURONX ONLY) Parse the level of optimization the compiler should perform. If not specified apply `O2`(the best balance between model performance and compile time).
+    Parse the level of optimization the compiler should perform. If not specified apply `O2`(the best balance between model performance and compile time).
     """
     if is_neuronx_available():
         if args.O1:
@@ -743,7 +743,7 @@ def maybe_export_from_neuron_model_class(
     config: PretrainedConfig,
     output: str | Path,
     task: str,
-    instance_type,
+    instance_type: Literal["trn1", "inf2", "trn1n", "trn2"] | None = None,
     cache_dir: str | None = None,
     subfolder: str = "",
     token: str | None = None,

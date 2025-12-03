@@ -21,13 +21,12 @@ from optimum.utils import logging
 
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.neuron.utils import is_neuronx_available
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
-@is_inferentia_test
 class TestExportCLI(unittest.TestCase):
     def test_helps_no_raise(self):
         commands = [

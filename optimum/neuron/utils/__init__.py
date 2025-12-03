@@ -69,7 +69,6 @@ _import_structure = {
         "is_main_worker",
         "is_precompilation",
         "replace_weights",
-        "get_checkpoint_shard_files",
     ],
     "model_utils": ["get_tied_parameters_dict", "tie_parameters", "saved_model_in_temporary_directory"],
     "optimization_utils": [

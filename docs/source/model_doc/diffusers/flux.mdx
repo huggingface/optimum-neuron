@@ -92,7 +92,6 @@ optimum-cli export neuron --model black-forest-labs/FLUX.1-schnell --tensor_para
 ```
 
 ```python
-import torch
 from optimum.neuron import NeuronFluxPipeline
 
 pipe = NeuronFluxPipeline.from_pretrained("flux_schnell_neuron_1024_tp8")
@@ -127,7 +126,6 @@ With `NeuronFluxInpaintPipeline`, pass the original image and a mask of what you
 from diffusers.utils import load_image
 from optimum.neuron import NeuronFluxInpaintPipeline
 
-
 pipe = NeuronFluxInpaintPipeline.from_pretrained("Jingya/Flux.1-Schnell-1024x1024-neuronx-tp8")
 prompt = "Face of a yellow cat, high resolution, sitting on a park bench"
 img_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png"
@@ -149,7 +147,6 @@ With `NeuronFluxKontextPipeline`, pass the original image and a prompt describin
 ```python
 from diffusers.utils import load_image
 from optimum.neuron import NeuronFluxKontextPipeline
-
 
 pipe = NeuronFluxKontextPipeline.from_pretrained("Jlonge4/FLUX.1-kontext-neuronx-1024x1024-tp8")
 prompt = "Change the cushions in the chair from red to green"

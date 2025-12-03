@@ -18,10 +18,9 @@ from huggingface_hub import HfApi
 from transformers.testing_utils import ENDPOINT_STAGING
 
 from optimum.neuron import NeuronModelForSeq2SeqLM
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx
 
 
-@is_inferentia_test
 @requires_neuronx
 def test_seq2seq_model_from_hub():
     model = NeuronModelForSeq2SeqLM.from_pretrained(
@@ -30,7 +29,6 @@ def test_seq2seq_model_from_hub():
     return model
 
 
-@is_inferentia_test
 @requires_neuronx
 def test_push_seq2seq_to_hub(neuron_seq2seq_greedy_path, neuron_push_seq2seq_id, staging):
     model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_greedy_path)

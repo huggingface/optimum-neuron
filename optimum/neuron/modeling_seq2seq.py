@@ -227,8 +227,8 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             runtime = torch.classes.neuron.Runtime()
             runtime.initialize()
             runtime.set_default_neuron_cores(0, 1)
-            encoder = NeuronTracedModel.load_model(encoder_path)
-            decoder = NeuronTracedModel.load_model(decoder_path)
+            encoder = NeuronTracedModel.load_model(encoder_path, tensor_parallel_size=tensor_parallel_size)
+            decoder = NeuronTracedModel.load_model(decoder_path, tensor_parallel_size=tensor_parallel_size)
             torch_neuronx.move_trace_to_device(decoder, 0)
         else:
             encoder = neuronx_distributed.trace.parallel_model_load(encoder_path)

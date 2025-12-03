@@ -22,7 +22,7 @@ from optimum.neuron import (
     NeuronStableDiffusionXLPipeline,
 )
 from optimum.neuron.cache import get_hub_cached_entries, synchronize_hub_cache
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx
 
 from ..cache_utils import (
     assert_local_and_hub_cache_sync,
@@ -72,7 +72,6 @@ def check_stable_diffusion_inference(model):
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 def test_stable_diffusion_cache(cache_repos):
     cache_path, cache_repo_id = cache_repos
@@ -102,7 +101,6 @@ def test_stable_diffusion_cache(cache_repos):
     assert len(get_local_cached_files(cache_path, ".neuron")) == 0
 
 
-@is_inferentia_test
 @requires_neuronx
 def test_stable_diffusion_xl_cache(cache_repos):
     cache_path, cache_repo_id = cache_repos

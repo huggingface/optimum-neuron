@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 import PIL
-import pytest
 import torch
 from diffusers.utils import load_image
 from optimum.utils.testing_utils import require_diffusers
@@ -26,12 +26,9 @@ from optimum.neuron.modeling_diffusion import (
     NeuronModelVaeDecoder,
     NeuronModelVaeEncoder,
 )
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
-from optimum.neuron.version import __sdk_version__ as sdk_version
+from optimum.neuron.utils.testing_utils import requires_neuronx
 
 
-@pytest.mark.skipif(sdk_version == "2.26.1", reason="This test hangs with SDK 2.26.1")
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_flux_txt2img(neuron_flux_tp2_path):
@@ -50,8 +47,6 @@ def test_flux_txt2img(neuron_flux_tp2_path):
     assert isinstance(image, PIL.Image.Image)
 
 
-@pytest.mark.skipif(sdk_version == "2.26.1", reason="This test hangs with SDK 2.26.1")
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_flux_inpaint(neuron_flux_tp2_path):
@@ -72,8 +67,6 @@ def test_flux_inpaint(neuron_flux_tp2_path):
     assert isinstance(image, PIL.Image.Image)
 
 
-@pytest.mark.skipif(sdk_version == "2.26.1", reason="This test hangs with SDK 2.26.1")
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_flux_kontext_img_edit(neuron_flux_kontext_tp2_path):
