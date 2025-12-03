@@ -29,7 +29,7 @@ from datasets import load_dataset
 from peft import LoraConfig
 from transformers import AutoTokenizer, HfArgumentParser
 
-from optimum.neuron import NeuronGRPOConfig, NeuronGRPOTrainer, NeuronTrainingArguments
+from optimum.neuron import NeuronGRPOConfig, NeuronGRPOTrainer
 from optimum.neuron.models.training import NeuronModelForCausalLM
 from optimum.neuron.trainers.extras import MockVLLMClient
 
@@ -141,29 +141,7 @@ def train(model_id, tokenizer, dataset, training_args):
         task_type="CAUSAL_LM",
     )
 
-    # Convert NeuronTrainingArguments to dict for NeuronGRPOConfig
-    args = training_args.to_dict()
-
-    # GRPO-specific configuration
-    grpo_config = NeuronGRPOConfig(
-        # Generation parameters
-        max_prompt_length=512,  # Maximum prompt length
-        max_completion_length=300,  # Maximum completion length
-        num_generations=4,  # Number of completions to generate per prompt (G in paper)
-        temperature=0.8,  # Sampling temperature
-        # GRPO algorithm parameters
-        num_iterations=1,  # Number of iterations per batch (μ in paper)
-        epsilon=0.2,  # Clipping parameter
-        beta=0.01,  # KL divergence coefficient
-        scale_rewards="group",  # Reward scaling strategy
-        # vLLM parameters
-        use_vllm=True,  # Use vLLM for generation (required for Neuron)
-        vllm_mode="server",  # Use vLLM server mode
-        vllm_server_host="0.0.0.0",
-        vllm_server_port=8000,
-        # Standard training arguments from NeuronTrainingArguments
-        **args,
-    )
+    grpo_config = training_args
 
     # Define reward functions
     # You can use multiple reward functions - they will be summed
@@ -202,7 +180,7 @@ class ScriptArguments:
 # Main Function
 # =============================================================================
 if __name__ == "__main__":
-    parser = HfArgumentParser((ScriptArguments, NeuronTrainingArguments))
+    parser = HfArgumentParser((ScriptArguments, NeuronGRPOConfig))
     script_args, training_args = parser.parse_args_into_dataclasses()
 
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_id)

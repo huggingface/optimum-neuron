@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..utils.import_utils import is_trl_available
 from .training_args import NeuronTrainingArguments
@@ -39,7 +39,19 @@ class NeuronGRPOConfig(NeuronTrainingArguments, GRPOConfig):
     with GRPOConfig for GRPO algorithm parameters.
     """
 
+    use_vllm: bool = field(
+        default=True,
+        metadata={
+            "help": "Whether to use vLLM for generating completions. If set to `True`, the trainer will use vLLM for "
+            "generation instead of the default model.generate(). Requires `vllm` to be installed. Required for NeuronGRPOTrainer."
+        },
+    )
+
     def __post_init__(self):
+        # For now, NeuronGRPOTrainer requires vLLM for generation, no other way is supported.
+        if not self.use_vllm:
+            raise ValueError("NeuronGRPOTrainer requires `use_vllm` to be set to `True`.")
+
         # Handle bf16 default (from GRPOConfig)
         self.bf16 = not (self.fp16) if self.bf16 is None else self.bf16
 

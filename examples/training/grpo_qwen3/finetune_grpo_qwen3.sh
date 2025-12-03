@@ -29,8 +29,8 @@ PROCESSES_PER_NODE=2
 NUM_EPOCHS=1  # GRPO typically needs fewer epochs than SFT
 TP_DEGREE=1
 BS=1
-GRADIENT_ACCUMULATION_STEPS=4  # Smaller for GRPO due to generation overhead
-LOGGING_STEPS=10
+GRADIENT_ACCUMULATION_STEPS=1  # Smaller for GRPO due to generation overhead
+LOGGING_STEPS=2
 MODEL_NAME="Qwen/Qwen3-0.6B"  # Use smaller model for testing
 # MODEL_NAME="michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random"
 OUTPUT_DIR="$(echo $MODEL_NAME | cut -d'/' -f2)-grpo-finetuned"
@@ -73,7 +73,12 @@ torchrun $DISTRIBUTED_ARGS finetune_grpo_qwen3.py \
   --logging_steps $LOGGING_STEPS \
   --output_dir $OUTPUT_DIR \
   --lr_scheduler_type "cosine" \
-  --overwrite_output_dir
+  --overwrite_output_dir \
+  --num_generations $NUM_GENERATIONS \
+  --max_prompt_length $MAX_PROMPT_LENGTH \
+  --max_completion_length $MAX_COMPLETION_LENGTH \
+  --temperature $TEMPERATURE \
+  --steps_per_generation $STEPS_PER_GENERATION
 
 echo "================================"
 echo "Training completed!"
