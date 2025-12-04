@@ -89,6 +89,7 @@ def skip_first_batches(dataloader, num_batches=0):
 
 def _get_model_param_count(model: "torch.nn.Module | NxDPPModel"):
     """Counts the number of parameters of the model."""
+    import torch_xla
     import torch_xla.core.xla_model as xm
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_pipeline_model_parallel_group,
@@ -143,7 +144,7 @@ def _get_model_param_count(model: "torch.nn.Module | NxDPPModel"):
     def reduce_param_count_over_pp_ranks(param_count: int):
         param_count = torch.tensor(param_count, dtype=torch.float32).to(xm.xla_device())
         param_count = xm.all_reduce(xm.REDUCE_SUM, param_count, groups=get_pipeline_model_parallel_group(as_list=True))
-        xm.mark_step()
+        torch_xla.sync()
         param_count = int(param_count.detach().cpu().item())
         return param_count
 
@@ -153,7 +154,7 @@ def _get_model_param_count(model: "torch.nn.Module | NxDPPModel"):
         all_param_count = reduce_param_count_over_pp_ranks(all_param_count)
         trainable_param_count = reduce_param_count_over_pp_ranks(trainable_param_count)
 
-    xm.mark_step()
+    torch_xla.sync()
     return trainable_param_count, all_param_count
 
 

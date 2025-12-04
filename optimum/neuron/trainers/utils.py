@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import torch
+import torch_xla
 import torch_xla.core.xla_model as xm
 
 
@@ -51,7 +52,7 @@ class XLAPrefetchIterator:
     def __next__(self):
         if not self.buffer:
             raise StopIteration
-        xm.mark_step()
+        torch_xla.sync()
         next_example = self.buffer.pop(0)
         self._prefetch()
         return next_example

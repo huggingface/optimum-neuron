@@ -390,7 +390,7 @@ class NeuronAccelerator(Accelerator):
             move_model_to_device(model, xm.xla_device())
             model.tie_weights()
 
-        xm.mark_step()
+        torch_xla.sync()
 
         # Adding the model to the list of prepared models.
         self._models.append(model)
@@ -474,7 +474,7 @@ class NeuronAccelerator(Accelerator):
         logger.info(f"Saving current state to {output_dir}")
 
         # Finish running the previous step before checkpointing
-        xm.mark_step()
+        torch_xla.sync()
 
         # Save the models
         if save_model_func is not None:

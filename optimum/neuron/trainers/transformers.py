@@ -26,6 +26,7 @@ from typing import Any, Callable, Iterator, Type
 
 import torch
 import torch.nn as nn
+import torch_xla
 import torch_xla.core.xla_model as xm
 from accelerate.utils import AutocastKwargs, DataLoaderConfiguration
 from neuronx_distributed.parallel_layers.parallel_state import (
@@ -907,7 +908,7 @@ class NeuronTrainer:
 
         self.running_loss = torch.zeros(1, dtype=torch.double, device=xm.xla_device())
         self.grad_norm = None
-        xm.mark_step()
+        torch_xla.sync()
 
     def get_batch_samples(
         self,
@@ -1042,7 +1043,7 @@ class NeuronTrainer:
             return
 
         if self.control.should_log:
-            xm.mark_step()
+            torch_xla.sync()
             running_loss_div = self.running_loss / self.dp_size
             reduced_loss = xm.all_reduce(xm.REDUCE_SUM, running_loss_div, groups=get_data_parallel_replica_groups())
             reduced_loss = reduced_loss.detach()
@@ -1091,7 +1092,7 @@ class NeuronTrainer:
     def maybe_save_checkpoint(self):
         """Save checkpoint if saving is due."""
         if self.control.should_save:
-            xm.mark_step()
+            torch_xla.sync()
 
             def save_closure(self):
                 self._save_checkpoint()
@@ -1168,7 +1169,7 @@ class NeuronTrainer:
                 self.metrics_collector.start_metric("total_step")
 
                 for inputs in batch_samples:
-                    xm.mark_step()
+                    torch_xla.sync()
                     step += 1
                     do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (step + 1) == steps_in_epoch
 
@@ -1184,7 +1185,7 @@ class NeuronTrainer:
 
                     if do_sync_step:
                         self.accelerator.gradient_state.sync_gradients = True
-                        xm.mark_step()
+                        torch_xla.sync()
                         # Gradient clipping
 
                         self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
@@ -1205,7 +1206,7 @@ class NeuronTrainer:
                         self.state.global_step += 1
                         self.state.epoch = epoch + (step + 1) / steps_in_epoch
                         self.control = self.callback_handler.on_step_end(args, self.state, self.control)
-                        xm.mark_step()
+                        torch_xla.sync()
                         self.metrics_collector.stop_metric("throughput")
                         self.metrics_collector.stop_metric("total_step")
                         self.metrics_collector.end_gradient_accumulation_cycle(step_number=self.state.global_step)
@@ -1220,12 +1221,12 @@ class NeuronTrainer:
                         # PyTorch/XLA relies on the data loader to insert the mark_step for
                         # each step. Since we are breaking the loop early, we need to manually
                         # insert the mark_step here.
-                        xm.mark_step()
+                        torch_xla.sync()
                         break
 
                 # We also need to break out of the nested loop
                 if self.control.should_epoch_stop or self.control.should_training_stop:
-                    xm.mark_step()
+                    torch_xla.sync()
                     break
 
             if step < 0:
@@ -1237,7 +1238,7 @@ class NeuronTrainer:
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-            xm.mark_step()
+            torch_xla.sync()
 
             if self.control.should_training_stop:
                 break

@@ -726,7 +726,11 @@ class GQAQKVColumnParallelLinear(nn.Module, NeuronLoraLayer):
     def forward(self, x: torch.Tensor, *args: Any, **kwargs: Any) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         previous_dtype = x.dtype
         output_q, output_k, output_v = self.base_layer(x, *args, **kwargs)
-        if not self.merged:
+
+        if self.disable_adapters:
+            if self.merged:
+                self.unmerge()
+        elif not self.merged:
             for active_adapter in self.active_adapters:
                 if active_adapter not in self.lora_A.keys():
                     continue
