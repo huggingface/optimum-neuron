@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
+
 from transformers import PreTrainedModel
 
 from ..utils.import_utils import is_peft_available
@@ -49,16 +51,22 @@ def get_peft_model(
     revision: str | None = None,
     low_cpu_mem_usage: bool = False,
 ) -> PeftModel | PeftMixedModel:
-    if peft_config.peft_type not in PEFT_TYPE_TO_TUNER_MAPPING:
-        raise ValueError(
-            "PEFT type {peft_config.peft_type} not supported in Optimum Neuron. Supported types are: "
-            f"{list(PEFT_TYPE_TO_TUNER_MAPPING.keys())}"
+    from ..models.training import NeuronModelMixin
+
+    if isinstance(model, NeuronModelMixin):
+        if peft_config.peft_type not in PEFT_TYPE_TO_TUNER_MAPPING:
+            raise ValueError(
+                "PEFT type {peft_config.peft_type} not supported in Optimum Neuron. Supported types are: "
+                f"{list(PEFT_TYPE_TO_TUNER_MAPPING.keys())}"
+            )
+        patcher = Patcher(
+            [
+                ("peft.mapping_func.MODEL_TYPE_TO_PEFT_MODEL_MAPPING", MODEL_TYPE_TO_PEFT_MODEL_MAPPING),
+            ],
         )
-    patcher = Patcher(
-        [
-            ("peft.mapping_func.MODEL_TYPE_TO_PEFT_MODEL_MAPPING", MODEL_TYPE_TO_PEFT_MODEL_MAPPING),
-        ],
-    )
+    else:
+        # No patching needed since model parallelism is not enabled, we can use PEFT as is.
+        patcher = contextlib.nullcontext()
     with patcher:
         peft_model = orig_get_peft_model(
             model,
