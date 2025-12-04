@@ -37,7 +37,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "transformers ~= 4.57.1",
+    "transformers==5.0.0rc0",
     "accelerate == 1.8.1",
     "optimum ~= 2.0.0",
     "huggingface_hub >= 0.35.3",
