@@ -37,9 +37,13 @@ from transformers import (
     TextGenerationPipeline,
     TokenClassificationPipeline,
 )
-from transformers import pipeline as transformers_pipeline
+from transformers import (
+    pipeline as transformers_pipeline,
+    AutoFeatureExtractor,
+    AutoProcessor,
+    AutoTokenizer,
+)
 from transformers.feature_extraction_utils import PreTrainedFeatureExtractor
-from transformers.onnx.utils import get_preprocessor
 
 from optimum.neuron.modeling_base import NeuronModel
 from optimum.neuron.pipelines.transformers.sentence_transformers import (
@@ -360,11 +364,11 @@ def pipeline(
     )
 
     if tokenizer is None and load_tokenizer:
-        tokenizer = get_preprocessor(model_id)
+        tokenizer = AutoTokenizer(model_id)
     if feature_extractor is None and load_feature_extractor:
-        feature_extractor = get_preprocessor(model_id)
+        feature_extractor = AutoFeatureExtractor(model_id)
     if image_processor is None and load_image_processor:
-        image_processor = get_preprocessor(model_id)
+        image_processor = AutoProcessor(model_id)
 
     if batch_size is None:
         # If we don't specify a batch_size, the pipeline will assume batch_size 1
