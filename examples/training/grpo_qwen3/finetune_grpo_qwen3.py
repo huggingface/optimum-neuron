@@ -100,7 +100,8 @@ def load_grpo_dataset():
     # Load a simple test dataset
     # This dataset has prompts in the "prompt" column
     # dataset = load_dataset("trl-lib/DeepMath-103K", split="train")
-    dataset = load_dataset("trl-lib/ultrafeedback-prompt", split="train")
+    # dataset = load_dataset("trl-lib/ultrafeedback-prompt", split="train")
+    dataset = load_dataset("trl-lib/tldr", split="train")
 
     return dataset
 
@@ -159,7 +160,7 @@ def train(model_id, tokenizer, dataset, training_args):
         processing_class=tokenizer,
         peft_config=lora_config,
         # To do: disable this fake client, only for development without vLLM server.
-        vllm_client=MockVLLMClient(tokenizer, max_completion_length=grpo_config.max_completion_length),
+        # vllm_client=MockVLLMClient(tokenizer, max_completion_length=grpo_config.max_completion_length),
     )
 
     # Train the model

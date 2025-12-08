@@ -617,11 +617,11 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 # Clean up parameter name for vLLM
                 name = self._fix_param_name_to_vllm(name)
 
-                if self.vllm_mode == "server" and self.accelerator.is_main_process:
-                    self.vllm_client.update_named_param(name, weight)
-                elif self.vllm_mode == "colocate":
-                    llm_model = self.llm.llm_engine.model_executor.driver_worker.model_runner.model
-                    llm_model.load_weights([(name, weight)])
+                # if self.vllm_mode == "server" and self.accelerator.is_main_process:
+                #     self.vllm_client.update_named_param(name, weight)
+                # elif self.vllm_mode == "colocate":
+                #     llm_model = self.llm.llm_engine.model_executor.driver_worker.model_runner.model
+                #     llm_model.load_weights([(name, weight)])
         else:
             for name, param in self.model.named_parameters():
                 name = self._fix_param_name_to_vllm(name)
@@ -940,7 +940,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                         **forward_kwargs,  # may contain pixel_values, image_grid_thw, pixel_attention_mask and image_sizes
                     )
                 else:
-                    with self.accelerator.unwrap_model(self.model).disable_adapter():
+                    with self.model.disable_adapter():
                         ref_per_token_logps, _ = self._get_per_token_logps_and_entropies(
                             self.model,
                             prompt_completion_ids,
