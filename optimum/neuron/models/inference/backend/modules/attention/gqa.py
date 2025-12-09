@@ -19,6 +19,7 @@ import logging
 import torch
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, RowParallelLinear
+from neuronx_distributed.parallel_layers.mappings import gather_from_sequence_parallel_region
 from neuronx_distributed.parallel_layers.pad import get_number_of_extra_heads
 from torch import nn
 from torch.distributed import ProcessGroup
@@ -232,6 +233,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         tensor_model_parallel_group: ProcessGroup | None = None,
         rms_norm_eps: float = None,
         logical_nc_config: int = 1,
+        sequence_parallel_enabled: bool = False,
     ):
         super().__init__(
             hidden_size=hidden_size,
@@ -254,6 +256,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
 
         self.rms_norm_eps = rms_norm_eps
         self.logical_nc_config = logical_nc_config
+        self.sequence_parallel_enabled = sequence_parallel_enabled
 
         if self.tensor_model_parallel_group is not None:
             if self.fused_qkv:
@@ -309,6 +312,10 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                 self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=self.bias)
 
     def forward(self, hidden_states: torch.Tensor):
+        if self.sequence_parallel_enabled:
+            hidden_states = gather_from_sequence_parallel_region(
+                hidden_states, sequence_dimension=1, process_group=self.tensor_model_parallel_group
+            )
         if self.fused_qkv:
             logger.debug("QKV: native compiler")
             QKV = self.Wqkv(hidden_states)
@@ -642,6 +649,7 @@ class GroupQueryAttention_O(BaseGroupQueryAttention):
         layer_name: str = "o_proj",
         tensor_model_parallel_group: ProcessGroup | None = None,
         rpl_reduce_dtype: torch.dtype = None,
+        sequence_parallel_enabled: bool = False,
     ):
         super().__init__(
             hidden_size=hidden_size,
@@ -665,6 +673,8 @@ class GroupQueryAttention_O(BaseGroupQueryAttention):
                 dtype=self.dtype,
                 tensor_model_parallel_group=self.tensor_model_parallel_group,
                 reduce_dtype=rpl_reduce_dtype,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                sequence_dimension=1,
             )
         else:
             self.o_proj = nn.Linear(self.num_attention_heads * self.head_dim, self.hidden_size, bias=self.bias)
