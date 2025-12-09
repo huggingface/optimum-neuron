@@ -118,6 +118,7 @@ class NeuronAttentionBase(nn.Module):
             tensor_model_parallel_group=self.tensor_model_parallel_group,
             rms_norm_eps=self.rms_norm_eps,
             logical_nc_config=neuron_config.logical_nc_config,
+            sequence_parallel_enabled=neuron_config.sequence_parallel_enabled,
         )
         self.o_proj = GroupQueryAttention_O(
             hidden_size=self.hidden_size,
@@ -131,6 +132,7 @@ class NeuronAttentionBase(nn.Module):
             layer_name=self.o_proj_layer_name,
             tensor_model_parallel_group=self.tensor_model_parallel_group,
             rpl_reduce_dtype=neuron_config.torch_dtype,
+            sequence_parallel_enabled=neuron_config.sequence_parallel_enabled,
         )
         self.num_heads = utils.divide(self.qkv_proj.get_num_attention_heads(), neuron_config.tp_degree)
         self.num_key_value_heads = utils.divide(self.qkv_proj.get_num_key_value_heads(), neuron_config.tp_degree)
@@ -140,6 +142,7 @@ class NeuronAttentionBase(nn.Module):
         self.q_layernorm = None
         self.k_layernorm = None
         self.logical_nc_config = neuron_config.logical_nc_config
+        self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
 
     @property
     def qk_scale(self):
@@ -328,13 +331,13 @@ class NeuronAttentionBase(nn.Module):
         sin_cache: torch.Tensor | None = None,
     ) -> tuple[Tensor, tuple[Tensor, Tensor] | None]:
         """Implements each layer's forward pass for the attention block."""
-        bsz, q_len, _ = hidden_states.size()
-
         Q, K, V = self.qkv_proj(hidden_states=hidden_states)
 
         # Divide hidden_dim across heads for MHA
         # Change layout: BSHD -> BHSD
         bsz, q_len, _ = hidden_states.size()
+        if self.sequence_parallel_enabled:
+            q_len *= self.tensor_model_parallel_group.size()
 
         Q = Q.view(bsz, q_len, self.num_heads, self.head_dim)
         K = K.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
