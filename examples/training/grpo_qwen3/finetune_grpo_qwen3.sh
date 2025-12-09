@@ -2,11 +2,9 @@
 # Flags for Neuron compilation
 export NEURON_CC_FLAGS="--model-type transformer --retry_failed_compilation --cache_dir=$HOME/cache_dir_neuron/"
 export NEURON_FUSE_SOFTMAX=1
-export NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS=7 # Async Runtime
-export MALLOC_ARENA_MAX=128 # Host OOM mitigation
+export NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS=3 # Async Runtime
+export MALLOC_ARENA_MAX=64 # Host OOM mitigation
 # Force NCCL to ignore the AWS OFI plugin
-export NCCL_NET_GDR_LEVEL=0
-export FI_PROVIDER=sockets
 # export FI_EFA_USE_DEVICE_RDMA=1
 # export FI_PROVIDER=efa
 # export FI_EFA_FORK_SAFE=1
@@ -31,7 +29,7 @@ NUM_GENERATIONS=4  # Number of completions per prompt (G in paper)
 MAX_PROMPT_LENGTH=512
 MAX_COMPLETION_LENGTH=512
 TEMPERATURE=0.8
-STEPS_PER_GENERATION=8  # Generate every N steps to amortize generation cost
+STEPS_PER_GENERATION=4  # Generate every N steps to amortize generation cost
 
 if [ "$NEURON_EXTRACT_GRAPHS_ONLY" = "1" ]; then
     MAX_STEPS=5
