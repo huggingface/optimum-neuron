@@ -291,6 +291,8 @@ class NxDLlamaModel(NxDDecoderModelForCausalLM):
             dtype=neuron_config.torch_dtype,
             shard_across_embedding=True,
             pad=True,
+            sequence_parallel_enabled=neuron_config.sequence_parallel_enabled,
+            sequence_dimension=1,
         )
 
         self.lm_head = ColumnParallelLinear(
