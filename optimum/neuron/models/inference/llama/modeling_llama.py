@@ -25,6 +25,7 @@ from neuronx_distributed.parallel_layers.layers import (
     ParallelEmbedding,
     RowParallelLinear,
 )
+from neuronx_distributed.parallel_layers.mappings import gather_from_sequence_parallel_region
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.models.llama.modeling_llama import LlamaConfig, LlamaRotaryEmbedding
@@ -75,6 +76,7 @@ class NeuronLlamaMLP(nn.Module):
             config.intermediate_size_mlp if hasattr(config, "intermediate_size_mlp") else config.intermediate_size
         )
         self.act_fn = ACT2FN[config.hidden_act]
+        self.sequence_parallel_enabled = neuron_config.sequence_parallel_enabled
 
         self.rms_norm_eps = config.rms_norm_eps
         self.logical_nc_config = neuron_config.logical_nc_config
@@ -103,9 +105,13 @@ class NeuronLlamaMLP(nn.Module):
             dtype=neuron_config.torch_dtype,
             pad=True,
             reduce_dtype=neuron_config.torch_dtype,
+            sequence_parallel_enabled=neuron_config.sequence_parallel_enabled,
+            sequence_dimension=1,
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.sequence_parallel_enabled:
+            x = gather_from_sequence_parallel_region(x, sequence_dimension=1)
         gate_proj_output = self.gate_proj(x)
         up_proj_output = self.up_proj(x)
         down_proj_input = self.act_fn(gate_proj_output) * up_proj_output
@@ -351,6 +357,7 @@ class LlamaNxDModelForCausalLM(NxDModelForCausalLM):
         dtype: torch.dtype,
     ):
         continuous_batching = (batch_size > 1) if batch_size else False
+        sequence_parallel_enabled = True if sequence_length > 4096 else False
         return NxDNeuronConfig(
             checkpoint_id=checkpoint_id,
             checkpoint_revision=checkpoint_revision,
@@ -362,4 +369,5 @@ class LlamaNxDModelForCausalLM(NxDModelForCausalLM):
             on_device_sampling=True,
             fused_qkv=True,
             continuous_batching=continuous_batching,
+            sequence_parallel_enabled=sequence_parallel_enabled,
         )
