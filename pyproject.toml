@@ -38,11 +38,8 @@ classifiers = [
 ]
 dependencies = [
     "transformers ~= 4.57.1",
-    "accelerate == 1.8.1",
     "optimum ~= 2.0.0",
     "huggingface_hub >= 0.31.4",
-    "numpy>=1.22.2, <=1.26.4",
-    "protobuf>=3.20.3",
 ]
 
 [project.urls]
@@ -78,16 +75,18 @@ training = [
     "trl == 0.24.0",
     "peft == 0.17.0",
     "evaluate == 0.4.3",
+    "accelerate == 1.8.1",
 ]
-# neuron = [
-#     "wheel",
-#     "torch-neuron==1.13.1.2.9.74.0",
-#     "torch==1.13.1.*",
-#     "neuron-cc[tensorflow]==1.22.0.0",
-#     "protobuf",
-#     "torchvision",
-#     "numpy==1.22.3",
-# ]
+neuron = [
+    "wheel",
+    "torch-neuron==1.13.1.2.9.74.0",
+    "torch==1.13.1.*",
+    "neuron-cc[tensorflow]==1.22.0.0",
+    "protobuf",
+    "torchvision",
+    "numpy==1.22.2",
+    "protobuf<=3.20.1",
+]
 neuronx = [
     "wheel",
     "neuronx-cc==2.21.18209.0",
@@ -96,6 +95,8 @@ neuronx = [
     "torchvision==0.23.*",
     "neuronx_distributed==0.15.22404",
     "libneuronxla==2.2.12677.0",
+    "protobuf>=3.20.3",
+    "numpy>=1.22.2, <=1.26.4",
 ]
 diffusers = [
     "diffusers==0.35.*",
@@ -134,12 +135,26 @@ include = ["optimum*"]
 
 [tool.uv]
 index-strategy = "unsafe-best-match"
+conflicts = [
+  [
+    { extra = "neuron" },
+    { extra = "neuronx" },
+  ],
+  [
+    { extra = "neuron" },
+    { extra = "training" },
+  ],
+  [
+    { extra = "neuron" },
+    { extra = "vllm" },
+  ],
+]
 
 [[tool.uv.index]]
 name = "neuron"
 url = "https://pip.repos.neuron.amazonaws.com/"
 default = true
-
+    
 [[tool.uv.index]]
 name = "pypi"
 url = "https://pypi.org/simple"
