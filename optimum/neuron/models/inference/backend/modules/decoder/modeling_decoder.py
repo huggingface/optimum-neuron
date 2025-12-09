@@ -18,10 +18,13 @@ import logging
 
 import neuronx_distributed as nxd
 import torch
+import torch_xla.core.xla_model as xm
 from neuronx_distributed.operators.argmax import argmax as nxd_argmax
 from neuronx_distributed.parallel_layers.layers import SPMDRank
 from neuronx_distributed.parallel_layers.mappings import (
     _gather_along_dim,
+    _reduce_scatter_along_dim,
+    gather_from_sequence_parallel_region,
 )
 from torch import nn
 from transformers import PretrainedConfig
@@ -231,7 +234,11 @@ class NxDDecoderModelForCausalLM(nn.Module):
             if is_for_speculation:
                 res = nxd_argmax(tensor=logits, dim=2, gather_dim=2, keepdim=False)
             else:
-                res = self.sampler(logits[:, -1, :], sampling_params, rank_id=rank_id)
+                logger.info(f"Logits shape: {logits.shape}")
+                sampling_inputs = logits[:, -1, :]
+                logger.info(f"sampling_inputs shape: {sampling_inputs.shape}")
+                res = self.sampler(sampling_inputs, sampling_params, rank_id=rank_id)
+        logger.info(f"Sampled tokens shape: {res.shape}")
 
         outputs = [res]
         if self.neuron_config.output_logits:
@@ -243,6 +250,24 @@ class NxDDecoderModelForCausalLM(nn.Module):
         outputs += updated_kv_cache
 
         return outputs
+
+    @staticmethod
+    def seq_parallel_slice_last_token(
+        hidden_states,
+        position_ids,
+        batch_size,
+        hidden_size,
+    ):
+        index = torch.max(position_ids, dim=1, keepdim=True).indices.to(torch.int32)
+        sharded_seq_len = hidden_states.shape[1]
+        index_local = torch.remainder(index, sharded_seq_len)
+        index_post_shard = torch.divide(index, sharded_seq_len, rounding_mode="floor").to(torch.int32)
+        index_local = index_local.unsqueeze(1).expand(batch_size, 1, hidden_size)
+        index_post_shard = index_post_shard.unsqueeze(1).expand(batch_size, 1, hidden_size)
+        hidden_states = torch.gather(hidden_states, dim=1, index=index_local)
+        hidden_states = gather_from_sequence_parallel_region(hidden_states, sequence_dimension=1)
+        hidden_states = torch.gather(hidden_states, dim=1, index=index_post_shard)
+        return hidden_states
 
     def get_model_output(
         self,
@@ -283,7 +308,14 @@ class NxDDecoderModelForCausalLM(nn.Module):
         # )
 
         # embed positions
-        hidden_states = inputs_embeds
+        if self.neuron_config.sequence_parallel_enabled:
+            hidden_states = _reduce_scatter_along_dim(
+                inputs_embeds,
+                partition_dim=1,
+                computation=xm.REDUCE_MAX,
+            )
+        else:
+            hidden_states = inputs_embeds
 
         # decoder layers
         next_decoder_cache = ()
@@ -307,6 +339,15 @@ class NxDDecoderModelForCausalLM(nn.Module):
             cos_cache, sin_cache = layer_outputs[2:]
 
         hidden_states = self.norm(hidden_states)
+
+        logger.info(f"DecoderModelForCausalLM final hidden_states.shape={hidden_states.shape}")
+
+        if self.neuron_config.sequence_parallel_enabled:
+            hidden_states = self.seq_parallel_slice_last_token(
+                hidden_states, position_ids, batch_size, hidden_size=self.config.hidden_size
+            )
+
+        logger.info(f"After gather: hidden_states.shape={hidden_states.shape}")
 
         return (hidden_states, next_decoder_cache)
 
@@ -362,12 +403,16 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     def _create_token_generation_config(neuron_config: NxDNeuronConfig) -> NxDNeuronConfig:
         tkg_neuron_config = copy.deepcopy(neuron_config)
         tkg_neuron_config.batch_size = neuron_config.tkg_batch_size
+        # Explicitly disable sequence parallel for token generation model
+        tkg_neuron_config.sequence_parallel_enabled = False
         return tkg_neuron_config
 
     @staticmethod
     def _create_speculation_config(neuron_config: NxDNeuronConfig) -> NxDNeuronConfig:
         spec_neuron_config = copy.deepcopy(neuron_config)
         spec_neuron_config.batch_size = neuron_config.tkg_batch_size
+        # Explicitly disable sequence parallel for speculation model
+        spec_neuron_config.sequence_parallel_enabled = False
         return spec_neuron_config
 
     @classmethod
