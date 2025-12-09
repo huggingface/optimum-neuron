@@ -63,6 +63,7 @@ class NxDNeuronConfig(NeuronConfig):
         tp_degree: int | None = 1,
         ep_degree: int | None = 1,
         pp_degree: int | None = 1,
+        sequence_parallel_enabled: bool | None = False,
         torch_dtype: str | torch.dtype | None = torch.bfloat16,
         n_active_tokens: int | None = None,
         max_context_length: int | None = None,
@@ -114,6 +115,7 @@ class NxDNeuronConfig(NeuronConfig):
         # Distributed config
         self.pp_degree = pp_degree
         self.ep_degree = ep_degree
+        self.sequence_parallel_enabled = sequence_parallel_enabled
 
         # Multi-node
         # TODO: Check if start_rank_id can be modified dynamically at runtime
