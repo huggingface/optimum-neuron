@@ -89,8 +89,8 @@ neuron = [
 ]
 neuronx = [
     "wheel",
-    "neuronx-cc==2.21.18209.0",
-    "torch-neuronx==2.8.0.2.10.13553",
+    "neuronx-cc==2.21.33363.0",
+    "torch-neuronx==2.8.0.2.10.16998",
     "torch==2.8.0.*",
     "torchvision==0.23.*",
     "neuronx_distributed==0.15.22404",
