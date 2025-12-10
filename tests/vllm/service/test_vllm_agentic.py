@@ -30,7 +30,7 @@ async def test_vllm_agentic_test(smollm3_model_agentic_vllm):
         api_base=base_url,
         api_key="dummy",
         max_tokens=1900,
-        temperature=0.7,
+        temperature=0.0,  # Setting temperature to 0.0 to make the test deterministic
     )
     # The agent can run python code, so it can figure out the day of the week without other tools.
     agent = CodeAgent(model=model, tools=[])
