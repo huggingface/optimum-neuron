@@ -46,7 +46,7 @@ from optimum.neuron.modeling_diffusion import (
     NeuronModelVaeEncoder,
     NeuronMultiControlNetModel,
 )
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx
 
 
 logger = logging.get_logger()
@@ -75,7 +75,6 @@ def _prepare_canny_image(image_url=None):
 
 
 # [STABLE DIFFUSION]
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_sd_export_and_inference_non_dyn(neuron_stable_diffusion_num_img_per_prompt_4_non_dyn_path):
@@ -92,7 +91,6 @@ def test_sd_export_and_inference_non_dyn(neuron_stable_diffusion_num_img_per_pro
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 @pytest.mark.skip(reason="Dynamic batching of SD broken.")
@@ -104,7 +102,6 @@ def test_sd_export_and_inference_dyn(neuron_stable_diffusion_dyn_path):
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_sd_img2img_export_and_inference(neuron_stable_diffusion_num_img_per_prompt_1_non_dyn_path):
@@ -119,7 +116,6 @@ def test_sd_img2img_export_and_inference(neuron_stable_diffusion_num_img_per_pro
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_sd_inpaint_export_and_inference(neuron_stable_diffusion_num_img_per_prompt_1_non_dyn_path):
@@ -136,7 +132,6 @@ def test_sd_inpaint_export_and_inference(neuron_stable_diffusion_num_img_per_pro
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_sd_instruct_pix2pix_export_and_inference(neuron_stable_diffusion_ip2p_path):
@@ -149,7 +144,6 @@ def test_sd_instruct_pix2pix_export_and_inference(neuron_stable_diffusion_ip2p_p
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_sd_lcm_export_and_inference(neuron_lcm_path):
@@ -160,7 +154,6 @@ def test_sd_lcm_export_and_inference(neuron_lcm_path):
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_sd_export_and_inference_with_fused_lora(neuron_stable_diffusion_with_fused_lora_path):
@@ -175,7 +168,6 @@ def test_sd_export_and_inference_with_fused_lora(neuron_stable_diffusion_with_fu
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_sd_compatibility_with_compel(neuron_stable_diffusion_with_hidden_states_output_path):
@@ -188,7 +180,6 @@ def test_sd_compatibility_with_compel(neuron_stable_diffusion_with_hidden_states
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_sd_export_and_inference_with_single_controlnet(neuron_stable_diffusion_single_controlnet_path):
@@ -208,7 +199,6 @@ def test_sd_export_and_inference_with_single_controlnet(neuron_stable_diffusion_
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_sd_export_and_inference_with_multiple_controlnet(neuron_stable_diffusion_multiple_controlnets_path):
@@ -229,7 +219,6 @@ def test_sd_export_and_inference_with_multiple_controlnet(neuron_stable_diffusio
 
 
 # [STABLE DIFFUSION XL]
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_sdxl_export_and_inference_non_dyn(neuron_sdxl_num_img_per_prompt_4_non_dyn_path):
@@ -255,7 +244,6 @@ def test_sdxl_export_and_inference_non_dyn(neuron_sdxl_num_img_per_prompt_4_non_
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_sdxl_export_and_inference_dyn(neuron_sdxl_dyn_path):
@@ -275,7 +263,6 @@ def test_sdxl_export_and_inference_dyn(neuron_sdxl_dyn_path):
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_sdxl_img2img_export_and_inference(neuron_sdxl_num_img_per_prompt_1_non_dyn_path):
@@ -290,7 +277,6 @@ def test_sdxl_img2img_export_and_inference(neuron_sdxl_num_img_per_prompt_1_non_
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_sdxl_inpaint_export_and_inference(neuron_sdxl_num_img_per_prompt_1_non_dyn_path):
@@ -311,7 +297,6 @@ def test_sdxl_inpaint_export_and_inference(neuron_sdxl_num_img_per_prompt_1_non_
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_sdxl_compatibility_with_compel(neuron_sdxl_with_hidden_states_output_path):
@@ -343,7 +328,6 @@ def test_sdxl_compatibility_with_compel(neuron_sdxl_with_hidden_states_output_pa
     assert isinstance(image, PIL.Image.Image)
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_sdxl_from_pipe(neuron_sdxl_num_img_per_prompt_1_non_dyn_path):

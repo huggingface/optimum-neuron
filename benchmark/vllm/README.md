@@ -16,7 +16,7 @@ The `data-parallel` directory contains instructions to deploy model configuratio
 
 The `single-instance` directory contains instructions to deploy model configurations that use a single server instance.
 
-## Run the benchmark
+## Run the performance benchmark
 
 ### Install `guidellm`
 
@@ -31,7 +31,7 @@ The `model_id` must match the one corresponding to the selected model configurat
 
 ```shell
 $ cd optimum-neuron/benchmark/vllm/
-$ ./benchmark.sh "meta-llama/Meta-Llama-3.1-8B-Instruct" 128
+$ ./performance.sh "meta-llama/Meta-Llama-3.1-8B-Instruct" 128
 ```
 
 Note that the evaluated model **must** be an `Instruct` model.
@@ -43,4 +43,19 @@ To obtain a summary from the raw benchmark output files, use the following comma
 
 ```shell
 $ python generate_csv.py --dir <path_to_result_files>
+```
+
+## Run the accuracy benchmark
+
+### Install lm_eval
+
+```shell
+$ pip install lm_eval[api]
+```
+
+### Run the benchmark
+
+```shell
+$ cd optimum-neuron/benchmark/vllm/
+$ ./accuracy.sh meta-llama/Meta-Llama-3.1-8B-Instruct
 ```

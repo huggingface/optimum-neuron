@@ -51,3 +51,13 @@ def is_inferentia_test(test_case):
         return test_case
     else:
         return pytest.mark.is_inferentia_test()(test_case)
+
+
+def slow(test_case):
+    test_case = requires_neuron_or_neuronx(test_case)
+    try:
+        import pytest
+    except ImportError:
+        return test_case
+    else:
+        return pytest.mark.slow()(test_case)

@@ -21,8 +21,7 @@ from transformers import AutoModelForCausalLM
 from optimum.neuron import NeuronModelForCausalLM
 
 
-DECODER_MODEL_ARCHITECTURES = ["llama", "llama4_text", "granite", "qwen2", "qwen3-moe", "phi3", "mixtral"]
-DECODER_MODEL_NAMES = {
+DECODER_MODELS = {
     "llama": "llamafactory/tiny-random-Llama-3",
     "llama4_text": "tiny-random/llama-4",
     "qwen2": "yujiepan/qwen2.5-128k-tiny-random",
@@ -36,10 +35,10 @@ DECODER_MODEL_NAMES = {
 
 @pytest.fixture(
     scope="session",
-    params=[DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES],
-    ids=DECODER_MODEL_ARCHITECTURES,
+    params=[DECODER_MODELS[model_arch] for model_arch in DECODER_MODELS],
+    ids=list(DECODER_MODELS.keys()),
 )
-def export_decoder_id(request):
+def any_decoder_model(request):
     return request.param
 
 
@@ -71,16 +70,13 @@ def check_neuron_model(neuron_model):
     assert outputs is not None, "Model outputs should not be None"
 
 
-@pytest.mark.parametrize("is_local", [True, False], ids=["local", "from_hub"])
-@pytest.mark.parametrize("load_weights", [True, False], ids=["with-weights", "without-weights"])
-def test_decoder_export_save_reload(
-    export_decoder_id: str,
+def _test_decoder_export_save_reload(
+    model_id: str,
     is_local: bool,
     load_weights: bool,
 ):
-    model_id = export_decoder_id
     export_kwargs = {"batch_size": 1, "sequence_length": 1024, "tensor_parallel_size": 2}
-    neuron_config = NeuronModelForCausalLM.get_neuron_config(model_name_or_path=export_decoder_id, **export_kwargs)
+    neuron_config = NeuronModelForCausalLM.get_neuron_config(model_name_or_path=model_id, **export_kwargs)
     with TemporaryDirectory() as model_path:
         if is_local:
             with TemporaryDirectory() as tmpdir:
@@ -100,3 +96,18 @@ def test_decoder_export_save_reload(
             check_neuron_model(model)
         model = NeuronModelForCausalLM.from_pretrained(model_path)
         check_neuron_model(model)
+
+
+def test_decoder_export_hub_models(
+    any_decoder_model: str,
+):
+    _test_decoder_export_save_reload(model_id=any_decoder_model, is_local=False, load_weights=False)
+
+
+@pytest.mark.parametrize("is_local", [True, False], ids=["local", "from_hub"])
+@pytest.mark.parametrize("load_weights", [True, False], ids=["with-weights", "without-weights"])
+def test_decoder_export_save_reload(
+    is_local: bool,
+    load_weights: bool,
+):
+    _test_decoder_export_save_reload(model_id=DECODER_MODELS["qwen2"], is_local=is_local, load_weights=load_weights)

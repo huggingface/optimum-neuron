@@ -27,6 +27,9 @@ _SAFETENSORS_MODEL_FILENAME = "model.safetensors"
 _PYTORCH_MODEL_BIN_INDEX_FILENAME_JSON = "pytorch_model.bin.index.json"
 _PYTORCH_MODEL_BIN_FILENAME = "pytorch_model.bin"
 
+_SAFETENSORS_DIFFUSERS_MODEL_INDEX_FILENAME_JSON = "diffusion_pytorch_model.safetensors.index.json"
+_SAFETENSORS_DIFFUSERS_MODEL_FILENAME = "diffusion_pytorch_model.safetensors"
+
 
 def _is_using_pt2() -> bool:
     pt_version = torch.__version__
@@ -46,16 +49,22 @@ def load_state_dict(state_dict_dir: str) -> dict[str, torch.Tensor]:
     """
     # Standard checkpoint filenames
     state_dict_safetensor_path = os.path.join(state_dict_dir, _SAFETENSORS_MODEL_FILENAME)
+    state_dict_safetensor_diffusers_path = os.path.join(state_dict_dir, _SAFETENSORS_DIFFUSERS_MODEL_FILENAME)
     safetensors_index_path = os.path.join(state_dict_dir, _SAFETENSORS_MODEL_INDEX_FILENAME_JSON)
     state_dict_path = os.path.join(state_dict_dir, _PYTORCH_MODEL_BIN_FILENAME)
     pytorch_model_bin_index_path = os.path.join(state_dict_dir, _PYTORCH_MODEL_BIN_INDEX_FILENAME_JSON)
+    safetensors_diffusers_index_path = os.path.join(state_dict_dir, _SAFETENSORS_DIFFUSERS_MODEL_INDEX_FILENAME_JSON)
 
     # Non-sharded safetensors checkpoint
     if os.path.isfile(state_dict_safetensor_path):
         state_dict = load_safetensors(state_dict_dir)
+    elif os.path.isfile(state_dict_safetensor_diffusers_path):
+        state_dict = load_diffusers_safetensors(state_dict_dir)
     # Sharded safetensors checkpoint
     elif os.path.isfile(safetensors_index_path):
         state_dict = load_safetensors_sharded(state_dict_dir)
+    elif os.path.isfile(safetensors_diffusers_index_path):
+        state_dict = load_safetensors_sharded_diffusers_model(state_dict_dir)
     # Non-sharded pytorch_model.bin checkpoint
     elif os.path.isfile(state_dict_path):
         state_dict = load_pytorch_model_bin(state_dict_dir)
@@ -70,6 +79,11 @@ def load_state_dict(state_dict_dir: str) -> dict[str, torch.Tensor]:
 
 def load_safetensors(state_dict_dir: str) -> dict[str, torch.Tensor]:
     filename = os.path.join(state_dict_dir, _SAFETENSORS_MODEL_FILENAME)
+    return load_file(filename)
+
+
+def load_diffusers_safetensors(state_dict_dir: str) -> dict[str, torch.Tensor]:
+    filename = os.path.join(state_dict_dir, _SAFETENSORS_DIFFUSERS_MODEL_FILENAME)
     return load_file(filename)
 
 
@@ -103,6 +117,19 @@ def _load_from_files(filenames: list[str], state_dict_dir: str, load_func: Calla
 
 def load_safetensors_sharded(state_dict_dir: str) -> dict[str, torch.Tensor]:
     index_path = os.path.join(state_dict_dir, _SAFETENSORS_MODEL_INDEX_FILENAME_JSON)
+    with open(index_path, "r") as f:
+        key_to_filename = json.load(f)["weight_map"]
+
+    state_dict = _load_from_files(
+        key_to_filename.values(),
+        state_dict_dir,
+        load_file,
+    )
+    return state_dict
+
+
+def load_safetensors_sharded_diffusers_model(state_dict_dir: str) -> dict[str, torch.Tensor]:
+    index_path = os.path.join(state_dict_dir, _SAFETENSORS_DIFFUSERS_MODEL_INDEX_FILENAME_JSON)
     with open(index_path, "r") as f:
         key_to_filename = json.load(f)["weight_map"]
 

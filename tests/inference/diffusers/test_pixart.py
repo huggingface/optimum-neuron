@@ -23,10 +23,9 @@ from optimum.neuron.modeling_diffusion import (
     NeuronModelVaeDecoder,
     NeuronModelVaeEncoder,
 )
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx
 
 
-@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 def test_export_and_inference_non_dyn(neuron_pixart_alpha_path):

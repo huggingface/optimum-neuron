@@ -1,0 +1,53 @@
+name: Optimum neuron / Test INF2 Transformers inference & pipelines
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "pyproject.toml"
+      - "optimum/commands/export/neuronx.py"
+      - "optimum/exporters/**.py"
+      - "optimum/neuron/cache/**.py"
+      - "optimum/neuron/modeling_base.py"
+      - "optimum/neuron/modeling_traced.py"
+      - "optimum/neuron/models/inference/bert/**.py"
+      - "optimum/neuron/models/inference/clip/**.py"
+      - "optimum/neuron/models/inference/t5/**.py"
+      - "optimum/neuron/models/inference/whisper/**.py"
+      - "optimum/neuron/models/inference/yolos/**.py"
+      - "optimum/neuron/pipelines/transformers/**.py"
+      - "optimum/neuron/utils/**.py"
+      - "tests/inference/transformers/**.py"
+      - ".github/workflows/test_inf2_transformers.yml"
+  
+  schedule:
+    - cron: "0 1 * * *"  # every day at 01:00 UTC
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  do-the-job:
+    name: Run INF2 tests
+    runs-on:
+      group: aws-inf2-8xlarge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Neuronx runtime
+        uses: ./.github/actions/install_neuronx_runtime
+      - name: Prepare virtual environment
+        uses: ./.github/actions/prepare_venv
+      - name: Install optimum-neuron
+        uses: ./.github/actions/install_optimum_neuron
+      - name: Install datasets dependencies
+        run: |
+          sudo apt-get install ffmpeg -y
+          source aws_neuron_venv_pytorch/bin/activate
+          pip install datasets[audio]
+      - name: Run transformers inference slow tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
+          pytest -m slow tests/inference/transformers/test_modeling.py

@@ -9,7 +9,6 @@ on:
       - "tests/training/**.py"
       - ".github/workflows/test_trainium_training.yml"
       - "optimum/neuron/utils/**.py"
-      - "optimum/neuron/version.py"
   pull_request:
     branches: [ main ]
     paths:
@@ -18,9 +17,8 @@ on:
       - "tests/training/**.py"
       - ".github/workflows/test_trainium_training.yml"
       - "optimum/neuron/utils/**.py"
-      - "optimum/neuron/version.py"
   schedule:
-    - cron: "0 8 * * 1-5"  # 9 AM UTC + 1 time, Monday-Friday
+    - cron: "0 4 * * 1-5"  # 5 AM UTC + 1 time, Monday-Friday
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}

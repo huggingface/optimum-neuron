@@ -18,10 +18,9 @@ import pytest
 from transformers import AutoTokenizer
 
 from optimum.neuron import NeuronModelForSeq2SeqLM
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx
 
 
-@is_inferentia_test
 @requires_neuronx
 def test_seq2seq_generation_tp2(neuron_seq2seq_tp2_path):
     model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_tp2_path)
