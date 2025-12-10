@@ -71,12 +71,14 @@ async def test_vllm_docker_service_from_model(vllm_docker_service_from_model):
 
 
 @pytest.mark.asyncio
-async def test_vllm_docker_service_sampling_parameters(base_neuron_llm_config, vllm_docker_launcher):
+@pytest.mark.parametrize("params_as_env", [True, False])
+async def test_vllm_docker_service_sampling_parameters(base_neuron_llm_config, vllm_docker_launcher, params_as_env):
     prompt = "What is Deep Learning?"
     max_output_tokens = 17
     with vllm_docker_launcher(
         base_neuron_llm_config["name"],
         base_neuron_llm_config["neuron_model_path"],
+        params_as_env=params_as_env,
     ) as vllm_docker_service_from_local_neuron_model:
         await vllm_docker_service_from_local_neuron_model.health(600)
 
