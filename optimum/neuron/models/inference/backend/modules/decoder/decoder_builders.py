@@ -61,8 +61,16 @@ class NxDDecoderBuilderForCausalLM(NxDGraphBuilder):
         inputs = []
 
         input_ids = torch.zeros((self.neuron_config.batch_size, self.active_tokens), dtype=torch.int32)
-        position_ids = torch.zeros((self.neuron_config.batch_size, self.active_tokens), dtype=torch.int32)
-        seq_ids = torch.zeros((self.neuron_config.batch_size), dtype=torch.int32)
+        if self.active_tokens == self.max_tokens:
+            # Context encoding
+            position_ids = (
+                torch.arange(self.active_tokens, dtype=torch.int32)
+                .unsqueeze(0)
+                .expand(self.neuron_config.batch_size, self.active_tokens)
+            )
+        else:
+            position_ids = torch.zeros((self.neuron_config.batch_size, self.active_tokens), dtype=torch.int32)
+        seq_ids = torch.arange(0, self.neuron_config.batch_size, dtype=torch.int32)
         # Get the count of sampling params currently supported.
         sampling_params_len = prepare_sampling_params(1).shape[1]
         sampling_params = torch.zeros((self.neuron_config.batch_size, sampling_params_len), dtype=torch.float32)
@@ -145,7 +153,11 @@ class NxDDecoderBuilderForEmbedding(NxDGraphBuilder):
     ):
         input_ids = torch.zeros((self.neuron_config.batch_size, self.max_tokens), dtype=torch.int32)
         attention_mask = torch.zeros((self.neuron_config.batch_size, self.max_tokens), dtype=torch.int32)
-        position_ids = torch.zeros((self.neuron_config.batch_size, self.max_tokens), dtype=torch.int32)
+        position_ids = (
+            torch.arange(self.max_tokens, dtype=torch.int32)
+            .unsqueeze(0)
+            .expand(self.neuron_config.batch_size, self.max_tokens)
+        )
 
         return [(input_ids, attention_mask, position_ids)]
 
