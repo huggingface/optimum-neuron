@@ -5,6 +5,8 @@ on:
   push:
     tags:
       - '*'
+    branches:
+      - debug-ie
 
 jobs:
   docker:
@@ -45,4 +47,4 @@ jobs:
           context: .
           file: docker/vllm/Dockerfile
           push: true
-          tags: ghcr.io/huggingface/optimum-neuron-vllm:${{ env.ON_VERSION }}, ghcr.io/huggingface/optimum-neuron-vllm:latest
+          tags: ghcr.io/huggingface/optimum-neuron-vllm:dbg-ie
