@@ -366,7 +366,8 @@ class LlamaNxDModelForCausalLM(NxDModelForCausalLM):
             tp_degree=tensor_parallel_size,
             torch_dtype=dtype,
             target=instance_type,
-            on_device_sampling=True,
+            # FIXME: on_device_sampling does not work with sequence parallelism yet
+            on_device_sampling=not sequence_parallel_enabled,
             fused_qkv=True,
             continuous_batching=continuous_batching,
             sequence_parallel_enabled=sequence_parallel_enabled,
