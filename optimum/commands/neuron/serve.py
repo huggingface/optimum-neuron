@@ -107,6 +107,14 @@ class ServeCommand(BaseOptimumCLICommand):
     def run(self):
         model_name_or_path = self.args.model
         model_id = self.args.served_model_name
+        logger.info(f"model_name_or_path: {model_name_or_path}")
+        logger.info(f"model_id: {model_id}")
+        logger.info(f"self.args.batch_size: {self.args.batch_size}")
+        logger.info(f"self.args.sequence_length: {self.args.sequence_length}")
+        logger.info(f"self.args.tensor_parallel_size: {self.args.tensor_parallel_size}")
+        logger.info(f"self.args.allow_non_cached_model: {self.args.allow_non_cached_model}")
+        logger.info(f"self.args.port: {self.args.port}")
+        logger.info("--------------------------------")
         if model_id is None:
             model_id = model_name_or_path
         else:
@@ -153,6 +161,14 @@ class ServeCommand(BaseOptimumCLICommand):
             logger.info(f"Loading Neuron model: {model_name_or_path}")
         else:
             # Model needs to be exported: look for compatible hub cached configs
+
+            logger.info(f"model_id: {model_id}")
+            logger.info(f"instance_type: {instance_type}")
+            logger.info(f"batch_size: {batch_size}")
+            logger.info(f"sequence_length: {sequence_length}")
+            logger.info(f"tensor_parallel_size: {tensor_parallel_size}")
+            logger.info(f"torch_dtype: {torch_dtype}")
+
             cached_entries = select_hub_cached_entries(
                 model_id,
                 task="text-generation",

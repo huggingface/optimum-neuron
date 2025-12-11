@@ -47,4 +47,4 @@ jobs:
           context: .
           file: docker/vllm/Dockerfile
           push: true
-          tags: ghcr.io/huggingface/optimum-neuron-vllm:dbg-ie
+          tags: ghcr.io/huggingface/optimum-neuron-vllm:dbg-ie2
