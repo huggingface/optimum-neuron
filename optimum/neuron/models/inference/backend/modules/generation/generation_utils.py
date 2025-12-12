@@ -110,6 +110,11 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         pad_token_id = generation_config._pad_token_tensor
         output_scores = generation_config.output_scores
         output_logits = generation_config.output_logits
+        if self.neuron_config.on_device_sampling:
+            if output_logits:
+                raise ValueError("Output logits are not supported with on-device sampling")
+            if output_scores:
+                raise ValueError("Output scores are not supported with on-device sampling")
         return_dict_in_generate = generation_config.return_dict_in_generate
         has_eos_stopping_criteria = any(hasattr(criteria, "eos_token_id") for criteria in stopping_criteria)
         do_sample = generation_config.do_sample
@@ -151,9 +156,9 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             )
 
             if self.neuron_config.on_device_sampling:
-                next_tokens = outputs.tokens
+                next_tokens = outputs
             else:
-                next_token_logits = outputs.logits[:, -1, :].clone()
+                next_token_logits = outputs[:, -1, :].clone()
 
                 # pre-process distribution
                 next_token_scores = logits_processor(input_ids, next_token_logits)
