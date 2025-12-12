@@ -480,13 +480,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         attention_mask = (position_ids_to_compare >= mask).to(dtype=position_ids.dtype)
         return attention_mask
 
-    def _get_async_output(
-        self,
-        ranked_async_tensor,
-    ):
-        outputs = [[async_tensor[0].cpu()] for async_tensor in ranked_async_tensor]
-        return outputs[0][0]
-
     def _get_model_outputs(
         self,
         input_ids,
