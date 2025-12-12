@@ -303,9 +303,8 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             position_ids=position_ids,
             seq_ids=seq_ids,
             sampling_params=sampling_params,
-            return_dict=True,
         )
-        next_tokens = outputs.logits[:, 0, :].argmax(dim=-1, keepdim=True)
+        next_tokens = outputs.argmax(dim=-1, keepdim=True)
         input_ids = torch.cat((input_ids, next_tokens), dim=-1)
 
         # Run the assistant model once to fill its kv cache
@@ -339,10 +338,8 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                         position_ids=assistant_position_ids,
                         seq_ids=seq_ids,
                         sampling_params=sampling_params,
-                        return_dict=True,
                     )
-                    .logits[:, 0, :]
-                    .argmax(dim=-1, keepdim=True)
+                    .[:, 0, :].argmax(dim=-1, keepdim=True)
                 )
                 candidate_tokens[:, i] = next_tokens.squeeze(-1)
                 assistant_tokens = torch.cat((assistant_tokens, next_tokens), dim=-1)
@@ -367,9 +364,8 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                 position_ids=validation_position_ids,
                 seq_ids=seq_ids,
                 sampling_params=sampling_params,
-                return_dict=True,
             )
-            selected_tokens = outputs.logits.argmax(dim=-1)
+            selected_tokens = outputs.argmax(dim=-1)
             # The returned logits are the probabilities that the next token is each of the vocabulary tokens.
             # We can therefore compare the argmax of these logits with the candidate tokens
             n_matches = ((~(candidate_tokens == selected_tokens)).cumsum(dim=-1) < 1).sum()
