@@ -60,13 +60,11 @@ def check_neuron_model(neuron_model):
     batch_size = neuron_model.neuron_config.batch_size
     input_shape = (batch_size, min(10, neuron_model.neuron_config.sequence_length))
     input_ids = torch.ones(input_shape, dtype=torch.int64)
-    attention_mask = torch.ones(input_shape, dtype=torch.int64)
     position_ids = torch.arange(input_shape[1]).unsqueeze(0).repeat(batch_size, 1)
     seq_ids = torch.arange(batch_size)
     sampling_params = torch.ones((batch_size, 3))
     outputs = neuron_model(
         input_ids=input_ids,
-        attention_mask=attention_mask,
         position_ids=position_ids,
         seq_ids=seq_ids,
         sampling_params=sampling_params,
