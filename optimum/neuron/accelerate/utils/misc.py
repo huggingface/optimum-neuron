@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Callable
 
 import accelerate
 import torch
+import torch_xla
 import torch_xla.core.xla_model as xm
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_data_parallel_rank,
@@ -119,7 +120,7 @@ def create_patched_save_pretrained(orig_save_pretrained_function: Callable[["Pre
             with patcher:
                 output = orig_func(*args, **kwargs)
         self.load_state_dict(orig_state_dict, assign=True)
-        xm.mark_step()
+        torch_xla.sync()
         del cpu_state_dict
         gc.collect()
         return output
