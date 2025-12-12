@@ -50,18 +50,39 @@ class OptimumNeuronModelForCausalLM(nn.Module):
         input_ids = torch.index_select(input_ids, 0, sorted_indices)
         position_ids = torch.index_select(position_ids, 0, sorted_indices)
         sampling_params = torch.index_select(sampling_params, 0, sorted_indices)
+        # Infer attention mask from position ids
+        batch_size = input_ids.shape[0]
+        max_position_ids = torch.amax(position_ids, dim=1)
+        attention_mask_length = torch.amax(max_position_ids).item() + 1
+        attention_mask = torch.zeros((batch_size, attention_mask_length), device=input_ids.device)
+        for i in range(batch_size):
+            attention_mask[i, : max_position_ids[i].item() + 1] = 1
+
+        def _infer_attention_mask(position_ids):
+            batch_size, seq_len = position_ids.shape
+            if position_ids.shape[-1] == 1:
+                seq_len = self.model.neuron_config.sequence_length
+                position_ids_to_compare = position_ids.expand(batch_size, seq_len) - 1
+            else:
+                seq_len = position_ids.shape[-1]
+                position_ids_to_compare = position_ids
+            logger.info("position ids to compare: %s", position_ids_to_compare[:, :attention_mask_length])
+            mask = torch.arange(seq_len).view(1, -1).expand(batch_size, seq_len)
+            attention_mask = (position_ids_to_compare >= mask).to(dtype=position_ids.dtype)
+            return attention_mask
+
         output = self.model(
             input_ids,
-            attention_mask=None,
+            attention_mask=attention_mask,
             position_ids=position_ids,
             seq_ids=sorted_seq_ids,
             sampling_params=sampling_params,
         )
         # on-device sampling
         if self.model.neuron_config.on_device_sampling:
-            output = output.hidden_states
+            output = output
         else:
-            output = output.logits[:, -1, :]
+            output = output[:, -1, :]
 
         restored_indices = torch.argsort(sorted_indices)
         if seq_ids.shape[0] != 1:

@@ -193,8 +193,8 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
         )
         if on_device_sampling:
             # on-device sampling directly returns the next token
-            return outputs.hidden_states.unsqueeze(1)
-        return outputs.logits[:, -1, :].argmax(dim=-1, keepdim=True)
+            return outputs.unsqueeze(1)
+        return outputs[:, -1, :].argmax(dim=-1, keepdim=True)
 
     # Prepare common input tensors
     input_ids = inputs.input_ids
