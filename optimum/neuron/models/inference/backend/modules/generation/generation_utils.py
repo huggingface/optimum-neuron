@@ -311,7 +311,7 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         outputs = self.forward(**model_inputs)
 
         curr_pos = model_inputs["position_ids"][0].argmax(dim=-1)
-        new_token = outputs.logits[:, 0].argmax(dim=-1, keepdim=True)
+        new_token = outputs[:, 0].argmax(dim=-1, keepdim=True)
 
         # Prepare the input ids and attention mask for the draft model
         candidate_input_ids = input_ids
@@ -333,7 +333,7 @@ class NxDGenerationMixin(GenerationMixin, ABC):
 
                 # 1.2 Use the assistant model to obtain the next candidate logits
                 assistant_model_outputs = assistant_model.forward(**assistant_inputs)
-                assistant_new_token = assistant_model_outputs.logits[:, 0, :].argmax(dim=-1)
+                assistant_new_token = assistant_model_outputs[:, 0, :].argmax(dim=-1)
 
                 # 1.3 Update inputs and args for next iteration
                 candidate_input_ids = torch.cat((candidate_input_ids, assistant_new_token[:, None]), dim=-1)
@@ -379,8 +379,8 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             )
 
             # 2.3. Process the new logits
-            new_tokens = outputs.logits.argmax(dim=-1)
-            selected_tokens = outputs.logits[:, : candidate_length - 1].argmax(dim=-1)
+            new_tokens = outputs.argmax(dim=-1)
+            selected_tokens = outputs[:, : candidate_length - 1].argmax(dim=-1)
 
             # 3. Compare the argmax from the original model logits with the assistant forecasted tokens. We can keep
             # the assistant forecasted tokens until the first mismatch, or until the max length is reached.
