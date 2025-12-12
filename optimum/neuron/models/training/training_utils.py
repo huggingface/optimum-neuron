@@ -19,14 +19,22 @@ from typing import TYPE_CHECKING, Type
 
 import torch
 import transformers
-from accelerate import skip_first_batches as accelerate_skip_first_batches
 from neuronx_distributed.pipeline import NxDPPModel
 from optimum.utils.logging import set_verbosity as set_verbosity_optimum
 from transformers import GenerationMixin
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
 from ...generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
+from ...utils.import_utils import is_accelerate_available
 from ...utils.patching import replace_class_in_inheritance_hierarchy
+
+
+if is_accelerate_available():
+    from accelerate import skip_first_batches as accelerate_skip_first_batches
+else:
+
+    def accelerate_skip_first_batches(*args, **kwargs):
+        pass
 
 
 if TYPE_CHECKING:
