@@ -479,21 +479,17 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         return []
 
     @classmethod
-    def get_compiler_args(cls, neuron_config: NxDNeuronConfig) -> str:
+    def get_compiler_args(cls, neuron_config: NxDNeuronConfig) -> list[str]:
         tensorizer_options = "--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2 --vectorize-strided-dma "
-
-        compiler_args = (
-            "--auto-cast=none --model-type=transformer "
-            f"--tensorizer-options='{tensorizer_options}'"
-            " -O2 "
-            f" --lnc={neuron_config.logical_nc_config}"
-        )
-
-        if neuron_config.target:
-            compiler_args += f" --target {neuron_config.target}"
-
-        logging.info(f"neuronx-cc compiler_args are: {compiler_args}")
-        return compiler_args
+        return [
+            "--target",
+            f"{neuron_config.target}",
+            "--auto-cast=none",
+            "--model-type=transformer",
+            f"--tensorizer-options='{tensorizer_options}'",
+            " -O2",
+            f"--lnc={neuron_config.logical_nc_config}",
+        ]
 
 
 class NxDDecoderModelForEmbedding(nn.Module):
@@ -625,18 +621,18 @@ class NxDModelForEmbedding(NxDPreTrainedModel):
         )
 
     @classmethod
-    def get_compiler_args(cls, neuron_config: NxDNeuronConfig) -> str:
+    def get_compiler_args(cls, neuron_config: NxDNeuronConfig) -> list[str]:
         tensorizer_options = "--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2 --vectorize-strided-dma "
 
-        compiler_args = (
-            "--auto-cast=none --model-type=transformer "
-            f"--tensorizer-options='{tensorizer_options}'"
-            " -O2 "
-            f" --lnc={neuron_config.logical_nc_config}"
-        )
+        compiler_args = [
+            "--auto-cast=none",
+            "--model-type=transformer",
+            f"--tensorizer-options='{tensorizer_options}'",
+            " -O2",
+            f" --lnc={neuron_config.logical_nc_config}",
+        ]
 
         if neuron_config.target:
-            compiler_args += f" --target {neuron_config.target}"
+            compiler_args.append(f"--target={neuron_config.target}")
 
-        logging.info(f"neuronx-cc compiler_args are: {compiler_args}")
         return compiler_args
