@@ -237,14 +237,21 @@ class MixtralNxDModelForCausalLM(NxDModelForCausalLM):
         return convert_mixtral_to_neuron_state_dict(state_dict, config, neuron_config)
 
     @classmethod
-    def get_compiler_args(cls, neuron_config: NxDNeuronConfig) -> str:
-        compiler_args = "--enable-saturate-infinity --enable-mixed-precision-accumulation --model-type transformer -O1"
-        # Add flags for cc-overlap
-        compiler_args += " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2'"
-        compiler_args += " --auto-cast=none"
-        # Enable vector-offset DGE
-        compiler_args += " --internal-enable-dge-levels vector_dynamic_offsets"
-        return compiler_args
+    def get_compiler_args(cls, neuron_config: NxDNeuronConfig) -> list[str]:
+        tensorizer_options = "--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2"
+        return [
+            "--target",
+            f"{neuron_config.target}",
+            "--auto-cast=none",
+            "--model-type=transformer",
+            f"--tensorizer-options='{tensorizer_options}'",
+            "-O1",
+            f"--lnc={neuron_config.logical_nc_config}",
+            "--enable-saturate-infinity",
+            "--enable-mixed-precision-accumulation",
+            "--internal-enable-dge-levels=vector_dynamic_offsets",
+            "--internal-hlo2tensorizer-options='--verify-hlo=true'",
+        ]
 
     @classmethod
     def _get_neuron_config(

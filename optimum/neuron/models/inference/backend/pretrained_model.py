@@ -130,7 +130,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
 
     @classmethod
     @abstractmethod
-    def get_compiler_args(cls, neuron_config) -> str | None:
+    def get_compiler_args(cls, neuron_config) -> list[str] | None:
         """Gets the Neuron compiler arguments to use when compiling this model."""
         return None
 
@@ -169,7 +169,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
             self.graph_builders,
             debug=debug,
             checkpoint_loader=checkpoint_loader,
-            compiler_args=self.get_compiler_args(self.neuron_config),
+            compiler_args=" ".join(self.get_compiler_args(self.neuron_config)),
         )
         sharder.shard_checkpoint(serialize_path=shards_path)
 
@@ -207,7 +207,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
                 self.graph_builders,
                 debug=False,
                 checkpoint_loader=checkpoint_loader,
-                compiler_args=self.get_compiler_args(self.neuron_config),
+                compiler_args=" ".join(self.get_compiler_args(self.neuron_config)),
             )
             weights = sharder.shard_checkpoint()
         start_rank_tensor = torch.tensor([start_rank_id], dtype=torch.int32, device="cpu")
@@ -365,7 +365,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
             traced_model = NxDPreTrainedModel.compile(
                 neuron_config=neuron_config,
                 graph_builders=graph_builders,
-                compiler_args=cls.get_compiler_args(neuron_config),
+                compiler_args=" ".join(cls.get_compiler_args(neuron_config)),
             )
         model = cls(
             config=config,
