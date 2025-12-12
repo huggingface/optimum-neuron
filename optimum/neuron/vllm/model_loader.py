@@ -50,6 +50,7 @@ class OptimumNeuronModelForCausalLM(nn.Module):
         input_ids = torch.index_select(input_ids, 0, sorted_indices)
         position_ids = torch.index_select(position_ids, 0, sorted_indices)
         sampling_params = torch.index_select(sampling_params, 0, sorted_indices)
+
         output = self.model(
             input_ids,
             position_ids=position_ids,
@@ -58,9 +59,9 @@ class OptimumNeuronModelForCausalLM(nn.Module):
         )
         # on-device sampling
         if self.model.neuron_config.on_device_sampling:
-            output = output.hidden_states
+            output = output
         else:
-            output = output.logits[:, -1, :]
+            output = output[:, -1, :]
 
         restored_indices = torch.argsort(sorted_indices)
         if seq_ids.shape[0] != 1:

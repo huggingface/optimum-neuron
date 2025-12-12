@@ -151,13 +151,12 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                 position_ids=current_position_ids,
                 sampling_params=sampling_params,
                 seq_ids=seq_ids,
-                return_dict=True,
             )
 
             if self.neuron_config.on_device_sampling:
-                next_tokens = outputs.tokens
+                next_tokens = outputs
             else:
-                next_token_logits = outputs.logits[:, -1, :].clone()
+                next_token_logits = outputs[:, -1, :].clone()
                 if raw_logits is not None:
                     raw_logits.append(next_token_logits)
 
@@ -234,27 +233,22 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         # Prefill the target model KV cache and get the first accepted token
         outputs = self.forward(
             input_ids=input_ids,
-            attention_mask=attention_mask,
             position_ids=position_ids,
             seq_ids=seq_ids,
             sampling_params=sampling_params,
-            return_dict=True,
         )
-        next_tokens = outputs.logits[:, 0, :].argmax(dim=-1, keepdim=True)
+        next_tokens = outputs[:, 0, :].argmax(dim=-1, keepdim=True)
 
         # Run the assistant model once to fill its kv cache
         assistant_model.forward(
             input_ids=input_ids,
-            attention_mask=attention_mask,
             position_ids=position_ids,
             seq_ids=seq_ids,
             sampling_params=sampling_params,
-            return_dict=True,
         )
 
         # Increment input_ids, attention mask and position ids for the accepted token
         input_ids = torch.cat((input_ids, next_tokens), dim=-1)
-        attention_mask = increase_attention_mask(attention_mask, 1)
         position_ids = increase_position_ids(position_ids, 1)
 
         while input_ids.shape[1] < max_len:
@@ -263,25 +257,17 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             # - the attention mask and position ids have been incremented for processing the last accepted token
             next_tokens = input_ids[:, -1:]
             assistant_tokens = input_ids.clone()
-            assistant_attention_mask = attention_mask.clone()
             assistant_position_ids = position_ids.clone()
             candidate_tokens = torch.full((batch_size, spec_len), pad_token_id, device=input_ids.device)
             for i in range(spec_len):
-                next_tokens = (
-                    assistant_model.forward(
-                        input_ids=next_tokens,
-                        attention_mask=assistant_attention_mask,
-                        position_ids=assistant_position_ids,
-                        seq_ids=seq_ids,
-                        sampling_params=sampling_params,
-                        return_dict=True,
-                    )
-                    .logits[:, 0, :]
-                    .argmax(dim=-1, keepdim=True)
-                )
+                next_tokens = assistant_model.forward(
+                    input_ids=next_tokens,
+                    position_ids=assistant_position_ids,
+                    seq_ids=seq_ids,
+                    sampling_params=sampling_params,
+                )[:, 0, :].argmax(dim=-1, keepdim=True)
                 candidate_tokens[:, i] = next_tokens.squeeze(-1)
                 assistant_tokens = torch.cat((assistant_tokens, next_tokens), dim=-1)
-                assistant_attention_mask = increase_attention_mask(assistant_attention_mask, 1)
                 assistant_position_ids = increase_position_ids(assistant_position_ids, 1)
                 # Stop assistant generation on EOS
                 if stopping_criteria(assistant_tokens, None)[0]:
@@ -300,13 +286,11 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             )
             outputs = self.forward(
                 input_ids=validation_tokens,
-                attention_mask=attention_mask,
                 position_ids=validation_position_ids,
                 seq_ids=seq_ids,
                 sampling_params=sampling_params,
-                return_dict=True,
             )
-            selected_tokens = outputs.logits.argmax(dim=-1)
+            selected_tokens = outputs.argmax(dim=-1)
             # The returned logits are the probabilities that the next token is each of the vocabulary tokens.
             # We can therefore compare the argmax of these logits with the candidate tokens
             n_matches = ((~(candidate_tokens == selected_tokens)).cumsum(dim=-1) < 1).sum()
@@ -321,25 +305,21 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             # Note that we MUST NOT pass the last accepted token as it has not been seen yet by the
             # original model and will be processed only in the next iteration
             for i in range(accepted_tokens.shape[1] - 1):
-                attention_mask = increase_attention_mask(attention_mask, 1)
                 position_ids = increase_position_ids(position_ids, 1)
                 if i >= n_matches:
                     # This token was not accepted, decode with the correct token to update the kv cache
                     assistant_model.forward(
                         input_ids=accepted_tokens[:, i : i + 1],
-                        attention_mask=attention_mask,
                         position_ids=position_ids,
                         seq_ids=seq_ids,
                         sampling_params=sampling_params,
-                        return_dict=True,
                     )
             # Prepare the inputs for the next iteration
             input_ids = torch.cat((input_ids, accepted_tokens), dim=-1)
             if stopping_criteria(input_ids, None)[0]:
                 break
-            # We only need to increment attention mask and position ids by one since they were already
+            # We only need to increment position ids by one since they were already
             # incremented while fast-forwarding the assistant model's KV cache for the accepted tokens
-            attention_mask = increase_attention_mask(attention_mask, 1)
             position_ids = increase_position_ids(position_ids, 1)
 
         return input_ids

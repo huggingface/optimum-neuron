@@ -37,7 +37,6 @@ from ..generation.generation_utils import NxDGenerationMixin
 from ..generation.sampling import (
     Sampler,
     mask_padded_logits,
-    prepare_sampling_params,
     validate_sampling_params,
 )
 from ..kvcache.kv_cache_manager import (
@@ -416,51 +415,15 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
     ) -> tuple | CausalLMOutputWithPast:
-        if seq_ids is None:
-            seq_ids = torch.arange(input_ids.shape[0])
-
-        if sampling_params is None:
-            if self.neuron_config.on_device_sampling:
-                raise ValueError("The sampling params tensor is required for on-device sampling.")
-            # Just pass a dummy tensor to the model, it will be ignored
-            sampling_params = prepare_sampling_params(seq_ids.shape[0])
-        elif self.neuron_config.on_device_sampling:
+        if output_attentions:
+            raise ValueError(f"output_attentions is not supported for {self.__class__.__name__}")
+        if output_hidden_states:
+            raise ValueError(f"output_hidden_states is not supported for {self.__class__.__name__}")
+        if return_dict:
+            raise ValueError(f"return_dict is not supported for {self.__class__.__name__}")
+        if self.neuron_config.on_device_sampling:
             validate_sampling_params(sampling_params, self.neuron_config.max_topk)
 
-        output_attentions, output_hidden_states, return_dict = self._setup_func_config(
-            output_attentions, output_hidden_states, return_dict
-        )
-
-        logits_or_next_tokens = self._get_model_outputs(
-            input_ids,
-            position_ids,
-            seq_ids,
-            sampling_params,
-        )
-
-        logging.debug("---output---")
-        logging.debug(
-            f"{'tokens' if self.neuron_config.on_device_sampling else 'logits'} = %s, ",
-            logits_or_next_tokens,
-        )
-
-        return self._construct_output(logits_or_next_tokens)
-
-    def _setup_func_config(self, output_attentions, output_hidden_states, return_dict):
-        output_attentions = output_attentions if output_attentions is not None else self.text_config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.text_config.output_hidden_states
-        )
-        return_dict = return_dict if return_dict is not None else getattr(self.config, "use_return_dict", None)
-        return output_attentions, output_hidden_states, return_dict
-
-    def _get_model_outputs(
-        self,
-        input_ids,
-        position_ids,
-        seq_ids,
-        sampling_params,
-    ):
         if input_ids.shape[-1] > 1 and not position_ids.min().item():
             outputs = self.context_encoding_model(
                 input_ids,
@@ -487,19 +450,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
             )
 
         return outputs
-
-    def _construct_output(self, logits_or_next_tokens):
-        next_tokens = logits_or_next_tokens
-
-        OutputParams = CausalLMOutputWithPast(
-            logits=None if self.neuron_config.on_device_sampling else logits_or_next_tokens,
-            hidden_states=logits_or_next_tokens,
-            attentions=None,
-        )
-
-        OutputParams.tokens = next_tokens
-
-        return OutputParams
 
     def reset(self):
         # We need to reset the KV cache flag for a new batch of inference.
