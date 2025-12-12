@@ -121,6 +121,11 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         pad_token_id = generation_config._pad_token_tensor
         output_scores = generation_config.output_scores
         output_logits = generation_config.output_logits
+        if self.neuron_config.on_device_sampling:
+            if output_logits:
+                raise ValueError("Output logits are not supported with on-device sampling")
+            if output_scores:
+                raise ValueError("Output scores are not supported with on-device sampling")
         return_dict_in_generate = generation_config.return_dict_in_generate
         has_eos_stopping_criteria = any(hasattr(criteria, "eos_token_id") for criteria in stopping_criteria)
         do_sample = generation_config.do_sample
@@ -164,7 +169,7 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             )
 
             if self.neuron_config.on_device_sampling:
-                next_tokens = outputs.tokens
+                next_tokens = outputs
             else:
                 next_token_logits = outputs.logits[:, -1, :].clone()
                 if raw_logits is not None:
@@ -314,7 +319,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                 position_ids=validation_position_ids,
                 seq_ids=seq_ids,
                 sampling_params=sampling_params,
-                return_dict=True,
             )
             selected_tokens = outputs.logits.argmax(dim=-1)
             # The returned logits are the probabilities that the next token is each of the vocabulary tokens.
