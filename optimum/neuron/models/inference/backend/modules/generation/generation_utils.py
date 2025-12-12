@@ -21,7 +21,6 @@ from transformers import GenerationConfig, PreTrainedModel
 from transformers.generation import GenerationMixin, SampleDecoderOnlyOutput
 from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import StoppingCriteriaList
-from transformers.modeling_outputs import ModelOutput
 
 from .sampling import (
     Sampler,
@@ -78,7 +77,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         logits_processor: LogitsProcessorList,
         stopping_criteria: StoppingCriteriaList,
         generation_config: GenerationConfig,
-        logits_warper: LogitsProcessorList | None = None,
         **model_kwargs,
     ) -> SampleDecoderOnlyOutput | torch.LongTensor:
         r"""
@@ -86,10 +84,14 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         """
 
         # init values
-        logits_warper = logits_warper if logits_warper is not None else LogitsProcessorList()
         pad_token_id = generation_config._pad_token_tensor
         output_scores = generation_config.output_scores
         output_logits = generation_config.output_logits
+        if self.neuron_config.on_device_sampling:
+            if output_logits:
+                raise ValueError("Output logits are not supported with on-device sampling")
+            if output_scores:
+                raise ValueError("Output scores are not supported with on-device sampling")
         return_dict_in_generate = generation_config.return_dict_in_generate
         has_eos_stopping_criteria = any(hasattr(criteria, "eos_token_id") for criteria in stopping_criteria)
         do_sample = generation_config.do_sample
@@ -124,17 +126,15 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             model_kwargs["attention_mask"] = model_inputs.get("attention_mask")
 
             # forward pass to get next token
-            outputs = self.forward(**model_inputs, return_dict=True)
+            outputs = self.forward(**model_inputs)
 
             if self.neuron_config.on_device_sampling:
-                next_tokens = outputs.tokens
+                next_tokens = outputs
             else:
-                next_token_logits = outputs.logits[:, -1, :].clone()
+                next_token_logits = outputs[:, -1, :].clone()
 
                 # pre-process distribution
                 next_token_scores = logits_processor(input_ids, next_token_logits)
-                if do_sample:
-                    next_token_scores = logits_warper(input_ids, next_token_scores)
 
                 if return_dict_in_generate:
                     if output_scores:
@@ -156,7 +156,7 @@ class NxDGenerationMixin(GenerationMixin, ABC):
 
             is_for_token_generation = True
             model_kwargs = self._update_model_kwargs_for_generation(
-                outputs, model_kwargs, is_for_token_generation=is_for_token_generation
+                model_kwargs, is_for_token_generation=is_for_token_generation
             )
 
             unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, None)
@@ -243,13 +243,9 @@ class NxDGenerationMixin(GenerationMixin, ABC):
     # is updated each iteration.
     def _update_model_kwargs_for_generation(
         self,
-        outputs: ModelOutput,
         model_kwargs: dict[str, Any],
         is_for_token_generation: bool,
     ) -> dict[str, Any]:
-        if getattr(outputs, "state", None) is not None:
-            model_kwargs["state"] = outputs.state
-
         # update token_type_ids with last value
         if "token_type_ids" in model_kwargs:
             token_type_ids = model_kwargs["token_type_ids"]
@@ -270,6 +266,7 @@ class NxDGenerationMixin(GenerationMixin, ABC):
     def _assisted_decoding(
         self,
         input_ids: torch.LongTensor,
+        logits_processor: LogitsProcessorList,
         stopping_criteria: StoppingCriteriaList,
         generation_config: GenerationConfig,
         assistant_model: "PreTrainedModel | None" = None,
@@ -277,6 +274,19 @@ class NxDGenerationMixin(GenerationMixin, ABC):
     ):
         pad_token_id = generation_config.pad_token_id
         eos_token_id = generation_config.eos_token_id
+        do_sample = generation_config.do_sample
+
+        batch_size = model_kwargs["attention_mask"].shape[0]
+        top_k = generation_config.top_k if do_sample else 1
+        top_p = generation_config.top_p if do_sample else 1.0
+        temperature = generation_config.temperature if do_sample else 1.0
+        sampling_params = prepare_sampling_params(
+            batch_size=batch_size,
+            top_k=top_k,
+            top_p=top_p,
+            temperature=temperature,
+        )
+        model_kwargs["sampling_params"] = sampling_params
 
         if assistant_model.neuron_config.on_device_sampling:
             raise ValueError("Assistant model must not use on-device sampling")
@@ -328,7 +338,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                 # 1.3 Update inputs and args for next iteration
                 candidate_input_ids = torch.cat((candidate_input_ids, assistant_new_token[:, None]), dim=-1)
                 assistant_kwargs = assistant_model._update_model_kwargs_for_generation(
-                    assistant_model_outputs,
                     assistant_kwargs,
                     is_for_token_generation,
                 )
@@ -365,6 +374,8 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
+                seq_ids=model_inputs["seq_ids"],
+                sampling_params=sampling_params,
             )
 
             # 2.3. Process the new logits
