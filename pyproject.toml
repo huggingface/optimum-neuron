@@ -168,10 +168,6 @@ torchvision = [
     { index = "pytorch-cpu" },
 ]
     
-[[tool.uv.index]]
-name = "pypi"
-url = "https://pypi.org/simple"
-
 [tool.ruff]
 line-length = 119
 
