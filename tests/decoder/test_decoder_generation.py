@@ -107,7 +107,7 @@ def test_decoder_generation_greedy_expectations(neuron_llm_config):
         config_name = neuron_llm_config["name"]
         generated_text = tokenizer.decode(neuron_outputs[0])
         known_different_generations = {
-            "qwen3": " What are the benefits of using Deep Learning in the field of AI?\n\nDeep Learning is",
+            "qwen3-4x4096": " What are the benefits of using Deep Learning in the field of AI?\n\nDeep Learning is",
         }
         if config_name in known_different_generations:
             assert generated_text.endswith(known_different_generations[config_name])
