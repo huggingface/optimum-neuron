@@ -39,56 +39,27 @@ TEST_HUB_ORG = os.getenv("TEST_HUB_ORG", "optimum-internal-testing")
 OPTIMUM_CACHE_REPO_ID = f"{TEST_HUB_ORG}/neuron-testing-cache"
 
 # All model configurations below will be added to the neuron_model_config fixture
-LLM_MODEL_CONFIGURATIONS = {
-    "llama": {
-        "model_id": "unsloth/Llama-3.2-1B-Instruct",
-        "export_kwargs": {
-            "batch_size": 4,
-            "sequence_length": 4096,
-            "tensor_parallel_size": cores_per_device(),
-        },
-    },
-    "qwen2": {
-        "model_id": "Qwen/Qwen2.5-0.5B",
-        "export_kwargs": {
-            "batch_size": 4,
-            "sequence_length": 4096,
-            "tensor_parallel_size": cores_per_device(),
-        },
-    },
-    "granite": {
-        "model_id": "ibm-granite/granite-3.1-2b-instruct",
-        "export_kwargs": {
-            "batch_size": 4,
-            "sequence_length": 4096,
-            "tensor_parallel_size": cores_per_device(),
-        },
-    },
-    "phi": {
-        "model_id": "microsoft/Phi-3-mini-4k-instruct",
-        "export_kwargs": {
-            "batch_size": 4,
-            "sequence_length": 4096,
-            "tensor_parallel_size": cores_per_device(),
-        },
-    },
-    "qwen3": {
-        "model_id": "Qwen/Qwen3-0.6B",
-        "export_kwargs": {
-            "batch_size": 4,
-            "sequence_length": 4096,
-            "tensor_parallel_size": cores_per_device(),
-        },
-    },
-    "smollm3": {
-        "model_id": "HuggingFaceTB/SmolLM3-3B",
-        "export_kwargs": {
-            "batch_size": 4,
-            "sequence_length": 4096,
-            "tensor_parallel_size": cores_per_device(),
-        },
-    },
+LLM_MODEL_IDS = {
+    "llama": "unsloth/Llama-3.2-1B-Instruct",
+    "qwen2": "Qwen/Qwen2.5-0.5B",
+    "granite": "ibm-granite/granite-3.1-2b-instruct",
+    "phi": "microsoft/Phi-3-mini-4k-instruct",
+    "qwen3": "Qwen/Qwen3-0.6B",
+    "smollm3": "HuggingFaceTB/SmolLM3-3B",
 }
+
+LLM_MODEL_CONFIGURATIONS = {}
+
+for model_name, model_id in LLM_MODEL_IDS.items():
+    for batch_size, sequence_length in [(4, 4096)]:
+        LLM_MODEL_CONFIGURATIONS[f"{model_name}-{batch_size}x{sequence_length}"] = {
+            "model_id": model_id,
+            "export_kwargs": {
+                "batch_size": batch_size,
+                "sequence_length": sequence_length,
+                "tensor_parallel_size": cores_per_device(),
+            },
+        }
 
 
 def get_neuron_models_hash():

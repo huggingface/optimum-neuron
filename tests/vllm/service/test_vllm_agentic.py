@@ -20,7 +20,7 @@ async def smollm3_model_agentic_vllm(vllm_launcher, base_neuron_llm_config, requ
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("base_neuron_llm_config", ["smollm3"], indirect=True)
+@pytest.mark.parametrize("base_neuron_llm_config", ["smollm3-4x4096"], indirect=True)
 async def test_vllm_agentic_test(smollm3_model_agentic_vllm):
     model_name = smollm3_model_agentic_vllm.client.model_name
     base_url = str(smollm3_model_agentic_vllm.client.base_url)
