@@ -125,7 +125,6 @@ class NxDDecoderModelForCausalLM(nn.Module):
     def forward(
         self,
         input_ids,
-        attention_mask,
         position_ids,
         seq_ids,
         sampling_params,
@@ -134,7 +133,6 @@ class NxDDecoderModelForCausalLM(nn.Module):
 
         Args:
             input_ids (torch.LongTensor): Input token IDs.
-            attention_mask (torch.Tensor): Attention mask.
             position_ids (torch.LongTensor): Position IDs.
             seq_ids (torch.LongTensor): Sequence IDs. Used in continuous batching
             sampling_params (torch.FloatTensor): Sampling parameters.
@@ -430,7 +428,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
 
         logits_or_next_tokens = self._get_model_outputs(
             input_ids,
-            attention_mask,
             position_ids,
             seq_ids,
             sampling_params,
@@ -455,7 +452,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     def _get_model_outputs(
         self,
         input_ids,
-        attention_mask,
         position_ids,
         seq_ids,
         sampling_params,
@@ -463,7 +459,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         if input_ids.shape[-1] > 1 and not position_ids.min().item():
             outputs = self.context_encoding_model(
                 input_ids,
-                attention_mask,
                 position_ids,
                 seq_ids,
                 sampling_params,
@@ -474,7 +469,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         elif input_ids.shape[-1] == self.neuron_config.speculation_length:
             outputs = self.speculation_model(
                 input_ids,
-                attention_mask,
                 position_ids,
                 seq_ids,
                 sampling_params,
@@ -482,7 +476,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         else:
             outputs = self.token_generation_model(
                 input_ids,
-                attention_mask,
                 position_ids,
                 seq_ids,
                 sampling_params,
