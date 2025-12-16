@@ -216,7 +216,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         model_inputs = {
             "input_ids": input_ids,
             "position_ids": position_ids,
-            "attention_mask": attention_mask,
             "sampling_params": sampling_params,
             "seq_ids": seq_ids,
         }
