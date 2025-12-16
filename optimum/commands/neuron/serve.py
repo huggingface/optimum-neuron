@@ -158,8 +158,9 @@ class ServeCommand(BaseOptimumCLICommand):
             logger.info(f"Loading Neuron model: {model_name_or_path}")
         else:
             # Model needs to be exported: look for compatible hub cached configs
+
             cached_entries = select_hub_cached_entries(
-                model_id,
+                model_name_or_path,
                 task="text-generation",
                 instance_type=instance_type,
                 batch_size=batch_size,
