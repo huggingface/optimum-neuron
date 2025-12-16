@@ -488,12 +488,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         seq_ids,
         sampling_params,
     ):
-        # casting inputs to int32
-        input_ids = input_ids.to(torch.int32)
-        attention_mask = attention_mask.to(torch.int32)
-        position_ids = position_ids.to(torch.int32)
-        seq_ids = seq_ids.to(torch.int32)
-
         if input_ids.shape[-1] > 1 and not position_ids.min().item():
             outputs = self.context_encoding_model(
                 input_ids,
