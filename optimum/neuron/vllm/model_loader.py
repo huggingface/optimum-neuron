@@ -116,8 +116,9 @@ def get_optimum_neuron_model(
         batch_size = scheduler_config.max_num_seqs
         sequence_length = scheduler_config.max_model_len
         torch_dtype = None if model_config.dtype is None else model_config.dtype
+
         cached_entries = select_hub_cached_entries(
-            model_id,
+            model_name_or_path,
             task="text-generation",
             batch_size=batch_size,
             sequence_length=sequence_length,
@@ -161,8 +162,9 @@ def get_optimum_neuron_model(
                 )
         else:
             logger.warning("%s is not a neuron model: it will be exported using cached artifacts.", model_id)
+
         neuron_config = NeuronModelForCausalLM.get_neuron_config(
-            model_name_or_path=model_id,
+            model_name_or_path=model_name_or_path,
             batch_size=batch_size,
             sequence_length=sequence_length,
             tensor_parallel_size=tp_degree,
