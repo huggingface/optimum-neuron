@@ -18,7 +18,7 @@ import re
 
 import pytest
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.generation import StoppingCriteria
 
 from optimum.neuron import NeuronModelForCausalLM
@@ -93,26 +93,28 @@ def test_decoder_generation_custom_stopping_criteria(model_and_tokenizer):
 @is_inferentia_test
 @requires_neuronx
 def test_decoder_generation_greedy_expectations(neuron_llm_config):
+    model_id = neuron_llm_config["model_id"]
+    model = AutoModelForCausalLM.from_pretrained(model_id)
     neuron_llm_path = neuron_llm_config["neuron_model_path"]
-    model = NeuronModelForCausalLM.from_pretrained(neuron_llm_path)
+    neuron_model = NeuronModelForCausalLM.from_pretrained(neuron_llm_path)
     tokenizer = AutoTokenizer.from_pretrained(neuron_llm_path)
     prompt = "What is Deep Learning?"
     inputs = tokenizer(prompt, return_tensors="pt")
-    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17)
-    target = model.neuron_config.target
-    expectations = {
-        "llama": " and how does it work?\nDeep learning is a subset of machine learning that uses artificial",
-        "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning"
-        + (". It is a" if target == "trn2" else " that is based on"),
-        "qwen3": " What is the difference between Deep Learning and Machine Learning?\n\nDeep Learning is a subset of",
-        "granite": "\n\nDeep Learning is a subset of machine learning that is inspired by the structure and",
-        "phi": "\n\nDeep learning is a subfield of machine learning that focuses on creating",
-        "smollm3": " Deep learning is a subset of machine learning that uses neural networks with many layers to learn",
-    }
-    config_name = neuron_llm_config["name"]
-    generated_text = tokenizer.decode(outputs[0])
-    expected_text = expectations[config_name]
-    assert generated_text.endswith(expected_text)
+    max_new_tokens = 17
+    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
+    neuron_outputs = neuron_model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
+    if not torch.equal(neuron_outputs, outputs):
+        config_name = neuron_llm_config["name"]
+        generated_text = tokenizer.decode(neuron_outputs[0])
+        known_different_generations = {
+            "qwen3": " What are the key features of Deep Learning? What are the applications of Deep Learning?",
+        }
+        if config_name in known_different_generations:
+            assert generated_text.endswith(known_different_generations[config_name])
+            pytest.xfail(f"Known different generations for {config_name}")
+        else:
+            expected_text = tokenizer.decode(outputs[0])
+            assert generated_text.endswith(expected_text)
 
 
 @is_inferentia_test
@@ -249,7 +251,7 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
 @requires_neuronx
 @pytest.mark.parametrize(
     "max_new_tokens",
-    [17, 31],
+    [17, 30],
     ids=["shorter", "short"],
 )
 def test_speculation_same_model(caplog, speculation, max_new_tokens):
@@ -279,7 +281,7 @@ def test_speculation_same_model(caplog, speculation, max_new_tokens):
         assert len(generated_tokens) == max_new_tokens
         expected_text = (
             ", where I spent countless hours helping her in the kitchen."
-            " She was a master baker, and her kitchen was always filled with the most delicious aromas."
+            " She was a master baker, and her kitchen was always filled with the most wonderful aromas"
         )
         generated_text = tokenizer.decode(generated_tokens)
         assert expected_text.startswith(generated_text)

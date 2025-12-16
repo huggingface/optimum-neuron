@@ -52,7 +52,6 @@ class OptimumNeuronModelForCausalLM(nn.Module):
         sampling_params = torch.index_select(sampling_params, 0, sorted_indices)
         output = self.model(
             input_ids,
-            attention_mask=None,
             position_ids=position_ids,
             seq_ids=sorted_seq_ids,
             sampling_params=sampling_params,
