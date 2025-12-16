@@ -50,9 +50,9 @@ class NxDDecoderWrapperForCausalLM(NxDModelWrapper):
         if config.pad_token_id is None:
             config.pad_token_id = 0
 
-    def _forward_with_pad(self, input_ids, attention_mask, position_ids, seq_ids, sampling_params):
+    def _forward_with_pad(self, input_ids, position_ids, seq_ids, sampling_params):
         # pad the inputs up to the compiled batch size in the end
-        def pad_helper(tensor):
+        def pad_to_batch_size(tensor):
             if tensor is None or tensor.shape[0] == self.neuron_config.batch_size:
                 return tensor
 
@@ -64,8 +64,8 @@ class NxDDecoderWrapperForCausalLM(NxDModelWrapper):
             return padded_tensor
 
         padded_args = []
-        for arg in (input_ids, attention_mask, position_ids):
-            padded_args.append(pad_helper(arg))
+        padded_args.append(pad_to_batch_size(input_ids))
+        padded_args.append(pad_to_batch_size(position_ids))
 
         # need to handle seq_ids separately, when compiled batch is 4, if we pad seq_ids from [0,2,1] to [0,2,1,
         # 0]. then the kv cache of padded input could be written into the first cache line, so we need to pad as [0,
@@ -78,8 +78,7 @@ class NxDDecoderWrapperForCausalLM(NxDModelWrapper):
         )
         padded_args.append(padded_seq_ids)
 
-        # pad sampling params by repeating first batchline
-        padded_sampling_params = pad_helper(sampling_params)
+        padded_sampling_params = pad_to_batch_size(sampling_params)
         padded_args.append(padded_sampling_params)
 
         outputs = self._forward(*padded_args)
@@ -88,7 +87,7 @@ class NxDDecoderWrapperForCausalLM(NxDModelWrapper):
         logits = outputs
         return logits[: seq_ids.shape[0]]
 
-    def _forward(self, input_ids, attention_mask, position_ids, seq_ids, sampling_params):
+    def _forward(self, input_ids, position_ids, seq_ids, sampling_params):
         needs_reordering = False
         if self.tag == TOKEN_GENERATION_MODEL_TAG and self.neuron_config.continuous_batching:
             # if continuous batching is enabled, we need to ensure that the inputs are at the expected positions
@@ -98,10 +97,9 @@ class NxDDecoderWrapperForCausalLM(NxDModelWrapper):
                 sorting_index = torch.argsort(seq_ids)
                 seq_ids = torch.index_select(seq_ids, 0, sorting_index)
                 input_ids = torch.index_select(input_ids, 0, sorting_index)
-                attention_mask = torch.index_select(attention_mask, 0, sorting_index)
                 position_ids = torch.index_select(position_ids, 0, sorting_index)
                 sampling_params = torch.index_select(sampling_params, 0, sorting_index)
-        outputs = self.model(input_ids, attention_mask, position_ids, seq_ids, sampling_params)
+        outputs = self.model(input_ids, position_ids, seq_ids, sampling_params)
         if needs_reordering:
             # if we reordered the inputs, we need to reorder the outputs as well
             outputs = torch.index_select(outputs, 0, orig_seq_ids)
@@ -114,31 +112,16 @@ class NxDDecoderWrapperForCausalLM(NxDModelWrapper):
         """
         return [t.to(torch.int32) if t.dtype == torch.int64 else t for t in args]
 
-    def pad_to_max_compiled_seq(self, *args):
+    def forward(self, input_ids, position_ids, seq_ids, sampling_params):
+        input_ids, position_ids, seq_ids = self.convert_int64_to_int32(input_ids, position_ids, seq_ids)
         if self.tag == CONTEXT_ENCODING_MODEL_TAG:
-            to_pad = args[:3]
-            pad_lengths = [self.neuron_config.max_context_length - arg.shape[1] for arg in to_pad]
-            tensor_pad_vals = [self.config.pad_token_id, 0, 1]
-            padded_args = [
-                F.pad(arg, (0, pad_len), "constant", pad_val)
-                for arg, pad_val, pad_len in zip(to_pad, tensor_pad_vals, pad_lengths)
-            ]
-            args = (*padded_args, *args[3:])
-        else:
-            input_ids, attention_mask, *rest_of_args = args
-            pad_len = self.neuron_config.sequence_length - attention_mask.shape[1]
-            padded_attention_mask = F.pad(attention_mask, (0, pad_len), "constant", 0)
-            args = (input_ids, padded_attention_mask, *rest_of_args)
 
-        return args
+            def pad_to_max_context_length(x: torch.Tensor, padding_value):
+                pad_length = self.neuron_config.max_context_length - x.shape[1]
+                return F.pad(x, (0, pad_length), "constant", padding_value)
 
-    def forward(self, input_ids, attention_mask, position_ids, seq_ids, sampling_params):
-        input_ids, attention_mask, position_ids, seq_ids = self.convert_int64_to_int32(
-            input_ids, attention_mask, position_ids, seq_ids
-        )
-        input_ids, attention_mask, position_ids, seq_ids = self.pad_to_max_compiled_seq(
-            input_ids, attention_mask, position_ids, seq_ids
-        )
+            input_ids = pad_to_max_context_length(input_ids, self.config.pad_token_id)
+            position_ids = pad_to_max_context_length(position_ids, 1)
 
         input_batch_size = seq_ids.shape[0]
 
@@ -147,7 +130,7 @@ class NxDDecoderWrapperForCausalLM(NxDModelWrapper):
                 f"Input batch size {input_batch_size} exceeds the maximum batch size {self.neuron_config.max_batch_size}."
             )
         elif input_batch_size == self.neuron_config.batch_size:
-            return self._forward(input_ids, attention_mask, position_ids, seq_ids, sampling_params)
+            return self._forward(input_ids, position_ids, seq_ids, sampling_params)
 
         cur_batch = 0
         output_logits = []
@@ -156,7 +139,7 @@ class NxDDecoderWrapperForCausalLM(NxDModelWrapper):
             f"get input_batch_size as {input_batch_size} but compiled batch_size as {self.neuron_config.batch_size}"
         )
 
-        args = (input_ids, attention_mask, position_ids, seq_ids, sampling_params)
+        args = (input_ids, position_ids, seq_ids, sampling_params)
         while cur_batch < input_batch_size:
             if cur_batch + self.neuron_config.batch_size <= input_batch_size:
                 # we only process part of the input to run
