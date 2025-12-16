@@ -92,7 +92,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             input_ids, attention_mask=attention_mask, generation_config=generation_config, **kwargs
         )
 
-    # TODO: Remove _sample and define separate flow for on-device sampling that doesn't use HF.
     def _sample(
         self,
         input_ids: torch.LongTensor,
@@ -110,9 +109,16 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         pad_token_id = generation_config._pad_token_tensor
         output_scores = generation_config.output_scores
         output_logits = generation_config.output_logits
+        if self.neuron_config.on_device_sampling:
+            if output_logits:
+                raise ValueError("Output logits are not supported with on-device sampling")
+            if output_scores:
+                raise ValueError("Output scores are not supported with on-device sampling")
         return_dict_in_generate = generation_config.return_dict_in_generate
         has_eos_stopping_criteria = any(hasattr(criteria, "eos_token_id") for criteria in stopping_criteria)
         do_sample = generation_config.do_sample
+        if not self.neuron_config.on_device_sampling and self.sampler is None:
+            self.sampler = Sampler(self.neuron_config, do_sample=do_sample, on_cpu=True)
 
         # Prepare input tensors
         position_ids = position_ids_from_attention_mask(attention_mask)
@@ -136,17 +142,15 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         # keep track of which sequences are already finished
         unfinished_sequences = torch.ones(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
 
-        this_peer_finished = False
-        is_for_token_generation = False
-        # auto-regressive generation
-        while not this_peer_finished:
-            # forward pass to get next token
+        def get_next_tokens(
+            current_input_ids: torch.Tensor,
+            current_position_ids: torch.Tensor,
+        ) -> torch.Tensor:
             outputs = self.forward(
-                input_ids[:, -1:] if is_for_token_generation else input_ids,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                seq_ids=seq_ids,
+                input_ids=current_input_ids,
+                position_ids=current_position_ids,
                 sampling_params=sampling_params,
+                seq_ids=seq_ids,
                 return_dict=True,
             )
 
@@ -154,33 +158,34 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                 next_tokens = outputs.tokens
             else:
                 next_token_logits = outputs.logits[:, -1, :].clone()
+                if raw_logits is not None:
+                    raw_logits.append(next_token_logits)
 
                 # pre-process distribution
                 next_token_scores = logits_processor(input_ids, next_token_logits)
-
-                if return_dict_in_generate:
-                    if output_scores:
-                        scores += (next_token_scores,)
-                    if output_logits:
-                        raw_logits += (next_token_logits,)
-
-                if self.sampler is None:
-                    self.sampler = Sampler(self.neuron_config, do_sample=do_sample, on_cpu=True)
+                if scores is not None:
+                    scores.append(next_token_scores)
 
                 next_tokens = self.sampler(next_token_scores, sampling_params)
-
             # finished sentences should have their next token be a padding token
             if has_eos_stopping_criteria:
                 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
 
-            input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
+            return next_tokens[:, None]
+
+        # Prefill
+        next_tokens = get_next_tokens(input_ids, position_ids)
+        input_ids = torch.cat((input_ids, next_tokens), dim=-1)
+        unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, None)
+        this_peer_finished = unfinished_sequences.max() == 0
+        while not this_peer_finished:
+            # Increase position_ids for next token
+            position_ids = increase_position_ids(position_ids, 1)
+            # Decode
+            next_tokens = get_next_tokens(next_tokens, position_ids)
+            input_ids = torch.cat((input_ids, next_tokens), dim=-1)
             unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, None)
             this_peer_finished = unfinished_sequences.max() == 0
-
-            # update attention_mask, position_ids for next step
-            is_for_token_generation = True
-            attention_mask = increase_attention_mask(attention_mask, 1)
-            position_ids = increase_position_ids(position_ids, 1)
 
         if return_dict_in_generate:
             return SampleDecoderOnlyOutput(
@@ -190,72 +195,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             )
         else:
             return input_ids
-
-    def prepare_inputs_for_generation(
-        self,
-        input_ids,
-        is_decode,
-        attention_mask=None,
-        position_ids=None,
-        seq_ids=None,
-        sampling_params=None,
-    ):
-        if is_decode:
-            input_ids = input_ids[:, -1:]
-
-        if attention_mask is not None and position_ids is None:
-            # create position_ids on the fly for batch generation
-            position_ids = attention_mask.long().cumsum(-1) - 1
-            position_ids.masked_fill_(attention_mask == 0, 1)
-            if is_decode:
-                position_ids = torch.amax(position_ids, 1, keepdim=True)
-
-        if seq_ids is None:
-            seq_ids = torch.arange(input_ids.shape[0])
-
-        model_inputs = {
-            "input_ids": input_ids,
-            "position_ids": position_ids,
-            "attention_mask": attention_mask,
-            "sampling_params": sampling_params,
-            "seq_ids": seq_ids,
-        }
-
-        return model_inputs
-
-    def prepare_inputs_for_prefill(
-        self,
-        input_ids,
-        attention_mask=None,
-        position_ids=None,
-        seq_ids=None,
-        sampling_params=None,
-    ):
-        return self.prepare_inputs_for_generation(
-            input_ids,
-            is_decode=False,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            seq_ids=seq_ids,
-            sampling_params=sampling_params,
-        )
-
-    def prepare_inputs_for_decode(
-        self,
-        input_ids,
-        attention_mask=None,
-        position_ids=None,
-        seq_ids=None,
-        sampling_params=None,
-    ):
-        return self.prepare_inputs_for_generation(
-            input_ids,
-            is_decode=True,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            seq_ids=seq_ids,
-            sampling_params=sampling_params,
-        )
 
     def _assisted_decoding(
         self,

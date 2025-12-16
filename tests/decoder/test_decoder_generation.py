@@ -22,7 +22,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.generation import StoppingCriteria
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.models.inference.backend.modules.generation.generation_utils import prepare_sampling_params
+from optimum.neuron.models.inference.backend.modules.generation.generation_utils import (
+    increase_position_ids,
+    position_ids_from_attention_mask,
+)
+from optimum.neuron.models.inference.backend.modules.generation.sampling import prepare_sampling_params
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -183,68 +187,51 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
     inputs = tokenizer("Once upon a time", return_tensors="pt")
 
     # A few helper functions we need while prefilling and decoding
-    def get_next_tokens(**kwargs):
-        outputs = model.forward(**kwargs)
+    def get_next_tokens(input_ids, position_ids, seq_ids, sampling_params):
+        outputs = model.forward(
+            input_ids=input_ids, position_ids=position_ids, seq_ids=seq_ids, sampling_params=sampling_params
+        )
         if on_device_sampling:
             # on-device sampling directly returns the next token
             return outputs.hidden_states.unsqueeze(1)
         return outputs.logits[:, -1, :].argmax(dim=-1, keepdim=True)
 
-    def increase_attention_mask(attention_mask):
-        batch_size = attention_mask.shape[0]
-        attention_mask_lengths = torch.sum(attention_mask, dim=1)
-        attention_mask_length = attention_mask_lengths.max().item()
-        new_attention_mask = torch.zeros(batch_size, attention_mask_length + 1, dtype=torch.int64)
-        for i in range(batch_size):
-            attention_mask_length = attention_mask_lengths[i].item() + 1
-            new_attention_mask[i, :attention_mask_length] = 1
-        return new_attention_mask
-
+    # Prepare common input tensors
+    input_ids = inputs.input_ids
+    position_ids = position_ids_from_attention_mask(inputs.attention_mask)
+    sampling_params = prepare_sampling_params(batch_size=1)
     # Prefill a single input at index 0, remembering the generated token
-    first_inputs = {
-        "input_ids": inputs.input_ids,
-        "attention_mask": inputs.attention_mask,
-        "seq_ids": torch.tensor([0]),
-    }
-    if on_device_sampling:
-        first_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
-    first_generated_tokens = get_next_tokens(**model.prepare_inputs_for_prefill(**first_inputs))
+    first_seq_ids = torch.tensor([0])
+    first_generated_tokens = get_next_tokens(input_ids, position_ids, first_seq_ids, sampling_params)
+    first_position_ids = increase_position_ids(position_ids, 1)
     # Decode a few tokens
-    first_inputs["input_ids"] = first_generated_tokens
-    for _ in range(5):
-        # For decode we can only pass the next token, but we need to pass the full attention mask
-        first_inputs["attention_mask"] = increase_attention_mask(first_inputs["attention_mask"])
-        next_tokens = get_next_tokens(**model.prepare_inputs_for_decode(**first_inputs))
-        first_generated_tokens = torch.cat([first_generated_tokens, next_tokens], dim=-1)
-        first_inputs["input_ids"] = next_tokens
+    FIRST_DECODE_TOKENS = 5
+    for _ in range(FIRST_DECODE_TOKENS):
+        next_tokens = get_next_tokens(
+            first_generated_tokens[:, -1:], first_position_ids, first_seq_ids, sampling_params
+        )
+        first_generated_tokens = torch.cat((first_generated_tokens, next_tokens), dim=-1)
+        first_position_ids = increase_position_ids(first_position_ids, 1)
     # Prefill a second input at index 2
-    second_inputs = {
-        "input_ids": inputs.input_ids,
-        "attention_mask": inputs.attention_mask,
-        "seq_ids": torch.tensor([2]),
-    }
-    if on_device_sampling:
-        second_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
-    second_generated_tokens = get_next_tokens(**model.prepare_inputs_for_prefill(**second_inputs))
-    # Resize the second request attention mask to the size of the first request
-    second_attention_mask = torch.zeros_like(first_inputs["attention_mask"])
-    second_attention_mask[:, : second_inputs["attention_mask"].shape[1]] = 1
-    # Concatenate the last decode token from the first input and the prefill token from the second
-    two_requests_inputs = {
-        "input_ids": torch.cat([first_generated_tokens[:, -1:], second_generated_tokens], dim=0),
-        "attention_mask": torch.cat([first_inputs["attention_mask"], second_attention_mask], dim=0),
-        "seq_ids": torch.tensor([0, 2]),
-    }
-    if on_device_sampling:
-        two_requests_inputs["sampling_params"] = prepare_sampling_params(batch_size=2)
-    # Decode more tokens
-    for _ in range(10):
-        two_requests_inputs["attention_mask"] = increase_attention_mask(two_requests_inputs["attention_mask"])
-        next_tokens = get_next_tokens(**model.prepare_inputs_for_decode(**two_requests_inputs))
-        first_generated_tokens = torch.cat([first_generated_tokens, next_tokens[0:1, :]], dim=-1)
-        second_generated_tokens = torch.cat([second_generated_tokens, next_tokens[1:, :]], dim=-1)
-        two_requests_inputs["input_ids"] = next_tokens
-    assert torch.equal(second_generated_tokens, first_generated_tokens[:, : second_generated_tokens.shape[1]])
+    second_seq_ids = torch.tensor([2])
+    second_generated_tokens = get_next_tokens(input_ids, position_ids, second_seq_ids, sampling_params)
+    second_position_ids = increase_position_ids(position_ids, 1)
+    # Concatenate the generated tokens
+    generated_tokens = torch.zeros(2, FIRST_DECODE_TOKENS + 1, dtype=torch.int64)
+    generated_tokens[0, :] = first_generated_tokens
+    generated_tokens[1, -1] = second_generated_tokens[:, -1]
+    # Decode more tokens for both requests
+    position_ids = torch.cat([first_position_ids, second_position_ids], dim=0)
+    two_requests_seq_ids = torch.tensor([0, 2])
+    two_requests_sampling_params = torch.cat([sampling_params, sampling_params], dim=0)
+    SECOND_DECODE_TOKENS = 10
+    for _ in range(SECOND_DECODE_TOKENS):
+        next_tokens = get_next_tokens(
+            generated_tokens[:, -1:], position_ids, two_requests_seq_ids, two_requests_sampling_params
+        )
+        generated_tokens = torch.cat((generated_tokens, next_tokens), dim=-1)
+        position_ids = increase_position_ids(position_ids, 1)
+    assert torch.equal(generated_tokens[0, : SECOND_DECODE_TOKENS + 1], generated_tokens[1, FIRST_DECODE_TOKENS:])
 
 
 @is_inferentia_test
