@@ -100,7 +100,11 @@ def test_vllm_greedy_expectations(base_neuron_llm_config):
         " of my grandmother, who was a kind and gentle soul. She had a way of making everyone feel",
     ]
 
-    for expected_output, output in zip(expected_outputs, outputs):
-        generated_text = output.outputs[0].text
+    for expected_output, output, sampling_param in zip(expected_outputs, outputs, sampling_params):
+        completion_output = output.outputs[0]
+        generated_text = completion_output.text
         print(f"Prompt: {output.prompt!r}, Generated text: {generated_text!r}")
+        assert len(completion_output.token_ids) == sampling_param.max_tokens, (
+            f"Expected {sampling_param.max_tokens} tokens, got {len(completion_output.token_ids)} generated tokens"
+        )
         assert expected_output == generated_text
