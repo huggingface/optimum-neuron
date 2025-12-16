@@ -61,12 +61,16 @@ def check_neuron_model(neuron_model):
     input_shape = (batch_size, min(10, neuron_model.neuron_config.sequence_length))
     input_ids = torch.ones(input_shape, dtype=torch.int64)
     attention_mask = torch.ones(input_shape, dtype=torch.int64)
-    on_device_sampling = getattr(neuron_model.neuron_config, "on_device_sampling", False)
-    sampling_params = torch.ones((batch_size, 3)) if on_device_sampling else None
-    model_inputs = neuron_model.prepare_inputs_for_prefill(
-        input_ids=input_ids, attention_mask=attention_mask, sampling_params=sampling_params
+    position_ids = torch.arange(input_shape[1]).unsqueeze(0).repeat(batch_size, 1)
+    seq_ids = torch.arange(batch_size)
+    sampling_params = torch.ones((batch_size, 3))
+    outputs = neuron_model(
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        seq_ids=seq_ids,
+        sampling_params=sampling_params,
     )
-    outputs = neuron_model(**model_inputs)
     assert outputs is not None, "Model outputs should not be None"
 
 
