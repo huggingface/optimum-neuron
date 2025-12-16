@@ -408,10 +408,9 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     def forward(
         self,
         input_ids: torch.LongTensor,
-        position_ids: torch.LongTensor | None,
-        seq_ids: torch.LongTensor | None = None,
-        attention_mask: torch.Tensor | None = None,
-        sampling_params: torch.FloatTensor | None = None,
+        position_ids: torch.LongTensor,
+        seq_ids: torch.LongTensor,
+        sampling_params: torch.FloatTensor,
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
@@ -506,10 +505,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         # When the flag is reset, the subsequent run will invoke the
         # context encoding model.
         self.kv_cache_populated = False
-
-    def get_required_kwargs(self) -> list[str]:
-        """The list of required kwargs to the model's forward"""
-        return []
 
     @classmethod
     def get_compiler_args(cls, neuron_config: NxDNeuronConfig) -> str:
