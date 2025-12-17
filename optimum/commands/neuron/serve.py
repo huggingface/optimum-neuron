@@ -70,22 +70,26 @@ class ServeCommand(BaseOptimumCLICommand):
         )
         parser.add_argument(
             "--served_model_name",
+            "--served-model-name",
             type=str,
             default=None,
             help="The model name(s) used in the API. If not specified, the model name will be the same as the `--model` argument.",
         )
         parser.add_argument(
             "--tensor_parallel_size",
+            "--tensor-parallel-size",
             type=int,
             help="Tensor parallelism size, the number of neuron cores on which to shard the model.",
         )
         parser.add_argument(
             "--batch_size",
+            "--batch-size",
             type=int,
             help="The maximum batch size used when serving the model.",
         )
         parser.add_argument(
             "--sequence_length",
+            "--sequence-length",
             type=int,
             help="The sequence length used when serving the model.",
         )
@@ -97,6 +101,7 @@ class ServeCommand(BaseOptimumCLICommand):
         )
         parser.add_argument(
             "--allow_non_cached_model",
+            "--allow-non-cached-model",
             action="store_true",
             default=False,
             help="If set, export the model even if no cached configuration exists.",
