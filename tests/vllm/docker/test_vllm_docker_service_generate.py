@@ -42,7 +42,13 @@ async def vllm_docker_service_from_model(request, vllm_docker_launcher, base_neu
                 ],
             )
             model_name_or_path = local_model_path
-            with vllm_docker_launcher(service_name, model_name_or_path, served_model_name) as vllm_service:
+            # Note that since the model has been already downloaded, HF token is not needed to access it anymore.
+            with vllm_docker_launcher(
+                service_name,
+                model_name_or_path,
+                served_model_name,
+                propagate_hf_token=False,
+            ) as vllm_service:
                 await vllm_service.health(600)
                 yield vllm_service
     else:
