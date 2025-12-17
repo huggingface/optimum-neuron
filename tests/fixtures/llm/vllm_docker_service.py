@@ -97,6 +97,7 @@ def vllm_docker_launcher(event_loop):
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
         params_as_env: bool = True,
+        propagate_hf_token: bool = True,
     ):
         port = random.randint(8000, 10_000)
 
@@ -127,7 +128,7 @@ def vllm_docker_launcher(event_loop):
             "CUSTOM_CACHE_REPO": OPTIMUM_CACHE_REPO_ID,
         }
 
-        if HF_TOKEN is not None:
+        if HF_TOKEN is not None and propagate_hf_token:
             env["HUGGING_FACE_HUB_TOKEN"] = HF_TOKEN
             env["HF_TOKEN"] = HF_TOKEN
 
