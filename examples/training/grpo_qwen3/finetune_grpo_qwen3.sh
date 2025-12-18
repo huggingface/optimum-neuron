@@ -10,14 +10,14 @@ export MALLOC_ARENA_MAX=64 # Host OOM mitigation
 # export FI_EFA_FORK_SAFE=1
 
 # Variables for training
-PROCESSES_PER_NODE=2
+PROCESSES_PER_NODE=1
 NUM_EPOCHS=1  # GRPO typically needs fewer epochs than SFT
 TP_DEGREE=1
 BS=1
 GRADIENT_ACCUMULATION_STEPS=1  # Smaller for GRPO due to generation overhead
 LOGGING_STEPS=1
-MODEL_NAME="Qwen/Qwen3-0.6B"  # Use smaller model for testing
-# MODEL_NAME="yujiepan/qwen3-tiny-random"  # Use smaller model for testing
+# MODEL_NAME="Qwen/Qwen3-0.6B"  # Use smaller model for testing
+MODEL_NAME="yujiepan/qwen3-tiny-random"  # Use smaller model for testing
 # MODEL_NAME="michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random"
 # MODEL_NAME="HuggingFaceTB/SmolLM2-135M"
 OUTPUT_DIR="$(echo $MODEL_NAME | cut -d'/' -f2)-grpo-finetuned"

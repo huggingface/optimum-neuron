@@ -181,10 +181,10 @@ def nanmin(tensor: torch.Tensor) -> torch.Tensor:
     Compute the minimum value of a tensor, ignoring NaNs.
     """
     mask = torch.isnan(tensor)
-    if mask.all():
-        return torch.tensor(float("nan"), dtype=tensor.dtype, device=tensor.device)
-    filled = torch.where(mask, torch.tensor(float("inf"), dtype=tensor.dtype, device=tensor.device), tensor)
-    return torch.min(filled)
+    filled = torch.where(mask, torch.full_like(tensor, float("inf")), tensor)
+    min_value = torch.amin(filled)
+    all_nan = mask.all()
+    return torch.where(all_nan, torch.tensor(float("nan"), dtype=tensor.dtype, device=tensor.device), min_value)
 
 
 def nanmax(tensor: torch.Tensor) -> torch.Tensor:
@@ -193,19 +193,31 @@ def nanmax(tensor: torch.Tensor) -> torch.Tensor:
     Compute the maximum value of a tensor, ignoring NaNs.
     """
     mask = torch.isnan(tensor)
-    if mask.all():
-        return torch.tensor(float("nan"), dtype=tensor.dtype, device=tensor.device)
-    filled = torch.where(mask, torch.tensor(float("-inf"), dtype=tensor.dtype, device=tensor.device), tensor)
-    return torch.max(filled)
+    filled = torch.where(mask, torch.full_like(tensor, float("-inf")), tensor)
+    min_value = torch.amax(filled)
+    all_nan = mask.all()
+    return torch.where(all_nan, torch.tensor(float("nan"), dtype=tensor.dtype, device=tensor.device), min_value)
 
 
-def nanstd(tensor: torch.Tensor) -> torch.Tensor:
+def nanstd(tensor: torch.Tensor, unbiased: bool = False) -> torch.Tensor:
     """
     XLA-compatible version of nanstd.
     Compute the standard deviation of a tensor, ignoring NaNs.
     """
-    variance = torch.nanmean((tensor - torch.nanmean(tensor, keepdim=True)) ** 2)
-    return torch.sqrt(variance)
+    mask = ~torch.isnan(tensor)
+    count = mask.sum()
+
+    clean = torch.where(mask, tensor, torch.zeros_like(tensor))
+    mean = clean.sum() / count
+
+    diff_squared = torch.where(mask, (clean - mean) ** 2, torch.zeros_like(tensor))
+
+    if unbiased:
+        variance = diff_squared.sum() / (count - 1).clamp(min=1)
+    else:
+        variance = diff_squared.sum() / count
+
+    return variance.sqrt()
 
 
 class DistributedRepeatSampler(RepeatSampler, DistributedSampler):
