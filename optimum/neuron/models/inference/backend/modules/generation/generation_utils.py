@@ -309,9 +309,9 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         # Speculation loop
         while True:
             # 1 Token generation using draft model
-            is_for_token_generation = assistant_model.kv_cache_populated
             for _ in range(spec_len):
                 # 1.1 Prepare assistant model inputs
+                is_for_token_generation = assistant_model.kv_cache_populated
                 assistant_inputs = assistant_model.prepare_inputs_for_generation(
                     candidate_input_ids,
                     is_decode=is_for_token_generation,
