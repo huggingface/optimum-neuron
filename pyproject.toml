@@ -160,13 +160,13 @@ name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
-# [tool.uv.sources]
-# torch = [
-#     { index = "pytorch-cpu" },
-# ]
-# torchvision = [
-#     { index = "pytorch-cpu" },
-# ]
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu" },
+]
+torchvision = [
+    { index = "pytorch-cpu" },
+]
     
 [tool.ruff]
 line-length = 119
