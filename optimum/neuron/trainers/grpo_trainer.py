@@ -567,39 +567,87 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
     def _calculate_rewards(self, inputs, prompts, completions, completion_ids_list):
         device = self.accelerator.device
-        rewards_per_func = torch.zeros(len(prompts), len(self.reward_funcs), device=device)
 
-        keys = [key for key in inputs[0] if key not in ["prompt", "completion", "completion_ids"]]
+        excluded_keys = {"prompt", "completion", "completion_ids"}
+        keys = [key for key in inputs[0] if key not in excluded_keys]
         reward_kwargs = {key: [example[key] for example in inputs] for key in keys}
         reward_kwargs["trainer_state"] = self.state
 
-        for i, (reward_func, reward_processing_class, reward_func_name) in enumerate(
-            zip(self.reward_funcs, self.reward_processing_classes, self.reward_func_names)
-        ):
+        # Separate model-based vs callable reward functions by index
+        model_indices = []
+        callable_indices = []
+        for i, reward_func in enumerate(self.reward_funcs):
             if isinstance(reward_func, torch.nn.Module):
-                if is_conversational(inputs[0]):
-                    from trl.data_utils import apply_chat_template
+                model_indices.append(i)
+            else:
+                callable_indices.append(i)
 
+        # Collect results: list of (index, tensor) tuples
+        reward_columns = []
+
+        if model_indices:
+            # Pre-compute texts once if needed (all models use same text format)
+            texts = None
+            is_conv = is_conversational(inputs[0])
+
+            if is_conv:
+                from trl.data_utils import apply_chat_template
+
+            for i in model_indices:
+                reward_func = self.reward_funcs[i]
+                reward_processing_class = self.reward_processing_classes[i]
+
+                if is_conv:
                     messages = [{"messages": p + c} for p, c in zip(prompts, completions)]
                     texts = [apply_chat_template(x, reward_processing_class)["text"] for x in messages]
                 else:
                     texts = [p + c for p, c in zip(prompts, completions)]
+
                 reward_inputs = reward_processing_class(
-                    text=texts, return_tensors="pt", padding=True, padding_side="right", add_special_tokens=False
+                    text=texts,
+                    return_tensors="pt",
+                    padding=True,
+                    padding_side="right",
+                    add_special_tokens=False,
                 )
                 reward_inputs = NeuronTrainer._prepare_inputs(self, reward_inputs)
-                with torch.inference_mode():
-                    rewards_per_func[:, i] = reward_func(**reward_inputs).logits[:, 0]
-                torch_xla.sync()
-            else:
-                output_reward_func = reward_func(
-                    prompts=prompts, completions=completions, completion_ids=completion_ids_list, **reward_kwargs
-                )
-                output_reward_func = [reward if reward is not None else torch.nan for reward in output_reward_func]
-                rewards_per_func[:, i] = torch.tensor(output_reward_func, dtype=torch.float32, device=device)
 
-        rewards_per_func = self.accelerator.gather(rewards_per_func)
+                with torch.inference_mode():
+                    logits = reward_func(**reward_inputs).logits[:, 0]
+
+                reward_columns.append((i, logits))
+
+        if callable_indices:
+            callable_rewards_cpu = []
+
+            for i in callable_indices:
+                reward_func = self.reward_funcs[i]
+                output = reward_func(
+                    prompts=prompts,
+                    completions=completions,
+                    completion_ids=completion_ids_list,
+                    **reward_kwargs,
+                )
+                # Use float('nan') not torch.nan - avoids tensor creation
+                callable_rewards_cpu.append([r if r is not None else float("nan") for r in output])
+
+            # Single tensor creation and transfer for all callable rewards
+            if callable_rewards_cpu:
+                callable_tensor = torch.tensor(
+                    callable_rewards_cpu, dtype=torch.float32, device=device
+                )  # Shape: [num_callable_funcs, num_samples]
+
+                for local_idx, global_idx in enumerate(callable_indices):
+                    reward_columns.append((global_idx, callable_tensor[local_idx]))
+
+        # Sort by original index to maintain correct column order
+        reward_columns.sort(key=lambda x: x[0])
+
+        # Stack all columns at once instead of indexed assignment in loop
+        rewards_per_func = torch.stack([col for _, col in reward_columns], dim=1)
+
         torch_xla.sync()
+        rewards_per_func = self.accelerator.gather(rewards_per_func)
         return rewards_per_func
 
     def _move_model_to_vllm(self):
