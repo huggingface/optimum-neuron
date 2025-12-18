@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import copy
+import re
 
 import pytest
 import torch
@@ -246,18 +247,70 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
 
 @is_inferentia_test
 @requires_neuronx
-def test_generation_assisted_decoding(speculation):
+@pytest.mark.parametrize(
+    "max_new_tokens, speculated_tokens",
+    [[17, (5, 5, 5, 1)], [128, (5, 5, 5, 5, 5, 1, 5, 0)]],
+    ids=["partial_generation", "full_generation"],
+)
+def test_generation_assisted_decoding(caplog, speculation, max_new_tokens, speculated_tokens):
     model_path, draft_model_path = speculation
     model = NeuronModelForCausalLM.from_pretrained(model_path)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     assistant_model = NeuronModelForCausalLM.from_pretrained(draft_model_path)
     prompt = "One of my fondlest memories is"
+    expected_tokens = [
+        315,
+        856,
+        39284,
+        11,
+        889,
+        574,
+        264,
+        3169,
+        323,
+        22443,
+        13836,
+        13,
+        3005,
+        1047,
+        264,
+        1648,
+        315,
+        3339,
+        5127,
+        2733,
+        10456,
+        323,
+        3361,
+        11,
+        323,
+        358,
+        617,
+        1690,
+        21901,
+        19459,
+        315,
+        1077,
+        13,
+        128009,
+    ]
+    if max_new_tokens < len(expected_tokens):
+        expected_tokens = expected_tokens[:max_new_tokens]
     inputs = tokenizer(prompt, return_tensors="pt")
     prompt_length = inputs["input_ids"].shape[1]
-    max_new_tokens = 17
-    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens, assistant_model=assistant_model)
-    output_length = outputs[0].shape[0]
-    assert output_length == prompt_length + max_new_tokens
-    generated_text = tokenizer.decode(outputs[0])
-    expected_text = " of my grandmother's kitchen. It was a warm and cozy space filled with the scent"
-    assert generated_text.endswith(expected_text)
+    with caplog.at_level("INFO"):
+        outputs = model.generate(
+            **inputs, do_sample=False, max_new_tokens=max_new_tokens, assistant_model=assistant_model
+        )
+        actual_speculated_tokens = []
+        for record in caplog.records:
+            msg = record.msg
+            prefix = "Assisted decoding: accepted"
+            if msg.startswith(prefix):
+                actual_speculated_tokens.append(int(re.findall(r"\b\d+\b", msg)[0]))
+        assert actual_speculated_tokens == list(speculated_tokens)
+    generated_tokens = outputs[0, prompt_length:].tolist()
+    if generated_tokens != expected_tokens:
+        expected_text = tokenizer.decode(expected_tokens)
+        generated_text = tokenizer.decode(generated_tokens)
+        assert generated_text == expected_text
