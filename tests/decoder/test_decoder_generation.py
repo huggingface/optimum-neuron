@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import copy
+import re
 
 import pytest
 import torch
@@ -246,18 +247,52 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
 
 @is_inferentia_test
 @requires_neuronx
-def test_generation_assisted_decoding(speculation):
+@pytest.mark.parametrize(
+    "max_new_tokens",
+    [17, 31],
+    ids=["shorter", "short"],
+)
+def test_speculation_same_model(caplog, speculation, max_new_tokens):
+    """Test the generation from a model using the same model as an assistant for speculation.
+    We check that the number of speculated tokens logged correspond to what we expect,
+    and that the final generated tokens are as expected.
+    Since the assistant model is identical to the main model, the number of accepted speculated tokens
+    should always be equal to the speculation length or the remainder of the expected number of tokens.
+    It is not always true and small changes may happen because the speculation and decode graphs
+    are subtly different, and may result in small changes in predictions, for example in capitalization.
+    The prompt and generated text in this test have been chosen to minimize this risk.
+    """
     model_path, draft_model_path = speculation
     model = NeuronModelForCausalLM.from_pretrained(model_path)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     assistant_model = NeuronModelForCausalLM.from_pretrained(draft_model_path)
-    prompt = "One of my fondest memories is"
+    prompt = "One of my fondest memories is of my grandmother's kitchen"
     inputs = tokenizer(prompt, return_tensors="pt")
     prompt_length = inputs["input_ids"].shape[1]
-    max_new_tokens = 17
-    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens, assistant_model=assistant_model)
-    output_length = outputs[0].shape[0]
-    assert output_length == prompt_length + max_new_tokens
-    generated_text = tokenizer.decode(outputs[0])
-    expected_text = " of my grandmother's kitchen, where I spent countless hours helping her in the kitchen."
-    assert generated_text.endswith(expected_text)
+    with caplog.at_level("INFO"):
+        # Generate and capture the logged speculated tokens
+        outputs = model.generate(
+            **inputs, do_sample=False, max_new_tokens=max_new_tokens, assistant_model=assistant_model
+        )
+        generated_tokens = outputs[0, prompt_length:].tolist()
+        # Verify first we generated the expected number of tokens, otherwise we cannot check the expected text
+        assert len(generated_tokens) == max_new_tokens
+        expected_text = (
+            ", where I spent countless hours helping her in the kitchen."
+            " She was a master baker, and her kitchen was always filled with the most delicious aromas."
+        )
+        generated_text = tokenizer.decode(generated_tokens)
+        assert expected_text.startswith(generated_text)
+        # Check the logged speculated tokens
+        remaining_speculated_tokens = max_new_tokens - 1  # First token is not speculated
+        for record in caplog.records:
+            msg = record.msg
+            prefix = "Assisted decoding: accepted"
+            if msg.startswith(prefix):
+                speculated_tokens = int(re.findall(r"\b\d+\b", msg)[0])
+                # We expect either the full speculation length or the remaining tokens to generate
+                expected_speculated_tokens = min(model.neuron_config.speculation_length, remaining_speculated_tokens)
+                assert speculated_tokens == expected_speculated_tokens, (
+                    f"Expected {expected_speculated_tokens} speculated tokens, got {speculated_tokens}"
+                )
+                remaining_speculated_tokens -= speculated_tokens

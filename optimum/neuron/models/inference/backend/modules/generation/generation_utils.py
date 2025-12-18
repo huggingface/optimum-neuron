@@ -273,21 +273,14 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             logger.warning(f"The following kwargs are not supported for neuron model: {list(explicit_kwargs.keys())}")
 
         pad_token_id = generation_config.pad_token_id
-        eos_token_id = generation_config.eos_token_id
 
         if assistant_model.neuron_config.on_device_sampling:
             raise ValueError("Assistant model must not use on-device sampling")
-
-        # Init values
-        if eos_token_id is not None and pad_token_id is None:
-            raise ValueError("If `eos_token_id` is defined, make sure that `pad_token_id` is defined.")
-        if isinstance(eos_token_id, int):
-            eos_token_id = [eos_token_id]
-        eos_token_id_tensor = torch.tensor(eos_token_id).to(input_ids.device) if eos_token_id is not None else None
+        if self.neuron_config.batch_size > 1:
+            raise ValueError("Assisted decoding is only supported for batch size 1")
 
         # Other auxiliary variables
         max_len = stopping_criteria[0].max_length
-        cur_len = input_ids.shape[-1]
         spec_len = self.neuron_config.speculation_length
 
         # Prepare input tensors
@@ -299,8 +292,7 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         assert do_sample is False, "Assisted decoding is only supported for greedy decoding."
         sampling_params = prepare_sampling_params(batch_size=batch_size)
 
-        # Run the target model once and get the first generated token
-
+        # Prefill the target model KV cache and get the first accepted token
         outputs = self.forward(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -309,120 +301,109 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             sampling_params=sampling_params,
             return_dict=True,
         )
+        next_tokens = outputs.logits[:, 0, :].argmax(dim=-1, keepdim=True)
 
-        curr_pos = position_ids.argmax()
-        new_token = outputs.logits[:, 0].argmax(dim=-1, keepdim=True)
+        # Run the assistant model once to fill its kv cache
+        assistant_model.forward(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            seq_ids=seq_ids,
+            sampling_params=sampling_params,
+            return_dict=True,
+        )
 
-        # Prepare the input tensors for the draft model
-        candidate_input_ids = input_ids.clone()
-        candidate_attention_mask = attention_mask.clone()
-        candidate_position_ids = position_ids.clone()
+        # Increment input_ids, attention mask and position ids for the accepted token
+        input_ids = torch.cat((input_ids, next_tokens), dim=-1)
+        attention_mask = increase_attention_mask(attention_mask, 1)
+        position_ids = increase_position_ids(position_ids, 1)
 
-        # This is the finally return outputs; append the first generated token
-        returned_ids = torch.cat((input_ids[:, : curr_pos + 1], new_token), dim=1)
-        cur_len += 1
-
-        # Speculation loop
-        while True:
-            # 1 Token generation using draft model
-            for _ in range(spec_len):
-                # Use the assistant model to obtain the next candidate logits
-                is_for_token_generation = assistant_model.kv_cache_populated
-                assistant_model_outputs = assistant_model.forward(
-                    input_ids=candidate_input_ids[:, -1:] if is_for_token_generation else candidate_input_ids,
-                    attention_mask=candidate_attention_mask,
-                    position_ids=candidate_position_ids,
-                    seq_ids=seq_ids,
-                    sampling_params=sampling_params,
-                    return_dict=True,
-                )
-                assistant_new_token = assistant_model_outputs.logits[:, 0, :].argmax(dim=-1)
-
-                # Stop assistant generation on EOS
-                if eos_token_id_tensor is not None:
-                    last_assistant_token_is_eos = assistant_new_token.tile(eos_token_id_tensor.shape[0], 1)
-                    last_assistant_token_is_eos = (
-                        ~last_assistant_token_is_eos.ne(eos_token_id_tensor.unsqueeze(1)).prod(dim=0).bool()
+        while input_ids.shape[1] < max_len:
+            # At this stage:
+            # - the target and assistant models must have seen the same tokens
+            # - the attention mask and position ids have been incremented for processing the last accepted token
+            next_tokens = input_ids[:, -1:]
+            assistant_tokens = input_ids.clone()
+            assistant_attention_mask = attention_mask.clone()
+            assistant_position_ids = position_ids.clone()
+            candidate_tokens = torch.full((batch_size, spec_len), pad_token_id, device=input_ids.device)
+            for i in range(spec_len):
+                next_tokens = (
+                    assistant_model.forward(
+                        input_ids=next_tokens,
+                        attention_mask=assistant_attention_mask,
+                        position_ids=assistant_position_ids,
+                        seq_ids=seq_ids,
+                        sampling_params=sampling_params,
+                        return_dict=True,
                     )
-                    if last_assistant_token_is_eos:
-                        break
-                else:
-                    last_assistant_token_is_eos = False
-
-                # Update inputs and args for next iteration
-                candidate_input_ids = torch.cat((candidate_input_ids, assistant_new_token[:, None]), dim=-1)
-                candidate_attention_mask = increase_attention_mask(candidate_attention_mask, 1)
-                candidate_position_ids = increase_position_ids(candidate_position_ids, 1)
-
-            # 2 Validation of draft model output using the original model
-            #   The length could be shorter if the draft loop ends earlier
-            candidate_length = candidate_input_ids.shape[1] - input_ids.shape[1]
-
-            # 2.1 Prepare the input arguments
-            input_ids = torch.cat((new_token, candidate_input_ids[:, -candidate_length:-1]), dim=-1)
-            pos = curr_pos + 1
-            position_ids = torch.arange(pos, pos + spec_len).expand(1, spec_len)
-            # Pad the input_ids if needed
-            if input_ids.shape[-1] < spec_len:
-                input_ids = torch.cat(
-                    (input_ids, torch.full((1, spec_len - input_ids.shape[-1]), pad_token_id)),
-                    dim=-1,
+                    .logits[:, 0, :]
+                    .argmax(dim=-1, keepdim=True)
                 )
-
-            # 2.2. Run a forward pass on the candidate sequence
+                candidate_tokens[:, i] = next_tokens.squeeze(-1)
+                assistant_tokens = torch.cat((assistant_tokens, next_tokens), dim=-1)
+                assistant_attention_mask = increase_attention_mask(assistant_attention_mask, 1)
+                assistant_position_ids = increase_position_ids(assistant_position_ids, 1)
+                # Stop assistant generation on EOS
+                if stopping_criteria(assistant_tokens, None)[0]:
+                    break
+            # The next step is to validate the speculated tokens with the original model
+            # The input ids are the concatenation of the last accepted token and the candidate tokens minus one.
+            # The last accepted token must be added because it has only been predicted but never processed by
+            # the original model yet.
+            # This last candidate token on the other hand is not passed as it is only a prediction, and its logits
+            # have not been computed yet by the assitant model (and it is not in the assistant model KV cache).
+            validation_tokens = torch.cat((input_ids[:, -1:], candidate_tokens[:, :-1]), dim=-1)
+            # The attention mask and seq_ids are the same as before
+            # The position ids are not incremented, only expanded to cover the new tokens
+            validation_position_ids = torch.arange(position_ids.amax(), position_ids.amax() + spec_len).expand(
+                1, spec_len
+            )
             outputs = self.forward(
-                input_ids=input_ids,
+                input_ids=validation_tokens,
                 attention_mask=attention_mask,
-                position_ids=position_ids,
+                position_ids=validation_position_ids,
                 seq_ids=seq_ids,
                 sampling_params=sampling_params,
                 return_dict=True,
             )
-
-            # 2.3. Process the new logits
-            new_tokens = outputs.logits.argmax(dim=-1)
-            selected_tokens = outputs.logits[:, : candidate_length - 1].argmax(dim=-1)
-
-            # 3. Compare the argmax from the original model logits with the assistant forecasted tokens. We can keep
-            # the assistant forecasted tokens until the first mismatch, or until the max length is reached.
-            candidate_new_tokens = candidate_input_ids[:, -candidate_length:-1]
-            n_matches = ((~(candidate_new_tokens == selected_tokens)).cumsum(dim=-1) < 1).sum()
-
-            # 4. Ensure we don't generate beyond max_len or an EOS token
-            if last_assistant_token_is_eos and n_matches == candidate_length:
-                n_matches -= 1
-            n_matches = min(n_matches, max_len - cur_len - 1)
-            # n_matches = 4
-
-            # 5. Get the valid continuation, after the matching tokens. We also consider the extra token
-            # generated by the original model. Update the return ids accordingly
-            valid_tokens = new_tokens[:, : n_matches + 1]
-            returned_ids = torch.cat((returned_ids, valid_tokens), dim=1)
-            # if last_assistant_token_is_eos and n_matches == candidate_length-1:
-            #    break;
-
-            # 6. Update the args for the next iteration.
-            #    Feed the last correct token to the next loop
-            new_token = valid_tokens[:, -1:]
-            if new_token[0] in torch.tensor(eos_token_id):
+            selected_tokens = outputs.logits.argmax(dim=-1)
+            # The returned logits are the probabilities that the next token is each of the vocabulary tokens.
+            # We can therefore compare the argmax of these logits with the candidate tokens
+            n_matches = ((~(candidate_tokens == selected_tokens)).cumsum(dim=-1) < 1).sum()
+            logger.info(f"Assisted decoding: accepted {n_matches} tokens from assistant model")
+            # Since all accepted tokens are correct, the next token predicted by the target model (if any) is also correct
+            # We must however not slip beyond the candidate tokens length nor generate beyond max_len
+            n_selected_tokens = min(n_matches + 1, selected_tokens.shape[1], max_len - input_ids.shape[1])
+            accepted_tokens = selected_tokens[:, :n_selected_tokens]
+            # If needed, decode the accepted tokens using the assistant model to fill its kv cache
+            # Fast forward the assistant model's KV cache for accepted tokens
+            # we also increment the attention mask and position ids accordingly
+            # Note that we MUST NOT pass the last accepted token as it has not been seen yet by the
+            # original model and will be processed only in the next iteration
+            for i in range(accepted_tokens.shape[1] - 1):
+                attention_mask = increase_attention_mask(attention_mask, 1)
+                position_ids = increase_position_ids(position_ids, 1)
+                if i >= n_matches:
+                    # This token was not accepted, decode with the correct token to update the kv cache
+                    assistant_model.forward(
+                        input_ids=accepted_tokens[:, i : i + 1],
+                        attention_mask=attention_mask,
+                        position_ids=position_ids,
+                        seq_ids=seq_ids,
+                        sampling_params=sampling_params,
+                        return_dict=True,
+                    )
+            # Prepare the inputs for the next iteration
+            input_ids = torch.cat((input_ids, accepted_tokens), dim=-1)
+            if stopping_criteria(input_ids, None)[0]:
                 break
-            input_ids = valid_tokens[:, -1:]
-            candidate_input_ids = valid_tokens[:, -1:]
-            attention_mask = increase_attention_mask(attention_mask, n_matches + 1)
-            candidate_attention_mask = attention_mask.clone()
-            candidate_position_ids = increase_position_ids(position_ids, n_matches + 1)
-            curr_pos = curr_pos + n_matches + 1
+            # We only need to increment attention mask and position ids by one since they were already
+            # incremented while fast-forwarding the assistant model's KV cache for the accepted tokens
+            attention_mask = increase_attention_mask(attention_mask, 1)
+            position_ids = increase_position_ids(position_ids, 1)
 
-            # 7. Update with the generated token length and check for stopping condition.
-            cur_len = cur_len + n_matches + 1
-            if cur_len >= max_len:
-                break
-            # 8. If the rest length is smaller than speculation length, we directly run the target model to finish
-            if max_len - cur_len < spec_len:
-                # @yihsian: TODO: complete with using target tokengen model
-                pass
-
-        return returned_ids
+        return input_ids
 
     @property
     def device(self) -> torch.device:
