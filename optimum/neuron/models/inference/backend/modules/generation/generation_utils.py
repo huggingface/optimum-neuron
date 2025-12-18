@@ -409,7 +409,7 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             # 8. If the rest length is smaller than speculation length, we directly run the target model to finish
             if max_len - cur_len < spec_len:
                 # @yihsian: TODO: complete with using target tokengen model
-                break
+                pass
 
         return returned_ids
 
