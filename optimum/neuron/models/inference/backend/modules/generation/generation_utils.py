@@ -304,6 +304,7 @@ class NxDGenerationMixin(GenerationMixin, ABC):
 
         # This is the finally return outputs; append the first generated token
         returned_ids = torch.cat((input_ids[:, : curr_pos + 1], new_token), dim=1)
+        cur_len += 1
 
         # Speculation loop
         while True:
