@@ -12,21 +12,42 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import copy
+import logging
 from abc import ABC, abstractmethod
-from typing import Any
 
 import torch
-from transformers import GenerationConfig, PreTrainedModel
+from transformers import GenerationConfig
 from transformers.generation import GenerationMixin, SampleDecoderOnlyOutput
 from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import StoppingCriteriaList
-from transformers.modeling_outputs import ModelOutput
 
 from .sampling import (
     Sampler,
     prepare_sampling_params,
 )
+
+
+logger = logging.getLogger("Neuron")
+
+
+def increase_attention_mask(attention_mask: torch.LongTensor, num_new_tokens: int) -> torch.LongTensor:
+    # Prepend num_new_tokens to the attention mask (inputs are right padded)
+    return torch.cat(
+        [attention_mask.new_ones((attention_mask.shape[0], num_new_tokens)), attention_mask],
+        dim=-1,
+    )
+
+
+def position_ids_from_attention_mask(attention_mask: torch.LongTensor) -> torch.LongTensor:
+    position_ids = attention_mask.long().cumsum(-1) - 1
+    position_ids.masked_fill_(attention_mask == 0, 1)
+    return position_ids
+
+
+def increase_position_ids(position_ids: torch.LongTensor, num_new_tokens: int) -> torch.LongTensor:
+    if position_ids.shape[1] > 1:
+        position_ids = torch.amax(position_ids, 1, keepdim=True)
+    return position_ids + num_new_tokens
 
 
 class NxDGenerationMixin(GenerationMixin, ABC):
@@ -78,12 +99,13 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         logits_processor: LogitsProcessorList,
         stopping_criteria: StoppingCriteriaList,
         generation_config: GenerationConfig,
-        **model_kwargs,
+        attention_mask: torch.LongTensor,
+        seq_ids: torch.Tensor = None,
+        **kwargs,
     ) -> SampleDecoderOnlyOutput | torch.LongTensor:
-        r"""
-        We override the GenerationMixin sample function (_sample for transformers>=4.39.0) to add support for right side padding.
-        """
-
+        explicit_kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        if explicit_kwargs:
+            logger.warning(f"The following kwargs are not supported for neuron model: {list(explicit_kwargs.keys())}")
         # init values
         pad_token_id = generation_config._pad_token_tensor
         output_scores = generation_config.output_scores
@@ -92,7 +114,11 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         has_eos_stopping_criteria = any(hasattr(criteria, "eos_token_id") for criteria in stopping_criteria)
         do_sample = generation_config.do_sample
 
-        batch_size = model_kwargs["attention_mask"].shape[0]
+        # Prepare input tensors
+        position_ids = position_ids_from_attention_mask(attention_mask)
+        if seq_ids is None:
+            seq_ids = torch.arange(input_ids.shape[0])
+        batch_size = attention_mask.shape[0]
         top_k = generation_config.top_k if do_sample else 1
         top_p = generation_config.top_p if do_sample else 1.0
         temperature = generation_config.temperature if do_sample else 1.0
@@ -102,7 +128,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             top_p=top_p,
             temperature=temperature,
         )
-        model_kwargs["sampling_params"] = sampling_params
 
         # init scores / logits tuples
         scores = () if (return_dict_in_generate and output_scores) else None
@@ -115,14 +140,15 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         is_for_token_generation = False
         # auto-regressive generation
         while not this_peer_finished:
-            # prepare model inputs
-            model_inputs = self.prepare_inputs_for_generation(
-                input_ids, is_decode=is_for_token_generation, **model_kwargs
-            )
-            model_kwargs["attention_mask"] = model_inputs.get("attention_mask")
-
             # forward pass to get next token
-            outputs = self.forward(**model_inputs, return_dict=True)
+            outputs = self.forward(
+                input_ids[:, -1:] if is_for_token_generation else input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                seq_ids=seq_ids,
+                sampling_params=sampling_params,
+                return_dict=True,
+            )
 
             if self.neuron_config.on_device_sampling:
                 next_tokens = outputs.tokens
@@ -147,16 +173,14 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             if has_eos_stopping_criteria:
                 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
 
-            # update generated ids, model inputs, and length for next step
             input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
-
-            is_for_token_generation = True
-            model_kwargs = self._update_model_kwargs_for_generation(
-                outputs, model_kwargs, is_for_token_generation=is_for_token_generation
-            )
-
             unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, None)
             this_peer_finished = unfinished_sequences.max() == 0
+
+            # update attention_mask, position_ids for next step
+            is_for_token_generation = True
+            attention_mask = increase_attention_mask(attention_mask, 1)
+            position_ids = increase_position_ids(position_ids, 1)
 
         if return_dict_in_generate:
             return SampleDecoderOnlyOutput(
@@ -172,14 +196,13 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         input_ids,
         is_decode,
         attention_mask=None,
-        sampling_params=None,
+        position_ids=None,
         seq_ids=None,
-        **kwargs,
+        sampling_params=None,
     ):
         if is_decode:
             input_ids = input_ids[:, -1:]
 
-        position_ids = kwargs.get("position_ids", None)
         if attention_mask is not None and position_ids is None:
             # create position_ids on the fly for batch generation
             position_ids = attention_mask.long().cumsum(-1) - 1
@@ -198,79 +221,57 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             "seq_ids": seq_ids,
         }
 
-        # WARNING: This is needed for propagating additional kwargs to the neuron model
-        additional_kwargs = self.get_required_kwargs()
-        for arg in additional_kwargs:
-            model_inputs.update({arg: kwargs.get(arg, None)})
-
         return model_inputs
 
     def prepare_inputs_for_prefill(
         self,
         input_ids,
         attention_mask=None,
+        position_ids=None,
+        seq_ids=None,
         sampling_params=None,
-        **kwargs,
     ):
         return self.prepare_inputs_for_generation(
             input_ids,
             is_decode=False,
             attention_mask=attention_mask,
+            position_ids=position_ids,
+            seq_ids=seq_ids,
             sampling_params=sampling_params,
-            **kwargs,
         )
 
     def prepare_inputs_for_decode(
         self,
         input_ids,
         attention_mask=None,
+        position_ids=None,
+        seq_ids=None,
         sampling_params=None,
-        **kwargs,
     ):
         return self.prepare_inputs_for_generation(
             input_ids,
             is_decode=True,
             attention_mask=attention_mask,
+            position_ids=position_ids,
+            seq_ids=seq_ids,
             sampling_params=sampling_params,
-            **kwargs,
         )
-
-    # We override this function because we want to change the way attention_mask
-    # is updated each iteration.
-    def _update_model_kwargs_for_generation(
-        self,
-        outputs: ModelOutput,
-        model_kwargs: dict[str, Any],
-        is_for_token_generation: bool,
-    ) -> dict[str, Any]:
-        if getattr(outputs, "state", None) is not None:
-            model_kwargs["state"] = outputs.state
-
-        # update token_type_ids with last value
-        if "token_type_ids" in model_kwargs:
-            token_type_ids = model_kwargs["token_type_ids"]
-            model_kwargs["token_type_ids"] = torch.cat([token_type_ids, token_type_ids[:, -1].unsqueeze(-1)], dim=-1)
-
-        # update attention mask
-        if "attention_mask" in model_kwargs:
-            attention_mask = model_kwargs["attention_mask"]
-            if is_for_token_generation:
-                # Prepend 1 to the attention mask (inputs are right padded)
-                attention_mask = torch.cat(
-                    [attention_mask.new_ones((attention_mask.shape[0], 1)), attention_mask],
-                    dim=-1,
-                )
-            model_kwargs["attention_mask"] = attention_mask
-        return model_kwargs
 
     def _assisted_decoding(
         self,
         input_ids: torch.LongTensor,
+        logits_processor: LogitsProcessorList,
         stopping_criteria: StoppingCriteriaList,
         generation_config: GenerationConfig,
-        assistant_model: "PreTrainedModel | None" = None,
-        **model_kwargs,
+        assistant_model: "NxDGenerationMixin",
+        attention_mask: torch.LongTensor,
+        seq_ids: torch.Tensor = None,
+        **kwargs,
     ):
+        explicit_kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        if explicit_kwargs:
+            logger.warning(f"The following kwargs are not supported for neuron model: {list(explicit_kwargs.keys())}")
+
         pad_token_id = generation_config.pad_token_id
         eos_token_id = generation_config.eos_token_id
 
@@ -284,23 +285,38 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             eos_token_id = [eos_token_id]
         eos_token_id_tensor = torch.tensor(eos_token_id).to(input_ids.device) if eos_token_id is not None else None
 
-        # Prepare assistant model's keys of inputs
-        assistant_kwargs = copy.deepcopy(model_kwargs)
-
         # Other auxiliary variables
         max_len = stopping_criteria[0].max_length
         cur_len = input_ids.shape[-1]
         spec_len = self.neuron_config.speculation_length
 
-        # Run the target model once and get the first generated token
-        model_inputs = self.prepare_inputs_for_prefill(input_ids, **model_kwargs)
-        outputs = self.forward(**model_inputs)
+        # Prepare input tensors
+        position_ids = position_ids_from_attention_mask(attention_mask)
+        if seq_ids is None:
+            seq_ids = torch.arange(input_ids.shape[0])
+        batch_size = attention_mask.shape[0]
+        do_sample = generation_config.do_sample
+        assert do_sample is False, "Assisted decoding is only supported for greedy decoding."
+        sampling_params = prepare_sampling_params(batch_size=batch_size)
 
-        curr_pos = model_inputs["position_ids"][0].argmax(dim=-1)
+        # Run the target model once and get the first generated token
+
+        outputs = self.forward(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            seq_ids=seq_ids,
+            sampling_params=sampling_params,
+            return_dict=True,
+        )
+
+        curr_pos = position_ids.argmax()
         new_token = outputs.logits[:, 0].argmax(dim=-1, keepdim=True)
 
-        # Prepare the input ids and attention mask for the draft model
-        candidate_input_ids = input_ids
+        # Prepare the input tensors for the draft model
+        candidate_input_ids = input_ids.clone()
+        candidate_attention_mask = attention_mask.clone()
+        candidate_position_ids = position_ids.clone()
 
         # This is the finally return outputs; append the first generated token
         returned_ids = torch.cat((input_ids[:, : curr_pos + 1], new_token), dim=1)
@@ -310,27 +326,19 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         while True:
             # 1 Token generation using draft model
             for _ in range(spec_len):
-                # 1.1 Prepare assistant model inputs
+                # Use the assistant model to obtain the next candidate logits
                 is_for_token_generation = assistant_model.kv_cache_populated
-                assistant_inputs = assistant_model.prepare_inputs_for_generation(
-                    candidate_input_ids,
-                    is_decode=is_for_token_generation,
-                    **assistant_kwargs,
+                assistant_model_outputs = assistant_model.forward(
+                    input_ids=candidate_input_ids[:, -1:] if is_for_token_generation else candidate_input_ids,
+                    attention_mask=candidate_attention_mask,
+                    position_ids=candidate_position_ids,
+                    seq_ids=seq_ids,
+                    sampling_params=sampling_params,
+                    return_dict=True,
                 )
-
-                # 1.2 Use the assistant model to obtain the next candidate logits
-                assistant_model_outputs = assistant_model.forward(**assistant_inputs)
                 assistant_new_token = assistant_model_outputs.logits[:, 0, :].argmax(dim=-1)
 
-                # 1.3 Update inputs and args for next iteration
-                candidate_input_ids = torch.cat((candidate_input_ids, assistant_new_token[:, None]), dim=-1)
-                assistant_kwargs = assistant_model._update_model_kwargs_for_generation(
-                    assistant_model_outputs,
-                    assistant_kwargs,
-                    is_for_token_generation,
-                )
-
-                # 1.4 Stop assistant generation on EOS
+                # Stop assistant generation on EOS
                 if eos_token_id_tensor is not None:
                     last_assistant_token_is_eos = assistant_new_token.tile(eos_token_id_tensor.shape[0], 1)
                     last_assistant_token_is_eos = (
@@ -341,13 +349,17 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                 else:
                     last_assistant_token_is_eos = False
 
+                # Update inputs and args for next iteration
+                candidate_input_ids = torch.cat((candidate_input_ids, assistant_new_token[:, None]), dim=-1)
+                candidate_attention_mask = increase_attention_mask(candidate_attention_mask, 1)
+                candidate_position_ids = increase_position_ids(candidate_position_ids, 1)
+
             # 2 Validation of draft model output using the original model
             #   The length could be shorter if the draft loop ends earlier
             candidate_length = candidate_input_ids.shape[1] - input_ids.shape[1]
 
             # 2.1 Prepare the input arguments
             input_ids = torch.cat((new_token, candidate_input_ids[:, -candidate_length:-1]), dim=-1)
-            attention_mask = model_inputs["attention_mask"]
             pos = curr_pos + 1
             position_ids = torch.arange(pos, pos + spec_len).expand(1, spec_len)
             # Pad the input_ids if needed
@@ -362,6 +374,9 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
+                seq_ids=seq_ids,
+                sampling_params=sampling_params,
+                return_dict=True,
             )
 
             # 2.3. Process the new logits
@@ -393,15 +408,10 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                 break
             input_ids = valid_tokens[:, -1:]
             candidate_input_ids = valid_tokens[:, -1:]
-            model_inputs_attn_mask = model_inputs["attention_mask"]
-            n_matches_concat_tensor = torch.zeros(1, n_matches + 1, dtype=model_inputs_attn_mask.dtype)
-            model_inputs_attn_mask = torch.cat([model_inputs_attn_mask, n_matches_concat_tensor], dim=-1)
-            model_inputs["attention_mask"] = model_inputs_attn_mask.index_fill(
-                1, torch.arange(curr_pos + 1, curr_pos + 1 + n_matches + 1), 1
-            )
-
+            attention_mask = increase_attention_mask(attention_mask, n_matches + 1)
+            candidate_attention_mask = attention_mask.clone()
+            candidate_position_ids = increase_position_ids(position_ids, n_matches + 1)
             curr_pos = curr_pos + n_matches + 1
-            assistant_kwargs["attention_mask"] = copy.deepcopy(model_inputs["attention_mask"])
 
             # 7. Update with the generated token length and check for stopping condition.
             cur_len = cur_len + n_matches + 1
