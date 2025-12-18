@@ -78,7 +78,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         logits_processor: LogitsProcessorList,
         stopping_criteria: StoppingCriteriaList,
         generation_config: GenerationConfig,
-        logits_warper: LogitsProcessorList | None = None,
         **model_kwargs,
     ) -> SampleDecoderOnlyOutput | torch.LongTensor:
         r"""
@@ -86,7 +85,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         """
 
         # init values
-        logits_warper = logits_warper if logits_warper is not None else LogitsProcessorList()
         pad_token_id = generation_config._pad_token_tensor
         output_scores = generation_config.output_scores
         output_logits = generation_config.output_logits
@@ -133,8 +131,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
 
                 # pre-process distribution
                 next_token_scores = logits_processor(input_ids, next_token_logits)
-                if do_sample:
-                    next_token_scores = logits_warper(input_ids, next_token_scores)
 
                 if return_dict_in_generate:
                     if output_scores:
