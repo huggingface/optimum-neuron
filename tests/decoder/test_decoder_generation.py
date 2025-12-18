@@ -253,7 +253,11 @@ def test_generation_assisted_decoding(speculation):
     assistant_model = NeuronModelForCausalLM.from_pretrained(draft_model_path)
     prompt = "What is Deep Learning?"
     inputs = tokenizer(prompt, return_tensors="pt")
-    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17, assistant_model=assistant_model)
+    prompt_length = inputs["input_ids"].shape[1]
+    max_new_tokens = 17
+    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens, assistant_model=assistant_model)
+    output_length = outputs[0].shape[0]
+    assert output_length == prompt_length + max_new_tokens
     generated_text = tokenizer.decode(outputs[0])
-    expected_text = " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial neural"
+    expected_text = " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial"
     assert generated_text.endswith(expected_text)
