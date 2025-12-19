@@ -68,53 +68,6 @@ def pad(
     return output
 
 
-def pad_or_truncate_to_length(
-    tensor: torch.Tensor,
-    length: int,
-    dim: int = 0,
-    padding_value: int = 0,
-    padding_or_truncate_side: Literal["left", "right"] = "right",
-) -> torch.Tensor:
-    """
-    Pads or truncates a tensor to a given length along the provided dimension.
-
-    Args:
-        tensor: Input tensor to pad or truncate
-        length: Target length
-        dim: Dimension along which to pad/truncate
-        padding_value: Value to use for padding
-        padding_or_truncate_side: Side for both padding and truncation
-            - "left": Pads on left, truncates from left (keeps last tokens)
-            - "right": Pads on right, truncates from right (keeps first tokens)
-    """
-    current_length = tensor.shape[dim]
-    if current_length == length:
-        return tensor
-    elif current_length > length:
-        # Truncate
-        slice_ = [slice(None)] * tensor.dim()
-        if padding_or_truncate_side == "left":
-            # Keep last tokens (truncate from left)
-            slice_[dim] = slice(current_length - length, current_length)
-        elif padding_or_truncate_side == "right":
-            # Keep first tokens (truncate from right)
-            slice_[dim] = slice(0, length)
-        else:
-            raise ValueError("padding_or_truncate_side must be 'left' or 'right'")
-        return tensor[slice_]
-    else:
-        # Pad
-        padding_shape = list(tensor.shape)
-        padding_shape[dim] = length - current_length
-        padding = torch.full(padding_shape, padding_value, dtype=tensor.dtype, device=tensor.device)
-        if padding_or_truncate_side == "left":
-            return torch.cat([padding, tensor], dim=dim)
-        elif padding_or_truncate_side == "right":
-            return torch.cat([tensor, padding], dim=dim)
-        else:
-            raise ValueError("padding_or_truncate_side must be 'left' or 'right'")
-
-
 def entropy_from_logits(logits: torch.Tensor, chunk_size: int = 128) -> torch.Tensor:
     """
     Compute the Shannon entropy (in nats) for each row of *logits* in a memory-efficient way.
@@ -123,6 +76,9 @@ def entropy_from_logits(logits: torch.Tensor, chunk_size: int = 128) -> torch.Te
     where N is the product of all leading dimensions. Computation is then performed in chunks of size `chunk_size`
     along this flattened dimension, reducing peak memory usage. The result is reshaped back to match the input's
     leading dimensions.
+
+    This implementation uses pre-allocated output tensors instead of list accumulation to avoid
+    XLA graph fragmentation and repeated tensor allocations.
 
     Args:
         logits (`torch.Tensor`):
@@ -141,14 +97,19 @@ def entropy_from_logits(logits: torch.Tensor, chunk_size: int = 128) -> torch.Te
 
     # Flatten all leading dimensions into one
     flat_logits = logits.reshape(-1, num_classes)
+    total_rows = flat_logits.size(0)
 
-    entropies = []
-    for chunk in flat_logits.split(chunk_size, dim=0):
+    # Pre-allocate output tensor to avoid list accumulation
+    entropies = torch.empty(total_rows, dtype=logits.dtype, device=logits.device)
+
+    # Process in chunks, writing directly to pre-allocated tensor
+    for start in range(0, total_rows, chunk_size):
+        end = min(start + chunk_size, total_rows)
+        chunk = flat_logits[start:end]
         logps = F.log_softmax(chunk, dim=-1)
         chunk_entropy = -(torch.exp(logps) * logps).sum(-1)
-        entropies.append(chunk_entropy)
+        entropies[start:end] = chunk_entropy
 
-    entropies = torch.cat(entropies, dim=0)
     return entropies.reshape(original_shape)
 
 
@@ -173,6 +134,97 @@ def neuron_parallel_compile_tokenizer_decoder_method(
 
     # Returns a dummy string, we do not care about the value in this context.
     return "dummy"
+
+
+def batch_pad_sequences(
+    sequences: list[list[int | float]],
+    target_length: int,
+    padding_value: int | float = 0,
+    padding_side: Literal["left", "right"] = "right",
+    dtype: torch.dtype = torch.long,
+    device: torch.device | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    XLA-optimized batch padding of variable-length sequences.
+
+    Unlike per-sequence padding with list comprehensions, this function:
+    1. Pre-allocates output arrays using numpy (fast CPU operations)
+    2. Transfers to device as a single operation (one host->device copy)
+    3. Creates the mask alongside the padded sequences (no separate allocation)
+
+    This avoids creating many small tensors and multiple device transfers that cause
+    XLA graph fragmentation.
+
+    Args:
+        sequences (`list[list[int | float]]`):
+            List of variable-length sequences. Each sequence is a list of token IDs (ints)
+            or log probabilities (floats).
+        target_length (`int`):
+            Fixed target length for all sequences. Sequences longer than this will be
+            truncated; shorter sequences will be padded.
+        padding_value (`int | float`, *optional*, defaults to `0`):
+            Value to use for padding positions.
+        padding_side (`Literal["left", "right"]`, *optional*, defaults to `"right"`):
+            Side on which to add padding. Also determines truncation behavior:
+            - `"left"`: Pads on left, truncates from left (keeps last tokens)
+            - `"right"`: Pads on right, truncates from right (keeps first tokens)
+        dtype (`torch.dtype`, *optional*, defaults to `torch.long`):
+            Output tensor dtype for the padded sequences.
+        device (`torch.device | None`, *optional*, defaults to `None`):
+            Target device for the output tensors. If `None`, tensors remain on CPU.
+
+    Returns:
+        `tuple[torch.Tensor, torch.Tensor]`:
+            A tuple of `(padded_sequences, mask)` where:
+            - `padded_sequences` has shape `(batch_size, target_length)` and dtype `dtype`
+            - `mask` has shape `(batch_size, target_length)` and dtype `torch.long`, with
+              `1` for real tokens and `0` for padding positions
+    """
+    batch_size = len(sequences)
+
+    # Determine numpy dtype for intermediate computation
+    if dtype in (torch.float32, torch.float64, torch.float16, torch.bfloat16):
+        np_dtype = np.float32
+    else:
+        np_dtype = np.int64
+
+    # Pre-allocate numpy arrays (fast CPU operations)
+    padded = np.full((batch_size, target_length), padding_value, dtype=np_dtype)
+    mask = np.zeros((batch_size, target_length), dtype=np.int64)
+
+    for i, seq in enumerate(sequences):
+        seq_len = len(seq)
+        if seq_len == 0:
+            continue
+
+        if seq_len >= target_length:
+            # Truncation needed
+            if padding_side == "left":
+                # Keep last target_length tokens
+                padded[i] = seq[seq_len - target_length :]
+            else:
+                # Keep first target_length tokens
+                padded[i] = seq[:target_length]
+            mask[i] = 1
+        else:
+            # Padding needed
+            if padding_side == "left":
+                start_idx = target_length - seq_len
+                padded[i, start_idx:] = seq
+                mask[i, start_idx:] = 1
+            else:
+                padded[i, :seq_len] = seq
+                mask[i, :seq_len] = 1
+
+    # Single conversion and transfer to device
+    padded_tensor = torch.from_numpy(padded).to(dtype=dtype)
+    mask_tensor = torch.from_numpy(mask).to(dtype=torch.long)
+
+    if device is not None:
+        padded_tensor = padded_tensor.to(device)
+        mask_tensor = mask_tensor.to(device)
+
+    return padded_tensor, mask_tensor
 
 
 def nanmin(tensor: torch.Tensor) -> torch.Tensor:

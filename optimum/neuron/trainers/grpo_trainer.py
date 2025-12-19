@@ -18,6 +18,7 @@ from collections import defaultdict, deque
 from typing import Any, Callable
 
 import datasets
+import numpy as np
 import torch
 import torch_xla
 import torch_xla.core.xla_model as xm
@@ -57,11 +58,11 @@ from .transformers import NeuronTrainer
 from .trl_utils import (
     TRL_VERSION,
     DistributedRepeatSampler,
+    batch_pad_sequences,
     nanmax,
     nanmin,
     nanstd,
     neuron_parallel_compile_tokenizer_decoder_method,
-    pad_or_truncate_to_length,
 )
 
 
@@ -475,6 +476,14 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
         self.fixed_size_obj_collectives = fixed_size_for_obj_collectives
 
+        # Pre-create constant tensors for XLA optimization.
+        # These are used in clamp operations and comparisons. Creating them once avoids
+        # repeated tensor allocations that cause XLA graph fragmentation.
+        device = xm.xla_device()
+        self._one_float = torch.tensor(1.0, dtype=torch.float32, device=device)
+        self._one_long = torch.tensor(1, dtype=torch.long, device=device)
+        self._inf_float = torch.tensor(float("inf"), dtype=torch.float32, device=device)
+
     def _get_train_sampler(self, dataset: Dataset | None = None) -> Sampler:
         if dataset is None:
             dataset = self.train_dataset
@@ -511,7 +520,15 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
     def log(self, logs: dict[str, float], start_time: float | None = None) -> None:
         mode = "train" if self.model.training else "eval"
-        metrics = {key: sum(val) / len(val) for key, val in self._metrics[mode].items()}  # average the metrics
+        # Average the metrics. Values can be either floats or CPU tensors, so we handle both.
+        # Using sum() works for both types; we call .item() only on tensors when computing the average.
+        metrics = {}
+        for key, val_list in self._metrics[mode].items():
+            if len(val_list) == 0:
+                continue
+            # Convert any tensor values to floats for averaging
+            float_vals = [v.item() if isinstance(v, torch.Tensor) else v for v in val_list]
+            metrics[key] = sum(float_vals) / len(float_vals)
 
         # This method can be called both in training and evaluation. When called in evaluation, the keys in `logs`
         # start with "eval_". We need to add the prefix "eval_" to the keys in `metrics` to match the format.
@@ -618,27 +635,27 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 reward_columns.append((i, logits))
 
         if callable_indices:
-            callable_rewards_cpu = []
+            # Use numpy for intermediate storage to avoid Python list overhead
+            # and enable efficient single-transfer to XLA device
+            num_samples = len(prompts)
+            callable_rewards_np = np.empty((len(callable_indices), num_samples), dtype=np.float32)
 
-            for i in callable_indices:
-                reward_func = self.reward_funcs[i]
+            for local_idx, global_idx in enumerate(callable_indices):
+                reward_func = self.reward_funcs[global_idx]
                 output = reward_func(
                     prompts=prompts,
                     completions=completions,
                     completion_ids=completion_ids_list,
                     **reward_kwargs,
                 )
-                # Use float('nan') not torch.nan - avoids tensor creation
-                callable_rewards_cpu.append([r if r is not None else float("nan") for r in output])
+                for j, r in enumerate(output):
+                    callable_rewards_np[local_idx, j] = r if r is not None else np.nan
 
-            # Single tensor creation and transfer for all callable rewards
-            if callable_rewards_cpu:
-                callable_tensor = torch.tensor(
-                    callable_rewards_cpu, dtype=torch.float32, device=device
-                )  # Shape: [num_callable_funcs, num_samples]
+            # Single tensor creation and transfer from numpy array
+            callable_tensor = torch.from_numpy(callable_rewards_np).to(device=device)
 
-                for local_idx, global_idx in enumerate(callable_indices):
-                    reward_columns.append((global_idx, callable_tensor[local_idx]))
+            for local_idx, global_idx in enumerate(callable_indices):
+                reward_columns.append((global_idx, callable_tensor[local_idx]))
 
         # Sort by original index to maintain correct column order
         reward_columns.sort(key=lambda x: x[0])
@@ -757,43 +774,79 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         image_sizes=None,
         token_type_ids=None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        torch_xla.sync()
-        batch_size = batch_size or input_ids.size(0)  # Chunk inputs into smaller batches to reduce memory peak
+        total_batch_size = input_ids.size(0)
+        batch_size = batch_size or total_batch_size  # Chunk inputs into smaller batches to reduce memory peak
 
         # Ensure input batch size is divisible by `batch_size` to avoid issues with XLA graph compilation.
-        if input_ids.size(0) % batch_size != 0:
+        if total_batch_size % batch_size != 0:
             raise ValueError(
-                f"The input_ids batch size must be divisible by `batch_size`, but got {input_ids.shape[0]} and "
+                f"The input_ids batch size must be divisible by `batch_size`, but got {total_batch_size} and "
                 f"{batch_size}."
             )
 
-        all_logps = []
-        all_entropies = []
-        for start in range(0, input_ids.size(0), batch_size):
-            input_ids_batch = input_ids[start : start + batch_size]
-            attention_mask_batch = attention_mask[start : start + batch_size]
+        num_chunks = total_batch_size // batch_size
+        device = input_ids.device
+
+        # Pre-allocate output tensors to avoid list accumulation and repeated concatenation.
+        # This creates a single graph for all chunks instead of growing graphs.
+        all_logps = torch.empty(total_batch_size, logits_to_keep, dtype=torch.float32, device=device)
+        all_entropies = (
+            torch.empty(total_batch_size, logits_to_keep, dtype=torch.float32, device=device)
+            if compute_entropy
+            else None
+        )
+
+        # Pre-compute VLM slicing indices if needed (avoids .item() calls inside loop).
+        # For VLMs with image_grid_thw, we need to compute pixel_values slicing indices upfront.
+        if image_grid_thw is not None and pixel_values is not None:
+            rows_per_image = image_grid_thw.prod(dim=-1)
+            # num_images is a list of ints, so we can compute cumulative sums on CPU
+            cum_imgs = [0]
+            for n in num_images:
+                cum_imgs.append(cum_imgs[-1] + n)
+
+            # Compute row boundaries for each sample using CPU-computed indices
+            rows_per_sample_list = []
+            for i in range(len(num_images)):
+                start_img = cum_imgs[i]
+                end_img = cum_imgs[i + 1]
+                rows_per_sample_list.append(rows_per_image[start_img:end_img].sum())
+            rows_per_sample = torch.stack(rows_per_sample_list)
+            # Compute cumulative row indices on device
+            cum_rows = torch.cat(
+                [torch.zeros(1, dtype=rows_per_sample.dtype, device=device), rows_per_sample.cumsum(0)]
+            )
+            # Move to CPU once to get all slice indices (single sync instead of per-chunk)
+            torch_xla.sync()
+            cum_rows_cpu = cum_rows.cpu().tolist()
+
+        for chunk_idx in range(num_chunks):
+            start = chunk_idx * batch_size
+            end = start + batch_size
+
+            input_ids_batch = input_ids[start:end]
+            attention_mask_batch = attention_mask[start:end]
 
             # Build model inputs - check if the model supports logits_to_keep (some models and VLMs don't)
             model_inputs = {"input_ids": input_ids_batch, "attention_mask": attention_mask_batch}
+
             if image_grid_thw is not None and pixel_values is not None:
-                rows_per_image = image_grid_thw.prod(dim=-1)
-                rows_per_sample = torch.split(rows_per_image, num_images)
-                rows_per_sample = torch.stack([s.sum() for s in rows_per_sample])
-                cum_rows = torch.cat([torch.tensor([0], device=rows_per_sample.device), rows_per_sample.cumsum(0)])
-                # TODO: not support with torch XLA, fix it later.
-                row_start, row_end = cum_rows[start].item(), cum_rows[start + batch_size].item()
+                # Use pre-computed CPU indices to avoid .item() calls
+                row_start = int(cum_rows_cpu[start])
+                row_end = int(cum_rows_cpu[end])
                 model_inputs["pixel_values"] = pixel_values[row_start:row_end]
-                cum_imgs = torch.tensor([0] + num_images).cumsum(0)
-                img_start, img_end = cum_imgs[start], cum_imgs[start + batch_size]
+                img_start = cum_imgs[start]
+                img_end = cum_imgs[end]
                 model_inputs["image_grid_thw"] = image_grid_thw[img_start:img_end]
             elif pixel_values is not None:
-                model_inputs["pixel_values"] = pixel_values[start : start + batch_size]
+                model_inputs["pixel_values"] = pixel_values[start:end]
+
             if pixel_attention_mask is not None:
-                model_inputs["pixel_attention_mask"] = pixel_attention_mask[start : start + batch_size]
+                model_inputs["pixel_attention_mask"] = pixel_attention_mask[start:end]
             if image_sizes is not None:
-                model_inputs["image_sizes"] = image_sizes[start : start + batch_size]
+                model_inputs["image_sizes"] = image_sizes[start:end]
             if token_type_ids is not None:
-                model_inputs["token_type_ids"] = token_type_ids[start : start + batch_size]
+                model_inputs["token_type_ids"] = token_type_ids[start:end]
 
             # Only add logits_to_keep if the model supports it
             if "logits_to_keep" in self.model_kwarg_keys:
@@ -814,22 +867,18 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
             completion_ids = input_ids_batch[:, -logits_to_keep:]
             logps = selective_log_softmax(logits, completion_ids)  # compute logprobs
-            all_logps.append(logps)
+
+            # Write directly to pre-allocated tensor instead of list append
+            all_logps[start:end] = logps
 
             if compute_entropy:
                 with torch.no_grad():
                     entropies = entropy_from_logits(logits)
-                all_entropies.append(entropies)
+                all_entropies[start:end] = entropies
 
-            torch_xla.sync()
-
-        logps = torch.cat(all_logps, dim=0)
-        entropies = torch.cat(all_entropies, dim=0) if compute_entropy else None
-
-        # Force synchronization after computation to ensure graph is re-used.
         torch_xla.sync()
 
-        return logps, entropies
+        return all_logps, all_entropies
 
     def _generate_and_score_completions(
         self, inputs: list[dict[str, torch.Tensor | Any]]
@@ -857,77 +906,46 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             forward_kwargs,
         ) = self._generate(prompts, images)
 
-        # Convert lists of token IDs to padded tensors
-        prompt_ids = [
-            pad_or_truncate_to_length(
-                torch.tensor(ids),
-                self.max_prompt_length,
-                padding_value=self.pad_token_id,
-                padding_or_truncate_side="left",
-            )
-            for ids in prompt_ids_list
-        ]
-        # prompt_ids = [torch.tensor(ids, device=device) for ids in prompt_ids_list]
-        # prompt_mask = [torch.ones_like(ids, dtype=torch.long) for ids in prompt_ids]
-        prompt_mask = [
-            pad_or_truncate_to_length(
-                torch.ones(len(ids), dtype=torch.long),
-                self.max_prompt_length,
-                padding_value=0,
-                padding_or_truncate_side="left",
-            )
-            for ids in prompt_ids_list
-        ]
-        prompt_ids = torch.stack(prompt_ids, dim=0).to(device)
-        prompt_mask = torch.stack(prompt_mask, dim=0).to(device)
-        # prompt_ids = pad(prompt_ids, padding_value=self.pad_token_id, padding_side="left")
-        # prompt_mask = pad(prompt_mask, padding_value=0, padding_side="left")
-        # completion_ids = [torch.tensor(ids, device=device) for ids in completion_ids_list]
-        # completion_mask = [torch.ones_like(ids, dtype=torch.long) for ids in completion_ids]
-        # completion_ids = pad(completion_ids, padding_value=self.pad_token_id, padding_side="right")
-        # completion_mask = pad(completion_mask, padding_value=0, padding_side="right")
-        completion_ids = [
-            pad_or_truncate_to_length(
-                torch.tensor(ids),
-                self.max_completion_length,
-                padding_value=self.pad_token_id,
-                padding_or_truncate_side="right",
-            )
-            for ids in completion_ids_list
-        ]
-        completion_mask = [
-            pad_or_truncate_to_length(
-                torch.ones(len(ids), dtype=torch.long),
-                self.max_completion_length,
-                padding_value=0,
-                padding_or_truncate_side="right",
-            )
-            for ids in completion_ids_list
-        ]
-        completion_ids = torch.stack(completion_ids, dim=0).to(device)
-        completion_mask = torch.stack(completion_mask, dim=0).to(device)
+        # Convert lists of token IDs to padded tensors using XLA-optimized batch padding.
+        # This avoids creating many small tensors and multiple device transfers.
+        prompt_ids, prompt_mask = batch_pad_sequences(
+            prompt_ids_list,
+            target_length=self.max_prompt_length,
+            padding_value=self.pad_token_id,
+            padding_side="left",
+            dtype=torch.long,
+            device=device,
+        )
+
+        completion_ids, completion_mask = batch_pad_sequences(
+            completion_ids_list,
+            target_length=self.max_completion_length,
+            padding_value=self.pad_token_id,
+            padding_side="right",
+            dtype=torch.long,
+            device=device,
+        )
 
         if sampling_per_token_logps_list is not None:
-            # sampling_per_token_logps = [torch.tensor(logps, device=device) for logps in sampling_per_token_logps_list]
-            # sampling_per_token_logps = pad(sampling_per_token_logps, padding_value=0.0, padding_side="right")
-            sampling_per_token_logps = [
-                pad_or_truncate_to_length(
-                    torch.tensor(logps),
-                    self.max_completion_length,
-                    padding_value=0.0,
-                    padding_or_truncate_side="right",
-                )
-                for logps in sampling_per_token_logps_list
-            ]
-            sampling_per_token_logps = torch.stack(sampling_per_token_logps, dim=0).to(device)
+            sampling_per_token_logps, _ = batch_pad_sequences(
+                sampling_per_token_logps_list,
+                target_length=self.max_completion_length,
+                padding_value=0.0,
+                padding_side="right",
+                dtype=torch.float32,
+                device=device,
+            )
         else:
             sampling_per_token_logps = None
 
-        # If mask_truncated_completions is enabled, zero out truncated completions in completion_mask
+        # If mask_truncated_completions is enabled, zero out truncated completions in completion_mask.
+        # Use tensor operations instead of Python list iteration for XLA compatibility.
         if self.mask_truncated_completions:
-            eos_and_pad = [self.eos_token_id, self.pad_token_id]
-            is_truncated = torch.tensor([ids[-1] not in eos_and_pad for ids in completion_ids_list], device=device)
-            completion_mask = completion_mask * (~is_truncated).unsqueeze(1).int()
+            # Check if last token is NOT eos or pad (meaning sequence was truncated)
+            last_tokens = completion_ids[:, -1]
+            # A sequence is NOT truncated if its last token is eos or pad
+            is_not_truncated = (last_tokens == self.eos_token_id) | (last_tokens == self.pad_token_id)
+            completion_mask = completion_mask * is_not_truncated.unsqueeze(1).long()
 
         # Concatenate prompt_mask with completion_mask for logit computation
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)  # (B, P+C)
@@ -1038,7 +1056,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 f"Invalid value for scale_rewards: {self.scale_rewards}. Must be one of 'batch', 'group', or 'none'."
             )
 
-        is_std_zero = torch.isclose(std_rewards, torch.zeros_like(std_rewards))
+        # Use direct comparison instead of torch.zeros_like to avoid tensor allocation
+        is_std_zero = std_rewards.abs() < 1e-8
         if self.scale_rewards != "none":
             advantages = advantages / (std_rewards + 1e-4)
 
@@ -1111,10 +1130,12 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             #     torch.max(flat_is_ratio) if flat_is_ratio.numel() > 0 else torch.tensor(0.0, device=device)
             # )
             # But it is not XLA friendly because it involves dynamic indexing before reduction, so we rewrite it as:
+            # Use pre-created inf constant (cast to proper dtype if needed)
+            inf_val = self._inf_float.to(dtype=importance_sampling_ratio.dtype)
             masked_is_ratio_for_min = torch.where(
                 completion_mask.bool(),
                 importance_sampling_ratio,
-                torch.tensor(float("inf"), device=device, dtype=importance_sampling_ratio.dtype),
+                inf_val,
             )
             min_importance_sampling_ratio = masked_is_ratio_for_min.min()
             # importance_sampling_ratio values are >= 0 (torch.exp) so we can use the same computation as for delta.
@@ -1133,12 +1154,11 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 nanmax(self.accelerator.gather(max_importance_sampling_ratio))
             )
 
-        # Move metrics and logs to CPU.
+        # Move metrics and logs to CPU. Keep metrics as CPU tensors instead of calling .item()
+        # immediately - this defers the sync overhead to when metrics are actually logged.
         torch_xla.sync()
         metrics = move_all_tensor_to_cpu(metrics)
         logs = move_all_tensor_to_cpu(logs)
-
-        metrics = {key: [val.item() for val in value] for key, value in metrics.items()}
 
         # Update the actual metrics and logs.
         self._metrics[mode].update(metrics)
@@ -1176,35 +1196,22 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         return output
 
     def get_high_entropy_mask(self, entropies: torch.Tensor, mask: torch.Tensor, threshold: float) -> torch.Tensor:
-        # Original code does the following:
-        # local = entropies[mask.bool()].float()
-        # # Use a negative pad_value as a sentinel because entropy values are always >= 0.
-        # # This guarantees that the sentinel cannot collide with any real entropy value.
-        # pad_value = -1e9
+        """
+        Compute a mask for high-entropy tokens (above the given quantile threshold).
 
-        # # Pad across processes so that every rank has the same tensor length
-        # padded = self.accelerator.pad_across_processes(local, dim=0, pad_index=pad_value)
-        # gathered = self.accelerator.gather(padded)
-
-        # # Drop sentinel values (safe because no entropy can be negative)
-        # gathered = gathered[gathered != pad_value]
-
-        # if gathered.numel() == 0:
-        #     return torch.zeros_like(entropies, dtype=torch.bool)
-
-        # entropy_threshold = torch.quantile(gathered, threshold)
-        # masked_entropies = entropies * mask.float()
-        # entropy_mask = masked_entropies >= entropy_threshold
-        # return entropy_mask & mask.bool()  # ensure padding tokens are always masked out
-
+        This XLA-optimized implementation avoids:
+        1. Dynamic indexing (sorted_values[quantile_idx]) by using torch.gather
+        2. Repeated tensor creation by using pre-created constants
+        3. Complex control flow that would cause graph breaks
+        """
         pad_value = -1e9
-        device = entropies.device
+        dtype = entropies.dtype
 
-        masked_entropies = torch.where(
-            mask.bool(),
-            entropies,
-            torch.tensor(pad_value, device=device, dtype=entropies.dtype),
-        )
+        # Create pad tensor from pre-allocated constant (avoids allocation in hot path)
+        # Note: pad_value is negative, so we can't use self._inf_float directly
+        pad_tensor = torch.full_like(entropies[:1, :1], pad_value).expand_as(entropies)
+
+        masked_entropies = torch.where(mask.bool(), entropies, pad_tensor)
 
         local_flat = masked_entropies.view(-1)
         gathered = self.accelerator.gather(local_flat)
@@ -1212,22 +1219,23 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         # Sort gathered values, so that pad_value sentinels are at the beginning
         sorted_values, _ = torch.sort(gathered)
 
-        # Compute the number of valid (non-sentinel) values
-        num_valid = (sorted_values != pad_value).sum()
-        num_sentinels = (sorted_values == pad_value).sum()
-        valid_start_idx = num_sentinels
+        # Compute the number of valid (non-sentinel) values using a tolerance for float comparison
+        is_sentinel = sorted_values < (pad_value + 1e-6)  # pad_value is -1e9
+        num_sentinels = is_sentinel.sum()
         num_valid_values = gathered.numel() - num_sentinels
 
         # Get the quantile index and the corresponding entropy threshold value
-        quantile_idx = valid_start_idx + (threshold * num_valid_values).long()
-        quantile_idx = quantile_idx.clamp(max=gathered.numel() - 1)
-        entropy_threshold = sorted_values[quantile_idx]
+        # Use torch.gather instead of dynamic indexing to maintain XLA compatibility
+        quantile_idx = num_sentinels + (threshold * num_valid_values.float()).long()
+        quantile_idx = quantile_idx.clamp(min=0, max=gathered.numel() - 1)
 
-        # Handle empty case, if everything is sentinel, set threshold to +inf so no token is selected
-        has_valid = num_valid > 0
-        entropy_threshold = torch.where(
-            has_valid, entropy_threshold, torch.tensor(float("inf"), device=device, dtype=entropies.dtype)
-        )
+        # Use gather for XLA-compatible indexing (gather works with tensor indices)
+        entropy_threshold = sorted_values.gather(0, quantile_idx.view(1)).squeeze(0)
+
+        # Handle empty case: if everything is sentinel, set threshold to +inf so no token is selected
+        has_valid = num_valid_values > 0
+        inf_val = self._inf_float.to(dtype=dtype)
+        entropy_threshold = torch.where(has_valid, entropy_threshold, inf_val)
 
         entropy_mask = (entropies > entropy_threshold) & mask.bool()
         return entropy_mask
@@ -1289,9 +1297,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             if self.importance_sampling_level == "token":
                 log_importance_weights = log_ratio
             elif self.importance_sampling_level == "sequence":
-                log_importance_weights = (log_ratio * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(
-                    min=torch.tensor(1.0, dtype=completion_mask.dtype, device=completion_mask.device)
-                )
+                # Use pre-created constant instead of creating tensor in hot path
+                log_importance_weights = (log_ratio * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1)
                 log_importance_weights = log_importance_weights.unsqueeze(-1)
             else:
                 raise ValueError(
@@ -1320,18 +1327,13 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             if self.beta != 0.0:
                 per_token_loss = per_token_loss + self.beta * per_token_kl
 
+            # Use scalar min value for clamp instead of creating tensors.
+            # PyTorch clamp accepts Python scalars which avoids tensor allocation overhead.
             if self.loss_type == "grpo":
-                loss = (
-                    (per_token_loss * completion_mask).sum(-1)
-                    / completion_mask.sum(-1).clamp(
-                        min=torch.tensor(1.0, dtype=completion_mask.dtype, device=completion_mask.device)
-                    )
-                ).mean()
+                loss = ((per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1)).mean()
                 loss = loss / self.current_gradient_accumulation_steps
             elif self.loss_type == "bnpo":
-                loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(
-                    min=torch.tensor(1.0, dtype=completion_mask.dtype, device=completion_mask.device)
-                )
+                loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=1)
                 loss = loss / self.current_gradient_accumulation_steps
             elif self.loss_type == "dr_grpo":
                 loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)
@@ -1345,9 +1347,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             # Log the metrics
             mode = "train" if self.model.training else "eval"
 
-            completion_token_count = completion_mask.sum().clamp(
-                min=torch.tensor(1.0, dtype=completion_mask.dtype, device=completion_mask.device)
-            )
+            # Use scalar min value for clamp instead of creating tensor
+            completion_token_count = completion_mask.sum().clamp(min=1)
 
             def masked_batch_mean(x):
                 if x.shape[1] == 1:  # when importance_sampling_level == "sequence"
@@ -1382,10 +1383,10 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             gathered_clip_ratio = self.accelerator.gather(clip_ratio)
             metrics["clip_ratio/region_mean"].append(gathered_clip_ratio.nanmean())
 
-            # torch_xla.sync()  # Graph break before moving metrics to CPU.
+            # Move metrics to CPU but keep as tensors. The log() method will call .item()
+            # when averaging. This defers sync overhead to logging time.
             metrics = move_all_tensor_to_cpu(metrics)
             torch_xla.sync()
-            metrics = {key: [val.item() for val in value] for key, value in metrics.items()}
 
             self._metrics[mode].update(metrics)
 
