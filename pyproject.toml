@@ -34,12 +34,13 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "transformers==5.0.0rc0",
+    "transformers ~= 4.57.1",
     "accelerate == 1.8.1",
-    "optimum @ git+https://github.com/huggingface/optimum.git@main",
+    "optimum ~= 2.1.0",
     "huggingface_hub >= 0.35.3",
     "numpy>=1.22.2, <=1.26.4",
     "protobuf>=3.20.3",
