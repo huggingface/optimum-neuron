@@ -64,6 +64,9 @@ ENV HUGGINGFACE_HUB_CACHE=/tmp \
 RUN cat <<'EOF' > entrypoint.sh
 #!/bin/bash
 
+# Save parameters, they will be passed over to the optimum-cli serve command
+export ARGS_CLI="${@}"
+
 # Define the prefix for environment variables to look for
 PREFIX="SM_ON_"
 ARG_PREFIX="--"
@@ -85,7 +88,7 @@ while IFS='=' read -r key value; do
 done < <(env | grep "^${PREFIX}")
 
 # Pass the collected arguments to the optimum-cli serve command
-exec optimum-cli neuron serve "${ARGS[@]}"
+exec optimum-cli neuron serve "${ARGS[@]}" ${ARGS_CLI}
 EOF
 ######## End of entry-point script ########
 

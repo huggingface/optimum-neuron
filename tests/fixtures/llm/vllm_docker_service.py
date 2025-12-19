@@ -96,12 +96,24 @@ def vllm_docker_launcher(event_loop):
         batch_size: int | None = None,
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
+        params_as_env: bool = True,
     ):
         port = random.randint(8000, 10_000)
 
         client = docker.from_env()
 
         container_name = f"optimum-neuron-tests-{service_name}-{port}"
+
+        command = []
+
+        def add_param(key, value):
+            value = str(value)
+            if params_as_env:
+                upper_key = key.upper()
+                env[f"SM_ON_{upper_key}"] = value
+            else:
+                command.append(f"--{key}")
+                command.append(value)
 
         try:
             container = client.containers.get(container_name)
@@ -120,13 +132,13 @@ def vllm_docker_launcher(event_loop):
             env["HF_TOKEN"] = HF_TOKEN
 
         if served_model_name is not None:
-            env["SM_ON_SERVED_MODEL_NAME"] = served_model_name
+            add_param("served_model_name", served_model_name)
         if batch_size is not None:
-            env["SM_ON_BATCH_SIZE"] = str(batch_size)
+            add_param("batch_size", batch_size)
         if sequence_length is not None:
-            env["SM_ON_SEQUENCE_LENGTH"] = str(sequence_length)
+            add_param("sequence_length", sequence_length)
         if tensor_parallel_size is not None:
-            env["SM_ON_TENSOR_PARALLEL_SIZE"] = str(tensor_parallel_size)
+            add_param("tensor_parallel_size", tensor_parallel_size)
 
         base_image = get_docker_image()
         if os.path.isdir(model_name_or_path):
@@ -160,7 +172,7 @@ def vllm_docker_launcher(event_loop):
             image = None
             container_model_name_or_path = model_name_or_path
 
-        env["SM_ON_MODEL"] = container_model_name_or_path
+        add_param("model", container_model_name_or_path)
         container = client.containers.run(
             test_image,
             name=container_name,
@@ -170,6 +182,7 @@ def vllm_docker_launcher(event_loop):
             devices=["/dev/neuron0"],
             ports={"8080/tcp": port},
             shm_size="1G",
+            command=command,
         )
 
         logger.info(f"Starting {container_name} container")

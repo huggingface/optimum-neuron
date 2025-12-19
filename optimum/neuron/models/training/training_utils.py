@@ -19,14 +19,22 @@ from typing import TYPE_CHECKING, Type
 
 import torch
 import transformers
-from accelerate import skip_first_batches as accelerate_skip_first_batches
 from neuronx_distributed.pipeline import NxDPPModel
 from optimum.utils.logging import set_verbosity as set_verbosity_optimum
 from transformers import GenerationMixin
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
 from ...generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
+from ...utils.import_utils import is_accelerate_available
 from ...utils.patching import replace_class_in_inheritance_hierarchy
+
+
+if is_accelerate_available():
+    from accelerate import skip_first_batches as accelerate_skip_first_batches
+else:
+
+    def accelerate_skip_first_batches(*args, **kwargs):
+        pass
 
 
 if TYPE_CHECKING:
@@ -89,6 +97,7 @@ def skip_first_batches(dataloader, num_batches=0):
 
 def _get_model_param_count(model: "torch.nn.Module | NxDPPModel"):
     """Counts the number of parameters of the model."""
+    import torch_xla
     import torch_xla.core.xla_model as xm
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_pipeline_model_parallel_group,
@@ -143,7 +152,7 @@ def _get_model_param_count(model: "torch.nn.Module | NxDPPModel"):
     def reduce_param_count_over_pp_ranks(param_count: int):
         param_count = torch.tensor(param_count, dtype=torch.float32).to(xm.xla_device())
         param_count = xm.all_reduce(xm.REDUCE_SUM, param_count, groups=get_pipeline_model_parallel_group(as_list=True))
-        xm.mark_step()
+        torch_xla.sync()
         param_count = int(param_count.detach().cpu().item())
         return param_count
 
@@ -153,7 +162,7 @@ def _get_model_param_count(model: "torch.nn.Module | NxDPPModel"):
         all_param_count = reduce_param_count_over_pp_ranks(all_param_count)
         trainable_param_count = reduce_param_count_over_pp_ranks(trainable_param_count)
 
-    xm.mark_step()
+    torch_xla.sync()
     return trainable_param_count, all_param_count
 
 
@@ -199,3 +208,13 @@ def is_custom_modeling_model(model) -> bool:
     if isinstance(model, PeftModel):
         model_to_consider = model.get_base_model()
     return inspect.getmodule(model_to_consider.__class__).__name__.startswith("optimum.neuron.models.training")
+
+
+def checkpoint_with_kwargs(fn, *args, **kwargs):
+    """XLA-compatible gradient checkpointing that accepts keyword arguments via functools.partial."""
+    from functools import partial
+
+    from torch_xla.utils.checkpoint import checkpoint
+
+    fn_with_kwargs = partial(fn, **kwargs)
+    return checkpoint(fn_with_kwargs, *args)

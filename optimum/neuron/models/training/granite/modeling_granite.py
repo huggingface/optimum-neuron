@@ -21,7 +21,6 @@ from neuronx_distributed.parallel_layers.mappings import (
     scatter_to_sequence_parallel_region,
 )
 from torch import nn
-from torch_xla.utils.checkpoint import checkpoint
 from transformers.loss.loss_utils import ForCausalLMLoss
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
@@ -40,6 +39,7 @@ from ..llama.modeling_llama import (
     LlamaRotaryEmbedding,
 )
 from ..masking_utils import create_causal_mask
+from ..training_utils import checkpoint_with_kwargs
 
 
 # Wrap the gather and scatter functions to ensure they are properly traced by `torch.fx`.
@@ -170,8 +170,8 @@ class GraniteModel(LlamaModel):
         # Decoder layers
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
             if self.gradient_checkpointing and self.training:
-                hidden_states = checkpoint(
-                    decoder_layer.__call__,
+                hidden_states = checkpoint_with_kwargs(
+                    decoder_layer,
                     hidden_states,
                     causal_mask,
                     position_ids,
