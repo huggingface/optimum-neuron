@@ -364,11 +364,11 @@ def pipeline(
     )
 
     if tokenizer is None and load_tokenizer:
-        tokenizer = AutoTokenizer(model_id)
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
     if feature_extractor is None and load_feature_extractor:
-        feature_extractor = AutoFeatureExtractor(model_id)
+        feature_extractor = AutoFeatureExtractor.from_pretrained(model_id)
     if image_processor is None and load_image_processor:
-        image_processor = AutoProcessor(model_id)
+        image_processor = AutoProcessor.from_pretrained(model_id)
 
     if batch_size is None:
         # If we don't specify a batch_size, the pipeline will assume batch_size 1
