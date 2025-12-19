@@ -21,7 +21,10 @@ from typing import Any
 from transformers import (
     AudioClassificationPipeline,
     AutoConfig,
+    AutoFeatureExtractor,
     AutomaticSpeechRecognitionPipeline,
+    AutoProcessor,
+    AutoTokenizer,
     BaseImageProcessor,
     FillMaskPipeline,
     ImageClassificationPipeline,
@@ -39,9 +42,6 @@ from transformers import (
 )
 from transformers import (
     pipeline as transformers_pipeline,
-    AutoFeatureExtractor,
-    AutoProcessor,
-    AutoTokenizer,
 )
 from transformers.feature_extraction_utils import PreTrainedFeatureExtractor
 
