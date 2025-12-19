@@ -60,7 +60,7 @@ tests = [
     "datasets",
     "sacremoses",
     "safetensors",
-    "sentence-transformers @ git+https://github.com/huggingface/sentence-transformers.git@main",
+    "sentence-transformers >= 2.2.0",
     "rjieba",
     "soundfile",
     "librosa",
@@ -106,7 +106,7 @@ diffusers-tests = [
     "compel==2.1.1",
 ]
 sentence-transformers = [
-    "sentence-transformers @ git+https://github.com/huggingface/sentence-transformers.git@main",
+    "sentence-transformers >= 2.2.0",
 ]
 vllm = [
     "vllm == 0.11.0",
