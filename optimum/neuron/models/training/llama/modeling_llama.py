@@ -45,6 +45,7 @@ from ..config import TrainingNeuronConfig
 from ..loss_utils import ForCausalLMLoss
 from ..masking_utils import create_causal_mask
 from ..modeling_utils import NeuronModelMixin
+from ..training_utils import checkpoint_with_kwargs
 from ..transformations_utils import (
     CustomModule,
     FusedLinearsSpec,
@@ -667,8 +668,8 @@ class LlamaModel(NeuronModelMixin, LlamaPreTrainedModel):
         # Decoder layers
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
             if self.gradient_checkpointing and self.training:
-                hidden_states = checkpoint(
-                    decoder_layer.__call__,
+                hidden_states = checkpoint_with_kwargs(
+                    decoder_layer,
                     hidden_states,
                     causal_mask,
                     position_ids,
