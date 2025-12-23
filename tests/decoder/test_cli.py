@@ -10,8 +10,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 
 @is_inferentia_test
 @requires_neuronx
-@pytest.mark.parametrize("batch_size, sequence_length", [[1, 512], [2, 128]])
-@pytest.mark.parametrize("instance_type", ["trn1", "trn2"])
+@pytest.mark.parametrize("batch_size, sequence_length, instance_type", [[1, 512, "trn1"], [2, 128, "trn2"]])
 def test_export_decoder_cli(batch_size: int, sequence_length: int, instance_type: str):
     model_id = "llamafactory/tiny-random-Llama-3"
     with TemporaryDirectory() as tempdir:

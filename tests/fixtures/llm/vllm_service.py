@@ -117,8 +117,16 @@ def vllm_launcher(event_loop):
             Used to identify test configurations and adjust test expectations,
         model_name_or_path (`str`):
             The model to use (can be a hub model or a path)
-        trust_remote_code (`bool`):
-            Must be set to True for gated models.
+        served_model_name (`str`):
+            The name of the model to serve.
+        batch_size (`int`):
+            The batch size to use for the model.
+        sequence_length (`int`):
+            The sequence length to use for the model.
+        tensor_parallel_size (`int`):
+            The tensor parallel size to use for the model.
+        extra_args (`List[str]`):
+            Extra arguments to pass to the vLLM server.
 
     Returns:
         A `LauncherHandle` containing both a vLLM server and OpenAI client.
@@ -132,6 +140,7 @@ def vllm_launcher(event_loop):
         batch_size: int | None = None,
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
+        extra_args: List[str] | None = None,
     ):
         port = random.randint(8000, 10_000)
 
@@ -155,6 +164,8 @@ def vllm_launcher(event_loop):
             command += ["--sequence_length", str(sequence_length)]
         if tensor_parallel_size is not None:
             command += ["--tensor_parallel_size", str(tensor_parallel_size)]
+        if extra_args is not None:
+            command += extra_args
 
         p = subprocess.Popen(
             command,

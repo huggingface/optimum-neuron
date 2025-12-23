@@ -30,6 +30,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, PretrainedConfig
 from ....cache.entries.single_model import SingleModelCacheEntry
 from ....cache.hub_cache import hub_neuronx_cache
 from ....utils.instance import align_compilation_target, current_instance_type
+from ....utils.neuron_device_memory import get_neuron_device_memory
 from ....utils.system import get_available_cores
 from ..modeling_utils import NeuronPreTrainedModel
 from .config import NxDNeuronConfig
@@ -211,6 +212,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
             weights = sharder.shard_checkpoint()
         start_rank_tensor = torch.tensor([start_rank_id], dtype=torch.int32, device="cpu")
         self._traced_model.nxd_model.initialize(weights, start_rank_tensor)
+        logger.info(str(get_neuron_device_memory()))
 
     def load_weights(
         self,

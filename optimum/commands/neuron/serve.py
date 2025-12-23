@@ -18,6 +18,8 @@ import os
 import warnings
 from argparse import ArgumentParser
 
+from optimum.commands.base import BaseOptimumCLICommand
+from optimum.utils import logging
 from transformers import AutoConfig
 
 from ...neuron.cache.hub_cache import select_hub_cached_entries
@@ -27,8 +29,6 @@ from ...neuron.utils.import_utils import is_vllm_available
 from ...neuron.utils.instance import current_instance_type
 from ...neuron.utils.require_utils import requires_torch_neuronx, requires_vllm
 from ...neuron.utils.system import get_available_cores
-from ...utils import logging
-from ..base import BaseOptimumCLICommand
 
 
 if is_vllm_available():
@@ -45,6 +45,22 @@ logger = logging.get_logger()
 class ServeCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
+        # The optimum-cli uses a strict parsing and does not allow unknown args.
+        # However, parser.parse_args still internally calls parser.parse_known_args.
+        # We therefore patch parser.parse_known_args to avoid returning the unknown
+        # args for this command, and store them in the args instead.
+        parser._original_parse_known_args = parser.parse_known_args
+
+        def parse_known_args(args, namespace):
+            args, unknown_args = parser._original_parse_known_args(args, namespace)
+            if hasattr(args, "func") and type(args.func(args)) is ServeCommand:
+                # Just for this command, instead of returning the unknown args, we store them
+                args._unknown_args = unknown_args
+                return args, None
+            return args, unknown_args
+
+        parser.parse_known_args = parse_known_args
+        # Add arguments that are explicitly used by the run command
         parser.add_argument(
             "-m",
             "--model",
@@ -54,22 +70,26 @@ class ServeCommand(BaseOptimumCLICommand):
         )
         parser.add_argument(
             "--served_model_name",
+            "--served-model-name",
             type=str,
             default=None,
             help="The model name(s) used in the API. If not specified, the model name will be the same as the `--model` argument.",
         )
         parser.add_argument(
             "--tensor_parallel_size",
+            "--tensor-parallel-size",
             type=int,
             help="Tensor parallelism size, the number of neuron cores on which to shard the model.",
         )
         parser.add_argument(
             "--batch_size",
+            "--batch-size",
             type=int,
             help="The maximum batch size used when serving the model.",
         )
         parser.add_argument(
             "--sequence_length",
+            "--sequence-length",
             type=int,
             help="The sequence length used when serving the model.",
         )
@@ -81,6 +101,7 @@ class ServeCommand(BaseOptimumCLICommand):
         )
         parser.add_argument(
             "--allow_non_cached_model",
+            "--allow-non-cached-model",
             action="store_true",
             default=False,
             help="If set, export the model even if no cached configuration exists.",
@@ -101,11 +122,11 @@ class ServeCommand(BaseOptimumCLICommand):
         sequence_length = self.args.sequence_length
         tensor_parallel_size = self.args.tensor_parallel_size
         config = AutoConfig.from_pretrained(model_name_or_path)
-        torch_dtype = DTYPE_MAPPER.pt(config.torch_dtype)
+        torch_dtype = DTYPE_MAPPER.pt(config.dtype)
         try:
             # Look for a NeuronConfig in the model directory
             neuron_config = NeuronConfig.from_pretrained(model_name_or_path)
-        except Exception:
+        except EnvironmentError:
             neuron_config = None
         if neuron_config is not None:
             # This is a Neuron model: retrieve and check the export arguments
@@ -137,8 +158,9 @@ class ServeCommand(BaseOptimumCLICommand):
             logger.info(f"Loading Neuron model: {model_name_or_path}")
         else:
             # Model needs to be exported: look for compatible hub cached configs
+
             cached_entries = select_hub_cached_entries(
-                model_id,
+                model_name_or_path,
                 task="text-generation",
                 instance_type=instance_type,
                 batch_size=batch_size,
@@ -185,7 +207,7 @@ class ServeCommand(BaseOptimumCLICommand):
                     if torch_dtype is not None:
                         error_msg += f", dtype = {torch_dtype}"
                     error_msg += (
-                        f".You can start a discussion to request it on {hub_cache_url}"
+                        f".You can start a discussion to request it on {hub_cache_url} "
                         "Alternatively, you can export your own neuron model "
                         f"as explained in {neuron_export_url}"
                     )
@@ -231,6 +253,8 @@ class ServeCommand(BaseOptimumCLICommand):
         ]
         if self.args.allow_non_cached_model:
             command.append("--model-loader-extra-config=allow_non_cached_model")
+        if hasattr(self.args, "_unknown_args"):
+            command.extend(self.args._unknown_args)
         vllm_args = vllm_parser.parse_args(command)
         validate_parsed_serve_args(vllm_args)
 

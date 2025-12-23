@@ -9,7 +9,6 @@ pytest.importorskip("docker")
 pytest.importorskip("vllm")
 
 
-@pytest.mark.asyncio
 @pytest.fixture(params=["local_neuron", "hub_neuron", "hub_explicit", "hub_implicit", "local_implicit"])
 async def vllm_docker_service_from_model(request, vllm_docker_launcher, base_neuron_llm_config):
     service_name = base_neuron_llm_config["name"]
@@ -43,7 +42,13 @@ async def vllm_docker_service_from_model(request, vllm_docker_launcher, base_neu
                 ],
             )
             model_name_or_path = local_model_path
-            with vllm_docker_launcher(service_name, model_name_or_path, served_model_name) as vllm_service:
+            # Note that since the model has been already downloaded, HF token is not needed to access it anymore.
+            with vllm_docker_launcher(
+                service_name,
+                model_name_or_path,
+                served_model_name,
+                propagate_hf_token=False,
+            ) as vllm_service:
                 await vllm_service.health(600)
                 yield vllm_service
     else:
@@ -72,12 +77,14 @@ async def test_vllm_docker_service_from_model(vllm_docker_service_from_model):
 
 
 @pytest.mark.asyncio
-async def test_vllm_docker_service_sampling_parameters(base_neuron_llm_config, vllm_docker_launcher):
+@pytest.mark.parametrize("params_as_env", [True, False])
+async def test_vllm_docker_service_sampling_parameters(base_neuron_llm_config, vllm_docker_launcher, params_as_env):
     prompt = "What is Deep Learning?"
     max_output_tokens = 17
     with vllm_docker_launcher(
         base_neuron_llm_config["name"],
         base_neuron_llm_config["neuron_model_path"],
+        params_as_env=params_as_env,
     ) as vllm_docker_service_from_local_neuron_model:
         await vllm_docker_service_from_local_neuron_model.health(600)
 

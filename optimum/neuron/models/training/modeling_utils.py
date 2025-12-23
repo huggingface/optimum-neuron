@@ -31,7 +31,6 @@ import torch
 import torch_xla.core.xla_model as xm
 import torch_xla.runtime as xr
 import transformers
-from accelerate.utils import find_tied_parameters
 from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
 from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
 from neuronx_distributed.parallel_layers.layers import (
@@ -88,6 +87,7 @@ from transformers.utils import (
 )
 from transformers.utils.hub import get_checkpoint_shard_files
 
+from ...utils.import_utils import is_accelerate_available
 from ...utils.misc import is_main_worker, is_precompilation
 from .config import TrainingNeuronConfig
 from .pipeline_utils import (
@@ -101,6 +101,14 @@ from .transformations_utils import (
     get_tensor_model_parallel_attributes,
     specialize_transformation_specs_for_model,
 )
+
+
+if is_accelerate_available():
+    from accelerate.utils import find_tied_parameters
+else:
+
+    def find_tied_parameters(*args, **kwargs):
+        return []
 
 
 logger = logging.get_logger(__name__)

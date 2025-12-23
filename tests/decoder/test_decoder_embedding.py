@@ -40,7 +40,7 @@ def compute_similarity(tokenized_inputs, model):
         (4, [[0.7265625, 0.203125], [0.2578125, 0.46484375]]),
         (6, [[0.73046875, 0.2021484375], [0.2578125, 0.45703125]]),
     ],
-    ids=["without padding", "with padding"],
+    ids=["without batch padding", "with batch padding"],
 )
 def test_decoder_similarity(batch_size, expected_scores):
     # Each query must come with a one-sentence instruction that describes the task
@@ -74,10 +74,12 @@ def test_decoder_similarity(batch_size, expected_scores):
     model = AutoModel.from_pretrained("Qwen/Qwen3-Embedding-0.6B")
     cpu_scores = compute_similarity(tokenized_inputs, model)
     print(cpu_scores.tolist())
-    # [[0.7645568251609802, 0.14142508804798126], [0.13549736142158508, 0.5999549627304077]]
 
     neuron_config = Qwen3NeuronModelForEmbedding.get_neuron_config(
-        "Qwen/Qwen3-Embedding-0.6B", batch_size=batch_size, sequence_length=1024
+        "Qwen/Qwen3-Embedding-0.6B",
+        batch_size=batch_size,
+        sequence_length=1024,
+        tensor_parallel_size=2,
     )
     neuron_model = Qwen3NeuronModelForEmbedding.export(
         model_id="Qwen/Qwen3-Embedding-0.6B", neuron_config=neuron_config, load_weights=True

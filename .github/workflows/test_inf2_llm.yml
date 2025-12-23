@@ -24,6 +24,7 @@ on:
       - "optimum/neuron/pipelines/transformers/base.py"
       - "optimum/neuron/utils/**.py"
       - "optimum/neuron/version.py"
+      - "tests/fixtures/llm/**.py"
       - "tests/decoder/**.py"
       - ".github/workflows/test_inf2_llm.yml"
   pull_request:
@@ -49,6 +50,7 @@ on:
       - "optimum/neuron/pipelines/transformers/base.py"
       - "optimum/neuron/utils/**.py"
       - "optimum/neuron/version.py"
+      - "tests/fixtures/llm/**.py"
       - "tests/decoder/**.py"
       - ".github/workflows/test_inf2_llm.yml"
 
@@ -77,17 +79,55 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           python tests/fixtures/llm/export_models.py
-      - name: Run base LLM tests
+      - name: Run LLM utils tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/decoder/test_decoder_config.py
           pytest -sv tests/decoder/test_fused_logits_warper.py
+          pytest -sv tests/decoder/test_device_memory.py
+      - name: Run LLM export tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/decoder/test_decoder_export.py
-          pytest -sv tests/decoder/test_decoder_generation.py
-          pytest -sv tests/decoder/test_decoder_embedding.py
+      - name: Run LLM hub tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/decoder/test_decoder_hub.py
+      - name: Run LLM generation tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
+          pytest -sv tests/decoder/test_decoder_generation.py
+      - name: Run LLM embedding tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
+          pytest -sv tests/decoder/test_decoder_embedding.py
+      - name: Run LLM pipeline tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/decoder/test_decoder_pipelines.py
+      - name: Run LLM module tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/decoder/test_modules.py tests/decoder/test_attention.py
+      - name: Run LLM cache tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/decoder/test_cache.py
+      - name: Run LLM CLI tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/decoder/test_cli.py
+      - name: Synchronize hub cache
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE }}
+          optimum-cli neuron cache synchronize

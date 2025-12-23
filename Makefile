@@ -13,9 +13,8 @@
 #  limitations under the License.
 SHELL := /bin/bash
 CURRENT_DIR = $(shell pwd)
-DEFAULT_CLONE_URL := https://github.com/huggingface/optimum-neuron.git
-# If CLONE_URL is empty, revert to DEFAULT_CLONE_URL
-REAL_CLONE_URL = $(if $(CLONE_URL),$(CLONE_URL),$(DEFAULT_CLONE_URL))
+UV = $(shell command -v uv)
+UV_ARGS = $(if $(UV),--index-strategy unsafe-best-match)
 
 .PHONY:	build_dist style style_check clean
 
@@ -39,12 +38,15 @@ PACKAGE_FILES = $(PACKAGE_PYTHON_FILES)  \
 
 # Package build recipe
 $(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)
-	python -m build
+	$(if $(UV), $(UV), python -m) build
 
-# Creates example scripts from Transformers
-transformers_examples:
-	rm -f examples/**/*.py
-	python tools/create_examples_from_transformers.py --version $(VERSION) examples
+# Installation
+install: $(PACKAGE_DIST)
+	# Force CPU version of torch to speed up installation time
+	$(UV) pip install --upgrade $(PACKAGE_DIST)[neuronx] \
+		--extra-index-url https://download.pytorch.org/whl/cpu \
+		--extra-index-url https://pip.repos.neuron.amazonaws.com \
+		$(UV_ARGS)
 
 # Run code quality checks
 style_check:
@@ -64,12 +66,6 @@ build_dist: ${PACKAGE_DIST} ${PACKAGE_WHEEL}
 
 pypi_upload: ${PACKAGE_DIST} ${PACKAGE_WHEEL}
 	python -m twine upload ${PACKAGE_DIST} ${PACKAGE_WHEEL}
-
-# Tests
-
-test_installs:
-	python -m pip install .[tests]
-	python -m pip install git+https://github.com/huggingface/transformers.git
 
 # Docker images
 

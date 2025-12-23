@@ -26,9 +26,9 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 
 
 @pytest.fixture(scope="module")
-def model_and_tokenizer(neuron_llm_path):
-    model = NeuronModelForCausalLM.from_pretrained(neuron_llm_path)
-    tokenizer = AutoTokenizer.from_pretrained(neuron_llm_path)
+def model_and_tokenizer(base_neuron_llm_path):
+    model = NeuronModelForCausalLM.from_pretrained(base_neuron_llm_path)
+    tokenizer = AutoTokenizer.from_pretrained(base_neuron_llm_path)
     yield (model, tokenizer)
 
 

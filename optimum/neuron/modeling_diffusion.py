@@ -27,13 +27,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Literal
 
-import neuronx_distributed
 import torch
 import torch_neuronx
 from huggingface_hub import snapshot_download
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import is_diffusers_available, logging
-from safetensors.torch import load_file
 from torch.nn import ModuleList
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig, T5Tokenizer
 from transformers.modeling_outputs import ModelOutput
@@ -158,7 +156,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         image_encoder: torch.jit._script.ScriptModule | None = None,
         safety_checker: torch.jit._script.ScriptModule | None = None,
         tokenizer: CLIPTokenizer | T5Tokenizer | None = None,
-        tokenizer_2: CLIPTokenizer | None = None,
+        tokenizer_2: CLIPTokenizer | T5Tokenizer | None = None,
         feature_extractor: CLIPFeatureExtractor | None = None,
         controlnet: "torch.jit._script.ScriptModule | list[torch.jit._script.ScriptModule]| NeuronControlNetModel | NeuronMultiControlNetModel | None" = None,
         # stable diffusion xl specific arguments
@@ -202,7 +200,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 Tokenizer of class
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer) for stable diffusion models,
                 or tokenizer of class [T5Tokenizer](https://huggingface.co/docs/transformers/model_doc/t5#transformers.T5Tokenizer) for diffusion transformers.
-            tokenizer_2 (`CLIPTokenizer | None`, defaults to `None`):
+            tokenizer_2 (`CLIPTokenizer | T5Tokenizer | None`, defaults to `None`):
                 Second tokenizer of class
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
             feature_extractor (`CLIPFeatureExtractor | None`, defaults to `None`):
@@ -454,9 +452,9 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             "image_encoder": image_encoder_path,
         }
 
-        def _load_models_to_single_core(models: dict[str, Path]):
+        def _load_models(models: dict[str, Path], tensor_parallel_size: int):
             """
-            Loading models to a signgle core of a Neuron device, eg. text encoders, vae.
+            Loading models to Neuron device(s), eg. text encoders, sharded transformer, vae.
             """
             for model_name, model_paths in models.items():
                 # for the case of multiple controlnets the paths could be a list
@@ -465,14 +463,16 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 models_list = []
                 for model_path in model_paths:
                     if model_path is not None and model_path.is_file():
-                        model = NeuronTracedModel.load_model(model_path, to_neuron=to_neuron)
+                        model = NeuronTracedModel.load_model(
+                            model_path, to_neuron=to_neuron, tensor_parallel_size=tensor_parallel_size
+                        )
                         models_list.append(model)
                 models[model_name] = (
                     models_list if models_list and len(models_list) > 1 else (models_list[0] if models_list else None)
                 )
             return models
 
-        def _load_models_to_both_cores(models: dict[str, Path]):
+        def _load_models_dp(models: dict[str, Path]):
             """
             Loading models to both cores for data parallelism, eg. unet, transformer, controlnet.
             """
@@ -497,58 +497,30 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 )
             return models
 
-        def _load_sharded_model(model_name: str, model_path: Path, tensor_parallel_size: int):
-            """
-            Loading sharded models across multiple Neuron devices for tensor parallelism, eg. flux-transformer.
-            """
-            logger.info(f"Loading the sharded {model_name}...")
-            # load weights
-            weights = []
-            for rank in range(tensor_parallel_size):
-                ckpt = load_file(os.path.join(model_path.parent, f"weights/tp{rank}_sharded_checkpoint.safetensors"))
-                weights.append(ckpt)
-
-            # load model with weights
-            model = NeuronTracedModel.load_model(model_path)
-            start_rank_tensor = torch.tensor([0], dtype=torch.int32, device="cpu")
-            model.nxd_model.initialize(weights, start_rank_tensor)
-            return model
-
         # define the mode for loading the models
-        if tensor_parallel_size > 1:
-            tp_models = ["text_encoder_2", "transformer"]
-            models_on_a_single_core = _load_models_to_single_core(
-                {k: v for k, v in submodels.items() if k not in tp_models}
-            )
-            # Load Flux transformer
-            submodels["transformer"] = _load_sharded_model(
-                "transformer", submodels["transformer"], tensor_parallel_size
-            )
-            # Load T5 text encoder
-            submodels["text_encoder_2"] = neuronx_distributed.trace.parallel_model_load(submodels["text_encoder_2"])
-            submodels.update(models_on_a_single_core)
-        elif data_parallel_mode == "all":
-            submodels = _load_models_to_both_cores(submodels)
-        elif data_parallel_mode in ["unet", "transformer"]:
-            if data_parallel_mode == "unet":
-                logger.info("Loading only U-Net into both Neuron Cores...")
-            elif data_parallel_mode == "transformer":
-                logger.info("Loading only diffusion transformer into both Neuron Cores...")
-            dp_models = [
-                "unet",
-                "transformer",
-                "controlnet",
-            ]  # controlnet takes inputs with the same batch_size as the unet
-            models_on_both_cores = _load_models_to_both_cores({k: submodels[k] for k in dp_models if k in submodels})
-            models_on_a_single_core = _load_models_to_single_core(
-                {k: v for k, v in submodels.items() if k not in dp_models}
-            )
-            submodels = {**models_on_a_single_core, **models_on_both_cores}
-        elif data_parallel_mode == "none":
-            logger.info("Loading the pipeline without any data parallelism...")
-            submodels = _load_models_to_single_core(submodels)
+        if tensor_parallel_size == 1:
+            if data_parallel_mode == "all":
+                submodels = _load_models_dp(submodels)
+            elif data_parallel_mode in ["unet", "transformer"]:
+                logger.info("Loading only U-Net / Diffusion Transformer into both Neuron Cores...")
+                dp_models = [
+                    "unet",
+                    "transformer",
+                    "controlnet",
+                ]  # controlnet takes inputs with the same batch_size as the unet
+                models_dp = _load_models_dp({k: submodels[k] for k in dp_models if k in submodels})
+                other_models = _load_models(
+                    {k: v for k, v in submodels.items() if k not in dp_models},
+                    tensor_parallel_size=tensor_parallel_size,
+                )
+                submodels = {**other_models, **models_dp}
+            elif data_parallel_mode == "none":
+                logger.info("Loading the pipeline without any data parallelism...")
+                submodels = _load_models(submodels, tensor_parallel_size=tensor_parallel_size)
+            else:
+                raise ValueError("You need to pass `data_parallel_mode` to define Neuron Core allocation.")
         else:
-            raise ValueError("You need to pass `data_parallel_mode` to define Neuron Core allocation.")
+            submodels = _load_models(submodels, tensor_parallel_size=tensor_parallel_size)
 
         return submodels
 
@@ -596,6 +568,21 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         Saves the model to the serialized format optimized for Neuron devices.
         """
         shutil.copytree(self.model_save_dir, save_directory, dirs_exist_ok=True)
+
+    @classmethod
+    @contextmanager
+    def set_neuron_visible_cores(cls, value: int):
+        # We need to set explicitly the visible cores for nxd model, otherwise the world size will be automatically set to all available cores, leading to communication timeout.
+        old = os.environ.get("NEURON_RT_NUM_CORES")
+        if value > 1:
+            os.environ["NEURON_RT_NUM_CORES"] = str(value)
+        try:
+            yield
+        finally:
+            if old is None:
+                os.environ.pop("NEURON_RT_NUM_CORES", None)
+            else:
+                os.environ["NEURON_RT_NUM_CORES"] = old
 
     @classmethod
     @requires_torch_neuronx
@@ -730,20 +717,21 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 neuron_configs[name] = sub_neuron_configs if len(sub_neuron_configs) > 1 else sub_neuron_configs[0]
 
         data_parallel_mode, tensor_parallel_size = NeuronDiffusionPipelineBase.set_parallel_mode(neuron_configs)
-        pipe = cls.load_model(
-            data_parallel_mode=data_parallel_mode,
-            text_encoder_path=model_and_config_save_paths["text_encoder"][0],
-            unet_path=model_and_config_save_paths["unet"][0],
-            transformer_path=model_and_config_save_paths["transformer"][0],
-            vae_decoder_path=model_and_config_save_paths["vae_decoder"][0],
-            vae_encoder_path=model_and_config_save_paths["vae_encoder"][0],
-            text_encoder_2_path=model_and_config_save_paths["text_encoder_2"][0],
-            image_encoder_path=model_and_config_save_paths["image_encoder"][0],
-            controlnet_paths=model_and_config_save_paths["controlnet"][0],
-            dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME].dynamic_batch_size,
-            to_neuron=not inline_weights_to_neff,
-            tensor_parallel_size=tensor_parallel_size,
-        )
+        with cls.set_neuron_visible_cores(tensor_parallel_size):
+            pipe = cls.load_model(
+                data_parallel_mode=data_parallel_mode,
+                text_encoder_path=model_and_config_save_paths["text_encoder"][0],
+                unet_path=model_and_config_save_paths["unet"][0],
+                transformer_path=model_and_config_save_paths["transformer"][0],
+                vae_decoder_path=model_and_config_save_paths["vae_decoder"][0],
+                vae_encoder_path=model_and_config_save_paths["vae_encoder"][0],
+                text_encoder_2_path=model_and_config_save_paths["text_encoder_2"][0],
+                image_encoder_path=model_and_config_save_paths["image_encoder"][0],
+                controlnet_paths=model_and_config_save_paths["controlnet"][0],
+                dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME].dynamic_batch_size,
+                to_neuron=not inline_weights_to_neff,
+                tensor_parallel_size=tensor_parallel_size,
+            )
 
         if model_save_dir is None:
             model_save_dir = new_model_save_dir
@@ -1325,11 +1313,12 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
         timestep = timestep.to(self.neuron_config.float_dtype)
         if self.neuron_config.MODEL_TYPE == "flux-transformer-2d":
             ids = torch.cat((txt_ids, img_ids), dim=0)
-            image_rotary_emb = torch.stack(self.pos_embed(ids), dim=2).to(self.neuron_config.float_dtype)
-            inputs = (hidden_states, encoder_hidden_states, pooled_projections, timestep, image_rotary_emb)
+            inputs = (hidden_states, encoder_hidden_states, pooled_projections, timestep)
             if guidance is not None:
                 guidance = guidance.to(self.neuron_config.float_dtype)
                 inputs += (guidance,)
+            image_rotary_emb = torch.stack(self.pos_embed(ids), dim=2).to(self.neuron_config.float_dtype)
+            inputs += (image_rotary_emb,)
         elif self.neuron_config.MODEL_TYPE == "pixart-transformer-2d":
             inputs = (hidden_states, encoder_hidden_states, timestep, encoder_attention_mask)
 

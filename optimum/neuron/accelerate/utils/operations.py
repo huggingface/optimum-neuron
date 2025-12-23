@@ -41,9 +41,25 @@ def broadcast_object(
     fixed_size: int | None = None,
 ) -> Any:
     """
-    Broadcasts arbitrary objects across XLA-distributed processes.
+    Broadcasts arbitrary picklable objects across XLA-distributed processes.
     Returns the object from the source rank on all ranks.
     If `groups` is specified, broadcast is done separately in each group, and the `src` rank is relative to each group.
+
+    Args:
+        obj (Any): The object to broadcast. Must be picklable (serializable via pickle).
+        src (int, defaults to `0`): The source rank within each group.
+        groups (list[list[int]] | None, defaults to `None`): Optional list of process groups for separate broadcasts.
+        world_size_function (Callable[[], int], defaults to `xr.world_size`): Function to get the world size.
+        get_rank_function (Callable[[], int], defaults to `xr.global_ordinal`): Function to get the current rank.
+        fixed_size (int | None, defaults to `None`): Optional fixed buffer size for serialization. If specified,
+            the serialized object must not exceed this size.
+
+    Returns:
+        Any: The broadcast object from the source rank.
+
+    Note:
+        Objects must be picklable. This includes most Python built-in types, but excludes
+        certain objects like lambdas, local functions, or objects with open file handles.
     """
     world_size = world_size_function()
     if world_size == 1:
@@ -99,8 +115,13 @@ def broadcast_object(
 
 def broadcast_object_to_data_parallel_group(obj: Any, src: int = 0, fixed_size: int | None = None) -> Any:
     """
-    Broadcasts arbitrary objects across XLA-distributed data parallel group.
+    Broadcasts arbitrary picklable objects across XLA-distributed data parallel group.
     Returns the object from the source rank on all ranks in the data parallel group.
+
+    Args:
+        obj (Any): The object to broadcast. Must be picklable (serializable via pickle).
+        src (int, defaults to `0`): The source rank within the data parallel group.
+        fixed_size (int | None, defaults to `None`): Optional fixed buffer size for serialization.
     """
     groups = get_data_parallel_replica_groups()
     return broadcast_object(
@@ -115,8 +136,13 @@ def broadcast_object_to_data_parallel_group(obj: Any, src: int = 0, fixed_size: 
 
 def broadcast_object_to_tensor_model_parallel_group(obj: Any, src: int = 0, fixed_size: int | None = None) -> Any:
     """
-    Broadcasts arbitrary objects across XLA-distributed tensor model parallel group.
+    Broadcasts arbitrary picklable objects across XLA-distributed tensor model parallel group.
     Returns the object from the source rank on all ranks in the tensor model parallel group.
+
+    Args:
+        obj (Any): The object to broadcast. Must be picklable (serializable via pickle).
+        src (int, defaults to `0`): The source rank within the tensor model parallel group.
+        fixed_size (int | None, defaults to `None`): Optional fixed buffer size for serialization.
     """
     groups = get_tensor_model_parallel_replica_groups()
     return broadcast_object(
@@ -131,8 +157,13 @@ def broadcast_object_to_tensor_model_parallel_group(obj: Any, src: int = 0, fixe
 
 def broadcast_object_to_pipeline_model_parallel_group(obj: Any, src: int = 0, fixed_size: int | None = None) -> Any:
     """
-    Broadcasts arbitrary objects across XLA-distributed pipeline model parallel group.
+    Broadcasts arbitrary picklable objects across XLA-distributed pipeline model parallel group.
     Returns the object from the source rank on all ranks in the pipeline model parallel group.
+
+    Args:
+        obj (Any): The object to broadcast. Must be picklable (serializable via pickle).
+        src (int, defaults to `0`): The source rank within the pipeline model parallel group.
+        fixed_size (int | None, defaults to `None`): Optional fixed buffer size for serialization.
     """
     groups = get_pipeline_model_parallel_replica_groups()
     return broadcast_object(
@@ -152,9 +183,23 @@ def gather_object(
     fixed_size: int | None = None,
 ) -> list[Any]:
     """
-    Gathers arbitrary objects across XLA-distributed processes.
+    Gathers arbitrary picklable objects across XLA-distributed processes.
     Returns list of objects from all ranks on all ranks.
     If `groups` is specified, gather is done separately in each group.
+
+    Args:
+        obj (Any): The object to gather. Must be picklable (serializable via pickle).
+        groups (list[list[int]] | None, defaults to `None`): Optional list of process groups for separate gathers.
+        world_size_function (Callable[[], int], defaults to `xr.world_size`): Function to get the world size.
+        fixed_size (int | None, defaults to `None`): Optional fixed buffer size for serialization. If specified,
+            the serialized object must not exceed this size.
+
+    Returns:
+        list[Any]: List of objects from all ranks.
+
+    Note:
+        Objects must be picklable. This includes most Python built-in types, but excludes
+        certain objects like lambdas, local functions, or objects with open file handles.
     """
     world_size = world_size_function()
 
@@ -220,8 +265,12 @@ def gather_object(
 
 def gather_object_from_data_parallel_group(obj: Any, fixed_size: int | None = None) -> list[Any]:
     """
-    Gathers arbitrary objects across XLA-distributed data parallel group.
+    Gathers arbitrary picklable objects across XLA-distributed data parallel group.
     Returns list of objects from all ranks in the data parallel group on all ranks.
+
+    Args:
+        obj (Any): The object to gather. Must be picklable (serializable via pickle).
+        fixed_size (int | None, defaults to `None`): Optional fixed buffer size for serialization.
     """
     groups = get_data_parallel_replica_groups()
     return gather_object(
@@ -234,8 +283,12 @@ def gather_object_from_data_parallel_group(obj: Any, fixed_size: int | None = No
 
 def gather_object_from_tensor_model_parallel_group(obj: Any, fixed_size: int | None = None) -> list[Any]:
     """
-    Gathers arbitrary objects across XLA-distributed tensor model parallel group.
+    Gathers arbitrary picklable objects across XLA-distributed tensor model parallel group.
     Returns list of objects from all ranks in the tensor model parallel group on all ranks.
+
+    Args:
+        obj (Any): The object to gather. Must be picklable (serializable via pickle).
+        fixed_size (int | None, defaults to `None`): Optional fixed buffer size for serialization.
     """
     groups = get_tensor_model_parallel_replica_groups()
     return gather_object(
@@ -248,8 +301,12 @@ def gather_object_from_tensor_model_parallel_group(obj: Any, fixed_size: int | N
 
 def gather_object_from_pipeline_model_parallel_group(obj: Any, fixed_size: int | None = None) -> list[Any]:
     """
-    Gathers arbitrary objects across XLA-distributed pipeline model parallel group.
+    Gathers arbitrary picklable objects across XLA-distributed pipeline model parallel group.
     Returns list of objects from all ranks in the pipeline model parallel group on all ranks.
+
+    Args:
+        obj (Any): The object to gather. Must be picklable (serializable via pickle).
+        fixed_size (int | None, defaults to `None`): Optional fixed buffer size for serialization.
     """
     groups = get_pipeline_model_parallel_replica_groups()
     return gather_object(

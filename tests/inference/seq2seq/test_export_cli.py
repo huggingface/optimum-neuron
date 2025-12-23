@@ -19,13 +19,12 @@ import unittest
 from optimum.utils import logging
 
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
-@is_inferentia_test
 class TestExportCLI(unittest.TestCase):
     @requires_neuronx
     def test_encoder_decoder(self):

@@ -202,32 +202,36 @@ def neuron_llm_config(request):
         logger.info(f"Done with {config_name}")
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def neuron_llm_path(neuron_llm_config):
     yield neuron_llm_config["neuron_model_path"]
 
 
-@pytest.fixture(scope="module")
-def base_neuron_llm_config():
+@pytest.fixture(scope="session")
+def base_neuron_llm_config(request):
     """Expose a base neuron llm model path for testing purposes.
 
     This fixture is used to test the export of models that do not have a predefined configuration.
     It will create a temporary directory and yield its path.
+
+    If the param is not provided, it will use the first model configuration in the list.
     """
+    first_config_name = list(LLM_MODEL_CONFIGURATIONS.keys())[0]
+    config_name = getattr(request, "param", first_config_name)
     with TemporaryDirectory() as neuron_model_path:
-        model_config = LLM_MODEL_CONFIGURATIONS["llama"]
-        neuron_model_config = _get_neuron_model_for_config("base", model_config, neuron_model_path)
+        model_config = LLM_MODEL_CONFIGURATIONS[config_name]
+        neuron_model_config = _get_neuron_model_for_config(config_name, model_config, neuron_model_path)
         logger.info("Base neuron model ready for testing ...")
         yield neuron_model_config
         logger.info("Done with base neuron model testing")
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def base_neuron_llm_path(base_neuron_llm_config):
     yield base_neuron_llm_config["neuron_model_path"]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def speculation():
     model_id = "unsloth/Llama-3.2-1B-Instruct"
     neuron_model_id = f"{_get_hub_neuron_model_prefix()}-speculation"

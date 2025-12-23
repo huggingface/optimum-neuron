@@ -61,11 +61,10 @@ def cores_per_device():
     return 4 if get_instance_name().startswith("trn2") else 2
 
 
-def get_available_cores() -> int:
-    """A helper to get the number of available cores.
+def get_neuron_devices_count() -> int:
+    """A helper to get the total number of neuron devices.
 
-    This number depends first on the actual number of cores, then on the
-    content of the NEURON_RT_NUM_CORES and NEURON_RT_VISIBLE_CORES variables.
+    Note that not all neuron devices are necessarily available for the current process.
     """
     neuron_major = get_neuron_major()
     if neuron_major == -1:
@@ -87,18 +86,29 @@ def get_available_cores() -> int:
             # device name
             if NEURON_DEV_PATTERN.match(f):
                 device_count += 1
+    return device_count
+
+
+def get_available_cores() -> int:
+    """A helper to get the number of available cores.
+
+    This number depends first on the actual number of cores, then on the
+    content of the NEURON_RT_NUM_CORES and NEURON_RT_VISIBLE_CORES variables.
+    """
+    device_count = get_neuron_devices_count()
+    if device_count == 0:
+        return 0
     max_cores = device_count * cores_per_device()
-    num_cores = os.environ.get("NEURON_RT_NUM_CORES", max_cores)
-    if num_cores != max_cores:
-        num_cores = int(num_cores)
+    num_cores = int(os.environ.get("NEURON_RT_NUM_CORES", max_cores))
     num_cores = min(num_cores, max_cores)
     visible_cores = os.environ.get("NEURON_RT_VISIBLE_CORES", num_cores)
-    if visible_cores != num_cores:
-        # Assume NEURON_RT_VISIBLE_CORES is in the form '4' or '7-15'
-        if "-" in visible_cores:
-            start, end = visible_cores.split("-")
-            visible_cores = int(end) - int(start) + 1
-        else:
-            visible_cores = 1
-    visible_cores = min(visible_cores, num_cores)
-    return visible_cores
+    if type(visible_cores) is int:
+        return min(visible_cores, num_cores)
+    # NEURON_RT_VISIBLE_CORES is in the form '4' or '7-15'
+    visible_cores = str(visible_cores)
+    if "-" in visible_cores:
+        start, end = visible_cores.split("-")
+        num_visible_cores = int(end) - int(start) + 1
+    else:
+        num_visible_cores = 1
+    return min(num_visible_cores, num_cores)

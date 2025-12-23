@@ -19,9 +19,6 @@ import torch
 import torch.nn as nn
 from vllm.config import LoadConfig, ModelConfig, ParallelConfig, SchedulerConfig
 from vllm.model_executor.layers.logits_processor import LogitsProcessor
-from vllm.model_executor.layers.sampler import Sampler, SamplerOutput
-from vllm.model_executor.sampling_metadata import SamplingMetadata
-from vllm.sequence import CompletionSequenceGroupOutput, Logprob, SequenceOutput
 
 from ..cache.hub_cache import select_hub_cached_entries
 from ..configuration_utils import NeuronConfig
@@ -40,7 +37,6 @@ class OptimumNeuronModelForCausalLM(nn.Module):
         super().__init__()
         self.model = model
         self.logits_processor = LogitsProcessor(self.model.config.vocab_size, logits_as_input=True)
-        self.sampler = Sampler()
 
     def forward(
         self,
@@ -72,41 +68,6 @@ class OptimumNeuronModelForCausalLM(nn.Module):
             output = torch.index_select(output, 0, restored_indices)
 
         return output
-
-    def compute_logits(self, hidden_states: torch.Tensor, sampling_metadata: SamplingMetadata) -> torch.Tensor:
-        logits = self.logits_processor(None, hidden_states, sampling_metadata)
-        return logits
-
-    def sample(
-        self,
-        logits: torch.Tensor,
-        sampling_metadata: SamplingMetadata,
-    ) -> SamplerOutput | None:
-        # on-device sampling
-        if self.model.neuron_config.on_device_sampling:
-            batch_size = logits.shape
-            seq_ids = [seq_id for sg in sampling_metadata.seq_groups for seq_id in sg.seq_ids]
-            assert len(seq_ids) == list(batch_size)[0], "batch size mismatch"
-            # Organize input tensors by step instead of by sequence.
-            accepted_token_ids_by_step = logits.flatten()
-            accepted_token_ids_by_step = accepted_token_ids_by_step.tolist()
-
-            step_output_token_ids = []
-            for i, seq_id in enumerate(seq_ids):
-                token_id = accepted_token_ids_by_step[i]
-                step_output_token_ids.append(
-                    CompletionSequenceGroupOutput(
-                        samples=[
-                            SequenceOutput(
-                                parent_seq_id=seq_id, output_token=token_id, logprobs={token_id: Logprob(token_id)}
-                            )
-                        ],
-                        prompt_logprobs=None,
-                    )
-                )
-            return SamplerOutput(outputs=step_output_token_ids)
-        else:
-            return self.sampler(logits, sampling_metadata)
 
 
 def get_optimum_neuron_model(
@@ -142,7 +103,7 @@ def get_optimum_neuron_model(
     try:
         # Look for a NeuronConfig in the model directory
         neuron_config = NeuronConfig.from_pretrained(model_name_or_path, revision=revision, token=token)
-    except Exception:
+    except EnvironmentError:
         neuron_config = None
     if neuron_config is not None:
         neuron_model = NeuronModelForCausalLM.from_pretrained(
@@ -155,8 +116,9 @@ def get_optimum_neuron_model(
         batch_size = scheduler_config.max_num_seqs
         sequence_length = scheduler_config.max_model_len
         torch_dtype = None if model_config.dtype is None else model_config.dtype
+
         cached_entries = select_hub_cached_entries(
-            model_id,
+            model_name_or_path,
             task="text-generation",
             batch_size=batch_size,
             sequence_length=sequence_length,
@@ -178,7 +140,7 @@ def get_optimum_neuron_model(
                 if torch_dtype is not None:
                     error_msg += f", dtype = {torch_dtype}"
                 error_msg += (
-                    f".You can start a discussion to request it on {hub_cache_url}"
+                    f".You can start a discussion to request it on {hub_cache_url} "
                     "Alternatively, you can export your own neuron model "
                     f"as explained in {neuron_export_url}"
                 )
@@ -200,8 +162,9 @@ def get_optimum_neuron_model(
                 )
         else:
             logger.warning("%s is not a neuron model: it will be exported using cached artifacts.", model_id)
+
         neuron_config = NeuronModelForCausalLM.get_neuron_config(
-            model_name_or_path=model_id,
+            model_name_or_path=model_name_or_path,
             batch_size=batch_size,
             sequence_length=sequence_length,
             tensor_parallel_size=tp_degree,

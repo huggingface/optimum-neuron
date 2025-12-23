@@ -14,6 +14,7 @@
 # limitations under the License.
 import hashlib
 import json
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -80,11 +81,17 @@ class ModelCacheEntry:
         from .multi_model import MultiModelCacheEntry
         from .single_model import SingleModelCacheEntry
 
-        api = HfApi()
-        if api.file_exists(model_id, "config.json"):
-            return SingleModelCacheEntry.from_hub(model_id, task)
-        elif api.file_exists(model_id, "model_index.json"):
-            return MultiModelCacheEntry.from_hub(model_id)
+        if os.path.exists(model_id):
+            if os.path.exists(os.path.join(model_id, "config.json")):
+                return SingleModelCacheEntry.from_local_path(model_id, task)
+            elif os.path.exists(os.path.join(model_id, "model_index.json")):
+                return MultiModelCacheEntry.from_local_path(model_id)
+        else:
+            api = HfApi()
+            if api.file_exists(model_id, "config.json"):
+                return SingleModelCacheEntry.from_hub(model_id, task)
+            elif api.file_exists(model_id, "model_index.json"):
+                return MultiModelCacheEntry.from_hub(model_id)
         raise ValueError(f"Unable to evaluate model type for {model_id}: is it a diffusers or transformers model ?")
 
     def serialize(self) -> str:

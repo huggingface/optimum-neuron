@@ -82,3 +82,8 @@ class SingleModelCacheEntry(ModelCacheEntry):
             if text_config is not None:
                 config = text_config
         return cls(model_id, task, config)
+
+    @classmethod
+    def from_local_path(cls, model_id: str, task: str):
+        # the code is the same as from the hub, we can just call the from_hub method
+        return cls.from_hub(model_id, task)

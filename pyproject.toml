@@ -39,7 +39,7 @@ classifiers = [
 dependencies = [
     "transformers ~= 4.57.1",
     "optimum ~= 2.0.0",
-    "huggingface_hub >= 0.31.4",
+    "huggingface_hub >= 0.35.3",
 ]
 
 [project.urls]
@@ -82,7 +82,6 @@ neuron = [
     "torch-neuron==1.13.1.2.9.74.0",
     "torch==1.13.1.*",
     "neuron-cc[tensorflow]==1.22.0.0",
-    "protobuf",
     "torchvision",
     "numpy==1.22.2",
     "protobuf<=3.20.1",
@@ -109,12 +108,13 @@ sentence-transformers = [
     "sentence-transformers >= 2.2.0",
 ]
 vllm = [
-    "vllm == 0.10.2",
+    "vllm == 0.11.0",
 ]
 vllm-tests = [
     "docker",
     "pytest-asyncio",
     "openai",
+    "smolagents[openai]",
 ]
 
 [project.scripts]
@@ -154,11 +154,20 @@ conflicts = [
 name = "neuron"
 url = "https://pip.repos.neuron.amazonaws.com/"
 default = true
-    
-[[tool.uv.index]]
-name = "pypi"
-url = "https://pypi.org/simple"
 
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu" },
+]
+torchvision = [
+    { index = "pytorch-cpu" },
+]
+    
 [tool.ruff]
 line-length = 119
 
@@ -184,6 +193,7 @@ markers = [
     "is_staging_test",
     "is_trainium_test",
     "is_inferentia_test",
+    "slow",
     "neuron_parallel_compile",
     "flagship_model",
 ]

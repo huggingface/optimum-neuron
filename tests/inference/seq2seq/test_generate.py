@@ -16,10 +16,9 @@
 from transformers import AutoTokenizer
 
 from optimum.neuron import NeuronModelForSeq2SeqLM
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx
 
 
-@is_inferentia_test
 @requires_neuronx
 def test_seq2seq_generation_beam(neuron_seq2seq_beam_path):
     model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_beam_path)
@@ -39,7 +38,6 @@ def test_seq2seq_generation_beam(neuron_seq2seq_beam_path):
     assert len(output[0].unique()) <= 5 + 1  # +1 for `decoder_start_token_id`
 
 
-@is_inferentia_test
 @requires_neuronx
 def test_seq2seq_generation_beam_with_optional_outputs(neuron_seq2seq_beam_path_with_optional_outputs):
     model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_beam_path_with_optional_outputs)
@@ -61,7 +59,6 @@ def test_seq2seq_generation_beam_with_optional_outputs(neuron_seq2seq_beam_path_
     assert "decoder_hidden_states" in output
 
 
-@is_inferentia_test
 @requires_neuronx
 def test_seq2seq_generation_greedy(neuron_seq2seq_greedy_path):
     model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_greedy_path)
@@ -81,7 +78,6 @@ def test_seq2seq_generation_greedy(neuron_seq2seq_greedy_path):
     assert len(output[0]) <= 5 + 1  # +1 for `decoder_start_token_id`
 
 
-@is_inferentia_test
 @requires_neuronx
 def test_seq2seq_generation_greedy_with_optional_outputs(neuron_seq2seq_greedy_path_with_optional_outputs):
     model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_greedy_path_with_optional_outputs)

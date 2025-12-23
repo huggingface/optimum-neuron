@@ -13,15 +13,14 @@
 # limitations under the License.
 import logging
 
-from vllm.platforms.interface import Platform, PlatformEnum
+from vllm.platforms.interface import UnspecifiedPlatform
 from vllm.utils import FlexibleArgumentParser
 
 
 logger = logging.getLogger("Neuron")
 
 
-class OptimumNeuronPlatform(Platform):
-    _enum = PlatformEnum.UNSPECIFIED
+class OptimumNeuronPlatform(UnspecifiedPlatform):
     device_name: str = "neuron"
     # Device type is set to "cpu" to prevent vLLM from preemptively moving tensors
     # to the XLA device and trigger spurious neuron runtime intializations.
@@ -31,8 +30,12 @@ class OptimumNeuronPlatform(Platform):
     device_control_env_var: str = "NEURON_RT_VISIBLE_CORES"
 
     @classmethod
+    def get_device_name(cls, device_id: int = 0) -> str:
+        return "neuron"
+
+    @classmethod
     def pre_register_and_update(cls, parser: FlexibleArgumentParser | None = None) -> None:
-        from vllm import config
+        from vllm.config import model
 
         # Patch ModelConfig to avoid hard-coded check in vLLM
         def verify_with_parallel_config(self, parallel_config) -> None:
@@ -40,17 +43,10 @@ class OptimumNeuronPlatform(Platform):
             # the number of attention heads, which is not necessarily true for
             # Neuron models (e.g., Llama 4 Scout 17B with TP=32).
             # We override the method to skip this check.
+            logger.info("Disabling ModelConfig verification with parallel config for Optimum Neuron platform (class).")
             pass
 
-        config.ModelConfig.verify_with_parallel_config = verify_with_parallel_config
-
-    @classmethod
-    def get_device_name(cls, device_id: int = 0) -> str:
-        return "neuron"
-
-    @classmethod
-    def is_async_output_supported(cls, enforce_eager: bool | None) -> bool:
-        return False
+        model.ModelConfig.verify_with_parallel_config = verify_with_parallel_config
 
     @classmethod
     def check_and_update_config(cls, vllm_config) -> None:
@@ -68,16 +64,37 @@ class OptimumNeuronPlatform(Platform):
         if parallel_config.world_size > 1:
             parallel_config.distributed_executor_backend = "uni"
 
-        if vllm_config.cache_config and vllm_config.model_config:
-            # optimum-neuron only supports blocks equal to the maximum sequence length
-            vllm_config.cache_config.block_size = vllm_config.model_config.max_model_len
+        if vllm_config.cache_config:
+            # Disable prefix-caching as it's not supported on optimum-neuron
+            vllm_config.cache_config.enable_prefix_caching = False
+            if vllm_config.model_config:
+                # optimum-neuron only supports blocks equal to the maximum sequence length
+                vllm_config.cache_config.block_size = vllm_config.model_config.max_model_len
 
-        if vllm_config.model_config and vllm_config.model_config.use_mla:
-            raise ValueError(
-                "MLA (Multi-Layer Attention) is not supported on Optimum Neuron platform. "
-                "Please set `use_mla` to False in the model configuration."
-            )
+        if vllm_config.model_config:
+            if vllm_config.model_config.use_mla:
+                raise ValueError(
+                    "MLA (Multi-Layer Attention) is not supported on Optimum Neuron platform. "
+                    "Please set `use_mla` to False in the model configuration."
+                )
+
+            # Patch ModelConfig to avoid hard-coded check in vLLM
+            def verify_with_parallel_config(parallel_config) -> None:
+                # The original method checks that the tensor_parallel_size divides
+                # the number of attention heads, which is not necessarily required for
+                # Neuron models, since we use padding (e.g., Llama 4 Scout 17B with TP=32).
+                # We override the method to skip this check.
+                logger.info(
+                    "Disabling ModelConfig verification with parallel config for Optimum Neuron platform (instance)."
+                )
+                pass
+
+            vllm_config.model_config.verify_with_parallel_config = verify_with_parallel_config
 
     @classmethod
     def is_pin_memory_available(cls) -> bool:
         return False
+
+    @classmethod
+    def use_all_gather(cls) -> bool:
+        return True
