@@ -12,7 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 [build-system]
-requires = ["setuptools==69.5.1", "wheel"]
+requires = ["setuptools==80.9.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -20,7 +20,7 @@ name = "optimum-neuron"
 dynamic = ["version"]
 description = "Optimum Neuron serves as the bridge between Hugging Face libraries, such as Transformers, Diffusers, and PEFT, and AWS Trainium and Inferentia accelerators. It provides a set of tools enabling easy model loading, training, and inference on both single and multiple Neuron core configurations, across a wide range of downstream tasks."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.12"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "HuggingFace Inc. Special Ops Team", email = "hardware@huggingface.co"},
@@ -153,7 +153,6 @@ conflicts = [
 [[tool.uv.index]]
 name = "neuron"
 url = "https://pip.repos.neuron.amazonaws.com/"
-default = true
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
@@ -167,7 +166,7 @@ torch = [
 torchvision = [
     { index = "pytorch-cpu" },
 ]
-    
+
 [tool.ruff]
 line-length = 119
 
