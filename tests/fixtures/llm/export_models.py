@@ -60,6 +60,15 @@ for model_name, model_id in LLM_MODEL_IDS.items():
                 "tensor_parallel_size": cores_per_device(),
             },
         }
+# Special configuration to test larger sequence lengths
+LLM_MODEL_CONFIGURATIONS["llama-1x8192"] = {
+    "model_id": LLM_MODEL_IDS["llama"],
+    "export_kwargs": {
+        "batch_size": 1,
+        "sequence_length": 8192,
+        "tensor_parallel_size": cores_per_device(),
+    },
+}
 
 
 def get_neuron_models_hash():
