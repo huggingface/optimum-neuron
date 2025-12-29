@@ -43,7 +43,7 @@ jobs:
       group: aws-inf2-8xlarge
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Install Neuronx runtime
         uses: ./.github/actions/install_neuronx_runtime
       - name: Install cv2 dependencies
