@@ -50,7 +50,7 @@ LLM_MODEL_IDS = {
 LLM_MODEL_CONFIGURATIONS = {}
 
 for model_name, model_id in LLM_MODEL_IDS.items():
-    for batch_size, sequence_length in [(4, 4096)]:
+    for batch_size, sequence_length in [(4, 4096), (1, 8192)]:
         LLM_MODEL_CONFIGURATIONS[f"{model_name}-{batch_size}x{sequence_length}"] = {
             "model_id": model_id,
             "export_kwargs": {
