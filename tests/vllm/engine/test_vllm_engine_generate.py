@@ -1,4 +1,6 @@
 # ruff: noqa: E402 ignore imports not at top-level
+from typing import Any
+
 import pytest
 
 
@@ -44,16 +46,18 @@ def _test_vllm_generation(llm):
     assert first_token_ids != third_token_ids
 
 
-def test_vllm_from_neuron_model(base_neuron_llm_path):
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+def test_vllm_from_neuron_model(neuron_llm_config: dict[str, Any]):
     """Test vLLm generation on a single model exported locally."""
-    llm = LLM(model=base_neuron_llm_path)
+    neuron_llm_path = neuron_llm_config["neuron_model_path"]
+    llm = LLM(model=neuron_llm_path)
     _test_vllm_generation(llm)
 
 
-def test_vllm_from_hub_model(neuron_llm_config):
+def test_vllm_from_hub_model(any_neuron_llm_config: dict[str, Any]):
     """Test vLLm generation on all cached test models from the hub."""
-    model_id = neuron_llm_config["model_id"]
-    export_kwargs = neuron_llm_config["export_kwargs"]
+    model_id = any_neuron_llm_config["model_id"]
+    export_kwargs = any_neuron_llm_config["export_kwargs"]
     llm = LLM(
         model=model_id,
         max_num_seqs=export_kwargs["batch_size"],
@@ -63,11 +67,12 @@ def test_vllm_from_hub_model(neuron_llm_config):
     _test_vllm_generation(llm)
 
 
-def test_vllm_greedy_expectations(base_neuron_llm_config):
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+def test_vllm_greedy_expectations(neuron_llm_config: dict[str, Any]):
     """Test vLLm greedy sampling on a single model exported locally."""
-    base_neuron_llm_path = base_neuron_llm_config["neuron_model_path"]
-    batch_size = base_neuron_llm_config["export_kwargs"]["batch_size"]
-    llm = LLM(model=base_neuron_llm_path, max_num_seqs=batch_size)
+    neuron_llm_path = neuron_llm_config["neuron_model_path"]
+    batch_size = neuron_llm_config["export_kwargs"]["batch_size"]
+    llm = LLM(model=neuron_llm_path, max_num_seqs=batch_size)
     # Send more prompts than the compiled batch size (4) and request
     # varying generation lengths to test continuous batching.
     prompts = [

@@ -10,6 +10,21 @@ from optimum.neuron.utils.instance import current_instance_type
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
+@pytest.fixture(scope="module")
+def cached_model_id(neuron_llm_config):
+    yield neuron_llm_config["model_id"]
+
+
+@pytest.fixture(scope="module")
+def neuron_model_path(neuron_llm_config):
+    yield neuron_llm_config["neuron_model_path"]
+
+
+@pytest.fixture(scope="module")
+def neuron_model_id(neuron_llm_config):
+    yield neuron_llm_config["neuron_model_id"]
+
+
 def _test_generation(p):
     assert p.task == "text-generation"
     assert isinstance(p.model, NeuronModelForCausalLM)
@@ -45,11 +60,11 @@ def _test_generation(p):
 
 @is_inferentia_test
 @requires_neuronx
-def test_export_no_parameters():
+def test_export_no_parameters(cached_model_id):
     visible_cores = os.environ.get("NEURON_RT_NUM_CORES", None)
     # We can restrict the number of visible cores, but only if we use a full device
     os.environ["NEURON_RT_NUM_CORES"] = "4" if current_instance_type() == "trn2" else "2"
-    p = pipeline("text-generation", "Qwen/Qwen2.5-0.5B", export=True)
+    p = pipeline("text-generation", cached_model_id, export=True)
     _test_generation(p)
     if visible_cores is None:
         os.environ.pop("NEURON_RT_NUM_CORES", None)
@@ -71,37 +86,36 @@ def test_export_parameters():
 
 @is_inferentia_test
 @requires_neuronx
-def test_load_no_parameters(base_neuron_llm_path):
-    p = pipeline("text-generation", base_neuron_llm_path)
+def test_load_no_parameters(neuron_model_path):
+    p = pipeline("text-generation", neuron_model_path)
     _test_generation(p)
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_from_model_and_tokenizer(base_neuron_llm_path):
-    m = NeuronModelForCausalLM.from_pretrained(base_neuron_llm_path)
-    t = AutoTokenizer.from_pretrained(base_neuron_llm_path)
+def test_from_model_and_tokenizer(neuron_model_path):
+    m = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
+    t = AutoTokenizer.from_pretrained(neuron_model_path)
     p = pipeline("text-generation", model=m, tokenizer=t)
     _test_generation(p)
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_error_already_exported(base_neuron_llm_path):
+def test_error_already_exported(neuron_model_path):
     with pytest.raises(ValueError, match="already been exported"):
-        pipeline("text-generation", base_neuron_llm_path, export=True)
+        pipeline("text-generation", neuron_model_path, export=True)
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_error_needs_export():
+def test_error_needs_export(cached_model_id):
     with pytest.raises(ValueError, match="must be exported"):
-        pipeline("text-generation", "Qwen/Qwen2.5-0.5B", export=False)
+        pipeline("text-generation", cached_model_id, export=False)
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_from_hub(base_neuron_llm_config):
-    model_id = base_neuron_llm_config["neuron_model_id"]
-    p = pipeline("text-generation", model_id)
+def test_from_hub(neuron_model_id):
+    p = pipeline("text-generation", neuron_model_id)
     _test_generation(p)

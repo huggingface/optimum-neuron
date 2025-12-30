@@ -38,7 +38,6 @@ logger = logging.getLogger(__file__)
 TEST_HUB_ORG = os.getenv("TEST_HUB_ORG", "optimum-internal-testing")
 OPTIMUM_CACHE_REPO_ID = f"{TEST_HUB_ORG}/neuron-testing-cache"
 
-# All model configurations below will be added to the neuron_model_config fixture
 LLM_MODEL_IDS = {
     "llama": "unsloth/Llama-3.2-1B-Instruct",
     "qwen2": "Qwen/Qwen2.5-0.5B",
@@ -159,7 +158,7 @@ def _get_neuron_model_for_config(config_name: str, model_config, neuron_model_pa
 
 
 @pytest.fixture(scope="session", params=LLM_MODEL_CONFIGURATIONS.keys())
-def neuron_llm_config(request):
+def any_neuron_llm_config(request):
     """Expose neuron llm models for predefined configurations.
 
     The fixture uses the _get_neuron_model_for_config helper to make sure the models
@@ -173,22 +172,15 @@ def neuron_llm_config(request):
     model_config = copy.deepcopy(LLM_MODEL_CONFIGURATIONS[config_name])
     with TemporaryDirectory() as neuron_model_path:
         model_config = _get_neuron_model_for_config(config_name, model_config, neuron_model_path)
-        logger.info(f"{config_name} ready for testing ...")
         cache_repo_id = os.environ.get("CUSTOM_CACHE_REPO", None)
         os.environ["CUSTOM_CACHE_REPO"] = OPTIMUM_CACHE_REPO_ID
         yield model_config
         if cache_repo_id is not None:
             os.environ["CUSTOM_CACHE_REPO"] = cache_repo_id
-        logger.info(f"Done with {config_name}")
 
 
 @pytest.fixture(scope="session")
-def neuron_llm_path(neuron_llm_config):
-    yield neuron_llm_config["neuron_model_path"]
-
-
-@pytest.fixture(scope="session")
-def base_neuron_llm_config(request):
+def neuron_llm_config(request):
     """Expose a base neuron llm model path for testing purposes.
 
     This fixture is used to test the export of models that do not have a predefined configuration.
@@ -198,17 +190,14 @@ def base_neuron_llm_config(request):
     """
     first_config_name = list(LLM_MODEL_CONFIGURATIONS.keys())[0]
     config_name = getattr(request, "param", first_config_name)
+    model_config = copy.deepcopy(LLM_MODEL_CONFIGURATIONS[config_name])
     with TemporaryDirectory() as neuron_model_path:
-        model_config = LLM_MODEL_CONFIGURATIONS[config_name]
         neuron_model_config = _get_neuron_model_for_config(config_name, model_config, neuron_model_path)
-        logger.info("Base neuron model ready for testing ...")
+        cache_repo_id = os.environ.get("CUSTOM_CACHE_REPO", None)
+        os.environ["CUSTOM_CACHE_REPO"] = OPTIMUM_CACHE_REPO_ID
         yield neuron_model_config
-        logger.info("Done with base neuron model testing")
-
-
-@pytest.fixture(scope="session")
-def base_neuron_llm_path(base_neuron_llm_config):
-    yield base_neuron_llm_config["neuron_model_path"]
+        if cache_repo_id is not None:
+            os.environ["CUSTOM_CACHE_REPO"] = cache_repo_id
 
 
 @pytest.fixture(scope="session")
