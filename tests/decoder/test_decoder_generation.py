@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 import torch
+from prompts import get_long_prompt
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.generation import StoppingCriteria
 
@@ -288,3 +289,22 @@ def test_speculation_same_model(caplog, speculation, max_new_tokens):
                     f"Expected {expected_speculated_tokens} speculated tokens, got {speculated_tokens}"
                 )
                 remaining_speculated_tokens -= speculated_tokens
+
+
+@pytest.mark.parametrize("neuron_llm_config", ["llama-1x8192"], indirect=True)
+def test_decoder_generation_long_sequence(neuron_llm_config: dict[str, Any]):
+    """Test that we can generate from a long prompt using a model compiled for long sequences."""
+    model_id = neuron_llm_config["model_id"]
+    model = AutoModelForCausalLM.from_pretrained(model_id)
+    neuron_llm_path = neuron_llm_config["neuron_model_path"]
+    neuron_model = NeuronModelForCausalLM.from_pretrained(neuron_llm_path)
+    tokenizer = AutoTokenizer.from_pretrained(neuron_llm_path)
+    inputs = tokenizer(get_long_prompt(model_id, 5000, 8192), return_tensors="pt")
+    max_new_tokens = 50
+    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
+    generated_text = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
+    neuron_outputs = neuron_model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
+    neuron_generated_text = tokenizer.decode(
+        neuron_outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
+    )
+    assert generated_text == neuron_generated_text
