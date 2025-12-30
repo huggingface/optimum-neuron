@@ -165,7 +165,7 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                         raw_logits += (next_token_logits,)
 
                 if self.sampler is None:
-                    self.sampler = Sampler(self.neuron_config, do_sample=True, on_cpu=True)
+                    self.sampler = Sampler(self.neuron_config, do_sample=do_sample, on_cpu=True)
 
                 next_tokens = self.sampler(next_token_scores, sampling_params)
 
