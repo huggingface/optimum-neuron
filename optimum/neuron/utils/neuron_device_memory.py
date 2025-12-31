@@ -65,11 +65,39 @@ def read_sysfs_value(file_path: Path) -> str:
         return f.read().strip()
 
 
+def format_memory(memory_bytes: int) -> str:
+    """
+    Format memory bytes into a human-readable string.
+
+    Args:
+        memory_bytes: Memory size in bytes
+
+    Returns:
+        Formatted string (e.g., "1.23 GB", "456.78 MB")
+    """
+    for factor, suffix in [
+        (2**40, "TB"),
+        (2**30, "GB"),
+        (2**20, "MB"),
+        (2**10, "KB"),
+    ]:
+        if memory_bytes >= factor:
+            return f"{memory_bytes / factor:.2f} {suffix}"
+    return f"{memory_bytes} bytes"
+
+
 @dataclass
 class MemoryCounter:
     total: Optional[int]
     present: Optional[int]
     peak: Optional[int]
+
+    def __str__(self) -> str:
+        return (
+            f"total={format_memory(self.total) if self.total is not None else 'N/A'}, "
+            f"present={format_memory(self.present) if self.present is not None else 'N/A'}, "
+            f"peak={format_memory(self.peak) if self.peak is not None else 'N/A'}"
+        )
 
 
 @dataclass
@@ -82,6 +110,12 @@ class CoreDeviceMemory:
             if c.total is not None:
                 total += c.total
         return total
+
+    def __str__(self) -> str:
+        lines = []
+        for category, counter in self.categories.items():
+            lines.append(f"{category:30s}: {str(counter)}")
+        return "\n".join(lines)
 
 
 def read_memory_counter(base_path: Path, category: str) -> MemoryCounter:
@@ -167,26 +201,6 @@ class NeuronDeviceMemory:
                 total_memory += core_mem.total_memory()
         return total_memory
 
-    def _format_memory(self, memory_bytes: int) -> str:
-        """
-        Format memory bytes into a human-readable string.
-
-        Args:
-            memory_bytes: Memory size in bytes
-
-        Returns:
-            Formatted string (e.g., "1.23 GB", "456.78 MB")
-        """
-        for factor, suffix in [
-            (2**40, "TB"),
-            (2**30, "GB"),
-            (2**20, "MB"),
-            (2**10, "KB"),
-        ]:
-            if memory_bytes >= factor:
-                return f"{memory_bytes / factor:.2f} {suffix}"
-        return f"{memory_bytes} bytes"
-
     def __str__(self) -> str:
         """
         Return a string with only the total device memory formatted.
@@ -195,7 +209,7 @@ class NeuronDeviceMemory:
             String like "Neuron device memory usage: 1.23 GB"
         """
         total_memory = self.get_total_memory()
-        memory_str = self._format_memory(total_memory)
+        memory_str = format_memory(total_memory)
         return f"Neuron device memory usage: {memory_str}"
 
     def __repr__(self) -> str:

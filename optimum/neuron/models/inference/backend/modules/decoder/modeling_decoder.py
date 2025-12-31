@@ -18,10 +18,13 @@ import logging
 
 import neuronx_distributed as nxd
 import torch
+import torch_xla.core.xla_model as xm
 from neuronx_distributed.operators.argmax import argmax as nxd_argmax
 from neuronx_distributed.parallel_layers.layers import SPMDRank
 from neuronx_distributed.parallel_layers.mappings import (
     _gather_along_dim,
+    _reduce_scatter_along_dim,
+    gather_from_sequence_parallel_region,
 )
 from torch import nn
 from transformers import PretrainedConfig
@@ -37,7 +40,6 @@ from ..generation.generation_utils import NxDGenerationMixin
 from ..generation.sampling import (
     Sampler,
     mask_padded_logits,
-    prepare_sampling_params,
     validate_sampling_params,
 )
 from ..kvcache.kv_cache_manager import (
@@ -122,34 +124,9 @@ class NxDDecoderModelForCausalLM(nn.Module):
     def _is_for_speculation(self, input_ids: torch.Tensor):
         return input_ids.shape[-1] == self.speculation_length
 
-    def _create_context_attn_mask(self, attention_mask, **kwargs):
-        # Lower triangle causal mask for classic attention
-        mask = torch.full((self.n_positions, self.n_positions), True, device=attention_mask.device).tril(diagonal=0)
-        mask = mask[None, None, :, :].expand(self.batch_size, 1, self.n_positions, self.n_positions)
-        return mask
-
-    def _create_spec_attn_mask(self, attention_mask):
-        return (
-            attention_mask[:, None, None, :]
-            .expand(self.batch_size, 1, self.speculation_length, self.n_positions)
-            .to(torch.bool)
-        )
-
-    def _create_simple_attn_mask(self, attention_mask):
-        return attention_mask[:, None, None, :].expand(self.batch_size, 1, 1, self.n_positions).to(torch.bool)
-
-    def create_attn_mask(self, attention_mask, is_for_context_encoding, is_for_speculation, **kwargs):
-        if is_for_context_encoding:
-            return self._create_context_attn_mask(attention_mask, **kwargs)
-        elif is_for_speculation:
-            return self._create_spec_attn_mask(attention_mask)
-        else:
-            return self._create_simple_attn_mask(attention_mask)
-
     def forward(
         self,
         input_ids,
-        attention_mask,
         position_ids,
         seq_ids,
         sampling_params,
@@ -158,7 +135,6 @@ class NxDDecoderModelForCausalLM(nn.Module):
 
         Args:
             input_ids (torch.LongTensor): Input token IDs.
-            attention_mask (torch.Tensor): Attention mask.
             position_ids (torch.LongTensor): Position IDs.
             seq_ids (torch.LongTensor): Sequence IDs. Used in continuous batching
             sampling_params (torch.FloatTensor): Sampling parameters.
@@ -168,28 +144,46 @@ class NxDDecoderModelForCausalLM(nn.Module):
 
         cache_size = self.n_positions
 
-        # It is either for context encoding or for token generation
+        # Prepare input tensors
+        device = input_ids.device
         if is_for_context_encoding:
             past_key_values = None
+            # Lower triangle causal mask for classic attention
+            # Note that the mask is created for the full sequence length even if only a part of it is used
+            attention_mask = torch.full((self.n_positions, self.n_positions), True, device=device).tril(diagonal=0)
+            attention_mask = attention_mask[None, None, :, :].expand(
+                self.batch_size, 1, self.n_positions, self.n_positions
+            )
+            active_mask = None
         else:
             past_key_values = self.kv_mgr.get_cache(cache_size)
-
-        # Prepare attention mask(s)
-        attention_mask = self.create_attn_mask(
-            attention_mask,
-            is_for_context_encoding,
-            is_for_speculation,
-        )
-        active_mask = None
-        if is_for_speculation:
-            active_mask = torch.full(
-                (self.speculation_length, self.speculation_length),
-                True,
-                device=attention_mask.device,
-            ).tril(diagonal=0)
-            active_mask = active_mask[None, None, :, :].expand(
-                self.batch_size, 1, self.speculation_length, self.speculation_length
+            # Prepare attention mask(s) as expected by the decoding/speculation models
+            # The full attention mask is split into two parts:
+            # - the attention_mask for the cached tokens,
+            # - the active_mask for the newly generated token(s)
+            if is_for_speculation:
+                # For speculation, the index of the last cached token is the first position id minus one
+                max_cached_positions = position_ids[:, :1].expand(self.batch_size, self.n_positions) - 1
+            else:
+                # For decoding, the index of the last cached token is the (only) position id minus one
+                max_cached_positions = position_ids.expand(self.batch_size, self.n_positions) - 1
+            all_positions = (
+                torch.arange(self.n_positions, device=device).view(1, -1).expand(self.batch_size, self.n_positions)
             )
+            attention_mask = (max_cached_positions >= all_positions).view(self.batch_size, 1, 1, self.n_positions)
+            if is_for_speculation:
+                attention_mask = attention_mask.expand(self.batch_size, 1, self.speculation_length, self.n_positions)
+                active_mask = torch.full(
+                    (self.speculation_length, self.speculation_length),
+                    True,
+                    device=attention_mask.device,
+                ).tril(diagonal=0)
+                active_mask = active_mask[None, None, :, :].expand(
+                    self.batch_size, 1, self.speculation_length, self.speculation_length
+                )
+            else:
+                # Active mask is implicit for decoding
+                active_mask = None
 
         # FD masks
         active_mask_2d = None
@@ -240,7 +234,11 @@ class NxDDecoderModelForCausalLM(nn.Module):
             if is_for_speculation:
                 res = nxd_argmax(tensor=logits, dim=2, gather_dim=2, keepdim=False)
             else:
-                res = self.sampler(logits[:, -1, :], sampling_params, rank_id=rank_id)
+                logger.info(f"Logits shape: {logits.shape}")
+                sampling_inputs = logits[:, -1, :]
+                logger.info(f"sampling_inputs shape: {sampling_inputs.shape}")
+                res = self.sampler(sampling_inputs, sampling_params, rank_id=rank_id)
+        logger.info(f"Sampled tokens shape: {res.shape}")
 
         outputs = [res]
         if self.neuron_config.output_logits:
@@ -252,6 +250,24 @@ class NxDDecoderModelForCausalLM(nn.Module):
         outputs += updated_kv_cache
 
         return outputs
+
+    @staticmethod
+    def seq_parallel_slice_last_token(
+        hidden_states,
+        position_ids,
+        batch_size,
+        hidden_size,
+    ):
+        index = torch.max(position_ids, dim=1, keepdim=True).indices.to(torch.int32)
+        sharded_seq_len = hidden_states.shape[1]
+        index_local = torch.remainder(index, sharded_seq_len)
+        index_post_shard = torch.divide(index, sharded_seq_len, rounding_mode="floor").to(torch.int32)
+        index_local = index_local.unsqueeze(1).expand(batch_size, 1, hidden_size)
+        index_post_shard = index_post_shard.unsqueeze(1).expand(batch_size, 1, hidden_size)
+        hidden_states = torch.gather(hidden_states, dim=1, index=index_local)
+        hidden_states = gather_from_sequence_parallel_region(hidden_states, sequence_dimension=1)
+        hidden_states = torch.gather(hidden_states, dim=1, index=index_post_shard)
+        return hidden_states
 
     def get_model_output(
         self,
@@ -292,7 +308,14 @@ class NxDDecoderModelForCausalLM(nn.Module):
         # )
 
         # embed positions
-        hidden_states = inputs_embeds
+        if self.neuron_config.sequence_parallel_enabled:
+            hidden_states = _reduce_scatter_along_dim(
+                inputs_embeds,
+                partition_dim=1,
+                computation=xm.REDUCE_MAX,
+            )
+        else:
+            hidden_states = inputs_embeds
 
         # decoder layers
         next_decoder_cache = ()
@@ -316,6 +339,15 @@ class NxDDecoderModelForCausalLM(nn.Module):
             cos_cache, sin_cache = layer_outputs[2:]
 
         hidden_states = self.norm(hidden_states)
+
+        logger.info(f"DecoderModelForCausalLM final hidden_states.shape={hidden_states.shape}")
+
+        if self.neuron_config.sequence_parallel_enabled:
+            hidden_states = self.seq_parallel_slice_last_token(
+                hidden_states, position_ids, batch_size, hidden_size=self.config.hidden_size
+            )
+
+        logger.info(f"After gather: hidden_states.shape={hidden_states.shape}")
 
         return (hidden_states, next_decoder_cache)
 
@@ -371,12 +403,16 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     def _create_token_generation_config(neuron_config: NxDNeuronConfig) -> NxDNeuronConfig:
         tkg_neuron_config = copy.deepcopy(neuron_config)
         tkg_neuron_config.batch_size = neuron_config.tkg_batch_size
+        # Explicitly disable sequence parallel for token generation model
+        tkg_neuron_config.sequence_parallel_enabled = False
         return tkg_neuron_config
 
     @staticmethod
     def _create_speculation_config(neuron_config: NxDNeuronConfig) -> NxDNeuronConfig:
         spec_neuron_config = copy.deepcopy(neuron_config)
         spec_neuron_config.batch_size = neuron_config.tkg_batch_size
+        # Explicitly disable sequence parallel for speculation model
+        spec_neuron_config.sequence_parallel_enabled = False
         return spec_neuron_config
 
     @classmethod
@@ -424,87 +460,18 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
     ) -> tuple | CausalLMOutputWithPast:
-        # infer attention_mask from position_ids if not provided
-        if attention_mask is None:
-            attention_mask = self._infer_attention_mask(position_ids)
-
-        if seq_ids is None:
-            seq_ids = torch.arange(input_ids.shape[0])
-
-        if sampling_params is None:
-            if self.neuron_config.on_device_sampling:
-                raise ValueError("The sampling params tensor is required for on-device sampling.")
-            # Just pass a dummy tensor to the model, it will be ignored
-            sampling_params = prepare_sampling_params(seq_ids.shape[0])
-        elif self.neuron_config.on_device_sampling:
+        if output_attentions:
+            raise ValueError(f"output_attentions is not supported for {self.__class__.__name__}")
+        if output_hidden_states:
+            raise ValueError(f"output_hidden_states is not supported for {self.__class__.__name__}")
+        if return_dict:
+            raise ValueError(f"return_dict is not supported for {self.__class__.__name__}")
+        if self.neuron_config.on_device_sampling:
             validate_sampling_params(sampling_params, self.neuron_config.max_topk)
-
-        output_attentions, output_hidden_states, return_dict = self._setup_func_config(
-            output_attentions, output_hidden_states, return_dict
-        )
-
-        logits_or_next_tokens = self._get_model_outputs(
-            input_ids,
-            attention_mask,
-            position_ids,
-            seq_ids,
-            sampling_params,
-        )
-
-        logging.debug("---output---")
-        logging.debug(
-            f"{'tokens' if self.neuron_config.on_device_sampling else 'logits'} = %s, ",
-            logits_or_next_tokens,
-        )
-
-        return self._construct_output(logits_or_next_tokens)
-
-    def _setup_func_config(self, output_attentions, output_hidden_states, return_dict):
-        output_attentions = output_attentions if output_attentions is not None else self.text_config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.text_config.output_hidden_states
-        )
-        return_dict = return_dict if return_dict is not None else getattr(self.config, "use_return_dict", None)
-        return output_attentions, output_hidden_states, return_dict
-
-    def _infer_attention_mask(self, position_ids):
-        assert position_ids is not None, "need to call forward with position_ids if attention_mask is not provided"
-        batch_size, seq_len = position_ids.shape
-        if position_ids.shape[-1] == 1:
-            seq_len = self.neuron_config.sequence_length
-            position_ids_to_compare = position_ids.expand(batch_size, seq_len) - 1
-        else:
-            seq_len = position_ids.shape[-1]
-            position_ids_to_compare = position_ids
-        mask = torch.arange(seq_len).view(1, -1).expand(batch_size, seq_len)
-        attention_mask = (position_ids_to_compare >= mask).to(dtype=position_ids.dtype)
-        return attention_mask
-
-    def _get_async_output(
-        self,
-        ranked_async_tensor,
-    ):
-        outputs = [[async_tensor[0].cpu()] for async_tensor in ranked_async_tensor]
-        return outputs[0][0]
-
-    def _get_model_outputs(
-        self,
-        input_ids,
-        attention_mask,
-        position_ids,
-        seq_ids,
-        sampling_params,
-    ):
-        # casting inputs to int32
-        input_ids = input_ids.to(torch.int32)
-        attention_mask = attention_mask.to(torch.int32)
-        position_ids = position_ids.to(torch.int32)
-        seq_ids = seq_ids.to(torch.int32)
 
         if input_ids.shape[-1] > 1 and not position_ids.min().item():
             outputs = self.context_encoding_model(
                 input_ids,
-                attention_mask,
                 position_ids,
                 seq_ids,
                 sampling_params,
@@ -515,7 +482,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         elif input_ids.shape[-1] == self.neuron_config.speculation_length:
             outputs = self.speculation_model(
                 input_ids,
-                attention_mask,
                 position_ids,
                 seq_ids,
                 sampling_params,
@@ -523,26 +489,12 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         else:
             outputs = self.token_generation_model(
                 input_ids,
-                attention_mask,
                 position_ids,
                 seq_ids,
                 sampling_params,
             )
 
         return outputs
-
-    def _construct_output(self, logits_or_next_tokens):
-        next_tokens = logits_or_next_tokens
-
-        OutputParams = CausalLMOutputWithPast(
-            logits=None if self.neuron_config.on_device_sampling else logits_or_next_tokens,
-            hidden_states=logits_or_next_tokens,
-            attentions=None,
-        )
-
-        OutputParams.tokens = next_tokens
-
-        return OutputParams
 
     def reset(self):
         # We need to reset the KV cache flag for a new batch of inference.
