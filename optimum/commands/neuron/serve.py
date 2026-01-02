@@ -70,22 +70,26 @@ class ServeCommand(BaseOptimumCLICommand):
         )
         parser.add_argument(
             "--served_model_name",
+            "--served-model-name",
             type=str,
             default=None,
             help="The model name(s) used in the API. If not specified, the model name will be the same as the `--model` argument.",
         )
         parser.add_argument(
             "--tensor_parallel_size",
+            "--tensor-parallel-size",
             type=int,
             help="Tensor parallelism size, the number of neuron cores on which to shard the model.",
         )
         parser.add_argument(
             "--batch_size",
+            "--batch-size",
             type=int,
             help="The maximum batch size used when serving the model.",
         )
         parser.add_argument(
             "--sequence_length",
+            "--sequence-length",
             type=int,
             help="The sequence length used when serving the model.",
         )
@@ -97,6 +101,7 @@ class ServeCommand(BaseOptimumCLICommand):
         )
         parser.add_argument(
             "--allow_non_cached_model",
+            "--allow-non-cached-model",
             action="store_true",
             default=False,
             help="If set, export the model even if no cached configuration exists.",
@@ -117,7 +122,7 @@ class ServeCommand(BaseOptimumCLICommand):
         sequence_length = self.args.sequence_length
         tensor_parallel_size = self.args.tensor_parallel_size
         config = AutoConfig.from_pretrained(model_name_or_path)
-        torch_dtype = DTYPE_MAPPER.pt(config.torch_dtype)
+        torch_dtype = DTYPE_MAPPER.pt(config.dtype)
         try:
             # Look for a NeuronConfig in the model directory
             neuron_config = NeuronConfig.from_pretrained(model_name_or_path)
@@ -153,8 +158,9 @@ class ServeCommand(BaseOptimumCLICommand):
             logger.info(f"Loading Neuron model: {model_name_or_path}")
         else:
             # Model needs to be exported: look for compatible hub cached configs
+
             cached_entries = select_hub_cached_entries(
-                model_id,
+                model_name_or_path,
                 task="text-generation",
                 instance_type=instance_type,
                 batch_size=batch_size,

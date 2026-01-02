@@ -12,6 +12,6 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-__version__ = "0.4.3.dev3"
+__version__ = "0.4.4.dev1"
 
 __sdk_version__ = "2.26.1"

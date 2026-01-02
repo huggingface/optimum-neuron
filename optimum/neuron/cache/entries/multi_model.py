@@ -14,7 +14,9 @@
 # limitations under the License.
 
 import copy
+import glob
 import json
+import os
 from tempfile import TemporaryDirectory
 from typing import Any
 
@@ -87,6 +89,19 @@ def _prepare_configs_for_matching(configs: dict, model_type: str):
             new_configs[name].pop("neuron")
 
     return new_configs
+
+
+def _merge_configs(local_path: str) -> dict[str, Any]:
+    """Get all config.json files in the local path recursively and merge them into a single config."""
+    config_files = glob.glob(os.path.join(local_path, "**", "config.json"), recursive=True)
+    lookup_configs = {}
+    for config_file in config_files:
+        with open(config_file) as f:
+            entry_config = json.load(f)
+            for param in CACHE_WHITE_LIST:
+                entry_config.pop(param, None)
+            lookup_configs[config_file.split("/")[-2]] = entry_config
+    return lookup_configs
 
 
 class MultiModelCacheEntry(ModelCacheEntry):
@@ -167,15 +182,12 @@ class MultiModelCacheEntry(ModelCacheEntry):
         repo_files = api.list_repo_files(model_id)
         config_pattern = "/config.json"
         config_files = [path for path in repo_files if config_pattern in path]
-        lookup_configs = {}
         with TemporaryDirectory() as tmpdir:
             for model_path in config_files:
-                local_path = api.hf_hub_download(model_id, model_path, local_dir=tmpdir)
-                with open(local_path) as f:
-                    entry_config = json.load(f)
-                    white_list = CACHE_WHITE_LIST
-                    for param in white_list:
-                        entry_config.pop(param, None)
-                    lookup_configs[model_path.split("/")[-2]] = entry_config
-
+                api.hf_hub_download(model_id, model_path, local_dir=tmpdir)
+            lookup_configs = _merge_configs(tmpdir)
         return cls(model_id, lookup_configs)
+
+    @classmethod
+    def from_local_path(cls, model_id: str):
+        return cls(model_id, _merge_configs(model_id))
