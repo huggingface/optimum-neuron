@@ -372,9 +372,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
             "instance_type": instance_type,
-            # Inf1 specific compiler args
-            "disable_fast_relayout": disable_fast_relayout,
-            "disable_fallback": disable_fallback,
         }
 
         save_dir = TemporaryDirectory()

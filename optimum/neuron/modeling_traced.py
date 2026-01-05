@@ -312,9 +312,6 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
             "instance_type": instance_type,
-            # Inf1 specific compiler args
-            "disable_fast_relayout": disable_fast_relayout,
-            "disable_fallback": disable_fallback,
         }
         # clean shapes
         commit_hash = kwargs_shapes.pop("_commit_hash", None)

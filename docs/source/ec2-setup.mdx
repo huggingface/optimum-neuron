@@ -21,7 +21,7 @@ This guide will help you get Optimum Neuron up and running. There are two main a
 
 The simplest way to work with AWS Trainium or Inferentia and Optimum Neuron on Amazon EC2 is the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2) (DLAMI). The DLAMI comes with all required libraries pre-packaged for you, including the Optimum Neuron, Neuron Drivers, Transformers, Datasets, and Accelerate. The HF DLAMI is provided at no additional charge to Amazon EC2 users.
 
-Optimum Neuron supports Inf1, Inf2, Trn1 and Trn2, all accessible on Amazon EC2. You can find all the specifications of the Trn and Inf instances [here](https://aws.amazon.com/ec2/instance-types/), in the "Accelerated Computing" section.
+Optimum Neuron supports Inf2, Trn1 and Trn2, all accessible on Amazon EC2. You can find all the specifications of the Trn and Inf instances [here](https://aws.amazon.com/ec2/instance-types/), in the "Accelerated Computing" section.
 
 In this section, we will show you:
 1. [How to create an AWS Trainium or Inferentia instance on Amazon EC2 with the HF DLAMI](#create-an-aws-trainium-or-inferentia-instance-on-amazon-ec2-with-the-hf-dlami)
@@ -106,7 +106,7 @@ Now that you selected your region and that you switched to it, you can request a
 
 By default, all quotas are 0 for Inferentia and Trainium. There is no charge for increased quotas. There are separate quotas for Inferentia and Trainium, and separate quotas for spot and on-demand. Quotas refer to the maximum TOTAL number of vCPUs assigned to each instance type.
 
-For example, a quota of 192 will let you run a single inf2.48xlarge, two inf2.24xlarges, six inf2.8xlarges, or forty-eight of the inf2.xlarges. It will also let you run inf1 instance types. Similarly for Trainium, a quota of 128 will let you run a single trn1n.32xlarge or trn1.32xlarge, but it will also let you run sixteen trn1.2xlarge.
+For example, a quota of 192 will let you run a single inf2.48xlarge, two inf2.24xlarges, six inf2.8xlarges, or forty-eight of the inf2.xlarges. Similarly for Trainium, a quota of 128 will let you run a single trn1n.32xlarge or trn1.32xlarge, but it will also let you run sixteen trn1.2xlarge.
 
 #### Launch the Amazon EC2 instance with the HF DLAMI
 
@@ -262,12 +262,6 @@ python -m pip config set global.extra-index-url https://pip.repos.neuron.amazona
 
 ```bash
 python -m pip install optimum-neuron[neuronx]
-```
-
-### Installing `optimum-neuron` for AWS inferentia (`inf1`)
-
-```bash
-python -m pip install optimum-neuron[neuron]
 ```
 
 ## What's Next?
