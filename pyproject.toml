@@ -38,7 +38,7 @@ classifiers = [
 ]
 dependencies = [
     "transformers ~= 4.57.1",
-    "optimum ~= 2.0.0",
+    "optimum ~= 2.1.0",
     "huggingface_hub >= 0.35.3",
 ]
 
@@ -88,17 +88,17 @@ neuron = [
 ]
 neuronx = [
     "wheel",
-    "neuronx-cc==2.21.33363.0",
-    "torch-neuronx==2.8.0.2.10.16998",
-    "torch==2.8.0.*",
-    "torchvision==0.23.*",
-    "neuronx_distributed==0.15.22404",
-    "libneuronxla==2.2.12677.0",
+    "neuronx-cc==2.22.12471.0",
+    "torch-neuronx==2.9.0.2.11.19912",
+    "torch==2.9.1.*",
+    "torchvision==0.24.1.*",
+    "neuronx_distributed==0.16.25997",
+    "libneuronxla==2.2.14584.0",
     "protobuf>=3.20.3",
-    "numpy>=1.22.2, <=1.26.4",
+    "numpy>=2.0.0, <2.3.0",
 ]
 diffusers = [
-    "diffusers==0.35.*",
+    "diffusers==0.36.*",
     "peft==0.17.0",
 ]
 diffusers-tests = [
