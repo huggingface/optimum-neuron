@@ -16,11 +16,10 @@
 
 from packaging import version
 
-from .import_utils import is_neuron_available, is_neuronx_available
+from .import_utils import is_neuronx_available
 
 
 _neuronxcc_version: str | None = None
-_neuroncc_version: str | None = None
 _torch_xla_version: str | None = None
 _neuronx_distributed_version: str | None = None
 _torch_version: str | None = None
@@ -36,18 +35,6 @@ def get_neuronxcc_version() -> str:
         raise ModuleNotFoundError("NeuronX Compiler python package is not installed.")
     _neuronxcc_version = neuronxcc.__version__
     return _neuronxcc_version
-
-
-def get_neuroncc_version() -> str:
-    global _neuroncc_version
-    if _neuroncc_version is not None:
-        return _neuroncc_version
-    try:
-        import neuroncc
-    except ImportError:
-        raise ModuleNotFoundError("Neuron Compiler python package is not installed.")
-    _neuroncc_version = neuroncc.__version__
-    return _neuroncc_version
 
 
 def get_torch_xla_version() -> str:
@@ -87,10 +74,7 @@ def get_torch_version() -> str:
 
 
 def check_compiler_compatibility(compiler_type: str, compiler_version: str):
-    if compiler_type == "neuron-cc":
-        compiler_available_fn = is_neuron_available
-        installed_compiler_version_fn = get_neuroncc_version
-    elif compiler_type == "neuronx-cc":
+    if compiler_type == "neuronx-cc":
         compiler_available_fn = is_neuronx_available
         installed_compiler_version_fn = get_neuronxcc_version
     else:

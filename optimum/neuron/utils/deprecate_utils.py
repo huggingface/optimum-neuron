@@ -23,7 +23,6 @@ from packaging import version
 
 from ..version import __version__
 from .version_utils import (
-    get_neuroncc_version,
     get_neuronx_distributed_version,
     get_neuronxcc_version,
     get_torch_version,
@@ -40,7 +39,6 @@ def get_transformers_version() -> str:
 PACKAGE_NAME_TO_GET_VERSION_FUNCTION: dict[str, Callable[[], str]] = {
     "transformers": get_transformers_version,
     "optimum-neuron": lambda: __version__,
-    "neuroncc": get_neuroncc_version,
     "neuronxcc": get_neuronxcc_version,
     "torch": get_torch_version,
     "torch_xla": get_torch_xla_version,

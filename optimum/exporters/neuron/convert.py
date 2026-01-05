@@ -41,7 +41,7 @@ from optimum.neuron.utils import (
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils.cache_utils import get_model_name_or_path
 from ...neuron.utils.system import get_neuron_major
-from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
+from ...neuron.utils.version_utils import get_neuronxcc_version
 from ...utils import (
     is_diffusers_available,
     is_sentence_transformers_available,
@@ -53,10 +53,11 @@ if TYPE_CHECKING:
     from .base import NeuronDefaultConfig
 
 if is_neuron_available():
+    import neuroncc  # noqa: F811
     import torch.neuron as neuron  # noqa: F811
 
     NEURON_COMPILER_TYPE = "neuron-cc"
-    NEURON_COMPILER_VERSION = get_neuroncc_version()
+    NEURON_COMPILER_VERSION = neuroncc.__version__
 
 if is_neuronx_available():
     import torch_neuronx as neuronx  # noqa: F811
