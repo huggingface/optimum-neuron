@@ -20,7 +20,7 @@ async def neuron_model_agentic_vllm(vllm_launcher, neuron_llm_config, request):
 
 # Note: we use SmolLM3 as a test model because it is a small model that is easy to test and it supports tool calling.
 @pytest.mark.asyncio
-@pytest.mark.parametrize("neuron_llm_config", ["smollm3-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["smollm3-1x8192"], indirect=True)
 async def test_vllm_agentic_test(neuron_model_agentic_vllm):
     model_name = neuron_model_agentic_vllm.client.model_name
     base_url = str(neuron_model_agentic_vllm.client.base_url)
