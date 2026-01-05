@@ -95,7 +95,7 @@ neuronx = [
     "neuronx_distributed==0.16.25997",
     "libneuronxla==2.2.14584.0",
     "protobuf>=3.20.3",
-    "numpy>=2.0.0, <2.3.0",
+    "numpy>=1.24.3, <=1.26.4",
 ]
 diffusers = [
     "diffusers==0.36.*",
