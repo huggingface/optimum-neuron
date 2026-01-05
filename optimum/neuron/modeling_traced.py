@@ -48,17 +48,13 @@ from .utils import (
 from .utils.import_utils import is_neuronx_available
 from .utils.instance import align_compilation_target, get_default_compilation_target
 from .utils.system import get_neuron_major
-from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
+from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
 
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
     from optimum.exporters.neuron import NeuronDefaultConfig
-
-if is_neuron_available():
-    NEURON_COMPILER_TYPE = "neuron-cc"
-    NEURON_COMPILER_VERSION = get_neuroncc_version()
 
 if is_neuronx_available():
     import torch_neuronx
