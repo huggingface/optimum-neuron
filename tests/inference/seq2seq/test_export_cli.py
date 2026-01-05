@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 import unittest
 
+import pytest
 from optimum.utils import logging
 
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
@@ -55,6 +56,7 @@ class TestExportCLI(unittest.TestCase):
                 check=True,
             )
 
+    @pytest.mark.skip(reason="Skipping the test since `parallel_model_trace` is deprecated(to fix).")
     @requires_neuronx
     def test_encoder_decoder_optional_outputs(self):
         model_id = "hf-internal-testing/tiny-random-t5"
