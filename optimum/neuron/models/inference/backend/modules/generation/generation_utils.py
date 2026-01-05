@@ -136,8 +136,8 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         )
 
         # init scores / logits tuples
-        scores = () if (return_dict_in_generate and output_scores) else None
-        raw_logits = () if (return_dict_in_generate and output_logits) else None
+        scores = [] if (return_dict_in_generate and output_scores) else None
+        raw_logits = [] if (return_dict_in_generate and output_logits) else None
 
         # keep track of which sequences are already finished
         unfinished_sequences = torch.ones(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
