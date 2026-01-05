@@ -42,7 +42,7 @@ LLM_MODEL_IDS = {
     "llama": "unsloth/Llama-3.2-1B-Instruct",
     "qwen2": "Qwen/Qwen2.5-0.5B",
     "granite": "ibm-granite/granite-3.1-2b-instruct",
-    "phi": "microsoft/Phi-3-mini-4k-instruct",
+    "phi": "microsoft/Phi-3.5-mini-instruct",
     "qwen3": "Qwen/Qwen3-0.6B",
     "smollm3": "HuggingFaceTB/SmolLM3-3B",
 }
