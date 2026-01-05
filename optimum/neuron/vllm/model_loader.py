@@ -58,9 +58,7 @@ class OptimumNeuronModelForCausalLM(nn.Module):
             sampling_params=sampling_params,
         )
         # on-device sampling
-        if self.model.neuron_config.on_device_sampling:
-            output = output
-        else:
+        if not self.model.neuron_config.on_device_sampling:
             output = output[:, -1, :]
 
         restored_indices = torch.argsort(sorted_indices)
