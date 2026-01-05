@@ -32,8 +32,6 @@ from optimum.neuron.cache.entries.single_model import SingleModelCacheEntry
 from optimum.neuron.cache.traced import cache_traced_neuron_artifacts
 from optimum.neuron.utils import (
     DiffusersPretrainedConfig,
-    convert_neuronx_compiler_args_to_neuron,
-    is_neuron_available,
     is_neuronx_available,
     store_compilation_config,
 )
@@ -51,13 +49,6 @@ from ...utils import (
 
 if TYPE_CHECKING:
     from .base import NeuronDefaultConfig
-
-if is_neuron_available():
-    import neuroncc  # noqa: F811
-    import torch.neuron as neuron  # noqa: F811
-
-    NEURON_COMPILER_TYPE = "neuron-cc"
-    NEURON_COMPILER_VERSION = neuroncc.__version__
 
 if is_neuronx_available():
     import torch_neuronx as neuronx  # noqa: F811
@@ -457,19 +448,7 @@ def export(
     disable_fast_relayout: bool = False,
     disable_fallback: bool = False,
 ) -> tuple[list[str], list[str]]:
-    if is_neuron_available():
-        return export_neuron(
-            model=model_or_path,
-            config=config,
-            output=output,
-            compiler_workdir=compiler_workdir,
-            inline_weights_to_neff=inline_weights_to_neff,
-            auto_cast=auto_cast,
-            auto_cast_type=auto_cast_type,
-            disable_fast_relayout=disable_fast_relayout,
-            disable_fallback=disable_fallback,
-        )
-    elif is_neuronx_available():
+    if is_neuronx_available():
         return export_neuronx(
             model_or_path=model_or_path,
             config=config,
@@ -813,90 +792,3 @@ def improve_stable_diffusion_loading(config, neuron_model):
     # unet
     if any(model_type in identifier for model_type in ["unet", "transformer", "controlnet"]):
         neuronx.lazy_load(neuron_model)
-
-
-def export_neuron(
-    model: "PreTrainedModel",
-    config: "NeuronDefaultConfig",
-    output: Path,
-    compiler_workdir: Path | None = None,
-    inline_weights_to_neff: bool = True,
-    auto_cast: str | None = None,
-    auto_cast_type: str = "bf16",
-    disable_fast_relayout: bool = False,
-    disable_fallback: bool = False,
-) -> tuple[list[str], list[str]]:
-    """
-    Exports a PyTorch model to a serialized TorchScript module compiled by neuron-cc compiler.
-
-    Args:
-        model ([`PreTrainedModel`]):
-            The model to export.
-        config ([`~exporter.NeuronDefaultConfig`]):
-            The Neuron configuration associated with the exported model.
-        output (`Path`):
-            Directory to store the exported Neuron model.
-        compiler_workdir (`Path | None`, defaults to `None`):
-            The directory used by neuron-cc, where you can find intermediary outputs (neff, weight, hlo...).
-        inline_weights_to_neff (`bool`, defaults to `True`):
-            Whether to inline the weights to the neff graph. If set to False, weights will be separated from the neff.
-        auto_cast (`str | None`, defaults to `None`):
-            Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
-        auto_cast_type (`str`, defaults to `"bf16"`):
-            The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"`, ``"mixed" or `"tf32"`. `"mixed"` is only available when auto_cast is "matmul", it will cast operators that use Neuron Matmult engine to bf16 while using fp16 for matmult-based transpose.
-        disable_fast_relayout (`bool`, defaults to `False`):
-            Whether to disable fast relayout optimization which improves performance by using the matrix multiplier for tensor transpose.
-        disable_fallback (`bool`, defaults to `False`):
-            Whether to disable CPU partitioning to force operations to Neuron. Defaults to `False`, as without fallback, there could be some compilation failures or performance problems.
-
-    Returns:
-        `tuple[list[str], list[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
-        the Neuron configuration.
-    """
-    output.parent.mkdir(parents=True, exist_ok=True)
-    if isinstance(compiler_workdir, Path):
-        compiler_workdir = compiler_workdir.as_posix()
-
-    if hasattr(model, "config"):
-        model.config.return_dict = True
-        model.config.torchscript = True
-    model.eval()
-
-    # Check if we need to override certain configuration item
-    if config.values_override is not None:
-        logger.info(f"Overriding {len(config.values_override)} configuration item(s)")
-        for override_config_key, override_config_value in config.values_override.items():
-            logger.info(f"\t- {override_config_key} -> {override_config_value}")
-            setattr(model.config, override_config_key, override_config_value)
-
-    input_shapes = {}
-    for axis in config.mandatory_axes:
-        input_shapes[axis] = getattr(config, axis)
-
-    dummy_inputs = config.generate_dummy_inputs(**input_shapes)
-    dummy_inputs_tuple = tuple(dummy_inputs.values())
-    checked_model, aliases = config.patch_model_and_prepare_aliases(model, dummy_inputs)
-    compiler_args = convert_neuronx_compiler_args_to_neuron(auto_cast, auto_cast_type, disable_fast_relayout)
-
-    if config.dynamic_batch_size is True and not inline_weights_to_neff:
-        logger.warning(
-            "Dynamic batching is not yet compatible with the weights/neff non-inlined model. `inline_weights_to_neff` is set to True. If you still want to separate the neff and weights, please set `dynamic_batch_size=False`."
-        )
-        inline_weights_to_neff = True
-
-    neuron_model = neuron.trace(
-        checked_model,
-        dummy_inputs_tuple,
-        dynamic_batch_size=config.dynamic_batch_size,
-        compiler_args=compiler_args,
-        compiler_workdir=compiler_workdir,
-        separate_weights=not inline_weights_to_neff,
-        fallback=not disable_fallback,
-    )
-    torch.jit.save(neuron_model, output)
-    del model
-    del checked_model
-    del dummy_inputs
-    del neuron_model
-
-    return config.inputs, config.outputs
