@@ -221,8 +221,6 @@ class XLMRobertaNeuronConfig(CamembertNeuronConfig):
     pass
 
 
-# https://github.com/aws-neuron/aws-neuron-sdk/issues/642
-# Failed only for INF1: 'XSoftmax'
 @register_in_tasks_manager("deberta", *([task for task in COMMON_TEXT_TASKS if task != "multiple-choice"]))
 class DebertaNeuronConfig(ElectraNeuronConfig):
     @property
@@ -234,8 +232,6 @@ class DebertaNeuronConfig(ElectraNeuronConfig):
         return common_inputs
 
 
-# https://github.com/aws-neuron/aws-neuron-sdk/issues/642
-# Failed only for INF1: 'XSoftmax'
 @register_in_tasks_manager("deberta-v2", *([task for task in COMMON_TEXT_TASKS if task != "multiple-choice"]))
 class DebertaV2NeuronConfig(ElectraNeuronConfig):
     pass

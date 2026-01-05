@@ -36,8 +36,8 @@ MODEL_NAMES = {
     "convnext": "hf-internal-testing/tiny-random-convnext",
     "convnextv2": "hf-internal-testing/tiny-random-ConvNextV2Model",
     "cvt": "hf-internal-testing/tiny-random-CvTModel",
-    "deberta": "hf-internal-testing/tiny-random-DebertaModel",  # Failed for INF1: 'XSoftmax'
-    "deberta-v2": "hf-internal-testing/tiny-random-DebertaV2Model",  # Failed for INF1: 'XSoftmax'
+    "deberta": "hf-internal-testing/tiny-random-DebertaModel",
+    "deberta-v2": "hf-internal-testing/tiny-random-DebertaV2Model",
     "deit": "hf-internal-testing/tiny-random-DeiTModel",
     "distilbert": "hf-internal-testing/tiny-random-DistilBertModel",
     "donut-swin": "hf-internal-testing/tiny-random-DonutSwinModel",
