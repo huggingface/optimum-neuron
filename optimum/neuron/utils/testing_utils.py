@@ -16,21 +16,11 @@
 
 import unittest
 
-from .import_utils import is_neuron_available, is_neuronx_available
-
-
-def requires_neuron(test_case):
-    return unittest.skipUnless(is_neuron_available(), "test requires Neuron compiler")(test_case)
+from .import_utils import is_neuronx_available
 
 
 def requires_neuronx(test_case):
     return unittest.skipUnless(is_neuronx_available(), "test requires Neuron X compiler")(test_case)
-
-
-def requires_neuron_or_neuronx(test_case):
-    return unittest.skipUnless(
-        is_neuron_available() or is_neuronx_available(), "test requires either Neuron or Neuron X compiler"
-    )(test_case)
 
 
 def is_trainium_test(test_case):
@@ -44,7 +34,7 @@ def is_trainium_test(test_case):
 
 
 def is_inferentia_test(test_case):
-    test_case = requires_neuron_or_neuronx(test_case)
+    test_case = requires_neuronx(test_case)
     try:
         import pytest
     except ImportError:
@@ -54,7 +44,7 @@ def is_inferentia_test(test_case):
 
 
 def slow(test_case):
-    test_case = requires_neuron_or_neuronx(test_case)
+    test_case = requires_neuronx(test_case)
     try:
         import pytest
     except ImportError:
