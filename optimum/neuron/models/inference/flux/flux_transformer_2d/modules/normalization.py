@@ -25,9 +25,7 @@ from typing import Optional, Tuple
 
 import torch
 from neuronx_distributed.parallel_layers.layer_norm import LayerNorm
-from neuronx_distributed.parallel_layers.layers import (  # noqa: E402; noqa: E402; noqa: E402; noqa: E402; noqa: E402
-    ColumnParallelLinear,
-)
+from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear  # noqa: E402
 from torch import nn as nn
 
 from ....backend.utils.layer_boundary_marker import ModuleMarkerEndWrapper, ModuleMarkerStartWrapper

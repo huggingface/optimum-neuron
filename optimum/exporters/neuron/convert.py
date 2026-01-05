@@ -16,7 +16,6 @@
 
 import copy
 import os
-import re
 import time
 from collections import OrderedDict
 from functools import partial
@@ -63,7 +62,6 @@ if is_diffusers_available():
 if is_sentence_transformers_available():
     from sentence_transformers import SentenceTransformer
 
-import neuronx_distributed
 import neuronx_distributed.trace.hlo_utils as hlo_utils
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.trace.model_builder import BaseModelInstance, ModelBuilder
@@ -722,24 +720,9 @@ def trace_neuronx(
         neuron_model = model_builder.trace(initialize_model_weights=False)
         torch.jit.save(neuron_model, output)
         shard_weights(model_builder, path=output.parent)
-    elif tensor_parallel_size > 1:
-        # Case 2: Using `neuronx_distributed.trace.parallel_model_trace`
-        os.environ["LOCAL_WORLD_SIZE"] = str(tensor_parallel_size)
-        # TODO: To remove when migrating from `parallel_model_trace` to ModelBuilderV2. `parallel_model_trace` doesn't support custom target.
-        if "--target" in compiler_args:
-            compiler_args = re.sub(r"--target\s+\S+", "", compiler_args).strip()
-        with torch.no_grad():
-            neuron_model = neuronx_distributed.trace.parallel_model_trace(
-                model,
-                dummy_inputs,
-                compiler_args=compiler_args,
-                inline_weights_to_neff=inline_weights_to_neff,
-                compiler_workdir=compiler_workdir,
-                tp_degree=tensor_parallel_size,
-            )
-        neuronx_distributed.trace.parallel_model_save(neuron_model, output)
     else:
-        # Case 3: Using `torch_neuronx.trace`
+        assert tensor_parallel_size == 1, "Please use ModelBuilder for the tracing with tensor parallelism."
+        # Case 2: Using `torch_neuronx.trace`
         cpu_backend = get_neuron_major() == -1
         neuron_model = neuronx.trace(
             model,
