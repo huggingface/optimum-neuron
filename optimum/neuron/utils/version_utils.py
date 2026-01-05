@@ -14,6 +14,8 @@
 # limitations under the License.
 """Version utilities."""
 
+from importlib.metadata import version as importlib_version
+
 from packaging import version
 
 from .import_utils import is_neuronx_available
@@ -54,10 +56,10 @@ def get_neuronx_distributed_version() -> str:
     if _neuronx_distributed_version is not None:
         return _neuronx_distributed_version
     try:
-        import neuronx_distributed
+        import neuronx_distributed  # noqa: F401
     except ImportError:
         raise ModuleNotFoundError("`neuronx_distributed` python package is not installed.")
-    _neuronx_distributed_version = neuronx_distributed.__version__
+    _neuronx_distributed_version = importlib_version("neuronx_distributed")
     return _neuronx_distributed_version
 
 
