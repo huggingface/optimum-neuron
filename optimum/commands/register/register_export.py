@@ -14,16 +14,11 @@
 # limitations under the License.
 """Registers the export command for Neuron to the Optimum CLI."""
 
-from ...neuron.utils import is_neuron_available, is_neuronx_available
+from ...neuron.utils import is_neuronx_available
 from ..export.base import ExportCommand
 
 
 _neuron_export_command_was_imported = False
-
-if is_neuron_available():
-    from ..export.neuron import NeuronExportCommand
-
-    _neuron_export_command_was_imported = True
 
 if is_neuronx_available():
     from ..export.neuronx import NeuronxExportCommand as NeuronExportCommand  # noqa: F811
