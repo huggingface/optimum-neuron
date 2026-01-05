@@ -291,6 +291,8 @@ def test_speculation_same_model(caplog, speculation, max_new_tokens):
                 remaining_speculated_tokens -= speculated_tokens
 
 
+@is_inferentia_test
+@requires_neuronx
 @pytest.mark.parametrize("neuron_llm_config", ["llama-1x8192"], indirect=True)
 def test_decoder_generation_long_sequence(neuron_llm_config: dict[str, Any]):
     """Test that we can generate from a long prompt using a model compiled for long sequences."""
