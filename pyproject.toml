@@ -189,7 +189,6 @@ known-first-party = ["optimum.neuron"]
 
 [tool.pytest.ini_options]
 markers = [
-    "is_staging_test",
     "is_trainium_test",
     "is_inferentia_test",
     "slow",
