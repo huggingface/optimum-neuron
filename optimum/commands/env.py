@@ -19,7 +19,7 @@ import huggingface_hub
 from transformers import __version__ as transformers_version
 from transformers.utils import is_torch_available
 
-from ..neuron.utils import is_neuron_available, is_neuronx_available
+from ..neuron.utils import is_neuronx_available
 from ..neuron.version import __sdk_version__ as neuron_sdk_version
 from ..neuron.version import __version__ as optimum_neuron_version
 from ..version import __version__ as optimum_version
@@ -72,9 +72,7 @@ class EnvironmentCommand(BaseOptimumCLICommand):
             "`torch` version": f"{pt_version}",
         }
 
-        if is_neuron_available():
-            neuron_python_pkgs = ["dmlc-tvm", "neuron-cc", "torch-neuron"]
-        elif is_neuronx_available():
+        if is_neuronx_available():
             neuron_python_pkgs = [
                 "aws-neuronx-runtime-discovery",
                 "libneuronxla",

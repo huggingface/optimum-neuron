@@ -44,10 +44,6 @@ def is_package_available(package_name: str, min_version: str | None = None) -> b
     return version.parse(package_version) >= version.parse(min_version)
 
 
-def is_neuron_available() -> bool:
-    return is_package_available("torch_neuron")
-
-
 def is_neuronx_available() -> bool:
     return is_package_available("torch_neuronx")
 
