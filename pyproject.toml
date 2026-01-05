@@ -20,7 +20,7 @@ name = "optimum-neuron"
 dynamic = ["version"]
 description = "Optimum Neuron serves as the bridge between Hugging Face libraries, such as Transformers, Diffusers, and PEFT, and AWS Trainium and Inferentia accelerators. It provides a set of tools enabling easy model loading, training, and inference on both single and multiple Neuron core configurations, across a wide range of downstream tasks."
 readme = "README.md"
-requires-python = ">=3.10,<3.12"
+requires-python = ">=3.12,<3.13"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "HuggingFace Inc. Special Ops Team", email = "hardware@huggingface.co"},
