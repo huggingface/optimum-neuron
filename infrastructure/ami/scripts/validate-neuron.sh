@@ -3,7 +3,7 @@ echo "Step: validate-neuron-devices"
 neuron-ls
 
 # Activate the neuron virtual environment
-source /opt/aws_neuronx_venv_pytorch_2_8/bin/activate
+source /opt/aws_neuronx_venv_pytorch_2_9/bin/activate
 
 python -c 'import torch'
 python -c 'import torch_neuronx'
