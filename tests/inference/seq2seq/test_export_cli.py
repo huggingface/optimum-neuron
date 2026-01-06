@@ -88,6 +88,7 @@ class TestExportCLI(unittest.TestCase):
                 check=True,
             )
 
+    @pytest.mark.skip(reason="Skipping the test since `parallel_model_trace` is deprecated(to fix).")
     @requires_neuronx
     def test_encoder_decoder_tp2(self):
         model_id = "michaelbenayoun/t5-tiny-random"
