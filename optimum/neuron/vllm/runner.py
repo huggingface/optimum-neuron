@@ -135,7 +135,7 @@ def create_sampling_metadata(
             all_greedy = False
         temperature.append(request.sampling_params.temperature)
         top_p.append(request.sampling_params.top_p)
-        top_k.append(request.sampling_params.top_k)
+        top_k.append(request.sampling_params.top_k if request.sampling_params.top_k > 0 else vocab_size)
         if request.sampling_params.logprobs is not None:
             logprobs = request.sampling_params.logprobs
             if max_num_logprobs is None:
