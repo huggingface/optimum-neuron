@@ -48,6 +48,7 @@ _import_structure = {
         "is_neuronx_available",
         "is_torch_neuronx_available",
         "is_trl_available",
+        "is_vllm_available",
     ],
     "input_generators": [
         "DTYPE_MAPPER",
@@ -115,6 +116,7 @@ if TYPE_CHECKING:
         is_neuronx_available,
         is_torch_neuronx_available,
         is_trl_available,
+        is_vllm_available,
     )
     from .input_generators import (
         DTYPE_MAPPER,
