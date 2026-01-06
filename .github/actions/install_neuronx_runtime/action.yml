@@ -12,6 +12,7 @@ runs:
           EOF
           wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
           sudo apt-get update -y
+          sudo apt install libarchive13
           sudo apt-get install aws-neuronx-tools=2.27.33.0-5d9c0b901 aws-neuronx-runtime-lib=2.29.40.0-f954cd7a5 aws-neuronx-collectives=2.29.41.0-681fef5f5 -y
           export PATH=/opt/aws/neuron/bin:$PATH
           dpkg -l | grep neuron
