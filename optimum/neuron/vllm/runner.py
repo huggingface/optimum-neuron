@@ -25,7 +25,7 @@ from vllm.v1.core.sched.output import CachedRequestData, NewRequestData, Schedul
 from vllm.v1.outputs import ModelRunnerOutput
 from vllm.v1.sample.logits_processor import LogitsProcessors, build_logitsprocs
 from vllm.v1.sample.metadata import SamplingMetadata
-from vllm.v1.sample.sampler import Sampler
+from optimum.neuron.models.inference.backend.modules.generation.sampling import Sampler
 
 from .model_loader import OptimumNeuronModelForCausalLM, get_optimum_neuron_model
 
@@ -218,7 +218,7 @@ class OptimumNeuronModelRunner:
             load_config=self.load_config,
         )
         if not self.model.model.neuron_config.on_device_sampling:
-            self.sampler = Sampler()
+            self.sampler = Sampler(self.model.model.neuron_config, do_sample=True, on_cpu=True)
             self.logitsproc = build_logitsprocs(
                 self.vllm_config, device=self.device, is_pin_memory=False, is_pooling_model=False
             )
@@ -287,12 +287,7 @@ class OptimumNeuronModelRunner:
                     seq_ids=seq_ids,
                     sampling_params=sampling_params_tensor,
                 )
-                # We reuse the GPU Sampler, but it uses a specific sampling parameters class
-                sampling_metadata = create_sampling_metadata(
-                    requests, vocab_size=self.model_config.get_vocab_size(), logitsprocs=self.logitsproc
-                )
-                assert self.sampler is not None
-                return self.sampler.sample(logits, sampling_metadata)
+                return self.sampler(logits, sampling_params_tensor), logits
 
         # We start by decoding the next tokens for the requests already in the batch.
         req_ids = []
