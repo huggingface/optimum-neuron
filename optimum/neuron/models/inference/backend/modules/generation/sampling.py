@@ -265,7 +265,7 @@ class Sampler(torch.nn.Module):
         counts = torch.sum(greater_than_rand, dim=dim).unsqueeze(dim)
         return counts
 
-    def _argmax_sample(self, token_logits, return_values, dim):
+    def _argmax_sample(self, token_logits, dim):
         if self.on_cpu:
             return torch.argmax(token_logits, dim=dim)
         else:
@@ -277,12 +277,9 @@ class Sampler(torch.nn.Module):
                 keepdim=False,
                 process_group=self.process_group,
             )
-            values = torch.ones(tokens.shape, dtype=token_logits.dtype, device=tokens.device)
-            if return_values:
-                return tokens, values
             return tokens
 
-    def _multinomial_sample(self, token_logits, sampling_params, return_values, dim, rank_id):
+    def _multinomial_sample(self, token_logits, sampling_params, dim, rank_id):
         batch_size = token_logits.shape[0]
         top_k = sampling_params[:, 0].reshape(batch_size, 1)
         top_p = sampling_params[:, 1].reshape(batch_size, 1)
@@ -291,26 +288,24 @@ class Sampler(torch.nn.Module):
         # Apply top_k first
         top_k_logits_values, top_k_logits_indices = self._top_k_masked(token_logits, top_k, dim, rank_id)
 
-        # Apply temperature
-        top_k_logits_values = torch.divide(top_k_logits_values, temperature)
+        if torch.any(temperature != 1.0):
+            top_k_logits_values = torch.divide(top_k_logits_values, temperature)
 
-        # Apply top_p
-        probs_soft_max = self._soft_max(top_k_logits_values, dim)
-        probs_cumsum = cumsum(tensor_in=probs_soft_max, dim=dim, on_cpu=self.on_cpu)
-        top_p = torch.max(torch.min(probs_cumsum), top_p)
-        top_p_mask = torch.greater(probs_cumsum, top_p).index_fill_(
-            dim, torch.tensor([0], device=top_p.device), False
-        )  # need to keep at least one token
-        top_k_logits_values = top_k_logits_values.masked_fill_(top_p_mask, self.IGNORED_LOGITS_VALUE)
+        if torch.any(top_p < 1.0):
+            probs_soft_max = self._soft_max(top_k_logits_values, dim)
+            probs_cumsum = cumsum(tensor_in=probs_soft_max, dim=dim, on_cpu=self.on_cpu)
+            top_p = torch.max(torch.min(probs_cumsum), top_p)
+            top_p_mask = torch.greater(probs_cumsum, top_p).index_fill_(
+                dim, torch.tensor([0], device=top_p.device), False
+            )  # need to keep at least one token
+            top_k_logits_values = top_k_logits_values.masked_fill_(top_p_mask, self.IGNORED_LOGITS_VALUE)
 
         probs_soft_max = self._soft_max(top_k_logits_values, dim)  # custom call
-        if return_values:
-            return top_k_logits_indices, probs_soft_max
 
         counts = self._multinomial(probs_soft_max, dim)
         return torch.gather(input=top_k_logits_indices, dim=dim, index=counts).flatten()
 
-    def forward(self, token_logits, sampling_params, return_values=False, rank_id=None):
+    def forward(self, token_logits, sampling_params, rank_id=None):
         """
         forward to perform topk, topp, temperature and multinomial sampling.
 
@@ -342,6 +337,6 @@ class Sampler(torch.nn.Module):
         """
         dim = len(token_logits.shape) - 1  # vocab_size dimension
         if self.do_sample:
-            return self._multinomial_sample(token_logits, sampling_params, return_values, dim, rank_id)
+            return self._multinomial_sample(token_logits, sampling_params, dim, rank_id)
         else:
-            return self._argmax_sample(token_logits, return_values, dim)
+            return self._argmax_sample(token_logits, dim)
