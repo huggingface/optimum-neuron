@@ -221,10 +221,11 @@ class NxDDecoderModelForCausalLM(nn.Module):
         )
 
         hidden_size = hidden_states.shape[-1]
-        if not (position_ids.shape[-1] == self.speculation_length or position_ids.shape[-1] == 1):
-            # context encoding
+        if is_for_context_encoding:
+            # Do not evaluate logits for all tokens in the sequence, only the last one
             index = torch.max(position_ids, dim=1, keepdim=True).indices
             index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
+            # (batch_size, seq_length, hidden_size) -> (batch_size, 1, hidden_size)
             hidden_states = torch.gather(hidden_states, dim=1, index=index)
 
         logits = self.lm_head(hidden_states)
