@@ -50,7 +50,7 @@ ENCODER_ARCHITECTURES = [
     "albert",
     "bert",
     "camembert",
-    "convbert",
+    # "convbert",  # Skip since neuron sdk 2.27, tracing error
     "distilbert",
     "electra",
     "flaubert",
