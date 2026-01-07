@@ -182,27 +182,45 @@ class NxDDecoderModelForCausalLM(nn.Module):
                 # Active mask is implicit for decoding
                 active_mask = None
 
-        # FD masks
-        active_mask_2d = None
+        batch_size, seq_length = input_ids.shape[:2]
+        position_ids = position_ids.view(-1, seq_length).long()
 
-        hidden_states, past_key_values = self.get_model_output(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            active_mask=active_mask,
-        )
+        # embed positions
+        inputs_embeds = self.embed_tokens(input_ids)
+        hidden_states = inputs_embeds
+
+        # decoder layers
+        new_key_values = []
+        cos_cache = None
+        sin_cache = None
+        for idx, decoder_layer in enumerate(self.layers):
+            past_key_value = past_key_values[idx] if past_key_values is not None else None
+
+            layer_outputs = decoder_layer(
+                hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+                active_mask=active_mask,
+                cos_cache=cos_cache,
+                sin_cache=sin_cache,
+            )
+
+            hidden_states = layer_outputs[0]
+            new_key_values.append(layer_outputs[1])
+            cos_cache, sin_cache = layer_outputs[2:]
+
+        hidden_states = self.norm(hidden_states)
 
         updated_kv_cache = self.kv_mgr.update_cache(
             is_for_context_encoding=is_for_context_encoding,
             seq_ids=seq_ids,
             position_ids=position_ids,
-            new_key_values=past_key_values,
+            new_key_values=new_key_values,
             seq_len=cache_size,
-            active_mask=active_mask_2d,
         )
 
-        batch_size, num_tokens, hidden_size = hidden_states.shape
+        hidden_size = hidden_states.shape[-1]
         if not (position_ids.shape[-1] == self.speculation_length or position_ids.shape[-1] == 1):
             # context encoding
             index = torch.max(position_ids, dim=1, keepdim=True).indices
@@ -212,12 +230,13 @@ class NxDDecoderModelForCausalLM(nn.Module):
         logits = self.lm_head(hidden_states)
         logits = logits.float()
 
-        # rank_id and world_size are required for padding and sampling
-        # TODO: check if both code paths below are used and when
         if self.lm_head.gather_output:
+            # The lm_head outputs are already gathered on rank 0
             rank_id = torch.tensor(0, device=logits.device, dtype=torch.int32)
             world_size = 1
         else:
+            # The lm_head outputs are sharded across tensor parallel ranks
+            # This is usually the case when on-device-sampling is used
             rank_id = self.rank_util.get_rank()
             world_size = torch.distributed.get_world_size(group=self.lm_head.tensor_parallel_group)
 
@@ -243,72 +262,6 @@ class NxDDecoderModelForCausalLM(nn.Module):
         outputs += updated_kv_cache
 
         return outputs
-
-    def get_model_output(
-        self,
-        input_ids: torch.LongTensor = None,
-        attention_mask: torch.Tensor | None = None,
-        position_ids: torch.LongTensor | None = None,
-        past_key_values: list[torch.FloatTensor] | None = None,
-        active_mask: list[torch.FloatTensor] | None = None,
-    ):
-        batch_size, seq_length = input_ids.shape[:2]
-
-        past_key_values_length = 0
-        if past_key_values is not None:
-            past_key_values_length = past_key_values[0][0].shape[2]
-
-        inputs_embeds = self.embed_tokens(input_ids)
-
-        if position_ids is None:
-            device = input_ids.device if input_ids is not None else inputs_embeds.device  # noqa
-            position_ids = torch.arange(
-                past_key_values_length,
-                seq_length + past_key_values_length,
-                dtype=torch.long,
-                device=device,
-            )
-            position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
-        else:
-            position_ids = position_ids.view(-1, seq_length).long()
-
-        # NeuronLlamaModel class manages the KV cache. So the attention_mask will be generated and passed
-        # through to LlamaModel. We override the HF's code that generates attention mask because HF does
-        # not support left aligned RHS padding. This enables Neuron to achieve higher performance and
-        # extensibility.
-        #
-        # 4d mask is passed through the layers
-        # attention_mask = _prepare_4d_causal_attention_mask(
-        #     attention_mask, (batch_size, seq_length), inputs_embeds, past_key_values_length
-        # )
-
-        # embed positions
-        hidden_states = inputs_embeds
-
-        # decoder layers
-        next_decoder_cache = ()
-        cos_cache = None
-        sin_cache = None
-        for idx, decoder_layer in enumerate(self.layers):
-            past_key_value = past_key_values[idx] if past_key_values is not None else None
-
-            layer_outputs = decoder_layer(
-                hidden_states,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                past_key_value=past_key_value,
-                active_mask=active_mask,
-                cos_cache=cos_cache,
-                sin_cache=sin_cache,
-            )
-
-            hidden_states = layer_outputs[0]
-            next_decoder_cache += (layer_outputs[1],)
-            cos_cache, sin_cache = layer_outputs[2:]
-
-        hidden_states = self.norm(hidden_states)
-
-        return (hidden_states, next_decoder_cache)
 
 
 class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelForCausalLM):
