@@ -34,8 +34,8 @@ EXPORT_MODELS_TINY = {
     "beit": "hf-internal-testing/tiny-random-BeitForImageClassification",
     "bert": "hf-internal-testing/tiny-random-BertModel",
     "camembert": "hf-internal-testing/tiny-random-camembert",
-    "convbert": "hf-internal-testing/tiny-random-ConvBertModel",
-    "convnext": "hf-internal-testing/tiny-random-convnext",
+    # "convbert": "hf-internal-testing/tiny-random-ConvBertModel",  # blocked since neuron sdk 2.27: tracing broken
+    # "convnext": "hf-internal-testing/tiny-random-convnext",  # blocked since neuron sdk 2.27: tracing broken
     "convnextv2": "hf-internal-testing/tiny-random-ConvNextV2Model",
     "cvt": "hf-internal-testing/tiny-random-CvTModel",
     "deberta": "hf-internal-testing/tiny-random-DebertaModel",
@@ -47,7 +47,7 @@ EXPORT_MODELS_TINY = {
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
     # "esm": "hf-internal-testing/tiny-random-EsmModel",  # TODO: put the test back, when https://github.com/aws-neuron/aws-neuron-sdk/issues/1081 is solved.
     "flaubert": "flaubert/flaubert_small_cased",
-    "hubert": "hf-internal-testing/tiny-random-HubertModel",
+    # "hubert": "hf-internal-testing/tiny-random-HubertModel",  # blocked since neuron sdk 2.27: tracing broken
     "levit": "hf-internal-testing/tiny-random-LevitModel",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
     "mobilenet_v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
@@ -63,12 +63,12 @@ EXPORT_MODELS_TINY = {
     # "unispeech": "hf-internal-testing/tiny-random-unispeech",  # blocked since neuron sdk 2.23: neuronx-cc failed with 70
     # "unispeech-sat": "hf-internal-testing/tiny-random-unispeech-sat",  # blocked since neuron sdk 2.23: neuronx-cc failed with 70
     "vit": "hf-internal-testing/tiny-random-vit",
-    "wav2vec2": "hf-internal-testing/tiny-random-Wav2Vec2Model",
+    # "wav2vec2": "hf-internal-testing/tiny-random-Wav2Vec2Model",  # blocked since neuron sdk 2.27: tracing broken
     # "wav2vec2-conformer": "hf-internal-testing/tiny-random-wav2vec2-conformer",  # blocked
     # "wavlm": "hf-internal-testing/tiny-random-wavlm",  # blocked since neuron sdk 2.23: neuronx-cc failed with 70
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
-    "yolos": "hf-internal-testing/tiny-random-YolosModel",
+    # "yolos": "hf-internal-testing/tiny-random-YolosModel",  # blocked since neuron sdk 2.27: tracing broken
 }
 
 ENCODER_DECODER_MODELS_TINY = {
