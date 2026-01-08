@@ -80,7 +80,7 @@ training = [
 neuronx = [
     "wheel",
     "neuronx-cc==2.22.12471.0",
-    "torch-neuronx==2.9.0.2.11.19912",
+    "torch-neuronx==2.8.*",
     "torch==2.8.0.*",
     "torchvision==0.23.*",
     "neuronx_distributed==0.16.25997",
