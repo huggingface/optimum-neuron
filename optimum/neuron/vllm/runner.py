@@ -23,7 +23,7 @@ from vllm.sampling_params import SamplingParams
 from vllm.utils import is_pin_memory_available, make_tensor_with_pad
 from vllm.v1.core.sched.output import CachedRequestData, NewRequestData, SchedulerOutput
 from vllm.v1.outputs import ModelRunnerOutput
-from vllm.v1.sample.logits_processor import LogitsProcessors, build_logitsprocs
+from vllm.v1.sample.logits_processor import LogitsProcessors
 from vllm.v1.sample.metadata import SamplingMetadata
 from vllm.v1.sample.sampler import Sampler
 
@@ -109,9 +109,7 @@ class OptimumNeuronCachedBatch:
         return sum(1 for r in self.cached_requests if r is not None)
 
 
-def create_sampling_metadata(
-    requests: list[OptimumNeuronCachedRequest], vocab_size: int, logitsprocs: LogitsProcessors
-) -> SamplingMetadata:
+def create_sampling_metadata(requests: list[OptimumNeuronCachedRequest], vocab_size: int) -> SamplingMetadata:
     all_greedy = True
     all_random = True
     temperature = []
@@ -170,6 +168,12 @@ def create_sampling_metadata(
     for i, prompt_token_ids in enumerate(prompt_token_ids_list):
         prompt_token_ids_list[i] = prompt_token_ids + [vocab_size] * (max_prompt_len - len(prompt_token_ids))
 
+    # Note that we pass an empty logits processors for now, as even we added the builtin processors,
+    # we don't support updating them when the batch changes.
+    # This means that the following features provided by the builtin logits processors are not supported yet:
+    # - min_p
+    # - logits_bias
+    # - min_length
     return SamplingMetadata(
         temperature=torch.tensor(temperature),
         all_greedy=all_greedy,
@@ -186,7 +190,7 @@ def create_sampling_metadata(
         output_token_ids=output_token_ids_list,
         allowed_token_ids_mask=allowed_token_ids_mask,
         bad_words_token_ids=bad_word_tokens_ids,
-        logitsprocs=logitsprocs,
+        logitsprocs=LogitsProcessors(),  # Empty logits processors for now
     )
 
 
@@ -219,9 +223,6 @@ class OptimumNeuronModelRunner:
         )
         if not self.model.model.neuron_config.on_device_sampling:
             self.sampler = Sampler()
-            self.logitsproc = build_logitsprocs(
-                self.vllm_config, device=self.device, is_pin_memory=False, is_pooling_model=False
-            )
 
     def tensor_for_sampling_params(self, sampling_params: list[SamplingParams]) -> torch.Tensor:
         if self.model.model.neuron_config.on_device_sampling:
@@ -288,9 +289,7 @@ class OptimumNeuronModelRunner:
                     sampling_params=sampling_params_tensor,
                 )
                 # We reuse the GPU Sampler, but it uses a specific sampling parameters class
-                sampling_metadata = create_sampling_metadata(
-                    requests, vocab_size=self.model_config.get_vocab_size(), logitsprocs=self.logitsproc
-                )
+                sampling_metadata = create_sampling_metadata(requests, vocab_size=self.model_config.get_vocab_size())
                 assert self.sampler is not None
                 return self.sampler.sample(logits, sampling_metadata)
 
