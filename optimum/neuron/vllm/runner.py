@@ -168,7 +168,7 @@ def create_sampling_metadata(requests: list[OptimumNeuronCachedRequest], vocab_s
     for i, prompt_token_ids in enumerate(prompt_token_ids_list):
         prompt_token_ids_list[i] = prompt_token_ids + [vocab_size] * (max_prompt_len - len(prompt_token_ids))
 
-    # Note that we pass an empty logits processors for now, as even we added the builtin processors,
+    # Note that we pass an empty logits processors for now, as even though we added the builtin processors,
     # we don't support updating them when the batch changes.
     # This means that the following features provided by the builtin logits processors are not supported yet:
     # - min_p
