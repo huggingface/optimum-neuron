@@ -17,10 +17,16 @@ from abc import ABC, abstractmethod
 
 import torch
 from transformers import GenerationConfig
-from transformers.generation import GenerationMixin, SampleDecoderOnlyOutput
-from transformers.generation.logits_process import LogitsProcessorList
+from transformers.generation.logits_process import (
+    LogitsProcessorList,
+    TemperatureLogitsWarper,
+    TopKLogitsWarper,
+    TopPLogitsWarper,
+)
 from transformers.generation.stopping_criteria import StoppingCriteriaList
+from transformers.generation.utils import GenerationMixin, SampleDecoderOnlyOutput
 
+from ......generation.logits_process import FusedLogitsWarper
 from .sampling import (
     prepare_sampling_params,
 )
@@ -111,6 +117,17 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             raise ValueError("Output scores are not supported for neuron models")
         if generation_config.return_dict_in_generate:
             raise ValueError("return_dict_in_generate is not supported for neuron models")
+        if not self.neuron_config.on_device_sampling:
+            # Remove transformers TopK, TopP and Temperature processors
+            logits_processor = LogitsProcessorList(
+                [
+                    p
+                    for p in logits_processor
+                    if not isinstance(p, (TemperatureLogitsWarper, TopKLogitsWarper, TopPLogitsWarper))
+                ]
+            )
+            # We use a fused logits warper instead
+            fused_logits_warper = FusedLogitsWarper.from_config(generation_config)
         has_eos_stopping_criteria = any(hasattr(criteria, "eos_token_id") for criteria in stopping_criteria)
         do_sample = generation_config.do_sample
 
@@ -147,15 +164,19 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                 next_tokens = outputs
             else:
                 next_token_logits = outputs[:, -1, :].clone()
-                # pre-process distribution, applying temperature, top_k, top_p, etc.
+                # pre-process distribution
                 next_token_scores = logits_processor(input_ids, next_token_logits)
+                # warp distribution, applying temperature, top_k, top_p
+                next_token_scores, next_token_indices = fused_logits_warper(next_token_scores)
 
                 # token selection
                 if do_sample:
                     probs = torch.nn.functional.softmax(next_token_scores, dim=-1)
-                    next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
+                    next_tokens = torch.multinomial(probs, num_samples=1)
                 else:
-                    next_tokens = torch.argmax(next_token_scores, dim=-1)
+                    next_tokens = torch.argmax(next_token_scores, dim=-1, keepdim=True)
+                # Convert the filtered tokens to actual vocabulary tokens
+                next_tokens = torch.gather(next_token_indices, 1, next_tokens).squeeze(1)
 
             # finished sentences should have their next token be a padding token
             if has_eos_stopping_criteria:
