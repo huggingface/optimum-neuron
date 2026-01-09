@@ -22,7 +22,6 @@ from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import StoppingCriteriaList
 
 from .sampling import (
-    Sampler,
     prepare_sampling_params,
 )
 
@@ -63,7 +62,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         assert hasattr(self, "neuron_config")  # Must be set by the super class
         # Initialize default generation config
         self.generation_config = GenerationConfig.from_model_config(config)
-        self.sampler = None
 
     def can_generate(self):
         # Still required in transformers <= 4.50
@@ -117,8 +115,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         return_dict_in_generate = generation_config.return_dict_in_generate
         has_eos_stopping_criteria = any(hasattr(criteria, "eos_token_id") for criteria in stopping_criteria)
         do_sample = generation_config.do_sample
-        if not self.neuron_config.on_device_sampling and self.sampler is None:
-            self.sampler = Sampler(self.neuron_config, do_sample=do_sample, on_cpu=True)
 
         # Prepare input tensors
         position_ids = position_ids_from_attention_mask(attention_mask)
@@ -159,13 +155,18 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                 next_token_logits = outputs[:, -1, :].clone()
                 if raw_logits is not None:
                     raw_logits.append(next_token_logits)
-
-                # pre-process distribution
+                # pre-process distribution, applying temperature, top_k, top_p, etc.
                 next_token_scores = logits_processor(input_ids, next_token_logits)
                 if scores is not None:
                     scores.append(next_token_scores)
 
-                next_tokens = self.sampler(next_token_scores, sampling_params)
+                # token selection
+                if do_sample:
+                    probs = torch.nn.functional.softmax(next_token_scores, dim=-1)
+                    next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
+                else:
+                    next_tokens = torch.argmax(next_token_scores, dim=-1)
+
             # finished sentences should have their next token be a padding token
             if has_eos_stopping_criteria:
                 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
