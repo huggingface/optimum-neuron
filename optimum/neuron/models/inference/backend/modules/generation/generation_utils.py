@@ -105,14 +105,12 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             logger.warning(f"The following kwargs are not supported for neuron model: {list(explicit_kwargs.keys())}")
         # init values
         pad_token_id = generation_config._pad_token_tensor
-        output_scores = generation_config.output_scores
-        output_logits = generation_config.output_logits
-        if self.neuron_config.on_device_sampling:
-            if output_logits:
-                raise ValueError("Output logits are not supported with on-device sampling")
-            if output_scores:
-                raise ValueError("Output scores are not supported with on-device sampling")
-        return_dict_in_generate = generation_config.return_dict_in_generate
+        if generation_config.output_logits:
+            raise ValueError("Output logits are not supported for neuron models")
+        if generation_config.output_scores:
+            raise ValueError("Output scores are not supported for neuron models")
+        if generation_config.return_dict_in_generate:
+            raise ValueError("return_dict_in_generate is not supported for neuron models")
         has_eos_stopping_criteria = any(hasattr(criteria, "eos_token_id") for criteria in stopping_criteria)
         do_sample = generation_config.do_sample
 
@@ -130,10 +128,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             top_p=top_p,
             temperature=temperature,
         )
-
-        # init scores / logits tuples
-        scores = [] if (return_dict_in_generate and output_scores) else None
-        raw_logits = [] if (return_dict_in_generate and output_logits) else None
 
         # keep track of which sequences are already finished
         unfinished_sequences = torch.ones(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
@@ -153,12 +147,8 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                 next_tokens = outputs
             else:
                 next_token_logits = outputs[:, -1, :].clone()
-                if raw_logits is not None:
-                    raw_logits.append(next_token_logits)
                 # pre-process distribution, applying temperature, top_k, top_p, etc.
                 next_token_scores = logits_processor(input_ids, next_token_logits)
-                if scores is not None:
-                    scores.append(next_token_scores)
 
                 # token selection
                 if do_sample:
@@ -187,14 +177,7 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, None)
             this_peer_finished = unfinished_sequences.max() == 0
 
-        if return_dict_in_generate:
-            return SampleDecoderOnlyOutput(
-                sequences=input_ids,
-                scores=scores,
-                logits=raw_logits,
-            )
-        else:
-            return input_ids
+        return input_ids
 
     def _assisted_decoding(
         self,
