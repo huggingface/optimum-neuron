@@ -57,7 +57,7 @@ def login_to_ecr(ecr_client, region: str) -> None:
         print(f"Warning: Docker login encountered an issue: {e}")
 
 
-def get_ecr_images(ecr_client, repository_name: str, region: str, limit: Optional[int] = None) -> list:
+def get_ecr_images(ecr_client, repository_name: str, limit: Optional[int] = None) -> list:
     """List all images in the ECR repository, filtered by images with tags and sorted by tag."""
 
     try:
@@ -120,7 +120,7 @@ def main():
     # List images
     repository_types = ECR_REPOSITORIES.keys() if args.repository_type is None else [args.repository_type]
     for repository_type in repository_types:
-        images = get_ecr_images(ecr_client, ECR_REPOSITORIES[repository_type], args.region, args.limit)
+        images = get_ecr_images(ecr_client, ECR_REPOSITORIES[repository_type], args.limit)
         print(f"\nRepository: {repository_type} ({ECR_REPOSITORIES[repository_type]})")
         print(f"Showing {len(images[0])} of {images[1]} images:")
         for image in images[0]:
