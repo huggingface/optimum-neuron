@@ -53,7 +53,7 @@ def login_to_ecr(ecr_client, region: str) -> None:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        stdout, stderr = process.communicate(input=password.encode())
+        stderr = process.communicate(input=password.encode())[1]
 
         if process.returncode != 0:
             print(f"Warning: Docker login failed: {stderr.decode()}")
