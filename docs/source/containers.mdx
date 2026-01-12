@@ -9,6 +9,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
+<!-- When updating this file, use the tools/list-ecr-images.py script to get the list of the latest images-->
 
 # Optimum Neuron Container
 
@@ -36,11 +37,11 @@ print(f"llm image uri: {llm_image}")
 
 ## Available Optimum Neuron Containers
 
-| Type                       | Optimum Version | Image URI                                   |
+| Type                       | Optimum Neuron Version | Image URI                                   |
 |-----------------------------|-----------------|---------------------------------------------|
-| Training  | 0.3.0           | `763104351884.dkr.ecr.us-west-2.amazonaws.com/huggingface-pytorch-training-neuronx:2.7.0-transformers4.51.0-neuronx-py310-sdk2.24.1-ubuntu22.04`   |
-| Inference      | 0.3.0           | `763104351884.dkr.ecr.us-west-2.amazonaws.com/huggingface-pytorch-inference-neuronx:2.7.1-transformers4.51.3-neuronx-py310-sdk2.24.1-ubuntu22.04`      |
-| Text Generation Inference        | 0.3.0           | `763104351884.dkr.ecr.us-west-2.amazonaws.com/huggingface-pytorch-tgi-inference:2.7.0-optimum3.3.6-neuronx-py310-ubuntu22.04`        |
+| Training  | 0.4.1 | `763104351884.dkr.ecr.us-west-2.amazonaws.com/huggingface-pytorch-training-neuronx:2.8.0-transformers4.55.4-neuronx-py310-sdk2.26.0-ubuntu22.04`   |
+| Inference | 0.4.1 | `763104351884.dkr.ecr.us-west-2.amazonaws.com/huggingface-pytorch-inference-neuronx:2.8.0-transformers4.55.4-neuronx-py310-sdk2.26.0-ubuntu22.04`      |
+| vLLM      | 0.4.2 | `763104351884.dkr.ecr.us-west-2.amazonaws.com/huggingface-vllm-inference-neuronx:0.11.0-optimum0.4.2-neuronx-py310-sdk2.26.0-ubuntu22.04 |
 
 
 Please replace `763104351884` with the correct [AWS account ID](https://github.com/aws/sagemaker-python-sdk/blob/master/src/sagemaker/image_uri_config/huggingface-neuronx.json) and `region` with the AWS region you are working in.
