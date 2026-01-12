@@ -24,16 +24,6 @@ ECR_REPOSITORIES = {
 }
 
 
-def get_current_account_id(sts_client) -> str:
-    """Get the current AWS account ID to verify credentials."""
-    try:
-        response = sts_client.get_caller_identity()
-        return response["Account"]
-    except ClientError as e:
-        print(f"Error: Unable to get AWS account ID. {e}")
-        sys.exit(1)
-
-
 def login_to_ecr(ecr_client, region: str) -> None:
     """Log in to HuggingFace public ECR."""
     ecr_url = f"{HUGGINGFACE_PUBLISHING_AWS_ACCOUNT_ID}.dkr.ecr.{region}.amazonaws.com"
