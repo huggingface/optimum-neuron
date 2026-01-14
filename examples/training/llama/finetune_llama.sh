@@ -22,6 +22,11 @@ elif [ "$NEURON_CORES" -eq 64 ]; then
     PROCESSES_PER_NODE=64
     TP_DEGREE=4
     echo "Detected trn2.48xlarge instance (64 cores)"
+elif [ "$NEURON_CORES" -eq 4 ]; then
+    # trn2.3xlarge instance
+    PROCESSES_PER_NODE=4
+    TP_DEGREE=4
+    echo "Detected trn2.3xlarge instance (4 cores)"
 else
     echo "Warning: Unrecognized instance type with $NEURON_CORES cores. Using default trn1.32xlarge settings."
     PROCESSES_PER_NODE=32
