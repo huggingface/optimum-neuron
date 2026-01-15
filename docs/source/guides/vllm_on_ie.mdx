@@ -16,11 +16,11 @@ This guide will walk you through the process of deploying a model with vLLM on I
 
 First you need to create an Inference Endpoint on a model compatible with Optimum Neuron. You can do this by going to the [Inference Endpoints](https://endpoints.huggingface.co/) page and click on "Catalog" to see the available models.
 
-![Click on Browse Catalog](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/inference_endpoints/ie-browse-catalog.png)
+![Click on Browse Catalog](https://raw.githubusercontent.com/huggingface/optimum-neuron/refs/heads/main/docs/assets/guides/inference_endpoints/ie-browse-catalog.png)
 
 You will see an interface with many cells, each representing a model configuration. You need to filter the model by the hardware accelerator you want to use. On the left column, select "INF2" to see the models compatible with Inferentia2.
 
-![Filter by Inferentia2](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/inference_endpoints/ie-choose-hw-inf2.png)
+![Filter by Inferentia2](https://raw.githubusercontent.com/huggingface/optimum-neuron/refs/heads/main/docs/assets/guides/inference_endpoints/ie-choose-hw-inf2.png)
 
 You can now select the model configuration that you want to use by clicking on it. This will open a new page with the model configuration details.
 
@@ -30,11 +30,11 @@ On the model configuration details page, you can see the Inference Endpoint conf
 
 Once you are happy with the configuration, you can click on "Deploy" to deploy the Inference Endpoint.
 
-![Deploy the Inference Endpoint](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/inference_endpoints/ie-create-endpoint.png)
+![Deploy the Inference Endpoint](https://raw.githubusercontent.com/huggingface/optimum-neuron/refs/heads/main/docs/assets/guides/inference_endpoints/ie-create-endpoint.png)
 
 Once that is done, the Inferentia2 instance will be provisioned and the model will be deployed on it. This can take several minutes, depending on the model size and the instance type. Once the deployment is complete, you will see the Inference Endpoint status showing the message "Endpoint is Running".
 
-![Inference Endpoint deployed](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/inference_endpoints/ie-endpoint-deployed.png)
+![Inference Endpoint deployed](https://raw.githubusercontent.com/huggingface/optimum-neuron/refs/heads/main/docs/assets/guides/inference_endpoints/ie-endpoint-deployed.png)
 
 > **_NOTE:_** If you fail to deploy and the status is showing a "Scheduling failure: unable to schedule" message, it is likely that AWS does not have enough capacity at that moment. You can try to deploy the endpoint again later.
 
@@ -48,7 +48,7 @@ You can now test the Inference Endpoint by sending a request to the Inference En
 You can use the `Chat` button on the bottom right of the interface to open a chat interface to interact with the model.
 You can also use the playground interface to test the Inference Endpoint, it is easy to use it and it allows to configure the request parameters.
 
-![Test the Inference Endpoint](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/inference_endpoints/ie-test-endpoint.png)
+![Test the Inference Endpoint](https://raw.githubusercontent.com/huggingface/optimum-neuron/refs/heads/main/docs/assets/guides/inference_endpoints/ie-test-endpoint.png)
 
 Finally, you can also use the [OpenAI API](https://platform.openai.com/docs/api-reference/chat) to interact with the Inference Endpoint. A simple way to do this is to use the `curl` command.
 
