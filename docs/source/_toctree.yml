@@ -25,7 +25,7 @@
     - local: guides/vllm_on_ie
       title: Deploying a LLM Model with Inference Endpoints
     - local: guides/benchmark
-      title: Benchmarking LLM performance with TGI on AWS Inferentia2
+      title: Benchmarking LLM performance with vLLM on AWS Inferentia2
     title: How-To Guides
   - sections:
     - local: training_tutorials/fine_tune_bert
