@@ -32,16 +32,24 @@ ACCOUNT_IDS = {
 }
 
 TGI_REPOSITORY_NAME = "huggingface-pytorch-tgi-inference"
+VLLM_REPOSITORY_NAME = "huggingface-vllm-inference-neuronx"
+INFERENCE_REPOSITORY_NAME = "huggingface-pytorch-inference-neuronx"
+TRAINING_REPOSITORY_NAME = "huggingface-pytorch-training-neuronx"
 
 # Later on, other services might be added. The format is {service_name: repository_name}
 IMAGE_SERVICES = {
+    "inference": INFERENCE_REPOSITORY_NAME,
+    "training": TRAINING_REPOSITORY_NAME,
+    "vllm": VLLM_REPOSITORY_NAME,
     "tgi": TGI_REPOSITORY_NAME,
-    "huggingface-neuronx": TGI_REPOSITORY_NAME,
 }
 
 # This dictionary contains the pattern templates for the version pattern for each repository. The
 # "platform_version" will be replaced with the platform version when provided.
 TAG_PATTERNS = {
+    INFERENCE_REPOSITORY_NAME: r"transformers{platform_version}",
+    TRAINING_REPOSITORY_NAME: r"transformers{platform_version}",
+    VLLM_REPOSITORY_NAME: r"optimum{platform_version}",
     TGI_REPOSITORY_NAME: r"optimum{platform_version}",
 }
 
@@ -72,8 +80,10 @@ def image_uri(
 ):
     """Get the image URI for the given service name, region and version.
     This can be used to get the image URI for a service provided by one of the Optimum Neuron containers.
-    The service name can be "tgi" or "huggingface-neuronx" (as in get_huggingface_llm_image_uri from the Sagemaker SDK).
     The image retrieved can be newer than the one reported by the Sagemaker SDK.
+
+    Note: when looking for a specific version, use the optimum-neuron version for the vLLM image and the transformers version for
+    inference and training images.
 
     Args:
         service_name: The name of the service to get the image URI for.
@@ -83,16 +93,19 @@ def image_uri(
     Returns:
         The image URI for the given service name, region and version.
     """
-    ecr_client = boto3.client("ecr")
     if region is None:
-        # use default region from boto3
-        region = ecr_client.meta.region_name
+        # Try first to use default region from boto3
+        session = boto3.session.Session()
+        region = session.region_name
+    if region is None:
+        raise ValueError("Region must be specified either explicitly or in the environment using AWS_DEFAULT_REGION.")
     if region not in ACCOUNT_IDS:
         raise KeyError(f"Invalid region: {region}")
     repository_id = ACCOUNT_IDS[region]
     if service_name not in IMAGE_SERVICES:
         raise ValueError(f"Invalid service name: {service_name}")
     repository_name = IMAGE_SERVICES[service_name]
+    ecr_client = boto3.client("ecr", region_name=region)
     try:
         images = ecr_client.list_images(repositoryName=repository_name, registryId=repository_id)["imageIds"]
     except boto3.exceptions.botocore.exceptions.NoCredentialsError as e:
@@ -102,6 +115,8 @@ def image_uri(
             + str(e)
         )
         raise ValueError(message)
+    # Remove images without an image Tag (these are untagged images)
+    images = [img for img in images if "imageTag" in img]
     repository_pattern = TAG_PATTERNS[repository_name]
     tags = check_tag(repository_pattern, images, version)
     if len(tags) == 0:

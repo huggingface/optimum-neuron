@@ -14,24 +14,16 @@ specific language governing permissions and limitations under the License.
 # Optimum Neuron Container
 
 We provide pre-built Optimum Neuron containers for Amazon SageMaker. These containers come with all of the Hugging Face libraries and dependencies pre-installed, so you can start using them right away.
-We have containers for training and inference, and optimized text generation containers with TGI. The table is up to date and only includes the latest versions of each container. You can find older versions in the [Deep Learning Container Release Notes](https://github.com/aws/deep-learning-containers/releases?q=hf-neuronx&expanded=true)
-
-It is possible to ure the `get_huggingface_llm_image_uri` function from the `sagemaker` Python SDK to retrieve the Text Generation Inference URI for the container you want to use.
-
-```python
-from sagemaker.image_uri_config import get_huggingface_llm_image_uri
-
-llm_image = get_huggingface_llm_image_uri("huggingface-neuronx")
-```
+We have containers for training and inference on EC2, and optimized text generation serving containers for SageMaker. The table is up to date and only includes the latest versions of each container. You can find older versions in the [Deep Learning Container Release Notes](https://github.com/aws/deep-learning-containers/releases?q=hf-neuronx&expanded=true)
 
 If you have the Optimum Neuron package installed, you can use the function `image_uri` to retrieve the image URI for the container you want to use. The result is the same as the one retrieved by the `sagemaker` Python SDK, but the image URI retrieved can be newer than the one reported by the `sagemaker` Python SDK.
 ```python
 from optimum.neuron.utils import ecr
 
-# retrieve the llm image uri
-llm_image = ecr.image_uri("tgi")
+# retrieve the image uri
+image = ecr.image_uri("inference", region="us-west-1")
 
-print(f"llm image uri: {llm_image}")
+print(f"image uri: {image}")
 
 ```
 
