@@ -31,7 +31,6 @@ ACCOUNT_IDS = {
     "ca-west-1": "204538143572",
 }
 
-TGI_REPOSITORY_NAME = "huggingface-pytorch-tgi-inference"
 VLLM_REPOSITORY_NAME = "huggingface-vllm-inference-neuronx"
 INFERENCE_REPOSITORY_NAME = "huggingface-pytorch-inference-neuronx"
 TRAINING_REPOSITORY_NAME = "huggingface-pytorch-training-neuronx"
@@ -41,7 +40,6 @@ IMAGE_SERVICES = {
     "inference": INFERENCE_REPOSITORY_NAME,
     "training": TRAINING_REPOSITORY_NAME,
     "vllm": VLLM_REPOSITORY_NAME,
-    "tgi": TGI_REPOSITORY_NAME,
 }
 
 # This dictionary contains the pattern templates for the version pattern for each repository. The
@@ -50,7 +48,6 @@ TAG_PATTERNS = {
     INFERENCE_REPOSITORY_NAME: r"transformers{platform_version}",
     TRAINING_REPOSITORY_NAME: r"transformers{platform_version}",
     VLLM_REPOSITORY_NAME: r"optimum{platform_version}",
-    TGI_REPOSITORY_NAME: r"optimum{platform_version}",
 }
 
 
@@ -74,7 +71,7 @@ def check_tag(pattern, tag: list[dict], platform_version: str = None) -> list[st
 
 
 def image_uri(
-    service_name: str = "tgi",
+    service_name: str = "vllm",
     region: str = None,
     version: str = None,
 ):
