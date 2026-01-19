@@ -18,8 +18,6 @@
       title: Export a model to Inferentia
     - local: guides/pipelines
       title: Inference pipelines with AWS Neuron
-    - local: guides/neuronx_tgi
-      title: NeuronX Text-generation-inference for AWS inferentia2
     - local: guides/vllm_plugin
       title: Inference on Neuron platforms using vLLM
     - local: guides/vllm_on_ie
