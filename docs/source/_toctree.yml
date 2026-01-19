@@ -49,7 +49,7 @@
           title: Notebooks
         - local: inference_tutorials/llama2-13b-chatbot
           title: Create your own chatbot with llama-2-13B on AWS Inferentia
-        - local: inference_tutorials/sentence_transformers
+        - local: inference_tutorials/sentence-transformers
           title: Sentence Transformers on AWS Inferentia
         title: EC2
       - isExpanded: false
