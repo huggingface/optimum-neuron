@@ -10,6 +10,7 @@ on:
     paths:
       - 'docs/source/**'
       - 'docs/assets/**'
+      - 'notebooks/**'
       - 'optimum/**'
       - '.github/workflows/doc-build.yml'
   workflow_dispatch:
