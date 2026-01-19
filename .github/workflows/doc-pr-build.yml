@@ -47,15 +47,25 @@ jobs:
           pip install --upgrade pip
           pip install ".[quality, diffusers]"
           python -m pip install "git+https://github.com/huggingface/doc-builder.git"
-      - name: Make documentation
+      - name: Convert notebooks
         shell: bash
         run: |
+          mkdir -p docs/source/inference_tutorials/
+          mkdir -p docs/source/training_tutorials/
           source aws_neuron_venv_pytorch/bin/activate
           doc-builder notebook-to-mdx notebooks/text-classification/fine_tune_bert.ipynb --output_dir docs/source/training_tutorials/
           doc-builder notebook-to-mdx notebooks/sagemaker/deploy-llama-3-3-70b.ipynb --output_dir docs/source/inference_tutorials/
           doc-builder notebook-to-mdx notebooks/sagemaker/deploy-mixtral-8x7b.ipynb --output_dir docs/source/inference_tutorials/
-          doc-builder notebook-to-mdx notebooks/sentence_transformers/sentence-transformers.ipynb --output_dir docs/source/inference_tutorials/
+          doc-builder notebook-to-mdx notebooks/sentence-transformers/sentence-transformers.ipynb --output_dir docs/source/inference_tutorials/
           doc-builder notebook-to-mdx notebooks/text-generation/llama2-13b-chatbot.ipynb --output_dir docs/source/inference_tutorials/
+          doc-builder notebook-to-mdx notebooks/stable-diffusion/stable-diffusion-txt2img.ipynb --output_dir docs/source/inference_tutorials/
+          doc-builder notebook-to-mdx notebooks/stable-diffusion/stable-diffusion-xl-txt2img.ipynb --output_dir docs/source/inference_tutorials/
+          doc-builder notebook-to-mdx notebooks/text-generation/CodeLlama-7B-Compilation.ipynb --output_dir docs/source/inference_tutorials/
+          doc-builder notebook-to-mdx notebooks/feature-extraction/qwen_embedding.ipynb --output_dir docs/source/inference_tutorials/
+      - name: Make documentation
+        shell: bash
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
           doc-builder build optimum.neuron docs/source/ \
             --repo_name optimum-neuron \
             --build_dir neuron-doc-build/ \

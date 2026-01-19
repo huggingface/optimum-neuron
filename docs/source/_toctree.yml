@@ -45,8 +45,14 @@
   - sections:
       - isExpanded: false
         sections:
-        - local: inference_tutorials/notebooks
-          title: Notebooks
+        - local: inference_tutorials/stable-diffusion-txt2img
+          title: How to generate images with Stable Diffusion
+        - local: inference_tutorials/stable-diffusion-xl-txt2img
+          title: How to generate images with Stable Diffusion XL
+        - local: inference_tutorials/CodeLlama-7B-Compilation
+          title: CodeLlama 7B for Code Compilation
+        - local: inference_tutorials/qwen_embedding
+          title: Compute text embeddings using Qwen3 Embedding models
         - local: inference_tutorials/llama2-13b-chatbot
           title: Create your own chatbot with llama-2-13B on AWS Inferentia
         - local: inference_tutorials/sentence-transformers
