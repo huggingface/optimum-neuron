@@ -112,7 +112,7 @@ def image_uri(
             + str(e)
         )
         raise ValueError(message)
-    # Remove images without an image Tag (these are untagged images)
+    # Filter images to retain only images with tags
     images = [img for img in images if "imageTag" in img]
     repository_pattern = TAG_PATTERNS[repository_name]
     tags = check_tag(repository_pattern, images, version)
