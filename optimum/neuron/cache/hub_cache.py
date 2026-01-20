@@ -354,12 +354,13 @@ def get_hub_cached_entries(
     registry_pattern = REGISTRY_FOLDER + "/" + target_entry.model_type
     model_files = [path for path in repo_files if registry_pattern in path]
     model_entries = []
+    target_arch_digest = target_entry.arch_digest()
     with TemporaryDirectory() as tmpdir:
         for model_path in model_files:
             local_path = api.hf_hub_download(cache_repo_id, model_path, local_dir=tmpdir)
             with open(local_path) as f:
                 entry = ModelCacheEntry.deserialize(f.read())
-                if entry.has_same_arch(target_entry):
+                if entry.arch_digest() == target_arch_digest:
                     model_entries.append(entry.neuron_config)
     return model_entries
 
