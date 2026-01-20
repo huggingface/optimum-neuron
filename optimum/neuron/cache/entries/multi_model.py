@@ -122,10 +122,6 @@ class MultiModelCacheEntry(ModelCacheEntry):
         self._configs = _clean_configs(configs)
         if "unet" in self._configs:
             model_type = "stable-diffusion"
-        elif "transformer" in self._configs:
-            model_type = "diffusion-transformer"
-        elif "encoder" in self._configs:
-            model_type = self._configs["encoder"]["model_type"]
         else:
             raise NotImplementedError
         # Task is None for multi model cache entries since we cache the whole pipeline
