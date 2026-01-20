@@ -84,6 +84,8 @@ def _prepare_configs_for_matching(configs: dict, model_type: str):
     for name in configs:
         if name in non_checked_components:
             continue
+        if new_configs.get(name) is None:
+            continue
         new_configs[name] = copy.deepcopy(configs[name])
         # Remove neuron config for comparison
         if "neuron" in new_configs[name]:
