@@ -68,6 +68,9 @@ class ModelCacheEntry:
     def has_same_arch(self, other: "ModelCacheEntry"):
         raise NotImplementedError
 
+    def arch_digest(self) -> str:
+        raise NotImplementedError
+
     # Generic methods relying on the API above
 
     @property
