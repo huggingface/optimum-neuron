@@ -296,13 +296,25 @@ def hub_neuronx_cache(
             else:
                 # Create cache entry in local cache: it can be later synchronized with the hub cache
                 registry_path = default_cache.get_cache_dir_with_cache_key(REGISTRY_FOLDER)
-                entry_path = f"{registry_path}/{entry.model_type}/{entry.model_id}"
+                # We store the entry under its arch digest for fast retrieval
+                entry_path = f"{registry_path}/{entry.arch_digest()}"
                 config_path = f"{entry_path}/{entry.hash}.json"
+                # We also define an alias path for easier browsing
+                alias_path = f"{registry_path}/{entry.model_type}/{entry.model_id}"
+                alias_config_path = f"{alias_path}/{entry.hash}.json"
                 if not default_cache.exists(config_path):
+                    # Create the cache entry directory
                     oldmask = os.umask(000)
                     Path(entry_path).mkdir(parents=True, exist_ok=True)
                     os.umask(oldmask)
+                    # Create the cache entry file
                     default_cache.upload_string_to_file(config_path, entry.serialize())
+                if not os.path.exists(alias_path):
+                    # Symlink to the alias directory for easy browsing in the registry
+                    oldmask = os.umask(000)
+                    Path(alias_path).mkdir(parents=True, exist_ok=True)
+                    os.symlink(config_path, alias_config_path)
+                    os.umask(oldmask)
     finally:
         patch_everywhere("create_compile_cache", create_compile_cache, "libneuronxla")
 
@@ -351,17 +363,15 @@ def get_hub_cached_entries(
     repo_files = api.list_repo_files(cache_repo_id)
     # Get the config corresponding to the model
     target_entry = ModelCacheEntry.create(model_id, task)
-    registry_pattern = REGISTRY_FOLDER + "/" + target_entry.model_type
+    registry_pattern = REGISTRY_FOLDER + "/" + target_entry.arch_digest() + "/"
     model_files = [path for path in repo_files if registry_pattern in path]
     model_entries = []
-    target_arch_digest = target_entry.arch_digest()
     with TemporaryDirectory() as tmpdir:
         for model_path in model_files:
             local_path = api.hf_hub_download(cache_repo_id, model_path, local_dir=tmpdir)
             with open(local_path) as f:
                 entry = ModelCacheEntry.deserialize(f.read())
-                if entry.arch_digest() == target_arch_digest:
-                    model_entries.append(entry.neuron_config)
+                model_entries.append(entry.neuron_config)
     return model_entries
 
 
