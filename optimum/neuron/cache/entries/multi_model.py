@@ -15,6 +15,7 @@
 
 import copy
 import glob
+import hashlib
 import json
 import os
 from tempfile import TemporaryDirectory
@@ -175,6 +176,14 @@ class MultiModelCacheEntry(ModelCacheEntry):
             if not contains(config, other_config) and not contains(other_config, config):
                 return False
         return True
+
+    def arch_digest(self) -> str:
+        arch_dict = {
+            "model_type": self.model_type,
+            "configs": _prepare_configs_for_matching(self._configs, self.model_type),
+        }
+        arch_json = json.dumps(arch_dict, sort_keys=True).encode("utf-8")
+        return hashlib.sha256(arch_json).hexdigest()
 
     @classmethod
     def from_hub(cls, model_id: str):

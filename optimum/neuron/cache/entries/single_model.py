@@ -14,6 +14,8 @@
 # limitations under the License.
 
 import copy
+import hashlib
+import json
 from typing import Any
 
 from transformers import AutoConfig, PretrainedConfig
@@ -72,6 +74,15 @@ class SingleModelCacheEntry(ModelCacheEntry):
         if not isinstance(other, SingleModelCacheEntry):
             return False
         return self.model_type == other.model_type and self.task == other.task and self._config == other._config
+
+    def arch_digest(self) -> str:
+        arch_dict = {
+            "model_type": self.model_type,
+            "task": self.task,
+            "config": self._config,
+        }
+        arch_json = json.dumps(arch_dict, sort_keys=True).encode("utf-8")
+        return hashlib.sha256(arch_json).hexdigest()
 
     @classmethod
     def from_hub(cls, model_id: str, task: str):
