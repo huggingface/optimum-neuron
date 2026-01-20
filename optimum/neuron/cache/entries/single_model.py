@@ -70,11 +70,6 @@ class SingleModelCacheEntry(ModelCacheEntry):
     def neuron_config(self) -> dict[str, Any]:
         return self._neuron_config
 
-    def has_same_arch(self, other: "SingleModelCacheEntry"):
-        if not isinstance(other, SingleModelCacheEntry):
-            return False
-        return self.model_type == other.model_type and self.task == other.task and self._config == other._config
-
     def arch_digest(self) -> str:
         arch_dict = {
             "model_type": self.model_type,
