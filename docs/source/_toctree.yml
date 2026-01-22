@@ -18,12 +18,12 @@
       title: Export a model to Inferentia
     - local: guides/pipelines
       title: Inference pipelines with AWS Neuron
-    - local: guides/neuronx_tgi
-      title: NeuronX Text-generation-inference for AWS inferentia2
     - local: guides/vllm_plugin
       title: Inference on Neuron platforms using vLLM
+    - local: guides/vllm_on_ie
+      title: Deploying a LLM Model with Inference Endpoints
     - local: guides/benchmark
-      title: Benchmarking LLM performance with TGI on AWS Inferentia2
+      title: Benchmarking LLM performance with vLLM on AWS Inferentia2
     title: How-To Guides
   - sections:
     - local: training_tutorials/fine_tune_bert
@@ -43,11 +43,17 @@
   - sections:
       - isExpanded: false
         sections:
-        - local: inference_tutorials/notebooks
-          title: Notebooks
+        - local: inference_tutorials/stable-diffusion-txt2img
+          title: How to generate images with Stable Diffusion
+        - local: inference_tutorials/stable-diffusion-xl-txt2img
+          title: How to generate images with Stable Diffusion XL
+        - local: inference_tutorials/CodeLlama-7B-Compilation
+          title: CodeLlama 7B for Code Compilation
+        - local: inference_tutorials/qwen_embedding
+          title: Compute text embeddings using Qwen3 Embedding models
         - local: inference_tutorials/llama2-13b-chatbot
           title: Create your own chatbot with llama-2-13B on AWS Inferentia
-        - local: inference_tutorials/sentence_transformers
+        - local: inference_tutorials/sentence-transformers
           title: Sentence Transformers on AWS Inferentia
         title: EC2
       - isExpanded: false

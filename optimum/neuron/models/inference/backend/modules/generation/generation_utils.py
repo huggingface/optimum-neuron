@@ -17,12 +17,17 @@ from abc import ABC, abstractmethod
 
 import torch
 from transformers import GenerationConfig
-from transformers.generation import GenerationMixin, SampleDecoderOnlyOutput
-from transformers.generation.logits_process import LogitsProcessorList
+from transformers.generation.logits_process import (
+    LogitsProcessorList,
+    TemperatureLogitsWarper,
+    TopKLogitsWarper,
+    TopPLogitsWarper,
+)
 from transformers.generation.stopping_criteria import StoppingCriteriaList
+from transformers.generation.utils import GenerationMixin, SampleDecoderOnlyOutput
 
+from ......generation.logits_process import FusedLogitsWarper
 from .sampling import (
-    Sampler,
     prepare_sampling_params,
 )
 
@@ -63,7 +68,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         assert hasattr(self, "neuron_config")  # Must be set by the super class
         # Initialize default generation config
         self.generation_config = GenerationConfig.from_model_config(config)
-        self.sampler = None
 
     def can_generate(self):
         # Still required in transformers <= 4.50
@@ -107,18 +111,25 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             logger.warning(f"The following kwargs are not supported for neuron model: {list(explicit_kwargs.keys())}")
         # init values
         pad_token_id = generation_config._pad_token_tensor
-        output_scores = generation_config.output_scores
-        output_logits = generation_config.output_logits
-        if self.neuron_config.on_device_sampling:
-            if output_logits:
-                raise ValueError("Output logits are not supported with on-device sampling")
-            if output_scores:
-                raise ValueError("Output scores are not supported with on-device sampling")
-        return_dict_in_generate = generation_config.return_dict_in_generate
+        if generation_config.output_logits:
+            raise ValueError("Output logits are not supported for neuron models")
+        if generation_config.output_scores:
+            raise ValueError("Output scores are not supported for neuron models")
+        if generation_config.return_dict_in_generate:
+            raise ValueError("return_dict_in_generate is not supported for neuron models")
+        if not self.neuron_config.on_device_sampling:
+            # Remove transformers TopK, TopP and Temperature processors
+            logits_processor = LogitsProcessorList(
+                [
+                    p
+                    for p in logits_processor
+                    if not isinstance(p, (TemperatureLogitsWarper, TopKLogitsWarper, TopPLogitsWarper))
+                ]
+            )
+            # We use a fused logits warper instead
+            fused_logits_warper = FusedLogitsWarper.from_config(generation_config)
         has_eos_stopping_criteria = any(hasattr(criteria, "eos_token_id") for criteria in stopping_criteria)
         do_sample = generation_config.do_sample
-        if not self.neuron_config.on_device_sampling and self.sampler is None:
-            self.sampler = Sampler(self.neuron_config, do_sample=do_sample, on_cpu=True)
 
         # Prepare input tensors
         position_ids = position_ids_from_attention_mask(attention_mask)
@@ -134,10 +145,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             top_p=top_p,
             temperature=temperature,
         )
-
-        # init scores / logits tuples
-        scores = [] if (return_dict_in_generate and output_scores) else None
-        raw_logits = [] if (return_dict_in_generate and output_logits) else None
 
         # keep track of which sequences are already finished
         unfinished_sequences = torch.ones(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
@@ -157,15 +164,20 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                 next_tokens = outputs
             else:
                 next_token_logits = outputs[:, -1, :].clone()
-                if raw_logits is not None:
-                    raw_logits.append(next_token_logits)
-
                 # pre-process distribution
                 next_token_scores = logits_processor(input_ids, next_token_logits)
-                if scores is not None:
-                    scores.append(next_token_scores)
+                # warp distribution, applying temperature, top_k, top_p
+                next_token_scores, next_token_indices = fused_logits_warper(next_token_scores)
 
-                next_tokens = self.sampler(next_token_scores, sampling_params)
+                # token selection
+                if do_sample:
+                    probs = torch.nn.functional.softmax(next_token_scores, dim=-1)
+                    next_tokens = torch.multinomial(probs, num_samples=1)
+                else:
+                    next_tokens = torch.argmax(next_token_scores, dim=-1, keepdim=True)
+                # Convert the filtered tokens to actual vocabulary tokens
+                next_tokens = torch.gather(next_token_indices, 1, next_tokens).squeeze(1)
+
             # finished sentences should have their next token be a padding token
             if has_eos_stopping_criteria:
                 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
@@ -186,14 +198,7 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, None)
             this_peer_finished = unfinished_sequences.max() == 0
 
-        if return_dict_in_generate:
-            return SampleDecoderOnlyOutput(
-                sequences=input_ids,
-                scores=scores,
-                logits=raw_logits,
-            )
-        else:
-            return input_ids
+        return input_ids
 
     def _assisted_decoding(
         self,

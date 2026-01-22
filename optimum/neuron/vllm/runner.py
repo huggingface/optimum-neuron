@@ -23,11 +23,11 @@ from vllm.sampling_params import SamplingParams
 from vllm.utils import is_pin_memory_available, make_tensor_with_pad
 from vllm.v1.core.sched.output import CachedRequestData, NewRequestData, SchedulerOutput
 from vllm.v1.outputs import ModelRunnerOutput
-from vllm.v1.sample.logits_processor import LogitsProcessors, build_logitsprocs
+from vllm.v1.sample.logits_processor import LogitsProcessors
 from vllm.v1.sample.metadata import SamplingMetadata
-from vllm.v1.sample.sampler import Sampler
 
 from .model_loader import OptimumNeuronModelForCausalLM, get_optimum_neuron_model
+from .sampler import NeuronSampler
 
 
 logger = logging.getLogger("Neuron")
@@ -109,9 +109,7 @@ class OptimumNeuronCachedBatch:
         return sum(1 for r in self.cached_requests if r is not None)
 
 
-def create_sampling_metadata(
-    requests: list[OptimumNeuronCachedRequest], vocab_size: int, logitsprocs: LogitsProcessors
-) -> SamplingMetadata:
+def create_sampling_metadata(requests: list[OptimumNeuronCachedRequest], vocab_size: int) -> SamplingMetadata:
     all_greedy = True
     all_random = True
     temperature = []
@@ -135,7 +133,7 @@ def create_sampling_metadata(
             all_greedy = False
         temperature.append(request.sampling_params.temperature)
         top_p.append(request.sampling_params.top_p)
-        top_k.append(request.sampling_params.top_k)
+        top_k.append(request.sampling_params.top_k if request.sampling_params.top_k > 0 else vocab_size)
         if request.sampling_params.logprobs is not None:
             logprobs = request.sampling_params.logprobs
             if max_num_logprobs is None:
@@ -170,6 +168,12 @@ def create_sampling_metadata(
     for i, prompt_token_ids in enumerate(prompt_token_ids_list):
         prompt_token_ids_list[i] = prompt_token_ids + [vocab_size] * (max_prompt_len - len(prompt_token_ids))
 
+    # Note that we pass an empty logits processors for now, as even though we added the builtin processors,
+    # we don't support updating them when the batch changes.
+    # This means that the following features provided by the builtin logits processors are not supported yet:
+    # - min_p
+    # - logits_bias
+    # - min_length
     return SamplingMetadata(
         temperature=torch.tensor(temperature),
         all_greedy=all_greedy,
@@ -186,7 +190,7 @@ def create_sampling_metadata(
         output_token_ids=output_token_ids_list,
         allowed_token_ids_mask=allowed_token_ids_mask,
         bad_words_token_ids=bad_word_tokens_ids,
-        logitsprocs=logitsprocs,
+        logitsprocs=LogitsProcessors(),  # Empty logits processors for now
     )
 
 
@@ -218,10 +222,7 @@ class OptimumNeuronModelRunner:
             load_config=self.load_config,
         )
         if not self.model.model.neuron_config.on_device_sampling:
-            self.sampler = Sampler()
-            self.logitsproc = build_logitsprocs(
-                self.vllm_config, device=self.device, is_pin_memory=False, is_pooling_model=False
-            )
+            self.sampler = NeuronSampler(self.model.model.neuron_config)
 
     def tensor_for_sampling_params(self, sampling_params: list[SamplingParams]) -> torch.Tensor:
         if self.model.model.neuron_config.on_device_sampling:
@@ -287,12 +288,9 @@ class OptimumNeuronModelRunner:
                     seq_ids=seq_ids,
                     sampling_params=sampling_params_tensor,
                 )
-                # We reuse the GPU Sampler, but it uses a specific sampling parameters class
-                sampling_metadata = create_sampling_metadata(
-                    requests, vocab_size=self.model_config.get_vocab_size(), logitsprocs=self.logitsproc
-                )
-                assert self.sampler is not None
-                return self.sampler.sample(logits, sampling_metadata)
+                sampling_metadata = create_sampling_metadata(requests, vocab_size=self.model.model.config.vocab_size)
+                sampler_outputs = self.sampler(logits, sampling_metadata)
+                return sampler_outputs.sampled_token_ids, logits
 
         # We start by decoding the next tokens for the requests already in the batch.
         req_ids = []

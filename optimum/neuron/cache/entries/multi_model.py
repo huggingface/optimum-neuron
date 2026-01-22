@@ -15,6 +15,7 @@
 
 import copy
 import glob
+import hashlib
 import json
 import os
 from tempfile import TemporaryDirectory
@@ -83,6 +84,8 @@ def _prepare_configs_for_matching(configs: dict, model_type: str):
     for name in configs:
         if name in non_checked_components:
             continue
+        if new_configs.get(name) is None:
+            continue
         new_configs[name] = copy.deepcopy(configs[name])
         # Remove neuron config for comparison
         if "neuron" in new_configs[name]:
@@ -121,10 +124,6 @@ class MultiModelCacheEntry(ModelCacheEntry):
         self._configs = _clean_configs(configs)
         if "unet" in self._configs:
             model_type = "stable-diffusion"
-        elif "transformer" in self._configs:
-            model_type = "diffusion-transformer"
-        elif "encoder" in self._configs:
-            model_type = self._configs["encoder"]["model_type"]
         else:
             raise NotImplementedError
         # Task is None for multi model cache entries since we cache the whole pipeline
@@ -149,32 +148,13 @@ class MultiModelCacheEntry(ModelCacheEntry):
             raise NotImplementedError
         return config.get("neuron", None)
 
-    def has_same_arch(self, other: "MultiModelCacheEntry"):
-        if not isinstance(other, MultiModelCacheEntry):
-            return False
-        if self.model_type != other.model_type:
-            return False
-        # When comparing configs we remove the neuron configs
-        configs = _prepare_configs_for_matching(self._configs, self.model_type)
-        other_configs = _prepare_configs_for_matching(other._configs, other.model_type)
-        if configs.keys() != other_configs.keys():
-            return False
-        for name, config in configs.items():
-            other_config = other_configs[name]
-
-            # We only verify that one of the configs contains the other
-            # This is because the configs are stripped down when serialized
-            def contains(container: dict[str, Any], containee: dict[str, Any]):
-                for name, value in containee.items():
-                    if name not in container:
-                        return False
-                    if value != container[name]:
-                        return False
-                return True
-
-            if not contains(config, other_config) and not contains(other_config, config):
-                return False
-        return True
+    def arch_digest(self) -> str:
+        arch_dict = {
+            "model_type": self.model_type,
+            "configs": _prepare_configs_for_matching(self._configs, self.model_type),
+        }
+        arch_json = json.dumps(arch_dict, sort_keys=True).encode("utf-8")
+        return hashlib.sha256(arch_json).hexdigest()
 
     @classmethod
     def from_hub(cls, model_id: str):

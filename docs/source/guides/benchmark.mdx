@@ -2,13 +2,13 @@
 
 In todays world, mostly every AI Engineer is familiar with running inference by simply making an API call, but how is that request served optimally by the backend? How does the model provider or service you are using ensure latency and throughput requirements are met?
 
-In this blog we will cover how to serve a model using Optimum Neuron on AWS Inferentia2 with the HuggingFace TGI container. I'll also delve into how to optimize for latency and throughput and what decisions we can make to influence our priorities.
+In this blog we will cover how to serve a model using Optimum Neuron on AWS Inferentia2 with the HuggingFace vLLM container. I'll also delve into how to optimize for latency and throughput and what decisions we can make to influence our priorities.
 
 ## Understanding the Tools
 
 * Inferentia2 chips: Inferentia2 is the second generation AWS purpose-built Machine Learning inference accelerator.
 * Optimum Neuron: The interface between the 🤗 Transformers library and AWS Accelerators including AWS Trainium and AWS Inferentia.
-* Text Generation Inference (TGI) container: Text Generation Inference (TGI) is a toolkit for deploying and serving Large Language Models (LLMs).
+* vLLM container: vLLM is a toolkit for deploying and serving Large Language Models (LLMs).
 * GuideLLM: A tool for evaluating and optimizing the deployment of large language models (LLMs).
 
 The instance I am using for this experiment will be `inf2.48xlarge`. I can check instance type as well as see each device by running `neuron-ls` which gives the following output:
@@ -99,7 +99,6 @@ First I'll need to create my .env file, which specifies my batch size, precision
 ```
 MODEL_ID='/data/exportedmodel'
 MAX_BATCH_SIZE=8
-MAX_INPUT_TOKENS=16000
 MAX_TOTAL_TOKENS=16512
 ```
 
@@ -136,63 +135,57 @@ The docker compose file is important for defining your data parallel, by specify
 version: '3.7'
 
 services:
- tgi-1:
- image: ghcr.io/huggingface/text-generation-inference:latest-neuron
+ vllm-1:
+ image: ghcr.io/huggingface/optimum-neuron-vllm:latest
  ports:
  - "8081:8081"
  volumes:
  - $PWD:/data
  environment:
  - PORT=8081
- - MODEL_ID=${MODEL_ID}
- - HF_NUM_CORES=8
- - MAX_BATCH_SIZE=${MAX_BATCH_SIZE}
+ - SM_ON_MODEL=${MODEL_ID}
+ - SM_ON_TENSOR_PARALLEL_SIZE=8
+ - SM_ON_BATCH_SIZE=${MAX_BATCH_SIZE}
  - HF_TOKEN=YOUR_TOKEN
- - MAX_INPUT_TOKENS=${MAX_INPUT_TOKENS}
- - MAX_TOTAL_TOKENS=${MAX_TOTAL_TOKENS}
- - MAX_CONCURRENT_REQUESTS=512
+ - SM_ON_SEQUENCE_LENGTH=${MAX_TOTAL_TOKENS}
  devices:
  - "/dev/neuron0"
  - "/dev/neuron1"
  - "/dev/neuron2"
  - "/dev/neuron3"
 
- tgi-2:
- image: ghcr.io/huggingface/text-generation-inference:latest-neuron
+ vllm-2:
+ image: ghcr.io/huggingface/optimum-neuron-vllm:latest
  ports:
  - "8082:8082"
  volumes:
  - $PWD:/data
  environment:
  - PORT=8082
- - MODEL_ID=${MODEL_ID}
- - HF_NUM_CORES=8
- - MAX_BATCH_SIZE=${MAX_BATCH_SIZE}
+ - SM_ON_MODEL=${MODEL_ID}
+ - SM_ON_TENSOR_PARALLEL_SIZE=8
+ - SM_ON_BATCH_SIZE=${MAX_BATCH_SIZE}
  - HF_TOKEN=YOUR_TOKEN
- - MAX_INPUT_TOKENS=${MAX_INPUT_TOKENS}
- - MAX_TOTAL_TOKENS=${MAX_TOTAL_TOKENS}
- - MAX_CONCURRENT_REQUESTS=512
+ - SM_ON_SEQUENCE_LENGTH=${MAX_TOTAL_TOKENS}
  devices:
  - "/dev/neuron4"
  - "/dev/neuron5"
  - "/dev/neuron6"
  - "/dev/neuron7"
 
- tgi-3:
- image: ghcr.io/huggingface/text-generation-inference:latest-neuron
+ vllm-3:
+ image: ghcr.io/huggingface/optimum-neuron-vllm:latest
  ports:
  - "8083:8083"
  volumes:
  - $PWD:/data
  environment:
  - PORT=8083
- - MODEL_ID=${MODEL_ID}
- - HF_NUM_CORES=8
- - MAX_BATCH_SIZE=${MAX_BATCH_SIZE}
+ - SM_ON_MODEL=${MODEL_ID}
+ - SM_ON_TENSOR_PARALLEL_SIZE=8
+ - SM_ON_BATCH_SIZE=${MAX_BATCH_SIZE}
  - HF_TOKEN=YOUR_TOKEN
- - MAX_INPUT_TOKENS=${MAX_INPUT_TOKENS}
- - MAX_TOTAL_TOKENS=${MAX_TOTAL_TOKENS}
- - MAX_CONCURRENT_REQUESTS=512
+ - SM_ON_SEQUENCE_LENGTH=${MAX_TOTAL_TOKENS}
  devices:
  - "/dev/neuron8"
  - "/dev/neuron9"
@@ -206,9 +199,9 @@ services:
  volumes:
  - ./nginx.conf:/etc/nginx/nginx.conf:ro
  depends_on:
- - tgi-1
- - tgi-2
- - tgi-3
+ - vllm-1
+ - vllm-2
+ - vllm-3
  deploy:
  placement:
  constraints: [node.role == manager]
@@ -217,18 +210,18 @@ services:
 Lastly, I define the nginx.conf for the load balancer:
 
 ```
-### Nginx TGI Load Balancer
+### Nginx vllm Load Balancer
 events {}
 http {
- upstream tgicluster {
-    server tgi-1:8081;
-    server tgi-2:8082;
-    server tgi-3:8083;
+ upstream vllmcluster {
+    server vllm-1:8081;
+    server vllm-2:8082;
+    server vllm-3:8083;
  }
  server {
     listen 80;
     location / {
-    proxy_pass http://tgicluster;
+    proxy_pass http://vllmcluster;
     }
  }
 }
@@ -236,7 +229,7 @@ http {
 
 ## Benchmarking with GuideLLM
 
-Now that I have defined the necessary files, I start serving my optimum-neuron model with TGI backend.
+Now that I have defined the necessary files, I start serving my optimum-neuron model with vllm backend.
 
 `!docker compose -f docker-compose.yaml --env-file .env up`
 
@@ -327,5 +320,5 @@ In this blog post, I took you through how to compile and load an Optimum Neuron 
 ## References
 
 https://huggingface.co/docs/optimum-neuron/en/guides/cache_system
-https://github.com/huggingface/optimum-neuron/tree/main/benchmark/text-generation-inference/performance
+https://github.com/huggingface/optimum-neuron/tree/main/benchmark/vllm/performance
 https://github.com/vllm-project/guidellm

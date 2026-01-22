@@ -308,10 +308,9 @@ it will be parsed to set the default parameters (the values passed to the `gener
 
 ## Exporting neuron models using NeuronX docker images
 
-The NeuronX TGI image includes not only NeuronX runtime, but also all packages and tools required to export Neuron models.
+The NeuronX vLLM image includes not only NeuronX runtime, but also all packages and tools required to export Neuron models.
 
 Use the following command to export a model to Neuron using a vLLM image:
-
 
 ```
 docker run --entrypoint optimum-cli \
@@ -331,21 +330,6 @@ The exported model will be saved under `./data/<neuron_model_path>`.
 ## Exporting options and Docker / SageMaker environment variables
 
 You must make sure that the options used for compilation match the options used for deployment.
-
-### TGI
-
-You can see examples of these parameters in the .env and docker-compose.yaml files in the [TGI Neuron backend documentation](https://github.com/huggingface/text-generation-inference/blob/main/docs/source/backends/neuron.md).
-
-For Docker and SageMaker, you can see these reflected in the following options and their optimum-cli equivalent:
-
-```
-MODEL_ID = model
-MAX_BATCH_SIZE = batch_size
-MAX_TOTAL_TOKENS = sequence_length
-HF_NUM_CORES = tensor_parallel_size
-```
-
-### vLLM
 
 ```
 SM_ON_MODEL = model

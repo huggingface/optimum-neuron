@@ -50,7 +50,7 @@ Optimum Neuron is a fast-moving project, and you may want to install it from sou
 pip install git+https://github.com/huggingface/optimum-neuron.git
 ```
 
-*Make sure that you have installed the Neuron driver and tools before installing `optimum-neuron`, [more extensive guide here](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/setup/torch-neuronx.html#setup-torch-neuronx).*
+*Make sure that you have installed the Neuron driver and tools before installing `optimum-neuron`, [more extensive guide here](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/setup/torch-neuronx.html#setup-torch-neuronx).*
 
 ## Quick Start
 
