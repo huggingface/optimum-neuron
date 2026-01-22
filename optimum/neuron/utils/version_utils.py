@@ -14,7 +14,8 @@
 # limitations under the License.
 """Version utilities."""
 
-from importlib.metadata import version as importlib_version
+import re
+from importlib import metadata
 
 from packaging import version
 
@@ -25,6 +26,29 @@ _neuronxcc_version: str | None = None
 _torch_xla_version: str | None = None
 _neuronx_distributed_version: str | None = None
 _torch_version: str | None = None
+
+
+def get_pinned_version(package_name: str) -> str:
+    """
+    Get the pinned version of a package from the `optimum-neuron` package metadata.
+
+    Args:
+        package_name (`str`): The name of the package to get the pinned version for.
+    Returns:
+        `str`: The pinned version of the package.
+    Raises:
+        `SystemError`: If there is an error parsing the package metadata.
+        `ValueError`: If no pinned version is found for the package.
+    """
+    requires = metadata.requires("optimum-neuron")
+    if requires is None:
+        raise SystemError("An error occured while parsing package metadata")
+    candidates = [r for r in requires if r.startswith(package_name)]
+    if len(candidates) == 1 and f"{package_name}==" in candidates[0]:
+        match = re.search(f"{package_name}==([0-9\.]+)", candidates[0])
+        if match is not None:
+            return match.group(1)
+    raise ValueError(f"No pinned version found for package {package_name}")
 
 
 def get_neuronxcc_version() -> str:
@@ -59,7 +83,7 @@ def get_neuronx_distributed_version() -> str:
         import neuronx_distributed  # noqa: F401
     except ImportError:
         raise ModuleNotFoundError("`neuronx_distributed` python package is not installed.")
-    _neuronx_distributed_version = importlib_version("neuronx_distributed")
+    _neuronx_distributed_version = metadata.version("neuronx_distributed")
     return _neuronx_distributed_version
 
 
