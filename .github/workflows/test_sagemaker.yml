@@ -36,7 +36,7 @@ jobs:
       - name: Install optimum-neuron
         uses: ./.github/actions/install_optimum_neuron
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ secrets.AWS_ASSUME_SANDBOX_GITHUB_CI_PUSH_ECR}}
           aws-region: us-east-1
