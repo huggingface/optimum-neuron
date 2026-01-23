@@ -26,6 +26,7 @@ from huggingface_hub import HfApi
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.cache import get_hub_cached_entries, get_hub_cached_models, synchronize_hub_cache
+from optimum.neuron.models.inference.auto_models import Qwen3NeuronModelForEmbedding
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -189,3 +190,71 @@ def test_optimum_neuron_cli_cache_synchronize(cache_repos):
     assert p.returncode == 0
     assert f"{model_id}" in stdout
     assert "float16" in stdout
+
+
+def export_embedding_model(model_id):
+    batch_size = 2
+    sequence_length = 512
+    tensor_parallel_size = 2
+    neuron_config = Qwen3NeuronModelForEmbedding.get_neuron_config(
+        model_id,
+        batch_size=batch_size,
+        sequence_length=sequence_length,
+        tensor_parallel_size=tensor_parallel_size,
+    )
+    return Qwen3NeuronModelForEmbedding.export(
+        model_id,
+        neuron_config=neuron_config,
+        load_weights=True,
+    )
+
+
+def check_embedding_inference(model):
+    batch_size = model.neuron_config.batch_size
+    input_ids = torch.ones((batch_size, 20), dtype=torch.int64)
+    attention_mask = torch.ones((batch_size, 20), dtype=torch.int64)
+    with torch.inference_mode():
+        sample_output = model(input_ids, attention_mask)
+        assert sample_output.shape[0] == batch_size
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_cache_task_registry(cache_repos):
+    """Regression test for cache task entries.
+    
+    This test ensures that the cache registry uses the correct task for different model types:
+    - Embedding models should use "feature-extraction" task
+    - Text-generation models should use "text-generation" task
+    
+    This is a regression test for the fix that changed from using a constant to cls.task.
+    """
+    cache_path, cache_repo_id = cache_repos
+    
+    # Test 1: Export an embedding model and verify the task is "feature-extraction"
+    embedding_model_id = "Qwen/Qwen3-Embedding-0.6B"
+    embedding_model = export_embedding_model(embedding_model_id)
+    check_embedding_inference(embedding_model)
+    
+    # Synchronize the hub cache with the local cache
+    synchronize_hub_cache(cache_repo_id=cache_repo_id)
+    
+    # Verify we are able to fetch the cached entry for the embedding model with feature-extraction task
+    embedding_entries = get_hub_cached_entries(
+        embedding_model_id, task="feature-extraction", cache_repo_id=cache_repo_id
+    )
+    assert len(embedding_entries) == 1, "Embedding model should have exactly one cache entry with feature-extraction task"
+    
+    # Test 2: Export a text-generation model and verify the task is "text-generation"
+    text_gen_model_id = "llamafactory/tiny-random-Llama-3"
+    text_gen_model = export_decoder_model(text_gen_model_id)
+    check_decoder_generation(text_gen_model)
+    
+    # Synchronize the hub cache with the local cache again
+    synchronize_hub_cache(cache_repo_id=cache_repo_id)
+    
+    # Verify we are able to fetch the cached entry for the text-generation model
+    text_gen_entries = get_hub_cached_entries(
+        text_gen_model_id, task="text-generation", cache_repo_id=cache_repo_id
+    )
+    assert len(text_gen_entries) == 1, "Text-generation model should have exactly one cache entry with text-generation task"
