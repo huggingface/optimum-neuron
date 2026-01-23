@@ -27,7 +27,7 @@ from torch import nn
 from transformers import PretrainedConfig
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from ....modeling_utils import NeuronModelForCausalLM
+from ....modeling_utils import NeuronModelForCausalLM, NeuronModelForEmbedding
 from ...config import NxDNeuronConfig
 from ...graph_builder import NxDGraphBuilder
 from ...pretrained_model import NxDPreTrainedModel
@@ -505,11 +505,10 @@ class NxDDecoderModelForEmbedding(nn.Module):
         return hidden_states
 
 
-class NxDModelForEmbedding(NxDPreTrainedModel):
+class NxDModelForEmbedding(NxDPreTrainedModel, NeuronModelForEmbedding):
     """Base class for neuron embeddings."""
 
     _model_cls = None
-    task = "feature-extraction"
 
     def __init__(
         self,
