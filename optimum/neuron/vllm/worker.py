@@ -59,7 +59,7 @@ class OptimumNeuronWorker(WorkerBase):
 
             init_cached_hf_modules()
 
-        self.model_runner = OptimumNeuronModelRunner(vllm_config=vllm_config)
+        self.model_runner = OptimumNeuronModelRunner.create(vllm_config=vllm_config)
 
     # WorkerBase methods that are expected to be implemented
     # Note that some of the methods related to features we explicitly don't support
@@ -102,8 +102,7 @@ class OptimumNeuronWorker(WorkerBase):
         pass
 
     def get_supported_tasks(self) -> tuple[SupportedTask, ...]:
-        # The optimum-neuron vLLM plugin only supports text generation.
-        return ("generate",)
+        return self.model_runner.get_supported_tasks()
 
     @torch.inference_mode()
     def execute_model(self, scheduler_output: SchedulerOutput) -> ModelRunnerOutput | None:
