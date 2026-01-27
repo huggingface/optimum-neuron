@@ -470,11 +470,10 @@ class NxDDecoderModelForEmbedding(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
         position_ids: torch.Tensor,
     ):
         # Prepare attention mask(s)
-        attention_mask = torch.full((self.n_positions, self.n_positions), True, device=attention_mask.device).tril(
+        attention_mask = torch.full((self.n_positions, self.n_positions), True, device=input_ids.device).tril(
             diagonal=0
         )
         attention_mask = attention_mask[None, None, :, :].expand(
@@ -545,17 +544,14 @@ class NxDModelForEmbedding(NxDPreTrainedModel, NeuronModelForEmbedding):
         input_ids: torch.LongTensor,
         attention_mask: torch.Tensor,
     ) -> tuple:
-        batch_size, seq_len = input_ids.shape
-        # Create position_ids
+        # Convert attention_mask to position_ids
         position_ids = attention_mask.long().cumsum(-1) - 1
         position_ids.masked_fill_(attention_mask == 0, 1)
 
         input_ids = input_ids.to(torch.int32)
-        attention_mask = attention_mask.to(torch.int32)
         position_ids = position_ids.to(torch.int32)
         return self.encoding_model(
             input_ids,
-            attention_mask,
             position_ids,
         )
 

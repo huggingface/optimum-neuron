@@ -175,7 +175,7 @@ class NxDDecoderWrapperForEmbedding(NxDModelWrapper):
         if config.pad_token_id is None:
             config.pad_token_id = 0
 
-    def _forward_with_pad(self, input_ids, attention_mask, position_ids):
+    def _forward_with_pad(self, input_ids, position_ids):
         # pad the inputs up to the compiled batch size in the end
         def pad_helper(tensor):
             if tensor is None or tensor.shape[0] == self.neuron_config.batch_size:
@@ -189,13 +189,13 @@ class NxDDecoderWrapperForEmbedding(NxDModelWrapper):
             return padded_tensor
 
         padded_args = []
-        for arg in (input_ids, attention_mask, position_ids):
+        for arg in (input_ids, position_ids):
             padded_args.append(pad_helper(arg))
 
         return self._forward(*padded_args)
 
-    def _forward(self, input_ids, attention_mask, position_ids):
-        return self.model(input_ids, attention_mask, position_ids)
+    def _forward(self, input_ids, position_ids):
+        return self.model(input_ids, position_ids)
 
     def convert_int64_to_int32(self, *args):
         """
@@ -213,9 +213,9 @@ class NxDDecoderWrapperForEmbedding(NxDModelWrapper):
         ]
         return padded_args
 
-    def forward(self, input_ids, attention_mask, position_ids):
-        input_ids, attention_mask, position_ids = self.convert_int64_to_int32(input_ids, attention_mask, position_ids)
-        input_ids, attention_mask, position_ids = self.pad_to_max_compiled_seq(input_ids, attention_mask, position_ids)
+    def forward(self, input_ids, position_ids):
+        input_ids, position_ids = self.convert_int64_to_int32(input_ids, position_ids)
+        input_ids, position_ids = self.pad_to_max_compiled_seq(input_ids, position_ids)
 
         input_batch_size = input_ids.shape[0]
 
@@ -224,8 +224,7 @@ class NxDDecoderWrapperForEmbedding(NxDModelWrapper):
                 f"Input batch size {input_batch_size} exceeds the maximum batch size {self.neuron_config.max_batch_size}."
             )
         elif input_batch_size == self.neuron_config.batch_size:
-            return self._forward(input_ids, attention_mask, position_ids)
-
+            return self._forward(input_ids, position_ids)
         cur_batch = 0
         output_logits = []
 
@@ -233,7 +232,7 @@ class NxDDecoderWrapperForEmbedding(NxDModelWrapper):
             f"get input_batch_size as {input_batch_size} but compiled batch_size as {self.neuron_config.batch_size}"
         )
 
-        args = (input_ids, attention_mask, position_ids)
+        args = (input_ids, position_ids)
         while cur_batch < input_batch_size:
             if cur_batch + self.neuron_config.batch_size <= input_batch_size:
                 # we only process part of the input to run
