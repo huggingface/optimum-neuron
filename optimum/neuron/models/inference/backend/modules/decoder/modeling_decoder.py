@@ -495,6 +495,9 @@ class NxDDecoderModelForEmbedding(nn.Module):
 
         hidden_states = self.norm(hidden_states)
 
+        # To avoid transferring a large tensor from Neuron to CPU, we only gather
+        # hidden states corresponding to the last token of each sequence (which
+        # actually corresponds to the full sequence embeddings).
         batch_size, _, hidden_size = hidden_states.shape
         index = torch.max(position_ids, dim=1, keepdim=True).indices
         index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
