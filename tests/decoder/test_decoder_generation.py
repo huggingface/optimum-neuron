@@ -94,10 +94,10 @@ def test_decoder_generation_custom_stopping_criteria(neuron_llm_config: dict[str
 
 @is_inferentia_test
 @requires_neuronx
-def test_decoder_generation_greedy_expectations(any_neuron_llm_config):
-    model_id = any_neuron_llm_config["model_id"]
+def test_decoder_generation_greedy_expectations(any_generate_model):
+    model_id = any_generate_model["model_id"]
     model = AutoModelForCausalLM.from_pretrained(model_id)
-    neuron_llm_path = any_neuron_llm_config["neuron_model_path"]
+    neuron_llm_path = any_generate_model["neuron_model_path"]
     neuron_model = NeuronModelForCausalLM.from_pretrained(neuron_llm_path)
     tokenizer = AutoTokenizer.from_pretrained(neuron_llm_path)
     prompt = "What is Deep Learning?"
@@ -106,7 +106,7 @@ def test_decoder_generation_greedy_expectations(any_neuron_llm_config):
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
     neuron_outputs = neuron_model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
     if not torch.equal(neuron_outputs, outputs):
-        config_name = any_neuron_llm_config["name"]
+        config_name = any_generate_model["name"]
         generated_text = tokenizer.decode(neuron_outputs[0])
         known_different_generations = {
             "qwen3-4x4096": " What are the key features of Deep Learning? What are the applications of Deep Learning?",
