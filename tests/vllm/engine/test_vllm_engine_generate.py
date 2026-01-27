@@ -54,10 +54,10 @@ def test_vllm_from_neuron_model(neuron_llm_config: dict[str, Any]):
     _test_vllm_generation(llm)
 
 
-def test_vllm_from_hub_model(any_neuron_llm_config: dict[str, Any]):
+def test_vllm_from_hub_model(any_generate_model: dict[str, Any]):
     """Test vLLm generation on all cached test models from the hub."""
-    model_id = any_neuron_llm_config["model_id"]
-    export_kwargs = any_neuron_llm_config["export_kwargs"]
+    model_id = any_generate_model["model_id"]
+    export_kwargs = any_generate_model["export_kwargs"]
     llm = LLM(
         model=model_id,
         max_num_seqs=export_kwargs["batch_size"],
