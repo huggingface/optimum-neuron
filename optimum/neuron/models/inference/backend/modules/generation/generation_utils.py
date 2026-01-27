@@ -132,10 +132,13 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         do_sample = generation_config.do_sample
 
         # Prepare input tensors
-        position_ids = position_ids_from_attention_mask(attention_mask)
+        if attention_mask is None:
+            position_ids = torch.arange(input_ids.shape[1]).unsqueeze(0).expand_as(input_ids)
+        else:
+            position_ids = position_ids_from_attention_mask(attention_mask)
         if seq_ids is None:
             seq_ids = torch.arange(input_ids.shape[0])
-        batch_size = attention_mask.shape[0]
+        batch_size = input_ids.shape[0]
         top_k = generation_config.top_k if do_sample else 1
         top_p = generation_config.top_p if do_sample else 1.0
         temperature = generation_config.temperature if do_sample else 1.0
@@ -227,10 +230,13 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         spec_len = self.neuron_config.speculation_length
 
         # Prepare input tensors
-        position_ids = position_ids_from_attention_mask(attention_mask)
+        if attention_mask is None:
+            position_ids = torch.arange(input_ids.shape[1]).unsqueeze(0).expand_as(input_ids)
+        else:
+            position_ids = position_ids_from_attention_mask(attention_mask)
         if seq_ids is None:
             seq_ids = torch.arange(input_ids.shape[0])
-        batch_size = attention_mask.shape[0]
+        batch_size = input_ids.shape[0]
         do_sample = generation_config.do_sample
         assert do_sample is False, "Assisted decoding is only supported for greedy decoding."
         sampling_params = prepare_sampling_params(batch_size=batch_size)

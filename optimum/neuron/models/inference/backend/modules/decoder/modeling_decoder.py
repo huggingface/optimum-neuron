@@ -363,7 +363,6 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         input_ids: torch.LongTensor,
         position_ids: torch.LongTensor | None,
         seq_ids: torch.LongTensor | None = None,
-        attention_mask: torch.Tensor | None = None,
         sampling_params: torch.FloatTensor | None = None,
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
