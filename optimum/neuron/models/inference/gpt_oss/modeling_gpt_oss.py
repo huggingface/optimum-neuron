@@ -180,6 +180,8 @@ class NeuronGptOssAttention(NeuronAttentionBase):
     """GPT-OSS attention (from original, using NeuronAttentionBase from optimum-neuron)."""
 
     def __init__(self, config, neuron_config: NxDNeuronConfig):
+        super().__init__(config=config, neuron_config=neuron_config)
+
         # Get rope_scaling attributes with defaults
         rope_scaling_factor = 1.0
         ntk_alpha = 1.0
@@ -191,19 +193,14 @@ class NeuronGptOssAttention(NeuronAttentionBase):
             ntk_alpha = config.rope_scaling.get("beta_slow", 1.0)
             ntk_beta = config.rope_scaling.get("beta_fast", 32.0)
 
-        rotary_emb = GptOssRotaryEmbedding(
-            dim=config.hidden_size // config.num_attention_heads,
+        head_dim = getattr(config, "head_dim", None) or (config.hidden_size // config.num_attention_heads)
+        self.rotary_emb = GptOssRotaryEmbedding(
+            dim=head_dim,
             base=config.rope_theta,
             initial_context_length=initial_context_length,
             scaling_factor=rope_scaling_factor,
             ntk_alpha=ntk_alpha,
             ntk_beta=ntk_beta,
-        )
-
-        super().__init__(
-            config=config,
-            neuron_config=neuron_config,
-            rotary_emb=rotary_emb,
         )
 
 
@@ -219,29 +216,14 @@ class NeuronGptOssDecoderLayer(nn.Module):
 
         self.post_attention_layernorm = NeuronRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
-        # MoE using initialize_moe_module (from original)
-        # Configure router and MoE settings as in original
-        neuron_config.router_config.dtype = torch.float32
-        neuron_config.router_config.act_fn = "softmax"
-        neuron_config.transpose_shared_experts_weights = False
-        neuron_config.early_expert_affinity_modulation = False
-        neuron_config.normalize_top_k_affinities = False
-        neuron_config.glu_type = "swiglu"
-        neuron_config.hidden_act_scaling_factor = 1.702
-        neuron_config.hidden_act_bias = 1
-        neuron_config.gate_clamp_upper_limit = 7.0
-        neuron_config.gate_clamp_lower_limit = None
-        neuron_config.up_clamp_upper_limit = 7.0
-        neuron_config.up_clamp_lower_limit = -7.0
-
         self.feed_forward = initialize_moe_module(
-            config=config,
             neuron_config=neuron_config,
-            rmsnorm=self.post_attention_layernorm,
-            init_tkg_module=not neuron_config.on_cpu,
-            router_bias=True,
-            experts_bias=True,
-            apply_act_fn_over_topk=True,
+            num_experts=config.num_local_experts,
+            top_k=config.num_experts_per_tok,
+            hidden_size=config.hidden_size,
+            intermediate_size=config.intermediate_size,
+            hidden_act=config.hidden_act,
+            normalize_top_k_affinities=False,
         )
 
         self.input_layernorm = NeuronRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -316,7 +298,7 @@ class GptOssNxDModelForCausalLM(NxDModelForCausalLM):
     _model_cls = NxDGptOssModel
 
     @staticmethod
-    def convert_hf_to_neuron_state_dict(state_dict: dict, config) -> dict:
+    def convert_hf_to_neuron_state_dict(state_dict: dict, config, neuron_config: NxDNeuronConfig) -> dict:
         """Convert HuggingFace format state dict to Neuron format (from original)."""
         num_layers = config.num_hidden_layers
 
@@ -335,13 +317,13 @@ class GptOssNxDModelForCausalLM(NxDModelForCausalLM):
         for layer in range(num_layers):
             # Router
             if f"layers.{layer}.mlp.router.weight" in state_dict:
-                state_dict[f"layers.{layer}.mlp.router.linear_router.weight"] = state_dict[
+                state_dict[f"layers.{layer}.feed_forward.router.linear_router.weight"] = state_dict[
                     f"layers.{layer}.mlp.router.weight"
                 ]
                 del state_dict[f"layers.{layer}.mlp.router.weight"]
 
             if f"layers.{layer}.mlp.router.bias" in state_dict:
-                state_dict[f"layers.{layer}.mlp.router.linear_router.bias"] = state_dict[
+                state_dict[f"layers.{layer}.feed_forward.router.linear_router.bias"] = state_dict[
                     f"layers.{layer}.mlp.router.bias"
                 ]
                 del state_dict[f"layers.{layer}.mlp.router.bias"]
@@ -357,26 +339,28 @@ class GptOssNxDModelForCausalLM(NxDModelForCausalLM):
                     dequantized_weights = convert_moe_packed_tensors(state_dict[blocks_key], state_dict[scales_key])
 
                     if proj == "gate_up_proj":
-                        state_dict[f"layers.{layer}.mlp.expert_mlps.mlp_op.{proj}.weight"] = convert_gate_up_proj(
-                            dequantized_weights
+                        state_dict[f"layers.{layer}.feed_forward.expert_mlps.mlp_op.{proj}.weight"] = (
+                            convert_gate_up_proj(dequantized_weights)
                         )
                         if bias_key in state_dict:
-                            state_dict[f"layers.{layer}.mlp.expert_mlps.mlp_op.{proj}.bias"] = convert_gate_up_proj(
-                                state_dict[bias_key], is_bias=True
+                            state_dict[f"layers.{layer}.feed_forward.expert_mlps.mlp_op.{proj}.bias"] = (
+                                convert_gate_up_proj(state_dict[bias_key], is_bias=True)
                             )
                     else:
-                        state_dict[f"layers.{layer}.mlp.expert_mlps.mlp_op.{proj}.weight"] = (
+                        state_dict[f"layers.{layer}.feed_forward.expert_mlps.mlp_op.{proj}.weight"] = (
                             dequantized_weights.transpose(1, 2)
                         )
                         if bias_key in state_dict:
-                            state_dict[f"layers.{layer}.mlp.expert_mlps.mlp_op.{proj}.bias"] = state_dict[bias_key]
+                            state_dict[f"layers.{layer}.feed_forward.expert_mlps.mlp_op.{proj}.bias"] = state_dict[
+                                bias_key
+                            ]
 
                     del state_dict[blocks_key]
                     del state_dict[scales_key]
                     if bias_key in state_dict:
                         del state_dict[bias_key]
 
-        # Cleanup any remaining .mlp.experts.* keys not processed
+        # Cleanup any remaining .mlp.* keys not processed
         keys_to_delete = [k for k in state_dict.keys() if ".mlp.experts." in k or ".mlp.router." in k]
         for key in keys_to_delete:
             del state_dict[key]
