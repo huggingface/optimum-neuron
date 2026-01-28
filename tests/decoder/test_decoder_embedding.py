@@ -37,18 +37,7 @@ def compute_similarity(tokenized_inputs, model):
     return scores
 
 
-@pytest.mark.parametrize(
-    "neuron_llm_config",
-    [
-        "qwen3-embedding-4x8192",
-        "qwen3-embedding-6x8192",
-    ],
-    indirect=True,
-)
-def test_decoder_similarity(neuron_llm_config):
-    model_id = neuron_llm_config["model_id"]
-    neuron_model_path = neuron_llm_config["neuron_model_path"]
-    sequence_length = neuron_llm_config["export_kwargs"]["sequence_length"]
+def _test_decoder_similarity(model_id, neuron_model_path, sequence_length, padding_side):
     # Each query must come with a one-sentence instruction that describes the task
     task = "Given a web search query, retrieve relevant passages that answer the query"
 
@@ -63,7 +52,7 @@ def test_decoder_similarity(neuron_llm_config):
     ]
     input_texts = queries + documents
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id, padding_side="right")
+    tokenizer = AutoTokenizer.from_pretrained(model_id, padding_side=padding_side)
 
     tokenized_inputs = tokenizer(
         input_texts,
@@ -82,6 +71,34 @@ def test_decoder_similarity(neuron_llm_config):
     neuron_scores = compute_similarity(tokenized_inputs, neuron_model)
     cpu_scores = cpu_scores.to(neuron_scores.dtype)
     print("CPU scores: ", cpu_scores.tolist())
-    # [[0.7645566463470459, 0.14142508804798126], [0.13549773395061493, 0.5999549627304077]]
     print("Neuron scores: ", neuron_scores.tolist())
     assert torch.allclose(neuron_scores, cpu_scores, atol=1e-2)
+
+
+@pytest.mark.parametrize(
+    "neuron_llm_config",
+    [
+        "qwen3-embedding-4x8192",
+        "qwen3-embedding-6x8192",
+    ],
+    indirect=True,
+)
+def test_decoder_similarity(neuron_llm_config):
+    model_id = neuron_llm_config["model_id"]
+    neuron_model_path = neuron_llm_config["neuron_model_path"]
+    sequence_length = neuron_llm_config["export_kwargs"]["sequence_length"]
+    _test_decoder_similarity(model_id, neuron_model_path, sequence_length, padding_side="right")
+
+
+@pytest.mark.parametrize(
+    "neuron_llm_config",
+    [
+        "qwen3-embedding-4x8192",
+    ],
+    indirect=True,
+)
+def test_decoder_similarity_left_padding(neuron_llm_config):
+    model_id = neuron_llm_config["model_id"]
+    neuron_model_path = neuron_llm_config["neuron_model_path"]
+    sequence_length = neuron_llm_config["export_kwargs"]["sequence_length"]
+    _test_decoder_similarity(model_id, neuron_model_path, sequence_length, padding_side="left")
