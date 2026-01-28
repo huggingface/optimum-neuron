@@ -29,6 +29,9 @@ TOKEN_GENERATION_MODEL_TAG = "token_generation_model"
 SPECULATION_MODEL_TAG = "speculation_model"
 
 
+logger = logging.getLogger("Neuron")
+
+
 class NxDDecoderWrapperForCausalLM(NxDModelWrapper):
     """A decoder wrapper for decoder models used in causal language modeling.
 
@@ -204,18 +207,20 @@ class NxDDecoderWrapperForEmbedding(NxDModelWrapper):
         """
         return [t.to(torch.int32) if t.dtype == torch.int64 else t for t in args]
 
-    def pad_to_max_compiled_seq(self, *args):
-        pad_lengths = [self.neuron_config.max_context_length - arg.shape[1] for arg in args]
-        tensor_pad_vals = [self.config.pad_token_id, 0, 1]
-        padded_args = [
-            F.pad(arg, (0, pad_len), "constant", pad_val)
-            for arg, pad_val, pad_len in zip(args, tensor_pad_vals, pad_lengths)
-        ]
-        return padded_args
+    def pad_to_max_compiled_seq(self, tensor: torch.Tensor, padding_value: int, left_padding: bool) -> torch.Tensor:
+        pad_length = self.neuron_config.max_context_length - tensor.shape[1]
+        if left_padding:
+            padded_tensor = F.pad(tensor, (pad_length, 0), "constant", padding_value)
+        else:
+            padded_tensor = F.pad(tensor, (0, pad_length), "constant", padding_value)
+        return padded_tensor
 
     def forward(self, input_ids, position_ids):
         input_ids, position_ids = self.convert_int64_to_int32(input_ids, position_ids)
-        input_ids, position_ids = self.pad_to_max_compiled_seq(input_ids, position_ids)
+        left_padding = (position_ids[:, 0] > 0).any()
+        logger.debug(f"Detected {'left' if left_padding else 'right'} padding in inputs")
+        input_ids = self.pad_to_max_compiled_seq(input_ids, self.config.pad_token_id, left_padding)
+        position_ids = self.pad_to_max_compiled_seq(position_ids, 1, left_padding)
 
         input_batch_size = input_ids.shape[0]
 
