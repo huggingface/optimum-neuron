@@ -499,7 +499,17 @@ class NxDDecoderModelForEmbedding(nn.Module):
         # hidden states corresponding to the last token of each sequence (which
         # actually corresponds to the full sequence embeddings).
         batch_size, _, hidden_size = hidden_states.shape
-        index = torch.max(position_ids, dim=1, keepdim=True).indices
+
+        # Detect padding side per sequence: if first position has position_id > 0, it's left-padded
+        # For left padding: use the last position (n_positions - 1)
+        # For right padding: use the position with maximum position_id
+        is_left_padded = position_ids[:, 0:1] > 0  # Shape: (batch_size, 1)
+        max_pos_indices = torch.max(position_ids, dim=1, keepdim=True).indices
+        last_pos_indices = torch.full_like(max_pos_indices, self.n_positions - 1)
+
+        # Use torch.where for tensor-compatible conditional selection
+        index = torch.where(is_left_padded, last_pos_indices, max_pos_indices)
+
         index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
         hidden_states = torch.gather(hidden_states, dim=1, index=index)
 
