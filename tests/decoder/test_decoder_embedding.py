@@ -26,7 +26,10 @@ def compute_similarity(tokenized_inputs, model):
     outputs = model(**tokenized_inputs)
     if hasattr(outputs, "last_hidden_state"):
         outputs = outputs.last_hidden_state
-    embeddings = last_token_pool(outputs, tokenized_inputs["attention_mask"])
+    if outputs.shape[1] == 1:
+        embeddings = outputs[:, 0, :]
+    else:
+        embeddings = last_token_pool(outputs, tokenized_inputs["attention_mask"])
 
     # normalize embeddings
     embeddings = F.normalize(embeddings, p=2, dim=1)
@@ -45,7 +48,6 @@ def compute_similarity(tokenized_inputs, model):
 def test_decoder_similarity(neuron_llm_config):
     model_id = neuron_llm_config["model_id"]
     neuron_model_path = neuron_llm_config["neuron_model_path"]
-    batch_size = neuron_llm_config["export_kwargs"]["batch_size"]
     sequence_length = neuron_llm_config["export_kwargs"]["sequence_length"]
     # Each query must come with a one-sentence instruction that describes the task
     task = "Given a web search query, retrieve relevant passages that answer the query"
@@ -61,7 +63,7 @@ def test_decoder_similarity(neuron_llm_config):
     ]
     input_texts = queries + documents
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id, padding_side="left")
+    tokenizer = AutoTokenizer.from_pretrained(model_id, padding_side="right")
 
     tokenized_inputs = tokenizer(
         input_texts,
@@ -75,13 +77,11 @@ def test_decoder_similarity(neuron_llm_config):
     # are not that close so we don't do an explicit comparison
     model = AutoModel.from_pretrained(model_id)
     cpu_scores = compute_similarity(tokenized_inputs, model)
-    print(cpu_scores.tolist())
 
     neuron_model = NeuronModelForEmbedding.from_pretrained(neuron_model_path)
     neuron_scores = compute_similarity(tokenized_inputs, neuron_model)
-    print(neuron_scores.tolist())
-    expected_scores = {
-        4: [[0.7265625, 0.203125], [0.2578125, 0.46484375]],
-        6: [[0.73046875, 0.2021484375], [0.2578125, 0.45703125]],
-    }[batch_size]
-    assert torch.allclose(neuron_scores, torch.tensor(expected_scores, dtype=torch.bfloat16), atol=1e-2)
+    cpu_scores = cpu_scores.to(neuron_scores.dtype)
+    print("CPU scores: ", cpu_scores.tolist())
+    # [[0.7645566463470459, 0.14142508804798126], [0.13549773395061493, 0.5999549627304077]]
+    print("Neuron scores: ", neuron_scores.tolist())
+    assert torch.allclose(neuron_scores, cpu_scores, atol=1e-2)
