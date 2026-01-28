@@ -33,6 +33,7 @@ from ...graph_builder import NxDGraphBuilder
 from ...pretrained_model import NxDPreTrainedModel
 from ...utils.random import set_random_seed
 from ..attention.gqa import get_shardable_head_counts
+from ..attention.utils import create_causal_attention_mask_from_position_ids
 from ..generation.generation_utils import NxDGenerationMixin
 from ..generation.sampling import (
     Sampler,
@@ -472,13 +473,8 @@ class NxDDecoderModelForEmbedding(nn.Module):
         input_ids: torch.Tensor,
         position_ids: torch.Tensor,
     ):
-        # Prepare attention mask(s)
-        attention_mask = torch.full((self.n_positions, self.n_positions), True, device=input_ids.device).tril(
-            diagonal=0
-        )
-        attention_mask = attention_mask[None, None, :, :].expand(
-            self.batch_size, 1, self.n_positions, self.n_positions
-        )
+        # Create attention mask that handles both left and right padding
+        attention_mask = create_causal_attention_mask_from_position_ids(position_ids=position_ids)
 
         hidden_states = self.embed_tokens(input_ids)
 
