@@ -11,6 +11,7 @@ def main():
     parser = ArgumentParser()
     parser.add_argument("--yes", action="store_true", default=False)
     parser.add_argument("--version", type=str, default="")
+    parser.add_argument("--pattern", type=str, default="")
     args = parser.parse_args()
     api = HfApi()
     model_prefix = f"{TEST_HUB_ORG}/optimum-neuron-testing-{args.version}"
@@ -18,6 +19,8 @@ def main():
     for model in models:
         if not model.id.startswith(model_prefix):
             # Sanity check to ensure we only delete models that match the prefix
+            continue
+        if args.pattern and args.pattern not in model.id:
             continue
         if args.yes:
             delete = True
