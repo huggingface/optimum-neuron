@@ -22,6 +22,7 @@ automatically by the neuron factory classes such as NeuronModelForCausalLM.
 import os
 
 from ..auto_model import register_neuron_model
+from .gpt_oss.modeling_gpt_oss import GptOssNxDModelForCausalLM
 from .granite.modeling_granite import GraniteNxDModelForCausalLM
 from .llama.modeling_llama import LlamaNxDModelForCausalLM
 from .llama4.modeling_llama4 import Llama4NxDModelForCausalLM
@@ -41,6 +42,15 @@ def register_neuron_model_for_inference(model_type: str, task: str):
     Register a model for inference.
     """
     return register_neuron_model(model_type, task, "inference")
+
+
+@register_neuron_model_for_inference("gpt_oss", "text-generation")
+class GptOssNeuronModelForCausalLM(GptOssNxDModelForCausalLM):
+    """
+    GPT-OSS model with NxD backend for inference on AWS Neuron.
+    """
+
+    pass
 
 
 @register_neuron_model_for_inference("granite", "text-generation")
