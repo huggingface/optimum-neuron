@@ -336,3 +336,63 @@ def create_block_diagonal_attn_mask(
         mask = mask | mask_per_seq
 
     return mask
+
+
+def create_causal_attention_mask_from_position_ids(position_ids: torch.Tensor) -> torch.Tensor:
+    """Create a causal attention mask that properly handles both left and right padding.
+
+    This function detects padding positions from position_ids and creates an attention mask that:
+    - Maintains causality (lower triangular structure)
+    - Masks out left-padded positions (positions before the first position_id == 0)
+    - Masks out right-padded positions (positions after a significant decrease in position_ids)
+
+    Args:
+        position_ids: Tensor of shape (batch_size, seq_len) containing position IDs
+
+    Returns:
+        Attention mask of shape (batch_size, 1, seq_len, seq_len) with True for valid attention and False for masked
+
+    Position IDs should follow the pattern:
+    - Left padding: [1, 1, 1, 0, 1, 2, 3, ...] where 1s before 0 are padding
+    - Right padding: [0, 1, 2, 3, 1, 1, 1] where 1s after the last content are padding
+    """
+    seq_len = position_ids.shape[1]
+    device = position_ids.device
+
+    # Create causal attention mask (lower triangular)
+    causal_mask = torch.tril(torch.ones((seq_len, seq_len), device=device, dtype=torch.bool))
+
+    # Find the first position_id == 0 (start of real content)
+    is_start = position_ids == 0
+    # Create a cumulative sum to mark which positions are after the first 0
+    start_cumsum = torch.cumsum(is_start.long(), dim=1)
+    has_started = start_cumsum > 0  # True after seeing the first 0
+
+    # Detect padding: anything before the first 0 (left padding)
+    left_padding = ~has_started
+
+    # Detect right padding: position_ids decrease (going back to 1) after content has started
+    # We shift position_ids left and check if current > next
+    pos_shifted = torch.cat([position_ids[:, 1:], position_ids[:, -1:]], dim=1)  # Replicate last value
+    decreases = (position_ids > pos_shifted) & (position_ids - pos_shifted > 1)  # Significant decrease (more than 1)
+    # Only flag as right padding if decrease happens after content has started
+    right_padding_starts = decreases & has_started
+    # Mark all positions AFTER (not including) where decrease happened as padding
+    # Shift the mask right by 1 to mark positions after the decrease
+    right_padding_starts_shifted = torch.cat(
+        [torch.zeros_like(right_padding_starts[:, :1]), right_padding_starts[:, :-1]], dim=1
+    )
+    # Once right padding is detected, all subsequent positions are padding
+    right_padding_cumsum = torch.cumsum(right_padding_starts_shifted.long(), dim=1)
+    is_right_padding = right_padding_cumsum > 0
+
+    # Combine: positions are padding if they're left padding OR right padding
+    padding_mask = left_padding | is_right_padding
+
+    # Apply padding mask to the causal mask
+    # Padding tokens should not attend or be attended to
+    attention_mask = causal_mask[None, None, :, :].clone()
+    attention_mask = attention_mask & ~padding_mask[:, None, None, :]  # Mask out padding as keys
+    attention_mask = attention_mask & ~padding_mask[:, None, :, None]  # Mask out padding as queries
+
+    return attention_mask
