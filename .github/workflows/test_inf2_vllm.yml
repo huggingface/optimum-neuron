@@ -50,6 +50,7 @@ on:
       - "optimum/neuron/vllm/**.py"
       - "optimum/neuron/utils/**.py"
       - "optimum/neuron/version.py"
+      - "docker/vllm/Dockerfile"
       - "tests/vllm/**.py"
       - ".github/workflows/test_inf2_vllm.yml"
 
