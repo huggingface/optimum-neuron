@@ -1,17 +1,12 @@
 FROM ubuntu:22.04 AS base
 
-RUN apt-get update -y \
-    && apt-get install -y --no-install-recommends \
-    python3-pip \
-    python3-setuptools \
-    python-is-python3 \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
-RUN pip3 --no-cache-dir install --upgrade pip
-
 # Install system prerequisites
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends \
+    python3-setuptools \
+    python-is-python3 \
+    ca-certificates \
+    curl \
     gnupg2 \
     wget \
     libexpat1 \
@@ -19,6 +14,10 @@ RUN apt-get update -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
+# Install uv at a specific version on a given path
+RUN curl -LsSf https://astral.sh/uv/0.9.27/install.sh | XDG_BIN_HOME=/usr/local/bin sh
+
+# Setup neuronx repository
 RUN echo "deb https://apt.repos.neuron.amazonaws.com jammy main" > /etc/apt/sources.list.d/neuron.list
 RUN wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | apt-key add -
 
@@ -34,23 +33,12 @@ RUN apt-get update -y \
 
 ENV PATH="/opt/bin/:/opt/aws/neuron/bin:${PATH}"
 
-# Install HuggingFace packages
-RUN pip3 install \
-    huggingface_hub
-
-# Install manually torch CPU version to avoid pulling CUDA
-RUN pip3 install \
-    torch==2.8.0 \
-    torchvision==0.23.0 \
-    --index-url https://download.pytorch.org/whl/cpu
-
 # Install optimum-neuron
 RUN mkdir optimum-neuron
 COPY optimum optimum-neuron/optimum
 COPY pyproject.toml optimum-neuron/pyproject.toml
 RUN ls optimum-neuron
-RUN cd optimum-neuron && pip3 install .[neuronx,vllm] \
-    --extra-index-url=https://pip.repos.neuron.amazonaws.com
+RUN cd optimum-neuron && uv pip install --system .[neuronx,vllm]
 
 # HF base env
 ENV HUGGINGFACE_HUB_CACHE=/tmp \
