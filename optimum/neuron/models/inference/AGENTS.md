@@ -1,6 +1,6 @@
 # Optimum Neuron Inference Models (NxD) Guide
 
-This guide focuses on NxD inference models, decoder graphs, attention, and porting practices. For project-wide workflows see [AGENTS.md](../../../AGENTS.md).
+This guide focuses on NxD inference models, decoder graphs, attention, and porting practices. For project-wide workflows see [AGENTS.md](../../../../AGENTS.md).
 
 ## NxD Decoder Models
 
