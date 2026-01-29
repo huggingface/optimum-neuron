@@ -1,6 +1,6 @@
 # Optimum Neuron vLLM Guide
 
-This guide covers the Optimum Neuron vLLM backend. For project-wide workflows see [AGENTS.md](../../AGENTS.md).
+This guide covers the Optimum Neuron vLLM backend. For project-wide workflows see [AGENTS.md](../../../AGENTS.md).
 
 ## Architecture Overview
 - Runner: `OptimumNeuronModelRunner` manages execution and batch state.
