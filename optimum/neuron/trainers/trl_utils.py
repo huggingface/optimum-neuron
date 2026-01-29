@@ -234,9 +234,8 @@ def nanmin(tensor: torch.Tensor) -> torch.Tensor:
     """
     mask = torch.isnan(tensor)
     filled = torch.where(mask, torch.full_like(tensor, float("inf")), tensor)
-    min_value = torch.amin(filled)
-    all_nan = mask.all()
-    return torch.where(all_nan, torch.tensor(float("nan"), dtype=tensor.dtype, device=tensor.device), min_value)
+    min_value = torch.min(filled)
+    return min_value
 
 
 def nanmax(tensor: torch.Tensor) -> torch.Tensor:
@@ -246,9 +245,8 @@ def nanmax(tensor: torch.Tensor) -> torch.Tensor:
     """
     mask = torch.isnan(tensor)
     filled = torch.where(mask, torch.full_like(tensor, float("-inf")), tensor)
-    min_value = torch.amax(filled)
-    all_nan = mask.all()
-    return torch.where(all_nan, torch.tensor(float("nan"), dtype=tensor.dtype, device=tensor.device), min_value)
+    max_value = torch.max(filled)
+    return max_value
 
 
 def nanstd(tensor: torch.Tensor, unbiased: bool = False) -> torch.Tensor:

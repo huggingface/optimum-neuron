@@ -149,15 +149,16 @@ class VLLMClient(TRLVLLMClient):
 
 class MockVLLMClient(VLLMClient):
     """
-    Mock VLLMClient that generates random completions and triggers XLA compilation without vLLM server.
+    Mock VLLMClient that generates completions without a vLLM server.
 
-    Used for neuron_parallel_compile and testing. Generates random tokens, not real LLM outputs.
+    Used for neuron_parallel_compile and testing. Generates completions by cycling
+    through prompt tokens (echo mode), producing deterministic, non-garbage output.
 
     Args:
         tokenizer: Tokenizer for encoding/decoding
         max_completion_length: Maximum completion length
         min_completion_length: Minimum completion length (default: 10)
-        seed: Random seed for reproducibility
+        seed: Random seed for reproducibility (used for completion length variation)
     """
 
     def __init__(self, tokenizer, max_completion_length=256, min_completion_length=10, seed=None):
@@ -169,7 +170,7 @@ class MockVLLMClient(VLLMClient):
 
         logger.warning(
             "Using MockVLLMClient for neuron_parallel_compile or testing. "
-            "This generates random dummy completions and should only be used for compilation/testing."
+            "This generates echo completions and should only be used for compilation/testing."
         )
 
     def generate(
@@ -188,7 +189,7 @@ class MockVLLMClient(VLLMClient):
         generation_kwargs=None,
     ):
         """
-        Generate random completions with random lengths.
+        Generate completions by cycling through prompt tokens (echo mode).
 
         Returns dict with prompt_ids, completion_ids, and logprobs.
         """
@@ -196,10 +197,9 @@ class MockVLLMClient(VLLMClient):
         completion_ids = []
         logprobs = []
 
-        # Determine vocab range (avoid special tokens)
+        # Fallback tokens if prompt is empty
         vocab_size = self.tokenizer.vocab_size
-        min_token_id = min(100, vocab_size - 1)
-        max_token_id = vocab_size - 1
+        fallback_token_id = min(100, vocab_size - 1)
 
         for prompt in prompts:
             # Tokenize prompt
@@ -217,12 +217,17 @@ class MockVLLMClient(VLLMClient):
                 max_len = min(max_tokens, self.max_completion_length)
                 completion_length = self.random.randint(self.min_completion_length, max_len)
 
-                # Generate random tokens from safe vocab range
-                completion = [self.random.randint(min_token_id, max_token_id) for _ in range(completion_length)]
+                # Echo mode: cycle through prompt tokens
+                if len(prompt_tokens) > 0:
+                    completion = [prompt_tokens[i % len(prompt_tokens)] for i in range(completion_length)]
+                else:
+                    # Fallback if prompt is empty
+                    completion = [fallback_token_id] * completion_length
+
                 completion_ids.append(completion)
 
-                # Generate realistic random logprobs (typical range: -2 to -10)
-                completion_logprobs = [-self.random.uniform(2.0, 8.0) for _ in range(completion_length)]
+                # Logprobs: simulate higher confidence for echoed tokens
+                completion_logprobs = [-self.random.uniform(0.5, 2.0) for _ in range(completion_length)]
                 logprobs.append(completion_logprobs)
 
         return {
