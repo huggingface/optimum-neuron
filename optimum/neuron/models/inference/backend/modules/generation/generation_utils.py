@@ -135,6 +135,8 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         if attention_mask is None:
             position_ids = torch.arange(input_ids.shape[1]).unsqueeze(0).expand_as(input_ids)
         else:
+            if (attention_mask[:, 0] == 0).any():
+                raise ValueError("Left padding is not supported for Neuron embedding models.")
             position_ids = position_ids_from_attention_mask(attention_mask)
         if seq_ids is None:
             seq_ids = torch.arange(input_ids.shape[0])
