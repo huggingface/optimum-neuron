@@ -361,7 +361,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     def forward(
         self,
         input_ids: torch.LongTensor,
-        position_ids: torch.LongTensor | None,
+        position_ids: torch.LongTensor,
         seq_ids: torch.LongTensor | None = None,
         sampling_params: torch.FloatTensor | None = None,
         output_attentions: bool | None = None,
@@ -472,7 +472,9 @@ class NxDDecoderModelForEmbedding(nn.Module):
         input_ids: torch.Tensor,
         position_ids: torch.Tensor,
     ):
-        # Prepare attention mask(s)
+        # Prepare attention mask, assuming right padding (left padding is not supported by NeuronAttentionBase).
+        # We don't need to modify the mask explicitly to ignore padding tokens, since they are present AFTER the sequence tokens,
+        # and therefore implicitly ignored by the default triangular causal lm mask.
         attention_mask = torch.full((self.n_positions, self.n_positions), True, device=input_ids.device).tril(
             diagonal=0
         )
@@ -547,6 +549,9 @@ class NxDModelForEmbedding(NxDPreTrainedModel, NeuronModelForEmbedding):
         input_ids: torch.LongTensor,
         attention_mask: torch.Tensor,
     ) -> tuple:
+        if (attention_mask[:, 0] == 0).any():
+            raise ValueError("Left padding is not supported for Neuron embedding models.")
+
         # Convert attention_mask to position_ids
         position_ids = attention_mask.long().cumsum(-1) - 1
         position_ids.masked_fill_(attention_mask == 0, 1)
