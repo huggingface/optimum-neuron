@@ -160,7 +160,7 @@ def train(model_id, tokenizer, dataset, training_args):
         processing_class=tokenizer,
         peft_config=lora_config,
         # To do: disable this fake client, only for development without vLLM server.
-        vllm_client=MockVLLMClient(tokenizer, max_completion_length=grpo_config.max_completion_length),
+        # vllm_client=MockVLLMClient(tokenizer, max_completion_length=grpo_config.max_completion_length),
     )
 
     # Train the model

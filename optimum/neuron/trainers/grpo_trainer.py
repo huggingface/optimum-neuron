@@ -795,6 +795,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             if compute_entropy
             else None
         )
+        # all_logps = []
+        # all_entropies = [] if compute_entropy else None
 
         # Pre-compute VLM slicing indices if needed (avoids .item() calls inside loop).
         # For VLMs with image_grid_thw, we need to compute pixel_values slicing indices upfront.
@@ -870,13 +872,15 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
             # Write directly to pre-allocated tensor instead of list append
             all_logps[start:end] = logps
+            # all_logps.append(logps)
 
             if compute_entropy:
                 with torch.no_grad():
                     entropies = entropy_from_logits(logits)
                 all_entropies[start:end] = entropies
+                # all_entropies.append(entropies)
 
-        torch_xla.sync()
+            torch_xla.sync()
 
         return all_logps, all_entropies
 
@@ -990,7 +994,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             if self.use_vllm and self.vllm_importance_sampling_correction:
                 importance_sampling_ratio = torch.exp(old_per_token_logps - sampling_per_token_logps)
                 importance_sampling_ratio = torch.clamp(
-                    importance_sampling_ratio, max=self.vllm_importance_sampling_cap
+                    importance_sampling_ratio,
+                    max=torch.tensor(self.vllm_importance_sampling_cap, device=importance_sampling_ratio.device),
                 )
 
             # Compute the per-token log probabilities for the reference model
@@ -1198,12 +1203,10 @@ class NeuronGRPOTrainer(_GRPOTrainer):
     def get_high_entropy_mask(self, entropies: torch.Tensor, mask: torch.Tensor, threshold: float) -> torch.Tensor:
         """
         Compute a mask for high-entropy tokens (above the given quantile threshold).
-
-        This XLA-optimized implementation avoids:
-        1. Dynamic indexing (sorted_values[quantile_idx]) by using torch.gather
-        2. Repeated tensor creation by using pre-created constants
-        3. Complex control flow that would cause graph breaks
         """
+        pad_value = -1e9
+        gathered = self.accelerator.gather(entropies)
+        return entropies
         pad_value = -1e9
         dtype = entropies.dtype
 
@@ -1227,7 +1230,10 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         # Get the quantile index and the corresponding entropy threshold value
         # Use torch.gather instead of dynamic indexing to maintain XLA compatibility
         quantile_idx = num_sentinels + (threshold * num_valid_values.float()).long()
-        quantile_idx = quantile_idx.clamp(min=0, max=gathered.numel() - 1)
+        quantile_idx = quantile_idx.clamp(
+            min=torch.tensor(0, device=quantile_idx.device),
+            max=torch.tensor(gathered.numel() - 1, device=quantile_idx.device),
+        )
 
         # Use gather for XLA-compatible indexing (gather works with tensor indices)
         entropy_threshold = sorted_values.gather(0, quantile_idx.view(1)).squeeze(0)
@@ -1297,8 +1303,10 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             if self.importance_sampling_level == "token":
                 log_importance_weights = log_ratio
             elif self.importance_sampling_level == "sequence":
-                # Use pre-created constant instead of creating tensor in hot path
-                log_importance_weights = (log_ratio * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1)
+                # Use tensor min value for clamp to avoid torch neuron SDK bug with Python literals
+                log_importance_weights = (log_ratio * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(
+                    min=torch.tensor(1, device=completion_mask.device)
+                )
                 log_importance_weights = log_importance_weights.unsqueeze(-1)
             else:
                 raise ValueError(
@@ -1309,11 +1317,15 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             # importance_sampling_level: "token" level: (B, T); "sequence" level: (B, 1)
 
             coef_1 = torch.exp(log_importance_weights)
-            coef_2 = torch.clamp(coef_1, 1 - self.epsilon_low, 1 + self.epsilon_high)
+            coef_2 = torch.clamp(
+                coef_1,
+                torch.tensor(1 - self.epsilon_low, device=coef_1.device),
+                torch.tensor(1 + self.epsilon_high, device=coef_1.device),
+            )
 
             # Two-sided clipping
             if self.args.delta is not None:
-                coef_1 = torch.clamp(coef_1, max=self.args.delta)
+                coef_1 = torch.clamp(coef_1, max=torch.tensor(self.args.delta, device=coef_1.device))
 
             per_token_loss1 = coef_1 * advantages.unsqueeze(1)
             per_token_loss2 = coef_2 * advantages.unsqueeze(1)
@@ -1327,13 +1339,17 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             if self.beta != 0.0:
                 per_token_loss = per_token_loss + self.beta * per_token_kl
 
-            # Use scalar min value for clamp instead of creating tensors.
-            # PyTorch clamp accepts Python scalars which avoids tensor allocation overhead.
+            # Use tensor min value for clamp to avoid torch neuron SDK bug with Python literals.
             if self.loss_type == "grpo":
-                loss = ((per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1)).mean()
+                loss = (
+                    (per_token_loss * completion_mask).sum(-1)
+                    / completion_mask.sum(-1).clamp(min=torch.tensor(1, device=completion_mask.device))
+                ).mean()
                 loss = loss / self.current_gradient_accumulation_steps
             elif self.loss_type == "bnpo":
-                loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=1)
+                loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(
+                    min=torch.tensor(1, device=completion_mask.device)
+                )
                 loss = loss / self.current_gradient_accumulation_steps
             elif self.loss_type == "dr_grpo":
                 loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)
@@ -1347,8 +1363,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             # Log the metrics
             mode = "train" if self.model.training else "eval"
 
-            # Use scalar min value for clamp instead of creating tensor
-            completion_token_count = completion_mask.sum().clamp(min=1)
+            # Use tensor min value for clamp to avoid torch neuron SDK bug with Python literals
+            completion_token_count = completion_mask.sum().clamp(min=torch.tensor(1, device=completion_mask.device))
 
             def masked_batch_mean(x):
                 if x.shape[1] == 1:  # when importance_sampling_level == "sequence"
