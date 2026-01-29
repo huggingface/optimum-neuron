@@ -69,6 +69,6 @@ The Optimum Neuron implementation prioritizes **stability, maintainability, and 
 ### Per-Module Parity Tests
 Track numerical differences using module-level tests before full graph tests:
 - [tests/decoder/test_modules.py](../../../tests/decoder/test_modules.py) compares HF layers to Neuron equivalents using `nxd_testing.build_module()` and `validate_accuracy()`.
-- [tests/decoder/test_attention.py](../../../tests/decoder/test_attention.py) validates attention with explicit rotary embedding and mask handling.
+- [tests/decoder/test_attention.py](../../../../tests/decoder/test_attention.py) validates attention with explicit rotary embedding and mask handling.
 
 These isolate drift or state-dict conversion issues early.
