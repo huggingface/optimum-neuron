@@ -44,6 +44,7 @@ from torch_neuronx.xla_impl.ops import nki_jit  # noqa: E402
 
 from ...config import NxDNeuronConfig
 from .gqa import GroupQueryAttention_O, GroupQueryAttention_QKV  # noqa: E402
+from .sink import LearnedSink
 
 
 logger = logging.getLogger("Neuron")
@@ -75,6 +76,7 @@ class NeuronAttentionBase(nn.Module):
         qkv_proj_bias: bool = False,
         o_proj_bias: bool = False,
         qk_scale: float | None = None,
+        learned_sinks_size: int | None = None,
     ):
         if not parallel_state.model_parallel_is_initialized():
             raise ValueError(
@@ -141,6 +143,17 @@ class NeuronAttentionBase(nn.Module):
         self.k_layernorm = None
         self.logical_nc_config = neuron_config.logical_nc_config
 
+        # Learned sinks for attention (used by GPT-OSS)
+        self.learned_sinks_size = learned_sinks_size
+        self.learned_sinks = None
+        if learned_sinks_size is not None:
+            self.learned_sinks = LearnedSink(
+                learned_sinks_size=learned_sinks_size,
+                num_attention_heads=config.num_attention_heads,
+                torch_dtype=self.torch_dtype,
+                tensor_model_parallel_size=neuron_config.tp_degree,
+            )
+
     @property
     def qk_scale(self):
         return self._qk_scale or (1.0 / math.sqrt(self.head_dim))
@@ -150,6 +163,12 @@ class NeuronAttentionBase(nn.Module):
         QK = torch.matmul(Q, K.transpose(2, 3)) * qk_scale
         QK = torch.where(attention_mask, QK, torch.finfo(QK.dtype).min)
         return QK
+
+    def _get_learned_sinks(self):
+        """Get the learned sinks tensor if available."""
+        if self.learned_sinks is None:
+            return None
+        return self.learned_sinks.sink
 
     def rotate_qkv_tensors(
         self,
@@ -248,7 +267,15 @@ class NeuronAttentionBase(nn.Module):
             logger.debug("ATTN: native compiler")
             logger.debug(f"Not using flash_fwd for Q.shape={Q.shape}")
             active_scores = self.scaled_qk(Q, K_active, attention_mask)
+            # Add learned sinks if available
+            learned_sinks = self._get_learned_sinks()
+            if learned_sinks is not None:
+                # Expand sinks for batch and sequence dimensions
+                learned_sinks = learned_sinks.reshape(1, self.num_heads, 1, 1).expand(bsz, -1, q_len, -1)
+                active_scores = torch.cat((active_scores, learned_sinks), dim=-1)
             active_scores = nn.functional.softmax(active_scores, dim=-1, dtype=torch.float32).to(Q.dtype)
+            if learned_sinks is not None:
+                active_scores = active_scores[..., :-1]  # Remove sink column after softmax
             attn_output = torch.matmul(active_scores, V_active)
         return attn_output, flash_attn_strategy
 
@@ -308,8 +335,20 @@ class NeuronAttentionBase(nn.Module):
             active_scores = torch.where(active_mask, active_scores, torch.finfo(active_scores.dtype).min)
         active_scores = active_scores.to(torch.float32)
 
+        # Add learned sinks if available
+        learned_sinks = self._get_learned_sinks()
+        if learned_sinks is not None:
+            bsz, _, seqlen, _ = active_scores.shape
+            sinks = learned_sinks.reshape(1, self.num_heads, 1, 1).expand(bsz, -1, seqlen, -1)
+            # For token generation, concatenate learned sinks with prior scores
+            prior_scores = torch.cat((prior_scores, sinks), dim=-1)
+
         # iii. attention scores
         softmax_prior, softmax_active = manual_softmax(prior_scores, active_scores)
+
+        if learned_sinks is not None:
+            softmax_prior = softmax_prior[..., :-1]  # Remove sink column after softmax
+
         softmax_prior, softmax_active = softmax_prior.to(Q.dtype), softmax_active.to(Q.dtype)
         attn_prior = torch.matmul(softmax_prior, V_prior)
         attn_active = torch.matmul(softmax_active, V_active)
