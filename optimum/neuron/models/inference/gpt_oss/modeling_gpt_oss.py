@@ -313,6 +313,39 @@ class GptOssRotaryEmbedding(nn.Module):
         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
 
+class DecodeGptOssRotaryCacheManager:
+    """Cache manager for rotary embeddings during decode.
+
+    GPT-OSS alternates between sliding window attention (even layers) and
+    global attention (odd layers). Each layer type needs separate sin/cos caches.
+    """
+
+    def __init__(self):
+        self.global_sin_cache = None
+        self.global_cos_cache = None
+        self.window_sin_cache = None
+        self.window_cos_cache = None
+
+    def clear_cache(self):
+        self.global_sin_cache = None
+        self.global_cos_cache = None
+        self.window_sin_cache = None
+        self.window_cos_cache = None
+
+    def set_cache(self, layer_index, sin_cache, cos_cache):
+        if layer_index % 2 == 0:  # SWA layer
+            self.window_sin_cache = sin_cache
+            self.window_cos_cache = cos_cache
+        else:  # Global attention layer
+            self.global_sin_cache = sin_cache
+            self.global_cos_cache = cos_cache
+
+    def get_cache(self, layer_index):
+        if layer_index % 2 == 0:  # SWA layer
+            return self.window_cos_cache, self.window_sin_cache
+        return self.global_cos_cache, self.global_sin_cache
+
+
 class NeuronGptOssAttention(NeuronAttentionBase):
     """GPT-OSS attention layer for Neuron.
 
@@ -320,12 +353,14 @@ class NeuronGptOssAttention(NeuronAttentionBase):
     - Uses YaRN rotary embedding
     - Has explicit head_dim (not derived from hidden_size / num_heads)
     - Has attention bias
+    - Supports sliding window attention (even layers)
     """
 
     def __init__(
         self,
         config: GptOssConfig,
         neuron_config: NxDNeuronConfig,
+        sliding_window: int | None = None,
     ):
         # GPT-OSS has explicit head_dim in config
         head_dim = getattr(config, "head_dim", None)
@@ -351,6 +386,10 @@ class NeuronGptOssAttention(NeuronAttentionBase):
         # Override head_dim after parent init
         self.head_dim = head_dim
 
+        # Store sliding window config for this layer
+        # GPT-OSS uses sliding window for even layers, global attention for odd layers
+        self.sliding_window = sliding_window
+
         # Set up GPT-OSS rotary embedding with NTK-by-parts scaling
         # Extract scaling parameters from rope_scaling dict
         rope_scaling = getattr(config, "rope_scaling", {}) or {}
@@ -374,6 +413,7 @@ class NeuronGptOssAttention(NeuronAttentionBase):
 def initialize_gpt_oss_moe(
     config: GptOssConfig,
     neuron_config: NxDNeuronConfig,
+    rmsnorm: nn.Module | None = None,
 ) -> MoE:
     """Initialize GPT-OSS MoE module with all required settings.
 
@@ -383,9 +423,14 @@ def initialize_gpt_oss_moe(
     - ExpertMLPsV2 with bias enabled
     - SwiGLU activation with scaling factor 1.702 and bias 1
 
+    The rmsnorm parameter allows fusing the post_attention_layernorm into the MoE
+    forward pass, which is how NxDI implements it. The norm is applied at the
+    start of the MoE forward pass rather than separately before calling MoE.
+
     Args:
         config: GPT-OSS model configuration
         neuron_config: Neuron configuration
+        rmsnorm: Optional RMSNorm module to fuse into MoE (post_attention_layernorm)
 
     Returns:
         Initialized MoE module
@@ -414,6 +459,7 @@ def initialize_gpt_oss_moe(
         sequence_parallel_enabled=getattr(neuron_config, "sequence_parallel_enabled", False),
         sequence_dimension=1,
         bias=True,  # GPT-OSS uses router bias
+        apply_act_fn_over_topk=True,  # GPT-OSS applies activation over top-k experts
     )
 
     # Expert MLPs with bias and GPT-OSS specific settings
@@ -429,6 +475,10 @@ def initialize_gpt_oss_moe(
             glu_type=GLUType.SWIGLU,
             hidden_act_scaling_factor=1.702,
             hidden_act_bias=1,
+            gate_clamp_upper_limit=7.0,  # GPT-OSS clamps gate activations
+            gate_clamp_lower_limit=None,
+            up_clamp_upper_limit=7.0,  # GPT-OSS clamps up activations
+            up_clamp_lower_limit=-7.0,
             early_expert_affinity_modulation=False,
             normalize_top_k_affinities=False,
             enable_spmd_rank=True,  # Enable SPMD rank for tensor parallel operations
@@ -444,6 +494,7 @@ def initialize_gpt_oss_moe(
         expert_mlps=expert_mlps,
         sequence_parallel_enabled=getattr(neuron_config, "sequence_parallel_enabled", False),
         sequence_dimension=1,
+        rmsnorm=rmsnorm,  # Fuse post_attention_layernorm into MoE forward
     )
 
     # Set MoE module in eval mode
@@ -457,27 +508,44 @@ class NeuronGptOssDecoderLayer(nn.Module):
     Implements pre-norm transformer layer with:
     - Self-attention with YaRN RoPE
     - MoE FFN with top-k routing
+    - Alternating sliding window (even layers) and global attention (odd layers)
+    - Post-attention layernorm fused into MoE forward pass
     """
 
-    def __init__(self, config: GptOssConfig, neuron_config: NxDNeuronConfig, layer_idx: int):
+    def __init__(
+        self,
+        config: GptOssConfig,
+        neuron_config: NxDNeuronConfig,
+        layer_idx: int,
+        rotary_cache_manager: DecodeGptOssRotaryCacheManager,
+    ):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.layer_idx = layer_idx
+        self.rotary_cache_manager = rotary_cache_manager
 
-        # Attention
-        self.self_attn = NeuronGptOssAttention(config, neuron_config)
+        # GPT-OSS alternates between sliding window (even layers) and global attention (odd layers)
+        self.is_sliding_window_layer = layer_idx % 2 == 0
 
-        # MoE module - use GPT-OSS specific initialization
-        self.mlp = initialize_gpt_oss_moe(config, neuron_config)
+        # Per-layer sliding window config: SWA layers use config.sliding_window, global layers use None
+        layer_sliding_window = config.sliding_window if self.is_sliding_window_layer else None
+
+        # Attention with per-layer sliding window config
+        self.self_attn = NeuronGptOssAttention(config, neuron_config, sliding_window=layer_sliding_window)
 
         # Layer norms
         self.input_layernorm = NeuronRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        # post_attention_layernorm is passed to MoE and applied inside MoE.forward()
         self.post_attention_layernorm = NeuronRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+
+        # MoE module with fused post_attention_layernorm (matches NxDI behavior)
+        self.mlp = initialize_gpt_oss_moe(config, neuron_config, rmsnorm=self.post_attention_layernorm)
 
     def forward(
         self,
         hidden_states: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
+        local_mask: torch.Tensor | None = None,
         position_ids: torch.LongTensor | None = None,
         past_key_value: tuple[torch.Tensor] | None = None,
         **kwargs,
@@ -486,7 +554,8 @@ class NeuronGptOssDecoderLayer(nn.Module):
 
         Args:
             hidden_states: Input tensor of shape [batch, seq_len, hidden_size]
-            attention_mask: Attention mask
+            attention_mask: Global attention mask (for odd layers)
+            local_mask: Sliding window attention mask (for even layers)
             position_ids: Position indices
             past_key_value: Cached key/value states
 
@@ -496,24 +565,46 @@ class NeuronGptOssDecoderLayer(nn.Module):
         if "padding_mask" in kwargs:
             warnings.warn("Passing `padding_mask` is deprecated. Please use `attention_mask` instead.")
 
+        # Get rotary cache from manager during decode (prefill passes via kwargs)
+        is_prefill = past_key_value is None
+        if is_prefill:
+            cos_cache = kwargs.pop("cos_cache", None)
+            sin_cache = kwargs.pop("sin_cache", None)
+        else:
+            cos_cache, sin_cache = self.rotary_cache_manager.get_cache(self.layer_idx)
+            # Remove cache from kwargs if present (they're ignored during decode)
+            kwargs.pop("cos_cache", None)
+            kwargs.pop("sin_cache", None)
+
         residual = hidden_states
+
+        # Select mask based on layer type:
+        # - Even layers (0, 2, 4, ...) use sliding window attention -> local_mask
+        # - Odd layers (1, 3, 5, ...) use global attention -> attention_mask
+        mask = local_mask if self.is_sliding_window_layer and local_mask is not None else attention_mask
 
         # Pre-norm and self-attention
         hidden_states = self.input_layernorm(hidden_states)
         hidden_states, present_key_value, cos_cache, sin_cache = self.self_attn(
             hidden_states=hidden_states,
-            attention_mask=attention_mask,
+            attention_mask=mask,
             position_ids=position_ids,
             past_key_value=past_key_value,
+            cos_cache=cos_cache,
+            sin_cache=sin_cache,
             **kwargs,
         )
         hidden_states = residual + hidden_states
 
-        # MoE FFN
+        # MoE FFN - post_attention_layernorm is fused INTO MoE forward (applied at start)
+        # This matches NxDI behavior where rmsnorm is passed to MoE and applied internally
         residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)[0]  # MoE returns (output, router_logits)
         hidden_states = residual + hidden_states
+
+        # Update rotary cache for decode
+        if not is_prefill:
+            self.rotary_cache_manager.set_cache(self.layer_idx, sin_cache, cos_cache)
 
         return (hidden_states, present_key_value, cos_cache, sin_cache)
 
@@ -534,9 +625,14 @@ class NxDGptOssModel(NxDDecoderModelForCausalLM):
             dtype=neuron_config.torch_dtype,
             shard_across_embedding=True,
         )
+
+        # Shared rotary cache manager for all layers during decode
+        # GPT-OSS needs separate caches for SWA (even) and global (odd) layers
+        self.rotary_cache_manager = DecodeGptOssRotaryCacheManager()
+
         self.layers = nn.ModuleList(
             [
-                NeuronGptOssDecoderLayer(config, neuron_config, layer_idx)
+                NeuronGptOssDecoderLayer(config, neuron_config, layer_idx, self.rotary_cache_manager)
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
