@@ -1281,7 +1281,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             elif self.importance_sampling_level == "sequence":
                 # Use tensor min value for clamp to avoid torch neuron SDK bug with Python literals
                 log_importance_weights = (log_ratio * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(
-                    min=torch.tensor(1, device=completion_mask.device)
+                    min=self._one_float,
                 )
                 log_importance_weights = log_importance_weights.unsqueeze(-1)
             else:
@@ -1315,17 +1315,13 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             if self.beta != 0.0:
                 per_token_loss = per_token_loss + self.beta * per_token_kl
 
-            # Use tensor min value for clamp to avoid torch neuron SDK bug with Python literals.
             if self.loss_type == "grpo":
                 loss = (
-                    (per_token_loss * completion_mask).sum(-1)
-                    / completion_mask.sum(-1).clamp(min=torch.tensor(1, device=completion_mask.device))
+                    (per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=self._one_float)
                 ).mean()
                 loss = loss / self.current_gradient_accumulation_steps
             elif self.loss_type == "bnpo":
-                loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(
-                    min=torch.tensor(1, device=completion_mask.device)
-                )
+                loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=self._one_float)
                 loss = loss / self.current_gradient_accumulation_steps
             elif self.loss_type == "dr_grpo":
                 loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)
@@ -1339,8 +1335,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             # Log the metrics
             mode = "train" if self.model.training else "eval"
 
-            # Use tensor min value for clamp to avoid torch neuron SDK bug with Python literals
-            completion_token_count = completion_mask.sum().clamp(min=torch.tensor(1, device=completion_mask.device))
+            completion_token_count = completion_mask.sum().clamp(min=self._one_float)
 
             def masked_batch_mean(x):
                 if x.shape[1] == 1:  # when importance_sampling_level == "sequence"
@@ -1349,13 +1344,14 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                     return (x * completion_mask).sum() / completion_token_count
 
             metrics = defaultdict(list)
+            metrics_to_gather = {}
 
             if self.beta != 0.0:
                 mean_kl = masked_batch_mean(per_token_kl)
-                metrics["kl"].append(self.accelerator.gather(mean_kl).nanmean())
+                metrics_to_gather["kl"] = mean_kl
 
             mean_entropy = masked_batch_mean(entropies)
-            metrics["entropy"].append(self.accelerator.gather(mean_entropy).nanmean())
+            metrics_to_gather["entropy"] = mean_entropy
 
             # Compute the clipped probability ratios
             is_low_clipped = (coef_1 < 1 - self.epsilon_low) & (advantages.unsqueeze(1) < 0)
@@ -1366,14 +1362,25 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             high_clip = masked_batch_mean(is_high_clipped.float())
             clip_ratio = masked_batch_mean(is_region_clipped.float())
 
-            gathered_low_clip = self.accelerator.gather(low_clip)
-            metrics["clip_ratio/low_mean"].append(gathered_low_clip.nanmean())
-            metrics["clip_ratio/low_min"].append(nanmin(gathered_low_clip))
-            gathered_high_clip = self.accelerator.gather(high_clip)
-            metrics["clip_ratio/high_mean"].append(gathered_high_clip.nanmean())
-            metrics["clip_ratio/high_max"].append(nanmax(gathered_high_clip))
-            gathered_clip_ratio = self.accelerator.gather(clip_ratio)
-            metrics["clip_ratio/region_mean"].append(gathered_clip_ratio.nanmean())
+            metrics_to_gather["low_clip"] = low_clip
+            metrics_to_gather["high_clip"] = high_clip
+            metrics_to_gather["clip_ratio"] = clip_ratio
+
+            stacked_metrics = torch.stack(list(metrics_to_gather.values()), dim=0)
+            gathered_stacked_metrics = self.accelerator.gather(stacked_metrics)
+            gathered_metrics = {}
+
+            for i, key in enumerate(metrics_to_gather.keys()):
+                gathered_metrics[key] = gathered_stacked_metrics[i]
+
+            if self.beta != 0.0:
+                metrics["kl"].append(gathered_metrics["kl"].nanmean())
+            metrics["entropy"].append(gathered_metrics["entropy"].nanmean())
+            metrics["clip_ratio/low_mean"].append(gathered_metrics["low_clip"].nanmean())
+            metrics["clip_ratio/low_min"].append(nanmin(gathered_metrics["low_clip"]))
+            metrics["clip_ratio/high_mean"].append(gathered_metrics["high_clip"].nanmean())
+            metrics["clip_ratio/high_max"].append(nanmax(gathered_metrics["high_clip"]))
+            metrics["clip_ratio/region_mean"].append(gathered_metrics["clip_ratio"].nanmean())
 
             # Move metrics to CPU but keep as tensors. The log() method will call .item()
             # when averaging. This defers sync overhead to logging time.
