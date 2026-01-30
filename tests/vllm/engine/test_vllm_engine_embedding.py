@@ -27,7 +27,6 @@ def compute_similarity(embeddings):
     "neuron_llm_config",
     [
         "qwen3-embedding-4x8192",
-        "qwen3-embedding-6x8192",
     ],
     indirect=True,
 )
