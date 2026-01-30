@@ -785,70 +785,40 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             )
 
         num_chunks = total_batch_size // batch_size
-        device = input_ids.device
 
-        # Pre-allocate output tensors to avoid list accumulation and repeated concatenation.
-        # This creates a single graph for all chunks instead of growing graphs.
-        all_logps = torch.empty(total_batch_size, logits_to_keep, dtype=torch.float32, device=device)
-        all_entropies = (
-            torch.empty(total_batch_size, logits_to_keep, dtype=torch.float32, device=device)
-            if compute_entropy
-            else None
-        )
-        # all_logps = []
-        # all_entropies = [] if compute_entropy else None
+        all_logps = []
+        all_entropies = [] if compute_entropy else None
 
-        # Pre-compute VLM slicing indices if needed (avoids .item() calls inside loop).
-        # For VLMs with image_grid_thw, we need to compute pixel_values slicing indices upfront.
-        if image_grid_thw is not None and pixel_values is not None:
-            rows_per_image = image_grid_thw.prod(dim=-1)
-            # num_images is a list of ints, so we can compute cumulative sums on CPU
-            cum_imgs = [0]
-            for n in num_images:
-                cum_imgs.append(cum_imgs[-1] + n)
-
-            # Compute row boundaries for each sample using CPU-computed indices
-            rows_per_sample_list = []
-            for i in range(len(num_images)):
-                start_img = cum_imgs[i]
-                end_img = cum_imgs[i + 1]
-                rows_per_sample_list.append(rows_per_image[start_img:end_img].sum())
-            rows_per_sample = torch.stack(rows_per_sample_list)
-            # Compute cumulative row indices on device
-            cum_rows = torch.cat(
-                [torch.zeros(1, dtype=rows_per_sample.dtype, device=device), rows_per_sample.cumsum(0)]
-            )
-            # Move to CPU once to get all slice indices (single sync instead of per-chunk)
-            torch_xla.sync()
-            cum_rows_cpu = cum_rows.cpu().tolist()
+        chunked_input_ids = torch.split(input_ids, batch_size, dim=0)
+        chunked_attention_mask = torch.split(attention_mask, batch_size, dim=0)
 
         for chunk_idx in range(num_chunks):
-            start = chunk_idx * batch_size
-            end = start + batch_size
+            input_ids_batch = chunked_input_ids[chunk_idx]
+            attention_mask_batch = chunked_attention_mask[chunk_idx]
 
-            input_ids_batch = input_ids[start:end]
-            attention_mask_batch = attention_mask[start:end]
+            # TODO: rewrite this without slicing to avoid XLA graph recompilations
+            start = chunk_idx * batch_size
 
             # Build model inputs - check if the model supports logits_to_keep (some models and VLMs don't)
             model_inputs = {"input_ids": input_ids_batch, "attention_mask": attention_mask_batch}
-
             if image_grid_thw is not None and pixel_values is not None:
-                # Use pre-computed CPU indices to avoid .item() calls
-                row_start = int(cum_rows_cpu[start])
-                row_end = int(cum_rows_cpu[end])
+                rows_per_image = image_grid_thw.prod(dim=-1)
+                rows_per_sample = torch.split(rows_per_image, num_images)
+                rows_per_sample = torch.stack([s.sum() for s in rows_per_sample])
+                cum_rows = torch.cat([torch.tensor([0], device=rows_per_sample.device), rows_per_sample.cumsum(0)])
+                row_start, row_end = cum_rows[start].item(), cum_rows[start + batch_size].item()
                 model_inputs["pixel_values"] = pixel_values[row_start:row_end]
-                img_start = cum_imgs[start]
-                img_end = cum_imgs[end]
+                cum_imgs = torch.tensor([0] + num_images).cumsum(0)
+                img_start, img_end = cum_imgs[start], cum_imgs[start + batch_size]
                 model_inputs["image_grid_thw"] = image_grid_thw[img_start:img_end]
             elif pixel_values is not None:
-                model_inputs["pixel_values"] = pixel_values[start:end]
-
+                model_inputs["pixel_values"] = pixel_values[start : start + batch_size]
             if pixel_attention_mask is not None:
-                model_inputs["pixel_attention_mask"] = pixel_attention_mask[start:end]
+                model_inputs["pixel_attention_mask"] = pixel_attention_mask[start : start + batch_size]
             if image_sizes is not None:
-                model_inputs["image_sizes"] = image_sizes[start:end]
+                model_inputs["image_sizes"] = image_sizes[start : start + batch_size]
             if token_type_ids is not None:
-                model_inputs["token_type_ids"] = token_type_ids[start:end]
+                model_inputs["token_type_ids"] = token_type_ids[start : start + batch_size]
 
             # Only add logits_to_keep if the model supports it
             if "logits_to_keep" in self.model_kwarg_keys:
@@ -856,6 +826,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 model_inputs["logits_to_keep"] = logits_to_keep + 1
 
             model_inputs["use_cache"] = False  # only used in generation; set False to suppress warnings
+
+            # Sync before forward to isolate the forward pass graph
+            torch_xla.sync()
 
             logits = model(**model_inputs).logits
 
@@ -870,17 +843,20 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             completion_ids = input_ids_batch[:, -logits_to_keep:]
             logps = selective_log_softmax(logits, completion_ids)  # compute logprobs
 
-            # Write directly to pre-allocated tensor instead of list append
-            all_logps[start:end] = logps
-            # all_logps.append(logps)
-
             if compute_entropy:
                 with torch.no_grad():
                     entropies = entropy_from_logits(logits)
-                all_entropies[start:end] = entropies
-                # all_entropies.append(entropies)
 
+            # Sync after forward to materialize results before list append
             torch_xla.sync()
+
+            all_logps.append(logps)
+            if compute_entropy:
+                all_entropies.append(entropies)
+
+        # Single concat at the end - one clean graph
+        all_logps = torch.cat(all_logps, dim=0)
+        all_entropies = torch.cat(all_entropies, dim=0) if compute_entropy else None
 
         return all_logps, all_entropies
 

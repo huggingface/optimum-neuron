@@ -26,8 +26,8 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # GRPO-specific variables
 NUM_GENERATIONS=4  # Number of completions per prompt (G in paper)
-MAX_PROMPT_LENGTH=512
-MAX_COMPLETION_LENGTH=512
+MAX_PROMPT_LENGTH=32
+MAX_COMPLETION_LENGTH=32
 TEMPERATURE=0.8
 STEPS_PER_GENERATION=4  # Generate every N steps to amortize generation cost
 
