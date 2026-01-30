@@ -22,9 +22,18 @@ KV cache is managed by `KVCacheManager` with BHSD layout and in-place aliasing:
 Sampling on NeuronCores uses `nxd_topk`, `nxd_argmax`, NKI cumsum kernels:
 - [optimum/neuron/models/inference/backend/modules/generation/sampling.py](backend/modules/generation/sampling.py)
 
+### State Dict Conversion
+
+**Method**: `convert_hf_to_neuron_state_dict()`
+
+Converts HuggingFace checkpoint format to Neuron MoE format during model loading.
+
 ### Common Pitfalls
 - Runtime shapes must match compiled shapes.
 - Call context encoding before token generation.
+- Weights NOT saved with export (HF Hub used as source).
+- Export saves compiled model.pt with HF-format configs
+- State dict conversion happens during `from_pretrained()`
 - TP degree must match compiled model.
 - Decoder graph changes require cache prune: `python tools/prune_test_models.py`.
 
@@ -65,6 +74,20 @@ See reference implementation:
 Use [NxDI](https://github.com/aws-neuron/neuronx-distributed-inference) for neuron-specific graph changes and HF [Transformers](https://github.com/huggingface/transformers) for base architecture.
 
 The Optimum Neuron implementation prioritizes **stability, maintainability, and HF ecosystem compatibility** over cutting-edge performance optimizations. For production deployments requiring maximum throughput, NxDI remains the reference implementation.
+
+### Extra neuron config parameters in NxDI and related code paths
+
+By default, ignore all specific neuron config parameters defined in the NxDI port
+that are not present in the `optimum/neuron/models/inference/backend/config.py` file.
+
+### Debugging State Dict Issues
+
+If weight loading fails with "Missing tensor" errors:
+
+1. Check HF checkpoint keys: `list(state_dict.keys())`
+2. Verify conversion function handles all keys
+3. Add debug logging in `convert_hf_to_neuron_state_dict()`
+4. Inspect sharded checkpoint structure after loading
 
 ### Per-Module Parity Tests
 Track numerical differences using module-level tests before full graph tests:
