@@ -130,6 +130,8 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
             # Instantiation through an abstract class: find the correct model class
             cls = cls._get_neuron_model_class(config)
 
+        config_dtype = getattr(config, "dtype", getattr(config, "torch_dtype", torch.bfloat16))
+
         # Call the _get_neuron_config method of the specific model class
         return cls._get_neuron_config(
             checkpoint_id=checkpoint_id,
@@ -138,7 +140,7 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
             batch_size=batch_size,
             sequence_length=sequence_length,
             tensor_parallel_size=tensor_parallel_size,
-            dtype=DTYPE_MAPPER.pt(config.dtype),
+            dtype=DTYPE_MAPPER.pt(config_dtype),
         )
 
     @classmethod
