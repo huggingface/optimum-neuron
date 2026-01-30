@@ -130,7 +130,12 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
             # Instantiation through an abstract class: find the correct model class
             cls = cls._get_neuron_model_class(config)
 
-        config_dtype = getattr(config, "dtype", getattr(config, "torch_dtype", torch.bfloat16))
+        config_dtype = torch.bfloat16
+        if getattr(config, "dtype", None) is None:
+            if getattr(config, "torch_dtype", None) is not None:
+                config_dtype = getattr(config, "torch_dtype")
+        else:
+            config_dtype = getattr(config, "dtype")
 
         # Call the _get_neuron_config method of the specific model class
         return cls._get_neuron_config(
