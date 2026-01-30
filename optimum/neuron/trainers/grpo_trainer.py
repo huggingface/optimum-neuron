@@ -1065,22 +1065,33 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         metrics["frac_reward_zero_std"].append(is_std_zero.float().mean())
 
         # Log prompt and completion texts
-        self._logs["prompt"].extend(
-            gather_object_from_data_parallel_group(prompts_text, fixed_size=self.fixed_size_obj_collectives)
+        to_gather = [prompts_text, completions_text]
+        if images is not None:
+            to_gather.append(images)
+
+        if self.fixed_size_obj_collectives is not None:
+            fixed_size = len(to_gather) * self.fixed_size_obj_collectives
+        else:
+            fixed_size = None
+
+        gathered = gather_object_from_data_parallel_group(
+            to_gather,
+            fixed_size=fixed_size,
         )
-        self._logs["completion"].extend(
-            gather_object_from_data_parallel_group(completions_text, fixed_size=self.fixed_size_obj_collectives)
-        )
+        gathered_prompts_text = [item[0] for item in gathered]
+        gathered_completions_text = [item[1] for item in gathered]
+        self._logs["prompt"].extend(gathered_prompts_text)
+        self._logs["completion"].extend(gathered_completions_text)
+
+        if images is not None:
+            gathered_images = [item[2] for item in gathered]
+            self._logs["images"].extend(gathered_images)
+
         logs["rewards"] = {}
         logs["advantages"] = []
         for i, name in enumerate(self.reward_func_names):
             logs["rewards"][name] = rewards_per_func[:, i]
         logs["advantages"] = all_process_advantages
-
-        if images is not None:
-            self._logs["images"].extend(
-                gather_object_from_data_parallel_group(images, fixed_size=self.fixed_size_obj_collectives)
-            )
 
         if self.use_vllm and self.vllm_importance_sampling_correction:
             delta = torch.abs(old_per_token_logps - sampling_per_token_logps)
@@ -1095,9 +1106,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             mean_delta = sum_delta / (completion_mask_count + 1e-10)
             # We can simply take the max of the masked delta because values in delta are >= 0 (torch.abs).
             max_delta = delta_masked.max()
-
-            metrics["sampling/sampling_logp_difference/mean"].append(self.accelerator.gather(mean_delta).mean())
-            metrics["sampling/sampling_logp_difference/max"].append(self.accelerator.gather(max_delta).max())
 
             # Original code was:
             # flat_is_ratio = importance_sampling_ratio[completion_mask.bool()]
@@ -1125,18 +1133,23 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             mean_importance_sampling_ratio = sum_flat_is_ratio / (completion_mask_count + 1e-10)
             max_importance_sampling_ratio = flat_is_ratio_masked.max()
 
-            metrics["sampling/importance_sampling_ratio/min"].append(
-                nanmin(self.accelerator.gather(min_importance_sampling_ratio))
-            )
-            metrics["sampling/importance_sampling_ratio/mean"].append(
-                self.accelerator.gather(mean_importance_sampling_ratio).nanmean()
-            )
-            metrics["sampling/importance_sampling_ratio/max"].append(
-                nanmax(self.accelerator.gather(max_importance_sampling_ratio))
-            )
+            sampling_metrics_to_gather = {
+                "mean_delta": mean_delta,
+                "max_delta": max_delta,
+                "min_is_ratio": min_importance_sampling_ratio,
+                "mean_is_ratio": mean_importance_sampling_ratio,
+                "max_is_ratio": max_importance_sampling_ratio,
+            }
 
-        # Move metrics and logs to CPU. Keep metrics as CPU tensors instead of calling .item()
-        # immediately - this defers the sync overhead to when metrics are actually logged.
+            stacked = torch.stack(list(sampling_metrics_to_gather.values()), dim=0)
+            gathered_stacked = self.accelerator.gather(stacked)
+            gathered = {k: gathered_stacked[i] for i, k in enumerate(sampling_metrics_to_gather.keys())}
+            metrics["sampling/sampling_logp_difference/mean"].append(gathered["mean_delta"].mean())
+            metrics["sampling/sampling_logp_difference/max"].append(gathered["max_delta"].max())
+            metrics["sampling/importance_sampling_ratio/min"].append(nanmin(gathered["min_is_ratio"]))
+            metrics["sampling/importance_sampling_ratio/mean"].append(gathered["mean_is_ratio"].nanmean())
+            metrics["sampling/importance_sampling_ratio/max"].append(nanmax(gathered["max_is_ratio"]))
+
         torch_xla.sync()
         metrics = move_all_tensor_to_cpu(metrics)
         logs = move_all_tensor_to_cpu(logs)
