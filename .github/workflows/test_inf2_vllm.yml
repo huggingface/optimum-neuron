@@ -82,11 +82,16 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           python tests/fixtures/llm/export_models.py
-      - name: Run vLLM engine tests
+      - name: Run vLLM engine embedding tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
-          pytest -sv tests/vllm/engine
+          pytest -sv tests/vllm/engine/test_vllm_engine_embedding.py
+      - name: Run vLLM engine generation tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
+          pytest -sv tests/vllm/engine/test_vllm_engine_generate.py
       - name: Run vLLM service tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
