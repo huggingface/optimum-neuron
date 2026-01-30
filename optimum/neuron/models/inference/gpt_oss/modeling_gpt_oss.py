@@ -181,6 +181,12 @@ def convert_gpt_oss_to_neuron_state_dict(
             0, neuron_config.tp_degree, dtype=torch.int32
         )
 
+        # SPMD rank tensor for MoE expert MLPs (required for expert parallelism operations)
+        # The world_size is tp_degree for simple TP-only setups
+        new_state_dict[f"{output_prefix}.mlp.expert_mlps.spmd_rank.rank"] = torch.arange(
+            0, neuron_config.tp_degree, dtype=torch.int32
+        )
+
     # Global rank utility tensor for base model
     new_state_dict["rank_util.rank"] = torch.arange(0, neuron_config.tp_degree, dtype=torch.int32)
 
@@ -425,6 +431,7 @@ def initialize_gpt_oss_moe(
             hidden_act_bias=1,
             early_expert_affinity_modulation=False,
             normalize_top_k_affinities=False,
+            enable_spmd_rank=True,  # Enable SPMD rank for tensor parallel operations
         ),
         sequence_parallel_enabled=getattr(neuron_config, "sequence_parallel_enabled", False),
         dtype=neuron_config.torch_dtype,
