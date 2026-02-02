@@ -178,7 +178,7 @@ def _get_neuron_model_for_config(config_name: str, model_config, neuron_model_pa
 
 @pytest.fixture(scope="session", params=GENERATE_LLM_MODEL_CONFIGURATIONS.keys())
 def any_generate_model(request):
-    """Expose neuron llm models for predefined configurations.
+    """Expose neuron llm generation models for predefined configurations.
 
     The fixture uses the _get_neuron_model_for_config helper to make sure the models
      corresponding to the predefined configurations are all present locally and on the hub.
