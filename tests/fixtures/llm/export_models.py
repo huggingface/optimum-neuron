@@ -207,7 +207,7 @@ def neuron_llm_config(request):
 
     If the param is not provided, it will use the first model configuration in the list.
     """
-    first_config_name = list(GENERATE_LLM_MODEL_IDS.keys())[0]
+    first_config_name = list(LLM_MODEL_CONFIGURATIONS.keys())[0]
     config_name = getattr(request, "param", first_config_name)
     model_config = copy.deepcopy(LLM_MODEL_CONFIGURATIONS[config_name])
     with TemporaryDirectory() as neuron_model_path:
