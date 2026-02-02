@@ -52,10 +52,8 @@ jobs:
         uses: actions/checkout@v4
       - name: Install Neuronx runtime
         uses: ./.github/actions/install_neuronx_runtime
-      - name: Prepare virtual environment
-        uses: ./.github/actions/prepare_venv
-      - name: Install optimum-neuron
-        uses: ./.github/actions/install_optimum_neuron
+      - name: Setup virtual environment
+        uses: ./.github/actions/setup_venv
       - name: Install datasets dependencies
         run: |
           sudo apt-get install ffmpeg -y

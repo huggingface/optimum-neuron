@@ -49,10 +49,8 @@ jobs:
       - name: Install cv2 dependencies
         run: |
           sudo apt-get install ffmpeg libsm6 libxext6  -y
-      - name: Prepare virtual environment
-        uses: ./.github/actions/prepare_venv
-      - name: Install optimum-neuron
-        uses: ./.github/actions/install_optimum_neuron
+      - name: Setup virtual environment
+        uses: ./.github/actions/setup_venv
       - name: Install diffusers dependencies
         run: |
           source aws_neuron_venv_pytorch/bin/activate

@@ -1,5 +1,5 @@
-name: Prepare virtual environment
-description: prepare virtual environment to install python packages
+name: Setup virtual environment
+description: Prepare virtual environment and install optimum-neuron
 inputs:
   torch_version:
     description: 'The pytorch version to be installed'
@@ -38,7 +38,11 @@ runs:
         shell: bash
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          # Install torch and torchvision for CUDA: this avoids having to install CUDA related dependencies, that
           # Install torch and torchvision for CPU: this avoids having to install CUDA related dependencies, that use a lot
           # of disk space. Note dependencies should be updated when we bump the PyTorch version.
           python -m pip install torch==${{ inputs.torch_version }} torchvision~=${{ inputs.torchvision_version }} --index-url https://download.pytorch.org/whl/cpu
+      - name: Install optimum-neuron and Neuronx python package
+        shell: bash
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          python -m pip install .[neuronx,tests]
