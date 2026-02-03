@@ -3,16 +3,21 @@ description: install system and python packages for an AWS Neuronx SDK version
 runs:
     using: "composite"
     steps:
+      - name: Set APT_CACHE_DIR env variable
+        shell: bash
+        run: |
+          echo "APT_CACHE_DIR=/mnt/hf_cache/apt-${GITHUB_SHA}" >> $GITHUB_ENV
+      - name: Wait for cache to be ready
+        uses: lewagon/wait-on-check-action@v1.5.0
+        with:
+          ref: ${{ github.ref }}
+          check-name: "Setup Neuronx system cache"
+          repo-token: ${{ github.token }}
+          wait-interval: 10
       - name: Install Neuronx system packages
         shell: bash
         run: |
-          . /etc/os-release
-          sudo tee /etc/apt/sources.list.d/neuron.list > /dev/null <<EOF
-          deb https://apt.repos.neuron.amazonaws.com ${VERSION_CODENAME} main
-          EOF
-          wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
-          sudo apt-get update -y
-          sudo apt-get install aws-neuronx-tools=2.26.14.0 aws-neuronx-runtime-lib=2.28.23.0-dd5879008 aws-neuronx-collectives=2.28.27.0-bc30ece58 -y
+          sudo dpkg -i ${APT_CACHE_DIR}/*.deb
           export PATH=/opt/aws/neuron/bin:$PATH
           dpkg -l | grep neuron
       - name: Display driver version
