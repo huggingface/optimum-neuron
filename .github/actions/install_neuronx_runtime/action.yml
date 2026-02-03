@@ -3,21 +3,92 @@ description: install system and python packages for an AWS Neuronx SDK version
 runs:
     using: "composite"
     steps:
-      - name: Set APT_CACHE_DIR env variable
+      - name: Set Neuronx deb variables
         shell: bash
         run: |
-          echo "APT_CACHE_DIR=/mnt/hf_cache/apt-${GITHUB_SHA}" >> $GITHUB_ENV
-      - name: Wait for cache to be ready
-        uses: lewagon/wait-on-check-action@v1.5.0
-        with:
-          ref: ${{ github.ref }}
-          check-name: "Setup Neuronx system cache"
-          repo-token: ${{ github.token }}
-          wait-interval: 10
+          NEURON_DEBS_LIST="aws-neuronx-tools=2.26.14.0 aws-neuronx-runtime-lib=2.28.23.0-dd5879008 aws-neuronx-collectives=2.28.27.0-bc30ece58"
+          echo "APT_CACHE_DIR=/mnt/hf_cache/apt-cache" >> $GITHUB_ENV
+          echo "NEURON_DEBS=${NEURON_DEBS_LIST}" >> $GITHUB_ENV
+          echo "NEURON_CACHE_KEY=$(echo -n \"${NEURON_DEBS_LIST}\" | sha256sum | awk '{print $1}')" >> $GITHUB_ENV
+      - name: Prepare cache directory and download Neuronx system dependencies
+        shell: bash
+        run: |
+          CACHE_DIR_KEY="${APT_CACHE_DIR}/${NEURON_CACHE_KEY}"
+          LOCKDIR="${CACHE_DIR_KEY}.lock"
+          READY_MARKER="${CACHE_DIR_KEY}/.ready"
+          LOCK_ACQUIRED=false
+          MAX_WAIT=300  # 5 minutes timeout
+
+          # Create cache directory structure if it doesn't exist
+          sudo mkdir -p "${APT_CACHE_DIR}" 2>/dev/null || true
+          sudo chmod 777 "${APT_CACHE_DIR}" 2>/dev/null || true
+
+          # Try to acquire lock with timeout (mkdir is atomic even on NFS)
+          for i in $(seq 1 $MAX_WAIT); do
+            if mkdir "${LOCKDIR}" 2>/dev/null; then
+              LOCK_ACQUIRED=true
+              echo "🔒 Lock acquired (attempt $i)"
+
+              # Set up cleanup trap to remove lock directory on exit
+              trap "rmdir '${LOCKDIR}' 2>/dev/null || true" EXIT
+
+              # Check if cache needs to be built
+              if [ ! -f "${READY_MARKER}" ]; then
+                echo "📦 Downloading Neuronx system dependencies..."
+                sudo mkdir -p "${CACHE_DIR_KEY}"
+                sudo chmod 777 "${CACHE_DIR_KEY}"
+                . /etc/os-release
+                sudo tee /etc/apt/sources.list.d/neuron.list > /dev/null <<EOF
+          deb https://apt.repos.neuron.amazonaws.com ${VERSION_CODENAME} main
+          EOF
+                wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
+                sudo apt-get update -qq
+                sudo apt-get install -y --download-only \
+                  -o Dir::Cache::archives="${CACHE_DIR_KEY}" \
+                  ${NEURON_DEBS}
+                touch "${READY_MARKER}"
+                echo "✅ Download complete: ${CACHE_DIR_KEY}"
+                ls -lh "${CACHE_DIR_KEY}"/*.deb || true
+              else
+                echo "✅ Cache already ready (another runner downloaded it)"
+              fi
+
+              # Release lock
+              rmdir "${LOCKDIR}" 2>/dev/null || true
+              trap - EXIT
+              break
+            fi
+
+            # Lock not acquired, wait and retry
+            if [ $i -eq 1 ]; then
+              echo "⏳ Waiting for another runner to complete download..."
+            fi
+            sleep 1
+          done
+
+          if [ "$LOCK_ACQUIRED" = "false" ]; then
+            echo "⚠️ Lock timeout after ${MAX_WAIT}s - will install directly from apt"
+          fi
       - name: Install Neuronx system packages
         shell: bash
         run: |
-          sudo dpkg -i ${APT_CACHE_DIR}/*.deb
+          CACHE_DIR_KEY="${APT_CACHE_DIR}/${NEURON_CACHE_KEY}"
+          READY_MARKER="${CACHE_DIR_KEY}/.ready"
+
+          if [ -f "${READY_MARKER}" ]; then
+            echo "📦 Installing from cache: ${CACHE_DIR_KEY}"
+            sudo dpkg -i "${CACHE_DIR_KEY}"/*.deb
+          else
+            echo "📦 Cache not available, installing directly from apt..."
+            . /etc/os-release
+            sudo tee /etc/apt/sources.list.d/neuron.list > /dev/null <<EOF
+          deb https://apt.repos.neuron.amazonaws.com ${VERSION_CODENAME} main
+          EOF
+            wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
+            sudo apt-get update -qq
+            sudo apt-get install -y ${NEURON_DEBS}
+          fi
+
           export PATH=/opt/aws/neuron/bin:$PATH
           dpkg -l | grep neuron
       - name: Display driver version
