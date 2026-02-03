@@ -44,6 +44,7 @@ async def greedy_with_tools(
     return generated_tokens, generated_text, tool_calls
 
 
+# TODO: remove this comment, it is just a test for CI
 # Note: we use Qwen3-0.6B as a test model because it is a small model that is easy to test and it supports tool calling.
 @pytest.mark.asyncio
 @pytest.mark.parametrize("neuron_llm_config", ["qwen3-1x8192"], indirect=True)

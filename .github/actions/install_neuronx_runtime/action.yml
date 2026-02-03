@@ -48,7 +48,7 @@ runs:
                   ${NEURON_DEBS}
                 touch "${READY_MARKER}"
                 echo "✅ Download complete: ${CACHE_DIR_KEY}"
-                ls -lh "${CACHE_DIR_KEY}"/*.deb || true
+
               else
                 echo "✅ Cache already ready (another runner downloaded it)"
               fi
@@ -77,6 +77,13 @@ runs:
 
           if [ -f "${READY_MARKER}" ]; then
             echo "📦 Installing from cache: ${CACHE_DIR_KEY}"
+
+            # Show packages being installed in a collapsible group
+            echo "::group::📋 Packages to install"
+            ls -lh "${CACHE_DIR_KEY}"/*.deb || echo "❌ No .deb files found"
+            echo "📊 Total: $(ls -1 "${CACHE_DIR_KEY}"/*.deb 2>/dev/null | wc -l) packages"
+            echo "::endgroup::"
+
             sudo dpkg -i "${CACHE_DIR_KEY}"/*.deb
           else
             echo "📦 Cache not available, installing directly from apt..."

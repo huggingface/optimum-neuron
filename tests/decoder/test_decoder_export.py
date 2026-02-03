@@ -106,6 +106,7 @@ def test_decoder_export_hub_models(
     _test_decoder_export_save_reload(model_id=any_decoder_model, is_local=False, load_weights=False)
 
 
+# TODO: remove this test, it is just a test for CI
 @pytest.mark.parametrize("is_local", [True, False], ids=["local", "from_hub"])
 @pytest.mark.parametrize("load_weights", [True, False], ids=["with-weights", "without-weights"])
 def test_decoder_export_save_reload(
