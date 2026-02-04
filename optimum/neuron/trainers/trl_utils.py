@@ -185,12 +185,8 @@ def batch_pad_sequences(
                 mask[i, :seq_len] = 1
 
     # Single conversion and transfer to device
-    padded_tensor = torch.from_numpy(padded).to(dtype=dtype)
-    mask_tensor = torch.from_numpy(mask).to(dtype=torch.long)
-
-    if device is not None:
-        padded_tensor = padded_tensor.to(device)
-        mask_tensor = mask_tensor.to(device)
+    padded_tensor = torch.from_numpy(padded).to(dtype=dtype, device=device)
+    mask_tensor = torch.from_numpy(mask).to(dtype=torch.long, device=device)
 
     return padded_tensor, mask_tensor
 
@@ -231,7 +227,7 @@ def nanstd(tensor: torch.Tensor, unbiased: bool = False) -> torch.Tensor:
     diff_squared = torch.where(mask, (clean - mean) ** 2, torch.zeros_like(tensor))
 
     if unbiased:
-        variance = diff_squared.sum() / (count - 1).clamp(min=1)
+        variance = diff_squared.sum() / (count - 1).clamp(min=torch.tensor(1.0, device=tensor.device))
     else:
         variance = diff_squared.sum() / count
 
