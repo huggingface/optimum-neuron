@@ -15,10 +15,8 @@
 
 import atexit
 import random
-import socket
 import time
 from collections import namedtuple
-from contextlib import closing
 from typing import Union
 
 import requests
@@ -41,22 +39,6 @@ logger = logging.get_logger()
 
 # Set up the communication group for weight broadcasting using CPU communicator
 Group = namedtuple("Group", "barrier")
-
-
-def find_closest_port(host: str, start_port: int, max_attempts: int = 100) -> int:
-    for port in range(start_port, start_port + max_attempts):
-        if is_port_available(host, port):
-            return port
-    raise RuntimeError(f"No available port found in range {start_port} to {start_port + max_attempts - 1}")
-
-
-def is_port_available(host: str, port: int) -> bool:
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
-        try:
-            sock.bind((host, port))
-            return True
-        except OSError:
-            return False
 
 
 class CPUCommunicator:
@@ -90,17 +72,11 @@ class VLLMClient(TRLVLLMClient):
         group_port: int = 51216,
         connection_timeout: float = 0.0,
     ):
-        # free_group_port = find_closest_port(host, group_port)
-        # if free_group_port != group_port:
-        #     logger.warning(
-        #         f"Requested group_port {group_port} is not available. Using closest available port {free_group_port} instead."
-        #     )
-        free_group_port = group_port
         super().__init__(
             base_url=base_url,
             host=host,
             server_port=server_port,
-            group_port=free_group_port,
+            group_port=group_port,
             connection_timeout=connection_timeout,
         )
 
