@@ -383,7 +383,11 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         if self.beta == 0.0:
             self.ref_model = None
         elif isinstance(model, NeuronPeftModel):
-            self.ref_model = None
+            # Create reference model using base model class
+            # Original implementation was disabling adapters, but we create a separate model instance instead for XLA compatibility.
+            base_model_class = model.get_base_model().__class__
+            base_trn_config = model.get_base_model().trn_config
+            self.ref_model = base_model_class.from_pretrained(model_id, base_trn_config)
         else:
             # Create reference model using NeuronModelForCausalLM
             self.ref_model = NeuronModelForCausalLM.from_pretrained(
@@ -987,16 +991,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                         **forward_kwargs,  # may contain pixel_values, image_grid_thw, pixel_attention_mask and image_sizes
                     )
                 else:
-                    with self.model.disable_adapter():
-                        ref_per_token_logps, _ = self._get_per_token_logps_and_entropies(
-                            self.model,
-                            prompt_completion_ids,
-                            attention_mask,
-                            logits_to_keep,
-                            batch_size=batch_size,
-                            num_images=num_images,
-                            **forward_kwargs,  # may contain pixel_values, image_grid_thw, pixel_attention_mask and image_sizes
-                        )
+                    # Here the original implementation used `model.disable_adapters()` instead of having a copy for the
+                    # reference model. We removed it here because it broke with XLA.
+                    raise ValueError("Ref model is None but beta is not 0.0")
             else:
                 ref_per_token_logps = None
 
