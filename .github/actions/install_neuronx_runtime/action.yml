@@ -80,8 +80,9 @@ runs:
 
             # Show packages being installed in a collapsible group
             echo "::group::📋 Packages to install"
-            ls -lh "${CACHE_DIR_KEY}"/*.deb || echo "❌ No .deb files found"
-            echo "📊 Total: $(ls -1 "${CACHE_DIR_KEY}"/*.deb 2>/dev/null | wc -l) packages"
+            cd ${CACHE_DIR_KEY}
+            ls -lh *.deb || echo "❌ No .deb files found"
+            echo "📊 Total: $(ls -1 *.deb 2>/dev/null | wc -l) packages"
             echo "::endgroup::"
 
             sudo dpkg -i "${CACHE_DIR_KEY}"/*.deb
@@ -97,6 +98,7 @@ runs:
           fi
 
           export PATH=/opt/aws/neuron/bin:$PATH
+          echo "PATH=${PATH}" >> $GITHUB_ENV
           dpkg -l | grep neuron
       - name: Display driver version
         shell: bash
