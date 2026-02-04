@@ -16,7 +16,7 @@ from optimum.neuron.utils.system import cores_per_device
 if is_package_available("transformers"):
     from transformers import AutoConfig, AutoTokenizer
 
-from optimum.neuron import NeuronModelForCausalLM
+from optimum.neuron import NeuronModelForCausalLM, NeuronModelForEmbedding
 from optimum.neuron.cache import synchronize_hub_cache
 from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
 from optimum.neuron.version import __sdk_version__ as sdk_version
@@ -38,57 +38,48 @@ logger = logging.getLogger(__file__)
 TEST_HUB_ORG = os.getenv("TEST_HUB_ORG", "optimum-internal-testing")
 OPTIMUM_CACHE_REPO_ID = f"{TEST_HUB_ORG}/neuron-testing-cache"
 
-# All model configurations below will be added to the neuron_model_config fixture
-LLM_MODEL_CONFIGURATIONS = {
-    "llama": {
-        "model_id": "unsloth/Llama-3.2-1B-Instruct",
-        "export_kwargs": {
-            "batch_size": 4,
-            "sequence_length": 4096,
-            "tensor_parallel_size": cores_per_device(),
-        },
-    },
-    "qwen2": {
-        "model_id": "Qwen/Qwen2.5-0.5B",
-        "export_kwargs": {
-            "batch_size": 4,
-            "sequence_length": 4096,
-            "tensor_parallel_size": cores_per_device(),
-        },
-    },
-    "granite": {
-        "model_id": "ibm-granite/granite-3.1-2b-instruct",
-        "export_kwargs": {
-            "batch_size": 4,
-            "sequence_length": 4096,
-            "tensor_parallel_size": cores_per_device(),
-        },
-    },
-    "phi": {
-        "model_id": "microsoft/Phi-3-mini-4k-instruct",
-        "export_kwargs": {
-            "batch_size": 4,
-            "sequence_length": 4096,
-            "tensor_parallel_size": cores_per_device(),
-        },
-    },
-    "qwen3": {
-        "model_id": "Qwen/Qwen3-0.6B",
-        "export_kwargs": {
-            "batch_size": 4,
-            "sequence_length": 4096,
-            "tensor_parallel_size": cores_per_device(),
-        },
-    },
-    "smollm3": {
-        "model_id": "HuggingFaceTB/SmolLM3-3B",
-        "export_kwargs": {
-            "batch_size": 4,
-            "sequence_length": 4096,
-            "tensor_parallel_size": cores_per_device(),
-        },
-    },
+GENERATE_LLM_MODEL_IDS = {
+    "llama": "unsloth/Llama-3.2-1B-Instruct",
+    "qwen2": "Qwen/Qwen2.5-0.5B",
+    "granite": "ibm-granite/granite-3.1-2b-instruct",
+    "phi": "microsoft/Phi-3.5-mini-instruct",
+    "qwen3": "Qwen/Qwen3-0.6B",
+    "smollm3": "HuggingFaceTB/SmolLM3-3B",
 }
+
+EMBED_LLM_MODEL_IDS = {
+    "qwen3-embedding": "Qwen/Qwen3-Embedding-0.6B",
+}
+
+
+GENERATE_LLM_MODEL_CONFIGURATIONS = {}
+for model_name, model_id in GENERATE_LLM_MODEL_IDS.items():
+    for batch_size, sequence_length in [(4, 4096), (1, 8192)]:
+        GENERATE_LLM_MODEL_CONFIGURATIONS[f"{model_name}-{batch_size}x{sequence_length}"] = {
+            "model_id": model_id,
+            "task": "text-generation",
+            "export_kwargs": {
+                "batch_size": batch_size,
+                "sequence_length": sequence_length,
+                "tensor_parallel_size": cores_per_device(),
+            },
+        }
+
+EMBED_LLM_MODEL_CONFIGURATIONS = {}
+for model_name, model_id in EMBED_LLM_MODEL_IDS.items():
+    for batch_size, sequence_length in [(4, 8192), (6, 8192)]:
+        EMBED_LLM_MODEL_CONFIGURATIONS[f"{model_name}-{batch_size}x{sequence_length}"] = {
+            "model_id": model_id,
+            "task": "feature-extraction",
+            "export_kwargs": {
+                "batch_size": batch_size,
+                "sequence_length": sequence_length,
+                "tensor_parallel_size": cores_per_device(),
+            },
+        }
+
+
+LLM_MODEL_CONFIGURATIONS = GENERATE_LLM_MODEL_CONFIGURATIONS | EMBED_LLM_MODEL_CONFIGURATIONS
 
 
 def get_neuron_models_hash():
@@ -122,10 +113,16 @@ def _get_hub_neuron_model_id(config_name: str, model_config: dict[str, str]):
     return f"{_get_hub_neuron_model_prefix()}-{config_name}"
 
 
-def _export_model(model_id, export_kwargs, neuron_model_path):
+def _export_model(model_id, task, export_kwargs, neuron_model_path):
+    if task == "text-generation":
+        auto_class = NeuronModelForCausalLM
+    elif task == "feature-extraction":
+        auto_class = NeuronModelForEmbedding
+    else:
+        raise ValueError(f"Unsupported task: {task}")
     try:
-        neuron_config = NeuronModelForCausalLM.get_neuron_config(model_id, **export_kwargs)
-        model = NeuronModelForCausalLM.export(model_id, neuron_config=neuron_config, load_weights=False)
+        neuron_config = auto_class.get_neuron_config(model_id, **export_kwargs)
+        model = auto_class.export(model_id, neuron_config=neuron_config, load_weights=False)
         model.save_pretrained(neuron_model_path)
         return model
     except Exception as e:
@@ -152,6 +149,7 @@ def _get_neuron_model_for_config(config_name: str, model_config, neuron_model_pa
 
     """
     model_id = model_config["model_id"]
+    task = model_config["task"]
     export_kwargs = model_config["export_kwargs"]
     neuron_model_id = _get_hub_neuron_model_id(config_name, model_config)
     hub = huggingface_hub.HfApi()
@@ -159,7 +157,7 @@ def _get_neuron_model_for_config(config_name: str, model_config, neuron_model_pa
         logger.info(f"Fetching {neuron_model_id} from the HuggingFace hub")
         hub.snapshot_download(neuron_model_id, local_dir=neuron_model_path)
     else:
-        model = _export_model(model_id, export_kwargs, neuron_model_path)
+        model = _export_model(model_id, task, export_kwargs, neuron_model_path)
         tokenizer = AutoTokenizer.from_pretrained(model_id)
         tokenizer.save_pretrained(neuron_model_path)
         del tokenizer
@@ -178,9 +176,9 @@ def _get_neuron_model_for_config(config_name: str, model_config, neuron_model_pa
     return model_config
 
 
-@pytest.fixture(scope="session", params=LLM_MODEL_CONFIGURATIONS.keys())
-def neuron_llm_config(request):
-    """Expose neuron llm models for predefined configurations.
+@pytest.fixture(scope="session", params=GENERATE_LLM_MODEL_CONFIGURATIONS.keys())
+def any_generate_model(request):
+    """Expose neuron llm generation models for predefined configurations.
 
     The fixture uses the _get_neuron_model_for_config helper to make sure the models
      corresponding to the predefined configurations are all present locally and on the hub.
@@ -193,22 +191,15 @@ def neuron_llm_config(request):
     model_config = copy.deepcopy(LLM_MODEL_CONFIGURATIONS[config_name])
     with TemporaryDirectory() as neuron_model_path:
         model_config = _get_neuron_model_for_config(config_name, model_config, neuron_model_path)
-        logger.info(f"{config_name} ready for testing ...")
         cache_repo_id = os.environ.get("CUSTOM_CACHE_REPO", None)
         os.environ["CUSTOM_CACHE_REPO"] = OPTIMUM_CACHE_REPO_ID
         yield model_config
         if cache_repo_id is not None:
             os.environ["CUSTOM_CACHE_REPO"] = cache_repo_id
-        logger.info(f"Done with {config_name}")
 
 
 @pytest.fixture(scope="session")
-def neuron_llm_path(neuron_llm_config):
-    yield neuron_llm_config["neuron_model_path"]
-
-
-@pytest.fixture(scope="session")
-def base_neuron_llm_config(request):
+def neuron_llm_config(request):
     """Expose a base neuron llm model path for testing purposes.
 
     This fixture is used to test the export of models that do not have a predefined configuration.
@@ -218,17 +209,14 @@ def base_neuron_llm_config(request):
     """
     first_config_name = list(LLM_MODEL_CONFIGURATIONS.keys())[0]
     config_name = getattr(request, "param", first_config_name)
+    model_config = copy.deepcopy(LLM_MODEL_CONFIGURATIONS[config_name])
     with TemporaryDirectory() as neuron_model_path:
-        model_config = LLM_MODEL_CONFIGURATIONS[config_name]
         neuron_model_config = _get_neuron_model_for_config(config_name, model_config, neuron_model_path)
-        logger.info("Base neuron model ready for testing ...")
+        cache_repo_id = os.environ.get("CUSTOM_CACHE_REPO", None)
+        os.environ["CUSTOM_CACHE_REPO"] = OPTIMUM_CACHE_REPO_ID
         yield neuron_model_config
-        logger.info("Done with base neuron model testing")
-
-
-@pytest.fixture(scope="session")
-def base_neuron_llm_path(base_neuron_llm_config):
-    yield base_neuron_llm_config["neuron_model_path"]
+        if cache_repo_id is not None:
+            os.environ["CUSTOM_CACHE_REPO"] = cache_repo_id
 
 
 @pytest.fixture(scope="session")

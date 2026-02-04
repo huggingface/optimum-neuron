@@ -359,7 +359,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         cache_entry = (
             None
             if os.path.exists(model_id)
-            else SingleModelCacheEntry(model_id, task="text-generation", config=config, neuron_config=neuron_config)
+            else SingleModelCacheEntry(model_id, task=cls.task, config=config, neuron_config=neuron_config)
         )
         with hub_neuronx_cache(entry=cache_entry):
             traced_model = NxDPreTrainedModel.compile(

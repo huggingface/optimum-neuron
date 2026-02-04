@@ -36,7 +36,7 @@ optimum-cli export neuron --help
 
 ## Why compile to Neuron model?
 
-AWS provides two generations of the Trainium/Inferentia accelerator built for machine learning inference with higher throughput, lower latency but lower cost: [inf2 (NeuronCore-v2)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/inf2-arch.html) and [inf1 (NeuronCore-v1)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/inf1-arch.html#aws-inf1-arch).
+AWS provides two generations of the Trainium/Inferentia accelerator built for machine learning inference with higher throughput, lower latency but lower cost: [inf2 (NeuronCore-v2)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/inf2-arch.html).
 
 In production environments, to deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you need to compile your models and export them to a serialized format before inference. Through Ahead-Of-Time (AOT) compilation with Neuron Compiler( [neuronx-cc](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/compiler/neuronx-cc/index.html) or [neuron-cc](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/compiler/neuron-cc/neuron-cc.html) ), your models will be converted to serialized and optimized [TorchScript modules](https://pytorch.org/docs/stable/generated/torch.jit.ScriptModule.html).
 
@@ -44,7 +44,7 @@ Although pre-compilation avoids overhead during the inference, a compiled Neuron
 * The input shapes and data types used during the compilation cannot be changed.
 * Neuron models are specialized for each hardware and SDK version, which means:
   * Models compiled with Neuron can no longer be executed in non-Neuron environment.
-  * Models compiled for inf1 (NeuronCore-v1) are not compatible with inf2 (NeuronCore-v2), and vice versa.
+  * Models compiled for trn2 (NeuronCore-v3) are not compatible with inf2 (NeuronCore-v2), and vice versa.
   * Models compiled for an SDK version are (generally) not compatible with another SDK version.
 
 In this guide, we'll show you how to export your models to serialized models optimized for Neuron devices.
@@ -66,12 +66,6 @@ To export a 🤗 Transformers model to Neuron, you'll first need to install some
 
 ```bash
 pip install optimum-neuron[neuronx]
-```
-
-**For Inf1**
-
-```bash
-pip install optimum-neuron[neuron]
 ```
 
 The Optimum Neuron export can be used through Optimum command-line:
@@ -314,10 +308,9 @@ it will be parsed to set the default parameters (the values passed to the `gener
 
 ## Exporting neuron models using NeuronX docker images
 
-The NeuronX TGI image includes not only NeuronX runtime, but also all packages and tools required to export Neuron models.
+The NeuronX vLLM image includes not only NeuronX runtime, but also all packages and tools required to export Neuron models.
 
 Use the following command to export a model to Neuron using a vLLM image:
-
 
 ```
 docker run --entrypoint optimum-cli \
@@ -337,21 +330,6 @@ The exported model will be saved under `./data/<neuron_model_path>`.
 ## Exporting options and Docker / SageMaker environment variables
 
 You must make sure that the options used for compilation match the options used for deployment.
-
-### TGI
-
-You can see examples of these parameters in the .env and docker-compose.yaml files in the [TGI Neuron backend documentation](https://github.com/huggingface/text-generation-inference/blob/main/docs/source/backends/neuron.md).
-
-For Docker and SageMaker, you can see these reflected in the following options and their optimum-cli equivalent:
-
-```
-MODEL_ID = model
-MAX_BATCH_SIZE = batch_size
-MAX_TOTAL_TOKENS = sequence_length
-HF_NUM_CORES = tensor_parallel_size
-```
-
-### vLLM
 
 ```
 SM_ON_MODEL = model

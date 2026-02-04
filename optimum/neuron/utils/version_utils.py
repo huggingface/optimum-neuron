@@ -14,83 +14,76 @@
 # limitations under the License.
 """Version utilities."""
 
+import functools
+import re
+from importlib import metadata
+
 from packaging import version
 
-from .import_utils import is_neuron_available, is_neuronx_available
+from .import_utils import is_neuronx_available
 
 
-_neuronxcc_version: str | None = None
-_neuroncc_version: str | None = None
-_torch_xla_version: str | None = None
-_neuronx_distributed_version: str | None = None
-_torch_version: str | None = None
+def get_pinned_version(package_name: str) -> str:
+    """
+    Get the pinned version of a package from the `optimum-neuron` package metadata.
+
+    Args:
+        package_name (`str`): The name of the package to get the pinned version for.
+    Returns:
+        `str`: The pinned version of the package.
+    Raises:
+        `SystemError`: If there is an error parsing the package metadata.
+        `ValueError`: If no pinned version is found for the package.
+    """
+    requires = metadata.requires("optimum-neuron")
+    if requires is None:
+        raise SystemError("An error occured while parsing package metadata")
+    candidates = [r for r in requires if r.startswith(package_name)]
+    if len(candidates) == 1 and f"{package_name}==" in candidates[0]:
+        match = re.search(f"{package_name}==([0-9\.]+)", candidates[0])
+        if match is not None:
+            return match.group(1)
+    raise ValueError(f"No pinned version found for package {package_name}")
 
 
+@functools.cache
 def get_neuronxcc_version() -> str:
-    global _neuronxcc_version
-    if _neuronxcc_version is not None:
-        return _neuronxcc_version
     try:
         import neuronxcc
     except ImportError:
         raise ModuleNotFoundError("NeuronX Compiler python package is not installed.")
-    _neuronxcc_version = neuronxcc.__version__
-    return _neuronxcc_version
+    return neuronxcc.__version__
 
 
-def get_neuroncc_version() -> str:
-    global _neuroncc_version
-    if _neuroncc_version is not None:
-        return _neuroncc_version
-    try:
-        import neuroncc
-    except ImportError:
-        raise ModuleNotFoundError("Neuron Compiler python package is not installed.")
-    _neuroncc_version = neuroncc.__version__
-    return _neuroncc_version
-
-
+@functools.cache
 def get_torch_xla_version() -> str:
-    global _torch_xla_version
-    if _torch_xla_version is not None:
-        return _torch_xla_version
     try:
         import torch_xla
     except ImportError:
         raise ModuleNotFoundError("`torch_xla` python package is not installed.")
-    _torch_xla_version = torch_xla.__version__
-    return _torch_xla_version
+    return torch_xla.__version__
 
 
+@functools.cache
 def get_neuronx_distributed_version() -> str:
-    global _neuronx_distributed_version
-    if _neuronx_distributed_version is not None:
-        return _neuronx_distributed_version
     try:
-        import neuronx_distributed
+        import neuronx_distributed  # noqa: F401
     except ImportError:
         raise ModuleNotFoundError("`neuronx_distributed` python package is not installed.")
-    _neuronx_distributed_version = neuronx_distributed.__version__
-    return _neuronx_distributed_version
+    return metadata.version("neuronx_distributed")
 
 
+@functools.cache
 def get_torch_version() -> str:
-    global _torch_version
-    if _torch_version is not None:
-        return _torch_version
     try:
         import torch
     except ImportError:
         raise ModuleNotFoundError("`torch` python package is not installed.")
-    _torch_version = torch.__version__
-    return _torch_version
+    return torch.__version__
 
 
 def check_compiler_compatibility(compiler_type: str, compiler_version: str):
-    if compiler_type == "neuron-cc":
-        compiler_available_fn = is_neuron_available
-        installed_compiler_version_fn = get_neuroncc_version
-    elif compiler_type == "neuronx-cc":
+    if compiler_type == "neuronx-cc":
         compiler_available_fn = is_neuronx_available
         installed_compiler_version_fn = get_neuronxcc_version
     else:

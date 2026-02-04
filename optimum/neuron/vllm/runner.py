@@ -14,6 +14,7 @@
 """An optimum-neuron vLLM runner class."""
 
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,11 +24,11 @@ from vllm.sampling_params import SamplingParams
 from vllm.utils import is_pin_memory_available, make_tensor_with_pad
 from vllm.v1.core.sched.output import CachedRequestData, NewRequestData, SchedulerOutput
 from vllm.v1.outputs import ModelRunnerOutput
-from vllm.v1.sample.logits_processor import LogitsProcessors, build_logitsprocs
+from vllm.v1.sample.logits_processor import LogitsProcessors
 from vllm.v1.sample.metadata import SamplingMetadata
-from vllm.v1.sample.sampler import Sampler
 
-from .model_loader import OptimumNeuronModelForCausalLM, get_optimum_neuron_model
+from .model_loader import OptimumNeuronModel, OptimumNeuronModelForCausalLM, OptimumNeuronModelForEmbedding
+from .sampler import NeuronSampler
 
 
 logger = logging.getLogger("Neuron")
@@ -109,9 +110,7 @@ class OptimumNeuronCachedBatch:
         return sum(1 for r in self.cached_requests if r is not None)
 
 
-def create_sampling_metadata(
-    requests: list[OptimumNeuronCachedRequest], vocab_size: int, logitsprocs: LogitsProcessors
-) -> SamplingMetadata:
+def create_sampling_metadata(requests: list[OptimumNeuronCachedRequest], vocab_size: int) -> SamplingMetadata:
     all_greedy = True
     all_random = True
     temperature = []
@@ -135,7 +134,7 @@ def create_sampling_metadata(
             all_greedy = False
         temperature.append(request.sampling_params.temperature)
         top_p.append(request.sampling_params.top_p)
-        top_k.append(request.sampling_params.top_k)
+        top_k.append(request.sampling_params.top_k if request.sampling_params.top_k > 0 else vocab_size)
         if request.sampling_params.logprobs is not None:
             logprobs = request.sampling_params.logprobs
             if max_num_logprobs is None:
@@ -170,6 +169,12 @@ def create_sampling_metadata(
     for i, prompt_token_ids in enumerate(prompt_token_ids_list):
         prompt_token_ids_list[i] = prompt_token_ids + [vocab_size] * (max_prompt_len - len(prompt_token_ids))
 
+    # Note that we pass an empty logits processors for now, as even though we added the builtin processors,
+    # we don't support updating them when the batch changes.
+    # This means that the following features provided by the builtin logits processors are not supported yet:
+    # - min_p
+    # - logits_bias
+    # - min_length
     return SamplingMetadata(
         temperature=torch.tensor(temperature),
         all_greedy=all_greedy,
@@ -186,11 +191,11 @@ def create_sampling_metadata(
         output_token_ids=output_token_ids_list,
         allowed_token_ids_mask=allowed_token_ids_mask,
         bad_words_token_ids=bad_word_tokens_ids,
-        logitsprocs=logitsprocs,
+        logitsprocs=LogitsProcessors(),  # Empty logits processors for now
     )
 
 
-class OptimumNeuronModelRunner:
+class OptimumNeuronModelRunner(ABC):
     def __init__(
         self,
         vllm_config: VllmConfig,
@@ -203,25 +208,47 @@ class OptimumNeuronModelRunner:
         self.parallel_config = vllm_config.parallel_config
         self.scheduler_config = vllm_config.scheduler_config
         self.device_config = vllm_config.device_config
-        self.model: OptimumNeuronModelForCausalLM | None = None
         device_config = self.device_config if self.device_config is not None else DeviceConfig()
         self.device = device_config.device
         self.pin_memory = is_pin_memory_available()
+
+    @staticmethod
+    def create(vllm_config: VllmConfig) -> "OptimumNeuronModelRunner":
+        task = vllm_config.model_config.task or "generate"
+        if task == "generate":
+            return OptimumNeuronModelRunnerForCausalLM(vllm_config)
+        elif task == "embed":
+            return OptimumNeuronModelRunnerForEmbedding(vllm_config)
+        else:
+            raise ValueError(f"Task {task} is not supported for Neuron.")
+
+    @abstractmethod
+    def get_supported_tasks(self) -> tuple[str, ...]:
+        raise NotImplementedError()
+
+
+class OptimumNeuronModelRunnerForCausalLM(OptimumNeuronModelRunner):
+    def __init__(
+        self,
+        vllm_config: VllmConfig,
+    ):
+        super().__init__(vllm_config)
+        self.model: OptimumNeuronModel | None = None
         self.batch: OptimumNeuronCachedBatch = OptimumNeuronCachedBatch(vllm_config)
         self.logitsproc = LogitsProcessors()
 
     def load_model(self) -> None:
-        self.model = get_optimum_neuron_model(
+        self.model = OptimumNeuronModelForCausalLM.create(
             self.model_config,
             parallel_config=self.parallel_config,
             scheduler_config=self.scheduler_config,
             load_config=self.load_config,
         )
         if not self.model.model.neuron_config.on_device_sampling:
-            self.sampler = Sampler()
-            self.logitsproc = build_logitsprocs(
-                self.vllm_config, device=self.device, is_pin_memory=False, is_pooling_model=False
-            )
+            self.sampler = NeuronSampler(self.model.model.neuron_config)
+
+    def get_supported_tasks(self) -> tuple[str, ...]:
+        return ("generate",)
 
     def tensor_for_sampling_params(self, sampling_params: list[SamplingParams]) -> torch.Tensor:
         if self.model.model.neuron_config.on_device_sampling:
@@ -287,12 +314,9 @@ class OptimumNeuronModelRunner:
                     seq_ids=seq_ids,
                     sampling_params=sampling_params_tensor,
                 )
-                # We reuse the GPU Sampler, but it uses a specific sampling parameters class
-                sampling_metadata = create_sampling_metadata(
-                    requests, vocab_size=self.model_config.get_vocab_size(), logitsprocs=self.logitsproc
-                )
-                assert self.sampler is not None
-                return self.sampler.sample(logits, sampling_metadata)
+                sampling_metadata = create_sampling_metadata(requests, vocab_size=self.model.model.config.vocab_size)
+                sampler_outputs = self.sampler(logits, sampling_metadata)
+                return sampler_outputs.sampled_token_ids, logits
 
         # We start by decoding the next tokens for the requests already in the batch.
         req_ids = []
@@ -418,3 +442,76 @@ class OptimumNeuronModelRunner:
         seq_ids = torch.tensor(input_seq_ids, dtype=torch.long, device=self.device)
 
         return requests, input_ids, position_ids, seq_ids, sampling_params
+
+
+class OptimumNeuronModelRunnerForEmbedding(OptimumNeuronModelRunner):
+    def load_model(self) -> None:
+        self.model = OptimumNeuronModelForEmbedding.create(
+            self.model_config,
+            parallel_config=self.parallel_config,
+            scheduler_config=self.scheduler_config,
+            load_config=self.load_config,
+        )
+
+    def get_supported_tasks(self) -> tuple[str, ...]:
+        return ("embed",)
+
+    @torch.inference_mode()
+    def execute_model(self, scheduler_output: SchedulerOutput) -> ModelRunnerOutput:
+        n_reqs = len(scheduler_output.scheduled_new_reqs)
+
+        if n_reqs == 0:
+            logger.debug("No requests to schedule.")
+            return ModelRunnerOutput(
+                req_ids=[],
+                req_id_to_index={},
+                sampled_token_ids=[],
+                logprobs=None,
+                prompt_logprobs_dict={},
+                pooler_output=[],
+            )
+
+        input_ids, attention_mask = self._prepare_inputs(scheduler_output)
+        outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
+
+        # For embedding models, the outputs should be the pooled embeddings
+        # Each row corresponds to one request's embedding
+        # Convert the (batch_size, 1, hidden_size) tensor to a list of 1D vectors, one per request
+        pooler_output = [outputs[i, 0, :].to("cpu", non_blocking=False) for i in range(outputs.shape[0])]
+
+        req_ids = [new_request_data.req_id for new_request_data in scheduler_output.scheduled_new_reqs]
+        return ModelRunnerOutput(
+            req_ids=req_ids,
+            req_id_to_index={req_id: i for i, req_id in enumerate(req_ids)},
+            sampled_token_ids=[[] for _ in req_ids],
+            logprobs=None,
+            prompt_logprobs_dict={},
+            pooler_output=pooler_output,
+        )
+
+    def _prepare_inputs(
+        self,
+        scheduler_output: SchedulerOutput,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        assert len(scheduler_output.scheduled_new_reqs) > 0
+        input_tokens: list[list[int]] = []
+        input_mask: list[list[int]] = []
+
+        seq_lens: list[int] = []
+        for new_request_data in scheduler_output.scheduled_new_reqs:
+            assert new_request_data.prompt_token_ids is not None
+            seq_len = len(new_request_data.prompt_token_ids)
+            seq_lens.append(seq_len)
+            input_tokens.append(new_request_data.prompt_token_ids)
+            input_mask.append([1] * seq_len)
+
+        max_seq_len = max(seq_lens)
+        assert max_seq_len > 0
+        input_ids = make_tensor_with_pad(
+            input_tokens, pad=0, max_len=max_seq_len, dtype=torch.long, device=self.device
+        )
+        attention_mask = make_tensor_with_pad(
+            input_mask, pad=0, max_len=max_seq_len, dtype=torch.long, device=self.device
+        )
+
+        return (input_ids, attention_mask)

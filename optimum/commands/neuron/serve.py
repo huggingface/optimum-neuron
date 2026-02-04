@@ -38,6 +38,8 @@ if is_vllm_available():
     from vllm.entrypoints.openai.cli_args import make_arg_parser, validate_parsed_serve_args
     from vllm.utils import FlexibleArgumentParser
 
+    from ...neuron.vllm.model_loader import VLLM_2_TRANSFORMERS_TASK_MAPPING
+
 
 logger = logging.get_logger()
 
@@ -76,6 +78,13 @@ class ServeCommand(BaseOptimumCLICommand):
             help="The model name(s) used in the API. If not specified, the model name will be the same as the `--model` argument.",
         )
         parser.add_argument(
+            "--task",
+            type=str,
+            choices=["generate", "embed"],
+            default="generate",
+            help="The task for which the model is being served.",
+        )
+        parser.add_argument(
             "--tensor_parallel_size",
             "--tensor-parallel-size",
             type=int,
@@ -110,6 +119,8 @@ class ServeCommand(BaseOptimumCLICommand):
     @requires_vllm
     @requires_torch_neuronx
     def run(self):
+        if not is_vllm_available():
+            raise ImportError("vLLM is not installed. Please install vLLM to use the serve command.")
         model_name_or_path = self.args.model
         model_id = self.args.served_model_name
         if model_id is None:
@@ -161,7 +172,7 @@ class ServeCommand(BaseOptimumCLICommand):
 
             cached_entries = select_hub_cached_entries(
                 model_name_or_path,
-                task="text-generation",
+                task=VLLM_2_TRANSFORMERS_TASK_MAPPING[self.args.task],
                 instance_type=instance_type,
                 batch_size=batch_size,
                 sequence_length=sequence_length,
@@ -240,6 +251,8 @@ class ServeCommand(BaseOptimumCLICommand):
             self.args.model,
             "--served_model_name",
             model_id,
+            "--task",
+            self.args.task,
             "--port",
             str(self.args.port),
             "--tensor-parallel-size",

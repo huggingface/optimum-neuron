@@ -65,7 +65,15 @@ class ModelCacheEntry:
     def neuron_config(self) -> dict[str, Any]:
         raise NotImplementedError
 
-    def has_same_arch(self, other: "ModelCacheEntry"):
+    def arch_digest(self) -> str:
+        """
+        Uniquely identifies a cache entry architecture.
+
+        It returns a hash string computed on the relevant architecture parameters of the cache entry,
+        regardless of the neuron configuration or other non-architecture related parameters.
+
+        It can be used to compare two cache entries and determine if they have the same architecture.
+        """
         raise NotImplementedError
 
     # Generic methods relying on the API above

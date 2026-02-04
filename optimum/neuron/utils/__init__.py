@@ -45,7 +45,6 @@ _import_structure = {
     ],
     "import_utils": [
         "is_accelerate_available",
-        "is_neuron_available",
         "is_neuronx_available",
         "is_torch_neuronx_available",
         "is_trl_available",
@@ -114,7 +113,6 @@ if TYPE_CHECKING:
     )
     from .import_utils import (
         is_accelerate_available,
-        is_neuron_available,
         is_neuronx_available,
         is_torch_neuronx_available,
         is_trl_available,

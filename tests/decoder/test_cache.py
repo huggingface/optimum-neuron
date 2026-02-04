@@ -24,7 +24,7 @@ import pytest
 import torch
 from huggingface_hub import HfApi
 
-from optimum.neuron import NeuronModelForCausalLM
+from optimum.neuron import NeuronModelForCausalLM, NeuronModelForEmbedding
 from optimum.neuron.cache import get_hub_cached_entries, get_hub_cached_models, synchronize_hub_cache
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
@@ -57,17 +57,18 @@ def cache_repos():
                 os.environ[var] = previous_env[var]
 
 
-def export_decoder_model(model_id):
+def export_decoder_model(model_id, auto_class):
     batch_size = 2
     sequence_length = 512
     tensor_parallel_size = 2
-    neuron_config = NeuronModelForCausalLM.get_neuron_config(
+
+    neuron_config = auto_class.get_neuron_config(
         model_id,
         batch_size=batch_size,
         sequence_length=sequence_length,
         tensor_parallel_size=tensor_parallel_size,
     )
-    return NeuronModelForCausalLM.export(
+    return auto_class.export(
         model_id,
         neuron_config=neuron_config,
         load_weights=True,
@@ -114,7 +115,7 @@ def test_decoder_cache(cache_repos):
     cache_path, cache_repo_id = cache_repos
     model_id = "llamafactory/tiny-random-Llama-3"
     # Export the model a first time to populate the local cache
-    model = export_decoder_model(model_id)
+    model = export_decoder_model(model_id, NeuronModelForCausalLM)
     check_decoder_generation(model)
     check_decoder_cache_entry(model, cache_path)
     # Synchronize the hub cache with the local cache
@@ -135,7 +136,7 @@ def test_decoder_cache(cache_repos):
             shutil.rmtree(os.path.join(root, d))
     assert local_cache_size(cache_path) == 0
     # Export the model again: the compilation artifacts should be fetched from the Hub
-    model = export_decoder_model(model_id)
+    model = export_decoder_model(model_id, NeuronModelForCausalLM)
     check_decoder_generation(model)
     # Verify the local cache directory has not been populated
     assert len(get_local_cached_files(cache_path, "neff")) == 0
@@ -154,7 +155,7 @@ def test_decoder_cache(cache_repos):
 )
 def test_decoder_cache_unavailable(cache_repos, var, value, match):
     # Just exporting the model will only emit a warning
-    export_decoder_model("llamafactory/tiny-random-Llama-3")
+    export_decoder_model("llamafactory/tiny-random-Llama-3", NeuronModelForCausalLM)
     prev_value = os.environ.get(var, None)
     # Modify the specified environment variable to trigger an error
     os.environ[var] = value
@@ -170,11 +171,18 @@ def test_decoder_cache_unavailable(cache_repos, var, value, match):
 
 @is_inferentia_test
 @requires_neuronx
-def test_optimum_neuron_cli_cache_synchronize(cache_repos):
+@pytest.mark.parametrize(
+    "model_id, auto_class",
+    [
+        ("llamafactory/tiny-random-Llama-3", NeuronModelForCausalLM),
+        ("Qwen/Qwen3-Embedding-0.6B", NeuronModelForEmbedding),
+    ],
+    ids=["text-generation", "embedding"],
+)
+def test_optimum_neuron_cli_cache_synchronize(cache_repos, model_id, auto_class):
     cache_path, cache_repo_id = cache_repos
-    model_id = "llamafactory/tiny-random-Llama-3"
     # Export a model to populate the local cache
-    export_decoder_model(model_id)
+    model = export_decoder_model(model_id, auto_class)
     # Synchronize the hub cache with the local cache
     command = "optimum-cli neuron cache synchronize".split()
     p = subprocess.Popen(command, stdout=subprocess.PIPE)
@@ -187,5 +195,5 @@ def test_optimum_neuron_cli_cache_synchronize(cache_repos):
     stdout, _ = p.communicate()
     stdout = stdout.decode("utf-8")
     assert p.returncode == 0
-    assert f"{model_id}" in stdout
-    assert "float16" in stdout
+    assert f"Cached entries for {model_id}" in stdout
+    assert str(model.neuron_config.sequence_length) in stdout

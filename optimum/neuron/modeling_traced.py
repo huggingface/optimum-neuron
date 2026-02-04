@@ -41,24 +41,19 @@ from .utils import (
     NEURON_FILE_NAME,
     InputShapesArguments,
     check_if_weights_replacable,
-    is_neuron_available,
     replace_weights,
     store_compilation_config,
 )
 from .utils.import_utils import is_neuronx_available
 from .utils.instance import align_compilation_target, get_default_compilation_target
 from .utils.system import get_neuron_major
-from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
+from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
 
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
     from optimum.exporters.neuron import NeuronDefaultConfig
-
-if is_neuron_available():
-    NEURON_COMPILER_TYPE = "neuron-cc"
-    NEURON_COMPILER_VERSION = get_neuroncc_version()
 
 if is_neuronx_available():
     import torch_neuronx
@@ -309,9 +304,6 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
         task = TasksManager.map_from_synonym(task)
 
         # Get compilation arguments
-        if is_neuron_available() and dynamic_batch_size is True and "batch_size" in kwargs_shapes:
-            kwargs_shapes["batch_size"] = 1
-            disable_fallback = True  # Turn off the fallback for neuron, otherwise dynamic batching will still fail
         auto_cast_type = None if auto_cast is None else auto_cast_type
         if instance_type is None:
             instance_type = get_default_compilation_target()
@@ -320,9 +312,6 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
             "instance_type": instance_type,
-            # Inf1 specific compiler args
-            "disable_fast_relayout": disable_fast_relayout,
-            "disable_fallback": disable_fallback,
         }
         # clean shapes
         commit_hash = kwargs_shapes.pop("_commit_hash", None)

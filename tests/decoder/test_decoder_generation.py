@@ -14,22 +14,22 @@
 # limitations under the License.
 
 import copy
+import re
+from typing import Any
 
 import pytest
 import torch
-from transformers import AutoTokenizer
+from prompts import get_long_prompt
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.generation import StoppingCriteria
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.models.inference.backend.modules.generation.generation_utils import prepare_sampling_params
+from optimum.neuron.models.inference.backend.modules.generation.generation_utils import (
+    increase_position_ids,
+    position_ids_from_attention_mask,
+)
+from optimum.neuron.models.inference.backend.modules.generation.sampling import prepare_sampling_params
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
-
-
-@pytest.fixture(scope="module")
-def model_and_tokenizer(base_neuron_llm_path):
-    model = NeuronModelForCausalLM.from_pretrained(base_neuron_llm_path)
-    tokenizer = AutoTokenizer.from_pretrained(base_neuron_llm_path)
-    yield (model, tokenizer)
 
 
 def _test_generation(model, batch_size, input_length, **gen_kwargs):
@@ -50,15 +50,17 @@ def _test_generation(model, batch_size, input_length, **gen_kwargs):
 )
 @is_inferentia_test
 @requires_neuronx
-def test_decoder_generation_base(model_and_tokenizer, gen_kwargs):
-    model = model_and_tokenizer[0]
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+def test_decoder_generation_base(neuron_llm_config: dict[str, Any], gen_kwargs):
+    model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
     _test_generation(model, model.neuron_config.batch_size, 10, **gen_kwargs)
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_decoder_generation_input_dimensions(model_and_tokenizer):
-    model, tokenizer = model_and_tokenizer
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+def test_decoder_generation_input_dimensions(neuron_llm_config: dict[str, Any]):
+    model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
     batch_size = model.neuron_config.batch_size
     sequence_length = model.neuron_config.sequence_length
     # Using valid input dimensions
@@ -73,8 +75,9 @@ def test_decoder_generation_input_dimensions(model_and_tokenizer):
 
 @is_inferentia_test
 @requires_neuronx
-def test_decoder_generation_custom_stopping_criteria(model_and_tokenizer):
-    model = model_and_tokenizer[0]
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+def test_decoder_generation_custom_stopping_criteria(neuron_llm_config: dict[str, Any]):
+    model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
 
     class CustomStoppingCriteria(StoppingCriteria):
         def __init__(self):
@@ -91,33 +94,38 @@ def test_decoder_generation_custom_stopping_criteria(model_and_tokenizer):
 
 @is_inferentia_test
 @requires_neuronx
-def test_decoder_generation_greedy_expectations(neuron_llm_config):
-    neuron_llm_path = neuron_llm_config["neuron_model_path"]
-    model = NeuronModelForCausalLM.from_pretrained(neuron_llm_path)
+def test_decoder_generation_greedy_expectations(any_generate_model):
+    model_id = any_generate_model["model_id"]
+    model = AutoModelForCausalLM.from_pretrained(model_id)
+    neuron_llm_path = any_generate_model["neuron_model_path"]
+    neuron_model = NeuronModelForCausalLM.from_pretrained(neuron_llm_path)
     tokenizer = AutoTokenizer.from_pretrained(neuron_llm_path)
     prompt = "What is Deep Learning?"
     inputs = tokenizer(prompt, return_tensors="pt")
-    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17)
-    target = model.neuron_config.target
-    expectations = {
-        "llama": " and how does it work?\nDeep learning is a subset of machine learning that uses artificial",
-        "qwen2": " - Part 1\n\nDeep Learning is a subset of Machine Learning"
-        + (". It is a" if target == "trn2" else " that is based on"),
-        "qwen3": " What is the difference between Deep Learning and Machine Learning?\n\nDeep Learning is a subset of",
-        "granite": "\n\nDeep Learning is a subset of machine learning that is inspired by the structure and",
-        "phi": "\n\nDeep learning is a subfield of machine learning that focuses on creating",
-        "smollm3": " Deep learning is a subset of machine learning that uses neural networks with many layers to learn",
-    }
-    config_name = neuron_llm_config["name"]
-    generated_text = tokenizer.decode(outputs[0])
-    expected_text = expectations[config_name]
-    assert generated_text.endswith(expected_text)
+    max_new_tokens = 17
+    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
+    neuron_outputs = neuron_model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
+    if not torch.equal(neuron_outputs, outputs):
+        config_name = any_generate_model["name"]
+        generated_text = tokenizer.decode(neuron_outputs[0])
+        known_different_generations = {
+            "qwen3-4x4096": " What are the key features of Deep Learning? What are the applications of Deep Learning?",
+            "qwen3-1x8192": " What are the key features of Deep Learning? What are the applications of Deep Learning?",
+        }
+        if config_name in known_different_generations:
+            assert generated_text.endswith(known_different_generations[config_name])
+            pytest.xfail(f"Known different generations for {config_name}")
+        else:
+            expected_text = tokenizer.decode(outputs[0])
+            assert generated_text.endswith(expected_text)
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_decoder_generation_multiple_eos_token_ids(model_and_tokenizer):
-    model, tokenizer = model_and_tokenizer
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+def test_decoder_generation_multiple_eos_token_ids(neuron_llm_config: dict[str, Any]):
+    model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
+    tokenizer = AutoTokenizer.from_pretrained(neuron_llm_config["neuron_model_path"])
     prompt = "Name three fruits:"
     tokens = tokenizer(prompt, return_tensors="pt")
     generation_config = copy.deepcopy(model.generation_config)
@@ -135,8 +143,10 @@ def test_decoder_generation_multiple_eos_token_ids(model_and_tokenizer):
 
 @is_inferentia_test
 @requires_neuronx
-def test_decoder_generation_stop_strings(model_and_tokenizer):
-    model, tokenizer = model_and_tokenizer
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+def test_decoder_generation_stop_strings(neuron_llm_config: dict[str, Any]):
+    model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
+    tokenizer = AutoTokenizer.from_pretrained(neuron_llm_config["neuron_model_path"])
     prompt = "Name three fruits:"
     tokens = tokenizer(prompt, return_tensors="pt")
     generation_config = copy.deepcopy(model.generation_config)
@@ -159,7 +169,8 @@ def test_decoder_generation_stop_strings(model_and_tokenizer):
 
 @is_inferentia_test
 @requires_neuronx
-def test_continuous_batching_two_requests(model_and_tokenizer):
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+def test_continuous_batching_two_requests(neuron_llm_config: dict[str, Any]):
     """This test verifies that it is possible to:
     - prefill a first input at a first index,
     - decode a few tokens,
@@ -167,7 +178,8 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
     - resume decoding for both inputs.
     Both generated tokens must match since we are using greedy.
     """
-    model, tokenizer = model_and_tokenizer
+    model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
+    tokenizer = AutoTokenizer.from_pretrained(neuron_llm_config["neuron_model_path"])
     if not model.neuron_config.continuous_batching:
         pytest.skip("Model does not support continuous batching")
 
@@ -180,80 +192,122 @@ def test_continuous_batching_two_requests(model_and_tokenizer):
     inputs = tokenizer("Once upon a time", return_tensors="pt")
 
     # A few helper functions we need while prefilling and decoding
-    def get_next_tokens(**kwargs):
-        outputs = model.forward(**kwargs)
+    def get_next_tokens(input_ids, position_ids, seq_ids, sampling_params):
+        outputs = model.forward(
+            input_ids=input_ids, position_ids=position_ids, seq_ids=seq_ids, sampling_params=sampling_params
+        )
         if on_device_sampling:
             # on-device sampling directly returns the next token
-            return outputs.hidden_states.unsqueeze(1)
-        return outputs.logits[:, -1, :].argmax(dim=-1, keepdim=True)
+            return outputs.unsqueeze(1)
+        return outputs[:, -1, :].argmax(dim=-1, keepdim=True)
 
-    def increase_attention_mask(attention_mask):
-        batch_size = attention_mask.shape[0]
-        attention_mask_lengths = torch.sum(attention_mask, dim=1)
-        attention_mask_length = attention_mask_lengths.max().item()
-        new_attention_mask = torch.zeros(batch_size, attention_mask_length + 1, dtype=torch.int64)
-        for i in range(batch_size):
-            attention_mask_length = attention_mask_lengths[i].item() + 1
-            new_attention_mask[i, :attention_mask_length] = 1
-        return new_attention_mask
-
+    # Prepare common input tensors
+    input_ids = inputs.input_ids
+    position_ids = position_ids_from_attention_mask(inputs.attention_mask)
+    sampling_params = prepare_sampling_params(batch_size=1)
     # Prefill a single input at index 0, remembering the generated token
-    first_inputs = {
-        "input_ids": inputs.input_ids,
-        "attention_mask": inputs.attention_mask,
-        "seq_ids": torch.tensor([0]),
-    }
-    if on_device_sampling:
-        first_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
-    first_generated_tokens = get_next_tokens(**model.prepare_inputs_for_prefill(**first_inputs))
+    first_seq_ids = torch.tensor([0])
+    first_generated_tokens = get_next_tokens(input_ids, position_ids, first_seq_ids, sampling_params)
+    first_position_ids = increase_position_ids(position_ids, 1)
     # Decode a few tokens
-    first_inputs["input_ids"] = first_generated_tokens
-    for _ in range(5):
-        # For decode we can only pass the next token, but we need to pass the full attention mask
-        first_inputs["attention_mask"] = increase_attention_mask(first_inputs["attention_mask"])
-        next_tokens = get_next_tokens(**model.prepare_inputs_for_decode(**first_inputs))
-        first_generated_tokens = torch.cat([first_generated_tokens, next_tokens], dim=-1)
-        first_inputs["input_ids"] = next_tokens
+    FIRST_DECODE_TOKENS = 5
+    for _ in range(FIRST_DECODE_TOKENS):
+        next_tokens = get_next_tokens(
+            first_generated_tokens[:, -1:], first_position_ids, first_seq_ids, sampling_params
+        )
+        first_generated_tokens = torch.cat((first_generated_tokens, next_tokens), dim=-1)
+        first_position_ids = increase_position_ids(first_position_ids, 1)
     # Prefill a second input at index 2
-    second_inputs = {
-        "input_ids": inputs.input_ids,
-        "attention_mask": inputs.attention_mask,
-        "seq_ids": torch.tensor([2]),
-    }
-    if on_device_sampling:
-        second_inputs["sampling_params"] = prepare_sampling_params(batch_size=1)
-    second_generated_tokens = get_next_tokens(**model.prepare_inputs_for_prefill(**second_inputs))
-    # Resize the second request attention mask to the size of the first request
-    second_attention_mask = torch.zeros_like(first_inputs["attention_mask"])
-    second_attention_mask[:, : second_inputs["attention_mask"].shape[1]] = 1
-    # Concatenate the last decode token from the first input and the prefill token from the second
-    two_requests_inputs = {
-        "input_ids": torch.cat([first_generated_tokens[:, -1:], second_generated_tokens], dim=0),
-        "attention_mask": torch.cat([first_inputs["attention_mask"], second_attention_mask], dim=0),
-        "seq_ids": torch.tensor([0, 2]),
-    }
-    if on_device_sampling:
-        two_requests_inputs["sampling_params"] = prepare_sampling_params(batch_size=2)
-    # Decode more tokens
-    for _ in range(10):
-        two_requests_inputs["attention_mask"] = increase_attention_mask(two_requests_inputs["attention_mask"])
-        next_tokens = get_next_tokens(**model.prepare_inputs_for_decode(**two_requests_inputs))
-        first_generated_tokens = torch.cat([first_generated_tokens, next_tokens[0:1, :]], dim=-1)
-        second_generated_tokens = torch.cat([second_generated_tokens, next_tokens[1:, :]], dim=-1)
-        two_requests_inputs["input_ids"] = next_tokens
-    assert torch.equal(second_generated_tokens, first_generated_tokens[:, : second_generated_tokens.shape[1]])
+    second_seq_ids = torch.tensor([2])
+    second_generated_tokens = get_next_tokens(input_ids, position_ids, second_seq_ids, sampling_params)
+    second_position_ids = increase_position_ids(position_ids, 1)
+    # Concatenate the generated tokens
+    generated_tokens = torch.zeros(2, FIRST_DECODE_TOKENS + 1, dtype=torch.int64)
+    generated_tokens[0, :] = first_generated_tokens
+    generated_tokens[1, -1] = second_generated_tokens[:, -1]
+    # Decode more tokens for both requests
+    position_ids = torch.cat([first_position_ids, second_position_ids], dim=0)
+    two_requests_seq_ids = torch.tensor([0, 2])
+    two_requests_sampling_params = torch.cat([sampling_params, sampling_params], dim=0)
+    SECOND_DECODE_TOKENS = 10
+    for _ in range(SECOND_DECODE_TOKENS):
+        next_tokens = get_next_tokens(
+            generated_tokens[:, -1:], position_ids, two_requests_seq_ids, two_requests_sampling_params
+        )
+        generated_tokens = torch.cat((generated_tokens, next_tokens), dim=-1)
+        position_ids = increase_position_ids(position_ids, 1)
+    assert torch.equal(generated_tokens[0, : SECOND_DECODE_TOKENS + 1], generated_tokens[1, FIRST_DECODE_TOKENS:])
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_generation_assisted_decoding(speculation):
+@pytest.mark.parametrize(
+    "max_new_tokens",
+    [17, 30],
+    ids=["shorter", "short"],
+)
+def test_speculation_same_model(caplog, speculation, max_new_tokens):
+    """Test the generation from a model using the same model as an assistant for speculation.
+    We check that the number of speculated tokens logged correspond to what we expect,
+    and that the final generated tokens are as expected.
+    Since the assistant model is identical to the main model, the number of accepted speculated tokens
+    should always be equal to the speculation length or the remainder of the expected number of tokens.
+    It is not always true and small changes may happen because the speculation and decode graphs
+    are subtly different, and may result in small changes in predictions, for example in capitalization.
+    The prompt and generated text in this test have been chosen to minimize this risk.
+    """
     model_path, draft_model_path = speculation
     model = NeuronModelForCausalLM.from_pretrained(model_path)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     assistant_model = NeuronModelForCausalLM.from_pretrained(draft_model_path)
-    prompt = "What is Deep Learning?"
+    prompt = "One of my fondest memories is of my grandmother's kitchen"
     inputs = tokenizer(prompt, return_tensors="pt")
-    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=17, assistant_model=assistant_model)
-    generated_text = tokenizer.decode(outputs[0])
-    expected_text = " and How Does it Work?\nDeep learning is a subset of machine learning that uses artificial neural"
-    assert generated_text.endswith(expected_text)
+    prompt_length = inputs["input_ids"].shape[1]
+    with caplog.at_level("INFO"):
+        # Generate and capture the logged speculated tokens
+        outputs = model.generate(
+            **inputs, do_sample=False, max_new_tokens=max_new_tokens, assistant_model=assistant_model
+        )
+        generated_tokens = outputs[0, prompt_length:].tolist()
+        # Verify first we generated the expected number of tokens, otherwise we cannot check the expected text
+        assert len(generated_tokens) == max_new_tokens
+        expected_text = (
+            ", where I spent countless hours helping her in the kitchen."
+            " She was a master baker, and her kitchen was always filled with the most wonderful aromas"
+        )
+        generated_text = tokenizer.decode(generated_tokens)
+        assert expected_text.startswith(generated_text)
+        # Check the logged speculated tokens
+        remaining_speculated_tokens = max_new_tokens - 1  # First token is not speculated
+        for record in caplog.records:
+            msg = record.msg
+            prefix = "Assisted decoding: accepted"
+            if msg.startswith(prefix):
+                speculated_tokens = int(re.findall(r"\b\d+\b", msg)[0])
+                # We expect either the full speculation length or the remaining tokens to generate
+                expected_speculated_tokens = min(model.neuron_config.speculation_length, remaining_speculated_tokens)
+                assert speculated_tokens == expected_speculated_tokens, (
+                    f"Expected {expected_speculated_tokens} speculated tokens, got {speculated_tokens}"
+                )
+                remaining_speculated_tokens -= speculated_tokens
+
+
+@is_inferentia_test
+@requires_neuronx
+@pytest.mark.parametrize("neuron_llm_config", ["llama-1x8192"], indirect=True)
+def test_decoder_generation_long_sequence(neuron_llm_config: dict[str, Any]):
+    """Test that we can generate from a long prompt using a model compiled for long sequences."""
+    model_id = neuron_llm_config["model_id"]
+    model = AutoModelForCausalLM.from_pretrained(model_id)
+    neuron_llm_path = neuron_llm_config["neuron_model_path"]
+    neuron_model = NeuronModelForCausalLM.from_pretrained(neuron_llm_path)
+    tokenizer = AutoTokenizer.from_pretrained(neuron_llm_path)
+    inputs = tokenizer(get_long_prompt(model_id, 5000, 8192), return_tensors="pt")
+    max_new_tokens = 50
+    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
+    generated_text = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
+    neuron_outputs = neuron_model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
+    neuron_generated_text = tokenizer.decode(
+        neuron_outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
+    )
+    assert generated_text == neuron_generated_text

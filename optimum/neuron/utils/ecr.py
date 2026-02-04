@@ -3,46 +3,69 @@ import re
 import boto3
 
 
-# pulled from https://github.com/aws/sagemaker-python-sdk/blob/master/src/sagemaker/image_uri_config/huggingface-llm-neuronx.json
+# pulled from https://github.com/aws/sagemaker-python-sdk/blob/master/sagemaker-core/src/sagemaker/core/image_uri_config/huggingface-llm-neuronx.json
 ACCOUNT_IDS = {
+    "af-south-1": "626614931356",
+    "ap-east-1": "871362719292",
+    "ap-east-2": "975050140332",
     "ap-northeast-1": "763104351884",
+    "ap-northeast-2": "763104351884",
+    "ap-northeast-3": "364406365360",
     "ap-south-1": "763104351884",
     "ap-south-2": "772153158452",
     "ap-southeast-1": "763104351884",
     "ap-southeast-2": "763104351884",
+    "ap-southeast-3": "907027046896",
     "ap-southeast-4": "457447274322",
     "ap-southeast-5": "550225433462",
+    "ap-southeast-6": "633930458069",
     "ap-southeast-7": "590183813437",
+    "ca-central-1": "763104351884",
+    "ca-west-1": "204538143572",
     "cn-north-1": "727897471807",
     "cn-northwest-1": "727897471807",
     "eu-central-1": "763104351884",
     "eu-central-2": "380420809688",
+    "eu-north-1": "763104351884",
+    "eu-south-1": "692866216735",
     "eu-south-2": "503227376785",
     "eu-west-1": "763104351884",
+    "eu-west-2": "763104351884",
     "eu-west-3": "763104351884",
     "il-central-1": "780543022126",
+    "me-central-1": "914824155844",
+    "me-south-1": "217643126080",
     "mx-central-1": "637423239942",
     "sa-east-1": "763104351884",
     "us-east-1": "763104351884",
     "us-east-2": "763104351884",
     "us-gov-east-1": "446045086412",
     "us-gov-west-1": "442386744353",
+    "us-iso-east-1": "886529160074",
+    "us-isob-east-1": "094389454867",
+    "us-isof-east-1": "303241398832",
+    "us-isof-south-1": "454834333376",
+    "us-west-1": "763104351884",
     "us-west-2": "763104351884",
-    "ca-west-1": "204538143572",
 }
 
-TGI_REPOSITORY_NAME = "huggingface-pytorch-tgi-inference"
+VLLM_REPOSITORY_NAME = "huggingface-vllm-inference-neuronx"
+INFERENCE_REPOSITORY_NAME = "huggingface-pytorch-inference-neuronx"
+TRAINING_REPOSITORY_NAME = "huggingface-pytorch-training-neuronx"
 
 # Later on, other services might be added. The format is {service_name: repository_name}
 IMAGE_SERVICES = {
-    "tgi": TGI_REPOSITORY_NAME,
-    "huggingface-neuronx": TGI_REPOSITORY_NAME,
+    "inference": INFERENCE_REPOSITORY_NAME,
+    "training": TRAINING_REPOSITORY_NAME,
+    "vllm": VLLM_REPOSITORY_NAME,
 }
 
 # This dictionary contains the pattern templates for the version pattern for each repository. The
 # "platform_version" will be replaced with the platform version when provided.
 TAG_PATTERNS = {
-    TGI_REPOSITORY_NAME: r"optimum{platform_version}",
+    INFERENCE_REPOSITORY_NAME: r"transformers{platform_version}",
+    TRAINING_REPOSITORY_NAME: r"transformers{platform_version}",
+    VLLM_REPOSITORY_NAME: r"optimum{platform_version}",
 }
 
 
@@ -66,14 +89,16 @@ def check_tag(pattern, tag: list[dict], platform_version: str = None) -> list[st
 
 
 def image_uri(
-    service_name: str = "tgi",
+    service_name: str = "vllm",
     region: str = None,
     version: str = None,
 ):
     """Get the image URI for the given service name, region and version.
     This can be used to get the image URI for a service provided by one of the Optimum Neuron containers.
-    The service name can be "tgi" or "huggingface-neuronx" (as in get_huggingface_llm_image_uri from the Sagemaker SDK).
     The image retrieved can be newer than the one reported by the Sagemaker SDK.
+
+    Note: when looking for a specific version, use the optimum-neuron version for the vLLM image and the transformers version for
+    inference and training images.
 
     Args:
         service_name: The name of the service to get the image URI for.
@@ -83,16 +108,19 @@ def image_uri(
     Returns:
         The image URI for the given service name, region and version.
     """
-    ecr_client = boto3.client("ecr")
     if region is None:
-        # use default region from boto3
-        region = ecr_client.meta.region_name
+        # Try first to use default region from boto3
+        session = boto3.session.Session()
+        region = session.region_name
+    if region is None:
+        raise ValueError("Region must be specified either explicitly or in the environment using AWS_DEFAULT_REGION.")
     if region not in ACCOUNT_IDS:
         raise KeyError(f"Invalid region: {region}")
     repository_id = ACCOUNT_IDS[region]
     if service_name not in IMAGE_SERVICES:
         raise ValueError(f"Invalid service name: {service_name}")
     repository_name = IMAGE_SERVICES[service_name]
+    ecr_client = boto3.client("ecr", region_name=region)
     try:
         images = ecr_client.list_images(repositoryName=repository_name, registryId=repository_id)["imageIds"]
     except boto3.exceptions.botocore.exceptions.NoCredentialsError as e:
@@ -102,6 +130,8 @@ def image_uri(
             + str(e)
         )
         raise ValueError(message)
+    # Filter images to retain only images with tags
+    images = [img for img in images if "imageTag" in img]
     repository_pattern = TAG_PATTERNS[repository_name]
     tags = check_tag(repository_pattern, images, version)
     if len(tags) == 0:

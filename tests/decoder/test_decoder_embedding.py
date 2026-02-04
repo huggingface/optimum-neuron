@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from transformers import AutoModel, AutoTokenizer
 
-from optimum.neuron.models.inference.auto_models import Qwen3NeuronModelForEmbedding
+from optimum.neuron import NeuronModelForEmbedding
 
 
 def last_token_pool(last_hidden_states: Tensor, attention_mask: Tensor) -> Tensor:
@@ -26,7 +26,10 @@ def compute_similarity(tokenized_inputs, model):
     outputs = model(**tokenized_inputs)
     if hasattr(outputs, "last_hidden_state"):
         outputs = outputs.last_hidden_state
-    embeddings = last_token_pool(outputs, tokenized_inputs["attention_mask"])
+    if outputs.shape[1] == 1:
+        embeddings = outputs[:, 0, :]
+    else:
+        embeddings = last_token_pool(outputs, tokenized_inputs["attention_mask"])
 
     # normalize embeddings
     embeddings = F.normalize(embeddings, p=2, dim=1)
@@ -35,14 +38,17 @@ def compute_similarity(tokenized_inputs, model):
 
 
 @pytest.mark.parametrize(
-    "batch_size, expected_scores",
+    "neuron_llm_config",
     [
-        (4, [[0.7265625, 0.203125], [0.2578125, 0.46484375]]),
-        (6, [[0.73046875, 0.2021484375], [0.2578125, 0.45703125]]),
+        "qwen3-embedding-4x8192",
+        "qwen3-embedding-6x8192",
     ],
-    ids=["without batch padding", "with batch padding"],
+    indirect=True,
 )
-def test_decoder_similarity(batch_size, expected_scores):
+def test_decoder_similarity(neuron_llm_config):
+    model_id = neuron_llm_config["model_id"]
+    neuron_model_path = neuron_llm_config["neuron_model_path"]
+    sequence_length = neuron_llm_config["export_kwargs"]["sequence_length"]
     # Each query must come with a one-sentence instruction that describes the task
     task = "Given a web search query, retrieve relevant passages that answer the query"
 
@@ -57,33 +63,25 @@ def test_decoder_similarity(batch_size, expected_scores):
     ]
     input_texts = queries + documents
 
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-Embedding-0.6B", padding_side="left")
-
-    max_length = 8192
+    tokenizer = AutoTokenizer.from_pretrained(model_id, padding_side="right")
 
     tokenized_inputs = tokenizer(
         input_texts,
         padding=True,
         truncation=True,
-        max_length=max_length,
+        max_length=sequence_length,
         return_tensors="pt",
     )
 
     # We just evaluate the CPU results as a reference, but the neuron results
     # are not that close so we don't do an explicit comparison
-    model = AutoModel.from_pretrained("Qwen/Qwen3-Embedding-0.6B")
+    model = AutoModel.from_pretrained(model_id)
     cpu_scores = compute_similarity(tokenized_inputs, model)
-    print(cpu_scores.tolist())
 
-    neuron_config = Qwen3NeuronModelForEmbedding.get_neuron_config(
-        "Qwen/Qwen3-Embedding-0.6B",
-        batch_size=batch_size,
-        sequence_length=1024,
-        tensor_parallel_size=2,
-    )
-    neuron_model = Qwen3NeuronModelForEmbedding.export(
-        model_id="Qwen/Qwen3-Embedding-0.6B", neuron_config=neuron_config, load_weights=True
-    )
+    neuron_model = NeuronModelForEmbedding.from_pretrained(neuron_model_path)
     neuron_scores = compute_similarity(tokenized_inputs, neuron_model)
-    print(neuron_scores.tolist())
-    assert torch.allclose(neuron_scores, torch.tensor(expected_scores, dtype=torch.bfloat16), atol=1e-2)
+    cpu_scores = cpu_scores.to(neuron_scores.dtype)
+    print("CPU scores: ", cpu_scores.tolist())
+    # [[0.7645566463470459, 0.14142508804798126], [0.13549773395061493, 0.5999549627304077]]
+    print("Neuron scores: ", neuron_scores.tolist())
+    assert torch.allclose(neuron_scores, cpu_scores, atol=1e-2)

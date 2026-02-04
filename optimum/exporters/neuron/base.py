@@ -23,7 +23,7 @@ import torch
 from optimum.utils import logging
 
 from ...exporters.base import ExportConfig
-from ...neuron.utils import DTYPE_MAPPER, ImageEncoderArguments, InputShapesArguments, is_neuron_available
+from ...neuron.utils import DTYPE_MAPPER, ImageEncoderArguments, InputShapesArguments
 
 
 if TYPE_CHECKING:
@@ -174,11 +174,7 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
         self.int_dtype = DTYPE_MAPPER.pt(int_dtype)
         self.float_dtype = DTYPE_MAPPER.pt(float_dtype)
 
-        if self.dynamic_batch_size is True and is_neuron_available():
-            logger.info("Overwriting batch size to 1 for neuron dynamic batch size support.")
-            batch_size = 1
-        else:
-            batch_size = input_shapes.batch_size
+        batch_size = input_shapes.batch_size
 
         if preprocessors:
             for preprocessor in preprocessors:

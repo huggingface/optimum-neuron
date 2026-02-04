@@ -77,15 +77,6 @@ training = [
     "evaluate == 0.4.3",
     "accelerate == 1.8.1",
 ]
-neuron = [
-    "wheel",
-    "torch-neuron==1.13.1.2.9.74.0",
-    "torch==1.13.1.*",
-    "neuron-cc[tensorflow]==1.22.0.0",
-    "torchvision",
-    "numpy==1.22.2",
-    "protobuf<=3.20.1",
-]
 neuronx = [
     "wheel",
     "neuronx-cc==2.21.33363.0",
@@ -114,7 +105,6 @@ vllm-tests = [
     "docker",
     "pytest-asyncio",
     "openai",
-    "smolagents[openai]",
 ]
 
 [project.scripts]
@@ -135,20 +125,6 @@ include = ["optimum*"]
 
 [tool.uv]
 index-strategy = "unsafe-best-match"
-conflicts = [
-  [
-    { extra = "neuron" },
-    { extra = "neuronx" },
-  ],
-  [
-    { extra = "neuron" },
-    { extra = "training" },
-  ],
-  [
-    { extra = "neuron" },
-    { extra = "vllm" },
-  ],
-]
 
 [[tool.uv.index]]
 name = "neuron"
@@ -189,7 +165,6 @@ known-first-party = ["optimum.neuron"]
 
 [tool.pytest.ini_options]
 markers = [
-    "is_staging_test",
     "is_trainium_test",
     "is_inferentia_test",
     "slow",

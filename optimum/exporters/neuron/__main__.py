@@ -50,7 +50,6 @@ from ...neuron.utils import (
     InputShapesArguments,
     IPAdapterArguments,
     LoRAAdapterArguments,
-    is_neuron_available,
     is_neuronx_available,
 )
 from ...neuron.utils.instance import align_compilation_target
@@ -68,12 +67,6 @@ from .utils import (
     get_encoder_decoder_models_for_export,
     replace_stable_diffusion_submodels,
 )
-
-
-if is_neuron_available():
-    from ...commands.export.neuron import parse_args_neuron
-
-    NEURON_COMPILER = "Neuron"
 
 
 if is_neuronx_available():
@@ -104,12 +97,6 @@ def infer_compiler_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     auto_cast = None if args.auto_cast == "none" else args.auto_cast
     auto_cast_type = None if auto_cast is None else args.auto_cast_type
     compiler_kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type, "instance_type": instance_type}
-
-    # Inf1 specific compiler args
-    if hasattr(args, "disable_fast_relayout"):
-        compiler_kwargs["disable_fast_relayout"] = getattr(args, "disable_fast_relayout")
-    if hasattr(args, "disable_fallback"):
-        compiler_kwargs["disable_fallback"] = getattr(args, "disable_fallback")
 
     return compiler_kwargs
 
@@ -434,10 +421,6 @@ def _get_submodels_and_neuron_configs_for_diffusion(
 ):
     check_compiler_compatibility_for_stable_diffusion()
     model = replace_stable_diffusion_submodels(model, submodels)
-    if is_neuron_available():
-        raise RuntimeError(
-            "Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
-        )
     input_shapes = infer_shapes_of_diffusers(
         input_shapes=input_shapes,
         model=model,
@@ -518,11 +501,6 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
     output_attentions: bool = False,
     output_hidden_states: bool = False,
 ):
-    if is_neuron_available():
-        raise RuntimeError(
-            "Encoder-decoder models export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
-        )
-
     models_and_neuron_configs = get_encoder_decoder_models_for_export(
         model=model,
         task=task,

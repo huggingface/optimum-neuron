@@ -48,7 +48,7 @@ from optimum.exporters.neuron import (
 )
 from optimum.exporters.neuron.__main__ import get_submodels_and_neuron_configs
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
-from optimum.neuron.utils import InputShapesArguments, is_neuron_available
+from optimum.neuron.utils import InputShapesArguments
 from optimum.neuron.utils.testing_utils import requires_neuronx
 
 from .exporters_utils import (
@@ -68,11 +68,6 @@ class NeuronExportTestCase(unittest.TestCase):
     """
     Integration tests ensuring supported models are correctly exported.
     """
-
-    if is_neuron_available():
-        # Deberta has 'XSoftmax' unsupported on INF1
-        for model in ["deberta", "deberta-v2"]:
-            EXPORT_MODELS_TINY.pop(model)
 
     def _neuronx_export(
         self,
