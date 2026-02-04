@@ -39,8 +39,8 @@ jobs:
     - name: Install dependencies
       run: |
         source aws_neuron_venv_pytorch/bin/activate
-        pip install --upgrade pip
-        pip install .[quality]
+        uv pip install --upgrade pip
+        uv pip install .[quality]
     - name: Check style with ruff
       run: |
         source aws_neuron_venv_pytorch/bin/activate

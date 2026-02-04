@@ -47,10 +47,10 @@ jobs:
             optimum-cli neuron cache synchronize
       - name: Setup new virtual environment without neuronx
         run: |
-          python3 -m venv on-no-neuronx
+          uv pip install torch==2.8.0 torchvision~=0.23 --index-url https://download.pytorch.org/whl/cpu
+          uv venv --python 3.11 on-no-neuronx
           source on-no-neuronx/bin/activate
-          pip install torch==2.8.0 torchvision~=0.23 --index-url https://download.pytorch.org/whl/cpu
-          pip install .
+          uv pip install .
       - name: Run lookup test
         run: |
           source on-no-neuronx/bin/activate

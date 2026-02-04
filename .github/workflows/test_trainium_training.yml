@@ -42,7 +42,7 @@ jobs:
       - name: Install training dependencies
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          pip install .[training]
+          uv pip install .[training]
       - name: Collect all tests on Neuron Cores
         run: |
           source aws_neuron_venv_pytorch/bin/activate

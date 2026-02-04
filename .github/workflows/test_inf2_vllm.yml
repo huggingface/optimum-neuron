@@ -75,7 +75,7 @@ jobs:
       - name: Install vLLM and test prerequisites
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          pip install .[vllm,vllm-tests]
+          uv pip install .[vllm,vllm-tests]
       - name: Export test models
         run: |
           source aws_neuron_venv_pytorch/bin/activate

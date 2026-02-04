@@ -54,7 +54,7 @@ jobs:
       - name: Install diffusers dependencies
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          pip install ".[diffusers,diffusers-tests]"
+          uv pip install ".[diffusers,diffusers-tests]"
       - name: Run stable diffusion tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate

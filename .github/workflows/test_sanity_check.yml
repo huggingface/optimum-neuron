@@ -1,0 +1,38 @@
+name: Optimum neuron / Sanity check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  test_sanity_check:
+    name: Run Optimum Neuron Sanity Check
+    runs-on: ubuntu-22.04
+    env:
+      HF_XET_HIGH_PERFORMANCE: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Neuronx runtime
+        uses: ./.github/actions/install_neuronx_runtime
+      - name: Setup virtual environment
+        uses: ./.github/actions/setup_venv
+      - name: Basic sanity checks
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          # Export a sample model and check that the cache is synchronized
+          HF_TOKEN=${{secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE}} \
+            optimum-cli export neuron -m llamafactory/tiny-random-qwen3 \
+              /tmp/exported-tiny-random-qwen3-embedding \
+              --batch_size 2 --sequence_length 1024 --tensor_parallel_size 2 --instance_type trn1
+          HF_TOKEN=${{secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE}} \
+            optimum-cli neuron cache synchronize
+          # Check that the model is cached
+          HF_TOKEN=${{secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE}} \
+            optimum-cli neuron cache lookup llamafactory/tiny-random-qwen3
