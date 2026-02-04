@@ -45,7 +45,7 @@ def pad(
     """
     batch_size = len(tensors)
     if max_length is None:
-        max_length = max([t.shape[0] for t in tensors])
+        max_length = max(t.shape[0] for t in tensors)
 
     output_shape = (max_length,) + tensors[0].shape[1:]
 
