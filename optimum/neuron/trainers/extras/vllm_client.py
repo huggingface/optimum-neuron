@@ -129,16 +129,9 @@ class MockVLLMClient(VLLMClient):
 
     Used for neuron_parallel_compile and testing. Generates completions by cycling
     through prompt tokens (echo mode), producing deterministic, non-garbage output.
-
-    Args:
-        tokenizer: Tokenizer for encoding/decoding
-        max_completion_length: Maximum completion length
-        min_completion_length: Minimum completion length (default: 10)
-        seed: Random seed for reproducibility (used for completion length variation)
     """
 
     def __init__(self, tokenizer, max_completion_length=256, min_completion_length=10, seed=None):
-        # Don't call super().__init__() - we don't need server connection
         self.tokenizer = tokenizer
         self.max_completion_length = max_completion_length
         self.min_completion_length = min(min_completion_length, max_completion_length)
@@ -164,11 +157,6 @@ class MockVLLMClient(VLLMClient):
         guided_decoding_regex=None,
         generation_kwargs=None,
     ):
-        """
-        Generate completions by cycling through prompt tokens (echo mode).
-
-        Returns dict with prompt_ids, completion_ids, and logprobs.
-        """
         prompt_ids = []
         completion_ids = []
         logprobs = []
@@ -213,17 +201,13 @@ class MockVLLMClient(VLLMClient):
         }
 
     def init_communicator(self, device):
-        """No-op: mock has no communicator."""
         pass
 
     def update_named_param(self, name, weights):
-        """No-op: mock has no model to update."""
         pass
 
     def reset_prefix_cache(self):
-        """No-op: mock has no cache."""
         pass
 
     def close_communicator(self):
-        """No-op: mock has no communicator."""
         pass
