@@ -234,7 +234,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 self.num_virtual_tokens = getattr(peft_model_config, "num_virtual_tokens", 0)
 
         # Reward functions - for now, only support callable reward functions
-        # TODO: Add support for reward models when they can be properly loaded on Neuron
         if not isinstance(reward_funcs, list):
             reward_funcs = [reward_funcs]
 
@@ -384,7 +383,8 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             self.ref_model = None
         elif isinstance(model, NeuronPeftModel):
             # Create reference model using base model class
-            # Original implementation was disabling adapters, but we create a separate model instance instead for XLA compatibility.
+            # Original implementation was disabling adapters, but we create a separate model
+            # instance instead for XLA compatibility.
             base_model_class = model.get_base_model().__class__
             base_trn_config = model.get_base_model().trn_config
             self.ref_model = base_model_class.from_pretrained(model_id, base_trn_config)
@@ -438,6 +438,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 self.vllm_client = MockVLLMClient(tokenizer, max_completion_length=self.max_completion_length)
             else:
                 self.vllm_client = VLLMClient(base_url=base_url, connection_timeout=args.vllm_server_timeout)
+
             # Only main process initializes the communicator for weight updates
             if self.accelerator.is_main_process:
                 self.vllm_client.init_communicator(device="cpu")
@@ -686,6 +687,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 # Clean up parameter name for vLLM
                 name = self._fix_param_name_to_vllm(name)
 
+                # TODO: Currently not supported, to implement asap in later PRs with vLLM integration.
                 # if self.vllm_mode == "server" and self.accelerator.is_main_process:
                 #     self.vllm_client.update_named_param(name, weight)
                 # elif self.vllm_mode == "colocate":
@@ -1190,9 +1192,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         """
         Compute a mask for high-entropy tokens (above the given quantile threshold).
         """
-        pad_value = -1e9
-        gathered = self.accelerator.gather(entropies)
-        return entropies
         pad_value = -1e9
         dtype = entropies.dtype
 
