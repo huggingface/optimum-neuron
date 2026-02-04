@@ -53,7 +53,7 @@ jobs:
       - name: Install diffusers dependencies
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          pip install ".[diffusers]"
+          uv pip install ".[diffusers]"
       - name: Run CPU compilation tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate

@@ -58,7 +58,7 @@ jobs:
         run: |
           sudo apt-get install ffmpeg -y
           source aws_neuron_venv_pytorch/bin/activate
-          pip install datasets[audio]
+          uv pip install datasets[audio]
       - name: Run transformers cache tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
