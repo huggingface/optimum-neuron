@@ -1,0 +1,34 @@
+# The workflow file for cleaning up Inf2 cache
+# It can be triggered by dispatch event or scheduler, to remove unused cache files on /mnt/hf_cache apt entries
+name: Cleanup Inf2 Cache
+on:
+  workflow_dispatch:
+  schedule:
+    # Schedule the workflow to run every second day at midnight UTC
+    - cron: '0 0 */2 * *'
+
+jobs:
+    do-the-job:
+      name: Apt cache cleanup
+      runs-on:
+        group: aws-inf2-8xlarge
+      steps:
+        - name: Apt cache cleanup
+          run: |
+            # list all /mnt/hf_cache/apt-cache subdirectories that do not contain a .lock directory
+            for dir in /mnt/hf_cache/apt-cache/*; do
+              if [[ -d "$dir" && ! -d "$dir/.lock" ]]; then
+                # get the size of the directory
+                size=$(sudo du -sh "$dir" | awk '{print $1}')
+                echo "Removing $dir ($size)"
+                sudo rm -rf "$dir"
+              fi
+            done
+            # list all /mnt/hf_cache/apt-cache subdirectories that contain a .lock directory
+            for dir in /mnt/hf_cache/apt-cache/*; do
+              if [[ -d "$dir" && -d "$dir/.lock" ]]; then
+                # get the size of the directory
+                size=$(sudo du -sh "$dir" | awk '{print $1}')
+                echo "Keeping $dir ($size) that is locked"
+              fi
+            done
