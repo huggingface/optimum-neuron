@@ -18,4 +18,4 @@ runs:
       - name: Display driver version
         shell: bash
         run: |
-          apt show aws-neuronx-dkms
+          cat /sys/module/neuron/version || echo "Neuron driver version not available"
