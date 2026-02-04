@@ -1,0 +1,78 @@
+name: 'Check Sanity and Paths'
+description: 'Checks if sanity workflow passed and if relevant paths were modified'
+inputs:
+  path_patterns:
+    description: 'Regex patterns for relevant paths (one per line)'
+    required: true
+outputs:
+  should_run:
+    description: 'Whether the test job should run'
+    value: ${{ steps.gate.outputs.should_run }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check sanity workflow result
+      id: check_sanity
+      shell: bash
+      run: |
+        if [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
+          echo "passed=true" >> $GITHUB_OUTPUT
+          echo "✓ Sanity workflow passed"
+        else
+          echo "passed=false" >> $GITHUB_OUTPUT
+          echo "✗ Sanity workflow failed"
+          exit 1
+        fi
+
+    - name: Check if relevant paths changed
+      id: check_paths
+      shell: bash
+      run: |
+        # For workflow_run triggered by PR or push
+        if [[ "${{ github.event.workflow_run.event }}" == "pull_request" ]]; then
+          # Get PR number and fetch changed files
+          PR_NUMBER=$(gh api /repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }} --jq '.pull_requests[0].number')
+          CHANGED_FILES=$(gh pr view $PR_NUMBER --json files --jq '.files[].path')
+        else
+          # For push events, compare commits
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.workflow_run.head_sha }}~1 ${{ github.event.workflow_run.head_sha }})
+        fi
+
+        echo "Changed files:"
+        echo "$CHANGED_FILES"
+
+        # Read path patterns from input (convert multiline to array)
+        PATTERNS="${{ inputs.path_patterns }}"
+
+        # Check if any relevant paths were modified
+        RELEVANT=false
+        while IFS= read -r pattern; do
+          if [[ -n "$pattern" ]] && echo "$CHANGED_FILES" | grep -qE "$pattern"; then
+            RELEVANT=true
+            echo "✓ Match found: $pattern"
+            break
+          fi
+        done <<< "$PATTERNS"
+
+        if [[ "$RELEVANT" == "true" ]]; then
+          echo "relevant=true" >> $GITHUB_OUTPUT
+          echo "✓ Relevant paths detected"
+        else
+          echo "relevant=false" >> $GITHUB_OUTPUT
+          echo "○ No relevant paths modified"
+        fi
+      env:
+        GH_TOKEN: ${{ github.token }}
+
+    - name: Gate decision
+      id: gate
+      shell: bash
+      run: |
+        if [[ "${{ steps.check_sanity.outputs.passed }}" == "true" && "${{ steps.check_paths.outputs.relevant }}" == "true" ]]; then
+          echo "should_run=true" >> $GITHUB_OUTPUT
+          echo "✓ Proceeding: sanity passed and relevant paths modified"
+        else
+          echo "should_run=false" >> $GITHUB_OUTPUT
+          echo "○ Skipping workflow"
+        fi
