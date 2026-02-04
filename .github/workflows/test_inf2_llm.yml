@@ -1,66 +1,54 @@
 name: Optimum neuron / Test INF2 LLM
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - "pyproject.toml"
-      - "optimum/commands/export/neuronx.py"
-      - "optimum/exporters/neuron/__main__.py"
-      - "optimum/neuron/configuration_utils.py"
-      - "optimum/neuron/modeling_base.py"
-      - "optimum/neuron/models/*.py"
-      - "optimum/neuron/models/inference/auto_models.py"
-      - "optimum/neuron/models/inference/modeling_utils.py"
-      - "optimum/neuron/models/inference/backend/**.py"
-      - "optimum/neuron/models/inference/granite/**.py"
-      - "optimum/neuron/models/inference/llama/**.py"
-      - "optimum/neuron/models/inference/llama4/**.py"
-      - "optimum/neuron/models/inference/mixtral/**.py"
-      - "optimum/neuron/models/inference/phi3/**.py"
-      - "optimum/neuron/models/inference/qwen2/**.py"
-      - "optimum/neuron/models/inference/qwen3/**.py"
-      - "optimum/neuron/models/inference/qwen3_moe/**.py"
-      - "optimum/neuron/pipelines/transformers/base.py"
-      - "optimum/neuron/utils/**.py"
-      - "optimum/neuron/version.py"
-      - "tests/fixtures/llm/**.py"
-      - "tests/decoder/**.py"
-      - ".github/workflows/test_inf2_llm.yml"
-  pull_request:
-    branches: [ main ]
-    paths:
-      - "pyproject.toml"
-      - "optimum/commands/export/neuronx.py"
-      - "optimum/exporters/neuron/__main__.py"
-      - "optimum/neuron/configuration_utils.py"
-      - "optimum/neuron/modeling_base.py"
-      - "optimum/neuron/models/*.py"
-      - "optimum/neuron/models/inference/auto_models.py"
-      - "optimum/neuron/models/inference/modeling_utils.py"
-      - "optimum/neuron/models/inference/backend/**.py"
-      - "optimum/neuron/models/inference/granite/**.py"
-      - "optimum/neuron/models/inference/llama/**.py"
-      - "optimum/neuron/models/inference/llama4/**.py"
-      - "optimum/neuron/models/inference/mixtral/**.py"
-      - "optimum/neuron/models/inference/phi3/**.py"
-      - "optimum/neuron/models/inference/qwen2/**.py"
-      - "optimum/neuron/models/inference/qwen3/**.py"
-      - "optimum/neuron/models/inference/qwen3_moe/**.py"
-      - "optimum/neuron/pipelines/transformers/base.py"
-      - "optimum/neuron/utils/**.py"
-      - "optimum/neuron/version.py"
-      - "tests/fixtures/llm/**.py"
-      - "tests/decoder/**.py"
-      - ".github/workflows/test_inf2_llm.yml"
+  # Trigger after sanity check completes
+  workflow_run:
+    workflows: ["Optimum neuron / Sanity check"]
+    types:
+      - completed
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.run_id }}
   cancel-in-progress: true
 
 jobs:
+  check-and-gate:
+    name: Check Sanity and Paths
+    runs-on: ubuntu-22.04
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check sanity and paths
+        id: check
+        uses: ./.github/actions/check-sanity-and-paths
+        with:
+          path_patterns: |
+            ^pyproject\.toml$
+            ^optimum/commands/export/neuronx\.py$
+            ^optimum/exporters/neuron/__main__\.py$
+            ^optimum/neuron/configuration_utils\.py$
+            ^optimum/neuron/modeling_base\.py$
+            ^optimum/neuron/models/[^/]+\.py$
+            ^optimum/neuron/models/inference/auto_models\.py$
+            ^optimum/neuron/models/inference/modeling_utils\.py$
+            ^optimum/neuron/models/inference/backend/.*\.py$
+            ^optimum/neuron/models/inference/(granite|llama|llama4|mixtral|phi3|qwen2|qwen3|qwen3_moe)/.*\.py$
+            ^optimum/neuron/pipelines/transformers/base\.py$
+            ^optimum/neuron/utils/.*\.py$
+            ^optimum/neuron/version\.py$
+            ^tests/fixtures/llm/.*\.py$
+            ^tests/decoder/.*\.py$
+            ^\.github/workflows/test_inf2_llm\.yml$
+
   do-the-job:
     name: Run INF2 LLM tests
+    needs: check-and-gate
+    if: needs.check-and-gate.outputs.should_run == 'true'
     runs-on:
       group: aws-inf2-8xlarge
     env:
