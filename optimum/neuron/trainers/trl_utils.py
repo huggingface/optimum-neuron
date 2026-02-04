@@ -45,7 +45,7 @@ def pad(
     """
     batch_size = len(tensors)
     if max_length is None:
-        max_length = np.max([t.shape[0] for t in tensors]).tolist()
+        max_length = max([t.shape[0] for t in tensors])
 
     output_shape = (max_length,) + tensors[0].shape[1:]
 
@@ -70,47 +70,15 @@ def pad(
 
 def entropy_from_logits(logits: torch.Tensor, chunk_size: int = 128) -> torch.Tensor:
     """
-    Compute the Shannon entropy (in nats) for each row of *logits* in a memory-efficient way.
+    Compute the Shannon entropy (in nats) for each row of *logits*.
 
-    Instead of materializing the full softmax for all rows at once, the logits are flattened to shape (N, num_classes),
-    where N is the product of all leading dimensions. Computation is then performed in chunks of size `chunk_size`
-    along this flattened dimension, reducing peak memory usage. The result is reshaped back to match the input's
-    leading dimensions.
-
-    This implementation uses pre-allocated output tensors instead of list accumulation to avoid
-    XLA graph fragmentation and repeated tensor allocations.
-
-    Args:
-        logits (`torch.Tensor`):
-            Logits tensor of shape `(..., num_classes)`. Entropy is taken along the last axis; all leading dimensions
-            are preserved in the output.
-        chunk_size (`int`, *optional*, defaults to `128`):
-            Number of rows from the flattened logits to process per iteration. Smaller values reduce memory usage at
-            the cost of more iterations.
-
-    Returns:
-        `torch.Tensor`:
-            Entropy values with shape `logits.shape[:-1]`.
+    Original implementation from trl.trainer.utils.entropy_from_logits provide a memory efficient alternative,
+    but it accumulates results in a list which can lead to graph fragmentation on XLA devices.
+    Here we keep things simple and compute the entropy in one go.
     """
-    original_shape = logits.shape[:-1]  # all dims except num_classes
-    num_classes = logits.shape[-1]
-
-    # Flatten all leading dimensions into one
-    flat_logits = logits.reshape(-1, num_classes)
-    total_rows = flat_logits.size(0)
-
-    # Pre-allocate output tensor to avoid list accumulation
-    entropies = torch.empty(total_rows, dtype=logits.dtype, device=logits.device)
-
-    # Process in chunks, writing directly to pre-allocated tensor
-    for start in range(0, total_rows, chunk_size):
-        end = min(start + chunk_size, total_rows)
-        chunk = flat_logits[start:end]
-        logps = F.log_softmax(chunk, dim=-1)
-        chunk_entropy = -(torch.exp(logps) * logps).sum(-1)
-        entropies[start:end] = chunk_entropy
-
-    return entropies.reshape(original_shape)
+    logps = F.log_softmax(logits, dim=-1)
+    entropy = -(torch.exp(logps) * logps).sum(-1)
+    return entropy
 
 
 def neuron_parallel_compile_tokenizer_decoder_method(
@@ -233,7 +201,7 @@ def nanmin(tensor: torch.Tensor) -> torch.Tensor:
     Compute the minimum value of a tensor, ignoring NaNs.
     """
     mask = torch.isnan(tensor)
-    filled = torch.where(mask, torch.full_like(tensor, float("inf")), tensor)
+    filled = torch.where(mask, torch.tensor(float("inf"), device=tensor.device), tensor)
     min_value = torch.min(filled)
     return min_value
 
@@ -244,7 +212,7 @@ def nanmax(tensor: torch.Tensor) -> torch.Tensor:
     Compute the maximum value of a tensor, ignoring NaNs.
     """
     mask = torch.isnan(tensor)
-    filled = torch.where(mask, torch.full_like(tensor, float("-inf")), tensor)
+    filled = torch.where(mask, torch.tensor(float("-inf"), device=tensor.device), tensor)
     max_value = torch.max(filled)
     return max_value
 
