@@ -1,44 +1,50 @@
 name: Optimum neuron / Test INF2 Diffusers
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - "pyproject.toml"
-      - "optimum/commands/export/neuronx.py"
-      - "optimum/exporters/**.py"
-      - "optimum/neuron/cache/**.py"
-      - "optimum/neuron/modeling_base.py"
-      - "optimum/neuron/modeling_traced.py"
-      - "optimum/neuron/modeling_diffusion.py"
-      - "optimum/neuron/models/inference/flux/**.py"
-      - "optimum/neuron/pipelines/diffusers/**.py"
-      - "optimum/neuron/utils/**.py"
-      - "tests/inference/diffusers/**.py"
-      - ".github/workflows/test_inf2_diffusers.yml"
-  pull_request:
-    branches: [ main ]
-    paths:
-      - "pyproject.toml"
-      - "optimum/commands/export/neuronx.py"
-      - "optimum/exporters/**.py"
-      - "optimum/neuron/cache/**.py"
-      - "optimum/neuron/modeling_base.py"
-      - "optimum/neuron/modeling_traced.py"
-      - "optimum/neuron/modeling_diffusion.py"
-      - "optimum/neuron/models/inference/flux/**.py"
-      - "optimum/neuron/pipelines/diffusers/**.py"
-      - "optimum/neuron/utils/**.py"
-      - "tests/inference/diffusers/**.py"
-      - ".github/workflows/test_inf2_diffusers.yml"
+  # Trigger after sanity check completes
+  workflow_run:
+    workflows: ["Optimum neuron / Sanity check"]
+    types:
+      - completed
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.run_id }}
   cancel-in-progress: true
 
 jobs:
+  check-and-gate:
+    name: Check Sanity and Paths
+    runs-on: ubuntu-22.04
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check sanity and paths
+        id: check
+        uses: ./.github/actions/check-sanity-and-paths
+        with:
+          path_patterns: |
+            ^pyproject\.toml$
+            ^optimum/commands/export/neuronx\.py$
+            ^optimum/exporters/.*\.py$
+            ^optimum/neuron/cache/.*\.py$
+            ^optimum/neuron/modeling_base\.py$
+            ^optimum/neuron/modeling_traced\.py$
+            ^optimum/neuron/modeling_diffusion\.py$
+            ^optimum/neuron/models/inference/flux/.*\.py$
+            ^optimum/neuron/pipelines/diffusers/.*\.py$
+            ^optimum/neuron/utils/.*\.py$
+            ^tests/inference/diffusers/.*\.py$
+            ^\.github/workflows/test_inf2_diffusers\.yml$
+
   do-the-job:
     name: Run INF2 tests
+    needs: check-and-gate
+    if: needs.check-and-gate.outputs.should_run == 'true'
     runs-on:
       group: aws-inf2-8xlarge
     steps:
