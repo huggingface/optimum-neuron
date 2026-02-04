@@ -39,6 +39,14 @@ class NeuronGRPOConfig(NeuronTrainingArguments, GRPOConfig):
     with GRPOConfig for GRPO algorithm parameters.
     """
 
+    experimental: bool = field(
+        default=False,
+        metadata={
+            "help": "NeuronGRPOTrainer is experimental and not production-ready. Set to `True` to acknowledge this and "
+            "proceed. If `False` (the default), an error will be raised at initialization."
+        },
+    )
+
     use_vllm: bool = field(
         default=True,
         metadata={
@@ -48,26 +56,27 @@ class NeuronGRPOConfig(NeuronTrainingArguments, GRPOConfig):
     )
 
     def __post_init__(self):
+        if not self.experimental:
+            raise ValueError(
+                "NeuronGRPOTrainer is experimental and not production-ready. To proceed, set `experimental=True` in "
+                "your NeuronGRPOConfig. This flag exists to ensure users are aware of the current state of the implementation."
+            )
+
         # For now, NeuronGRPOTrainer requires vLLM for generation, no other way is supported.
         if not self.use_vllm:
             raise ValueError("NeuronGRPOTrainer requires `use_vllm` to be set to `True`.")
 
-        # Handle bf16 default (from GRPOConfig)
         self.bf16 = not (self.fp16) if self.bf16 is None else self.bf16
 
-        # Call NeuronTrainingArguments.__post_init__ to initialize Neuron-specific settings
         NeuronTrainingArguments.__post_init__(self)
 
-        # Convert scale_rewards boolean to string (from GRPOConfig)
         self.scale_rewards = {True: "group", False: "none"}.get(self.scale_rewards, self.scale_rewards)
 
         num_processes = self.world_size
-        # The current default effective batch size
         if self.generation_batch_size is None and self.steps_per_generation is None:
             self.steps_per_generation = self.gradient_accumulation_steps
             self.generation_batch_size = self.per_device_train_batch_size * num_processes * self.steps_per_generation
         elif self.generation_batch_size is not None and self.steps_per_generation is None:
-            # Just ensure the value is divisible by the global batch size
             if self.generation_batch_size % (self.per_device_train_batch_size * num_processes) != 0:
                 raise ValueError(
                     f"generation_batch_size ({self.generation_batch_size}) must be divisible by the global batch size "
