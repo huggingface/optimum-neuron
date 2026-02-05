@@ -29,6 +29,7 @@ from ..utils import is_trl_available
 if is_trl_available():
     from trl.trainer.utils import RepeatSampler
 else:
+
     class RepeatSampler:
         pass
 

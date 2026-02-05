@@ -24,16 +24,20 @@ import torch
 import torch_xla
 from optimum.utils import logging
 
-from ..utils import is_trl_available
+from ...utils import is_trl_available
+
 
 if is_trl_available():
     from trl.extras.vllm_client import VLLMClient as TRLVLLMClient
     from trl.import_utils import is_vllm_available
 else:
+
     class TRLVLLMClient:
         pass
+
     def is_vllm_available():
         return False
+
 
 if is_vllm_available():
     from vllm.distributed.utils import StatelessProcessGroup
