@@ -36,3 +36,9 @@ jobs:
           # Check that the model is cached
           HF_TOKEN=${{secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE}} \
             optimum-cli neuron cache lookup llamafactory/tiny-random-qwen3
+      - name: Check style with ruff
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          uv pip install .[quality]
+          ruff format . --diff --exclude aws_neuron_venv_pytorch
+          ruff check . --exclude aws_neuron_venv_pytorch
