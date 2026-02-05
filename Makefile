@@ -14,7 +14,6 @@
 SHELL := /bin/bash
 CURRENT_DIR = $(shell pwd)
 UV = $(shell command -v uv)
-UV_ARGS = $(if $(UV),--index-strategy unsafe-best-match)
 
 .PHONY:	build_dist style style_check clean
 
@@ -43,10 +42,7 @@ $(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)
 # Installation
 install: $(PACKAGE_DIST)
 	# Force CPU version of torch to speed up installation time
-	$(UV) pip install --upgrade $(PACKAGE_DIST)[neuronx] \
-		--extra-index-url https://download.pytorch.org/whl/cpu \
-		--extra-index-url https://pip.repos.neuron.amazonaws.com \
-		$(UV_ARGS)
+	$(UV) pip install --upgrade $(PACKAGE_DIST)[neuronx]
 
 # Run code quality checks
 style_check:
@@ -59,8 +55,8 @@ style:
 
 # Utilities to release to PyPi
 build_dist_install_tools:
-	python -m pip install build
-	python -m pip install twine
+	$(UV) pip install build
+	$(UV) pip install twine
 
 build_dist: ${PACKAGE_DIST} ${PACKAGE_WHEEL}
 
