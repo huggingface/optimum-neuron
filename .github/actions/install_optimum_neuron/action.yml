@@ -7,4 +7,4 @@ runs:
         shell: bash
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          python -m pip install .[neuronx,tests,training]
+          python -m pip install .[neuronx,tests]
