@@ -22,7 +22,16 @@ import torch.nn.functional as F
 from optimum.utils import logging
 from torch.utils.data import Dataset
 from torch.utils.data.distributed import DistributedSampler
-from trl.trainer.utils import RepeatSampler
+
+from ..utils import is_trl_available
+
+
+if is_trl_available():
+    from trl.trainer.utils import RepeatSampler
+else:
+    class RepeatSampler:
+        pass
+
 
 from ..utils import is_precompilation
 
