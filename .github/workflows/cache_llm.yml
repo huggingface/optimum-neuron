@@ -1,25 +1,51 @@
 name: Optimum neuron LLM inference cache builder
 
 on:
+  # Manual trigger
   workflow_dispatch:
+
+  # Trigger after sanity check completes
+  workflow_run:
+    workflows: ["Optimum neuron / Sanity check"]
+    types:
+      - completed
+
+  # Daily scheduled run
   schedule:
-    # Schedule the workflow to run every day at midnight UTC
     - cron: '0 0 * * *'
+
+  # Trigger on version tags
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
-  pull_request:
-    branches: [ main ]
-    paths:
-      - ".github/workflows/cache_llm.yml"
-      - "tools/cache/auto_fill_llm_cache.py"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.run_id }}
 
 jobs:
+  check-and-gate:
+    name: Check Sanity and Paths
+    runs-on: ubuntu-22.04
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check sanity and paths
+        id: check
+        uses: ./.github/actions/check-sanity-and-paths
+        with:
+          path_patterns: |
+            ^\.github/workflows/cache_llm\.yml$
+            ^tools/cache/auto_fill_llm_cache\.py$
+
   cache:
     name: Create optimum-neuron LLM inference cache
+    needs: check-and-gate
+    if: needs.check-and-gate.outputs.should_run == 'true'
     runs-on:
       group: aws-inf2-8xlarge
     env:
