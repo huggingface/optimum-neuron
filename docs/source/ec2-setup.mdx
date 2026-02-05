@@ -250,15 +250,24 @@ If you choose manual installation, you will need to ensure the Neuron drivers an
 
 Before installing `optimum-neuron` make sure that you have installed the Neuron driver and tools, check out [more detailed guide here](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/setup/torch-neuronx.html#setup-torch-neuronx).
 
-### Adding pip packages URL
+### Installation with uv
 
-Pointing to the AWS Neuron repository:
+If you are using [uv](https://docs.astral.sh/uv/), you can install `optimum-neuron` with the following command:
+
+```bash
+uv pip install optimum-neuron[neuronx]
+```
+### Installation with pip
+
+If you are not using uv, you will first need to point to the AWS Neuron repository URL:
+
+and then you can install `optimum-neuron` with the following command:
 
 ```bash
 python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
 ```
 
-### Installing `optimum-neuron` for AWS Trainium (`trn1`) or AWS inferentia2 (`inf2`)
+And then you can install `optimum-neuron` with the following command:
 
 ```bash
 python -m pip install optimum-neuron[neuronx]
