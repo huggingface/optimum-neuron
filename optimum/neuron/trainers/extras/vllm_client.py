@@ -23,6 +23,7 @@ import requests
 import torch
 import torch_xla
 from optimum.utils import logging
+from requests.exceptions import RequestException
 
 from ...utils import is_trl_available
 
@@ -99,7 +100,9 @@ class VLLMClient(TRLVLLMClient):
         if response.status_code == 200:
             vllm_world_size = response.json()["world_size"]
         else:
-            raise Exception(f"Request failed: {response.status_code}, {response.text}")
+            raise RequestException(
+                f"HTTP request to {url} failed with status code {response.status_code}: {response.text}"
+            )
 
         world_size = vllm_world_size + 1  # add the client to the world
         self.rank = vllm_world_size  # the client's rank is the last process
@@ -121,7 +124,7 @@ class VLLMClient(TRLVLLMClient):
             },
         )
         if response.status_code != 200:
-            raise Exception(f"Request failed: {response.status_code}, {response.text}")
+            raise RequestException(f"Request failed: {response.status_code}, {response.text}")
 
         # Brief delay to allow server initialization. While not strictly required (client socket will retry on
         # connection failure), this prevents log warnings like:
