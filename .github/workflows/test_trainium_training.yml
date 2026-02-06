@@ -12,7 +12,7 @@ on:
     - cron: "0 4 * * 1-5"  # 5 AM UTC + 1 time, Monday-Friday
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref_name || github.run_id }}
   cancel-in-progress: true
 
 jobs:

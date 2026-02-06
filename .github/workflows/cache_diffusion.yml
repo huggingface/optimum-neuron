@@ -20,7 +20,8 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref_name || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   check-and-gate:
