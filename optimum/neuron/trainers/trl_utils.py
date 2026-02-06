@@ -41,15 +41,23 @@ logger = logging.get_logger()
 
 TRL_VERSION = "0.24.0"
 
+
+# We attempt to set the device to "xla" for XLA compatibility, but fall back to "cpu" if not available.
+# The library can run in non-XLA environments for doc building.
+try:
+    DEVICE = torch.device("xla")
+except Exception:
+    DEVICE = torch.device("cpu")
+
 # We define some commonly used tensor constants on the XLA device to avoid
 # creating them repeatedly during compilation.
 TENSOR_CONSTANTS = {
-    "NEG_INF": torch.tensor(float("-inf"), device=torch.device("xla")),
-    "POS_INF": torch.tensor(float("inf"), device=torch.device("xla")),
-    "NAN": torch.tensor(float("nan"), device=torch.device("xla")),
-    "ONE": torch.tensor(1.0, device=torch.device("xla")),
-    "ZERO": torch.tensor(0.0, device=torch.device("xla")),
-    "ONE_LONG": torch.tensor(1, dtype=torch.long, device=torch.device("xla")),
+    "NEG_INF": torch.tensor(float("-inf"), device=DEVICE),
+    "POS_INF": torch.tensor(float("inf"), device=DEVICE),
+    "NAN": torch.tensor(float("nan"), device=DEVICE),
+    "ONE": torch.tensor(1.0, device=DEVICE),
+    "ZERO": torch.tensor(0.0, device=DEVICE),
+    "ONE_LONG": torch.tensor(1, dtype=torch.long, device=DEVICE),
 }
 
 
