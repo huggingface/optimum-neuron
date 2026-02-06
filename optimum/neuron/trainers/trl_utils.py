@@ -41,6 +41,17 @@ logger = logging.get_logger()
 
 TRL_VERSION = "0.24.0"
 
+# We define some commonly used tensor constants on the XLA device to avoid
+# creating them repeatedly during compilation.
+TENSOR_CONSTANTS = {
+    "NEG_INF": torch.tensor(float("-inf"), device=torch.device("xla")),
+    "POS_INF": torch.tensor(float("inf"), device=torch.device("xla")),
+    "NAN": torch.tensor(float("nan"), device=torch.device("xla")),
+    "ONE": torch.tensor(1.0, device=torch.device("xla")),
+    "ZERO": torch.tensor(0.0, device=torch.device("xla")),
+    "ONE_LONG": torch.tensor(1, dtype=torch.long, device=torch.device("xla")),
+}
+
 
 def pad(
     tensors: list[torch.Tensor],
@@ -207,7 +218,7 @@ def nanmin(tensor: torch.Tensor) -> torch.Tensor:
     Compute the minimum value of a tensor, ignoring NaNs.
     """
     mask = torch.isnan(tensor)
-    filled = torch.where(mask, torch.tensor(float("inf"), device=tensor.device), tensor)
+    filled = torch.where(mask, TENSOR_CONSTANTS["POS_INF"], tensor)
     min_value = torch.min(filled)
     return min_value
 
@@ -218,7 +229,7 @@ def nanmax(tensor: torch.Tensor) -> torch.Tensor:
     Compute the maximum value of a tensor, ignoring NaNs.
     """
     mask = torch.isnan(tensor)
-    filled = torch.where(mask, torch.tensor(float("-inf"), device=tensor.device), tensor)
+    filled = torch.where(mask, TENSOR_CONSTANTS["NEG_INF"], tensor)
     max_value = torch.max(filled)
     return max_value
 
@@ -237,7 +248,7 @@ def nanstd(tensor: torch.Tensor, unbiased: bool = False) -> torch.Tensor:
     diff_squared = torch.where(mask, (clean - mean) ** 2, torch.zeros_like(tensor))
 
     if unbiased:
-        variance = diff_squared.sum() / (count - 1).clamp(min=torch.tensor(1.0, device=tensor.device))
+        variance = diff_squared.sum() / (count - 1).clamp(min=TENSOR_CONSTANTS["ONE"])
     else:
         variance = diff_squared.sum() / count
 

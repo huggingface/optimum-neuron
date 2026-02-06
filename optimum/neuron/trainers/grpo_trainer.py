@@ -56,6 +56,7 @@ from .grpo_config import NeuronGRPOConfig
 from .training_args import NeuronTrainingArguments
 from .transformers import NeuronTrainer
 from .trl_utils import (
+    TENSOR_CONSTANTS,
     TRL_VERSION,
     DistributedRepeatSampler,
     batch_pad_sequences,
@@ -297,6 +298,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         self.vllm_tensor_parallel_size = args.vllm_tensor_parallel_size
         self.vllm_importance_sampling_correction = args.vllm_importance_sampling_correction
         self.vllm_importance_sampling_cap = args.vllm_importance_sampling_cap
+        if self.vllm_importance_sampling_cap is not None:
+            # Create the tensor here to avoid repeated tensor creation during training.
+            self.vllm_importance_sampling_cap = torch.tensor(self.vllm_importance_sampling_cap, device="xla")
         self.use_liger_loss = args.use_liger_loss
         self.loss_type = args.loss_type
         self.scale_rewards = args.scale_rewards
@@ -349,6 +353,10 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         self.num_iterations = args.num_iterations
         self.epsilon_low = args.epsilon
         self.epsilon_high = args.epsilon_high if args.epsilon_high is not None else args.epsilon
+        # Precompute these tensors to avoid repeated creation during training.
+        self.one_minus_epsilon_low = torch.tensor(1 - self.epsilon_low, device="xla")
+        self.one_plus_epsilon_high = torch.tensor(1 + self.epsilon_high, device="xla")
+
         self._step = 0
         self._buffered_inputs = None
 
@@ -368,6 +376,11 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             optimizers=optimizers,
             optimizer_cls_and_kwargs=optimizer_cls_and_kwargs,
         )
+
+        if self.args.delta is not None:
+            self.delta = torch.tensor(args.delta, device="xla")
+        else:
+            self.delta = None
 
         # Set _train_batch_size for compatibility with GRPOTrainer's get_train_dataloader
         # NeuronTrainer doesn't set this, but GRPOTrainer expects it
@@ -480,14 +493,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         self.pp_rank = get_pipeline_model_parallel_rank()
 
         self.fixed_size_obj_collectives = fixed_size_for_obj_collectives
-
-        # Pre-create constant tensors for XLA optimization.
-        # These are used in clamp operations and comparisons. Creating them once avoids
-        # repeated tensor allocations that cause XLA graph fragmentation.
-        device = xm.xla_device()
-        self._one_float = torch.tensor(1.0, dtype=torch.float32, device=device)
-        self._one_long = torch.tensor(1, dtype=torch.long, device=device)
-        self._inf_float = torch.tensor(float("inf"), dtype=torch.float32, device=device)
 
     def _get_train_sampler(self, dataset: Dataset | None = None) -> Sampler:
         if dataset is None:
@@ -977,7 +982,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
                 importance_sampling_ratio = torch.exp(old_per_token_logps - sampling_per_token_logps)
                 importance_sampling_ratio = torch.clamp(
                     importance_sampling_ratio,
-                    max=torch.tensor(self.vllm_importance_sampling_cap, device=importance_sampling_ratio.device),
+                    max=self.vllm_importance_sampling_cap,
                 )
 
             # Compute the per-token log probabilities for the reference model
@@ -1119,7 +1124,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             # )
             # But it is not XLA friendly because it involves dynamic indexing before reduction, so we rewrite it as:
             # Use pre-created inf constant (cast to proper dtype if needed)
-            inf_val = self._inf_float.to(dtype=importance_sampling_ratio.dtype)
+            inf_val = TENSOR_CONSTANTS["POS_INF"].to(dtype=importance_sampling_ratio.dtype)
             masked_is_ratio_for_min = torch.where(
                 completion_mask.bool(),
                 importance_sampling_ratio,
@@ -1195,8 +1200,6 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         pad_value = -1e9
         dtype = entropies.dtype
 
-        # Create pad tensor from pre-allocated constant (avoids allocation in hot path)
-        # Note: pad_value is negative, so we can't use self._inf_float directly
         pad_tensor = torch.full_like(entropies[:1, :1], pad_value).expand_as(entropies)
 
         masked_entropies = torch.where(mask.bool(), entropies, pad_tensor)
@@ -1216,7 +1219,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         # Use torch.gather instead of dynamic indexing to maintain XLA compatibility
         quantile_idx = num_sentinels + (threshold * num_valid_values.float()).long()
         quantile_idx = quantile_idx.clamp(
-            min=torch.tensor(0, device=quantile_idx.device),
+            min=TENSOR_CONSTANTS["ZERO"],
             max=torch.tensor(gathered.numel() - 1, device=quantile_idx.device),
         )
 
@@ -1225,7 +1228,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
         # Handle empty case: if everything is sentinel, set threshold to +inf so no token is selected
         has_valid = num_valid_values > 0
-        inf_val = self._inf_float.to(dtype=dtype)
+        inf_val = TENSOR_CONSTANTS["POS_INF"].to(dtype=dtype)
         entropy_threshold = torch.where(has_valid, entropy_threshold, inf_val)
 
         entropy_mask = (entropies > entropy_threshold) & mask.bool()
@@ -1290,7 +1293,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             elif self.importance_sampling_level == "sequence":
                 # Use tensor min value for clamp to avoid torch neuron SDK bug with Python literals
                 log_importance_weights = (log_ratio * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(
-                    min=self._one_float,
+                    min=TENSOR_CONSTANTS["ONE"],
                 )
                 log_importance_weights = log_importance_weights.unsqueeze(-1)
             else:
@@ -1304,13 +1307,13 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             coef_1 = torch.exp(log_importance_weights)
             coef_2 = torch.clamp(
                 coef_1,
-                torch.tensor(1 - self.epsilon_low, device=coef_1.device),
-                torch.tensor(1 + self.epsilon_high, device=coef_1.device),
+                self.one_minus_epsilon_low,
+                self.one_plus_epsilon_high,
             )
 
             # Two-sided clipping
             if self.args.delta is not None:
-                coef_1 = torch.clamp(coef_1, max=torch.tensor(self.args.delta, device=coef_1.device))
+                coef_1 = torch.clamp(coef_1, max=self.delta)
 
             per_token_loss1 = coef_1 * advantages.unsqueeze(1)
             per_token_loss2 = coef_2 * advantages.unsqueeze(1)
@@ -1326,11 +1329,14 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
             if self.loss_type == "grpo":
                 loss = (
-                    (per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=self._one_float)
+                    (per_token_loss * completion_mask).sum(-1)
+                    / completion_mask.sum(-1).clamp(min=TENSOR_CONSTANTS["ONE"])
                 ).mean()
                 loss = loss / self.current_gradient_accumulation_steps
             elif self.loss_type == "bnpo":
-                loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=self._one_float)
+                loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(
+                    min=TENSOR_CONSTANTS["ONE"]
+                )
                 loss = loss / self.current_gradient_accumulation_steps
             elif self.loss_type == "dr_grpo":
                 loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)
@@ -1344,7 +1350,7 @@ class NeuronGRPOTrainer(_GRPOTrainer):
             # Log the metrics
             mode = "train" if self.model.training else "eval"
 
-            completion_token_count = completion_mask.sum().clamp(min=self._one_float)
+            completion_token_count = completion_mask.sum().clamp(min=TENSOR_CONSTANTS["ONE"])
 
             def masked_batch_mean(x):
                 if x.shape[1] == 1:  # when importance_sampling_level == "sequence"
