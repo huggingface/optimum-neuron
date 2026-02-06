@@ -282,9 +282,9 @@ class DistributedRepeatSampler(RepeatSampler, DistributedSampler):
         # Store DistributedSampler attributes for interface compatibility
         # (but we don't use them for actual distribution)
         if num_replicas is None:
-            num_replicas = dist.get_world_size() if dist.is_available() else 1
+            num_replicas = dist.get_world_size() if dist.is_available() and dist.is_initialized() else 1
         if rank is None:
-            rank = dist.get_rank() if dist.is_available() else 0
+            rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else 0
 
         self.num_replicas = num_replicas
         self.rank = rank
