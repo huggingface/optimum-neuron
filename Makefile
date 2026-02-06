@@ -42,7 +42,9 @@ $(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)
 # Installation
 install: $(PACKAGE_DIST)
 	# Force CPU version of torch to speed up installation time
-	$(UV) pip install --upgrade $(PACKAGE_DIST)[neuronx]
+	$(UV) pip install --upgrade $(PACKAGE_DIST)[neuronx] \
+		--extra-index-url https://download.pytorch.org/whl/cpu \
+		--extra-index-url https://pip.repos.neuron.amazonaws.com
 
 # Run code quality checks
 style_check:
