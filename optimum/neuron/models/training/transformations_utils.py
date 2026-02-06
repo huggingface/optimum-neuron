@@ -653,7 +653,10 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                         break
 
                 if weight_name is None or to_duplicate_name is None:
-                    continue
+                    logger.warning(
+                        f"Could not find the LoRA weights for the fused linear {module_fully_qualified_name}, skipping "
+                        "unfusing for this layer."
+                    )
 
                 # When saved, the name of the adapter is removed in the weight qualified name since weights for each
                 # adapter are saved separately.
