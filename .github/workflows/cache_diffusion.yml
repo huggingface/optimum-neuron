@@ -51,7 +51,6 @@ jobs:
       group: aws-inf2-8xlarge
     env:
       AWS_REGION: us-east-1
-      HF_XET_HIGH_PERFORMANCE: 1
     strategy:
       fail-fast: false
       matrix:

@@ -49,8 +49,6 @@ jobs:
     if: needs.check-and-gate.outputs.should_run == 'true'
     runs-on:
       group: aws-inf2-8xlarge
-    env:
-      HF_XET_HIGH_PERFORMANCE: 1
     strategy:
       fail-fast: false
       matrix:

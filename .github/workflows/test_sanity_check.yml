@@ -15,7 +15,6 @@ jobs:
     name: Run Optimum Neuron Sanity Check
     runs-on: ubuntu-22.04
     env:
-      HF_XET_HIGH_PERFORMANCE: 1
       MODEL_ID: llamafactory/tiny-random-qwen3
     steps:
       - name: Checkout
