@@ -38,7 +38,6 @@ jobs:
       - name: Setup environment
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          uv pip install --upgrade pip
           uv pip install ".[quality, diffusers]"
           uv pip install "git+https://github.com/huggingface/doc-builder.git"
       - name: Convert notebooks
