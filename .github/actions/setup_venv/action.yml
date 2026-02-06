@@ -1,14 +1,5 @@
 name: Setup virtual environment
 description: Prepare virtual environment and install optimum-neuron
-inputs:
-  torch_version:
-    description: 'The pytorch version to be installed'
-    required: true
-    default: '2.8.0'
-  torchvision_version:
-    description: 'The torchvision version to be installed'
-    required: true
-    default: '0.23.0'
 runs:
     using: "composite"
     steps:
