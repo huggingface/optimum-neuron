@@ -118,7 +118,7 @@ def neuron_parallel_compile_tokenizer_decoder_method(
     if not is_precompilation():
         raise RuntimeError("This patch method should only be used with `neuron_parallel_compile`.")
 
-    # We log the token IDs to force the data mouvement to CPU, which would happen during actual decoding.
+    # We log the token IDs to force the data movement to CPU, which would happen during actual decoding.
     logger.debug("Using patched tokenizer.decode method for Neuron parallel compilation, token_ids = ", token_ids)
 
     # Returns a dummy string, we do not care about the value in this context.
