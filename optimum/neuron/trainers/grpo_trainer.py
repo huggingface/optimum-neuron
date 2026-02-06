@@ -677,6 +677,9 @@ class NeuronGRPOTrainer(_GRPOTrainer):
         rewards_per_func = self.accelerator.gather(rewards_per_func)
         return rewards_per_func
 
+    def _fix_param_name_to_vllm(self, name: str) -> str:
+        raise NotImplementedError("Parameter name fixing for vLLM is not yet implemented in NeuronGRPOTrainer.")
+
     def _move_model_to_vllm(self):
         if isinstance(self.model, NeuronPeftModel):
             # Get original (unsharded, untransformed) merged weights for vLLM
