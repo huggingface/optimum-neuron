@@ -1095,6 +1095,32 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
     @property
     def is_encoder_decoder(self) -> bool:
         return True
+    
+    def get_parallel_callable(self):
+        from optimum.neuron.models.inference.t5.modeling_t5 import NeuronT5EncoderModel
+
+        model = NeuronT5EncoderModel(self)
+        model = model.to(self.float_dtype)
+        model.eval()
+
+        return model
+
+    def convert_hf_to_neuron_state_dict(self, state_dict: dict) -> dict:
+        for k, v in state_dict.items():
+            state_dict[k] = v.clone().detach().contiguous()
+        return state_dict
+
+    @staticmethod
+    def update_state_dict_for_tied_weights(state_dict):
+        pass
+
+    def get_compiler_args(self, instance_type):
+        compiler_args = "--model-type=transformer -O1"
+        compiler_args += " --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=4'"
+
+        compiler_args += " --auto-cast=none --internal-hlo2tensorizer-options='--verify-hlo=true'"
+
+        return compiler_args
 
     def patch_model_and_prepare_aliases(self, model_or_path, device="xla", **kwargs):
         num_beams = kwargs.pop("num_beams", 1)
@@ -1125,36 +1151,6 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
             aliases = self.generate_io_aliases(checked_model)
 
             return checked_model, aliases
-
-    def get_parallel_callable(
-        self, model_name_or_path, sequence_length, batch_size, num_beams, device, tensor_parallel_size
-    ):
-        """Unlike `torch_neuronx.trace`, `parallel_model_trace` requires a function returning a model object and a dictionary of states."""
-        model = TasksManager.get_model_from_task(
-            model_name_or_path=model_name_or_path,
-            task=self.task,
-            framework="pt",
-            library_name="transformers",
-        )  # TODO: add extra args, eg. revision, trust_remote_code, etc.
-        model.config.use_cache = True
-        with saved_model_in_temporary_directory(model) as ckpt_path:
-            # Plug in parallel layers
-            from optimum.neuron.models.inference.t5.modeling_t5 import parallelize
-
-            parallel_model = parallelize(model)
-            # Load the weights into the parallel layers
-            neuronx_distributed.parallel_layers.load(ckpt_path, parallel_model, sharded=False)
-        encoder = self.CUSTOM_MODEL_WRAPPER(
-            parallel_model,
-            sequence_length=sequence_length,
-            batch_size=batch_size,
-            num_beams=num_beams,
-            device=device,
-            tensor_parallel_size=tensor_parallel_size,
-        )
-        encoder.eval()
-        aliases = self.generate_io_aliases(encoder)
-        return encoder, aliases
 
     def generate_io_aliases(self, encoder=None):
         aliases = {}
