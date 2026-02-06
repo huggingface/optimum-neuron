@@ -42,23 +42,25 @@ logger = logging.get_logger()
 TRL_VERSION = "0.24.0"
 
 
-# We attempt to set the device to "xla" for XLA compatibility, but fall back to "cpu" if not available.
-# The library can run in non-XLA environments for doc building.
-try:
-    DEVICE = torch.device("xla")
-except Exception:
-    DEVICE = torch.device("cpu")
+def create_tensor_constants() -> dict[str, torch.Tensor]:
+    try:
+        device = torch.device("xla")
+    except Exception:
+        device = torch.device("cpu")
+
+    return {
+        "NEG_INF": torch.tensor(float("-inf"), device=device),
+        "POS_INF": torch.tensor(float("inf"), device=device),
+        "NAN": torch.tensor(float("nan"), device=device),
+        "ONE": torch.tensor(1.0, device=device),
+        "ZERO": torch.tensor(0.0, device=device),
+        "ONE_LONG": torch.tensor(1, dtype=torch.long, device=device),
+    }
+
 
 # We define some commonly used tensor constants on the XLA device to avoid
 # creating them repeatedly during compilation.
-TENSOR_CONSTANTS = {
-    "NEG_INF": torch.tensor(float("-inf"), device=DEVICE),
-    "POS_INF": torch.tensor(float("inf"), device=DEVICE),
-    "NAN": torch.tensor(float("nan"), device=DEVICE),
-    "ONE": torch.tensor(1.0, device=DEVICE),
-    "ZERO": torch.tensor(0.0, device=DEVICE),
-    "ONE_LONG": torch.tensor(1, dtype=torch.long, device=DEVICE),
-}
+TENSOR_CONSTANTS = create_tensor_constants()
 
 
 def pad(
