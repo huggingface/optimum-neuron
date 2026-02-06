@@ -15,8 +15,6 @@ jobs:
     name: Run INF2 Sanity Check
     runs-on:
       group: aws-inf2-8xlarge
-    env:
-      HF_XET_HIGH_PERFORMANCE: 1
     steps:
       - name: Checkout
         uses: actions/checkout@v4
