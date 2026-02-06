@@ -692,10 +692,11 @@ class NeuronGRPOTrainer(_GRPOTrainer):
 
             # Send weights to vLLM server (only main process for server mode)
             for name, weight in original_weights.items():
-                # Clean up parameter name for vLLM
-                name = self._fix_param_name_to_vllm(name)
-
+                pass
                 # TODO: Currently not supported, to implement asap in later PRs with vLLM integration.
+                # Clean up parameter name for vLLM
+                # name = self._fix_param_name_to_vllm(name)
+
                 # if self.vllm_mode == "server" and self.accelerator.is_main_process:
                 #     self.vllm_client.update_named_param(name, weight)
                 # elif self.vllm_mode == "colocate":
