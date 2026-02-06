@@ -7,13 +7,27 @@ inputs:
 outputs:
   should_run:
     description: 'Whether the test job should run'
-    value: ${{ steps.gate.outputs.should_run }}
+    value: ${{ steps.check_event.outputs.skip_checks == 'true' || steps.gate.outputs.should_run }}
 
 runs:
   using: 'composite'
   steps:
+    - name: Check event type
+      id: check_event
+      shell: bash
+      run: |
+        if [[ "${{ github.event_name }}" != "workflow_run" ]]; then
+          echo "Not a workflow_run event (event: ${{ github.event_name }}), skipping sanity and path checks"
+          echo "should_run=true" >> $GITHUB_OUTPUT
+          echo "skip_checks=true" >> $GITHUB_OUTPUT
+        else
+          echo "workflow_run event detected, proceeding with checks"
+          echo "skip_checks=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Check sanity workflow result
       id: check_sanity
+      if: steps.check_event.outputs.skip_checks != 'true'
       shell: bash
       run: |
         if [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
@@ -27,6 +41,7 @@ runs:
 
     - name: Check if relevant paths changed
       id: check_paths
+      if: steps.check_event.outputs.skip_checks != 'true'
       shell: bash
       run: |
         # For workflow_run triggered by PR or push
@@ -67,6 +82,7 @@ runs:
 
     - name: Gate decision
       id: gate
+      if: steps.check_event.outputs.skip_checks != 'true'
       shell: bash
       run: |
         if [[ "${{ steps.check_sanity.outputs.passed }}" == "true" && "${{ steps.check_paths.outputs.relevant }}" == "true" ]]; then
