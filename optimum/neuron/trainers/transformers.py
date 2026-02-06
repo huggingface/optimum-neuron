@@ -26,6 +26,7 @@ from typing import Any, Callable, Iterator, Type
 
 import torch
 import torch.nn as nn
+import torch_xla
 import torch_xla.core.xla_model as xm
 from accelerate.utils import AutocastKwargs, DataLoaderConfiguration
 from neuronx_distributed.parallel_layers.parallel_state import (
@@ -103,7 +104,7 @@ from ..utils.import_utils import is_peft_available
 from ..utils.misc import is_main_worker, is_precompilation
 from .metrics import TrainingMetricsCollector
 from .training_args import NeuronTrainingArguments
-from .utils import XLAPrefetchIterator
+from .utils import XLAPrefetchIterator, move_inputs_to_device
 
 
 logger = logging.get_logger()
@@ -907,7 +908,7 @@ class NeuronTrainer:
 
         self.running_loss = torch.zeros(1, dtype=torch.double, device=xm.xla_device())
         self.grad_norm = None
-        xm.mark_step()
+        torch_xla.sync()
 
     def get_batch_samples(
         self,
@@ -943,10 +944,7 @@ class NeuronTrainer:
 
         if self.pp_size == 1 and device is not None and device.type == "xla":
             if prefetch_size is None:
-                for idx, batch in enumerate(batch_samples):
-                    batch_samples[idx] = {
-                        k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()
-                    }
+                batch_samples = move_inputs_to_device(batch_samples, device)
             else:
                 batch_samples = XLAPrefetchIterator(batch_samples, prefetch_size)
 
@@ -999,9 +997,23 @@ class NeuronTrainer:
 
         return (loss, outputs) if return_outputs else loss
 
+    def _prepare_inputs(self, inputs: Any) -> Any:
+        """
+        Prepare inputs before feeding them to the model.
+
+        This is a no-op for standard NeuronTrainer as inputs are already moved to device in get_batch_samples().
+        Subclasses can override this method for custom preprocessing (e.g., GRPOTrainer uses
+        this for generation, scoring, and tokenization).
+
+        """
+        return inputs
+
     def training_step(
         self, model: nn.Module, inputs: dict[str, Any], num_items_in_batch: int | torch.Tensor | None = None
     ) -> torch.Tensor:
+        # Prepare inputs (no-op for base trainer, overridden by subclasses for custom preprocessing)
+        inputs = self._prepare_inputs(inputs)
+
         manager = self.autocast_smart_context_manager()
         with manager:
             loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
@@ -1031,7 +1043,7 @@ class NeuronTrainer:
             return
 
         if self.control.should_log:
-            xm.mark_step()
+            torch_xla.sync()
             running_loss_div = self.running_loss / self.dp_size
             reduced_loss = xm.all_reduce(xm.REDUCE_SUM, running_loss_div, groups=get_data_parallel_replica_groups())
             reduced_loss = reduced_loss.detach()
@@ -1080,7 +1092,7 @@ class NeuronTrainer:
     def maybe_save_checkpoint(self):
         """Save checkpoint if saving is due."""
         if self.control.should_save:
-            xm.mark_step()
+            torch_xla.sync()
 
             def save_closure(self):
                 self._save_checkpoint()
@@ -1157,7 +1169,7 @@ class NeuronTrainer:
                 self.metrics_collector.start_metric("total_step")
 
                 for inputs in batch_samples:
-                    xm.mark_step()
+                    torch_xla.sync()
                     step += 1
                     do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (step + 1) == steps_in_epoch
 
@@ -1173,7 +1185,7 @@ class NeuronTrainer:
 
                     if do_sync_step:
                         self.accelerator.gradient_state.sync_gradients = True
-                        xm.mark_step()
+                        torch_xla.sync()
                         # Gradient clipping
 
                         self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
@@ -1194,7 +1206,7 @@ class NeuronTrainer:
                         self.state.global_step += 1
                         self.state.epoch = epoch + (step + 1) / steps_in_epoch
                         self.control = self.callback_handler.on_step_end(args, self.state, self.control)
-                        xm.mark_step()
+                        torch_xla.sync()
                         self.metrics_collector.stop_metric("throughput")
                         self.metrics_collector.stop_metric("total_step")
                         self.metrics_collector.end_gradient_accumulation_cycle(step_number=self.state.global_step)
@@ -1209,12 +1221,12 @@ class NeuronTrainer:
                         # PyTorch/XLA relies on the data loader to insert the mark_step for
                         # each step. Since we are breaking the loop early, we need to manually
                         # insert the mark_step here.
-                        xm.mark_step()
+                        torch_xla.sync()
                         break
 
                 # We also need to break out of the nested loop
                 if self.control.should_epoch_stop or self.control.should_training_stop:
-                    xm.mark_step()
+                    torch_xla.sync()
                     break
 
             if step < 0:
@@ -1226,7 +1238,7 @@ class NeuronTrainer:
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-            xm.mark_step()
+            torch_xla.sync()
 
             if self.control.should_training_stop:
                 break
@@ -1360,19 +1372,8 @@ class NeuronTrainer:
             # Group and format metrics for better readability
             for metric_name, value in summary_metrics.items():
                 if isinstance(value, float):
-                    if "time" in metric_name:
-                        logger.info(f"{metric_name}: {value:.4f}s")
-                    elif "per_sec" in metric_name:
-                        logger.info(f"{metric_name}: {value:.2f}")
-                    elif (
-                        "mfu" in metric_name
-                        or "efficiency" in metric_name
-                        or "consistency" in metric_name
-                        or "percent" in metric_name
-                    ):
-                        logger.info(f"{metric_name}: {value:.2f}%")
-                    else:
-                        logger.info(f"{metric_name}: {value:.2f}")
+                    unit = self.metrics_collector.get_metric_unit(metric_name)
+                    logger.info(f"{metric_name}: {value:.2f}{unit}")
                 else:
                     logger.info(f"{metric_name}: {value}")
             logger.info("=" * 80)

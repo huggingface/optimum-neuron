@@ -14,7 +14,21 @@
 # limitations under the License.
 
 import torch
+import torch_xla
 import torch_xla.core.xla_model as xm
+
+
+def move_inputs_to_device(inputs, device: torch.device):
+    if isinstance(inputs, torch.Tensor):
+        return inputs.to(device)
+    elif isinstance(inputs, dict):
+        return {k: move_inputs_to_device(v, device) for k, v in inputs.items()}
+    elif isinstance(inputs, list):
+        return [move_inputs_to_device(v, device) for v in inputs]
+    elif isinstance(inputs, tuple):
+        return tuple(move_inputs_to_device(v, device) for v in inputs)
+    else:
+        return inputs
 
 
 class XLAPrefetchIterator:
@@ -28,7 +42,7 @@ class XLAPrefetchIterator:
     def _prefetch(self):
         while len(self.buffer) < self.prefetch_size and self.current_index < len(self.examples):
             example = self.examples[self.current_index]
-            example_on_xla = {k: v.to(xm.xla_device()) for k, v in example.items()}
+            example_on_xla = move_inputs_to_device(example, xm.xla_device())
             self.buffer.append(example_on_xla)
             self.current_index += 1
 
@@ -38,7 +52,7 @@ class XLAPrefetchIterator:
     def __next__(self):
         if not self.buffer:
             raise StopIteration
-        xm.mark_step()
+        torch_xla.sync()
         next_example = self.buffer.pop(0)
         self._prefetch()
         return next_example

@@ -206,9 +206,9 @@ class TrainingMetricsCollector:
     def get_metric_unit(self, metric_name: str) -> str:
         """Get the unit for a specific metric."""
         for plugin in self.active_plugins:
-            if plugin.handles_metric(metric_name):
-                units = plugin.get_metric_units()
-                return units.get(metric_name, "")
+            metric_units = plugin.get_metric_units()
+            if metric_name in metric_units:
+                return metric_units[metric_name]
         return ""
 
     def get_all_metric_units(self) -> dict[str, str]:
