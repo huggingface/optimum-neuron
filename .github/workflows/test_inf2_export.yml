@@ -1,52 +1,49 @@
 name: Optimum neuron / Test INF2 Export
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - "pyproject.toml"
-      - "optimum/commands/export/neuronx.py"
-      - "optimum/exporters/**.py"
-      - "optimum/neuron/modeling_base.py"
-      - "optimum/neuron/modeling_diffusion.py"
-      - "optimum/neuron/modeling_traced.py"
-      - "optimum/neuron/modeling_seq2seq.py"
-      - "optimum/neuron/models/inference/bert/**.py"
-      - "optimum/neuron/models/inference/clip/**.py"
-      - "optimum/neuron/models/inference/flux/**.py"
-      - "optimum/neuron/models/inference/t5/**.py"
-      - "optimum/neuron/models/inference/whisper/**.py"
-      - "optimum/neuron/models/inference/yolos/**.py"
-      - "optimum/neuron/utils/**.py"
-      - "tests/exporters/**.py"
-      - ".github/workflows/test_inf2_export.yml"
-  pull_request:
-    branches: [ main ]
-    paths:
-      - "pyproject.toml"
-      - "optimum/commands/export/neuronx.py"
-      - "optimum/exporters/**.py"
-      - "optimum/neuron/modeling_base.py"
-      - "optimum/neuron/modeling_diffusion.py"
-      - "optimum/neuron/modeling_traced.py"
-      - "optimum/neuron/modeling_seq2seq.py"
-      - "optimum/neuron/models/inference/bert/**.py"
-      - "optimum/neuron/models/inference/clip/**.py"
-      - "optimum/neuron/models/inference/flux/**.py"
-      - "optimum/neuron/models/inference/t5/**.py"
-      - "optimum/neuron/models/inference/whisper/**.py"
-      - "optimum/neuron/models/inference/yolos/**.py"
-      - "optimum/neuron/utils/**.py"
-      - "tests/exporters/**.py"
-      - ".github/workflows/test_inf2_export.yml"
+  # Trigger after sanity check completes
+  workflow_run:
+    workflows: ["Optimum neuron / Sanity check"]
+    types:
+      - completed
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref_name || github.run_id }}
   cancel-in-progress: true
 
 jobs:
+  check-and-gate:
+    name: Check Sanity and Paths
+    runs-on: ubuntu-22.04
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check sanity and paths
+        id: check
+        uses: ./.github/actions/check-sanity-and-paths
+        with:
+          path_patterns: |
+            ^pyproject\.toml$
+            ^optimum/commands/export/neuronx\.py$
+            ^optimum/exporters/.*\.py$
+            ^optimum/neuron/modeling_base\.py$
+            ^optimum/neuron/modeling_diffusion\.py$
+            ^optimum/neuron/modeling_traced\.py$
+            ^optimum/neuron/modeling_seq2seq\.py$
+            ^optimum/neuron/models/inference/(bert|clip|flux|t5|whisper|yolos)/.*\.py$
+            ^optimum/neuron/utils/.*\.py$
+            ^tests/exporters/.*\.py$
+            ^\.github/workflows/test_inf2_export\.yml$
+
   do-the-job:
     name: Run INF2 export tests
+    needs: check-and-gate
+    if: needs.check-and-gate.outputs.should_run == 'true'
     runs-on:
       group: aws-inf2-8xlarge
     steps:
@@ -54,14 +51,12 @@ jobs:
         uses: actions/checkout@v4
       - name: Install Neuronx runtime
         uses: ./.github/actions/install_neuronx_runtime
-      - name: Prepare virtual environment
-        uses: ./.github/actions/prepare_venv
-      - name: Install optimum-neuron
-        uses: ./.github/actions/install_optimum_neuron
+      - name: Setup virtual environment
+        uses: ./.github/actions/setup_venv
       - name: Install diffusers dependencies
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          pip install .[diffusers]
+          uv pip install .[diffusers]
       - name: Run exporters tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate

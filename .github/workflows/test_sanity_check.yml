@@ -1,0 +1,54 @@
+name: Optimum neuron / Sanity check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  test_sanity_check:
+    name: Run Optimum Neuron Sanity Check
+    runs-on: ubuntu-22.04
+    env:
+      MODEL_ID: llamafactory/tiny-random-qwen3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Neuronx runtime
+        uses: ./.github/actions/install_neuronx_runtime
+      - name: Setup virtual environment
+        uses: ./.github/actions/setup_venv
+      - name: Basic sanity checks
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          # Export a sample model and check that the cache is synchronized
+          HF_TOKEN=${{secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE}} \
+            optimum-cli export neuron -m $MODEL_ID \
+              /tmp/exported-tiny-random-qwen3-embedding \
+              --batch_size 2 --sequence_length 1024 --tensor_parallel_size 2 --instance_type trn1
+          HF_TOKEN=${{secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE}} \
+            optimum-cli neuron cache synchronize
+          # Check that the model is cached
+          HF_TOKEN=${{secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE}} \
+            optimum-cli neuron cache lookup $MODEL_ID
+      - name: Check lookup works on CPU only
+        run: |
+          # Manually install torch to force CPU-only installation and speed up installation
+          uv venv --python 3.11 on-no-neuronx
+          source on-no-neuronx/bin/activate
+          uv pip install torch==2.8.0 torchvision~=0.23 --index-url https://download.pytorch.org/whl/cpu
+          uv pip install .
+          # Check that the model is cached
+          HF_TOKEN=${{secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE}} \
+            optimum-cli neuron cache lookup $MODEL_ID
+      - name: Check style with ruff
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          uv pip install .[quality]
+          ruff format . --diff --exclude aws_neuron_venv_pytorch
+          ruff check . --exclude aws_neuron_venv_pytorch
