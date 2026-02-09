@@ -42,25 +42,47 @@ logger = logging.get_logger()
 TRL_VERSION = "0.24.0"
 
 
-def create_tensor_constants() -> dict[str, torch.Tensor]:
+class LazyDict(dict):
+    """
+    A dictionary that computes its values lazily when accessed.
+    The values are defined by a factory function that takes the key as input.
+    """
+
+    def __init__(self, factory):
+        super().__init__()
+        self.factory = factory
+
+    def __getitem__(self, key):
+        if key not in self:
+            self[key] = self.factory(key)
+        return super().__getitem__(key)
+
+
+def lazy_tensor_constants_factory(key: str) -> torch.Tensor:
     try:
         device = torch.device("xla")
     except Exception:
         device = torch.device("cpu")
 
-    return {
-        "NEG_INF": torch.tensor(float("-inf"), device=device),
-        "POS_INF": torch.tensor(float("inf"), device=device),
-        "NAN": torch.tensor(float("nan"), device=device),
-        "ONE": torch.tensor(1.0, device=device),
-        "ZERO": torch.tensor(0.0, device=device),
-        "ONE_LONG": torch.tensor(1, dtype=torch.long, device=device),
-    }
+    if key == "NEG_INF":
+        return torch.tensor(float("-inf"), device=device)
+    elif key == "POS_INF":
+        return torch.tensor(float("inf"), device=device)
+    elif key == "NAN":
+        return torch.tensor(float("nan"), device=device)
+    elif key == "ONE":
+        return torch.tensor(1.0, device=device)
+    elif key == "ZERO":
+        return torch.tensor(0.0, device=device)
+    elif key == "ONE_LONG":
+        return torch.tensor(1, dtype=torch.long, device=device)
+    else:
+        raise KeyError(f"Unknown tensor constant key: {key}")
 
 
 # We define some commonly used tensor constants on the XLA device to avoid
 # creating them repeatedly during compilation.
-TENSOR_CONSTANTS = create_tensor_constants()
+TENSOR_CONSTANTS = LazyDict(lazy_tensor_constants_factory)
 
 
 def pad(
