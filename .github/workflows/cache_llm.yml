@@ -4,12 +4,9 @@ on:
   # Manual trigger
   workflow_dispatch:
 
-  # For PRs
+  # For branch and tag pushes
   push:
     branches: [ main ]
-    paths:
-      - '.github/workflows/cache_llm.yml'
-      - 'tools/cache/auto_fill_llm_cache.py'
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
   pull_request:
