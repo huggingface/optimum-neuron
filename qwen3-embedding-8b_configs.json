@@ -1,0 +1,130 @@
+{
+  "Qwen/Qwen3-Embedding-8B": [
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 64,
+      "sequence_length": 1024,
+      "tensor_parallel_size": 2
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 32,
+      "sequence_length": 2048,
+      "tensor_parallel_size": 2
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 16,
+      "sequence_length": 4096,
+      "tensor_parallel_size": 2
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 8,
+      "sequence_length": 8192,
+      "tensor_parallel_size": 2
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 4,
+      "sequence_length": 16384,
+      "tensor_parallel_size": 2
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 1,
+      "sequence_length": 32768,
+      "tensor_parallel_size": 2
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 64,
+      "sequence_length": 1024,
+      "tensor_parallel_size": 8
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 32,
+      "sequence_length": 2048,
+      "tensor_parallel_size": 8
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 16,
+      "sequence_length": 4096,
+      "tensor_parallel_size": 8
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 8,
+      "sequence_length": 8192,
+      "tensor_parallel_size": 8
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 4,
+      "sequence_length": 16384,
+      "tensor_parallel_size": 8
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 1,
+      "sequence_length": 32768,
+      "tensor_parallel_size": 8
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 64,
+      "sequence_length": 1024,
+      "tensor_parallel_size": 16
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 32,
+      "sequence_length": 2048,
+      "tensor_parallel_size": 16
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 16,
+      "sequence_length": 4096,
+      "tensor_parallel_size": 16
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 8,
+      "sequence_length": 8192,
+      "tensor_parallel_size": 16
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 4,
+      "sequence_length": 16384,
+      "tensor_parallel_size": 16
+    },
+    {
+      "task": "feature-extraction",
+      "instance_type": "trn1",
+      "batch_size": 1,
+      "sequence_length": 32768,
+      "tensor_parallel_size": 16
+    }
+  ]
+}
