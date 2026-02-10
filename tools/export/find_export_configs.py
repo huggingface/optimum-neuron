@@ -18,9 +18,12 @@ import argparse
 import json
 import logging
 import os
+import psutil
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -43,6 +46,35 @@ TASK_TO_MODEL_CLASS = {
     "text-generation": "NeuronModelForCausalLM",
     "feature-extraction": "NeuronModelForEmbedding",
 }
+
+
+def get_memory_threshold_gb() -> float:
+    """Get the memory threshold in GB for monitoring.
+
+    Uses MAX_MEMORY_GB environment variable if set, otherwise calculates
+    10% of total system memory (leaving 90% for processes).
+
+    Returns:
+        float: Minimum available memory threshold in GB before terminating processes.
+    """
+    max_memory_gb = os.environ.get("MAX_MEMORY_GB")
+
+    if max_memory_gb:
+        # User specified the threshold directly
+        try:
+            threshold = float(max_memory_gb)
+            logger.info(f"Using MAX_MEMORY_GB threshold: {threshold:.2f}GB")
+            return threshold
+        except ValueError:
+            logger.warning(f"Invalid MAX_MEMORY_GB value: {max_memory_gb}, using default calculation")
+
+    # Calculate 10% of total system memory as threshold
+    # This leaves 90% for actual process usage
+    memory = psutil.virtual_memory()
+    total_gb = memory.total / (1024 ** 3)
+    threshold = total_gb * 0.1
+    logger.info(f"Calculated memory threshold: {threshold:.2f}GB (10% of {total_gb:.2f}GB total)")
+    return threshold
 
 
 def get_num_attention_heads(config: AutoConfig) -> int:
@@ -194,13 +226,64 @@ def save_configs(configs: Dict[str, Any], output_file: Path) -> None:
     logger.info(f"Saved configurations to {output_file}")
 
 
+def clean_stale_lock_files(cache_dir: Path = Path("/var/tmp/neuron-compile-cache")) -> None:
+    """Remove stale lock files from the neuron compile cache.
+
+    Stale lock files can remain if a compilation process crashes or is terminated abruptly.
+    These cause spurious "Another process must be compiling" errors on subsequent attempts.
+    """
+    if not cache_dir.exists():
+        return
+
+    lock_files = list(cache_dir.glob("**/*.lock"))
+    if not lock_files:
+        return
+
+    for lock_file in lock_files:
+        try:
+            lock_file.unlink()
+            logger.info(f"Removed stale lock file: {lock_file}")
+        except Exception as e:
+            logger.warning(f"Could not remove lock file {lock_file}: {e}")
+
+
 def export_model(model_id: str, task: str, tp: int, bs: int, sl: int, output_dir: str) -> bool:
     """Export model with given configuration.
 
     Handles cached failed compilations by automatically removing the failed NEFF and retrying.
+    Monitors system memory and terminates compilation if memory is exhausted.
     """
-    def _run_export(use_no_cache: bool = False) -> tuple[int, str, str]:
-        """Run the export command and return (returncode, stdout, stderr)."""
+    # Get memory threshold based on environment or system resources
+    memory_threshold_gb = get_memory_threshold_gb()
+
+    def _monitor_memory(process: subprocess.Popen, stop_event: threading.Event,
+                        min_available_gb: float = memory_threshold_gb, check_interval: float = 3.0):
+        """Monitor system memory and terminate process if memory is exhausted."""
+        while not stop_event.is_set():
+            try:
+                memory = psutil.virtual_memory()
+                available_gb = memory.available / (1024 ** 3)
+
+                if available_gb < min_available_gb:
+                    logger.error(
+                        f"Memory exhausted! Available: {available_gb:.2f}GB < {min_available_gb}GB threshold. "
+                        f"Terminating compilation process."
+                    )
+                    process.terminate()
+                    time.sleep(2)
+                    if process.poll() is None:
+                        process.kill()
+                    # Signal that we killed the process due to memory
+                    stop_event.memory_killed = True
+                    return
+
+                time.sleep(check_interval)
+            except Exception as e:
+                logger.warning(f"Memory monitoring error: {e}")
+                break
+
+    def _run_export(use_no_cache: bool = False) -> tuple[int, str, str, bool]:
+        """Run the export command and return (returncode, stdout, stderr, memory_killed)."""
         cmd = [
             "optimum-cli",
             "export",
@@ -225,14 +308,57 @@ def export_model(model_id: str, task: str, tp: int, bs: int, sl: int, output_dir
             env["NEURON_CC_FLAGS"] = f"{existing_flags} --no-cache".strip()
             logger.info(f"Retrying with cache disabled (NEURON_CC_FLAGS={env['NEURON_CC_FLAGS']})")
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600, env=env)
-        return result.returncode, result.stdout, result.stderr
+        # Clean stale lock files before compilation
+        clean_stale_lock_files()
+
+        # Start the process
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   text=True, env=env)
+
+        # Start memory monitoring thread
+        stop_event = threading.Event()
+        stop_event.memory_killed = False  # Add attribute to track memory kills
+        monitor_thread = threading.Thread(
+            target=_monitor_memory,
+            args=(process, stop_event),
+            daemon=True
+        )
+        monitor_thread.start()
+
+        # Log initial memory state
+        memory = psutil.virtual_memory()
+        logger.info(f"Starting compilation - Available memory: {memory.available / (1024 ** 3):.2f}GB")
+
+        # Wait for process with timeout
+        try:
+            stdout, stderr = process.communicate(timeout=3600)
+            returncode = process.returncode
+        except subprocess.TimeoutExpired:
+            logger.error("Compilation timeout - terminating process")
+            process.terminate()
+            time.sleep(2)
+            if process.poll() is None:
+                process.kill()
+            stdout, stderr = process.communicate()
+            returncode = -1
+        finally:
+            # Stop memory monitoring
+            memory_killed = getattr(stop_event, 'memory_killed', False)
+            stop_event.set()
+            monitor_thread.join(timeout=1)
+
+        return returncode, stdout, stderr, memory_killed
 
     logger.info(f"Exporting: TP={tp}, BS={bs}, SL={sl}")
 
     try:
         # First attempt
-        returncode, stdout, stderr = _run_export(use_no_cache=False)
+        returncode, stdout, stderr, memory_killed = _run_export(use_no_cache=False)
+
+        # Check if process was killed due to memory exhaustion
+        if memory_killed:
+            logger.error("✗ Export failed due to memory exhaustion")
+            return False
 
         # Check for cached failed compilation error
         if returncode != 0 and "Got a cached failed neff" in stderr:
@@ -262,12 +388,21 @@ def export_model(model_id: str, task: str, tp: int, bs: int, sl: int, output_dir
                             logger.warning(f"Could not remove failed compilation directory: {e}")
 
             # Retry with normal cache enabled
-            returncode, stdout, stderr = _run_export(use_no_cache=False)
+            returncode, stdout, stderr, memory_killed = _run_export(use_no_cache=False)
+
+            # Check memory kill again
+            if memory_killed:
+                logger.error("✗ Export failed due to memory exhaustion on retry")
+                return False
 
             # If still failing, try with cache disabled as last resort
             if returncode != 0:
                 logger.warning("Retrying with cache completely disabled as last resort...")
-                returncode, stdout, stderr = _run_export(use_no_cache=True)
+                returncode, stdout, stderr, memory_killed = _run_export(use_no_cache=True)
+
+                if memory_killed:
+                    logger.error("✗ Export failed due to memory exhaustion on final retry")
+                    return False
 
         if returncode == 0:
             logger.info("✓ Export successful")
@@ -293,7 +428,39 @@ def export_model(model_id: str, task: str, tp: int, bs: int, sl: int, output_dir
 
 
 def load_model(model_id: str, task: str, output_dir: str) -> bool:
-    """Load exported model to verify it works on Neuron devices."""
+    """Load exported model to verify it works on Neuron devices.
+
+    Monitors system memory and terminates loading if memory is exhausted.
+    """
+    # Get memory threshold based on environment or system resources
+    memory_threshold_gb = get_memory_threshold_gb()
+
+    def _monitor_memory(process: subprocess.Popen, stop_event: threading.Event,
+                        min_available_gb: float = memory_threshold_gb, check_interval: float = 3.0):
+        """Monitor system memory and terminate process if memory is exhausted."""
+        while not stop_event.is_set():
+            try:
+                memory = psutil.virtual_memory()
+                available_gb = memory.available / (1024 ** 3)
+
+                if available_gb < min_available_gb:
+                    logger.error(
+                        f"Memory exhausted! Available: {available_gb:.2f}GB < {min_available_gb}GB threshold. "
+                        f"Terminating load process."
+                    )
+                    process.terminate()
+                    time.sleep(2)
+                    if process.poll() is None:
+                        process.kill()
+                    # Signal that we killed the process due to memory
+                    stop_event.memory_killed = True
+                    return
+
+                time.sleep(check_interval)
+            except Exception as e:
+                logger.warning(f"Memory monitoring error during load: {e}")
+                break
+
     model_class = TASK_TO_MODEL_CLASS.get(task, "NeuronModel")
     cmd = (
         f'python -c "from optimum.neuron import {model_class}; '
@@ -303,14 +470,54 @@ def load_model(model_id: str, task: str, output_dir: str) -> bool:
     logger.info(f"Loading model from {output_dir}")
 
     try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=600)
-        if result.returncode == 0:
+        # Start the process
+        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, text=True)
+
+        # Start memory monitoring thread
+        stop_event = threading.Event()
+        stop_event.memory_killed = False  # Add attribute to track memory kills
+        monitor_thread = threading.Thread(
+            target=_monitor_memory,
+            args=(process, stop_event),
+            daemon=True
+        )
+        monitor_thread.start()
+
+        # Log initial memory state
+        memory = psutil.virtual_memory()
+        logger.info(f"Starting model load - Available memory: {memory.available / (1024 ** 3):.2f}GB")
+
+        # Wait for process with timeout
+        try:
+            stdout, stderr = process.communicate(timeout=600)
+            returncode = process.returncode
+        except subprocess.TimeoutExpired:
+            logger.error("Load timeout - terminating process")
+            process.terminate()
+            time.sleep(2)
+            if process.poll() is None:
+                process.kill()
+            stdout, stderr = process.communicate()
+            returncode = -1
+        finally:
+            # Stop memory monitoring
+            memory_killed = getattr(stop_event, 'memory_killed', False)
+            stop_event.set()
+            monitor_thread.join(timeout=1)
+
+        # Check if process was killed due to memory exhaustion
+        if memory_killed:
+            logger.error("✗ Load failed due to memory exhaustion")
+            return False
+
+        if returncode == 0:
             logger.info("✓ Load successful")
             return True
         else:
             logger.error("✗ Load failed")
-            if result.stderr:
-                logger.error(f"Error output: {result.stderr[:500]}")
+            if stderr:
+                logger.error(f"Error output: {stderr[:500]}")
             return False
     except subprocess.TimeoutExpired:
         logger.error("✗ Load timeout (exceeded 600 seconds)")
