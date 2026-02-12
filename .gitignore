@@ -134,3 +134,6 @@ dmypy.json
 
 .vscode
 neuronxcc*/
+
+# Ignore claude settings
+.claude/

@@ -54,10 +54,10 @@ class DTYPE_MAPPER:
     REVERSE_MAPPING = {v: k for k, v in MAPPING.items()}
 
     @classmethod
-    def str(cls, dtype):
+    def str(cls, dtype) -> str:
         if not isinstance(dtype, str):
             if dtype in cls.REVERSE_MAPPING:
-                return cls.REVERSE_MAPPING.get(dtype)
+                return cls.REVERSE_MAPPING[dtype]
             else:
                 raise ValueError(
                     f"Unable to find `{dtype}` in the dtype mapping, valid values are {list(cls.REVERSE_MAPPING.keys())}."
@@ -70,7 +70,7 @@ class DTYPE_MAPPER:
         mapping = cls.MAPPING | cls.EXTENDED_MAPPING
         if not isinstance(dtype, torch.dtype):
             if dtype in mapping:
-                return mapping.get(dtype)
+                return mapping[dtype]
             else:
                 raise ValueError(
                     f"Unable to find `{dtype}` in the dtype mapping, valid values are {list(mapping.keys())}."

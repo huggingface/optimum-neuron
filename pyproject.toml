@@ -105,7 +105,6 @@ vllm-tests = [
     "docker",
     "pytest-asyncio",
     "openai",
-    "smolagents[openai]",
 ]
 
 [project.scripts]

@@ -81,6 +81,8 @@ def vllm_docker_launcher(event_loop):
             Used to identify test configurations and adjust test expectations,
         model_name_or_path (`str`):
             The model to use (can be a hub model or a path)
+        task (`str`, optional):
+            The task to run (e.g., "embed" for embeddings, "generate" for generation)
         trust_remote_code (`bool`):
             Must be set to True for gated models.
 
@@ -93,6 +95,7 @@ def vllm_docker_launcher(event_loop):
         service_name: str,
         model_name_or_path: str,
         served_model_name: str | None = None,
+        task: str | None = None,
         batch_size: int | None = None,
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
@@ -134,6 +137,8 @@ def vllm_docker_launcher(event_loop):
 
         if served_model_name is not None:
             add_param("served_model_name", served_model_name)
+        if task is not None:
+            add_param("task", task)
         if batch_size is not None:
             add_param("batch_size", batch_size)
         if sequence_length is not None:

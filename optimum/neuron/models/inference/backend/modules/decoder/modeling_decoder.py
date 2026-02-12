@@ -27,7 +27,7 @@ from torch import nn
 from transformers import PretrainedConfig
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from ....modeling_utils import NeuronModelForCausalLM
+from ....modeling_utils import NeuronModelForCausalLM, NeuronModelForEmbedding
 from ...config import NxDNeuronConfig
 from ...graph_builder import NxDGraphBuilder
 from ...pretrained_model import NxDPreTrainedModel
@@ -361,9 +361,8 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     def forward(
         self,
         input_ids: torch.LongTensor,
-        position_ids: torch.LongTensor | None,
+        position_ids: torch.LongTensor,
         seq_ids: torch.LongTensor | None = None,
-        attention_mask: torch.Tensor | None = None,
         sampling_params: torch.FloatTensor | None = None,
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
@@ -471,11 +470,12 @@ class NxDDecoderModelForEmbedding(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
         position_ids: torch.Tensor,
     ):
-        # Prepare attention mask(s)
-        attention_mask = torch.full((self.n_positions, self.n_positions), True, device=attention_mask.device).tril(
+        # Prepare attention mask, assuming right padding (left padding is not supported by NeuronAttentionBase).
+        # We don't need to modify the mask explicitly to ignore padding tokens, since they are present AFTER the sequence tokens,
+        # and therefore implicitly ignored by the default triangular causal lm mask.
+        attention_mask = torch.full((self.n_positions, self.n_positions), True, device=input_ids.device).tril(
             diagonal=0
         )
         attention_mask = attention_mask[None, None, :, :].expand(
@@ -497,6 +497,9 @@ class NxDDecoderModelForEmbedding(nn.Module):
 
         hidden_states = self.norm(hidden_states)
 
+        # To avoid transferring a large tensor from Neuron to CPU, we only gather
+        # hidden states corresponding to the last token of each sequence (which
+        # actually corresponds to the full sequence embeddings).
         batch_size, _, hidden_size = hidden_states.shape
         index = torch.max(position_ids, dim=1, keepdim=True).indices
         index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
@@ -505,11 +508,10 @@ class NxDDecoderModelForEmbedding(nn.Module):
         return hidden_states
 
 
-class NxDModelForEmbedding(NxDPreTrainedModel):
+class NxDModelForEmbedding(NxDPreTrainedModel, NeuronModelForEmbedding):
     """Base class for neuron embeddings."""
 
     _model_cls = None
-    task = "feature-extraction"
 
     def __init__(
         self,
@@ -547,17 +549,17 @@ class NxDModelForEmbedding(NxDPreTrainedModel):
         input_ids: torch.LongTensor,
         attention_mask: torch.Tensor,
     ) -> tuple:
-        batch_size, seq_len = input_ids.shape
-        # Create position_ids
+        if (attention_mask[:, 0] == 0).any():
+            raise ValueError("Left padding is not supported for Neuron embedding models.")
+
+        # Convert attention_mask to position_ids
         position_ids = attention_mask.long().cumsum(-1) - 1
         position_ids.masked_fill_(attention_mask == 0, 1)
 
         input_ids = input_ids.to(torch.int32)
-        attention_mask = attention_mask.to(torch.int32)
         position_ids = position_ids.to(torch.int32)
         return self.encoding_model(
             input_ids,
-            attention_mask,
             position_ids,
         )
 
