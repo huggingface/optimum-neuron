@@ -36,7 +36,6 @@ CACHE_WHITE_LIST = [
     "_use_default_values",
     "_attn_implementation_autoset",
     "return_dict",
-    "static_patch_size",
 ]
 
 
