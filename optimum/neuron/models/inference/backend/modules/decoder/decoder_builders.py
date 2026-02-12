@@ -150,12 +150,11 @@ class NxDDecoderBuilderForEmbedding(NxDGraphBuilder):
         self,
     ):
         input_ids = torch.zeros((self.neuron_config.batch_size, self.max_tokens), dtype=torch.int32)
-        attention_mask = torch.zeros((self.neuron_config.batch_size, self.max_tokens), dtype=torch.int32)
         position_ids = torch.arange(self.max_tokens, dtype=torch.int32).expand(
             self.neuron_config.batch_size, self.max_tokens
         )
 
-        return [(input_ids, attention_mask, position_ids)]
+        return [(input_ids, position_ids)]
 
     def get_model_instance(self):
         return DecoderModelInstanceForEmbedding(

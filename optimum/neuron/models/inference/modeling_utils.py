@@ -390,3 +390,7 @@ class NeuronModelForCausalLM(NeuronPreTrainedModel):
         **kwargs,
     ) -> torch.LongTensor:
         raise NotImplementedError
+
+
+class NeuronModelForEmbedding(NeuronPreTrainedModel):
+    task = "feature-extraction"

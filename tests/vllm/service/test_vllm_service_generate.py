@@ -9,9 +9,9 @@ pytest.importorskip("vllm")
 
 
 @pytest.fixture
-async def any_local_model_vllm_service(vllm_launcher, any_neuron_llm_config):
-    model_name_or_path = any_neuron_llm_config["neuron_model_path"]
-    service_name = any_neuron_llm_config["name"]
+async def any_local_model_vllm_service(vllm_launcher, any_generate_model):
+    model_name_or_path = any_generate_model["neuron_model_path"]
+    service_name = any_generate_model["name"]
     with vllm_launcher(service_name, model_name_or_path) as vllm_service:
         await vllm_service.health(600)
         yield vllm_service

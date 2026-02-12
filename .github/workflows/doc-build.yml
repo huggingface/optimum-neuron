@@ -30,16 +30,10 @@ jobs:
         with:
           node-version: '20'
           cache-dependency-path: "kit/package-lock.json"
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
       - name: Install Neuronx runtime
         uses: ./.github/actions/install_neuronx_runtime
-      - name: Prepare virtual environment
-        uses: ./.github/actions/prepare_venv
-      - name: Install optimum-neuron
-        uses: ./.github/actions/install_optimum_neuron
+      - name: Setup virtual environment
+        uses: ./.github/actions/setup_venv
       - name: Setup PATH
         run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
       - name: Set environment variables
@@ -59,10 +53,8 @@ jobs:
       - name: Setup environment
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          python -m ensurepip --upgrade
-          python -m pip install --upgrade setuptools
-          python -m pip install ".[quality, diffusers]"
-          python -m pip install "git+https://github.com/huggingface/doc-builder.git"
+          uv pip install ".[diffusers]"
+          uv pip install "git+https://github.com/huggingface/doc-builder.git"
       - name: Convert notebooks
         shell: bash
         run: |

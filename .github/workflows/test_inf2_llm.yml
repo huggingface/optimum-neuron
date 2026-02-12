@@ -4,76 +4,84 @@ on:
   push:
     branches: [ main ]
     paths:
-      - "pyproject.toml"
-      - "optimum/commands/export/neuronx.py"
-      - "optimum/exporters/neuron/__main__.py"
-      - "optimum/neuron/configuration_utils.py"
-      - "optimum/neuron/modeling_base.py"
-      - "optimum/neuron/models/*.py"
-      - "optimum/neuron/models/inference/auto_models.py"
-      - "optimum/neuron/models/inference/modeling_utils.py"
-      - "optimum/neuron/models/inference/backend/**.py"
-      - "optimum/neuron/models/inference/granite/**.py"
-      - "optimum/neuron/models/inference/llama/**.py"
-      - "optimum/neuron/models/inference/llama4/**.py"
-      - "optimum/neuron/models/inference/mixtral/**.py"
-      - "optimum/neuron/models/inference/phi3/**.py"
-      - "optimum/neuron/models/inference/qwen2/**.py"
-      - "optimum/neuron/models/inference/qwen3/**.py"
-      - "optimum/neuron/models/inference/qwen3_moe/**.py"
-      - "optimum/neuron/pipelines/transformers/base.py"
-      - "optimum/neuron/utils/**.py"
-      - "optimum/neuron/version.py"
-      - "tests/fixtures/llm/**.py"
-      - "tests/decoder/**.py"
-      - ".github/workflows/test_inf2_llm.yml"
+      - 'pyproject.toml'
+      - 'optimum/commands/export/neuronx.py'
+      - 'optimum/exporters/neuron/__main__.py'
+      - 'optimum/neuron/configuration_utils.py'
+      - 'optimum/neuron/modeling_base.py'
+      - 'optimum/neuron/models/*.py'
+      - 'optimum/neuron/models/inference/auto_models.py'
+      - 'optimum/neuron/models/inference/modeling_utils.py'
+      - 'optimum/neuron/models/inference/backend/**.py'
+      - 'optimum/neuron/models/inference/granite/**.py'
+      - 'optimum/neuron/models/inference/llama/**.py'
+      - 'optimum/neuron/models/inference/llama4/**.py'
+      - 'optimum/neuron/models/inference/mixtral/**.py'
+      - 'optimum/neuron/models/inference/phi3/**.py'
+      - 'optimum/neuron/models/inference/qwen2/**.py'
+      - 'optimum/neuron/models/inference/qwen3/**.py'
+      - 'optimum/neuron/models/inference/qwen3_moe/**.py'
+      - 'optimum/neuron/pipelines/transformers/base.py'
+      - 'optimum/neuron/utils/**.py'
+      - 'optimum/neuron/version.py'
+      - 'tests/fixtures/llm/**.py'
+      - 'tests/decoder/**.py'
+      - '.github/workflows/test_inf2_llm.yml'
   pull_request:
     branches: [ main ]
     paths:
-      - "pyproject.toml"
-      - "optimum/commands/export/neuronx.py"
-      - "optimum/exporters/neuron/__main__.py"
-      - "optimum/neuron/configuration_utils.py"
-      - "optimum/neuron/modeling_base.py"
-      - "optimum/neuron/models/*.py"
-      - "optimum/neuron/models/inference/auto_models.py"
-      - "optimum/neuron/models/inference/modeling_utils.py"
-      - "optimum/neuron/models/inference/backend/**.py"
-      - "optimum/neuron/models/inference/granite/**.py"
-      - "optimum/neuron/models/inference/llama/**.py"
-      - "optimum/neuron/models/inference/llama4/**.py"
-      - "optimum/neuron/models/inference/mixtral/**.py"
-      - "optimum/neuron/models/inference/phi3/**.py"
-      - "optimum/neuron/models/inference/qwen2/**.py"
-      - "optimum/neuron/models/inference/qwen3/**.py"
-      - "optimum/neuron/models/inference/qwen3_moe/**.py"
-      - "optimum/neuron/pipelines/transformers/base.py"
-      - "optimum/neuron/utils/**.py"
-      - "optimum/neuron/version.py"
-      - "tests/fixtures/llm/**.py"
-      - "tests/decoder/**.py"
-      - ".github/workflows/test_inf2_llm.yml"
+      - 'pyproject.toml'
+      - 'optimum/commands/export/neuronx.py'
+      - 'optimum/exporters/neuron/__main__.py'
+      - 'optimum/neuron/configuration_utils.py'
+      - 'optimum/neuron/modeling_base.py'
+      - 'optimum/neuron/models/*.py'
+      - 'optimum/neuron/models/inference/auto_models.py'
+      - 'optimum/neuron/models/inference/modeling_utils.py'
+      - 'optimum/neuron/models/inference/backend/**.py'
+      - 'optimum/neuron/models/inference/granite/**.py'
+      - 'optimum/neuron/models/inference/llama/**.py'
+      - 'optimum/neuron/models/inference/llama4/**.py'
+      - 'optimum/neuron/models/inference/mixtral/**.py'
+      - 'optimum/neuron/models/inference/phi3/**.py'
+      - 'optimum/neuron/models/inference/qwen2/**.py'
+      - 'optimum/neuron/models/inference/qwen3/**.py'
+      - 'optimum/neuron/models/inference/qwen3_moe/**.py'
+      - 'optimum/neuron/pipelines/transformers/base.py'
+      - 'optimum/neuron/utils/**.py'
+      - 'optimum/neuron/version.py'
+      - 'tests/fixtures/llm/**.py'
+      - 'tests/decoder/**.py'
+      - '.github/workflows/test_inf2_llm.yml'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name || github.run_id }}
   cancel-in-progress: true
 
 jobs:
+  sanity:
+    name: Sanity
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run sanity check
+        uses: ./.github/actions/sanity-check
+        with:
+          hf_token: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE }}
+
   do-the-job:
     name: Run INF2 LLM tests
+    needs: sanity
     runs-on:
       group: aws-inf2-8xlarge
-    env:
-      HF_XET_HIGH_PERFORMANCE: 1
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Neuronx runtime
         uses: ./.github/actions/install_neuronx_runtime
-      - name: Prepare virtual environment
-        uses: ./.github/actions/prepare_venv
-      - name: Install optimum-neuron
-        uses: ./.github/actions/install_optimum_neuron
+      - name: Setup virtual environment
+        uses: ./.github/actions/setup_venv
       - name: Export test models
         run: |
           source aws_neuron_venv_pytorch/bin/activate

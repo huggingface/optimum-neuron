@@ -20,9 +20,9 @@ from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 
 import torch
+from optimum.exporters.base import ExporterConfig
 from optimum.utils import logging
 
-from ...exporters.base import ExportConfig
 from ...neuron.utils import DTYPE_MAPPER, ImageEncoderArguments, InputShapesArguments
 
 
@@ -38,7 +38,7 @@ class MissingMandatoryAxisDimension(ValueError):
     pass
 
 
-class NeuronExportConfig(ExportConfig):
+class NeuronExportConfig(ExporterConfig):
     """Base class for Neuron exportable models
 
     Class attributes:

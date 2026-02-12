@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import functools
 import logging
 import os
 import shutil
@@ -30,7 +31,7 @@ from ..utils.cache_utils import get_hf_hub_cache_repo
 from ..utils.import_utils import is_neuronx_available
 from ..utils.patching import patch_everywhere
 from ..utils.require_utils import requires_torch_neuronx
-from ..utils.version_utils import get_neuronxcc_version
+from ..utils.version_utils import get_pinned_version
 from ..version import __version__
 from .entries.cache_entry import ModelCacheEntry
 
@@ -346,6 +347,33 @@ def synchronize_hub_cache(
     hub_cache_proxy.synchronize(non_blocking=non_blocking)
 
 
+@functools.cache
+def hub_registry_path(cache_repo_id):
+    """
+    Get the path to the hub cache registry for the current compiler version.
+
+    This function uses the compiler version specified in the package metadata and does not require
+    the AWS neuronx SDK to be installed.
+
+    Args:
+        cache_repo_id (`str`): The id of the HuggingFace cache repository, in the form 'org|user/name'.
+    Returns:
+        `str`: The path to the hub cache registry for the current compiler version.
+    Raises:
+        `ValueError`: If no hub cache registry is found for the current compiler version.
+    """
+    neuronxcc_version = get_pinned_version("neuronx-cc")
+    compiler_prefix = "neuronxcc-" + neuronxcc_version
+    api = HfApi()
+    root = api.list_repo_tree(cache_repo_id, path_in_repo="", recursive=False)
+    for root_file in root:
+        # Note that the actual path uses the extended compiler version (with commit hash),
+        # that is not available in the package metadata. We thus only check the prefix here.
+        if root_file.path.startswith(compiler_prefix):
+            return root_file.path + "/" + REGISTRY_FOLDER
+    raise ValueError(f"No hub cache registry found in {cache_repo_id} for neuronx-cc-{neuronxcc_version}")
+
+
 def get_hub_cached_entries(
     model_id: str,
     task: str | None = None,
@@ -359,19 +387,24 @@ def get_hub_cached_entries(
     # Allocate a Hub API with refreshed information (required for tests altering the env)
     endpoint = os.getenv("HF_ENDPOINT")
     token = get_token()
+    # Create an empty ModelCacheEntry for the model to evaluate its arch digest
+    target_arch = ModelCacheEntry.create(model_id, task).arch_digest()
+    # Build the relative path to the cache entry
+    target_path = hub_registry_path(cache_repo_id) + "/" + target_arch + "/"
+    # Look for cached entries at that path
     api = HfApi(endpoint=endpoint, token=token)
-    repo_files = api.list_repo_files(cache_repo_id)
-    # Get the config corresponding to the model
-    target_entry = ModelCacheEntry.create(model_id, task)
-    registry_pattern = REGISTRY_FOLDER + "/" + target_entry.arch_digest() + "/"
-    model_files = [path for path in repo_files if registry_pattern in path]
     model_entries = []
-    with TemporaryDirectory() as tmpdir:
-        for model_path in model_files:
-            local_path = api.hf_hub_download(cache_repo_id, model_path, local_dir=tmpdir)
-            with open(local_path) as f:
-                entry = ModelCacheEntry.deserialize(f.read())
-                model_entries.append(entry.neuron_config)
+    try:
+        model_files = api.list_repo_tree(cache_repo_id, path_in_repo=target_path)
+        with TemporaryDirectory() as tmpdir:
+            for model_file in model_files:
+                local_path = api.hf_hub_download(cache_repo_id, model_file.path, local_dir=tmpdir)
+                with open(local_path) as f:
+                    entry = ModelCacheEntry.deserialize(f.read())
+                    model_entries.append(entry.neuron_config)
+    except EntryNotFoundError:
+        # The target path does not exist in the cache
+        pass
     return model_entries
 
 
@@ -385,33 +418,23 @@ def get_hub_cached_models(cache_repo_id: str | None = None):
     """
     if cache_repo_id is None:
         cache_repo_id = get_hf_hub_cache_repo()
+    registry_path = hub_registry_path(cache_repo_id)
+    root_sub_paths = registry_path.split("/")
     api = HfApi()
-    root = api.list_repo_tree(cache_repo_id, path_in_repo="", recursive=False)
-    for root_file in root:
-        compiler_pattern = "neuronxcc-"
-        if is_neuronx_available():
-            # If we know the current compiler we can avoid going through all of them in the hub cache
-            compiler_pattern += get_neuronxcc_version()
-        if root_file.path.startswith(compiler_pattern):
-            # Look for a registry of cached models for the current optimum-version
-            path_in_repo = root_file.path + "/" + REGISTRY_FOLDER
-            root_sub_paths = path_in_repo.split("/")
-            try:
-                registry = api.list_repo_tree(cache_repo_id, path_in_repo=path_in_repo, recursive=True)
-                cached_models = set()
-                for registry_file in registry:
-                    # Extract each cached model as a tuple of (arch, org, model)
-                    if registry_file.path.endswith(".json"):
-                        sub_paths = registry_file.path.split("/")
-                        if len(sub_paths) == len(root_sub_paths) + 4:
-                            # Look at the last four splits, i.e. model_arch/model_org/model_name/SHA.json
-                            model_arch, model_org, model_name = sub_paths[-4:-1]
-                            cached_models.add((model_arch, model_org, model_name))
-                return cached_models
-            except EntryNotFoundError:
-                # No cached models for the current version
-                continue
-    return set()
+    cached_models = set()
+    try:
+        registry = api.list_repo_tree(cache_repo_id, path_in_repo=registry_path, recursive=True)
+        for registry_file in registry:
+            # Extract each cached model as a tuple of (arch, org, model)
+            if registry_file.path.endswith(".json"):
+                sub_paths = registry_file.path.split("/")
+                if len(sub_paths) == len(root_sub_paths) + 4:
+                    # Look at the last four splits, i.e. model_arch/model_org/model_name/SHA.json
+                    model_arch, model_org, model_name = sub_paths[-4:-1]
+                    cached_models.add((model_arch, model_org, model_name))
+    except EntryNotFoundError:
+        pass
+    return cached_models
 
 
 def select_hub_cached_entries(

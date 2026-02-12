@@ -1,0 +1,50 @@
+name: 'Sanity Check'
+description: 'Runs sanity checks including model export, cache sync, and code quality'
+inputs:
+  hf_token:
+    description: 'Hugging Face token for cache operations'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Neuronx runtime
+      uses: ./.github/actions/install_neuronx_runtime
+
+    - name: Setup virtual environment
+      uses: ./.github/actions/setup_venv
+
+    - name: Basic sanity checks
+      shell: bash
+      env:
+        MODEL_ID: llamafactory/tiny-random-qwen3
+      run: |
+        source aws_neuron_venv_pytorch/bin/activate
+        # Export a sample model and check that the cache is synchronized
+        HF_TOKEN=${{ inputs.hf_token }} \
+          optimum-cli export neuron -m $MODEL_ID \
+            /tmp/exported-tiny-random-qwen3-embedding \
+            --batch_size 2 --sequence_length 1024 --tensor_parallel_size 2 --instance_type trn1
+        HF_TOKEN=${{ inputs.hf_token }} \
+          optimum-cli neuron cache synchronize
+
+    - name: Check lookup works without Neuronx
+      shell: bash
+      env:
+        MODEL_ID: llamafactory/tiny-random-qwen3
+      run: |
+        # Manually install torch to force CPU-only installation and speed up installation
+        uv venv --python 3.11 on-no-neuronx
+        source on-no-neuronx/bin/activate
+        uv pip install torch==2.8.0 torchvision~=0.23 --index-url https://download.pytorch.org/whl/cpu
+        uv pip install .
+        # Check that the model is cached
+        HF_TOKEN=${{ inputs.hf_token }} \
+          optimum-cli neuron cache lookup $MODEL_ID
+
+    - name: Check style with ruff
+      shell: bash
+      run: |
+        source aws_neuron_venv_pytorch/bin/activate
+        uv pip install .[quality]
+        ruff format . --diff --exclude aws_neuron_venv_pytorch
+        ruff check . --exclude aws_neuron_venv_pytorch

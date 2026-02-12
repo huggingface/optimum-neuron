@@ -4,47 +4,53 @@ on:
   push:
     branches: [ main ]
     paths:
-      - "pyproject.toml"
-      - "optimum/commands/export/neuronx.py"
-      - "optimum/neuron/modeling_traced.py"
-      - "optimum/neuron/modeling_seq2seq.py"
-      - "optimum/exporters/neuron/**.py"
-      - "tests/exporters/test_cpu_compilation.py"
-      - ".github/workflows/test_cpu_compilation.yml"
+      - 'pyproject.toml'
+      - 'optimum/commands/export/neuronx.py'
+      - 'optimum/neuron/modeling_traced.py'
+      - 'optimum/neuron/modeling_seq2seq.py'
+      - 'optimum/exporters/neuron/**.py'
+      - 'tests/exporters/test_cpu_compilation.py'
+      - '.github/workflows/test_cpu_compilation.yml'
   pull_request:
     branches: [ main ]
     paths:
-      - "pyproject.toml"
-      - "optimum/commands/export/neuronx.py"
-      - "optimum/neuron/modeling_traced.py"
-      - "optimum/neuron/modeling_seq2seq.py"
-      - "optimum/exporters/neuron/**.py"
-      - "tests/exporters/test_cpu_compilation.py"
-      - ".github/workflows/test_cpu_compilation.yml"
+      - 'pyproject.toml'
+      - 'optimum/commands/export/neuronx.py'
+      - 'optimum/neuron/modeling_traced.py'
+      - 'optimum/neuron/modeling_seq2seq.py'
+      - 'optimum/exporters/neuron/**.py'
+      - 'tests/exporters/test_cpu_compilation.py'
+      - '.github/workflows/test_cpu_compilation.yml'
   schedule:
     - cron: "0 5 * * 1-5"  # 5 AM UTC, Monday-Friday
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name || github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  test-cpu-compilation:
-    name: Run CPU Compilation Tests
+  sanity:
+    name: Sanity
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - name: Run sanity check
+        uses: ./.github/actions/sanity-check
         with:
-          python-version: "3.11"
+          hf_token: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE }}
+
+  test-cpu-compilation:
+    name: Run CPU Compilation Tests
+    needs: sanity
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Install Neuronx runtime
         uses: ./.github/actions/install_neuronx_runtime
-      - name: Prepare virtual environment
-        uses: ./.github/actions/prepare_venv
-      - name: Install optimum-neuron
-        uses: ./.github/actions/install_optimum_neuron
+      - name: Setup virtual environment
+        uses: ./.github/actions/setup_venv
       - name: Setup PATH
         run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
       - name: Run decoder compilation tests
@@ -55,7 +61,7 @@ jobs:
       - name: Install diffusers dependencies
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          pip install ".[diffusers]"
+          uv pip install ".[diffusers]"
       - name: Run CPU compilation tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
