@@ -792,6 +792,7 @@ class FluxTransformerNeuronConfig(NxDExportNeuronConfig, VisionNeuronConfig):
         "vae_scale_factor",
         "encoder_hidden_size",
         "rotary_axes_dim",
+        "patch_size",
     )
     MODEL_TYPE = "flux-transformer-2d"
     CUSTOM_MODEL_WRAPPER = FluxTransformerNeuronWrapper

@@ -71,20 +71,24 @@ def _clean_configs(
 
 
 def _prepare_configs_for_matching(configs: dict, model_type: str):
-    if model_type == "stable-diffusion":
+    if model_type in ["stable-diffusion", "diffusion-transformer"]:
         non_checked_components = [
             "vae",
             "vae_encoder",
             "vae_decoder",
         ]  # Exclude vae configs from the check for now since it's complex and not mandatory
     else:
-        # FIXME: this should be done also for diffusion transformer
-        raise NotImplementedError
+        raise NotImplementedError(f"Model type '{model_type}' is not supported for cache matching.")
     new_configs = {}
     for name in configs:
+        # Skip VAE components
         if name in non_checked_components:
             continue
-        if new_configs.get(name) is None:
+        # Skip metadata keys
+        if name.startswith("_"):
+            continue
+        # Skip None configs
+        if configs[name] is None:
             continue
         new_configs[name] = copy.deepcopy(configs[name])
         # Remove neuron config for comparison
@@ -124,6 +128,8 @@ class MultiModelCacheEntry(ModelCacheEntry):
         self._configs = _clean_configs(configs)
         if "unet" in self._configs:
             model_type = "stable-diffusion"
+        elif "transformer" in self._configs:
+            model_type = "diffusion-transformer"
         else:
             raise NotImplementedError
         # Task is None for multi model cache entries since we cache the whole pipeline
@@ -144,6 +150,8 @@ class MultiModelCacheEntry(ModelCacheEntry):
         # FIXME: Return neuron config of one of the models
         if self.model_type == "stable-diffusion":
             config = self._configs["unet"]
+        elif self.model_type == "diffusion-transformer":
+            config = self._configs["transformer"]
         else:
             raise NotImplementedError
         return config.get("neuron", None)
