@@ -15,7 +15,7 @@
 
 import pytest
 import torch
-import torch_xla.core.xla_model as xm
+import torch_xla
 from datasets import load_dataset
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_pipeline_model_parallel_size,
@@ -124,7 +124,7 @@ def test_neuron_sft_trainer_basic_training_loop(world_size, tp_size, pp_size, pa
         assert loss_logged, f"Loss was not logged during SFT training. Log history: {trainer.state.log_history}"
 
         final_params = {name: param.to("cpu") for name, param in model.named_parameters()}
-        xm.mark_step()
+        torch_xla.sync()
 
         params_changed = False
         for name, final_param in final_params.items():
@@ -207,7 +207,7 @@ def test_neuron_sft_trainer_peft_training(tmpdir, set_cache_for_ci):
 
     # Store initial parameters for comparison
     initial_params = {name: param.to("cpu") for name, param in trainer.model.named_parameters() if param.requires_grad}
-    xm.mark_step()
+    torch_xla.sync()
 
     # Verify initial state
     assert trainer.state.global_step == 0, f"Expected initial global_step=0, got {trainer.state.global_step}"
@@ -228,7 +228,7 @@ def test_neuron_sft_trainer_peft_training(tmpdir, set_cache_for_ci):
     assert loss_logged, f"Loss was not logged during SFT PEFT training. Log history: {trainer.state.log_history}"
 
     final_params = {name: param.to("cpu") for name, param in trainer.model.named_parameters() if param.requires_grad}
-    xm.mark_step()
+    torch_xla.sync()
 
     params_changed = False
     for name, final_param in final_params.items():

@@ -17,6 +17,7 @@
 import datasets
 import pytest
 import torch
+import torch_xla
 import torch_xla.core.xla_model as xm
 from neuronx_distributed.optimizer import NeuronZero1Optimizer
 from neuronx_distributed.parallel_layers.parallel_state import (
@@ -44,7 +45,7 @@ TINY_MODEL_NAME = "michaelbenayoun/qwen3-tiny-4kv-heads-4layers-random"
 
 def move_params_to_cpu(parameters):
     parameters = list(parameters)
-    xm.mark_step()
+    torch_xla.sync()
     cpu_params = move_all_tensor_to_cpu([p.data for p in parameters])
     return cpu_params
 
@@ -212,12 +213,12 @@ def test_zero_1_optimizer_step_and_mixed_precision(
         if pp_size == 1:
             model.train()
             xla_inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
-            xm.mark_step()
+            torch_xla.sync()
         else:
             xla_inputs = inputs  # NxDPPModel will move the inputs.
 
         orig_named_parameters = {n: p.cpu() for n, p in named_parameters.items()}
-        xm.mark_step()
+        torch_xla.sync()
 
         if pp_size == 1:
             outputs = model(**xla_inputs)
@@ -225,10 +226,10 @@ def test_zero_1_optimizer_step_and_mixed_precision(
             accelerator.backward(loss)
         else:
             loss = model.run_train(**xla_inputs)
-        xm.mark_step()
+        torch_xla.sync()
 
         prepared_optimizer.step()
-        xm.mark_step()
+        torch_xla.sync()
 
         current_named_parameters = {n: p.cpu() for n, p in named_parameters.items()}
         grads = [
@@ -236,7 +237,7 @@ def test_zero_1_optimizer_step_and_mixed_precision(
             for _, p in named_parameters.items()
             if p.requires_grad
         ]
-        xm.mark_step()
+        torch_xla.sync()
 
         # Check that all parameters that require grad have a gradient after backward
         # and that the gradient dtype is correct.
@@ -260,7 +261,7 @@ def test_zero_1_optimizer_step_and_mixed_precision(
         ), f"Not all optimizer parameters are in {optimizer_param_dtype}."
 
         prepared_optimizer.zero_grad()
-        xm.mark_step()
+        torch_xla.sync()
 
         grads = []
         for _, p in named_parameters.items():
@@ -269,7 +270,7 @@ def test_zero_1_optimizer_step_and_mixed_precision(
                     grads.append(p.main_grad.cpu())
                 else:
                     grads.append(p.grad.cpu() if p.grad is not None else None)
-        xm.mark_step()
+        torch_xla.sync()
 
         # Check that all parameters that require grad have no gradient after zero_grad.
         assert all(grad is None or torch.all(grad == 0) for grad in grads), "Expected no gradients after zero_grad()."

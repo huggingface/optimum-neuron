@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 import torch
 import torch.utils._pytree as pytree
+import torch_xla
 import torch_xla.core.xla_model as xm
 import transformers
 from neuronx_distributed.parallel_layers.parallel_state import (
@@ -98,7 +99,7 @@ def _check_output(name: str, original_output, output):
             gathered = [torch.empty_like(output) for _ in range(tp_size)]
             torch.distributed.all_gather(gathered, output, group=tp_group)
             gathered_output = torch.cat(gathered, dim=gather_dim)
-            xm.mark_step()
+            torch_xla.sync()
             output = gathered_output.to("cpu")
 
         # In this case, we assume GQAQKVColumnParallelLinear was used, we retrieve only the non-repeated KV heads.
@@ -173,12 +174,12 @@ def _custom_model_matches_original_model(
     )
 
     xla_inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
-    xm.mark_step()
+    torch_xla.sync()
 
     with torch.no_grad():
         orig_model_outputs = orig_model(**xla_inputs)
 
-    xm.mark_step()
+    torch_xla.sync()
 
     trn_config = TrainingNeuronConfig(
         tensor_parallel_size=tp_size,
@@ -198,7 +199,7 @@ def _custom_model_matches_original_model(
     with static_seed_patcher:
         model = accelerator.prepare(model)
 
-    xm.mark_step()
+    torch_xla.sync()
 
     with torch.no_grad():
         if pp_size == 1:
@@ -210,7 +211,7 @@ def _custom_model_matches_original_model(
             loss = model.run_eval(**inputs)
             model_outputs = {"loss": loss}
 
-    xm.mark_step()
+    torch_xla.sync()
 
     outputs_to_consider = [output_name for output_name in model_outputs if output_name not in OUTPUTS_TO_IGNORE]
 
@@ -713,13 +714,13 @@ def test_peft_adapters_with_pp(set_cache_for_ci):
             assert not param.requires_grad, f"Base parameter {name} should not require gradients on PP rank {pp_rank}"
 
     model.run_train(**inputs)
-    xm.mark_step()
+    torch_xla.sync()
 
     named_stage_lora_grads = {
         name: param.grad.detach().cpu() if param.grad is not None else None
         for name, param in stage_lora_params.items()
     }
-    xm.mark_step()
+    torch_xla.sync()
 
     # Verify gradients exist for LoRA parameters
     for name, grad in named_stage_lora_grads.items():
@@ -750,7 +751,7 @@ def test_peft_merge_unmerge(set_cache_for_ci):
     tok = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
     inputs = tok("Hello, my dog is cute", return_tensors="pt")
     inputs = {k: v.to("xla") for k, v in inputs.items()}
-    xm.mark_step()
+    torch_xla.sync()
 
     model = NeuronModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, trn_config, torch_dtype=torch.float32)
 
@@ -783,15 +784,15 @@ def test_peft_merge_unmerge(set_cache_for_ci):
     with torch.no_grad():
         output_unmerged = model(**inputs)
         logits_unmerged = output_unmerged.logits.clone()
-    xm.mark_step()
+    torch_xla.sync()
 
     # Merge LoRA adapters
     model.merge_adapter()
-    xm.mark_step()
+    torch_xla.sync()
 
     # Verify weights changed after merge (at least one weight should change)
     current_weights = move_all_tensor_to_cpu(dict(model.named_parameters()))
-    xm.mark_step()
+    torch_xla.sync()
     weights_changed = False
     for name, original_weight in original_weights.items():
         current_weight = current_weights[name].data
@@ -805,7 +806,7 @@ def test_peft_merge_unmerge(set_cache_for_ci):
     with torch.no_grad():
         output_merged = model(**inputs)
         logits_merged = output_merged.logits.clone()
-    xm.mark_step()
+    torch_xla.sync()
 
     # Outputs should match
     assert torch.allclose(logits_unmerged, logits_merged, rtol=1e-3, atol=1e-3), (
@@ -814,11 +815,11 @@ def test_peft_merge_unmerge(set_cache_for_ci):
 
     # Unmerge LoRA adapters
     model.unmerge_adapter()
-    xm.mark_step()
+    torch_xla.sync()
 
     # Verify weights restored after unmerge
     current_weights = move_all_tensor_to_cpu(dict(model.named_parameters()))
-    xm.mark_step()
+    torch_xla.sync()
     for name, original_weight in original_weights.items():
         current_weight = current_weights[name].data
         assert torch.allclose(original_weight, current_weight, rtol=1e-5, atol=1e-6), (
@@ -829,7 +830,7 @@ def test_peft_merge_unmerge(set_cache_for_ci):
     with torch.no_grad():
         output_final = model(**inputs)
         logits_final = output_final.logits.clone()
-    xm.mark_step()
+    torch_xla.sync()
 
     assert torch.allclose(logits_unmerged, logits_final, rtol=1e-5, atol=1e-5), (
         f"Final output should match original unmerged output. Max diff: {(logits_unmerged - logits_final).abs().max().item()}"
@@ -885,7 +886,7 @@ def test_get_original_merged_weights_for_vllm(set_cache_for_ci):
     # Get original merged weights for vLLM
     original_weights = get_original_merged_weights_for_vllm(model)
     original_weights = {k: v.cpu() for k, v in original_weights.items()}
-    xm.mark_step()
+    torch_xla.sync()
 
     # Only check on main process since get_original_merged_weights_for_vllm returns same weights on all ranks
     if tp_rank == 0:

@@ -1,6 +1,6 @@
 import pytest
 import torch
-import torch_xla.core.xla_model as xm
+import torch_xla
 from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
 from torch import nn
 from transformers import AutoConfig, set_seed
@@ -74,7 +74,7 @@ def test_nki_flash_attention(model_id, dtype, set_cache_for_ci):
 
     attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
     eager_attn_output = torch.matmul(attn_weights, value)
-    xm.mark_step()
+    torch_xla.sync()
 
     # Flash attention forward
     flash_attention_output = nki_flash_attn_func(
@@ -86,5 +86,5 @@ def test_nki_flash_attention(model_id, dtype, set_cache_for_ci):
         mixed_precision=True,
         transpose_nki_inputs=False,
     )
-    xm.mark_step()
+    torch_xla.sync()
     assert_close(eager_attn_output, flash_attention_output)
