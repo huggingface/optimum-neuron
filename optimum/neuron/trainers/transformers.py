@@ -1218,9 +1218,9 @@ class NeuronTrainer:
                     self.maybe_save_checkpoint()
 
                     if self.control.should_epoch_stop or self.control.should_training_stop:
-                        # PyTorch/XLA relies on the data loader to insert the mark_step for
+                        # PyTorch/XLA relies on the data loader to insert the sync for
                         # each step. Since we are breaking the loop early, we need to manually
-                        # insert the mark_step here.
+                        # insert the sync here.
                         torch_xla.sync()
                         break
 
