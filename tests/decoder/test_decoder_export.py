@@ -26,6 +26,7 @@ DECODER_MODELS = {
     "llama4_text": "tiny-random/llama-4",
     "qwen2": "yujiepan/qwen2.5-128k-tiny-random",
     "qwen3-moe": "optimum-internal-testing/tiny-random-qwen3_moe",
+    "gemma3": "google/gemma-3-270m-it",
     "granite": "hf-internal-testing/tiny-random-GraniteForCausalLM",
     "phi3": "yujiepan/phi-4-tiny-random",
     "mixtral": "dacorvo/Mixtral-tiny",
