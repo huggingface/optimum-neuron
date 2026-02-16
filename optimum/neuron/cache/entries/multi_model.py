@@ -138,7 +138,10 @@ class MultiModelCacheEntry(ModelCacheEntry):
         elif "transformer" in self._configs:
             model_type = "diffusion-transformer"
         else:
-            raise NotImplementedError
+            raise NotImplementedError(
+                f"Unsupported pipeline components: {list(self._configs.keys())}. "
+                "Expected 'unet' (stable-diffusion) or 'transformer' (diffusion-transformer)."
+            )
         # Task is None for multi model cache entries since we cache the whole pipeline
         # and not a single combination of sub-models corresponding to one of the tasks
         super().__init__(model_id, model_type, task=None)
