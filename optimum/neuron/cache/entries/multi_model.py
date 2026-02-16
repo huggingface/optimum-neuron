@@ -185,7 +185,6 @@ class MultiModelCacheEntry(ModelCacheEntry):
             "model_type": self.model_type,
             "configs": _prepare_configs_for_matching(self._get_raw_configs(), self.model_type),
         }
-        import pdb; pdb.set_trace()
         arch_json = json.dumps(arch_dict, sort_keys=True).encode("utf-8")
         return hashlib.sha256(arch_json).hexdigest()
 
