@@ -71,27 +71,23 @@ def _clean_configs(
 
 
 def _prepare_configs_for_matching(configs: dict, model_type: str):
-    if model_type == "stable-diffusion":
-        non_checked_components = [
-            "vae",
-            "vae_encoder",
-            "vae_decoder",
-        ]  # Exclude vae configs from the check for now since it's complex and not mandatory
-    else:
-        # FIXME: this should be done also for diffusion transformer
-        raise NotImplementedError
-    new_configs = {}
-    for name in configs:
-        if name in non_checked_components:
-            continue
-        if new_configs.get(name) is None:
-            continue
-        new_configs[name] = copy.deepcopy(configs[name])
-        # Remove neuron config for comparison
-        if "neuron" in new_configs[name]:
-            new_configs[name].pop("neuron")
+    """Filter raw configs for cache digest matching.
 
-    return new_configs
+    Operates on raw config.json dicts (not PretrainedConfig objects) so that
+    the result is identical regardless of whether the caller is the export path
+    or the lookup path.
+    """
+    if model_type not in ["stable-diffusion", "diffusion-transformer"]:
+        raise NotImplementedError(f"Model type '{model_type}' is not supported for cache matching.")
+    no_check_components = ["vae", "vae_encoder", "vae_decoder"]
+    clean = {}
+    for name, config in configs.items():
+        if name in no_check_components:
+            continue
+        config = copy.deepcopy(config)
+        config = _exclude_white_list_from_config(config)
+        clean[name] = config
+    return clean
 
 
 def _merge_configs(local_path: str) -> dict[str, Any]:
@@ -107,6 +103,17 @@ def _merge_configs(local_path: str) -> dict[str, Any]:
     return lookup_configs
 
 
+def _fetch_raw_configs_from_hub(model_id: str) -> dict[str, Any]:
+    """Download config.json files from the Hub and merge them into raw configs."""
+    api = HfApi()
+    repo_files = api.list_repo_files(model_id)
+    config_files = [path for path in repo_files if "/config.json" in path]
+    with TemporaryDirectory() as tmpdir:
+        for model_path in config_files:
+            api.hf_hub_download(model_id, model_path, local_dir=tmpdir)
+        return _merge_configs(tmpdir)
+
+
 class MultiModelCacheEntry(ModelCacheEntry):
     """A class describing a model cache entry
 
@@ -120,15 +127,23 @@ class MultiModelCacheEntry(ModelCacheEntry):
 
     """
 
-    def __init__(self, model_id: str, configs: dict[str, PretrainedConfig | dict[str, Any]]):
+    def __init__(self, model_id: str, configs: dict[str, PretrainedConfig | dict[str, Any]], raw_configs=None):
         self._configs = _clean_configs(configs)
         if "unet" in self._configs:
             model_type = "stable-diffusion"
+        elif "transformer" in self._configs:
+            model_type = "diffusion-transformer"
         else:
-            raise NotImplementedError
+            raise NotImplementedError(
+                f"Unsupported pipeline components: {list(self._configs.keys())}. "
+                "Expected 'unet' (stable-diffusion) or 'transformer' (diffusion-transformer)."
+            )
         # Task is None for multi model cache entries since we cache the whole pipeline
         # and not a single combination of sub-models corresponding to one of the tasks
         super().__init__(model_id, model_type, task=None)
+        # Raw configs from config.json for consistent arch_digest computation.
+        # When None, lazily loaded from the model source on first access.
+        self._raw_configs = raw_configs
 
     # ModelCacheEntry API implementation
 
@@ -144,30 +159,40 @@ class MultiModelCacheEntry(ModelCacheEntry):
         # FIXME: Return neuron config of one of the models
         if self.model_type == "stable-diffusion":
             config = self._configs["unet"]
+        elif self.model_type == "diffusion-transformer":
+            config = self._configs["transformer"]
         else:
             raise NotImplementedError
         return config.get("neuron", None)
 
+    def _get_raw_configs(self):
+        """Get raw config.json dicts from the model source.
+
+        Always reads from the original model (hub or local), ensuring consistent
+        representation between the export path (PretrainedConfig objects) and
+        the lookup path (raw dicts from config.json).
+        """
+        if self._raw_configs is None:
+            if os.path.exists(self.model_id):
+                self._raw_configs = _merge_configs(self.model_id)
+            else:
+                self._raw_configs = _fetch_raw_configs_from_hub(self.model_id)
+        return self._raw_configs
+
     def arch_digest(self) -> str:
         arch_dict = {
             "model_type": self.model_type,
-            "configs": _prepare_configs_for_matching(self._configs, self.model_type),
+            "configs": _prepare_configs_for_matching(self._get_raw_configs(), self.model_type),
         }
         arch_json = json.dumps(arch_dict, sort_keys=True).encode("utf-8")
         return hashlib.sha256(arch_json).hexdigest()
 
     @classmethod
     def from_hub(cls, model_id: str):
-        api = HfApi()
-        repo_files = api.list_repo_files(model_id)
-        config_pattern = "/config.json"
-        config_files = [path for path in repo_files if config_pattern in path]
-        with TemporaryDirectory() as tmpdir:
-            for model_path in config_files:
-                api.hf_hub_download(model_id, model_path, local_dir=tmpdir)
-            lookup_configs = _merge_configs(tmpdir)
-        return cls(model_id, lookup_configs)
+        raw_configs = _fetch_raw_configs_from_hub(model_id)
+        return cls(model_id, raw_configs, raw_configs=raw_configs)
 
     @classmethod
     def from_local_path(cls, model_id: str):
-        return cls(model_id, _merge_configs(model_id))
+        raw_configs = _merge_configs(model_id)
+        return cls(model_id, raw_configs, raw_configs=raw_configs)

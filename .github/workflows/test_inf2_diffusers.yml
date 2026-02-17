@@ -61,6 +61,7 @@ jobs:
       - name: Install cv2 dependencies
         run: |
           sudo apt-get install ffmpeg libsm6 libxext6  -y
+          sudo apt-get install -y --no-install-recommends libarchive13
       - name: Setup virtual environment
         uses: ./.github/actions/setup_venv
       - name: Install diffusers dependencies
