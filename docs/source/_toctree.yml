@@ -63,6 +63,11 @@
         - local: inference_tutorials/deploy-mixtral-8x7b
           title: Deploy Mixtral 8x7B on AWS Inferentia2 with SageMaker
         title: SageMaker
+      - isExpanded: false
+        sections:
+        - local: inference_tutorials/compare-book-translations
+          title: Compare Book Translations with Embeddings on Inference Endpoints
+        title: Inference Endpoints
     title: Inference Tutorials
   - sections:
     - local: benchmarks/inferentia-llama3.1-8b

@@ -70,6 +70,7 @@ jobs:
           doc-builder notebook-to-mdx notebooks/stable-diffusion/stable-diffusion-xl-txt2img.ipynb --output_dir docs/source/inference_tutorials/
           doc-builder notebook-to-mdx notebooks/text-generation/CodeLlama-7B-Compilation.ipynb --output_dir docs/source/inference_tutorials/
           doc-builder notebook-to-mdx notebooks/feature-extraction/qwen_embedding.ipynb --output_dir docs/source/inference_tutorials/
+          doc-builder notebook-to-mdx notebooks/ie/compare-book-translations.ipynb --output_dir docs/source/inference_tutorials/
       - name: Make documentation
         shell: bash
         run: |
