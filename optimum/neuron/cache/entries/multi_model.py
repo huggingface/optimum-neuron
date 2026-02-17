@@ -73,10 +73,6 @@ def _clean_configs(
 def _prepare_configs_for_matching(configs: dict, model_type: str):
     """Filter raw configs for cache digest matching.
 
-    Retains both architecture parameters and neuron-specific compilation
-    parameters (batch size, sequence length, num cores, etc.) so that different
-    compilation targets produce distinct digests.
-
     Operates on raw config.json dicts (not PretrainedConfig objects) so that
     the result is identical regardless of whether the caller is the export path
     or the lookup path.
