@@ -69,6 +69,8 @@
           title: Compare Book Translations with Embeddings on Inference Endpoints
         title: Inference Endpoints
     title: Inference Tutorials
+  - local: notebooks
+    title: Notebooks
   - sections:
     - local: benchmarks/inferentia-llama3.1-8b
       title: Llama-3.1 8B on AWS Inferentia2

@@ -56,6 +56,7 @@ jobs:
           doc-builder notebook-to-mdx notebooks/ec2/text-generation/CodeLlama-7B-Compilation.ipynb --output_dir docs/source/inference_tutorials/
           doc-builder notebook-to-mdx notebooks/ec2/feature-extraction/qwen_embedding.ipynb --output_dir docs/source/inference_tutorials/
           doc-builder notebook-to-mdx notebooks/ie/compare-book-translations.ipynb --output_dir docs/source/inference_tutorials/
+          sed 's#](\./#](https://github.com/huggingface/optimum-neuron/blob/main/notebooks/#g' notebooks/README.md > docs/source/notebooks.mdx
       - name: Make documentation
         shell: bash
         run: |
