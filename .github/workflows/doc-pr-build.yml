@@ -46,15 +46,15 @@ jobs:
           mkdir -p docs/source/inference_tutorials/
           mkdir -p docs/source/training_tutorials/
           source aws_neuron_venv_pytorch/bin/activate
-          doc-builder notebook-to-mdx notebooks/text-classification/fine_tune_bert.ipynb --output_dir docs/source/training_tutorials/
+          doc-builder notebook-to-mdx notebooks/ec2/text-classification/fine_tune_bert.ipynb --output_dir docs/source/training_tutorials/
           doc-builder notebook-to-mdx notebooks/sagemaker/deploy-llama-3-3-70b.ipynb --output_dir docs/source/inference_tutorials/
           doc-builder notebook-to-mdx notebooks/sagemaker/deploy-mixtral-8x7b.ipynb --output_dir docs/source/inference_tutorials/
-          doc-builder notebook-to-mdx notebooks/sentence-transformers/sentence-transformers.ipynb --output_dir docs/source/inference_tutorials/
-          doc-builder notebook-to-mdx notebooks/text-generation/llama2-13b-chatbot.ipynb --output_dir docs/source/inference_tutorials/
-          doc-builder notebook-to-mdx notebooks/stable-diffusion/stable-diffusion-txt2img.ipynb --output_dir docs/source/inference_tutorials/
-          doc-builder notebook-to-mdx notebooks/stable-diffusion/stable-diffusion-xl-txt2img.ipynb --output_dir docs/source/inference_tutorials/
-          doc-builder notebook-to-mdx notebooks/text-generation/CodeLlama-7B-Compilation.ipynb --output_dir docs/source/inference_tutorials/
-          doc-builder notebook-to-mdx notebooks/feature-extraction/qwen_embedding.ipynb --output_dir docs/source/inference_tutorials/
+          doc-builder notebook-to-mdx notebooks/ec2/sentence-transformers/sentence-transformers.ipynb --output_dir docs/source/inference_tutorials/
+          doc-builder notebook-to-mdx notebooks/ec2/text-generation/llama2-13b-chatbot.ipynb --output_dir docs/source/inference_tutorials/
+          doc-builder notebook-to-mdx notebooks/ec2/stable-diffusion/stable-diffusion-txt2img.ipynb --output_dir docs/source/inference_tutorials/
+          doc-builder notebook-to-mdx notebooks/ec2/stable-diffusion/stable-diffusion-xl-txt2img.ipynb --output_dir docs/source/inference_tutorials/
+          doc-builder notebook-to-mdx notebooks/ec2/text-generation/CodeLlama-7B-Compilation.ipynb --output_dir docs/source/inference_tutorials/
+          doc-builder notebook-to-mdx notebooks/ec2/feature-extraction/qwen_embedding.ipynb --output_dir docs/source/inference_tutorials/
           doc-builder notebook-to-mdx notebooks/ie/compare-book-translations.ipynb --output_dir docs/source/inference_tutorials/
       - name: Make documentation
         shell: bash

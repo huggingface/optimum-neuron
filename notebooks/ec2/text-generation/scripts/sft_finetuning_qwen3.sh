@@ -18,7 +18,7 @@ fi
 
 DISTRIBUTED_ARGS="--nproc_per_node $PROCESSES_PER_NODE"
 
-torchrun $DISTRIBUTED_ARGS notebooks/text-generation/scripts/sft_finetuning_qwen3.py \
+torchrun $DISTRIBUTED_ARGS notebooks/ec2/text-generation/scripts/sft_finetuning_qwen3.py \
   --model_id $MODEL_NAME \
   --num_train_epochs $NUM_EPOCHS \
   --do_train \
