@@ -17,7 +17,7 @@
 
 | Notebook | Task | Model Architectures |
 | --- | --- | --- |
-| [Compare book translations](./ie/compare-book-translations.ipynb) | information-extraction | Embedding model |
+| [Compare book translations](./ie/compare-book-translations.ipynb) | feature-extraction | Embedding model |
 
 ## Sagemaker
 
