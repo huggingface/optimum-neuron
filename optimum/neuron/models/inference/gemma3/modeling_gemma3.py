@@ -28,7 +28,7 @@ from torch_neuronx.xla_impl.ops import RmsNorm
 from transformers.models.gemma3.configuration_gemma3 import Gemma3TextConfig
 
 from ..backend.config import NxDNeuronConfig
-from ..backend.modules.attention.attention_base import FlashAttentionStrategy, NeuronAttentionBase
+from ..backend.modules.attention.attention_base import NeuronAttentionBase
 from ..backend.modules.attention.utils import RotaryEmbedding
 from ..backend.modules.decoder import NxDDecoderModelForCausalLM, NxDModelForCausalLM
 from ..backend.modules.generation.sampling import mask_padded_logits
@@ -110,18 +110,9 @@ class NeuronGemma3Attention(NeuronAttentionBase):
     - MQA configuration (num_kv_heads=1 in Gemma3-270M/1B models)
     - Layer-specific RoPE: sliding_attention layers use rope_local_base_freq,
       full_attention layers use rope_theta
-    - Custom attention kernel for head_dim > 128 (bypasses NKI kernel limitation)
-
-    When head_dim > 128, this class uses a custom attention implementation that bypasses
-    the NKI flash attention kernel and uses standard PyTorch operations instead.
     """
 
     def __init__(self, config: Gemma3TextConfig, neuron_config: NxDNeuronConfig, layer_idx: int = 0):
-        # Validate head_dim constraint and log strategy
-        # Use config.head_dim if available, otherwise calculate from hidden_size
-        head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
-        self.cant_use_flash_attention = head_dim > 128
-
         # Initialize base attention without Q-K norm (we'll add them manually)
         super().__init__(config, neuron_config)
 
@@ -141,23 +132,6 @@ class NeuronGemma3Attention(NeuronAttentionBase):
         # IMPORTANT: Use Gemma3RMSNorm which applies (1 + weight) scaling, not standard RMSNorm!
         self.q_layernorm = NeuronGemma3RMSNorm(self.head_dim, eps=config.rms_norm_eps)
         self.k_layernorm = NeuronGemma3RMSNorm(self.head_dim, eps=config.rms_norm_eps)
-
-    def get_flash_attention_strategy(self, q_len):
-        """
-        Override flash attention strategy for Gemma3.
-
-        When head_dim > 128, the NKI flash attention kernel cannot be used due to
-        a hardware limitation. In this case, we force the attention to use the
-        standard PyTorch fallback path.
-
-        Returns:
-            FlashAttentionStrategy.NONE if head_dim > 128, otherwise delegates to parent
-        """
-        if self.cant_use_flash_attention:
-            return FlashAttentionStrategy.NONE
-
-        # Delegate to parent for normal cases
-        return super().get_flash_attention_strategy(q_len)
 
 
 class NeuronGemma3MLP(nn.Module):

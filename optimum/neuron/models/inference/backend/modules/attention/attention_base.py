@@ -270,6 +270,9 @@ class NeuronAttentionBase(nn.Module):
         if self._qk_scale is not None:
             # If a custom qk_scale is provided, flash attention is not supported.
             return FlashAttentionStrategy.NONE
+        # NKI flash attention kernel supports par_dim up to 128 only.
+        if self.head_dim > 128:
+            return FlashAttentionStrategy.NONE
         if int(self.logical_nc_config) > 1:
             if q_len < 1024:
                 return FlashAttentionStrategy.NONE
