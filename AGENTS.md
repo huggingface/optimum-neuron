@@ -4,6 +4,20 @@ Optimum Neuron bridges Hugging Face libraries (Transformers, Diffusers, PEFT) wi
 - Inference models guide: [optimum/neuron/models/inference/AGENTS.md](optimum/neuron/models/inference/AGENTS.md)
 - vLLM guide: [optimum/neuron/vllm/AGENTS.md](optimum/neuron/vllm/AGENTS.md)
 
+## Context Loading
+
+When tasked with work in a specific subdirectory, read the relevant AGENTS.md before
+starting — these are automatically loaded when Claude Code is invoked inside those
+directories, but must be read manually when working from the project root:
+
+- `optimum/neuron/models/inference/AGENTS.md` — any inference model work
+- `optimum/neuron/models/inference/backend/modules/attention/AGENTS.md` — attention or NKI kernel work
+- `optimum/neuron/models/inference/<model>/AGENTS.md` — model-specific work (gemma3, llama, qwen3, etc.)
+- `optimum/neuron/vllm/AGENTS.md` — vLLM integration work
+
+When adding a new model, create a `CLAUDE.md` containing `@AGENTS.md` in its directory
+so this auto-loading applies to it automatically.
+
 ## Core Architecture
 
 ### Three-Layer Model System
