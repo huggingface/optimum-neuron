@@ -35,7 +35,7 @@ Sampling on NeuronCores uses `nxd_topk`, `nxd_argmax`, NKI cumsum kernels:
 - Logic in [optimum/neuron/models/inference/backend/modules/attention/gqa.py](backend/modules/attention/gqa.py)
 
 ### Flash Attention on Neuron
-- NKI kernel in inference: [optimum/neuron/models/inference/backend/modules/attention/attention_base.py](backend/modules/attention/attention_base.py)
+- Attention module guide (dispatch table, NKI kernel for head_dim > 128, sliding window): [optimum/neuron/models/inference/backend/modules/attention/AGENTS.md](backend/modules/attention/AGENTS.md)
 - Training path uses `attn_implementation="flash_attention_2"`.
 
 ### Parallel Attention Layers
