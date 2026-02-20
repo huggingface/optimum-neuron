@@ -140,6 +140,9 @@ class NeuronAttentionBase(nn.Module):
         self.q_layernorm = None
         self.k_layernorm = None
         self.logical_nc_config = neuron_config.logical_nc_config
+        # Sliding window size for flash attention (0 = no window, full causal)
+        # Subclasses can set this for models with sliding window attention (e.g. Gemma3)
+        self.sliding_window_size = 0
 
     @property
     def qk_scale(self):
@@ -228,6 +231,7 @@ class NeuronAttentionBase(nn.Module):
                     1.0,
                     attn_output,
                     kernel_name="CausalAttentionMMSoftmaxMMWithoutSwap",
+                    sliding_window=self.sliding_window_size,
                 )
             elif flash_attn_strategy == FlashAttentionStrategy.UNSHARDED_KERNEL:
                 _flash_fwd_call(
@@ -237,6 +241,7 @@ class NeuronAttentionBase(nn.Module):
                     1.0,
                     attn_output,
                     kernel_name="CausalAttentionMMSoftmaxMMWithoutSwap",
+                    sliding_window=self.sliding_window_size,
                 )
             else:
                 raise ValueError(f"Invalid flash attention strategy: {flash_attn_strategy}")
