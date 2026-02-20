@@ -17,7 +17,6 @@
 import logging
 
 import torch
-from neuronx_distributed.operators.argmax import argmax as nxd_argmax
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
     ParallelEmbedding,
@@ -344,7 +343,8 @@ class NxDGemma3Model(NxDDecoderModelForCausalLM):
         appropriate one for each decoder layer based on its attention_type.
         """
         is_for_context_encoding = self._is_context_encoding(input_ids)
-        is_for_speculation = self._is_for_speculation(input_ids)
+        if self._is_for_speculation(input_ids):
+            raise ValueError("Speculation is not supported for Gemma3 model")
 
         cache_size = self.n_positions
         device = input_ids.device
@@ -368,45 +368,18 @@ class NxDGemma3Model(NxDDecoderModelForCausalLM):
             active_mask = None
         else:
             past_key_values = self.kv_mgr.get_cache(cache_size)
-            if is_for_speculation:
-                max_cached_positions = position_ids[:, :1].expand(self.batch_size, self.n_positions) - 1
-            else:
-                max_cached_positions = position_ids.expand(self.batch_size, self.n_positions) - 1
+            max_cached_positions = position_ids.expand(self.batch_size, self.n_positions) - 1
             all_positions = (
                 torch.arange(self.n_positions, device=device).view(1, -1).expand(self.batch_size, self.n_positions)
             )
             # Full attention mask for cached tokens
             full_attention_mask = (max_cached_positions >= all_positions).view(self.batch_size, 1, 1, self.n_positions)
             # Sliding window mask: only attend to positions within the window
-            if is_for_speculation:
-                # Window relative to first speculation position
-                first_spec_position = position_ids[:, :1].expand(self.batch_size, self.n_positions)
-                sliding_attention_mask = full_attention_mask & (
-                    (first_spec_position - all_positions) < self.sliding_window
-                ).view(self.batch_size, 1, 1, self.n_positions)
-            else:
-                current_position = position_ids.expand(self.batch_size, self.n_positions)
-                sliding_attention_mask = full_attention_mask & (
-                    (current_position - all_positions) < self.sliding_window
-                ).view(self.batch_size, 1, 1, self.n_positions)
-
-            if is_for_speculation:
-                full_attention_mask = full_attention_mask.expand(
-                    self.batch_size, 1, self.speculation_length, self.n_positions
-                )
-                sliding_attention_mask = sliding_attention_mask.expand(
-                    self.batch_size, 1, self.speculation_length, self.n_positions
-                )
-                active_mask = torch.full(
-                    (self.speculation_length, self.speculation_length),
-                    True,
-                    device=device,
-                ).tril(diagonal=0)
-                active_mask = active_mask[None, None, :, :].expand(
-                    self.batch_size, 1, self.speculation_length, self.speculation_length
-                )
-            else:
-                active_mask = None
+            current_position = position_ids.expand(self.batch_size, self.n_positions)
+            sliding_attention_mask = full_attention_mask & (
+                (current_position - all_positions) < self.sliding_window
+            ).view(self.batch_size, 1, 1, self.n_positions)
+            active_mask = None
 
         # Map attention types to masks
         causal_mask_mapping = {
@@ -478,10 +451,7 @@ class NxDGemma3Model(NxDDecoderModelForCausalLM):
 
         res = logits
         if self.neuron_config.on_device_sampling:
-            if is_for_speculation:
-                res = nxd_argmax(tensor=logits, dim=2, gather_dim=2, keepdim=False)
-            else:
-                res = self.sampler(logits[:, -1, :], sampling_params, rank_id=rank_id)
+            res = self.sampler(logits[:, -1, :], sampling_params, rank_id=rank_id)
 
         outputs = [res]
         if self.neuron_config.output_logits:
