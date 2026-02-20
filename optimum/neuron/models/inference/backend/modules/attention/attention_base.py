@@ -43,18 +43,22 @@ from neuronxcc.nki.language import nc
 from torch_neuronx.xla_impl.ops import nki_jit  # noqa: E402
 
 from ...config import NxDNeuronConfig
+from .flash_attention_nki import flash_fwd_large_d
 from .gqa import GroupQueryAttention_O, GroupQueryAttention_QKV  # noqa: E402
 
 
 logger = logging.getLogger("Neuron")
 
 _flash_fwd_call = nki_jit()(attention_isa_kernel)
+_flash_fwd_large_d_call = nki_jit()(flash_fwd_large_d)
 
 
 class FlashAttentionStrategy(Enum):
     NONE = 0
     UNSHARDED_KERNEL = 1
     SHARDED_KERNEL = 2
+    LARGE_D_UNSHARDED_KERNEL = 3
+    LARGE_D_SHARDED_KERNEL = 4
 
 
 class NeuronAttentionBase(nn.Module):
@@ -191,6 +195,26 @@ class NeuronAttentionBase(nn.Module):
         V_active = repeat_kv(V, self.num_key_value_groups)
 
         flash_attn_strategy = self.get_flash_attention_strategy(q_len)
+
+        # Sharded kernels split bh across n_prgs NeuronCores.  When bh is not
+        # divisible by n_prgs the kernel loop body never executes for some (or
+        # all) programs, leaving parts of the output tensor unwritten.  Fall back
+        # to the equivalent unsharded kernel in that case.
+        if flash_attn_strategy in (
+            FlashAttentionStrategy.SHARDED_KERNEL,
+            FlashAttentionStrategy.LARGE_D_SHARDED_KERNEL,
+        ):
+            bh = bsz * self.num_heads
+            n_prgs = int(self.logical_nc_config)
+            if bh % n_prgs != 0:
+                if flash_attn_strategy == FlashAttentionStrategy.LARGE_D_SHARDED_KERNEL:
+                    flash_attn_strategy = FlashAttentionStrategy.LARGE_D_UNSHARDED_KERNEL
+                else:
+                    # Non-large-d unsharded kernel requires q_len >= 4096
+                    flash_attn_strategy = (
+                        FlashAttentionStrategy.UNSHARDED_KERNEL if q_len >= 4096 else FlashAttentionStrategy.NONE
+                    )
+
         logger.debug(f"Flash attention strategy: {flash_attn_strategy}")
 
         if flash_attn_strategy != FlashAttentionStrategy.NONE:
@@ -243,6 +267,27 @@ class NeuronAttentionBase(nn.Module):
                     kernel_name="CausalAttentionMMSoftmaxMMWithoutSwap",
                     sliding_window=self.sliding_window_size,
                 )
+            elif flash_attn_strategy == FlashAttentionStrategy.LARGE_D_SHARDED_KERNEL:
+                grid = (nc(self.logical_nc_config),)
+                _flash_fwd_large_d_call[grid](
+                    Q,
+                    K_active,
+                    V_active,
+                    1.0,
+                    attn_output,
+                    use_causal_mask=True,
+                    sliding_window=self.sliding_window_size,
+                )
+            elif flash_attn_strategy == FlashAttentionStrategy.LARGE_D_UNSHARDED_KERNEL:
+                _flash_fwd_large_d_call(
+                    Q,
+                    K_active,
+                    V_active,
+                    1.0,
+                    attn_output,
+                    use_causal_mask=True,
+                    sliding_window=self.sliding_window_size,
+                )
             else:
                 raise ValueError(f"Invalid flash attention strategy: {flash_attn_strategy}")
 
@@ -261,12 +306,17 @@ class NeuronAttentionBase(nn.Module):
         """
         Gets the flash attention strategy.
 
-        For LNC1, use the unsharded kernel if sequence length is at least 4096 to get the best performance.
-        The unsharded kernel requires a sequence length of at least 512.
+        For head_dim <= 128 (ISA kernel):
+          LNC1: use UNSHARDED_KERNEL if seq_len >= 4096.
+          LNC2: use SHARDED_KERNEL if seq_len % 1024 == 0 and seq_len >= 1024.
+                Falls back to NONE otherwise (unsharded is slower than compiler-native on LNC2).
 
-        For LNC2, use the sharded kernel if sequence length is divisible by 1024. Otherwise, use no
-        kernel, because the unsharded kernel has worse performance than no kernel.
-        The sharded kernel requires a sequence length of at least 1024.
+        For head_dim > 128 (custom NKI large-d kernel, flash_fwd_large_d):
+          LNC1: use LARGE_D_UNSHARDED_KERNEL if seq_len >= 4096 and seq_len % 2048 == 0.
+          LNC2: use LARGE_D_SHARDED_KERNEL if seq_len >= 2048 and seq_len % 2048 == 0.
+                Falls back to NONE otherwise.
+
+        In all cases, if a custom qk_scale is set, NONE is returned (flash attention unsupported).
 
         These constraints may change later.
 
@@ -275,9 +325,19 @@ class NeuronAttentionBase(nn.Module):
         if self._qk_scale is not None:
             # If a custom qk_scale is provided, flash attention is not supported.
             return FlashAttentionStrategy.NONE
+
         # NKI flash attention kernel supports par_dim up to 128 only.
         if self.head_dim > 128:
+            if int(self.logical_nc_config) > 1:
+                # LNC2: require seq_len divisible by 2048 (kernel's LARGE_TILE_SZ)
+                if q_len >= 2048 and q_len % 2048 == 0:
+                    return FlashAttentionStrategy.LARGE_D_SHARDED_KERNEL
+                return FlashAttentionStrategy.NONE
+            # LNC1: require at least 4096 for performance benefit
+            if q_len >= 4096 and q_len % 2048 == 0:
+                return FlashAttentionStrategy.LARGE_D_UNSHARDED_KERNEL
             return FlashAttentionStrategy.NONE
+
         if int(self.logical_nc_config) > 1:
             if q_len < 1024:
                 return FlashAttentionStrategy.NONE

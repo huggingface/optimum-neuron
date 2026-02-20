@@ -110,6 +110,8 @@ class NeuronGemma3Attention(NeuronAttentionBase):
     - MQA configuration (num_kv_heads=1 in Gemma3-270M/1B models)
     - Layer-specific RoPE: sliding_attention layers use rope_local_base_freq,
       full_attention layers use rope_theta
+    - Custom NKI flash attention kernel for head_dim=256 (d-tiling approach)
+    - Sliding window attention support in the flash attention
     """
 
     def __init__(self, config: Gemma3TextConfig, neuron_config: NxDNeuronConfig, layer_idx: int = 0):
@@ -121,6 +123,9 @@ class NeuronGemma3Attention(NeuronAttentionBase):
         # - full_attention layers use rope_theta (e.g. 1000000)
         is_sliding = config.layer_types[layer_idx] == "sliding_attention"
         rope_theta = config.rope_local_base_freq if is_sliding else config.rope_theta
+
+        # Set sliding window size for the flash attention kernel
+        self.sliding_window_size = config.sliding_window if is_sliding else 0
 
         self.rotary_emb = RotaryEmbedding(
             dim=self.head_dim,
