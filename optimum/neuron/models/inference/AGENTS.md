@@ -72,3 +72,7 @@ Track numerical differences using module-level tests before full graph tests:
 - [tests/decoder/test_attention.py](../../../../tests/decoder/test_attention.py) validates attention with explicit rotary embedding and mask handling.
 
 These isolate drift or state-dict conversion issues early.
+
+### New Model Checklist
+When adding a new model directory:
+- Create `CLAUDE.md` in the model directory containing `@AGENTS.md` so Claude Code auto-loads the model-specific guide.
