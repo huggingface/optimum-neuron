@@ -48,7 +48,8 @@ This differs from the Llama two-norm pattern (pre-attention + pre-MLP only).
 
 ### head_dim > 128 bypass
 - The NKI flash attention kernel supports `par_dim` up to 128 only.
-- If `head_dim` is greater than 128 (for example, Gemma3-270m has `head_dim=256`, while models like Gemma3-27B use `head_dim=128`), then `NeuronGemma3Attention.get_flash_attention_strategy()` will return `FlashAttentionStrategy.NONE`. This disables the flash attention kernel and instead uses the standard PyTorch attention implementation.
+- If `head_dim` is greater than 128 (for example, Gemma3-270m has `head_dim=256`, while models like Gemma3-27B use `head_dim=128`), flash attention is automatically disabled.
+- This check lives in `NeuronAttentionBase.get_flash_attention_strategy()` and applies to all models; no Gemma3-specific override is needed.
 
 ## What differs vs HF
 
