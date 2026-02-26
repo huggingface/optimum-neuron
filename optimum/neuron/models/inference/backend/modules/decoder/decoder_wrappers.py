@@ -27,6 +27,7 @@ from ...model_wrapper import NxDModelWrapper
 CONTEXT_ENCODING_MODEL_TAG = "context_encoding_model"
 TOKEN_GENERATION_MODEL_TAG = "token_generation_model"
 SPECULATION_MODEL_TAG = "speculation_model"
+CHUNKED_PREFILL_MODEL_TAG = "chunked_prefill_model"
 
 
 class NxDDecoderWrapperForCausalLM(NxDModelWrapper):
@@ -112,16 +113,40 @@ class NxDDecoderWrapperForCausalLM(NxDModelWrapper):
         """
         return [t.to(torch.int32) if t.dtype == torch.int64 else t for t in args]
 
+    def _pad_to_max_context_length(self, x: torch.Tensor, padding_value) -> torch.Tensor:
+        """Pad input along dim=1 to max_context_length using a constant value."""
+        pad_length = self.neuron_config.max_context_length - x.shape[1]
+        return F.pad(x, (0, pad_length), "constant", padding_value)
+
+    def _pad_to_chunk_size(
+        self, input_ids: torch.Tensor, position_ids: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Pad inputs along dim=1 to chunk_size by repeating the last token.
+
+        Repeating the last real token ensures:
+        1. torch.max(position_ids) stays at the last REAL token's index, so
+           logit gathering picks the correct hidden state.
+        2. Padded tokens scatter their KV to cache[last_real_pos] with the
+           identical (input_id, position_id) as the real last token, so the
+           scatter is a no-op overwrite -- no corruption.
+        """
+        chunk_size = self.neuron_config.prefill_chunk_size
+        pad_length = chunk_size - input_ids.shape[1]
+        if pad_length <= 0:
+            return input_ids, position_ids
+        last_input_id = input_ids[:, -1:]
+        last_pos = position_ids[:, -1:]
+        input_ids = torch.cat([input_ids, last_input_id.expand(-1, pad_length)], dim=-1)
+        position_ids = torch.cat([position_ids, last_pos.expand(-1, pad_length)], dim=-1)
+        return input_ids, position_ids
+
     def forward(self, input_ids, position_ids, seq_ids, sampling_params):
         input_ids, position_ids, seq_ids = self.convert_int64_to_int32(input_ids, position_ids, seq_ids)
         if self.tag == CONTEXT_ENCODING_MODEL_TAG:
-
-            def pad_to_max_context_length(x: torch.Tensor, padding_value):
-                pad_length = self.neuron_config.max_context_length - x.shape[1]
-                return F.pad(x, (0, pad_length), "constant", padding_value)
-
-            input_ids = pad_to_max_context_length(input_ids, self.config.pad_token_id)
-            position_ids = pad_to_max_context_length(position_ids, 1)
+            input_ids = self._pad_to_max_context_length(input_ids, self.config.pad_token_id)
+            position_ids = self._pad_to_max_context_length(position_ids, 1)
+        elif self.tag == CHUNKED_PREFILL_MODEL_TAG:
+            input_ids, position_ids = self._pad_to_chunk_size(input_ids, position_ids)
 
         input_batch_size = seq_ids.shape[0]
 

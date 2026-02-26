@@ -46,7 +46,7 @@ def _test_generation(p):
 
 @is_inferentia_test
 @requires_neuronx
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 def test_export_no_parameters(neuron_llm_config: dict[str, Any]):
     visible_cores = os.environ.get("NEURON_RT_NUM_CORES", None)
     # We can restrict the number of visible cores, but only if we use a full device
@@ -73,7 +73,7 @@ def test_export_parameters():
 
 @is_inferentia_test
 @requires_neuronx
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 def test_load_no_parameters(neuron_llm_config: dict[str, Any]):
     p = pipeline("text-generation", neuron_llm_config["neuron_model_path"])
     _test_generation(p)
@@ -81,7 +81,7 @@ def test_load_no_parameters(neuron_llm_config: dict[str, Any]):
 
 @is_inferentia_test
 @requires_neuronx
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 def test_from_model_and_tokenizer(neuron_llm_config: dict[str, Any]):
     m = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
     t = AutoTokenizer.from_pretrained(neuron_llm_config["neuron_model_path"])
@@ -91,7 +91,7 @@ def test_from_model_and_tokenizer(neuron_llm_config: dict[str, Any]):
 
 @is_inferentia_test
 @requires_neuronx
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 def test_error_already_exported(neuron_llm_config: dict[str, Any]):
     with pytest.raises(ValueError, match="already been exported"):
         pipeline("text-generation", neuron_llm_config["neuron_model_path"], export=True)
@@ -99,7 +99,7 @@ def test_error_already_exported(neuron_llm_config: dict[str, Any]):
 
 @is_inferentia_test
 @requires_neuronx
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 def test_error_needs_export(neuron_llm_config: dict[str, Any]):
     with pytest.raises(ValueError, match="must be exported"):
         pipeline("text-generation", neuron_llm_config["model_id"], export=False)
@@ -107,7 +107,7 @@ def test_error_needs_export(neuron_llm_config: dict[str, Any]):
 
 @is_inferentia_test
 @requires_neuronx
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 def test_from_hub(neuron_llm_config: dict[str, Any]):
     p = pipeline("text-generation", neuron_llm_config["neuron_model_id"])
     _test_generation(p)

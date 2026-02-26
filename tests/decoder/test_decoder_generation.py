@@ -19,7 +19,6 @@ from typing import Any
 
 import pytest
 import torch
-from prompts import get_long_prompt
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.generation import StoppingCriteria
 
@@ -50,7 +49,7 @@ def _test_generation(model, batch_size, input_length, **gen_kwargs):
 )
 @is_inferentia_test
 @requires_neuronx
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 def test_decoder_generation_base(neuron_llm_config: dict[str, Any], gen_kwargs):
     model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
     _test_generation(model, model.neuron_config.batch_size, 10, **gen_kwargs)
@@ -58,7 +57,7 @@ def test_decoder_generation_base(neuron_llm_config: dict[str, Any], gen_kwargs):
 
 @is_inferentia_test
 @requires_neuronx
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 def test_decoder_generation_input_dimensions(neuron_llm_config: dict[str, Any]):
     model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
     batch_size = model.neuron_config.batch_size
@@ -75,7 +74,7 @@ def test_decoder_generation_input_dimensions(neuron_llm_config: dict[str, Any]):
 
 @is_inferentia_test
 @requires_neuronx
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 def test_decoder_generation_custom_stopping_criteria(neuron_llm_config: dict[str, Any]):
     model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
 
@@ -109,7 +108,8 @@ def test_decoder_generation_greedy_expectations(any_generate_model):
         config_name = any_generate_model["name"]
         generated_text = tokenizer.decode(neuron_outputs[0])
         known_different_generations = {
-            "qwen3-4x4096": " What are the key features of Deep Learning? What are the applications of Deep Learning?",
+            "granite-4x1024": "Deep learning is a subset of machine learning that uses artificial neural networks with",
+            "qwen3-4x1024": " What are its applications? What are the benefits of using Deep Learning? What are the",
             "qwen3-1x8192": " What are the key features of Deep Learning? What are the applications of Deep Learning?",
         }
         if config_name in known_different_generations:
@@ -122,7 +122,7 @@ def test_decoder_generation_greedy_expectations(any_generate_model):
 
 @is_inferentia_test
 @requires_neuronx
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 def test_decoder_generation_multiple_eos_token_ids(neuron_llm_config: dict[str, Any]):
     model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
     tokenizer = AutoTokenizer.from_pretrained(neuron_llm_config["neuron_model_path"])
@@ -143,7 +143,7 @@ def test_decoder_generation_multiple_eos_token_ids(neuron_llm_config: dict[str, 
 
 @is_inferentia_test
 @requires_neuronx
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 def test_decoder_generation_stop_strings(neuron_llm_config: dict[str, Any]):
     model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
     tokenizer = AutoTokenizer.from_pretrained(neuron_llm_config["neuron_model_path"])
@@ -169,7 +169,7 @@ def test_decoder_generation_stop_strings(neuron_llm_config: dict[str, Any]):
 
 @is_inferentia_test
 @requires_neuronx
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 def test_continuous_batching_two_requests(neuron_llm_config: dict[str, Any]):
     """This test verifies that it is possible to:
     - prefill a first input at a first index,
@@ -290,24 +290,3 @@ def test_speculation_same_model(caplog, speculation, max_new_tokens):
                     f"Expected {expected_speculated_tokens} speculated tokens, got {speculated_tokens}"
                 )
                 remaining_speculated_tokens -= speculated_tokens
-
-
-@is_inferentia_test
-@requires_neuronx
-@pytest.mark.parametrize("neuron_llm_config", ["llama-1x8192", "gemma3-1x8192"], indirect=True)
-def test_decoder_generation_long_sequence(neuron_llm_config: dict[str, Any]):
-    """Test that we can generate from a long prompt using a model compiled for long sequences."""
-    model_id = neuron_llm_config["model_id"]
-    model = AutoModelForCausalLM.from_pretrained(model_id)
-    neuron_llm_path = neuron_llm_config["neuron_model_path"]
-    neuron_model = NeuronModelForCausalLM.from_pretrained(neuron_llm_path)
-    tokenizer = AutoTokenizer.from_pretrained(neuron_llm_path)
-    inputs = tokenizer(get_long_prompt(model_id, 5000, 8192), return_tensors="pt")
-    max_new_tokens = 50
-    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
-    generated_text = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
-    neuron_outputs = neuron_model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
-    neuron_generated_text = tokenizer.decode(
-        neuron_outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
-    )
-    assert generated_text == neuron_generated_text

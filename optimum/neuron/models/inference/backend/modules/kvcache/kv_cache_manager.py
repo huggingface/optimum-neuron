@@ -110,6 +110,7 @@ class KVCacheManager(nn.Module):
         new_key_values: list[Tensor],
         seq_len: int,
         active_mask=None,
+        is_chunked_prefill: bool = False,
     ):
         """
         Given the passed-in new_key_values, update the cache
@@ -120,6 +121,7 @@ class KVCacheManager(nn.Module):
         :param new_key_values: list of tuple, the latest kv obtained at the end of the network from forward pass
         :param seq_len: sequence length
         :param active_mask: tensor representing index to update
+        :param is_chunked_prefill: bool, if True use flat combined scatter for chunked prefill
         :return: list of tuple of (K, V)
         """
         updated_kv_cache = []
@@ -128,7 +130,10 @@ class KVCacheManager(nn.Module):
             k_cache, v_cache = self._fetch_cache(idx)
 
             if is_for_context_encoding:
-                if self.is_continuous_batching:
+                if is_chunked_prefill:
+                    k_cache = self._flat_scatter_update(k_cache, latest_k, seq_ids, position_ids)
+                    v_cache = self._flat_scatter_update(v_cache, latest_v, seq_ids, position_ids)
+                elif self.is_continuous_batching:
                     assert seq_ids.dim() == 1 and seq_ids.shape[0] == 1, "only supports single seq_id"
 
                     cache_idx = seq_ids
@@ -148,7 +153,7 @@ class KVCacheManager(nn.Module):
                     k_cache = fill_prefix(k_cache, latest_k)
                     v_cache = fill_prefix(v_cache, latest_v)
             else:
-                # Copy the tensor of the new position into kv cache (no need to align as inputs are right padded)
+                # Token generation / speculation: batch rows align 1-to-1 with cache slots.
                 scatter_index_new = self._get_index_to_update_new_position(position_ids, latest_k)
                 k_cache = torch.scatter(input=k_cache, dim=2, index=scatter_index_new, src=latest_k)
                 v_cache = torch.scatter(input=v_cache, dim=2, index=scatter_index_new, src=latest_v)
@@ -158,6 +163,21 @@ class KVCacheManager(nn.Module):
 
         # return updated kv cache to NxD runtime
         return updated_kv_cache
+
+    def _flat_scatter_update(self, cache: Tensor, src: Tensor, seq_ids: Tensor, position_ids: Tensor) -> Tensor:
+        """Scatter src into cache using a flat index combining seq_ids and position_ids.
+
+        Used by chunked prefill where src batch_size (1) differs from cache batch_size (max_batch_size).
+        Encodes both the cache slot (from seq_ids) and the position into a single flat index,
+        then scatters on dim=0 of a flattened (B*S, H, D) view.
+        """
+        B, H, S, D = cache.shape
+        combined_idx = (seq_ids.unsqueeze(1) * S + position_ids).view(-1)
+        scatter_idx = combined_idx.view(-1, 1, 1).expand(-1, H, D)
+        flat_cache = cache.permute(0, 2, 1, 3).reshape(B * S, H, D)
+        flat_src = src.permute(0, 2, 1, 3).reshape(-1, H, D)
+        flat_cache = torch.scatter(flat_cache, 0, scatter_idx, flat_src)
+        return flat_cache.reshape(B, S, H, D).permute(0, 2, 1, 3)
 
     def _get_index_to_update_new_position(self, position_ids, full_k):
         scatter_index = position_ids.view(-1, 1, position_ids.shape[-1], 1).expand_as(full_k)

@@ -66,7 +66,7 @@ async def vllm_docker_service_from_model(request, vllm_docker_launcher, neuron_l
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 async def test_vllm_docker_service_from_model(vllm_docker_service_from_model):
     prompt = "What is the colour of the sky ?"
     max_output_tokens = 24
@@ -79,7 +79,7 @@ async def test_vllm_docker_service_from_model(vllm_docker_service_from_model):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("params_as_env", [True, False])
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 async def test_vllm_docker_service_sampling_parameters(neuron_llm_config, vllm_docker_launcher, params_as_env):
     prompt = "What is Deep Learning?"
     max_output_tokens = 17
