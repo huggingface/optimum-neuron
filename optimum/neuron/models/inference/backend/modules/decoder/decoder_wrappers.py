@@ -27,6 +27,7 @@ from ...model_wrapper import NxDModelWrapper
 CONTEXT_ENCODING_MODEL_TAG = "context_encoding_model"
 TOKEN_GENERATION_MODEL_TAG = "token_generation_model"
 SPECULATION_MODEL_TAG = "speculation_model"
+CHUNKED_PREFILL_MODEL_TAG = "chunked_prefill_model"
 
 
 class NxDDecoderWrapperForCausalLM(NxDModelWrapper):
@@ -122,6 +123,31 @@ class NxDDecoderWrapperForCausalLM(NxDModelWrapper):
 
             input_ids = pad_to_max_context_length(input_ids, self.config.pad_token_id)
             position_ids = pad_to_max_context_length(position_ids, 1)
+
+        elif self.tag == CHUNKED_PREFILL_MODEL_TAG:
+            chunk_size = self.neuron_config.prefill_chunk_size
+            pad_length = chunk_size - input_ids.shape[1]
+            if pad_length > 0:
+                # Repeat the last real token for padding (both input_ids and position_ids).
+                #
+                # - Padding input_ids with PAD and position_ids with 0 (original) corrupts
+                #   cache[0]: padded tokens scatter their KV to position 0, overwriting the
+                #   real first token's KV.
+                # - Padding position_ids with sequential values (e.g. last+1, last+2, ...)
+                #   moves torch.max(position_ids) to a padded slot, so logit gathering
+                #   picks the wrong hidden state.
+                #
+                # Repeating the last real token ensures:
+                # 1. torch.max(position_ids) stays at the last REAL token's index, so
+                #    logit gathering (the argmax of position_ids) picks the correct
+                #    hidden state.
+                # 2. Padded tokens scatter their KV to cache[last_real_pos] with the
+                #    identical (input_id, position_id) as the real last token, so the
+                #    scatter is a no-op overwrite with the same value — no corruption.
+                last_input_id = input_ids[:, -1:]  # [batch, 1]
+                last_pos = position_ids[:, -1:]  # [batch, 1]
+                input_ids = torch.cat([input_ids, last_input_id.expand(-1, pad_length)], dim=-1)
+                position_ids = torch.cat([position_ids, last_pos.expand(-1, pad_length)], dim=-1)
 
         input_batch_size = seq_ids.shape[0]
 

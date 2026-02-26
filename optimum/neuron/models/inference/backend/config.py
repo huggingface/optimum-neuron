@@ -71,6 +71,7 @@ class NxDNeuronConfig(NeuronConfig):
         target: str | None = None,  # set to "trn2" for trn2
         on_device_sampling: bool | None = False,
         max_topk: int | None = 256,
+        prefill_chunk_size: int | None = 0,
         start_rank_id: int | None = 0,
         local_ranks_size: int | None = None,
         capacity_factor: float = None,
@@ -105,11 +106,19 @@ class NxDNeuronConfig(NeuronConfig):
         self.on_device_sampling = on_device_sampling
         self.max_topk = max_topk
 
+        # Chunked prefill
+        self.prefill_chunk_size = prefill_chunk_size if prefill_chunk_size is not None else 0
+        if self.prefill_chunk_size > 0:
+            if self.on_device_sampling:
+                raise IncompatibleConfigError("Chunked prefill is incompatible with on-device sampling")
+
         # Speculative decoding
         self.speculation_length = speculation_length
         if self.speculation_length > 0:
             if self.on_device_sampling:
                 raise IncompatibleConfigError("Speculative decoding is incompatible with on-device sampling")
+            if self.prefill_chunk_size > 0:
+                raise IncompatibleConfigError("Chunked prefill is incompatible with speculative decoding")
 
         # Distributed config
         self.pp_degree = pp_degree
@@ -135,6 +144,18 @@ class NxDNeuronConfig(NeuronConfig):
 
     @property
     def tkg_batch_size(self) -> int:
+        return self.batch_size
+
+    @property
+    def effective_prefill_batch_size(self) -> int:
+        """Batch size for the chunked prefill graph.
+
+        Always 1 for chunked prefill: processing one sequence at a time is not only
+        simpler but also faster and consumes less device memory than batching multiple
+        sequences (benchmarked on trn1.32xlarge with Llama 3.1 8B).
+        """
+        if self.prefill_chunk_size > 0:
+            return 1
         return self.batch_size
 
     @property

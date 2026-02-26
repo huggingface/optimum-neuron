@@ -190,7 +190,33 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             return next_tokens[:, None]
 
         # Prefill
-        next_tokens = get_next_tokens(input_ids, position_ids)
+        chunk_size = self.neuron_config.prefill_chunk_size
+        if chunk_size > 0:
+            prompt_len = input_ids.shape[1]
+            last_chunk_outputs = None
+            for chunk_start in range(0, prompt_len, chunk_size):
+                chunk_end = min(chunk_start + chunk_size, prompt_len)
+                chunk_ids = input_ids[:, chunk_start:chunk_end]
+                chunk_pos = position_ids[:, chunk_start:chunk_end]
+                # Skip all-PAD chunks (avoids NaN from degenerate embeddings)
+                if attention_mask is not None and attention_mask[:, chunk_start:chunk_end].sum() == 0:
+                    continue
+                last_chunk_outputs = self.prefill_chunk(chunk_ids, chunk_pos, seq_ids, sampling_params)
+            # CPU-side sampling from the final chunk's logits
+            next_token_logits = last_chunk_outputs[:, -1, :].clone()
+            next_token_scores = logits_processor(input_ids, next_token_logits)
+            next_token_scores, next_token_indices = fused_logits_warper(next_token_scores)
+            if do_sample:
+                probs = torch.nn.functional.softmax(next_token_scores, dim=-1)
+                next_tokens = torch.multinomial(probs, num_samples=1)
+            else:
+                next_tokens = torch.argmax(next_token_scores, dim=-1, keepdim=True)
+            next_tokens = torch.gather(next_token_indices, 1, next_tokens).squeeze(1)
+            if has_eos_stopping_criteria:
+                next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
+            next_tokens = next_tokens[:, None]
+        else:
+            next_tokens = get_next_tokens(input_ids, position_ids)
         input_ids = torch.cat((input_ids, next_tokens), dim=-1)
         unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, None)
         this_peer_finished = unfinished_sequences.max() == 0
