@@ -186,7 +186,7 @@ def apply_rotary_polar_compatible(query, key, freqs_cis):
 
 def manual_softmax(prior_scores, active_scores) -> tuple[Tensor, Tensor]:
     """
-    simple softmax computation: denominator is the sum of exp over all vocab and only need compute numerator (exp)
+    Numerically-stable softmax split across prior (cached) and active (current) scores.
     """
     max_score = torch.max(prior_scores, dim=-1, keepdim=True)[0]
     max_active_score = torch.max(active_scores, dim=-1, keepdim=True)[0]

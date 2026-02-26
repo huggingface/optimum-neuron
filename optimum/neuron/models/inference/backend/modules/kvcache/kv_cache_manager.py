@@ -149,9 +149,29 @@ class KVCacheManager(nn.Module):
                     v_cache = fill_prefix(v_cache, latest_v)
             else:
                 # Copy the tensor of the new position into kv cache (no need to align as inputs are right padded)
-                scatter_index_new = self._get_index_to_update_new_position(position_ids, latest_k)
-                k_cache = torch.scatter(input=k_cache, dim=2, index=scatter_index_new, src=latest_k)
-                v_cache = torch.scatter(input=v_cache, dim=2, index=scatter_index_new, src=latest_v)
+                if latest_k.shape[0] == k_cache.shape[0]:
+                    # Token generation (full batch): batch rows align 1-to-1 with cache slots.
+                    scatter_index_new = self._get_index_to_update_new_position(position_ids, latest_k)
+                    k_cache = torch.scatter(input=k_cache, dim=2, index=scatter_index_new, src=latest_k)
+                    v_cache = torch.scatter(input=v_cache, dim=2, index=scatter_index_new, src=latest_v)
+                else:
+                    # Chunked prefill: batch_size=1, cache sized for max_batch_size.
+                    # Use a flat combined scatter: encode both the cache slot (from seq_ids)
+                    # and the position into a single flat index, then scatter on dim=0.
+                    # latest_k shape: (1,      H, chunk_size, D)
+                    # k_cache shape:  (max_bs, H, max_len,    D)
+                    B, H, S, D = k_cache.shape
+                    # combined_idx[b, t] = seq_ids[b] * S + position_ids[b, t]
+                    combined_idx = (seq_ids.unsqueeze(1) * S + position_ids).view(-1)  # (P*C,)
+                    scatter_idx = combined_idx.view(-1, 1, 1).expand(-1, H, D)  # (P*C, H, D)
+                    flat_k = k_cache.permute(0, 2, 1, 3).reshape(B * S, H, D)
+                    flat_k_src = latest_k.permute(0, 2, 1, 3).reshape(-1, H, D)
+                    flat_k = torch.scatter(flat_k, 0, scatter_idx, flat_k_src)
+                    k_cache = flat_k.reshape(B, S, H, D).permute(0, 2, 1, 3)
+                    flat_v = v_cache.permute(0, 2, 1, 3).reshape(B * S, H, D)
+                    flat_v_src = latest_v.permute(0, 2, 1, 3).reshape(-1, H, D)
+                    flat_v = torch.scatter(flat_v, 0, scatter_idx, flat_v_src)
+                    v_cache = flat_v.reshape(B, S, H, D).permute(0, 2, 1, 3)
 
             updated_kv_cache.append(k_cache)
             updated_kv_cache.append(v_cache)
