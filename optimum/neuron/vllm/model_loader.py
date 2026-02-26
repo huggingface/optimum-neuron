@@ -207,6 +207,24 @@ class OptimumNeuronModelForCausalLM(OptimumNeuronModel):
 
         return output
 
+    def prefill_chunk_vllm(
+        self,
+        input_ids: torch.Tensor,
+        position_ids: torch.Tensor,
+        seq_ids: torch.Tensor,
+        sampling_params: torch.Tensor,
+    ) -> torch.Tensor:
+        """Process one chunk of a single prompt and return logits [1, vocab].
+
+        Only valid when neuron_config.prefill_chunk_size > 0.
+        Always called with batch_size=1: processing one sequence at a time
+        is not only simpler but also faster and consumes less device memory.
+        """
+        output = self.model.prefill_chunk(input_ids, position_ids, seq_ids, sampling_params)
+        # prefill_chunk returns [1, 1, vocab]; squeeze to [1, vocab]
+        output = output[:, -1, :]
+        return output
+
 
 class OptimumNeuronModelForEmbedding(OptimumNeuronModel):
     auto_class = NeuronModelForEmbedding
