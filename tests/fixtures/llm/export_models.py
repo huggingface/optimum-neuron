@@ -286,6 +286,85 @@ def speculation():
         logger.info(f"Done with speculation models at {speculation_path}")
 
 
+CHUNKED_PREFILL_MODEL_ID = "unsloth/Llama-3.2-1B-Instruct"
+# sequence_length and chunk_size kept small so compilation finishes quickly.
+# chunk_size must divide sequence_length.
+CHUNKED_PREFILL_SEQUENCE_LENGTH = 4096
+CHUNKED_PREFILL_CHUNK_SIZE = 512
+CHUNKED_PREFILL_BATCH_SIZE = 2
+
+
+@pytest.fixture(scope="session")
+def chunked_prefill_llm_config():
+    """Export and cache a standard + chunked-prefill Llama-3.2-1B model pair.
+
+    Both models share the same base config except for prefill_chunk_size.
+    on_device_sampling is disabled on both so the vLLM NeuronSampler is used,
+    making the two models directly comparable.
+
+    Yields a dict with keys:
+        model_id, std_neuron_model_path, chunk_neuron_model_path,
+        chunk_size, sequence_length, batch_size.
+    """
+    model_id = CHUNKED_PREFILL_MODEL_ID
+    tp_degree = cores_per_device()
+    std_neuron_model_id = f"{_get_hub_neuron_model_prefix()}-cp-std"
+    chunk_neuron_model_id = f"{_get_hub_neuron_model_prefix()}-cp-chunk"
+
+    common_kwargs = {
+        "checkpoint_id": model_id,
+        "batch_size": CHUNKED_PREFILL_BATCH_SIZE,
+        "sequence_length": CHUNKED_PREFILL_SEQUENCE_LENGTH,
+        "tp_degree": tp_degree,
+        "torch_dtype": "bfloat16",
+        "on_device_sampling": False,
+        "fused_qkv": True,
+        "target": current_instance_type(),
+    }
+
+    hub = huggingface_hub.HfApi()
+    with TemporaryDirectory() as tmpdir:
+        std_path = os.path.join(tmpdir, "std")
+        chunk_path = os.path.join(tmpdir, "chunk")
+
+        # --- Standard (context-encoding) model ---
+        if hub.repo_exists(std_neuron_model_id):
+            logger.info(f"Fetching {std_neuron_model_id} from the HuggingFace hub")
+            hub.snapshot_download(std_neuron_model_id, local_dir=std_path)
+        else:
+            neuron_config = NxDNeuronConfig(**common_kwargs)
+            model = NeuronModelForCausalLM.export(model_id, neuron_config=neuron_config, load_weights=False)
+            tokenizer = AutoTokenizer.from_pretrained(model_id)
+            model.save_pretrained(std_path)
+            tokenizer.save_pretrained(std_path)
+            del tokenizer
+            model.push_to_hub(save_directory=std_path, repository_id=std_neuron_model_id, private=True)
+            synchronize_hub_cache(cache_repo_id=OPTIMUM_CACHE_REPO_ID)
+
+        # --- Chunked-prefill model ---
+        if hub.repo_exists(chunk_neuron_model_id):
+            logger.info(f"Fetching {chunk_neuron_model_id} from the HuggingFace hub")
+            hub.snapshot_download(chunk_neuron_model_id, local_dir=chunk_path)
+        else:
+            neuron_config = NxDNeuronConfig(**common_kwargs, prefill_chunk_size=CHUNKED_PREFILL_CHUNK_SIZE)
+            model = NeuronModelForCausalLM.export(model_id, neuron_config=neuron_config, load_weights=False)
+            tokenizer = AutoTokenizer.from_pretrained(model_id)
+            model.save_pretrained(chunk_path)
+            tokenizer.save_pretrained(chunk_path)
+            del tokenizer
+            model.push_to_hub(save_directory=chunk_path, repository_id=chunk_neuron_model_id, private=True)
+            synchronize_hub_cache(cache_repo_id=OPTIMUM_CACHE_REPO_ID)
+
+        yield {
+            "model_id": model_id,
+            "std_neuron_model_path": std_path,
+            "chunk_neuron_model_path": chunk_path,
+            "chunk_size": CHUNKED_PREFILL_CHUNK_SIZE,
+            "sequence_length": CHUNKED_PREFILL_SEQUENCE_LENGTH,
+            "batch_size": CHUNKED_PREFILL_BATCH_SIZE,
+        }
+
+
 if __name__ == "__main__":
     for config_name, model_config in LLM_MODEL_CONFIGURATIONS.items():
         with TemporaryDirectory() as neuron_model_path:
