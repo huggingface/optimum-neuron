@@ -14,16 +14,22 @@
 # limitations under the License.
 """NeuronSentenceTransformers class for inference on neuron devices of sentence transformers."""
 
+from __future__ import annotations
+
 import logging
 from typing import Literal
 
 import torch
-from sentence_transformers.similarity_functions import SimilarityFunction
+from optimum.utils import is_sentence_transformers_available
 from tqdm.autonotebook import trange
 from transformers import AutoModel
 from transformers.modeling_outputs import ModelOutput
 
 from .modeling_traced import NeuronTracedModel
+
+
+if is_sentence_transformers_available():
+    from sentence_transformers.similarity_functions import SimilarityFunction
 
 
 logger = logging.getLogger(__name__)
