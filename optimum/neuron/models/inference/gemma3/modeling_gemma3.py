@@ -527,6 +527,7 @@ class Gemma3NxDModelForCausalLM(NxDModelForCausalLM):
         sequence_length: int,
         tensor_parallel_size: int,
         dtype: torch.dtype,
+        prefill_chunk_size: int = 0,
     ):
         """
         Get the neuron configuration for Gemma3 model.
@@ -544,7 +545,8 @@ class Gemma3NxDModelForCausalLM(NxDModelForCausalLM):
             tp_degree=tensor_parallel_size,
             torch_dtype=dtype,
             target=instance_type,
-            on_device_sampling=True,
+            on_device_sampling=(prefill_chunk_size == 0),
             fused_qkv=True,
             continuous_batching=continuous_batching,
+            prefill_chunk_size=prefill_chunk_size,
         )

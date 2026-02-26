@@ -117,7 +117,8 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             raise ValueError("Output scores are not supported for neuron models")
         if generation_config.return_dict_in_generate:
             raise ValueError("return_dict_in_generate is not supported for neuron models")
-        if not self.neuron_config.on_device_sampling:
+        needs_cpu_sampling = not self.neuron_config.on_device_sampling or self.neuron_config.prefill_chunk_size > 0
+        if needs_cpu_sampling:
             # Remove transformers TopK, TopP and Temperature processors
             logits_processor = LogitsProcessorList(
                 [
@@ -154,43 +155,58 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         # keep track of which sequences are already finished
         unfinished_sequences = torch.ones(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
 
-        def get_next_tokens(
-            current_input_ids: torch.Tensor,
-            current_position_ids: torch.Tensor,
-        ) -> torch.Tensor:
-            outputs = self.forward(
-                input_ids=current_input_ids,
-                position_ids=current_position_ids,
-                sampling_params=sampling_params,
-                seq_ids=seq_ids,
-            )
+        def sample_next_tokens(outputs: torch.Tensor, is_ods: bool | None = None) -> torch.Tensor:
+            """Sample next tokens from model outputs (logits or ODS tokens).
 
-            if self.neuron_config.on_device_sampling:
+            Args:
+                outputs: Model outputs — sampled token IDs when ODS is on, logits otherwise.
+                is_ods: Override for on-device sampling flag. Needed for hybrid ODS where the
+                    chunked prefill graph uses CPU sampling while the base config has ODS=True.
+            """
+            if is_ods if is_ods is not None else self.neuron_config.on_device_sampling:
                 next_tokens = outputs
             else:
                 next_token_logits = outputs[:, -1, :].clone()
-                # pre-process distribution
                 next_token_scores = logits_processor(input_ids, next_token_logits)
-                # warp distribution, applying temperature, top_k, top_p
                 next_token_scores, next_token_indices = fused_logits_warper(next_token_scores)
-
-                # token selection
                 if do_sample:
                     probs = torch.nn.functional.softmax(next_token_scores, dim=-1)
                     next_tokens = torch.multinomial(probs, num_samples=1)
                 else:
                     next_tokens = torch.argmax(next_token_scores, dim=-1, keepdim=True)
-                # Convert the filtered tokens to actual vocabulary tokens
                 next_tokens = torch.gather(next_token_indices, 1, next_tokens).squeeze(1)
 
-            # finished sentences should have their next token be a padding token
             if has_eos_stopping_criteria:
                 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
 
             return next_tokens[:, None]
 
         # Prefill
-        next_tokens = get_next_tokens(input_ids, position_ids)
+        chunk_size = self.neuron_config.prefill_chunk_size
+        if chunk_size > 0:
+            prompt_len = input_ids.shape[1]
+            last_chunk_outputs = None
+            for chunk_start in range(0, prompt_len, chunk_size):
+                chunk_end = min(chunk_start + chunk_size, prompt_len)
+                chunk_ids = input_ids[:, chunk_start:chunk_end]
+                chunk_pos = position_ids[:, chunk_start:chunk_end]
+                # Skip chunks where no sequence has real tokens (avoids NaN from
+                # degenerate embeddings).  Chunked prefill enforces ctx_batch_size=1,
+                # so per-batch and per-sequence checks are equivalent.  The sum==0
+                # check covers the full batch in case this is relaxed in the future.
+                if attention_mask is not None and attention_mask[:, chunk_start:chunk_end].sum() == 0:
+                    continue
+                last_chunk_outputs = self.prefill_chunk(chunk_ids, chunk_pos, seq_ids, sampling_params)
+            # Chunked prefill model always uses CPU sampling (hybrid ODS).
+            next_tokens = sample_next_tokens(last_chunk_outputs, is_ods=False)
+        else:
+            outputs = self.forward(
+                input_ids=input_ids,
+                position_ids=position_ids,
+                sampling_params=sampling_params,
+                seq_ids=seq_ids,
+            )
+            next_tokens = sample_next_tokens(outputs)
         input_ids = torch.cat((input_ids, next_tokens), dim=-1)
         unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, None)
         this_peer_finished = unfinished_sequences.max() == 0
@@ -198,7 +214,13 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             # Increase position_ids for next token
             position_ids = increase_position_ids(position_ids, 1)
             # Decode
-            next_tokens = get_next_tokens(next_tokens, position_ids)
+            outputs = self.forward(
+                input_ids=next_tokens,
+                position_ids=position_ids,
+                sampling_params=sampling_params,
+                seq_ids=seq_ids,
+            )
+            next_tokens = sample_next_tokens(outputs)
             input_ids = torch.cat((input_ids, next_tokens), dim=-1)
             unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, None)
             this_peer_finished = unfinished_sequences.max() == 0

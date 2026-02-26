@@ -68,7 +68,7 @@ async def vllm_service_from_model(request, vllm_launcher, neuron_llm_config):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 async def test_vllm_service_from_model(vllm_service_from_model):
     prompt = "What is Deep Learning?"
     max_output_tokens = 17

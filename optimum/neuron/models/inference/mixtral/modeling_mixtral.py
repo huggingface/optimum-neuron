@@ -256,6 +256,7 @@ class MixtralNxDModelForCausalLM(NxDModelForCausalLM):
         sequence_length: int,
         tensor_parallel_size: int,
         dtype: torch.dtype,
+        prefill_chunk_size: int = 0,
     ):
         return NxDNeuronConfig(
             checkpoint_id=checkpoint_id,
@@ -265,4 +266,5 @@ class MixtralNxDModelForCausalLM(NxDModelForCausalLM):
             tp_degree=tensor_parallel_size,
             torch_dtype=dtype,
             target=instance_type,
+            prefill_chunk_size=prefill_chunk_size,
         )
