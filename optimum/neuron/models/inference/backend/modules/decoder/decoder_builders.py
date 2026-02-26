@@ -109,9 +109,11 @@ class DecoderModelInstanceForCausalLM(BaseModelInstance):
 
         if self.neuron_config.torch_dtype != torch.float32:
             float_model._apply(
-                lambda t: t.to(self.neuron_config.torch_dtype)
-                if t.is_floating_point() and t.dtype not in [torch.float8_e4m3fn, torch.float8_e5m2]
-                else t
+                lambda t: (
+                    t.to(self.neuron_config.torch_dtype)
+                    if t.is_floating_point() and t.dtype not in [torch.float8_e4m3fn, torch.float8_e5m2]
+                    else t
+                )
             )
         self.module = float_model
         self.module.n_positions = self.n_positions
@@ -184,9 +186,11 @@ class DecoderModelInstanceForEmbedding(BaseModelInstance):
 
         if self.neuron_config.torch_dtype != torch.float32:
             float_model._apply(
-                lambda t: t.to(self.neuron_config.torch_dtype)
-                if t.is_floating_point() and t.dtype not in [torch.float8_e4m3fn, torch.float8_e5m2]
-                else t
+                lambda t: (
+                    t.to(self.neuron_config.torch_dtype)
+                    if t.is_floating_point() and t.dtype not in [torch.float8_e4m3fn, torch.float8_e5m2]
+                    else t
+                )
             )
         self.module = float_model
         self.module.n_positions = self.n_positions
