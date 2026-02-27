@@ -235,6 +235,7 @@ class Qwen3MoeNxDModelForCausalLM(NxDModelForCausalLM):
         sequence_length: int,
         tensor_parallel_size: int,
         dtype: torch.dtype,
+        prefill_chunk_size: int = 0,
     ):
         continuous_batching = (batch_size > 1) if batch_size else False
         return NxDNeuronConfig(
@@ -245,6 +246,7 @@ class Qwen3MoeNxDModelForCausalLM(NxDModelForCausalLM):
             tp_degree=tensor_parallel_size,
             torch_dtype=dtype,
             target=instance_type,
-            on_device_sampling=True,
+            on_device_sampling=(prefill_chunk_size == 0),
             continuous_batching=continuous_batching,
+            prefill_chunk_size=prefill_chunk_size,
         )
