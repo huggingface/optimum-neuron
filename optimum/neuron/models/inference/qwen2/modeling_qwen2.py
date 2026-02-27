@@ -113,10 +113,11 @@ class Qwen2NxDModelForCausalLM(LlamaNxDModelForCausalLM):
         sequence_length: int,
         tensor_parallel_size: int,
         dtype: torch.dtype,
+        prefill_chunk_size: int = 0,
     ):
         continuous_batching = (batch_size > 1) if batch_size else False
-        on_device_sampling = True
-        if continuous_batching and tensor_parallel_size == 2:
+        on_device_sampling = prefill_chunk_size == 0
+        if on_device_sampling and continuous_batching and tensor_parallel_size == 2:
             # Neuron SDK 2.24 bug: the model will produce garbage output when continuous_batching is enabled
             # if the tensor parallel size is 2 and on_device_sampling is enabled.
             warnings.warn(
@@ -134,4 +135,5 @@ class Qwen2NxDModelForCausalLM(LlamaNxDModelForCausalLM):
             on_device_sampling=on_device_sampling,
             fused_qkv=False,
             continuous_batching=continuous_batching,
+            prefill_chunk_size=prefill_chunk_size,
         )

@@ -61,6 +61,7 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
         batch_size: int | None = None,
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
+        prefill_chunk_size: int | None = None,
     ) -> NeuronConfig:
         """
         Get the Neuron configuration for the target model class.
@@ -87,6 +88,8 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
                 The sequence length to use for inference. If not specified, defaults to the model's maximum sequence length.
             tensor_parallel_size (`int`, *optional*):
                 The number of cores to use for tensor parallelism. If not specified, all available cores will be used.
+            prefill_chunk_size (`int`, *optional*):
+                The chunk size for chunked prefill. When set, replaces context encoding with chunked prefill.
         Returns:
             `NeuronConfig`: The Neuron configuration for the model.
         """
@@ -139,6 +142,7 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
             sequence_length=sequence_length,
             tensor_parallel_size=tensor_parallel_size,
             dtype=DTYPE_MAPPER.pt(config.dtype),
+            prefill_chunk_size=prefill_chunk_size or 0,
         )
 
     @classmethod
@@ -226,6 +230,7 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
         sequence_length: int,
         tensor_parallel_size: int,
         dtype: torch.dtype,
+        prefill_chunk_size: int = 0,
     ):
         raise NotImplementedError("The `_get_neuron_config` method must be implemented in the subclass.")
 
