@@ -1,5 +1,8 @@
+import functools
 import logging
 import os
+import subprocess
+import sys
 import uuid
 from functools import partial
 from pathlib import Path
@@ -41,6 +44,84 @@ def destroy_mp():
     if parallel_state.model_parallel_is_initialized():
         parallel_state.destroy_model_parallel()
         torch.distributed.destroy_process_group()
+
+
+def subprocess_test(fn):
+    """Decorator that runs a test function in an isolated subprocess.
+
+    Loading a compiled model onto NeuronCores permanently sets the Neuron
+    runtime's global communicator world_size for the lifetime of the process.
+    Tests that use ``build_module`` (tp_degree=1) would poison the runtime so
+    that later tests requiring a different tp_degree (e.g. 2) fail with
+    "World size of neff N is greater than world size of global communicator M".
+
+    This decorator re-invokes the specific test via ``pytest`` in a fresh
+    subprocess so the NRT state never leaks into the parent pytest session.
+    """
+    # Store the unwrapped function so the subprocess can call it directly
+    # when the _NXD_SUBPROCESS marker is set.
+    fn._subprocess_unwrapped = True
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        # When running inside the subprocess, call the real function directly.
+        if os.environ.get("_NXD_SUBPROCESS"):
+            kwargs.pop("request", None)
+            return fn(*args, **kwargs)
+
+        # Resolve the pytest node ID for this specific parametrized invocation.
+        # pytest passes the request fixture implicitly; we look for it in kwargs.
+        request = kwargs.pop("request", None) or _find_request(args)
+        if request is None:
+            raise RuntimeError(
+                "subprocess_test requires the 'request' pytest fixture. "
+                "Add 'request' as a parameter to your test function."
+            )
+        node_id = request.node.nodeid
+        # Run pytest from the rootdir (where pytest.ini lives) so node IDs resolve
+        rootdir = str(request.config.rootdir)
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "-xvs", node_id],
+            capture_output=True,
+            text=True,
+            cwd=rootdir,
+            env={**os.environ, "_NXD_SUBPROCESS": "1"},
+        )
+        if result.returncode != 0:
+            # Extract just the failure message, not the full pytest output
+            lines = result.stdout.splitlines()
+            failure_lines = []
+            capture = False
+            for line in lines:
+                if "FAILURES" in line or "ERROR" in line:
+                    capture = True
+                if capture:
+                    failure_lines.append(line)
+            detail = "\n".join(failure_lines) if failure_lines else result.stdout[-2000:]
+            if result.stderr:
+                detail += f"\nstderr:\n{result.stderr[-1000:]}"
+            raise RuntimeError(f"Test failed in subprocess (exit code {result.returncode}):\n{detail}")
+
+    # Mark the wrapper so pytest can detect the 'request' parameter
+    import inspect
+
+    orig_sig = inspect.signature(fn)
+    params = list(orig_sig.parameters.values())
+    if "request" not in orig_sig.parameters:
+        params.append(inspect.Parameter("request", inspect.Parameter.POSITIONAL_OR_KEYWORD))
+    wrapper.__signature__ = orig_sig.replace(parameters=params)
+    wrapper._subprocess_unwrapped = True
+    return wrapper
+
+
+def _find_request(args):
+    """Look for a pytest FixtureRequest in positional args."""
+    import _pytest.fixtures
+
+    for arg in args:
+        if isinstance(arg, _pytest.fixtures.FixtureRequest):
+            return arg
+    return None
 
 
 def init_cpu_env():
@@ -248,8 +329,17 @@ def _get_module_name(module_cls, module_init_kwargs):
 def _save_checkpoint(module_cls, module_init_kwargs, checkpoint_path, tp_degree=1):
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Parallel state is required to init modules that have distributed layers like RPL/CPL.
-    torch.distributed.init_process_group(backend="xla", rank=0, world_size=tp_degree)
+    # Use the gloo backend instead of xla to avoid initializing the NRT global
+    # communicator.  Initializing the real XLA backend with a given world_size
+    # permanently poisons the Neuron runtime for the lifetime of the process —
+    # subsequent calls that need a different world_size (e.g. tp_degree=2)
+    # would fail with "World size of neff N is greater than world size of
+    # global communicator M".  The gloo backend provides the process group that
+    # parallel_state.initialize_model_parallel() requires for module creation
+    # (distributed layers like RPL/CPL) without touching the NRT.
+    os.environ.setdefault("MASTER_ADDR", "localhost")
+    os.environ.setdefault("MASTER_PORT", "0")
+    torch.distributed.init_process_group(backend="gloo", rank=0, world_size=tp_degree)
     parallel_state.initialize_model_parallel(tp_degree)
 
     # Set the parallel state random seed to ensure random weights match modules initialized on CPU.

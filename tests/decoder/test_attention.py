@@ -4,7 +4,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 import torch
-from nxd_testing import build_module, validate_accuracy
+from nxd_testing import build_module, subprocess_test, validate_accuracy
 from transformers import AutoConfig, set_seed
 from transformers.models.llama.modeling_llama import (
     LlamaAttention,
@@ -87,6 +87,7 @@ CONFIGS = [
 @is_inferentia_test
 @requires_neuronx
 @pytest.mark.parametrize("test_config", CONFIGS, ids=[test_config.name for test_config in CONFIGS])
+@subprocess_test
 def test_attention_prefill(test_config: AttentionTestConfig):
     set_seed(42)
     checkpoint = test_config.config_id
