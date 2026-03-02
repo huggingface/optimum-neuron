@@ -164,7 +164,15 @@ class NxDDecoderModelForCausalLM(nn.Module):
             )
             attention_mask = (max_cached_positions >= all_positions).view(self.batch_size, 1, 1, self.n_positions)
             attention_mask = attention_mask.expand(self.batch_size, 1, chunk_size, self.n_positions)
-            active_mask = torch.full((chunk_size, chunk_size), True, device=device).tril(diagonal=0)
+            causal_mask = torch.full((chunk_size, chunk_size), True, device=device).tril(diagonal=0)
+            # Block attention to padded positions so padded tokens attend to the
+            # exact same set of positions as the real last token.  This makes their
+            # KV identical to the real token's, so the scatter overwrite at the
+            # repeated position is a true no-op (avoids non-deterministic scatter
+            # behaviour with duplicate indices corrupting the cache).
+            is_real = torch.ones(1, chunk_size, dtype=torch.bool, device=device)
+            is_real[:, 1:] = position_ids[:1, 1:] > position_ids[:1, :-1]
+            active_mask = causal_mask & is_real.view(1, chunk_size)
             active_mask = active_mask[None, None, :, :].expand(self.batch_size, 1, chunk_size, chunk_size)
             is_for_context_encoding = False
             is_for_speculation = False
