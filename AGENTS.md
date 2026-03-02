@@ -140,4 +140,13 @@ All test workflows follow the same pattern:
 - Tests failing on CPU: expected for most Neuron tests.
 - Compilation timeout: large models take 30-60 min, use `--timeout 0`.
 
+## Debugging Discipline
+
+When investigating test failures or unexpected behavior:
+
+- **Never attribute a failure to compiler/runtime non-determinism, floating-point accumulation, or other invisible causes without direct evidence.** These are unfalsifiable explanations that shut down investigation prematurely.
+- **If isolated operations produce identical results but a full-system test diverges, keep investigating concrete causes:** wrong artifact loaded, stale cache, unrelated code change on the branch, fixture/infrastructure bug, incorrect test setup.
+- **State what you know, what you don't know, and what to test next.** Do not fill gaps with plausible-sounding theories. "I don't know yet" is always better than a fabricated explanation.
+- **Each claim must be backed by a test or observation.** If you say "X causes Y", show the test where changing X changes Y. If you haven't run that test, say so.
+
 Trust these instructions and only search for more context if something is missing or incorrect.
