@@ -5,7 +5,7 @@ from typing import Callable
 
 import pytest
 import torch
-from nxd_testing import build_module, validate_accuracy
+from nxd_testing import build_module, subprocess_test, validate_accuracy
 from transformers import AutoConfig, set_seed
 from transformers.models.llama.modeling_llama import (
     LlamaDecoderLayer,
@@ -31,6 +31,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 
 @is_inferentia_test
 @requires_neuronx
+@subprocess_test
 def test_rms_norm():
     set_seed(42)
     config_id = "unsloth/Llama-3.2-1B-Instruct"
@@ -65,6 +66,7 @@ def _set_weights(module):
 
 @is_inferentia_test
 @requires_neuronx
+@subprocess_test
 def test_llama_mlp():
     set_seed(42)
     config_id = "unsloth/Llama-3.2-1B-Instruct"
@@ -113,6 +115,7 @@ def test_llama_mlp():
 
 @is_inferentia_test
 @requires_neuronx
+@subprocess_test
 def test_llama_rotary_embedding():
     set_seed(42)
     config_id = "unsloth/Llama-3.2-1B-Instruct"
@@ -219,6 +222,7 @@ DECODER_TESTS_CONFIGS = [
 @pytest.mark.parametrize(
     "test_config", DECODER_TESTS_CONFIGS, ids=[test_config.name for test_config in DECODER_TESTS_CONFIGS]
 )
+@subprocess_test
 def test_decoder_layer(test_config: DecoderLayerTestConfig):
     set_seed(42)
     config_id = test_config.config_id
