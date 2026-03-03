@@ -184,21 +184,59 @@ def apply_rotary_polar_compatible(query, key, freqs_cis):
     return query_rot.type_as(query), key_rot.type_as(key)
 
 
-def manual_softmax(prior_scores, active_scores) -> tuple[Tensor, Tensor]:
+def manual_softmax(prior_scores, active_scores, prior_mask=None, active_mask=None) -> tuple[Tensor, Tensor]:
     """
-    simple softmax computation: denominator is the sum of exp over all vocab and only need compute numerator (exp)
-    """
-    max_score = torch.max(prior_scores, dim=-1, keepdim=True)[0]
-    max_active_score = torch.max(active_scores, dim=-1, keepdim=True)[0]
-    active_score_last_dim_not_1 = active_scores.shape[-1] > 1
-    max_score = (
-        torch.maximum(max_score, max_active_score)
-        if active_score_last_dim_not_1
-        else torch.maximum(max_score, active_scores)
-    )
+    Numerically stable softmax over split prior/active score tensors.
 
-    exp_prior = torch.exp(prior_scores - max_score)
-    exp_active = torch.exp(active_scores - max_score)
+    When boolean masks are provided, masked positions are excluded from the
+    softmax computation: they do not influence the max or denominator and
+    receive zero probability in the output.
+
+    Args:
+        prior_scores: Attention scores for cached KV positions.
+        active_scores: Attention scores for current/new KV positions.
+        prior_mask: Optional boolean mask (True = attend, False = ignore).
+        active_mask: Optional boolean mask for active scores (speculation).
+    """
+    _NEG_INF = -1e9
+
+    # ---- max computation (exclude masked positions) ----
+    if prior_mask is not None:
+        prior_for_max = torch.where(prior_mask, prior_scores, _NEG_INF)
+    else:
+        prior_for_max = prior_scores
+    prior_for_max = prior_for_max.to(torch.float32)
+
+    if active_mask is not None:
+        active_for_max = torch.where(active_mask, active_scores, _NEG_INF)
+    else:
+        active_for_max = active_scores
+    active_for_max = active_for_max.to(torch.float32)
+
+    max_score = torch.max(prior_for_max, dim=-1, keepdim=True)[0]
+    active_score_last_dim_not_1 = active_scores.shape[-1] > 1
+    if active_score_last_dim_not_1:
+        max_active_score = torch.max(active_for_max, dim=-1, keepdim=True)[0]
+        max_score = torch.maximum(max_score, max_active_score)
+    else:
+        max_score = torch.maximum(max_score, active_for_max)
+
+    # ---- exp computation (zero out masked positions) ----
+    prior_scores = prior_scores.to(torch.float32)
+    if prior_mask is not None:
+        safe_prior = torch.where(prior_mask, prior_scores, max_score.expand_as(prior_scores))
+        exp_prior = torch.exp(safe_prior - max_score) * prior_mask.float()
+    else:
+        exp_prior = torch.exp(prior_scores - max_score)
+
+    active_scores = active_scores.to(torch.float32)
+    if active_mask is not None:
+        safe_active = torch.where(active_mask, active_scores, max_score.expand_as(active_scores))
+        exp_active = torch.exp(safe_active - max_score) * active_mask.float()
+    else:
+        exp_active = torch.exp(active_scores - max_score)
+
+    # ---- normalize ----
     denominator = exp_prior.sum(dim=-1, keepdim=True) + exp_active.sum(dim=-1, keepdim=True)
 
     softmax_prior = exp_prior / denominator

@@ -358,26 +358,25 @@ class NeuronAttentionBase(nn.Module):
         """attention computation at token generation phase"""
         is_speculation = position_ids.shape[-1] > 1
 
-        # Attention computation: softmax((Q.K/√dkv) + mask).V
         # i. prior (cached) KV
         K_prior = past_key_value[0]
         V_prior = past_key_value[1]
         K_prior = repeat_kv(K_prior, self.num_key_value_groups)
         V_prior = repeat_kv(V_prior, self.num_key_value_groups)
         prior_scores = torch.matmul(Q, K_prior.transpose(2, 3)) * self.qk_scale
-        prior_scores = torch.where(attention_mask, prior_scores, torch.finfo(prior_scores.dtype).min)
-        prior_scores = prior_scores.to(torch.float32)
 
         # ii. active (current/new) KV
         K_active = repeat_kv(K, self.num_key_value_groups)
         V_active = repeat_kv(V, self.num_key_value_groups)
         active_scores = torch.matmul(Q, K_active.transpose(2, 3)) * self.qk_scale
-        if is_speculation:
-            active_scores = torch.where(active_mask, active_scores, torch.finfo(active_scores.dtype).min)
-        active_scores = active_scores.to(torch.float32)
 
-        # iii. attention scores
-        softmax_prior, softmax_active = manual_softmax(prior_scores, active_scores)
+        # iii. attention scores — masks handled inside manual_softmax
+        softmax_prior, softmax_active = manual_softmax(
+            prior_scores,
+            active_scores,
+            prior_mask=attention_mask,
+            active_mask=active_mask if is_speculation else None,
+        )
         softmax_prior, softmax_active = softmax_prior.to(Q.dtype), softmax_active.to(Q.dtype)
         attn_prior = torch.matmul(softmax_prior, V_prior)
         attn_active = torch.matmul(softmax_active, V_active)
