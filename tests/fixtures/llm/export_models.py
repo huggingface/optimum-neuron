@@ -365,8 +365,8 @@ def chunked_prefill_llm_config():
         }
 
 
-if __name__ == "__main__":
-    configs = list(LLM_MODEL_CONFIGURATIONS.items())
+def _run_exports(configs):
+    """Export the given (name, config) pairs with a rich live display if available."""
     total = len(configs)
 
     try:
@@ -428,3 +428,37 @@ if __name__ == "__main__":
                     _get_neuron_model_for_config(config_name, model_config, neuron_model_path)
                 progress.advance(task_id)
             progress.update(task_id, description="[green]All models exported")
+
+
+if __name__ == "__main__":
+    import argparse
+    import fnmatch
+
+    parser = argparse.ArgumentParser(description="Export Neuron test models")
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List available configuration names and exit",
+    )
+    parser.add_argument(
+        "pattern",
+        nargs="?",
+        default="*",
+        help="Glob pattern to filter configurations (e.g. 'gemma*', '*-1x8192')",
+    )
+    args = parser.parse_args()
+
+    all_configs = list(LLM_MODEL_CONFIGURATIONS.items())
+    configs = [(name, cfg) for name, cfg in all_configs if fnmatch.fnmatch(name, args.pattern)]
+
+    if args.list:
+        for name, cfg in configs:
+            print(f"{name:30s}  {cfg['model_id']}")
+        sys.exit(0)
+
+    if not configs:
+        print(f"No configurations match pattern '{args.pattern}'")
+        print(f"Available: {', '.join(name for name, _ in all_configs)}")
+        sys.exit(1)
+
+    _run_exports(configs)
