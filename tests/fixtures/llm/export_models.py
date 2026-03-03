@@ -287,6 +287,65 @@ def speculation():
 
 
 if __name__ == "__main__":
-    for config_name, model_config in LLM_MODEL_CONFIGURATIONS.items():
-        with TemporaryDirectory() as neuron_model_path:
-            _get_neuron_model_for_config(config_name, model_config, neuron_model_path)
+    configs = list(LLM_MODEL_CONFIGURATIONS.items())
+    total = len(configs)
+
+    try:
+        from collections import deque
+
+        from rich.console import Console
+        from rich.live import Live
+        from rich.panel import Panel
+        from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
+        from rich.table import Table
+
+        _HAS_RICH = True
+    except ImportError:
+        _HAS_RICH = False
+
+    if not _HAS_RICH:
+        for config_name, model_config in configs:
+            with TemporaryDirectory() as neuron_model_path:
+                _get_neuron_model_for_config(config_name, model_config, neuron_model_path)
+    else:
+        LOG_LINES = 10
+        log_buffer: deque[str] = deque(maxlen=LOG_LINES)
+
+        progress = Progress(
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(bar_width=40),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+        )
+        task_id = progress.add_task("Starting...", total=total)
+
+        def make_display():
+            grid = Table.grid(padding=(0, 0))
+            log_text = "\n".join(log_buffer) if log_buffer else "Waiting for logs..."
+            grid.add_row(Panel(log_text, title="Export Logs", height=LOG_LINES + 2))
+            grid.add_row(progress)
+            return grid
+
+        # Capture log records into the buffer (replaces the default stdout handler)
+        class _BufferHandler(logging.Handler):
+            def emit(self, record):
+                log_buffer.append(self.format(record))
+
+        buf_handler = _BufferHandler()
+        buf_handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(message)s", datefmt="%H:%M:%S"))
+        logging.root.handlers.clear()
+        logging.root.addHandler(buf_handler)
+        logging.root.setLevel(logging.INFO)
+
+        # Override get_renderable so auto-refresh builds a fresh display each tick
+        live = Live(refresh_per_second=4, console=Console(stderr=True))
+        live.get_renderable = make_display
+
+        with live:
+            for i, (config_name, model_config) in enumerate(configs):
+                model_id = model_config["model_id"]
+                progress.update(task_id, description=f"[{i + 1}/{total}] {config_name} ({model_id})")
+                with TemporaryDirectory() as neuron_model_path:
+                    _get_neuron_model_for_config(config_name, model_config, neuron_model_path)
+                progress.advance(task_id)
+            progress.update(task_id, description="[green]All models exported")
