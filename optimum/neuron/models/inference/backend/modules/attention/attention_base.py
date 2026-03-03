@@ -294,13 +294,18 @@ class NeuronAttentionBase(nn.Module):
         is_speculation = position_ids.shape[-1] > 1
 
         # Attention computation: softmax((Q.K/√dkv) + mask).V
+        # Use -1e9 instead of finfo(dtype).min as the masked fill value: Neuron XLA's
+        # vectorized exp() produces NaN for inputs near finfo(bf16).min (~-3.4e38),
+        # while exp(-1e9) underflows to exactly 0.0 in float32.
+        _MASKED_FILL = -1e9
+
         # i. prior (cached) KV
         K_prior = past_key_value[0]
         V_prior = past_key_value[1]
         K_prior = repeat_kv(K_prior, self.num_key_value_groups)
         V_prior = repeat_kv(V_prior, self.num_key_value_groups)
         prior_scores = torch.matmul(Q, K_prior.transpose(2, 3)) * self.qk_scale
-        prior_scores = torch.where(attention_mask, prior_scores, torch.finfo(prior_scores.dtype).min)
+        prior_scores = torch.where(attention_mask, prior_scores, _MASKED_FILL)
         prior_scores = prior_scores.to(torch.float32)
 
         # ii. active (current/new) KV
@@ -308,7 +313,7 @@ class NeuronAttentionBase(nn.Module):
         V_active = repeat_kv(V, self.num_key_value_groups)
         active_scores = torch.matmul(Q, K_active.transpose(2, 3)) * self.qk_scale
         if is_speculation:
-            active_scores = torch.where(active_mask, active_scores, torch.finfo(active_scores.dtype).min)
+            active_scores = torch.where(active_mask, active_scores, _MASKED_FILL)
         active_scores = active_scores.to(torch.float32)
 
         # iii. attention scores
