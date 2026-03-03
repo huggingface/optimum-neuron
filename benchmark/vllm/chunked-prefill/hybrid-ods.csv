@@ -1,0 +1,3 @@
+model_id,Date,Input type,Requests per Second,Request Latency (s),Time-to-first-token (ms),Inter Token Latency (ms),Output Token Throughput (t/s)
+meta-llama_Llama-3.1-8B-Instruct,2026-03-03-15-46-00,synchronous,0.18794645900453472,5.320261987772855,296.27027294852513,24.55990098320304,38.44359388729119
+meta-llama_Llama-3.1-8B-Instruct,2026-03-03-15-46-00,throughput,2.0767781082058643,13.820111324570396,1966.4817810058594,55.94166151040428,440.4468771484964
