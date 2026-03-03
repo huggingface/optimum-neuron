@@ -71,6 +71,21 @@ class OptimumNeuronPlatform(UnspecifiedPlatform):
                 # optimum-neuron only supports blocks equal to the maximum sequence length
                 vllm_config.cache_config.block_size = vllm_config.model_config.max_model_len
 
+        # Fix max_num_batched_tokens for Neuron platform.
+        # vLLM V1 defaults enable_chunked_prefill=True, which sets
+        # max_num_batched_tokens to 2048. The engine core later disables
+        # chunked prefill because Neuron manages KV cache internally
+        # (empty kv_cache_groups). This leaves a 2048-token budget with
+        # no ability to chunk, causing prompts >2048 tokens to be stuck.
+        # Both standard and chunked prefill process one sequence at a time,
+        # so the optimal budget is max_model_len.
+        if vllm_config.scheduler_config and vllm_config.model_config:
+            max_model_len = vllm_config.model_config.max_model_len
+            vllm_config.scheduler_config.max_num_batched_tokens = max(
+                vllm_config.scheduler_config.max_num_batched_tokens,
+                max_model_len,
+            )
+
         if vllm_config.model_config:
             if vllm_config.model_config.use_mla:
                 raise ValueError(
