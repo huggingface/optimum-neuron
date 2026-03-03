@@ -108,9 +108,6 @@ class NxDNeuronConfig(NeuronConfig):
 
         # Chunked prefill
         self.prefill_chunk_size = prefill_chunk_size if prefill_chunk_size is not None else 0
-        if self.prefill_chunk_size > 0:
-            if self.on_device_sampling:
-                raise IncompatibleConfigError("Chunked prefill is incompatible with on-device sampling")
 
         # Speculative decoding
         self.speculation_length = speculation_length

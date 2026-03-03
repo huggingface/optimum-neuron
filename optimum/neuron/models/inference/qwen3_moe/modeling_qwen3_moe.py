@@ -246,7 +246,7 @@ class Qwen3MoeNxDModelForCausalLM(NxDModelForCausalLM):
             tp_degree=tensor_parallel_size,
             torch_dtype=dtype,
             target=instance_type,
-            on_device_sampling=(prefill_chunk_size == 0),
+            on_device_sampling=True,
             continuous_batching=continuous_batching,
             prefill_chunk_size=prefill_chunk_size,
         )
