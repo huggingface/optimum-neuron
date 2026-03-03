@@ -1,7 +1,9 @@
 import copy
 import hashlib
+import json
 import logging
 import os
+import subprocess
 import sys
 from tempfile import TemporaryDirectory
 
@@ -16,7 +18,7 @@ from optimum.neuron.utils.system import cores_per_device
 if is_package_available("transformers"):
     from transformers import AutoConfig, AutoTokenizer
 
-from optimum.neuron import NeuronModelForCausalLM, NeuronModelForEmbedding
+from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.cache import synchronize_hub_cache
 from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
 from optimum.neuron.version import __sdk_version__ as sdk_version
@@ -115,19 +117,77 @@ def _get_hub_neuron_model_id(config_name: str, model_config: dict[str, str]):
 
 
 def _export_model(model_id, task, export_kwargs, neuron_model_path):
-    if task == "text-generation":
-        auto_class = NeuronModelForCausalLM
-    elif task == "feature-extraction":
-        auto_class = NeuronModelForEmbedding
-    else:
-        raise ValueError(f"Unsupported task: {task}")
-    try:
-        neuron_config = auto_class.get_neuron_config(model_id, **export_kwargs)
-        model = auto_class.export(model_id, neuron_config=neuron_config, load_weights=False)
-        model.save_pretrained(neuron_model_path)
-        return model
-    except Exception as e:
-        raise ValueError(f"Failed to export {model_id}: {e}")
+    """Export a model in a subprocess via optimum-cli to avoid Neuron device resource leaks.
+
+    The Neuron runtime does not release devices reliably within the same process.
+    Running exports in a subprocess prevents the test process from claiming cores
+    that vLLM subprocesses will need later.
+    """
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "optimum.exporters.neuron",
+            "--model",
+            model_id,
+            "--task",
+            task,
+            "--batch_size",
+            str(export_kwargs["batch_size"]),
+            "--sequence_length",
+            str(export_kwargs["sequence_length"]),
+            "--tensor_parallel_size",
+            str(export_kwargs["tensor_parallel_size"]),
+            neuron_model_path,
+        ],
+        timeout=300,
+    )
+    if result.returncode != 0:
+        raise ValueError(f"Failed to export {model_id} (exit code {result.returncode})")
+
+
+def _push_to_hub(save_directory, repository_id, private=True):
+    """Upload exported model artifacts to the HuggingFace hub."""
+    hub = huggingface_hub.HfApi()
+    hub.create_repo(repo_id=repository_id, exist_ok=True, private=private)
+    hub.upload_folder(
+        repo_id=repository_id,
+        folder_path=save_directory,
+        ignore_patterns=["checkpoint/*"],
+    )
+
+
+def _export_speculation_model(model_id, output_dir, tp_degree, speculation_length=0):
+    """Export a speculation model in a subprocess.
+
+    Uses a custom entry point because the CLI doesn't support speculation_length.
+    """
+    neuron_config_dict = {
+        "checkpoint_id": model_id,
+        "batch_size": 1,
+        "sequence_length": 4096,
+        "tp_degree": tp_degree,
+        "torch_dtype": "bf16",
+        "target": current_instance_type(),
+    }
+    if speculation_length > 0:
+        neuron_config_dict["speculation_length"] = speculation_length
+    result = subprocess.run(
+        [
+            sys.executable,
+            __file__,
+            "export-speculation",
+            "--model_id",
+            model_id,
+            "--output_dir",
+            output_dir,
+            "--neuron_config_json",
+            json.dumps(neuron_config_dict),
+        ],
+        timeout=300,
+    )
+    if result.returncode != 0:
+        raise ValueError(f"Failed to export speculation model {model_id} (exit code {result.returncode})")
 
 
 def _get_neuron_model_for_config(config_name: str, model_config, neuron_model_path) -> dict[str, str]:
@@ -158,12 +218,9 @@ def _get_neuron_model_for_config(config_name: str, model_config, neuron_model_pa
         logger.info(f"Fetching {neuron_model_id} from the HuggingFace hub")
         hub.snapshot_download(neuron_model_id, local_dir=neuron_model_path)
     else:
-        model = _export_model(model_id, task, export_kwargs, neuron_model_path)
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
-        tokenizer.save_pretrained(neuron_model_path)
-        del tokenizer
+        _export_model(model_id, task, export_kwargs, neuron_model_path)
         # Create the test model on the hub
-        model.push_to_hub(save_directory=neuron_model_path, repository_id=neuron_model_id, private=True)
+        _push_to_hub(neuron_model_path, neuron_model_id, private=True)
         # Make sure it is cached
         synchronize_hub_cache(cache_repo_id=OPTIMUM_CACHE_REPO_ID)
     # Add dynamic parameters to the model configuration
@@ -233,27 +290,9 @@ def speculation():
             logger.info(f"Fetching {neuron_model_id} from the HuggingFace hub")
             hub.snapshot_download(neuron_model_id, local_dir=neuron_model_path)
         else:
-            neuron_config = NxDNeuronConfig(
-                checkpoint_id=model_id,
-                batch_size=1,
-                sequence_length=4096,
-                tp_degree=tp_degree,
-                torch_dtype="bf16",
-                target=current_instance_type(),
-                speculation_length=5,
-            )
-            model = NeuronModelForCausalLM.export(
-                model_id,
-                config=AutoConfig.from_pretrained(model_id),
-                neuron_config=neuron_config,
-                load_weights=False,
-            )
-            model.save_pretrained(neuron_model_path)
-            tokenizer = AutoTokenizer.from_pretrained(model_id)
-            tokenizer.save_pretrained(neuron_model_path)
-            del tokenizer
+            _export_speculation_model(model_id, neuron_model_path, tp_degree, speculation_length=5)
             # Create the speculation model on the hub
-            model.push_to_hub(save_directory=neuron_model_path, repository_id=neuron_model_id, private=False)
+            _push_to_hub(neuron_model_path, neuron_model_id, private=False)
             # Make sure it is cached
             synchronize_hub_cache(cache_repo_id=OPTIMUM_CACHE_REPO_ID)
         draft_neuron_model_path = os.path.join(speculation_path, "draft-model")
@@ -261,25 +300,9 @@ def speculation():
             logger.info(f"Fetching {draft_neuron_model_id} from the HuggingFace hub")
             hub.snapshot_download(draft_neuron_model_id, local_dir=draft_neuron_model_path)
         else:
-            neuron_config = NxDNeuronConfig(
-                checkpoint_id=model_id,
-                batch_size=1,
-                sequence_length=4096,
-                tp_degree=tp_degree,
-                torch_dtype="bf16",
-                target=current_instance_type(),
-            )
-            model = NeuronModelForCausalLM.export(
-                model_id,
-                config=AutoConfig.from_pretrained(model_id),
-                neuron_config=neuron_config,
-                load_weights=False,
-            )
-            model.save_pretrained(draft_neuron_model_path)
+            _export_speculation_model(model_id, draft_neuron_model_path, tp_degree)
             # Create the draft model on the hub
-            model.push_to_hub(
-                save_directory=draft_neuron_model_path, repository_id=draft_neuron_model_id, private=False
-            )
+            _push_to_hub(draft_neuron_model_path, draft_neuron_model_id, private=False)
             # Make sure it is cached
             synchronize_hub_cache(cache_repo_id=OPTIMUM_CACHE_REPO_ID)
         yield neuron_model_path, draft_neuron_model_path
@@ -351,9 +374,36 @@ def _run_exports(configs):
             progress.update(task_id, description="[green]All models exported")
 
 
+def _export_speculation_entry(args):
+    """Entry point for speculation model export. Runs in an isolated process."""
+    neuron_config_dict = json.loads(args.neuron_config_json)
+    neuron_config = NxDNeuronConfig(**neuron_config_dict)
+    model = NeuronModelForCausalLM.export(
+        args.model_id,
+        config=AutoConfig.from_pretrained(args.model_id),
+        neuron_config=neuron_config,
+        load_weights=False,
+    )
+    model.save_pretrained(args.output_dir)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_id)
+    tokenizer.save_pretrained(args.output_dir)
+
+
 if __name__ == "__main__":
     import argparse
     import fnmatch
+
+    # Check for export-speculation subcommand first (used by subprocess isolation
+    # for speculation models that need NxDNeuronConfig kwargs not supported by the CLI).
+    if len(sys.argv) > 1 and sys.argv[1] == "export-speculation":
+        single_parser = argparse.ArgumentParser(description="Export a speculation model (subprocess entry point)")
+        single_parser.add_argument("command")  # consume "export-speculation"
+        single_parser.add_argument("--model_id", required=True)
+        single_parser.add_argument("--output_dir", required=True)
+        single_parser.add_argument("--neuron_config_json", required=True)
+        args = single_parser.parse_args()
+        _export_speculation_entry(args)
+        sys.exit(0)
 
     parser = argparse.ArgumentParser(description="Export Neuron test models")
     parser.add_argument(
