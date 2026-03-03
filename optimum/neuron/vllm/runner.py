@@ -245,7 +245,10 @@ class OptimumNeuronModelRunnerForCausalLM(OptimumNeuronModelRunner):
             scheduler_config=self.scheduler_config,
             load_config=self.load_config,
         )
-        if not self.model.model.neuron_config.on_device_sampling:
+        if (
+            not self.model.model.neuron_config.on_device_sampling
+            or self.model.model.neuron_config.prefill_chunk_size > 0
+        ):
             self.sampler = NeuronSampler(self.model.model.neuron_config)
 
     def get_supported_tasks(self) -> tuple[str, ...]:
@@ -302,12 +305,13 @@ class OptimumNeuronModelRunnerForCausalLM(OptimumNeuronModelRunner):
             sampling_params_tensor = self.tensor_for_sampling_params(sampling_params)
 
             if self.model.model.neuron_config.on_device_sampling:
+                # unsqueeze to [batch, 1] to match CPU sampler output shape
                 return self.model(
                     input_ids=input_ids,
                     position_ids=position_ids,
                     seq_ids=seq_ids,
                     sampling_params=sampling_params_tensor,
-                ), None
+                ).unsqueeze(-1), None
             else:
                 logits = self.model(
                     input_ids=input_ids,

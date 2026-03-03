@@ -356,6 +356,10 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         # for KV cache sizing while the forward-pass batch dim is just 1.
         cp_config = copy.deepcopy(neuron_config)
         cp_config.batch_size = neuron_config.effective_prefill_batch_size
+        # Always disable on-device sampling for the chunked prefill graph:
+        # the prefill graph returns logits for CPU sampling, while the token
+        # generation graph can keep on-device sampling enabled (hybrid ODS).
+        cp_config.on_device_sampling = False
         return cp_config
 
     @staticmethod
