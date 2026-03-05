@@ -155,7 +155,9 @@ class NeuronAttentionBase(nn.Module):
     def scaled_qk(self, Q, K, attention_mask):
         qk_scale = self.qk_scale
         QK = torch.matmul(Q, K.transpose(2, 3)) * qk_scale
-        QK = torch.where(attention_mask, QK, torch.finfo(QK.dtype).min)
+        # Use -1e9 instead of finfo(dtype).min: Neuron XLA's exp() produces NaN
+        # for inputs near finfo(bf16).min, while exp(-1e9) = 0.0 in float32.
+        QK = torch.where(attention_mask, QK, -1e9)
         return QK
 
     def rotate_qkv_tensors(
@@ -364,13 +366,11 @@ class NeuronAttentionBase(nn.Module):
         K_prior = repeat_kv(K_prior, self.num_key_value_groups)
         V_prior = repeat_kv(V_prior, self.num_key_value_groups)
         prior_scores = torch.matmul(Q, K_prior.transpose(2, 3)) * self.qk_scale
-        prior_scores = prior_scores.to(torch.float32)
 
         # ii. active (current/new) KV
         K_active = repeat_kv(K, self.num_key_value_groups)
         V_active = repeat_kv(V, self.num_key_value_groups)
         active_scores = torch.matmul(Q, K_active.transpose(2, 3)) * self.qk_scale
-        active_scores = active_scores.to(torch.float32)
 
         # iii. attention scores — masks handled inside manual_softmax
         softmax_prior, softmax_active = manual_softmax(

@@ -205,11 +205,13 @@ def manual_softmax(prior_scores, active_scores, prior_mask=None, active_mask=Non
         prior_for_max = torch.where(prior_mask, prior_scores, _NEG_INF)
     else:
         prior_for_max = prior_scores
+    prior_for_max = prior_for_max.to(torch.float32)
 
     if active_mask is not None:
         active_for_max = torch.where(active_mask, active_scores, _NEG_INF)
     else:
         active_for_max = active_scores
+    active_for_max = active_for_max.to(torch.float32)
 
     max_score = torch.max(prior_for_max, dim=-1, keepdim=True)[0]
     active_score_last_dim_not_1 = active_scores.shape[-1] > 1
@@ -220,12 +222,14 @@ def manual_softmax(prior_scores, active_scores, prior_mask=None, active_mask=Non
         max_score = torch.maximum(max_score, active_for_max)
 
     # ---- exp computation (zero out masked positions) ----
+    prior_scores = prior_scores.to(torch.float32)
     if prior_mask is not None:
         safe_prior = torch.where(prior_mask, prior_scores, max_score.expand_as(prior_scores))
         exp_prior = torch.exp(safe_prior - max_score) * prior_mask.float()
     else:
         exp_prior = torch.exp(prior_scores - max_score)
 
+    active_scores = active_scores.to(torch.float32)
     if active_mask is not None:
         safe_active = torch.where(active_mask, active_scores, max_score.expand_as(active_scores))
         exp_active = torch.exp(safe_active - max_score) * active_mask.float()
