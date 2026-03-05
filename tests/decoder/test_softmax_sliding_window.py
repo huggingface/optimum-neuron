@@ -31,10 +31,7 @@ class OldAttentionBlock(torch.nn.Module):
     def forward(self, Q, K_prior, V_prior, K_active, V_active, prior_mask):
         prior_scores = torch.matmul(Q, K_prior.transpose(2, 3)) * SCALE
         prior_scores = torch.where(prior_mask, prior_scores, torch.finfo(prior_scores.dtype).min)
-        prior_scores = prior_scores.to(torch.float32)
-
         active_scores = torch.matmul(Q, K_active.transpose(2, 3)) * SCALE
-        active_scores = active_scores.to(torch.float32)
 
         softmax_prior, softmax_active = manual_softmax(prior_scores, active_scores)
         softmax_prior = softmax_prior.to(Q.dtype)
@@ -50,10 +47,7 @@ class NewAttentionBlock(torch.nn.Module):
 
     def forward(self, Q, K_prior, V_prior, K_active, V_active, prior_mask):
         prior_scores = torch.matmul(Q, K_prior.transpose(2, 3)) * SCALE
-        prior_scores = prior_scores.to(torch.float32)
-
         active_scores = torch.matmul(Q, K_active.transpose(2, 3)) * SCALE
-        active_scores = active_scores.to(torch.float32)
 
         softmax_prior, softmax_active = manual_softmax(
             prior_scores,

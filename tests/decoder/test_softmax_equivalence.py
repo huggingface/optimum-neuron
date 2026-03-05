@@ -42,8 +42,8 @@ class OldSoftmaxModule(torch.nn.Module):
         fill_val = torch.finfo(prior_scores.dtype).min
         prior_filled = torch.where(prior_mask, prior_scores, fill_val)
         softmax_prior, softmax_active = manual_softmax(
-            prior_filled.to(torch.float32),
-            active_scores.to(torch.float32),
+            prior_filled,
+            active_scores,
         )
         return softmax_prior, softmax_active
 
@@ -53,8 +53,8 @@ class NewSoftmaxModule(torch.nn.Module):
 
     def forward(self, prior_scores, active_scores, prior_mask):
         softmax_prior, softmax_active = manual_softmax(
-            prior_scores.to(torch.float32),
-            active_scores.to(torch.float32),
+            prior_scores,
+            active_scores,
             prior_mask=prior_mask,
         )
         return softmax_prior, softmax_active
