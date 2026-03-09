@@ -471,7 +471,7 @@ class OptimumNeuronModelRunnerForCausalLM(OptimumNeuronModelRunner):
                 logits = self.model.prefill_chunk_vllm(
                     chunk_ids_t, chunk_pos_t, seq_ids[i : i + 1], sampling_params_tensor[i : i + 1]
                 )
-            per_seq_last_logits[i] = logits[0]
+            per_seq_last_logits[i] = logits[0].clone()
 
         last_logits = torch.stack(per_seq_last_logits)
         sampling_metadata = create_sampling_metadata(requests, vocab_size=self.model.model.config.vocab_size)
