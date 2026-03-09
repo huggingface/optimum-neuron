@@ -14,114 +14,89 @@
 # limitations under the License.
 """Tests verifying that chunked prefill produces equivalent output to standard context encoding."""
 
-import os
-from tempfile import TemporaryDirectory
+from typing import Any
 
 import pytest
 import torch
-from transformers import AutoTokenizer
+from prompts import get_long_prompt
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
-from optimum.neuron.utils.instance import current_instance_type
-from optimum.neuron.utils.system import cores_per_device
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
-MODEL_ID = "unsloth/Llama-3.2-1B-Instruct"
-
-# Keep sequence_length small so both models compile quickly.
-# chunk_size must divide sequence_length.
-SEQUENCE_LENGTH = 512
-CHUNK_SIZE = 64
-
-
-@pytest.fixture(scope="module")
-def chunked_prefill_models():
-    """Compile a standard (context-encoding) and a chunked-prefill model and yield both.
-
-    Module-scoped so the two compilations happen only once for all parametrized tests.
-    on_device_sampling is disabled for both models: chunked prefill is incompatible with it.
-    """
-    tp_degree = cores_per_device()
-    instance_type = current_instance_type()
-
-    common_kwargs = {
-        "checkpoint_id": MODEL_ID,
-        "batch_size": 1,
-        "sequence_length": SEQUENCE_LENGTH,
-        "tp_degree": tp_degree,
-        "torch_dtype": "bfloat16",
-        "on_device_sampling": False,
-        "fused_qkv": True,
-        "target": instance_type,
-    }
-
-    with TemporaryDirectory() as tmpdir:
-        std_path = os.path.join(tmpdir, "standard")
-        std_neuron_config = NxDNeuronConfig(**common_kwargs)
-        std_model = NeuronModelForCausalLM.export(MODEL_ID, neuron_config=std_neuron_config)
-        std_model.save_pretrained(std_path)
-        del std_model
-        std_model = NeuronModelForCausalLM.from_pretrained(std_path)
-
-        chunk_path = os.path.join(tmpdir, "chunked")
-        chunk_neuron_config = NxDNeuronConfig(**common_kwargs, prefill_chunk_size=CHUNK_SIZE)
-        chunk_model = NeuronModelForCausalLM.export(MODEL_ID, neuron_config=chunk_neuron_config)
-        chunk_model.save_pretrained(chunk_path)
-        del chunk_model
-        chunk_model = NeuronModelForCausalLM.from_pretrained(chunk_path)
-
-        yield std_model, chunk_model
-
-
 @pytest.mark.parametrize(
-    "prompt_tokens",
-    [
-        CHUNK_SIZE // 2,  # partial chunk — exercises wrapper padding logic
-        SEQUENCE_LENGTH // 2,  # multiple complete chunks — exercises multi-chunk KV accumulation
-    ],
-    ids=["short_context", "long_context"],
+    "neuron_llm_config",
+    ["llama-2x4096-std", "llama-2x4096-chunk512"],
+    indirect=True,
 )
 @is_inferentia_test
 @requires_neuronx
-def test_chunked_prefill_generates_same_tokens(chunked_prefill_models, prompt_tokens):
-    """Greedy generation from chunked prefill must exactly match standard context encoding.
+def test_chunked_prefill_graph_structure(neuron_llm_config: dict[str, Any]):
+    """The chunked model must compile a chunked_prefill_model instead of context_encoding_model."""
+    model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
+    config_name = neuron_llm_config["name"]
+    if "chunk" in config_name:
+        assert hasattr(model, "chunked_prefill_model"), "Chunked model missing chunked_prefill_model"
+        assert not hasattr(model, "context_encoding_model"), "Chunked model should not have context_encoding_model"
+    else:
+        assert hasattr(model, "context_encoding_model"), "Standard model missing context_encoding_model"
+        assert not hasattr(model, "chunked_prefill_model"), "Standard model should not have chunked_prefill_model"
+    assert hasattr(model, "token_generation_model"), "Model missing token_generation_model"
 
-    Covers two prompt lengths:
-    - short (< 1 chunk): exercises the chunk-padding path in the wrapper
-    - long (multiple complete chunks): exercises KV accumulation across chunks
+
+@pytest.mark.parametrize("neuron_llm_config", ["llama-2x4096-chunk512"], indirect=True)
+@is_inferentia_test
+@requires_neuronx
+def test_chunked_prefill_short_context(neuron_llm_config: dict[str, Any]):
+    """Short prompt (< chunk_size) must match HF model output.
+
+    Exercises the chunk-padding path in the wrapper.
     """
-    std_model, chunk_model = chunked_prefill_models
-    input_ids = torch.ones((1, prompt_tokens), dtype=torch.int64)
-    attention_mask = torch.ones((1, prompt_tokens), dtype=torch.int64)
-
-    std_output = std_model.generate(input_ids, attention_mask=attention_mask, do_sample=False, max_new_tokens=20)
-    chunk_output = chunk_model.generate(input_ids, attention_mask=attention_mask, do_sample=False, max_new_tokens=20)
-
-    if std_output.tolist() != chunk_output.tolist():
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-        std_text = tokenizer.decode(std_output[0, prompt_tokens:], skip_special_tokens=True)
-        chunk_text = tokenizer.decode(chunk_output[0, prompt_tokens:], skip_special_tokens=True)
+    model_id = neuron_llm_config["model_id"]
+    model = AutoModelForCausalLM.from_pretrained(model_id)
+    neuron_model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    prompt = "What is Deep Learning?"
+    inputs = tokenizer(prompt, return_tensors="pt")
+    max_new_tokens = 17
+    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
+    neuron_outputs = neuron_model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
+    if not torch.equal(outputs, neuron_outputs):
+        generated_text = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
+        neuron_generated_text = tokenizer.decode(
+            neuron_outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
+        )
         pytest.fail(
-            f"Chunked prefill generated different tokens than standard context encoding "
-            f"(prompt_tokens={prompt_tokens}, chunk_size={CHUNK_SIZE}).\n"
-            f"  std   : {std_text!r}\n"
-            f"  chunk : {chunk_text!r}"
+            f"Chunked prefill (short) generated different tokens than HF model.\n"
+            f"  Expected: {generated_text!r}\n"
+            f"  Got     : {neuron_generated_text!r}"
         )
 
 
+@pytest.mark.parametrize("neuron_llm_config", ["llama-2x4096-chunk512"], indirect=True)
 @is_inferentia_test
 @requires_neuronx
-def test_chunked_prefill_graph_structure(chunked_prefill_models):
-    """The chunked model must compile a chunked_prefill_model instead of context_encoding_model."""
-    std_model, chunk_model = chunked_prefill_models
+def test_chunked_prefill_long_context(neuron_llm_config: dict[str, Any]):
+    """Long prompt (> chunk_size) must match HF model output.
 
-    assert hasattr(std_model, "context_encoding_model"), "Standard model missing context_encoding_model"
-    assert not hasattr(std_model, "chunked_prefill_model"), "Standard model should not have chunked_prefill_model"
-
-    assert hasattr(chunk_model, "chunked_prefill_model"), "Chunked model missing chunked_prefill_model"
-    assert not hasattr(chunk_model, "context_encoding_model"), "Chunked model should not have context_encoding_model"
-
-    assert hasattr(std_model, "token_generation_model"), "Standard model missing token_generation_model"
-    assert hasattr(chunk_model, "token_generation_model"), "Chunked model missing token_generation_model"
+    Exercises KV accumulation across multiple chunks.
+    """
+    model_id = neuron_llm_config["model_id"]
+    model = AutoModelForCausalLM.from_pretrained(model_id)
+    neuron_model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    sequence_length = neuron_model.neuron_config.sequence_length
+    inputs = tokenizer(get_long_prompt(model_id, 600, sequence_length), return_tensors="pt")
+    max_new_tokens = 50
+    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
+    neuron_outputs = neuron_model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
+    generated_text = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
+    neuron_generated_text = tokenizer.decode(
+        neuron_outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
+    )
+    assert generated_text == neuron_generated_text, (
+        f"Chunked prefill (long) generated different tokens than HF model.\n"
+        f"  Expected: {generated_text!r}\n"
+        f"  Got     : {neuron_generated_text!r}"
+    )
