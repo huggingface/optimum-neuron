@@ -97,7 +97,6 @@ class NxDDecoderModelForCausalLM(nn.Module):
                 f"Adjusting num_key_value_heads from {config.num_key_value_heads} to {num_key_value_heads} for TP {neuron_config.tp_degree}."
             )
         self.kv_mgr = KVCacheManager(config, neuron_config, actual_num_key_value_heads=num_key_value_heads)
-        self.is_chunked_prefill_graph = neuron_config.prefill_chunk_size > 0
         self.chunk_size = neuron_config.prefill_chunk_size
 
     def initialize_process_group(self, seed: int = 0):
@@ -121,6 +120,9 @@ class NxDDecoderModelForCausalLM(nn.Module):
     def _is_context_encoding(self, input_ids: torch.Tensor):
         return input_ids.shape[-1] > 1 and input_ids.shape[-1] != self.speculation_length
 
+    def _is_chunked_prefill(self, input_ids: torch.Tensor):
+        return self.chunk_size > 0 and input_ids.shape[-1] == self.chunk_size
+
     def _is_for_speculation(self, input_ids: torch.Tensor):
         return input_ids.shape[-1] == self.speculation_length
 
@@ -140,13 +142,14 @@ class NxDDecoderModelForCausalLM(nn.Module):
             sampling_params (torch.FloatTensor): Sampling parameters.
         """
         is_for_context_encoding = self._is_context_encoding(input_ids)
+        is_chunked_prefill = self._is_chunked_prefill(input_ids)
         is_for_speculation = self._is_for_speculation(input_ids)
 
         cache_size = self.n_positions
 
         # Prepare input tensors
         device = input_ids.device
-        if self.is_chunked_prefill_graph:
+        if is_chunked_prefill:
             # Chunked prefill: process a chunk of the prompt using the KV cache scatter path.
             # Mirrors the speculation mask logic: prior mask covers already-written KV positions,
             # active mask is a causal lower-triangle within the chunk.
@@ -170,12 +173,11 @@ class NxDDecoderModelForCausalLM(nn.Module):
             # KV identical to the real token's, so the scatter overwrite at the
             # repeated position is a true no-op (avoids non-deterministic scatter
             # behaviour with duplicate indices corrupting the cache).
-            is_real = torch.ones(1, chunk_size, dtype=torch.bool, device=device)
-            is_real[:, 1:] = position_ids[:1, 1:] > position_ids[:1, :-1]
-            active_mask = causal_mask & is_real.view(1, chunk_size)
-            active_mask = active_mask[None, None, :, :].expand(self.batch_size, 1, chunk_size, chunk_size)
-            is_for_context_encoding = False
-            is_for_speculation = False
+            # We attend to tokens whose position_id is still increasing.
+            actual_tokens_mask = torch.ones(self.batch_size, chunk_size, dtype=torch.bool, device=device)
+            actual_tokens_mask[:, 1:] = position_ids[:, 1:] > position_ids[:, :-1]
+            active_mask = causal_mask.unsqueeze(0) & actual_tokens_mask.unsqueeze(1)
+            active_mask = active_mask[:, None, :, :]
         elif is_for_context_encoding:
             past_key_values = None
             # Lower triangle causal mask for classic attention
@@ -247,6 +249,7 @@ class NxDDecoderModelForCausalLM(nn.Module):
 
         updated_kv_cache = self.kv_mgr.update_cache(
             is_for_context_encoding=is_for_context_encoding,
+            is_chunked_prefill=is_chunked_prefill,
             seq_ids=seq_ids,
             position_ids=position_ids,
             new_key_values=new_key_values,
@@ -254,7 +257,7 @@ class NxDDecoderModelForCausalLM(nn.Module):
         )
 
         hidden_size = hidden_states.shape[-1]
-        if is_for_context_encoding or self.is_chunked_prefill_graph:
+        if is_for_context_encoding:
             # Do not evaluate logits for all tokens in the sequence, only the last one
             index = torch.max(position_ids, dim=1, keepdim=True).indices
             index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
@@ -355,7 +358,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         # (see kv_cache_manager.update_cache), so max_batch_size is preserved
         # for KV cache sizing while the forward-pass batch dim is just 1.
         cp_config = copy.deepcopy(neuron_config)
-        cp_config.batch_size = neuron_config.effective_prefill_batch_size
+        cp_config.batch_size = neuron_config.ctx_batch_size
         # Always disable on-device sampling for the chunked prefill graph:
         # the prefill graph returns logits for CPU sampling, while the token
         # generation graph can keep on-device sampling enabled (hybrid ODS).

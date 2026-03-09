@@ -144,18 +144,6 @@ class NxDNeuronConfig(NeuronConfig):
         return self.batch_size
 
     @property
-    def effective_prefill_batch_size(self) -> int:
-        """Batch size for the chunked prefill graph.
-
-        Always 1 for chunked prefill: processing one sequence at a time is not only
-        simpler but also faster and consumes less device memory than batching multiple
-        sequences (benchmarked on trn1.32xlarge with Llama 3.1 8B).
-        """
-        if self.prefill_chunk_size > 0:
-            return 1
-        return self.batch_size
-
-    @property
     def world_size(self) -> int:
         """
         The total number of ranks in the distributed setup.
