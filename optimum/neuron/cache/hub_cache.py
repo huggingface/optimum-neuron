@@ -15,14 +15,16 @@
 import functools
 import logging
 import os
+import random
 import shutil
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import torch
 from huggingface_hub import HfApi, get_token
-from huggingface_hub.errors import EntryNotFoundError
+from huggingface_hub.errors import EntryNotFoundError, HfHubHTTPError
 from huggingface_hub.hf_api import RepoFile
 from optimum.exporters.tasks import TasksManager
 
@@ -65,6 +67,11 @@ else:
 
 
 logger = logging.getLogger(__name__)
+
+# Retry configuration for concurrent hub cache synchronization
+_SYNC_MAX_RETRIES = 5
+_SYNC_BASE_WAIT_SECS = 1.0
+_SYNC_MAX_WAIT_SECS = 30.0
 
 
 class CompileCacheHfProxy(CompileCache):
@@ -190,29 +197,66 @@ class CompileCacheHfProxy(CompileCache):
 
             return folder_exists
 
+    def _get_head_sha(self) -> str:
+        """Fetch the current HEAD commit SHA of the hub cache repository."""
+        return self.api.model_info(self.repo_id).sha
+
+    @staticmethod
+    def _is_parent_commit_conflict(error: HfHubHTTPError) -> bool:
+        """Check if the error is a parent_commit conflict (HTTP 412)."""
+        return error.response is not None and error.response.status_code == 412
+
+    def _upload_folder_with_retry(self) -> None:
+        """Upload local cache folder to Hub with optimistic concurrency control.
+
+        Uses parent_commit to detect concurrent modifications and retries
+        with exponential backoff + jitter when conflicts are detected.
+        """
+        wait_time = _SYNC_BASE_WAIT_SECS
+
+        for attempt in range(_SYNC_MAX_RETRIES + 1):
+            parent_sha = self._get_head_sha()
+            try:
+                self.api.upload_folder(
+                    repo_id=self.repo_id,
+                    folder_path=self.default_cache.cache_path,
+                    commit_message="Synchronizing local compiler cache.",
+                    ignore_patterns="lock",
+                    parent_commit=parent_sha,
+                )
+                if attempt > 0:
+                    logger.info(f"Hub cache synchronization succeeded on attempt {attempt + 1}.")
+                return
+            except HfHubHTTPError as e:
+                if not self._is_parent_commit_conflict(e):
+                    raise
+                if attempt == _SYNC_MAX_RETRIES:
+                    logger.error(
+                        f"Hub cache synchronization failed after {_SYNC_MAX_RETRIES + 1} attempts "
+                        f"due to concurrent commits to {self.repo_id}."
+                    )
+                    raise
+                jittered_wait = wait_time * (0.5 + random.random())
+                logger.warning(
+                    f"Hub cache sync conflict (attempt {attempt + 1}/{_SYNC_MAX_RETRIES + 1}) "
+                    f"for {self.repo_id}: another commit occurred. Retrying in {jittered_wait:.1f}s."
+                )
+                time.sleep(jittered_wait)
+                wait_time = min(_SYNC_MAX_WAIT_SECS, wait_time * 2)
+
     def synchronize(self, non_blocking: bool = False):
         if isinstance(self.default_cache, CompileCacheS3):
             raise ValueError("Hugging Face hub compiler cache synchronization is not supported for S3.")
         logger.info(f"Synchronizing {self.repo_id} Hub cache with {self.default_cache.cache_path} local cache")
 
         if os.environ.get("TORCHELASTIC_RUN_ID", None) is None:
-            self.api.upload_folder(
-                repo_id=self.repo_id,
-                folder_path=self.default_cache.cache_path,
-                commit_message="Synchronizing local compiler cache.",
-                ignore_patterns="lock",
-                run_as_future=non_blocking,
-            )
+            if non_blocking:
+                self.api.run_as_future(self._upload_folder_with_retry)
+            else:
+                self._upload_folder_with_retry()
         else:
             if xr.local_ordinal() == 0:
-                # Only the first process uploads the cache to the Hub
-                self.api.upload_folder(
-                    repo_id=self.repo_id,
-                    folder_path=self.default_cache.cache_path,
-                    commit_message="Synchronizing local compiler cache.",
-                    ignore_patterns="lock",
-                    run_as_future=non_blocking,
-                )
+                self._upload_folder_with_retry()
             xm.rendezvous("synchronize_hub_cache")
         logger.info("Synchronization complete.")
 
