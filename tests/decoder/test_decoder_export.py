@@ -18,8 +18,12 @@ import pytest
 import torch
 from transformers import AutoModelForCausalLM
 
-from optimum.neuron import NeuronModelForCausalLM
+from optimum.neuron import NeuronModelForCausalLM, NeuronModelForImageTextToText
 
+
+VLM_MODELS = {
+    "smolvlm": "HuggingFaceTB/SmolVLM-256M-Instruct",
+}
 
 DECODER_MODELS = {
     "llama": "llamafactory/tiny-random-Llama-3",
@@ -40,6 +44,15 @@ DECODER_MODELS = {
     ids=list(DECODER_MODELS.keys()),
 )
 def any_decoder_model(request):
+    return request.param
+
+
+@pytest.fixture(
+    scope="session",
+    params=[VLM_MODELS[model_arch] for model_arch in VLM_MODELS],
+    ids=list(VLM_MODELS.keys()),
+)
+def any_vlm_model(request):
     return request.param
 
 
@@ -114,3 +127,62 @@ def test_decoder_export_save_reload(
     load_weights: bool,
 ):
     _test_decoder_export_save_reload(model_id=DECODER_MODELS["qwen2"], is_local=is_local, load_weights=load_weights)
+
+
+def check_neuron_vlm_model(neuron_model):
+    batch_size = neuron_model.neuron_config.batch_size
+    input_shape = (batch_size, min(10, neuron_model.neuron_config.sequence_length))
+    input_ids = torch.ones(input_shape, dtype=torch.int64)
+    position_ids = torch.arange(input_shape[1]).unsqueeze(0).repeat(batch_size, 1)
+    seq_ids = torch.arange(batch_size)
+    sampling_params = torch.ones((batch_size, 3))
+    # Test text-only forward (context encoding without vision input)
+    outputs = neuron_model(
+        input_ids=input_ids,
+        position_ids=position_ids,
+        seq_ids=seq_ids,
+        sampling_params=sampling_params,
+    )
+    assert outputs is not None, "VLM model outputs should not be None"
+
+    # Test with dummy pixel_values
+    image_size = neuron_model.neuron_config.image_size
+    max_num_images = neuron_model.neuron_config.max_num_images
+    pixel_values = torch.zeros((batch_size, max_num_images, 3, image_size, image_size))
+    outputs = neuron_model(
+        input_ids=input_ids,
+        position_ids=position_ids,
+        seq_ids=seq_ids,
+        sampling_params=sampling_params,
+        pixel_values=pixel_values,
+    )
+    assert outputs is not None, "VLM model outputs with pixel_values should not be None"
+
+
+def _test_vlm_export_save_reload(model_id: str, load_weights: bool):
+    export_kwargs = {
+        "batch_size": 1,
+        "sequence_length": 2048,
+        "tensor_parallel_size": 2,
+    }
+    neuron_config = NeuronModelForImageTextToText.get_neuron_config(model_name_or_path=model_id, **export_kwargs)
+    with TemporaryDirectory() as model_path:
+        model = NeuronModelForImageTextToText.export(
+            model_id=model_id, neuron_config=neuron_config, load_weights=load_weights
+        )
+        model.save_pretrained(model_path)
+        check_neuron_config(model.neuron_config, **export_kwargs)
+        assert model.neuron_config.max_num_images >= 1, "max_num_images should be auto-computed"
+        if load_weights:
+            check_neuron_vlm_model(model)
+        model = NeuronModelForImageTextToText.from_pretrained(model_path)
+        check_neuron_vlm_model(model)
+
+
+def test_vlm_export_hub_models(any_vlm_model: str):
+    _test_vlm_export_save_reload(model_id=any_vlm_model, load_weights=False)
+
+
+@pytest.mark.parametrize("load_weights", [True, False], ids=["with-weights", "without-weights"])
+def test_vlm_export_save_reload(load_weights: bool):
+    _test_vlm_export_save_reload(model_id=VLM_MODELS["smolvlm"], load_weights=load_weights)

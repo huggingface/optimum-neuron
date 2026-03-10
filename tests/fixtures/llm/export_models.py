@@ -104,9 +104,9 @@ from optimum.neuron.utils.system import cores_per_device
 
 
 if is_package_available("transformers"):
-    from transformers import AutoConfig, AutoTokenizer
+    from transformers import AutoConfig, AutoProcessor, AutoTokenizer
 
-from optimum.neuron import NeuronModelForCausalLM, NeuronModelForEmbedding
+from optimum.neuron import NeuronModelForCausalLM, NeuronModelForEmbedding, NeuronModelForImageTextToText
 from optimum.neuron.cache import synchronize_hub_cache
 from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
 from optimum.neuron.version import __sdk_version__ as sdk_version
@@ -139,6 +139,10 @@ GENERATE_LLM_MODEL_IDS = {
 
 EMBED_LLM_MODEL_IDS = {
     "qwen3-embedding": "Qwen/Qwen3-Embedding-0.6B",
+}
+
+VLM_MODEL_IDS = {
+    "smolvlm": "HuggingFaceTB/SmolVLM-256M-Instruct",
 }
 
 
@@ -179,6 +183,19 @@ for model_name, model_id in EMBED_LLM_MODEL_IDS.items():
             },
         }
 
+
+VLM_MODEL_CONFIGURATIONS = {}
+for model_name, model_id in VLM_MODEL_IDS.items():
+    for batch_size, sequence_length in [(2, 2048)]:
+        VLM_MODEL_CONFIGURATIONS[f"{model_name}-{batch_size}x{sequence_length}"] = {
+            "model_id": model_id,
+            "task": "image-text-to-text",
+            "export_kwargs": {
+                "batch_size": batch_size,
+                "sequence_length": sequence_length,
+                "tensor_parallel_size": cores_per_device(),
+            },
+        }
 
 LLM_MODEL_CONFIGURATIONS = GENERATE_LLM_MODEL_CONFIGURATIONS | EMBED_LLM_MODEL_CONFIGURATIONS
 
@@ -232,6 +249,8 @@ def _export_model(model_id, task, export_kwargs, neuron_model_path):
         auto_class = NeuronModelForCausalLM
     elif task == "feature-extraction":
         auto_class = NeuronModelForEmbedding
+    elif task == "image-text-to-text":
+        auto_class = NeuronModelForImageTextToText
     else:
         raise ValueError(f"Unsupported task: {task}")
     try:
@@ -272,9 +291,14 @@ def _get_neuron_model_for_config(config_name: str, model_config, neuron_model_pa
         hub.snapshot_download(neuron_model_id, local_dir=neuron_model_path)
     else:
         model = _export_model(model_id, task, export_kwargs, neuron_model_path)
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
-        tokenizer.save_pretrained(neuron_model_path)
-        del tokenizer
+        if task == "image-text-to-text":
+            processor = AutoProcessor.from_pretrained(model_id)
+            processor.save_pretrained(neuron_model_path)
+            del processor
+        else:
+            tokenizer = AutoTokenizer.from_pretrained(model_id)
+            tokenizer.save_pretrained(neuron_model_path)
+            del tokenizer
         # Create the test model on the hub
         model.push_to_hub(save_directory=neuron_model_path, repository_id=neuron_model_id, private=True)
         # Make sure it is cached
@@ -470,6 +494,41 @@ def _run_exports(configs):
             progress.update(task_id, description="[green]All models exported")
 
 
+@pytest.fixture(scope="session", params=VLM_MODEL_CONFIGURATIONS.keys())
+def any_vlm_generate_model(request):
+    """Expose neuron VLM generation models for predefined configurations.
+
+    Follows the same pattern as any_generate_model but for vision-language models.
+    """
+    config_name = request.param
+    model_config = copy.deepcopy(VLM_MODEL_CONFIGURATIONS[config_name])
+    with TemporaryDirectory() as neuron_model_path:
+        model_config = _get_neuron_model_for_config(config_name, model_config, neuron_model_path)
+        cache_repo_id = os.environ.get("CUSTOM_CACHE_REPO", None)
+        os.environ["CUSTOM_CACHE_REPO"] = OPTIMUM_CACHE_REPO_ID
+        yield model_config
+        if cache_repo_id is not None:
+            os.environ["CUSTOM_CACHE_REPO"] = cache_repo_id
+
+
+@pytest.fixture(scope="session")
+def neuron_vlm_config(request):
+    """Expose a base neuron VLM model path for testing purposes.
+
+    Mirrors neuron_llm_config but for vision-language models.
+    """
+    first_config_name = list(VLM_MODEL_CONFIGURATIONS.keys())[0]
+    config_name = getattr(request, "param", first_config_name)
+    model_config = copy.deepcopy(VLM_MODEL_CONFIGURATIONS[config_name])
+    with TemporaryDirectory() as neuron_model_path:
+        neuron_model_config = _get_neuron_model_for_config(config_name, model_config, neuron_model_path)
+        cache_repo_id = os.environ.get("CUSTOM_CACHE_REPO", None)
+        os.environ["CUSTOM_CACHE_REPO"] = OPTIMUM_CACHE_REPO_ID
+        yield neuron_model_config
+        if cache_repo_id is not None:
+            os.environ["CUSTOM_CACHE_REPO"] = cache_repo_id
+
+
 if __name__ == "__main__":
     import argparse
     import fnmatch
@@ -484,11 +543,14 @@ if __name__ == "__main__":
         "pattern",
         nargs="?",
         default="*",
-        help="Glob pattern to filter configurations (e.g. 'gemma*', '*-1x8192')",
+        help="Glob pattern to filter configurations (e.g. 'gemma*', 'smolvlm*', '*-1x8192')",
     )
     args = parser.parse_args()
 
-    all_configs = list(LLM_MODEL_CONFIGURATIONS.items())
+    all_configs = [
+        *list(LLM_MODEL_CONFIGURATIONS.items()),
+        *list(VLM_MODEL_CONFIGURATIONS.items()),
+    ]
     configs = [(name, cfg) for name, cfg in all_configs if fnmatch.fnmatch(name, args.pattern)]
 
     if args.list:
