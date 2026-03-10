@@ -1,3 +1,4 @@
+# ruff: noqa: E402 ignore imports not at top-level
 # coding=utf-8
 # Copyright 2025 The HuggingFace Inc. team. All rights reserved.
 #
