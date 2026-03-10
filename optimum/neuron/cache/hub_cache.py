@@ -236,7 +236,7 @@ class CompileCacheHfProxy(CompileCache):
                         f"due to concurrent commits to {self.repo_id}."
                     )
                     raise
-                jittered_wait = wait_time * (0.5 + random.random())
+                jittered_wait = min(_SYNC_MAX_WAIT_SECS, wait_time * (0.5 + random.random()))
                 logger.warning(
                     f"Hub cache sync conflict (attempt {attempt + 1}/{_SYNC_MAX_RETRIES + 1}) "
                     f"for {self.repo_id}: another commit occurred. Retrying in {jittered_wait:.1f}s."
