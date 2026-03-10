@@ -528,28 +528,30 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                 target_heads=self.num_attention_heads,
                 pad_dim=0,
             )
+            # After replicate_kv, k and v have _src_num_attention_heads heads,
+            # so use that as source_heads for padding (not _src_num_key_value_heads).
             k_proj_weight = maybe_pad_tail(
                 k_proj_weight,
-                source_heads=self._src_num_key_value_heads,
-                target_heads=self.num_key_value_heads,
+                source_heads=self._src_num_attention_heads,
+                target_heads=self.num_attention_heads,
                 pad_dim=0,
             )
             k_proj_bias = maybe_pad_tail(
                 k_proj_bias,
-                source_heads=self._src_num_key_value_heads,
-                target_heads=self.num_key_value_heads,
+                source_heads=self._src_num_attention_heads,
+                target_heads=self.num_attention_heads,
                 pad_dim=0,
             )
             v_proj_weight = maybe_pad_tail(
                 v_proj_weight,
-                source_heads=self._src_num_key_value_heads,
-                target_heads=self.num_key_value_heads,
+                source_heads=self._src_num_attention_heads,
+                target_heads=self.num_attention_heads,
                 pad_dim=0,
             )
             v_proj_bias = maybe_pad_tail(
                 v_proj_bias,
-                source_heads=self._src_num_key_value_heads,
-                target_heads=self.num_key_value_heads,
+                source_heads=self._src_num_attention_heads,
+                target_heads=self.num_attention_heads,
                 pad_dim=0,
             )
 
