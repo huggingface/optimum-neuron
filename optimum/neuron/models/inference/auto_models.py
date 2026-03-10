@@ -32,6 +32,7 @@ from .qwen2.modeling_qwen2 import Qwen2NxDModelForCausalLM
 from .qwen3.modeling_qwen3 import Qwen3NxDModelForCausalLM, Qwen3NxDModelForEmbedding
 from .qwen3_moe.modeling_qwen3_moe import Qwen3MoeNxDModelForCausalLM
 from .smollm3.modeling_smollm3 import SmolLM3NxDModelForCausalLM
+from .smolvlm.modeling_smolvlm import SmolVLMNxDModelForImageTextToText
 
 
 prioritize_hlo_backend = os.environ.get("OPTIMUM_NEURON_PRIORITIZE_HLO_BACKEND", "0") == "1"
@@ -138,6 +139,15 @@ class Qwen3MoeNeuronModelForCausalLM(Qwen3MoeNxDModelForCausalLM):
 class SmolLM3NeuronModelForCausalLM(SmolLM3NxDModelForCausalLM):
     """
     SomlLM3 model with NxD backend for inference on AWS Neuron.
+    """
+
+    pass
+
+
+@register_neuron_model_for_inference("idefics3", "image-text-to-text")
+class SmolVLMNeuronModelForImageTextToText(SmolVLMNxDModelForImageTextToText):
+    """
+    SmolVLM (Idefics3) model with NxD backend for vision-language inference on AWS Neuron.
     """
 
     pass
