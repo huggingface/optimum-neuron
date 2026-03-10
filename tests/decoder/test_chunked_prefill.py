@@ -87,7 +87,9 @@ def test_chunked_prefill_long_context(neuron_llm_config: dict[str, Any]):
     neuron_model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     sequence_length = neuron_model.neuron_config.sequence_length
-    inputs = tokenizer(get_long_prompt(model_id, 600, sequence_length), return_tensors="pt")
+    # Ensure the prompt exceeds chunk_size so the test exercises multi-chunk KV accumulation.
+    min_tokens = neuron_model.neuron_config.prefill_chunk_size + 1
+    inputs = tokenizer(get_long_prompt(model_id, min_tokens, sequence_length), return_tensors="pt")
     max_new_tokens = 50
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
     neuron_outputs = neuron_model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
