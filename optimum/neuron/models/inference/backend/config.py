@@ -162,3 +162,26 @@ class NxDNeuronConfig(NeuronConfig):
     @property
     def logical_nc_config(self) -> int:
         return 2 if self.target == "trn2" else 1
+
+
+@register_neuron_config
+class NxDVLMNeuronConfig(NxDNeuronConfig):
+    """
+    Config class for vision-language model inference in NxD.
+
+    Extends NxDNeuronConfig with vision-specific parameters needed to compile
+    the vision encoder as a separate static graph.
+    """
+
+    def __init__(
+        self,
+        max_num_images: int = 1,
+        image_size: int = 512,
+        image_seq_len: int = 64,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        # Vision encoder config
+        self.max_num_images = max_num_images
+        self.image_size = image_size
+        self.image_seq_len = image_seq_len

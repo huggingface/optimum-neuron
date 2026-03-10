@@ -62,6 +62,7 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
         prefill_chunk_size: int | None = None,
+        **kwargs,
     ) -> NeuronConfig:
         """
         Get the Neuron configuration for the target model class.
@@ -107,7 +108,12 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
                 model_name_or_path,
                 revision=checkpoint_revision,
                 use_auth_token=token,
-            ).get_text_config()
+            )
+            # For pure text models, extract the text config from any wrapper config.
+            # VLMs (which have a vision_config) keep their full config so that model
+            # type dispatch and vision parameters are preserved.
+            if not hasattr(config, "vision_config"):
+                config = config.get_text_config()
 
         if instance_type is None:
             instance_type = get_default_compilation_target()
@@ -148,6 +154,7 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
             tensor_parallel_size=tensor_parallel_size,
             dtype=DTYPE_MAPPER.pt(config.dtype),
             prefill_chunk_size=prefill_chunk_size,
+            **kwargs,
         )
 
     @classmethod
@@ -187,7 +194,12 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
                 model_id,
                 revision=revision,
                 use_auth_token=token,
-            ).get_text_config()
+            )
+            # For pure text models, extract the text config from any wrapper config.
+            # VLMs (which have a vision_config) keep their full config so that model
+            # type dispatch and vision parameters are preserved during export.
+            if not hasattr(config, "vision_config"):
+                config = config.get_text_config()
         if inspect.isabstract(cls):
             # Instantiation through an abstract class: find the correct model class
             cls = cls._get_neuron_model_class(config)
@@ -235,7 +247,7 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
         sequence_length: int,
         tensor_parallel_size: int,
         dtype: torch.dtype,
-        prefill_chunk_size: int,
+        **kwargs,
     ):
         raise NotImplementedError("The `_get_neuron_config` method must be implemented in the subclass.")
 
@@ -385,6 +397,17 @@ TEXT_GENERATION_EXAMPLE = r"""
 class NeuronModelForCausalLM(NeuronPreTrainedModel):
     task = "text-generation"
 
+    @classmethod
+    def _get_neuron_model_class(cls, config: PretrainedConfig):
+        if cls.task is None:
+            raise SystemError(f"{cls} has no associated task. Please specify it in the class declaration.")
+        # For VLM configs (e.g. Llama4ForConditionalGeneration has model_type "llama4")
+        # extract the text sub-config model_type (e.g. "llama4_text") to find the
+        # registered text-only decoder class.  For regular text configs get_text_config()
+        # returns self, so model_type is unchanged.
+        model_type = config.get_text_config().model_type
+        return get_neuron_model_class(model_type, task=cls.task, mode="inference")
+
     @add_start_docstrings(
         NEURON_CAUSALLM_MODEL_GENERATE_DOCSTRING
         + TEXT_GENERATION_EXAMPLE.format(
@@ -404,3 +427,18 @@ class NeuronModelForCausalLM(NeuronPreTrainedModel):
 
 class NeuronModelForEmbedding(NeuronPreTrainedModel):
     task = "feature-extraction"
+
+
+class NeuronModelForImageTextToText(NeuronPreTrainedModel):
+    task = "image-text-to-text"
+
+    def generate(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        pixel_values: torch.Tensor | None = None,
+        generation_config: "GenerationConfig | None" = None,
+        stopping_criteria: "StoppingCriteriaList | None" = None,
+        **kwargs,
+    ) -> torch.LongTensor:
+        raise NotImplementedError

@@ -132,6 +132,8 @@ class NxDDecoderModelForCausalLM(nn.Module):
         position_ids,
         seq_ids,
         sampling_params,
+        image_embeds=None,
+        image_token_mask=None,
     ):
         """Forward pass that can return either logits or hidden states.
 
@@ -140,6 +142,10 @@ class NxDDecoderModelForCausalLM(nn.Module):
             position_ids (torch.LongTensor): Position IDs.
             seq_ids (torch.LongTensor): Sequence IDs. Used in continuous batching
             sampling_params (torch.FloatTensor): Sampling parameters.
+            image_embeds (torch.FloatTensor, optional): Optional image-conditioned
+                embeddings aligned to token positions.
+            image_token_mask (torch.BoolTensor, optional): Boolean mask indicating
+                which token positions should use ``image_embeds``.
         """
         is_for_context_encoding = self._is_context_encoding(input_ids)
         is_chunked_prefill = self._is_chunked_prefill(input_ids)
@@ -220,9 +226,12 @@ class NxDDecoderModelForCausalLM(nn.Module):
         batch_size, seq_length = input_ids.shape[:2]
         position_ids = position_ids.view(-1, seq_length).long()
 
-        # embed positions
-        inputs_embeds = self.embed_tokens(input_ids)
-        hidden_states = inputs_embeds
+        # Compute text embeddings on-device and optionally inject image features
+        # for context/chunked-prefill VLM paths.
+        hidden_states = self.embed_tokens(input_ids)
+        if is_for_context_encoding and image_embeds is not None and image_token_mask is not None:
+            mask = image_token_mask.to(torch.bool).unsqueeze(-1)
+            hidden_states = torch.where(mask, image_embeds.to(hidden_states.dtype), hidden_states)
 
         # decoder layers
         new_key_values = []
