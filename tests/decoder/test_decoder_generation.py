@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 import torch
+from prompts import get_long_prompt
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.generation import StoppingCriteria
 
@@ -237,6 +238,35 @@ def test_continuous_batching_two_requests(neuron_llm_config: dict[str, Any]):
         generated_tokens = torch.cat((generated_tokens, next_tokens), dim=-1)
         position_ids = increase_position_ids(position_ids, 1)
     assert torch.equal(generated_tokens[0, : SECOND_DECODE_TOKENS + 1], generated_tokens[1, FIRST_DECODE_TOKENS:])
+
+
+@is_inferentia_test
+@requires_neuronx
+@pytest.mark.parametrize("neuron_llm_config", ["gemma3-1x8192"], indirect=True)
+def test_decoder_generation_long_sequence(neuron_llm_config: dict[str, Any]):
+    """Test generation from a long prompt for models that use standard context encoding for long sequences.
+
+    This covers models like gemma3 where chunked prefill is not supported and the full
+    sequence is processed in a single context encoding pass.
+    """
+    model_id = neuron_llm_config["model_id"]
+    model = AutoModelForCausalLM.from_pretrained(model_id)
+    neuron_llm_path = neuron_llm_config["neuron_model_path"]
+    neuron_model = NeuronModelForCausalLM.from_pretrained(neuron_llm_path)
+    tokenizer = AutoTokenizer.from_pretrained(neuron_llm_path)
+    inputs = tokenizer(get_long_prompt(model_id, 5000, 8192), return_tensors="pt")
+    max_new_tokens = 50
+    outputs = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
+    generated_text = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
+    neuron_outputs = neuron_model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
+    neuron_generated_text = tokenizer.decode(
+        neuron_outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
+    )
+    assert generated_text == neuron_generated_text, (
+        f"Long sequence generation produced different tokens than HF model.\n"
+        f"  Expected: {generated_text!r}\n"
+        f"  Got     : {neuron_generated_text!r}"
+    )
 
 
 @is_inferentia_test
