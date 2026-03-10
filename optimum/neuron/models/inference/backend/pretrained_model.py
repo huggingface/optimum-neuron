@@ -345,7 +345,8 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
                 model_sd[updated_param_name] = model_sd[param_name]
                 del model_sd[param_name]
         model_sd = cls.convert_hf_to_neuron_state_dict(model_sd, config, neuron_config)
-        if getattr(config, "tie_word_embeddings", False):
+        text_config = config.get_text_config()
+        if getattr(text_config, "tie_word_embeddings", False):
             cls.update_state_dict_for_tied_weights(model_sd)
 
         param_name_list = list(model_sd.keys())

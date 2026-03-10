@@ -125,6 +125,14 @@ class NxDDecoderModelForCausalLM(nn.Module):
     def _is_for_speculation(self, input_ids: torch.Tensor):
         return input_ids.shape[-1] == self.speculation_length
 
+    def compute_input_embeddings(self, input_ids):
+        """Compute token embeddings from input IDs.
+
+        Subclasses (e.g. VLM decoders) can call this then modify the resulting
+        hidden states before passing them to :meth:`_forward_from_embeddings`.
+        """
+        return self.embed_tokens(input_ids)
+
     def forward(
         self,
         input_ids,
@@ -132,13 +140,30 @@ class NxDDecoderModelForCausalLM(nn.Module):
         seq_ids,
         sampling_params,
     ):
-        """Forward pass that can return either logits or hidden states.
+        """Forward pass that returns logits or sampled tokens.
 
         Args:
             input_ids (torch.LongTensor): Input token IDs.
             position_ids (torch.LongTensor): Position IDs.
             seq_ids (torch.LongTensor): Sequence IDs. Used in continuous batching
             sampling_params (torch.FloatTensor): Sampling parameters.
+        """
+        hidden_states = self.compute_input_embeddings(input_ids)
+        return self._forward_from_embeddings(hidden_states, input_ids, position_ids, seq_ids, sampling_params)
+
+    def _forward_from_embeddings(
+        self,
+        hidden_states,
+        input_ids,
+        position_ids,
+        seq_ids,
+        sampling_params,
+    ):
+        """Run decoder layers, norm, KV-cache update, logit projection and sampling.
+
+        This is the bulk of the forward pass, starting from pre-computed embeddings.
+        Subclasses should override :meth:`forward` to modify ``hidden_states``
+        (e.g. inject image features) before delegating here.
         """
         is_for_context_encoding = self._is_context_encoding(input_ids)
         is_chunked_prefill = self._is_chunked_prefill(input_ids)
@@ -218,10 +243,6 @@ class NxDDecoderModelForCausalLM(nn.Module):
 
         batch_size, seq_length = input_ids.shape[:2]
         position_ids = position_ids.view(-1, seq_length).long()
-
-        # embed positions
-        inputs_embeds = self.embed_tokens(input_ids)
-        hidden_states = inputs_embeds
 
         # decoder layers
         new_key_values = []
