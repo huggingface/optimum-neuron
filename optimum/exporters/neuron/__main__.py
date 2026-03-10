@@ -730,7 +730,6 @@ def maybe_export_from_neuron_model_class(
     batch_size: int | None = None,
     sequence_length: int | None = None,
     tensor_parallel_size: int | None = None,
-    prefill_chunk_size: int | None = None,
     **kwargs,
 ):
     """Export the model from the neuron model class if it exists."""
@@ -761,7 +760,6 @@ def maybe_export_from_neuron_model_class(
         batch_size=batch_size,
         sequence_length=sequence_length,
         tensor_parallel_size=tensor_parallel_size,
-        prefill_chunk_size=prefill_chunk_size,
     )
     neuron_model = neuron_model_class.export(
         model_id=model,
@@ -819,7 +817,6 @@ def main():
             token=kwargs.pop("token", None),
             revision=kwargs.pop("revision", None),
             trust_remote_code=kwargs.pop("trust_remote_code", None),
-            prefill_chunk_size=kwargs.pop("prefill_chunk_size", None),
             **kwargs,
         ):
             return

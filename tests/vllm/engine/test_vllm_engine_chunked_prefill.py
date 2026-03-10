@@ -65,7 +65,7 @@ def chunked_prefill_data(neuron_llm_config: dict[str, Any]):
     All tests in this module share the pre-computed data — the model is loaded
     once, all prompts are run, and the results are stored for comparison.
     """
-    chunk_size = neuron_llm_config["export_kwargs"]["prefill_chunk_size"]
+    chunk_size = 1024
     short_prompt = _make_prompt(chunk_size // 2)
     long_prompt = _make_prompt(chunk_size * 2)
     batch_prompts = [short_prompt, long_prompt]
@@ -88,21 +88,21 @@ def chunked_prefill_data(neuron_llm_config: dict[str, Any]):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("neuron_llm_config", ["llama-2x4096-chunk512"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-1x8192"], indirect=True)
 def test_chunked_prefill_engine_short_prompt(neuron_llm_config, chunked_prefill_data: dict):
     """Short prompt (< chunk_size) generates the expected number of tokens."""
     ids = chunked_prefill_data["short"]
     assert len(ids) == MAX_NEW_TOKENS, f"Expected {MAX_NEW_TOKENS} tokens, got {len(ids)}: {ids}"
 
 
-@pytest.mark.parametrize("neuron_llm_config", ["llama-2x4096-chunk512"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-1x8192"], indirect=True)
 def test_chunked_prefill_engine_long_prompt(neuron_llm_config, chunked_prefill_data: dict):
     """Long prompt (2 × chunk_size) generates the expected number of tokens."""
     ids = chunked_prefill_data["long"]
     assert len(ids) == MAX_NEW_TOKENS, f"Expected {MAX_NEW_TOKENS} tokens, got {len(ids)}: {ids}"
 
 
-@pytest.mark.parametrize("neuron_llm_config", ["llama-2x4096-chunk512"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-1x8192"], indirect=True)
 def test_chunked_prefill_engine_batch(neuron_llm_config, chunked_prefill_data: dict):
     """Batched chunked prefill must produce consistent results.
 

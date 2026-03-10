@@ -29,7 +29,7 @@ PROMPT = "What is deep learning?"
 MAX_OUTPUT_TOKENS = 20
 
 
-@pytest.mark.parametrize("neuron_llm_config", ["llama-2x4096-chunk512"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-1x8192"], indirect=True)
 def test_vllm_service_chunked_prefill_generation(event_loop, vllm_launcher, neuron_llm_config: dict[str, Any]):
     """Chunked-prefill service must start and respond with the expected number of tokens."""
 

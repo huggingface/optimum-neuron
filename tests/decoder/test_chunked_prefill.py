@@ -27,7 +27,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 
 @pytest.mark.parametrize(
     "neuron_llm_config",
-    ["llama-2x4096-std", "llama-2x4096-chunk512"],
+    ["llama-4x1024", "llama-1x8192"],
     indirect=True,
 )
 @is_inferentia_test
@@ -35,8 +35,8 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 def test_chunked_prefill_graph_structure(neuron_llm_config: dict[str, Any]):
     """The chunked model must compile a chunked_prefill_model instead of context_encoding_model."""
     model = NeuronModelForCausalLM.from_pretrained(neuron_llm_config["neuron_model_path"])
-    config_name = neuron_llm_config["name"]
-    if "chunk" in config_name:
+    sequence_length = neuron_llm_config["export_kwargs"]["sequence_length"]
+    if sequence_length > 1024:
         assert hasattr(model, "chunked_prefill_model"), "Chunked model missing chunked_prefill_model"
         assert not hasattr(model, "context_encoding_model"), "Chunked model should not have context_encoding_model"
     else:
@@ -45,7 +45,7 @@ def test_chunked_prefill_graph_structure(neuron_llm_config: dict[str, Any]):
     assert hasattr(model, "token_generation_model"), "Model missing token_generation_model"
 
 
-@pytest.mark.parametrize("neuron_llm_config", ["llama-2x4096-chunk512"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["gemma3-1x8192"], indirect=True)
 @is_inferentia_test
 @requires_neuronx
 def test_chunked_prefill_short_context(neuron_llm_config: dict[str, Any]):
@@ -74,7 +74,7 @@ def test_chunked_prefill_short_context(neuron_llm_config: dict[str, Any]):
         )
 
 
-@pytest.mark.parametrize("neuron_llm_config", ["llama-2x4096-chunk512"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["gemma3-1x8192"], indirect=True)
 @is_inferentia_test
 @requires_neuronx
 def test_chunked_prefill_long_context(neuron_llm_config: dict[str, Any]):

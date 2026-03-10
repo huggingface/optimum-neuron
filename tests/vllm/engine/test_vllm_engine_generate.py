@@ -46,7 +46,7 @@ def _test_vllm_generation(llm):
     assert first_token_ids != third_token_ids
 
 
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 def test_vllm_from_neuron_model(neuron_llm_config: dict[str, Any]):
     """Test vLLm generation on a single model exported locally."""
     neuron_llm_path = neuron_llm_config["neuron_model_path"]
@@ -67,7 +67,7 @@ def test_vllm_from_hub_model(any_generate_model: dict[str, Any]):
     _test_vllm_generation(llm)
 
 
-@pytest.mark.parametrize("neuron_llm_config", ["llama-4x4096"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
 def test_vllm_greedy_expectations(neuron_llm_config: dict[str, Any]):
     """Test vLLm greedy sampling on a single model exported locally."""
     neuron_llm_path = neuron_llm_config["neuron_model_path"]

@@ -55,7 +55,7 @@ EMBED_LLM_MODEL_IDS = {
 
 GENERATE_LLM_MODEL_CONFIGURATIONS = {}
 for model_name, model_id in GENERATE_LLM_MODEL_IDS.items():
-    for batch_size, sequence_length in [(4, 4096), (1, 8192)]:
+    for batch_size, sequence_length in [(4, 1024), (1, 8192)]:
         GENERATE_LLM_MODEL_CONFIGURATIONS[f"{model_name}-{batch_size}x{sequence_length}"] = {
             "model_id": model_id,
             "task": "text-generation",
@@ -65,31 +65,6 @@ for model_name, model_id in GENERATE_LLM_MODEL_IDS.items():
                 "tensor_parallel_size": cores_per_device(),
             },
         }
-
-# Chunked prefill test configurations: standard + chunked pair for comparison tests.
-_CP_MODEL_ID = "unsloth/Llama-3.2-1B-Instruct"
-_CP_BATCH_SIZE = 2
-_CP_SEQUENCE_LENGTH = 4096
-_CP_CHUNK_SIZE = 512
-GENERATE_LLM_MODEL_CONFIGURATIONS[f"llama-{_CP_BATCH_SIZE}x{_CP_SEQUENCE_LENGTH}-std"] = {
-    "model_id": _CP_MODEL_ID,
-    "task": "text-generation",
-    "export_kwargs": {
-        "batch_size": _CP_BATCH_SIZE,
-        "sequence_length": _CP_SEQUENCE_LENGTH,
-        "tensor_parallel_size": cores_per_device(),
-    },
-}
-GENERATE_LLM_MODEL_CONFIGURATIONS[f"llama-{_CP_BATCH_SIZE}x{_CP_SEQUENCE_LENGTH}-chunk{_CP_CHUNK_SIZE}"] = {
-    "model_id": _CP_MODEL_ID,
-    "task": "text-generation",
-    "export_kwargs": {
-        "batch_size": _CP_BATCH_SIZE,
-        "sequence_length": _CP_SEQUENCE_LENGTH,
-        "tensor_parallel_size": cores_per_device(),
-        "prefill_chunk_size": _CP_CHUNK_SIZE,
-    },
-}
 
 EMBED_LLM_MODEL_CONFIGURATIONS = {}
 for model_name, model_id in EMBED_LLM_MODEL_IDS.items():

@@ -127,15 +127,6 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help="Tensor parallelism size, the number of neuron cores on which to shard the model.",
     )
     optional_group.add_argument(
-        "--prefill_chunk_size",
-        type=int,
-        default=None,
-        help=(
-            "Chunk size for chunked prefill. Replaces the context-encoding graph with a smaller "
-            "chunked-prefill graph that processes the prompt in fixed-size chunks."
-        ),
-    )
-    optional_group.add_argument(
         "--dynamic-batch-size",
         action="store_true",
         help="Enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can be a multiple of the batch size during the compilation, but it comes with a potential tradeoff in terms of latency.",
