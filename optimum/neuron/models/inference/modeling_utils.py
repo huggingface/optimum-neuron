@@ -126,12 +126,13 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
             # Use all available cores
             tensor_parallel_size = get_available_cores()
 
-        # Auto-enable chunked prefill for long sequences
-        prefill_chunk_size = 1024 if sequence_length > 1024 else 0
-
         if inspect.isabstract(cls):
             # Instantiation through an abstract class: find the correct model class
             cls = cls._get_neuron_model_class(config)
+
+        # Auto-enable chunked prefill for long sequences (only for models that support it)
+        supports_chunked_prefill = getattr(cls, "_supports_chunked_prefill", True)
+        prefill_chunk_size = 1024 if sequence_length > 1024 and supports_chunked_prefill else 0
 
         # Call the _get_neuron_config method of the specific model class
         return cls._get_neuron_config(

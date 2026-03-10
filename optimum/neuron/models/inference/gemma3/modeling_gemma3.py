@@ -457,6 +457,8 @@ class Gemma3NxDModelForCausalLM(NxDModelForCausalLM):
     """
 
     _model_cls = NxDGemma3Model
+    # Gemma3's custom mixed sliding window / full attention masks don't support chunked prefill yet
+    _supports_chunked_prefill = False
 
     @staticmethod
     def convert_hf_to_neuron_state_dict(

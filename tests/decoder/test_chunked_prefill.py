@@ -45,7 +45,7 @@ def test_chunked_prefill_graph_structure(neuron_llm_config: dict[str, Any]):
     assert hasattr(model, "token_generation_model"), "Model missing token_generation_model"
 
 
-@pytest.mark.parametrize("neuron_llm_config", ["gemma3-1x8192"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-1x8192"], indirect=True)
 @is_inferentia_test
 @requires_neuronx
 def test_chunked_prefill_short_context(neuron_llm_config: dict[str, Any]):
@@ -74,7 +74,7 @@ def test_chunked_prefill_short_context(neuron_llm_config: dict[str, Any]):
         )
 
 
-@pytest.mark.parametrize("neuron_llm_config", ["gemma3-1x8192"], indirect=True)
+@pytest.mark.parametrize("neuron_llm_config", ["llama-1x8192"], indirect=True)
 @is_inferentia_test
 @requires_neuronx
 def test_chunked_prefill_long_context(neuron_llm_config: dict[str, Any]):
