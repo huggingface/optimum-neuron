@@ -190,7 +190,10 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                 chunk_end = min(chunk_start + chunk_size, prompt_len)
                 chunk_ids = input_ids[:, chunk_start:chunk_end]
                 chunk_pos = position_ids[:, chunk_start:chunk_end]
-                # Skip all-PAD chunks (avoids NaN from degenerate embeddings)
+                # Skip chunks where no sequence has real tokens (avoids NaN from
+                # degenerate embeddings).  Chunked prefill enforces ctx_batch_size=1,
+                # so per-batch and per-sequence checks are equivalent.  The sum==0
+                # check covers the full batch in case this is relaxed in the future.
                 if attention_mask is not None and attention_mask[:, chunk_start:chunk_end].sum() == 0:
                     continue
                 last_chunk_outputs = self.prefill_chunk(chunk_ids, chunk_pos, seq_ids, sampling_params)
