@@ -22,6 +22,7 @@ on:
       - 'optimum/neuron/models/inference/qwen2/**.py'
       - 'optimum/neuron/models/inference/qwen3/**.py'
       - 'optimum/neuron/models/inference/qwen3_moe/**.py'
+      - 'optimum/neuron/models/inference/smollm3/**.py'
       - 'optimum/neuron/pipelines/transformers/base.py'
       - 'optimum/neuron/utils/**.py'
       - 'optimum/neuron/version.py'
@@ -49,6 +50,7 @@ on:
       - 'optimum/neuron/models/inference/qwen2/**.py'
       - 'optimum/neuron/models/inference/qwen3/**.py'
       - 'optimum/neuron/models/inference/qwen3_moe/**.py'
+      - 'optimum/neuron/models/inference/smollm3/**.py'
       - 'optimum/neuron/pipelines/transformers/base.py'
       - 'optimum/neuron/utils/**.py'
       - 'optimum/neuron/version.py'
@@ -111,6 +113,7 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/decoder/test_decoder_generation.py
+          pytest -sv tests/decoder/test_chunked_prefill.py
       - name: Run LLM embedding tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
@@ -126,11 +129,14 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/decoder/test_modules.py tests/decoder/test_attention.py
+          pytest -sv tests/decoder/test_manual_softmax.py
+          pytest -sv tests/decoder/test_flash_attention_large_d.py
       - name: Run LLM cache tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/decoder/test_cache.py
+          pytest -sv tests/decoder/test_cache_sync_retry.py
       - name: Run LLM CLI tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
