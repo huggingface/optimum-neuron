@@ -85,6 +85,17 @@ class OptimumNeuronModel(nn.Module):
         except EnvironmentError:
             neuron_config = None
         if neuron_config is not None:
+            # Validate max_num_seqs against compiled batch_size.
+            # The Neuron worker returns empty kv_cache_spec, so vLLM's block manager
+            # cannot limit concurrent sequences. Without this check, the scheduler
+            # may send more requests than the compiled NEFF batch_size supports.
+            max_num_seqs = scheduler_config.max_num_seqs
+            if max_num_seqs > neuron_config.batch_size:
+                raise ValueError(
+                    f"max_num_seqs ({max_num_seqs}) exceeds the compiled model "
+                    f"batch_size ({neuron_config.batch_size}). "
+                    f"Please set max_num_seqs <= {neuron_config.batch_size}."
+                )
             neuron_model = cls.auto_class.from_pretrained(
                 model_name_or_path,
                 revision=revision,
