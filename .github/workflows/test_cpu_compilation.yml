@@ -62,9 +62,10 @@ jobs:
       - name: Setup PATH
         run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
       - name: Run decoder compilation tests
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/decoder/test_cli.py
       - name: Install diffusers dependencies
         run: |
@@ -75,7 +76,8 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           pytest tests/decoder/test_cache_cleanup.py tests/decoder/test_cache_sync_retry.py -v --tb=short
       - name: Run CPU compilation tests
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest tests/exporters/test_cpu_compilation.py -v --tb=short
