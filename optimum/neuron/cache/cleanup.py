@@ -143,9 +143,9 @@ def _get_cache_path(cache_dir: str | Path | None = None) -> Path:
 def _get_current_compiler_version() -> str | None:
     """Get the current neuronx-cc compiler version, or None if unavailable."""
     try:
-        from importlib.metadata import version
+        from ..utils.version_utils import get_neuronxcc_version
 
-        return version("neuronx-cc")
+        return get_neuronxcc_version()
     except Exception:
         return None
 
