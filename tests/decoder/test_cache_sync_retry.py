@@ -26,20 +26,24 @@ from requests import Response
 from optimum.neuron.cache.hub_cache import _SYNC_MAX_RETRIES, CompileCacheHfProxy
 
 
-def _make_http_412_error():
-    """Create an HfHubHTTPError with HTTP 412 status (parent_commit conflict)."""
+def _make_conflict_error(status_code):
+    """Create an HfHubHTTPError with the given status code."""
     response = Response()
-    response.status_code = 412
-    error = HfHubHTTPError("A commit has happened since.", response=response)
+    response.status_code = status_code
+    error = HfHubHTTPError(f"{status_code} Conflict", response=response)
     return error
+
+
+def _make_http_409_error():
+    return _make_conflict_error(409)
+
+
+def _make_http_412_error():
+    return _make_conflict_error(412)
 
 
 def _make_http_500_error():
-    """Create an HfHubHTTPError with HTTP 500 status (server error)."""
-    response = Response()
-    response.status_code = 500
-    error = HfHubHTTPError("Internal Server Error", response=response)
-    return error
+    return _make_conflict_error(500)
 
 
 @pytest.fixture
@@ -56,18 +60,22 @@ def mock_proxy():
         return proxy
 
 
+def test_409_is_conflict():
+    assert CompileCacheHfProxy._is_commit_conflict(_make_http_409_error())
+
+
 def test_412_is_conflict():
-    assert CompileCacheHfProxy._is_parent_commit_conflict(_make_http_412_error())
+    assert CompileCacheHfProxy._is_commit_conflict(_make_http_412_error())
 
 
 def test_500_is_not_conflict():
-    assert not CompileCacheHfProxy._is_parent_commit_conflict(_make_http_500_error())
+    assert not CompileCacheHfProxy._is_commit_conflict(_make_http_500_error())
 
 
 def test_no_response_is_not_conflict():
     error = HfHubHTTPError("no response")
     error.response = None
-    assert not CompileCacheHfProxy._is_parent_commit_conflict(error)
+    assert not CompileCacheHfProxy._is_commit_conflict(error)
 
 
 @patch("optimum.neuron.cache.hub_cache.time.sleep")
@@ -81,6 +89,21 @@ def test_succeeds_first_try(mock_sleep, mock_proxy):
         parent_commit="abc123def456",
     )
     mock_sleep.assert_not_called()
+
+
+@patch("optimum.neuron.cache.hub_cache.time.sleep")
+def test_retries_on_409_then_succeeds(mock_sleep, mock_proxy):
+    mock_proxy.api.upload_folder.side_effect = [
+        _make_http_409_error(),
+        None,  # success on second attempt
+    ]
+    mock_proxy.api.model_info.side_effect = [
+        MagicMock(sha="sha_v1"),
+        MagicMock(sha="sha_v2"),
+    ]
+    mock_proxy._upload_folder_with_retry()
+    assert mock_proxy.api.upload_folder.call_count == 2
+    assert mock_sleep.call_count == 1
 
 
 @patch("optimum.neuron.cache.hub_cache.time.sleep")
