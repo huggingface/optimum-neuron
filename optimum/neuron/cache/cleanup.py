@@ -19,6 +19,7 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 
 
@@ -28,12 +29,21 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CACHE_PATH = "/var/tmp/neuron-compile-cache"
 
 
+class CacheEntryState(str, Enum):
+    """Possible states of a compile cache entry directory."""
+
+    SUCCESS = "success"
+    FAILED = "failed"
+    LOCKED = "locked"
+    EMPTY = "empty"
+
+
 @dataclass
 class CacheEntryStatus:
     """Status of a single compile cache entry directory."""
 
     path: str
-    state: str  # "success", "failed", "locked", "empty"
+    state: CacheEntryState
     size_bytes: int = 0
 
 
@@ -152,19 +162,19 @@ def _dir_size(path: Path) -> int:
     return total
 
 
-def _classify_entry(entry_dir: Path) -> str:
+def _classify_entry(entry_dir: Path) -> CacheEntryState:
     """Classify a MODULE_* entry directory into a state."""
     has_neff = (entry_dir / "model.neff").exists()
     has_done = (entry_dir / "model.done").exists()
     has_log = (entry_dir / "model.log").exists()
     has_lock = any(entry_dir.glob("*.lock"))
     if has_neff and has_done:
-        return "success"
+        return CacheEntryState.SUCCESS
     if has_log and not has_neff:
-        return "failed"
+        return CacheEntryState.FAILED
     if has_lock:
-        return "locked"
-    return "empty"
+        return CacheEntryState.LOCKED
+    return CacheEntryState.EMPTY
 
 
 def get_local_cache_status(cache_dir: str | Path | None = None) -> CacheStatus:
@@ -201,13 +211,13 @@ def get_local_cache_status(cache_dir: str | Path | None = None) -> CacheStatus:
             status.entries.append(CacheEntryStatus(path=str(entry_dir), state=state, size_bytes=size))
             status.total_size_bytes += size
 
-            if state == "success":
+            if state == CacheEntryState.SUCCESS:
                 status.success_count += 1
                 status.success_size_bytes += size
-            elif state == "failed":
+            elif state == CacheEntryState.FAILED:
                 status.failed_count += 1
                 status.failed_size_bytes += size
-            elif state == "locked":
+            elif state == CacheEntryState.LOCKED:
                 status.locked_count += 1
                 status.locked_size_bytes += size
             else:
@@ -299,14 +309,14 @@ def cleanup_local_cache(
                 continue
             state = _classify_entry(entry_dir)
 
-            if state == "failed" and remove_failed:
+            if state == CacheEntryState.FAILED and remove_failed:
                 size = _dir_size(entry_dir)
                 result.bytes_freed += size
                 result.failed_removed += 1
                 if not dry_run:
                     shutil.rmtree(entry_dir)
 
-            elif state == "locked" and remove_locks and not compiler_running:
+            elif state == CacheEntryState.LOCKED and remove_locks and not compiler_running:
                 # Only remove lock files, not the entire entry
                 for lock_file in entry_dir.glob("*.lock"):
                     size = lock_file.stat().st_size if lock_file.is_file() else 0
@@ -315,7 +325,7 @@ def cleanup_local_cache(
                     if not dry_run:
                         lock_file.unlink()
 
-            elif state == "empty" and remove_empty:
+            elif state == CacheEntryState.EMPTY and remove_empty:
                 size = _dir_size(entry_dir)
                 result.bytes_freed += size
                 result.empty_removed += 1

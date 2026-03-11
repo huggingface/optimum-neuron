@@ -21,6 +21,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from optimum.neuron.cache.cleanup import (
+    CacheEntryState,
     CacheStatus,
     CleanupResult,
     _classify_entry,
@@ -79,25 +80,25 @@ def _make_empty_entry(version_dir: Path, name: str = "MODULE_empty+abc") -> Path
 def test_classify_success(tmp_path):
     version_dir = tmp_path / COMPILER_DIR
     entry = _make_success_entry(version_dir)
-    assert _classify_entry(entry) == "success"
+    assert _classify_entry(entry) == CacheEntryState.SUCCESS
 
 
 def test_classify_failed(tmp_path):
     version_dir = tmp_path / COMPILER_DIR
     entry = _make_failed_entry(version_dir)
-    assert _classify_entry(entry) == "failed"
+    assert _classify_entry(entry) == CacheEntryState.FAILED
 
 
 def test_classify_locked(tmp_path):
     version_dir = tmp_path / COMPILER_DIR
     entry = _make_locked_entry(version_dir)
-    assert _classify_entry(entry) == "locked"
+    assert _classify_entry(entry) == CacheEntryState.LOCKED
 
 
 def test_classify_empty(tmp_path):
     version_dir = tmp_path / COMPILER_DIR
     entry = _make_empty_entry(version_dir)
-    assert _classify_entry(entry) == "empty"
+    assert _classify_entry(entry) == CacheEntryState.EMPTY
 
 
 # --------------------------------------------------------------------------- #
