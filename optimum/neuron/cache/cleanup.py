@@ -85,7 +85,11 @@ class CacheStatus:
             "Compiler versions:",
         ]
         for v in self.compiler_versions:
-            current = " (current)" if v == self.current_compiler_version else " (old)"
+            current = (
+                " (current)"
+                if self.current_compiler_version and v.startswith(self.current_compiler_version)
+                else " (old)"
+            )
             lines.append(f"  - {v}{current}")
         lines.append("")
         lines.append("Entry counts:")
