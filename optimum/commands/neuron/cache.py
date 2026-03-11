@@ -16,6 +16,7 @@
 
 from argparse import ArgumentParser
 
+from ...neuron.cache.cleanup import cleanup_local_cache, get_local_cache_status
 from ...neuron.cache.hub_cache import select_hub_cached_entries, synchronize_hub_cache
 from ...neuron.utils.cache_utils import (
     CACHE_REPO_NAME,
@@ -176,6 +177,56 @@ class LookupRepoCommand(BaseOptimumCLICommand):
         self._list_entries()
 
 
+class StatusCacheCommand(BaseOptimumCLICommand):
+    @staticmethod
+    def parse_args(parser: "ArgumentParser"):
+        parser.add_argument("--cache_dir", type=str, default=None, help="The local cache directory to inspect.")
+
+    def run(self):
+        status = get_local_cache_status(cache_dir=self.args.cache_dir)
+        print(status.summary())
+
+
+class CleanupCacheCommand(BaseOptimumCLICommand):
+    @staticmethod
+    def parse_args(parser: "ArgumentParser"):
+        parser.add_argument("--cache_dir", type=str, default=None, help="The local cache directory to clean up.")
+        parser.add_argument(
+            "--all",
+            action="store_true",
+            dest="remove_all",
+            help="Also remove empty/incomplete entries.",
+        )
+        parser.add_argument(
+            "--old-versions",
+            action="store_true",
+            help="Remove cache directories for old compiler versions.",
+        )
+        parser.add_argument(
+            "--wipe",
+            action="store_true",
+            help="Remove the entire cache directory.",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Show what would be removed without actually deleting anything.",
+        )
+
+    def run(self):
+        result = cleanup_local_cache(
+            cache_dir=self.args.cache_dir,
+            remove_failed=True,
+            remove_locks=True,
+            remove_empty=self.args.remove_all,
+            remove_old_versions=self.args.old_versions,
+            wipe=self.args.wipe,
+            dry_run=self.args.dry_run,
+        )
+        prefix = "[DRY RUN] " if self.args.dry_run else ""
+        print(f"{prefix}{result.summary()}")
+
+
 class CustomCacheRepoCommand(BaseOptimumCLICommand):
     SUBCOMMANDS = (
         CommandInfo(
@@ -197,5 +248,15 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
             name="lookup",
             help="Lookup the neuronx compiler hub cache for the specified model id. Tip: install rich for a nicer display",
             subcommand_class=LookupRepoCommand,
+        ),
+        CommandInfo(
+            name="status",
+            help="Show local Neuron compile cache status (entry counts by state, disk usage, compiler versions).",
+            subcommand_class=StatusCacheCommand,
+        ),
+        CommandInfo(
+            name="cleanup",
+            help="Clean up poisoned entries (failed compilations, stale locks) from the local Neuron compile cache.",
+            subcommand_class=CleanupCacheCommand,
         ),
     )
