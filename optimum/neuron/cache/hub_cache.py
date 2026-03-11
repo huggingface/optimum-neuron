@@ -35,6 +35,7 @@ from ..utils.patching import patch_everywhere
 from ..utils.require_utils import requires_torch_neuronx
 from ..utils.version_utils import get_pinned_version
 from ..version import __version__
+from .cleanup import cleanup_local_cache
 from .entries.cache_entry import ModelCacheEntry
 
 
@@ -370,6 +371,9 @@ def synchronize_hub_cache(
 ):
     """Synchronize the neuronx compiler cache with the optimum-neuron hub cache.
 
+    Before uploading, this function cleans up the local cache by removing failed
+    entries and stale lock files to avoid syncing poisoned data to the hub.
+
     Args:
         cache_path (`str | Path | None`, defaults to `None`):
             The path of the folder to use for synchronization.
@@ -379,6 +383,11 @@ def synchronize_hub_cache(
             If `True`, the synchronization will be done in a non-blocking way, i.e. the function will return immediately
             and the synchronization will be done in the background.
     """
+    # Clean up failed entries and stale locks before syncing
+    cleanup_result = cleanup_local_cache(cache_dir=cache_path, remove_failed=True, remove_locks=True)
+    if cleanup_result.failed_removed > 0 or cleanup_result.locks_removed > 0:
+        logger.info(f"Pre-sync cleanup: {cleanup_result.summary()}")
+
     if cache_path is not None:
         cache_path = Path(cache_path)
         cache_path_str = cache_path.as_posix()
