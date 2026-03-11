@@ -8,6 +8,7 @@ Tests require Neuron hardware to run.
 
 import pytest
 import torch
+from nxd_testing import subprocess_test
 from transformers import set_seed
 
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
@@ -71,6 +72,7 @@ def _run_kernel(kernel_call, Q, K, V, use_causal_mask=True, sliding_window=0):
 
 @is_inferentia_test
 @requires_neuronx
+@subprocess_test
 def test_flash_attention_large_d_sliding_window():
     """Verify that sliding window attention correctly limits the attention span."""
     from torch_neuronx.xla_impl.ops import nki_jit
@@ -107,6 +109,7 @@ def test_flash_attention_large_d_sliding_window():
 @requires_neuronx
 @pytest.mark.parametrize("seq_len", [2048, 4096])
 @pytest.mark.parametrize("head_dim", [128, 256, 384, 512])
+@subprocess_test
 def test_flash_attention_various_d(head_dim, seq_len):
     """Test correctness across different head dimensions and sequence lengths.
 
