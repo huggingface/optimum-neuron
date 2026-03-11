@@ -1,3 +1,93 @@
+"""Pytest fixtures and CLI for provisioning compiled Neuron LLM test models.
+
+Overview
+--------
+This module provides session-scoped pytest fixtures that compile (export) HF models
+to Neuron NEFFs and make them available as local directories during test runs.  It is
+registered as a pytest plugin via ``pytest_plugins`` in ``tests/conftest.py``.
+
+Model configurations
+--------------------
+Two dictionaries define every (model, batch_size, sequence_length) combination that
+will be compiled:
+
+- ``GENERATE_LLM_MODEL_CONFIGURATIONS`` — text-generation models, built from
+  ``GENERATE_LLM_MODEL_IDS`` × [(4, 1024), (1, 8192)].
+- ``EMBED_LLM_MODEL_CONFIGURATIONS`` — embedding models, built from
+  ``EMBED_LLM_MODEL_IDS`` × [(4, 8192), (6, 8192)].
+
+Configuration names follow the pattern ``<model>-<batch_size>x<sequence_length>``,
+e.g. ``llama-4x1024``.  The merged dict ``LLM_MODEL_CONFIGURATIONS`` is the union of
+both.
+
+Caching strategy
+----------------
+Compiled models are expensive to produce (10-30+ min each on Neuron hardware).  To
+avoid recompilation, every exported model is pushed to a private HF Hub repo whose
+name encodes all the variables that would change the compilation output::
+
+    <org>/optimum-neuron-testing-<version>-<sdk_version>-<instance_type>-<code_hash>-<config_name>
+
+The ``<code_hash>`` (see ``get_neuron_models_hash()``) is a truncated SHA-256 of the
+git tree hashes of ``pyproject.toml`` and ``optimum/neuron/models/inference/``.  When
+*any* file inside those paths changes (even on an unrelated branch), the hash changes,
+causing a fresh export on next run.
+
+Compiled artifacts are also synchronized to a shared cache repo
+(``optimum-internal-testing/neuron-testing-cache``) so that the Neuron compiler cache
+on other machines can hit them.
+
+Cache invalidation
+------------------
+The hub repo name changes (and a re-export is triggered) when **any** of these change:
+
+1. ``optimum-neuron`` package version (``optimum.neuron.version.__version__``).
+2. Neuron SDK version (``optimum.neuron.version.__sdk_version__``).
+3. Instance type (e.g. ``inf2.8xlarge`` vs ``trn1.32xlarge``).
+4. Git content of ``pyproject.toml`` or ``optimum/neuron/models/inference/``.
+
+Old hub repos are **not** auto-deleted.  Prune them manually::
+
+    python tools/prune_test_models.py [--version <ver>] [--pattern <pat>] [--yes]
+
+Fixtures
+--------
+``any_generate_model``
+    Parametrized over *all* generation configs.  Each test using this fixture runs
+    once per config.  Use for broad cross-model validation (e.g. greedy expectations).
+
+``neuron_llm_config``
+    Provides a *single* config, chosen via ``@pytest.mark.parametrize`` with
+    ``indirect=True``::
+
+        @pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
+        def test_something(neuron_llm_config):
+            model_path = neuron_llm_config["neuron_model_path"]
+
+    Defaults to the first config (``llama-4x1024``) if no param is given.
+
+``speculation``
+    Session-scoped fixture that provides a ``(model_path, draft_model_path)`` tuple
+    for speculative decoding tests.
+
+All fixtures yield a ``dict`` with keys: ``name``, ``model_id``, ``task``,
+``export_kwargs``, ``neuron_model_id``, ``neuron_model_path``.
+
+CLI usage
+---------
+Run this file directly to pre-export models before running tests (this is what CI
+does)::
+
+    # Export all models
+    python tests/fixtures/llm/export_models.py
+
+    # Export only llama configs
+    python tests/fixtures/llm/export_models.py 'llama*'
+
+    # List available configs
+    python tests/fixtures/llm/export_models.py --list
+"""
+
 import copy
 import hashlib
 import logging
@@ -84,6 +174,13 @@ LLM_MODEL_CONFIGURATIONS = GENERATE_LLM_MODEL_CONFIGURATIONS | EMBED_LLM_MODEL_C
 
 
 def get_neuron_models_hash():
+    """Compute a short content hash that changes when inference code or build config changes.
+
+    Uses ``git ls-tree HEAD`` to get the tree SHA of ``pyproject.toml`` and the
+    ``optimum/neuron/models/inference/`` directory, then combines them into a
+    truncated SHA-256.  This means any file change inside those paths — even on a
+    feature branch — produces a different hash and forces a re-export of test models.
+    """
     import subprocess
 
     res = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
@@ -107,14 +204,20 @@ def get_neuron_models_hash():
 
 
 def _get_hub_neuron_model_prefix():
+    """Build the HF Hub repo name prefix that encodes all invalidation keys.
+
+    Format: ``<org>/optimum-neuron-testing-<version>-<sdk>-<instance>-<code_hash>``
+    """
     return f"{TEST_HUB_ORG}/optimum-neuron-testing-{version}-{sdk_version}-{current_instance_type()}-{get_neuron_models_hash()}"
 
 
 def _get_hub_neuron_model_id(config_name: str, model_config: dict[str, str]):
+    """Return the full HF Hub repo id for a specific model configuration."""
     return f"{_get_hub_neuron_model_prefix()}-{config_name}"
 
 
 def _export_model(model_id, task, export_kwargs, neuron_model_path):
+    """Compile a model to Neuron NEFFs and save to ``neuron_model_path``."""
     if task == "text-generation":
         auto_class = NeuronModelForCausalLM
     elif task == "feature-extraction":
@@ -222,6 +325,12 @@ def neuron_llm_config(request):
 
 @pytest.fixture(scope="session")
 def speculation():
+    """Provide compiled target + draft models for speculative decoding tests.
+
+    Yields a ``(neuron_model_path, draft_neuron_model_path)`` tuple.  The target
+    model is compiled with ``speculation_length=5``; the draft model is a standard
+    single-token model.  Both use ``batch_size=1, sequence_length=4096``.
+    """
     model_id = "unsloth/Llama-3.2-1B-Instruct"
     neuron_model_id = f"{_get_hub_neuron_model_prefix()}-speculation"
     draft_neuron_model_id = f"{_get_hub_neuron_model_prefix()}-speculation-draft"

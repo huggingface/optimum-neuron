@@ -15,6 +15,7 @@ directories, but must be read manually when working from the project root:
 - `optimum/neuron/models/inference/<model>/AGENTS.md` — model-specific work (gemma3, llama, qwen3, etc.)
 - `optimum/neuron/cache/AGENTS.md` — cache subsystem work (cleanup, Hub sync, registry)
 - `optimum/neuron/vllm/AGENTS.md` — vLLM integration work
+- `tests/AGENTS.md` — test infrastructure, fixtures, and cache management
 
 When adding a new model, create a `CLAUDE.md` containing `@AGENTS.md` in its directory
 so this auto-loading applies to it automatically.
@@ -116,7 +117,7 @@ All test workflows follow the same pattern:
 - Static shapes: runtime input shapes must match compiled shapes.
 - Export and load in separate processes to avoid device conflicts.
 - Neuron runtime does not release devices reliably within the same process.
-- Decoder graph changes require cache prune when using the fixtures defined under `tests/fixtures/export_models.py`: `python tools/prune_test_models.py`.
+- Decoder graph changes require cache prune when using the fixtures defined under `tests/fixtures/llm/export_models.py`: `python tools/prune_test_models.py`.
 
 ## Environment Variables
 
