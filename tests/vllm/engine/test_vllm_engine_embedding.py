@@ -48,7 +48,8 @@ def test_vllm_compute_similarity(neuron_llm_config: dict[str, Any]):
     input_texts = queries + documents
 
     # Get embeddings on Neuron from vLLM
-    llm = LLM(model=neuron_model_path, task="embed")
+    batch_size = neuron_llm_config["export_kwargs"]["batch_size"]
+    llm = LLM(model=neuron_model_path, task="embed", max_num_seqs=batch_size)
     outputs = llm.embed(input_texts)
     embeddings_list = [output.outputs.embedding for output in outputs]
     embeddings = torch.tensor(embeddings_list, dtype=torch.bfloat16)

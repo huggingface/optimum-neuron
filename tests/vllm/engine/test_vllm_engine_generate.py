@@ -49,7 +49,8 @@ def _test_vllm_generation(llm):
 def test_vllm_from_neuron_model(neuron_llm_config: dict[str, Any]):
     """Test vLLm generation on a single model exported locally."""
     neuron_llm_path = neuron_llm_config["neuron_model_path"]
-    llm = LLM(model=neuron_llm_path)
+    batch_size = neuron_llm_config["export_kwargs"]["batch_size"]
+    llm = LLM(model=neuron_llm_path, max_num_seqs=batch_size)
     _test_vllm_generation(llm)
 
 

@@ -71,7 +71,8 @@ def chunked_prefill_data(neuron_llm_config: dict[str, Any]):
     long_prompt = _make_prompt(chunk_size * 2)
     batch_prompts = [short_prompt, long_prompt]
 
-    llm = LLM(model=neuron_llm_config["neuron_model_path"])
+    batch_size = neuron_llm_config["export_kwargs"]["batch_size"]
+    llm = LLM(model=neuron_llm_config["neuron_model_path"], max_num_seqs=batch_size)
     short = _generate(llm, [short_prompt])[0]
     long_ = _generate(llm, [long_prompt])[0]
     batch = _generate(llm, batch_prompts)
