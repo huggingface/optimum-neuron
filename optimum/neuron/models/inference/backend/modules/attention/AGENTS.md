@@ -15,6 +15,65 @@ broader context see [optimum/neuron/models/inference/AGENTS.md](../../../AGENTS.
 - `utils.py` — Shared attention helpers (RoPE application, `repeat_kv`, manual
   softmax for token generation).
 
+## Available Attention Kernels
+
+Three attention kernel implementations are available. Only two are currently wired
+into the dispatch. See also the [NKI library](https://github.com/aws-neuron/nki-library)
+for additional kernel examples and patterns.
+
+### 1. `attention_isa_kernel` (BIR/ISA-level, NKI-wrapped) — ACTIVE
+
+- **Source**: `neuronxcc.nki._private_kernels.attention.attention_isa_kernel`
+- **Nature**: Hand-written at ISA level (Neuron assembly), wrapped in NKI.
+  "ISA" = Instruction Set Architecture — this is assembly-level code, not NKI.
+- **I/O layout**: `(B*H, d, seq)` — batch and heads merged into first dimension
+- **Features**: causal mask, sliding_window, SPMD grid dispatch, attention sinks
+- **Constraints**: `head_dim ≤ 128` (uses `par_dim(head_dim)` for QK matmul). Infers
+  `head_dim` by comparing dimensions — requires `seq > head_dim`.
+- **Performance**: Optimized for large seq_len. On LNC1, slower than compiler-native
+  below ~4096.
+- **Used by**: `UNSHARDED_KERNEL` and `SHARDED_KERNEL` strategies
+
+### 2. `flash_fwd` (pure NKI, neuronxcc) — NOT WIRED IN
+
+- **Source**: `neuronxcc.nki.kernels.attention.flash_fwd`
+- **Nature**: Pure NKI implementation, higher-level than ISA
+- **I/O layout**: `(bs, n_heads, d, seq)` — batch and heads separate
+- **Features**: `causal_mask`, `logit_bias`, configurable
+  `FlashConfig(seq_tile_size, training, ...)`
+- **Constraints**: `seq_len % seq_tile_size == 0`. Default `seq_tile_size=2048`,
+  configurable to 1024/512.
+- **Missing**: No native `sliding_window` support
+- **Not currently used** in optimum-neuron — potential alternative for small seq_len
+  without sliding window
+
+### 3. `flash_fwd_large_d` (custom NKI, optimum-neuron) — ACTIVE
+
+- **Source**: `flash_attention_nki.py` in this directory
+- **Nature**: Custom NKI with d-tiling for `head_dim > 128`
+- **I/O layout**: `(B*H, d, seq)` — same as ISA kernel
+- **Features**: causal mask, sliding_window (2-level tile filtering), online softmax
+- **Constraints**: `head_dim` multiple of 128, ≤ 512. `seq_len` multiple of
+  `LARGE_TILE_SZ`.
+- **Used by**: `LARGE_D_UNSHARDED_KERNEL` and `LARGE_D_SHARDED_KERNEL` strategies
+
+### SPMD grid requirements
+
+`flash_fwd` requires a 2D SPMD grid when called:
+```python
+kernel[batch, heads](q, k, v, ...)  # NOT kernel(q, k, v, ...)
+```
+The `attention_isa_kernel` uses a different convention (no grid for unsharded,
+1D `nc()` grid for sharded).
+
+### Sliding window support matrix
+
+| Kernel | sliding_window |
+|---|---|
+| `attention_isa_kernel` | Yes (native parameter) |
+| `flash_fwd` | No (only `logit_bias`, a full `[B,H,S,S]` tensor) |
+| `flash_fwd_large_d` | Yes (native parameter, 2-level tile filtering) |
+
 ## Flash Attention Dispatch
 
 `NeuronAttentionBase.get_flash_attention_strategy()` selects one of five strategies
