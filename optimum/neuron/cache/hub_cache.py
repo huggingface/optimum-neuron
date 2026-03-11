@@ -203,9 +203,9 @@ class CompileCacheHfProxy(CompileCache):
         return self.api.model_info(self.repo_id).sha
 
     @staticmethod
-    def _is_parent_commit_conflict(error: HfHubHTTPError) -> bool:
-        """Check if the error is a parent_commit conflict (HTTP 412)."""
-        return error.response is not None and error.response.status_code == 412
+    def _is_commit_conflict(error: HfHubHTTPError) -> bool:
+        """Check if the error is a concurrent commit conflict (HTTP 409 or 412)."""
+        return error.response is not None and error.response.status_code in (409, 412)
 
     def _upload_folder_with_retry(self) -> None:
         """Upload local cache folder to Hub with optimistic concurrency control.
@@ -229,7 +229,7 @@ class CompileCacheHfProxy(CompileCache):
                     logger.info(f"Hub cache synchronization succeeded on attempt {attempt + 1}.")
                 return
             except HfHubHTTPError as e:
-                if not self._is_parent_commit_conflict(e):
+                if not self._is_commit_conflict(e):
                     raise
                 if attempt == _SYNC_MAX_RETRIES:
                     logger.error(
