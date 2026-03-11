@@ -13,6 +13,7 @@ directories, but must be read manually when working from the project root:
 - `optimum/neuron/models/inference/AGENTS.md` — any inference model work
 - `optimum/neuron/models/inference/backend/modules/attention/AGENTS.md` — attention or NKI kernel work
 - `optimum/neuron/models/inference/<model>/AGENTS.md` — model-specific work (gemma3, llama, qwen3, etc.)
+- `optimum/neuron/cache/AGENTS.md` — cache subsystem work (cleanup, Hub sync, registry)
 - `optimum/neuron/vllm/AGENTS.md` — vLLM integration work
 
 When adding a new model, create a `CLAUDE.md` containing `@AGENTS.md` in its directory
@@ -99,7 +100,7 @@ Use [NxDI](https://github.com/aws-neuron/neuronx-distributed-inference) for neur
 For the full porting checklist and test guidance, see [optimum/neuron/models/inference/AGENTS.md](optimum/neuron/models/inference/AGENTS.md).
 
 ## Cache Management
-Compiled models are cached to the HF Hub. Test helpers live in [tests/conftest.py](tests/conftest.py). Relevant env vars: `NEURON_CC_FLAGS`, `NEURON_COMPILE_CACHE_URL`, `NEURON_RT_VISIBLE_CORES`.
+Compiled models are cached locally and synced to the HF Hub. See [optimum/neuron/cache/AGENTS.md](optimum/neuron/cache/AGENTS.md) for the full cache architecture, entry states, cleanup logic, and CLI commands. Test helpers live in [tests/conftest.py](tests/conftest.py). Relevant env vars: `NEURON_CC_FLAGS`, `NEURON_COMPILE_CACHE_URL`, `NEURON_RT_VISIBLE_CORES`.
 
 ## CI/CD Workflows (Summary)
 
