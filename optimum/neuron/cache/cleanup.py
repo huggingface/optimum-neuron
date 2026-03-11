@@ -261,7 +261,7 @@ def cleanup_local_cache(
     Args:
         cache_dir: Override the cache directory path.
         remove_failed: Remove entries with cached compilation failures (model.log without model.neff).
-        remove_locks: Remove stale lock files (only if no neuronx-cc processes are running).
+        remove_locks: Remove stale lock files.
         remove_empty: Remove empty/incomplete entries (no neff, no log, no lock).
         remove_old_versions: Remove entire cache directories for old compiler versions.
         wipe: Remove the entire cache directory.
@@ -283,15 +283,14 @@ def cleanup_local_cache(
             shutil.rmtree(cache_path)
         return result
 
+    # Refuse to clean while the compiler is actively populating the cache
+    if _is_neuronx_cc_running():
+        result.skipped_locks_reason = "neuronx-cc processes are currently running"
+        logger.warning("Skipping cache cleanup: neuronx-cc is currently running.")
+        return result
+
     current_version = _get_current_compiler_version()
     current_prefix = f"neuronxcc-{current_version}" if current_version else None
-
-    # Check for active compiler processes before lock cleanup
-    compiler_running = False
-    if remove_locks:
-        compiler_running = _is_neuronx_cc_running()
-        if compiler_running:
-            result.skipped_locks_reason = "neuronx-cc processes are currently running"
 
     for version_dir in sorted(cache_path.iterdir()):
         if not version_dir.is_dir() or not version_dir.name.startswith("neuronxcc-"):
@@ -320,7 +319,7 @@ def cleanup_local_cache(
                 if not dry_run:
                     shutil.rmtree(entry_dir)
 
-            elif state == CacheEntryState.LOCKED and remove_locks and not compiler_running:
+            elif state == CacheEntryState.LOCKED and remove_locks:
                 # Only remove lock files, not the entire entry
                 for lock_file in entry_dir.glob("*.lock"):
                     size = lock_file.stat().st_size if lock_file.is_file() else 0

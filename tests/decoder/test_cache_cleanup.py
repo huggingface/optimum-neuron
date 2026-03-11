@@ -277,16 +277,20 @@ def test_cleanup_removes_lock_files(mock_running, mock_version, tmp_path):
 
 @patch("optimum.neuron.cache.cleanup._get_current_compiler_version", return_value=COMPILER_VERSION)
 @patch("optimum.neuron.cache.cleanup._is_neuronx_cc_running", return_value=True)
-def test_cleanup_skips_locks_when_compiler_running(mock_running, mock_version, tmp_path):
+def test_cleanup_exits_early_when_compiler_running(mock_running, mock_version, tmp_path):
     version_dir = tmp_path / COMPILER_DIR
     locked = _make_locked_entry(version_dir)
+    failed = _make_failed_entry(version_dir, "MODULE_f+x")
     lock_file = locked / "model.hlo_module.pb.lock"
 
-    result = cleanup_local_cache(cache_dir=tmp_path, remove_failed=False)
+    result = cleanup_local_cache(cache_dir=tmp_path)
+    # Entire cleanup is skipped when compiler is running
     assert result.locks_removed == 0
+    assert result.failed_removed == 0
     assert result.skipped_locks_reason is not None
     assert "running" in result.skipped_locks_reason
     assert lock_file.exists()
+    assert failed.exists()
 
 
 # --------------------------------------------------------------------------- #
