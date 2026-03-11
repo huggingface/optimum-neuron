@@ -350,7 +350,7 @@ class NeuronAttentionBase(nn.Module):
                 warnings.warn("Flash attention disabled. LNC2 requires seq_len % 1024 for flash attn to be performant")
                 return FlashAttentionStrategy.NONE
 
-        # If seq_len is at least 4096, enable flash attn automatically to improve performance.
+        # LNC1: require at least 4096 for performance benefit
         if q_len >= 4096:
             return FlashAttentionStrategy.UNSHARDED_KERNEL
 
