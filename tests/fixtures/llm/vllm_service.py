@@ -104,12 +104,15 @@ class SubprocessLauncherHandle(LauncherHandle):
 @pytest.fixture(scope="module")
 def event_loop():
     try:
+        # Check for leftover from a previous fixture instantiation
         current_loop = asyncio.get_event_loop_policy().get_event_loop()
         if current_loop.is_closed():
+            # Clear the unused loop before creating a new one
             asyncio.set_event_loop(None)
     except RuntimeError:
         pass
 
+    # Each instance uses its own loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
