@@ -94,3 +94,27 @@ automatically without a separate `initialize` flag.
    `LARGE_D_*` for `head_dim > 128`.
 3. Ensure your export `seq_len` is a multiple of 2048 (LNC2) or 4096 (LNC1) so the
    kernel is actually engaged; otherwise it falls back to `NONE`.
+
+## Compiler sensitivity to `head_dim`
+
+When a model stays on the `NONE` path (compiler-native matmul/softmax), the Neuron
+Tensorizer can be extremely sensitive to `head_dim` alignment even when the decoded
+HLO looks almost unchanged.
+
+Observed on `0.4.6.dev3` for Phi-3.5-mini `batch=4, seq_len=1024, tp=2`:
+
+- Baseline `head_dim=96`: same decoded HLO `dot()` count (226), but compilation fails
+  with `XTP004` at `Number of instructions (6729320) is over the threshold (5000000)`.
+- Experimental zero-padding of attention channels to `head_dim=128`: decoded HLO still
+  has 226 `dot()` ops and 2 `AwsNeuronCustomNativeKernel` calls, but compiler unroll
+  count drops to `517049` and compilation passes.
+
+Implication: if the gap appears in Tensorizer/Unroll rather than in HLO op count,
+do not assume the root cause is only model architecture (for example GQA vs MHA or
+ KV-head count). First test whether `head_dim` is misaligned with the hardware tile
+ geometry. Multiples of 128 are especially important because:
+
+- `par_dim` for the ISA attention kernel is capped at 128.
+- `flash_fwd_large_d` d-tiles `head_dim` in chunks of 128.
+- Compiler-native matmul lowering can explode in instruction count for non-128-aligned
+  widths even when the HLO structure is effectively the same.
