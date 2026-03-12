@@ -103,9 +103,20 @@ class SubprocessLauncherHandle(LauncherHandle):
 
 @pytest.fixture(scope="module")
 def event_loop():
-    loop = asyncio.get_event_loop()
-    yield loop
-    loop.close()
+    try:
+        current_loop = asyncio.get_event_loop_policy().get_event_loop()
+        if current_loop.is_closed():
+            asyncio.set_event_loop(None)
+    except RuntimeError:
+        pass
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        yield loop
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
 
 
 @pytest.fixture(scope="module")
