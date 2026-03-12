@@ -190,13 +190,13 @@ class NxDGenerationMixin(GenerationMixin, ABC):
                 chunk_end = min(chunk_start + chunk_size, prompt_len)
                 chunk_ids = input_ids[:, chunk_start:chunk_end]
                 chunk_pos = position_ids[:, chunk_start:chunk_end]
-                # Skip chunks where no sequence has real tokens (avoids NaN from
-                # degenerate embeddings).  Chunked prefill enforces ctx_batch_size=1,
-                # so per-batch and per-sequence checks are equivalent.  The sum==0
-                # check covers the full batch in case this is relaxed in the future.
+                # Right padding means once a chunk is all PAD, all later chunks are
+                # also all PAD. Stop chunked prefill early to avoid PAD-only execution.
                 if attention_mask is not None and attention_mask[:, chunk_start:chunk_end].sum() == 0:
-                    continue
+                    break
                 last_chunk_outputs = self.prefill_chunk(chunk_ids, chunk_pos, seq_ids, sampling_params)
+            if last_chunk_outputs is None:
+                raise ValueError("Chunked prefill did not process any non-PAD prompt tokens.")
             # Chunked prefill model always uses CPU sampling (hybrid ODS).
             next_tokens = sample_next_tokens(last_chunk_outputs, is_ods=False)
         else:

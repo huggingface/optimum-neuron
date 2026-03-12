@@ -228,6 +228,7 @@ class Qwen3NxDModelForEmbedding(NxDModelForEmbedding):
             checkpoint_revision=checkpoint_revision,
             batch_size=batch_size,
             sequence_length=sequence_length,
+            prefill_chunk_size=prefill_chunk_size,
             tp_degree=tensor_parallel_size,
             torch_dtype=dtype,
             target=instance_type,
