@@ -133,6 +133,7 @@ GENERATE_LLM_MODEL_IDS = {
     "qwen2": "Qwen/Qwen2.5-0.5B",
     "gemma3": "unsloth/gemma-3-270m-it",
     "granite": "ibm-granite/granite-3.1-2b-instruct",
+    "phi": "microsoft/Phi-3.5-mini-instruct",
     "qwen3": "Qwen/Qwen3-0.6B",
     "smollm3": "HuggingFaceTB/SmolLM3-3B",
 }
