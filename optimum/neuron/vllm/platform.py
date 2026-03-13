@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+import os
 
 from vllm.platforms.interface import UnspecifiedPlatform
 from vllm.utils import FlexibleArgumentParser
@@ -105,6 +106,19 @@ class OptimumNeuronPlatform(UnspecifiedPlatform):
                 pass
 
             vllm_config.model_config.verify_with_parallel_config = verify_with_parallel_config
+
+    @classmethod
+    def device_id_to_physical_device_id(cls, device_id: int) -> int:
+        env_var = os.environ.get(cls.device_control_env_var)
+        if env_var is None:
+            return device_id
+        if "," in env_var:
+            device_ids = env_var.split(",")
+            return int(device_ids[device_id])
+        if "-" in env_var:
+            start = int(env_var.split("-")[0])
+            return start + device_id
+        return int(env_var)
 
     @classmethod
     def is_pin_memory_available(cls) -> bool:

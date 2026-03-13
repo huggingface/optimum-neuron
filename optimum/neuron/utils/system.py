@@ -104,9 +104,11 @@ def get_available_cores() -> int:
     visible_cores = os.environ.get("NEURON_RT_VISIBLE_CORES", num_cores)
     if type(visible_cores) is int:
         return min(visible_cores, num_cores)
-    # NEURON_RT_VISIBLE_CORES is in the form '4' or '7-15'
+    # NEURON_RT_VISIBLE_CORES is in the form '4', '7-15', or '0,1,2,3'
     visible_cores = str(visible_cores)
-    if "-" in visible_cores:
+    if "," in visible_cores:
+        num_visible_cores = len([x for x in visible_cores.split(",") if x.strip()])
+    elif "-" in visible_cores:
         start, end = visible_cores.split("-")
         num_visible_cores = int(end) - int(start) + 1
     else:
