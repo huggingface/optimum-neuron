@@ -99,6 +99,7 @@ def vllm_docker_launcher(event_loop):
         batch_size: int | None = None,
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
+        data_parallel_size: int | None = None,
         params_as_env: bool = True,
         propagate_hf_token: bool = True,
     ):
@@ -145,6 +146,8 @@ def vllm_docker_launcher(event_loop):
             add_param("sequence_length", sequence_length)
         if tensor_parallel_size is not None:
             add_param("tensor_parallel_size", tensor_parallel_size)
+        if data_parallel_size is not None:
+            add_param("data_parallel_size", data_parallel_size)
 
         base_image = get_docker_image()
         if os.path.isdir(model_name_or_path):

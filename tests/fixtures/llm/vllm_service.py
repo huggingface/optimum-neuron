@@ -154,6 +154,7 @@ def vllm_launcher(event_loop):
         batch_size: int | None = None,
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
+        data_parallel_size: int | None = None,
         extra_args: List[str] | None = None,
     ):
         port = random.randint(8000, 10_000)
@@ -178,6 +179,8 @@ def vllm_launcher(event_loop):
             command += ["--sequence_length", str(sequence_length)]
         if tensor_parallel_size is not None:
             command += ["--tensor_parallel_size", str(tensor_parallel_size)]
+        if data_parallel_size is not None:
+            command += ["--data-parallel-size", str(data_parallel_size)]
         if extra_args is not None:
             command += extra_args
 
