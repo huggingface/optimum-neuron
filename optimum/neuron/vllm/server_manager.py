@@ -41,9 +41,11 @@ class VLLMServerManager:
         self._processes: list[subprocess.Popen] = []
 
     def _core_range(self, rank: int) -> str:
-        """Compute the NEURON_RT_VISIBLE_CORES range for a given DP rank."""
+        """Compute the NEURON_RT_VISIBLE_CORES value for a given DP rank."""
         start = rank * self.tp_size
         end = start + self.tp_size - 1
+        if start == end:
+            return str(start)
         return f"{start}-{end}"
 
     def start(self):
