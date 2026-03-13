@@ -157,6 +157,13 @@ class NeuronAttentionBase(nn.Module):
     def qk_scale(self):
         return self._qk_scale or (1.0 / math.sqrt(self.original_head_dim))
 
+    def _apply_head_dim_layernorm(self, norm, tensor):
+        """Apply layernorm to the active (non-padded) head_dim portion."""
+        if self.original_head_dim == self.head_dim:
+            return norm(tensor)
+        active = norm(tensor[..., : self.original_head_dim])
+        return torch.cat([active, tensor[..., self.original_head_dim :]], dim=-1)
+
     def scaled_qk(self, Q, K, attention_mask):
         qk_scale = self.qk_scale
         QK = torch.matmul(Q, K.transpose(2, 3)) * qk_scale
@@ -181,9 +188,9 @@ class NeuronAttentionBase(nn.Module):
         """
         # Apply layernorm to Q and K if needed BEFORE the rotation
         if self.q_layernorm is not None:
-            Q = self.q_layernorm(Q)
+            Q = self._apply_head_dim_layernorm(self.q_layernorm, Q)
         if self.k_layernorm is not None:
-            K = self.k_layernorm(K)
+            K = self._apply_head_dim_layernorm(self.k_layernorm, K)
         # Move heads to front for rotary embedding
         Q = Q.permute(0, 2, 1, 3).contiguous()
         K = K.permute(0, 2, 1, 3).contiguous()
