@@ -3,6 +3,7 @@ import contextlib
 import logging
 import os
 import random
+import signal
 import subprocess
 import sys
 import time
@@ -154,6 +155,7 @@ def vllm_launcher(event_loop):
         batch_size: int | None = None,
         sequence_length: int | None = None,
         tensor_parallel_size: int | None = None,
+        data_parallel_size: int | None = None,
         extra_args: List[str] | None = None,
     ):
         port = random.randint(8000, 10_000)
@@ -178,12 +180,17 @@ def vllm_launcher(event_loop):
             command += ["--sequence_length", str(sequence_length)]
         if tensor_parallel_size is not None:
             command += ["--tensor_parallel_size", str(tensor_parallel_size)]
+        if data_parallel_size is not None:
+            command += ["--data-parallel-size", str(data_parallel_size)]
         if extra_args is not None:
             command += extra_args
 
         p = subprocess.Popen(
             command,
             shell=False,
+            # Start in a new process group so we can kill the entire tree
+            # (the DP proxy spawns child vLLM server processes).
+            start_new_session=True,
         )
 
         if cache_repo is not None:
@@ -193,7 +200,11 @@ def vllm_launcher(event_loop):
         model_name = served_model_name if served_model_name is not None else model_name_or_path
         yield SubprocessLauncherHandle(service_name, model_name, port, p)
         logger.info(f"Stopping {service_name} with model {model_name}")
-        p.terminate()
+        # Kill the entire process group to clean up DP child processes
+        try:
+            os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+        except ProcessLookupError:
+            pass
         p.wait()
         logger.info(f"Stopped {service_name} with model {model_name}")
 
