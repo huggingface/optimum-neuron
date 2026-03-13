@@ -13,7 +13,6 @@
 # limitations under the License.
 """Unit tests for VLLMServerManager core partitioning and lifecycle."""
 
-import signal
 import subprocess
 from unittest.mock import MagicMock, patch
 
@@ -142,16 +141,6 @@ def test_start_sets_core_env(mock_popen, monkeypatch):
 
 
 @patch("optimum.neuron.vllm.server_manager.subprocess.Popen")
-def test_start_uses_new_session(mock_popen, monkeypatch):
-    """Processes are started in their own session for clean group kill."""
-    monkeypatch.delenv("NEURON_RT_VISIBLE_CORES", raising=False)
-    mock_popen.return_value = _make_mock_proc()
-    mgr = VLLMServerManager(ports=[9001], tp_size=1, vllm_args=[])
-    mgr.start()
-    assert mock_popen.call_args[1]["start_new_session"] is True
-
-
-@patch("optimum.neuron.vllm.server_manager.subprocess.Popen")
 def test_start_passes_vllm_args(mock_popen, monkeypatch):
     """Extra vllm_args are appended to the subprocess command."""
     monkeypatch.delenv("NEURON_RT_VISIBLE_CORES", raising=False)
@@ -187,40 +176,41 @@ def test_monitor_detects_first_failure():
 # --- shutdown ---
 
 
-@patch("optimum.neuron.vllm.server_manager.os.killpg")
-@patch("optimum.neuron.vllm.server_manager.os.getpgid", return_value=5000)
-def test_shutdown_sends_sigterm(mock_getpgid, mock_killpg):
-    """shutdown() sends SIGTERM to running processes and clears the list."""
+def test_shutdown_terminates_and_clears():
+    """shutdown() terminates running processes and clears the list."""
     mgr = VLLMServerManager(ports=[9001], tp_size=1, vllm_args=[])
     proc = _make_mock_proc(pid=100, poll_return=None)
     proc.wait.return_value = 0
     proc.poll.side_effect = [None, 0]
     mgr._processes = [proc]
+
     mgr.shutdown()
-    mock_killpg.assert_any_call(5000, signal.SIGTERM)
+
+    proc.terminate.assert_called_once()
     assert len(mgr._processes) == 0
+    assert mgr._stop.is_set()
 
 
-@patch("optimum.neuron.vllm.server_manager.os.killpg")
-@patch("optimum.neuron.vllm.server_manager.os.getpgid", return_value=5000)
-def test_shutdown_force_kills_on_timeout(mock_getpgid, mock_killpg):
-    """shutdown() sends SIGKILL when a process doesn't exit after SIGTERM."""
+def test_shutdown_force_kills_on_timeout():
+    """shutdown() sends SIGKILL when a process doesn't exit after terminate."""
     mgr = VLLMServerManager(ports=[9001], tp_size=1, vllm_args=[])
     proc = _make_mock_proc(pid=100)
     proc.poll.return_value = None
     proc.wait.side_effect = [subprocess.TimeoutExpired("cmd", 10), None]
     mgr._processes = [proc]
+
     mgr.shutdown()
-    killpg_sigs = [call[0][1] for call in mock_killpg.call_args_list]
-    assert signal.SIGTERM in killpg_sigs
-    assert signal.SIGKILL in killpg_sigs
+
+    proc.terminate.assert_called_once()
+    proc.kill.assert_called_once()
 
 
 def test_shutdown_skips_already_exited():
-    """shutdown() does not signal processes that already exited."""
+    """shutdown() does not terminate processes that already exited."""
     mgr = VLLMServerManager(ports=[9001], tp_size=1, vllm_args=[])
     proc = _make_mock_proc(pid=100, poll_return=0)
     mgr._processes = [proc]
-    with patch.object(VLLMServerManager, "_signal_process_group") as mock_signal:
-        mgr.shutdown()
-        mock_signal.assert_not_called()
+
+    mgr.shutdown()
+
+    proc.terminate.assert_not_called()

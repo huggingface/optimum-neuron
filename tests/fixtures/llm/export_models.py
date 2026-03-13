@@ -155,6 +155,17 @@ for model_name, model_id in GENERATE_LLM_MODEL_IDS.items():
             },
         }
 
+# TP=1 config for data-parallel tests (DP=2 needs 2 cores, each server uses 1 core)
+GENERATE_LLM_MODEL_CONFIGURATIONS["qwen3-tp1-4x1024"] = {
+    "model_id": GENERATE_LLM_MODEL_IDS["qwen3"],
+    "task": "text-generation",
+    "export_kwargs": {
+        "batch_size": 4,
+        "sequence_length": 1024,
+        "tensor_parallel_size": 1,
+    },
+}
+
 EMBED_LLM_MODEL_CONFIGURATIONS = {}
 for model_name, model_id in EMBED_LLM_MODEL_IDS.items():
     for batch_size, sequence_length in [(4, 8192), (6, 8192)]:
