@@ -22,7 +22,8 @@ from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, Row
 from neuronx_distributed.parallel_layers.pad import get_number_of_extra_heads
 from torch import nn
 from torch.distributed import ProcessGroup
-from torch.nn import functional as F
+
+from .padding import maybe_pad_head_dim, maybe_pad_interleaved, maybe_pad_tail, replicate_kv
 
 
 logger = logging.getLogger("Neuron")
@@ -81,71 +82,12 @@ def get_shardable_head_counts(
     return sharding_strategy, updated_num_attention_heads, updated_num_key_value_heads
 
 
-def maybe_pad_interleaved(tensor, pad_dim: int, source_heads: int, target_heads: int, source_group_size: int):
-    if tensor is None:
-        return tensor
-
-    # Why we convert FP8 tensor to bfloat16?
-    # Torch does not support torch.cat, or torch.zeros (for large dimensions) for f8e4m3/f8e5m2
-    # So we cast it to bfloat16, perform padding, and then recast back to f8e4m3/f8e5m2
-    recast_dtype = None
-    if tensor.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]:
-        recast_dtype = tensor.dtype
-        tensor = tensor.to(torch.bfloat16)
-
-    shape = (
-        tensor.shape[:pad_dim] + (source_heads, tensor.shape[pad_dim] // source_heads) + tensor.shape[pad_dim + 1 :]
-    )
-    tensor = tensor.view(shape)
-
-    splits = torch.split(tensor, source_group_size, dim=pad_dim)
-
-    pad_size = list(splits[0].size())
-    pad_size[pad_dim] = (target_heads - source_heads) // (source_heads // source_group_size)
-    pads = [torch.zeros(pad_size, dtype=tensor.dtype)] * len(splits)
-
-    interleaved = [t for pair in zip(splits, pads) for t in pair]
-    tensor = torch.cat(interleaved, dim=pad_dim)
-
-    shape = tensor.shape[:pad_dim] + (tensor.shape[pad_dim] * tensor.shape[pad_dim + 1],) + tensor.shape[pad_dim + 2 :]
-
-    if recast_dtype is not None:
-        tensor = tensor.to(recast_dtype)
-
-    return tensor.view(shape)
-
-
-def maybe_pad_tail(tensor, source_heads: int, target_heads: int, pad_dim: int):
-    if tensor is None:
-        return tensor
-    size_to_pad = int((tensor.shape[pad_dim] // source_heads) * target_heads - tensor.shape[pad_dim])
-
-    dims_after_pad_dim = len(tensor.size()) - pad_dim
-    pad_length = dims_after_pad_dim * 2
-    pad = (0,) * (pad_length - 1) + (size_to_pad,)
-
-    return F.pad(tensor, pad)
-
-
-def replicate_kv(tensor, source_heads: int, repeats: int, head_dim=0):
-    if tensor is None:
-        return tensor
-    shape = (
-        tensor.shape[:head_dim] + (source_heads, tensor.shape[head_dim] // source_heads) + tensor.shape[head_dim + 1 :]
-    )
-    tensor = tensor.view(shape)
-    tensor = torch.repeat_interleave(tensor, repeats=repeats, dim=head_dim)
-    shape = (
-        tensor.shape[:head_dim] + (tensor.shape[head_dim] * tensor.shape[head_dim + 1],) + tensor.shape[head_dim + 2 :]
-    )
-    return tensor.view(shape)
-
-
 class BaseGroupQueryAttention(nn.Module):
     def __init__(
         self,
         hidden_size: int,
         head_dim: int,
+        source_head_dim: int | None,
         num_attention_heads: int,
         num_key_value_heads: int,
         tp_degree: int = 1,
@@ -172,6 +114,7 @@ class BaseGroupQueryAttention(nn.Module):
         self.hidden_size = hidden_size
         self.tp_degree = tp_degree
         self.head_dim = head_dim
+        self._src_head_dim = source_head_dim or head_dim
         self.dtype = dtype
         self.bias = bias
         self._src_num_attention_heads = num_attention_heads
@@ -213,6 +156,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         self,
         hidden_size: int,
         head_dim: int,
+        source_head_dim: int | None,
         num_attention_heads: int,
         num_key_value_heads: int,
         tp_degree: int = 1,
@@ -228,6 +172,7 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
         super().__init__(
             hidden_size=hidden_size,
             head_dim=head_dim,
+            source_head_dim=source_head_dim,
             num_attention_heads=num_attention_heads,
             num_key_value_heads=num_key_value_heads,
             tp_degree=tp_degree,
@@ -400,9 +345,9 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
             )
             q_proj_weight, k_proj_weight, v_proj_weight = qkv_weight.split(
                 [
-                    self._src_num_attention_heads * self.head_dim,
-                    self._src_num_key_value_heads * self.head_dim,
-                    self._src_num_key_value_heads * self.head_dim,
+                    self._src_num_attention_heads * self._src_head_dim,
+                    self._src_num_key_value_heads * self._src_head_dim,
+                    self._src_num_key_value_heads * self._src_head_dim,
                 ],
                 dim=0,
             )
@@ -412,9 +357,9 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
             if qkv_bias is not None:
                 q_proj_bias, k_proj_bias, v_proj_bias = qkv_bias.split(
                     [
-                        self._src_num_attention_heads * self.head_dim,
-                        self._src_num_key_value_heads * self.head_dim,
-                        self._src_num_key_value_heads * self.head_dim,
+                        self._src_num_attention_heads * self._src_head_dim,
+                        self._src_num_key_value_heads * self._src_head_dim,
+                        self._src_num_key_value_heads * self._src_head_dim,
                     ],
                     dim=0,
                 )
@@ -553,6 +498,49 @@ class GroupQueryAttention_QKV(BaseGroupQueryAttention):
                 pad_dim=0,
             )
 
+        q_proj_weight = maybe_pad_head_dim(
+            q_proj_weight,
+            pad_dim=0,
+            source_heads=self.num_attention_heads,
+            source_head_dim=self._src_head_dim,
+            target_head_dim=self.head_dim,
+        )
+        q_proj_bias = maybe_pad_head_dim(
+            q_proj_bias,
+            pad_dim=0,
+            source_heads=self.num_attention_heads,
+            source_head_dim=self._src_head_dim,
+            target_head_dim=self.head_dim,
+        )
+        k_proj_weight = maybe_pad_head_dim(
+            k_proj_weight,
+            pad_dim=0,
+            source_heads=self.num_key_value_heads,
+            source_head_dim=self._src_head_dim,
+            target_head_dim=self.head_dim,
+        )
+        k_proj_bias = maybe_pad_head_dim(
+            k_proj_bias,
+            pad_dim=0,
+            source_heads=self.num_key_value_heads,
+            source_head_dim=self._src_head_dim,
+            target_head_dim=self.head_dim,
+        )
+        v_proj_weight = maybe_pad_head_dim(
+            v_proj_weight,
+            pad_dim=0,
+            source_heads=self.num_key_value_heads,
+            source_head_dim=self._src_head_dim,
+            target_head_dim=self.head_dim,
+        )
+        v_proj_bias = maybe_pad_head_dim(
+            v_proj_bias,
+            pad_dim=0,
+            source_heads=self.num_key_value_heads,
+            source_head_dim=self._src_head_dim,
+            target_head_dim=self.head_dim,
+        )
+
         if self.fused_qkv:
             qkv_weight = torch.cat([q_proj_weight, k_proj_weight, v_proj_weight], dim=0)
             self.set_weight(
@@ -625,6 +613,7 @@ class GroupQueryAttention_O(BaseGroupQueryAttention):
         self,
         hidden_size: int,
         head_dim: int,
+        source_head_dim: int | None,
         num_attention_heads: int,
         num_key_value_heads: int,
         tp_degree: int = 1,
@@ -638,6 +627,7 @@ class GroupQueryAttention_O(BaseGroupQueryAttention):
         super().__init__(
             hidden_size=hidden_size,
             head_dim=head_dim,
+            source_head_dim=source_head_dim,
             num_attention_heads=num_attention_heads,
             num_key_value_heads=num_key_value_heads,
             tp_degree=tp_degree,
@@ -696,6 +686,14 @@ class GroupQueryAttention_O(BaseGroupQueryAttention):
                 target_heads=self.num_attention_heads,
                 pad_dim=1,
             )
+
+        o_proj_weight = maybe_pad_head_dim(
+            o_proj_weight,
+            pad_dim=1,
+            source_heads=self.num_attention_heads,
+            source_head_dim=self._src_head_dim,
+            target_head_dim=self.head_dim,
+        )
 
         model_state_dict[f"{prefix}.o_proj.weight"] = o_proj_weight
 

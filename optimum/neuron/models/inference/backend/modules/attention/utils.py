@@ -154,18 +154,30 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1) -> 
 
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
-    q_embed = (q * cos) + (_rotate_half(q) * sin)
-    k_embed = (k * cos) + (_rotate_half(k) * sin)
-    return q_embed, k_embed
+    rotary_dim = cos.shape[-1]
+    if q.shape[-1] == rotary_dim and k.shape[-1] == rotary_dim:
+        q_embed = (q * cos) + (_rotate_half(q) * sin)
+        k_embed = (k * cos) + (_rotate_half(k) * sin)
+        return q_embed, k_embed
+
+    q_active, q_tail = q[..., :rotary_dim], q[..., rotary_dim:]
+    k_active, k_tail = k[..., :rotary_dim], k[..., rotary_dim:]
+    q_embed = (q_active * cos) + (_rotate_half(q_active) * sin)
+    k_embed = (k_active * cos) + (_rotate_half(k_active) * sin)
+    return torch.cat((q_embed, q_tail), dim=-1), torch.cat((k_embed, k_tail), dim=-1)
 
 
 def apply_rotary_polar_compatible(query, key, freqs_cis):
     freqs_cis_real = freqs_cis.cos().unsqueeze(2)
     freqs_cis_imag = freqs_cis.sin().unsqueeze(2)
+    rotary_dim = freqs_cis.shape[-1] * 2
 
     def rotate(input):
-        real = input[..., ::2]
-        imag = input[..., 1::2]
+        active = input[..., :rotary_dim]
+        tail = input[..., rotary_dim:]
+
+        real = active[..., ::2]
+        imag = active[..., 1::2]
 
         # For complex multiplication
         # (a + ib) * (c + id) = (ac - bd) + i(ad + bc)
@@ -176,7 +188,10 @@ def apply_rotary_polar_compatible(query, key, freqs_cis):
         # ad + bc
         rot_imag = (real * freqs_cis_imag) + (freqs_cis_real * imag)
 
-        return torch.cat([rot_real.unsqueeze(-1), rot_imag.unsqueeze(-1)], dim=-1).reshape(input.shape)
+        rotated = torch.cat([rot_real.unsqueeze(-1), rot_imag.unsqueeze(-1)], dim=-1).reshape(active.shape)
+        if tail.shape[-1] == 0:
+            return rotated
+        return torch.cat((rotated, tail), dim=-1)
 
     query_rot = rotate(query)
     key_rot = rotate(key)

@@ -125,8 +125,8 @@ class NeuronQwen3MoEAttention(NeuronAttentionBase):
         )
 
         # Qwen3Moe specific: set q_layernorm and k_layernorm
-        self.q_layernorm = NeuronRMSNorm(self.head_dim, self.rms_norm_eps)
-        self.k_layernorm = NeuronRMSNorm(self.head_dim, self.rms_norm_eps)
+        self.q_layernorm = NeuronRMSNorm(self.original_head_dim, self.rms_norm_eps)
+        self.k_layernorm = NeuronRMSNorm(self.original_head_dim, self.rms_norm_eps)
 
 
 class NeuronQwen3MoeDecoderLayer(NeuronMixtralDecoderLayer):

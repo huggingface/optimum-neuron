@@ -50,8 +50,8 @@ class NeuronQwen3Attention(NeuronAttentionBase):
         super().__init__(config, neuron_config)
         self.rotary_emb = LlamaRotaryEmbedding(config)
         # Qwen3 specific: set q_layernorm and k_layernorm
-        self.q_layernorm = NeuronRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
-        self.k_layernorm = NeuronRMSNorm(self.head_dim, eps=config.rms_norm_eps)
+        self.q_layernorm = NeuronRMSNorm(self.original_head_dim, eps=config.rms_norm_eps)
+        self.k_layernorm = NeuronRMSNorm(self.original_head_dim, eps=config.rms_norm_eps)
 
 
 class NeuronQwen3DecoderLayer(NeuronLlamaDecoderLayer):

@@ -23,6 +23,7 @@ from torch import Tensor, nn
 from torch.distributed import ProcessGroup
 from transformers import PretrainedConfig
 
+from .padding import get_aligned_head_dim
 from .utils import (
     apply_rotary_pos_emb,
     manual_softmax,
@@ -97,10 +98,12 @@ class NeuronAttentionBase(nn.Module):
         self.hidden_size = config.hidden_size
         self.num_attention_heads = config.num_attention_heads
         self.num_key_value_heads = config.num_key_value_heads
-        self.head_dim = getattr(config, "head_dim", None)
+        source_head_dim = getattr(config, "head_dim", None)
         # Head dim could be present but set to None in some models
-        if self.head_dim is None:
-            self.head_dim = self.hidden_size // self.num_attention_heads
+        if source_head_dim is None:
+            source_head_dim = self.hidden_size // self.num_attention_heads
+        self.original_head_dim = source_head_dim
+        self.head_dim = get_aligned_head_dim(source_head_dim)
         self.max_position_embeddings = config.max_position_embeddings
         self.rope_theta = config.rope_theta
         self.torch_dtype = neuron_config.torch_dtype
@@ -112,6 +115,7 @@ class NeuronAttentionBase(nn.Module):
         self.qkv_proj = GroupQueryAttention_QKV(
             hidden_size=self.hidden_size,
             head_dim=self.head_dim,
+            source_head_dim=self.original_head_dim,
             num_attention_heads=self.num_attention_heads,
             num_key_value_heads=self.num_key_value_heads,
             tp_degree=neuron_config.tp_degree,
@@ -126,6 +130,7 @@ class NeuronAttentionBase(nn.Module):
         self.o_proj = GroupQueryAttention_O(
             hidden_size=self.hidden_size,
             head_dim=self.head_dim,
+            source_head_dim=self.original_head_dim,
             num_attention_heads=self.num_attention_heads,
             num_key_value_heads=self.num_key_value_heads,
             tp_degree=neuron_config.tp_degree,
@@ -150,7 +155,14 @@ class NeuronAttentionBase(nn.Module):
 
     @property
     def qk_scale(self):
-        return self._qk_scale or (1.0 / math.sqrt(self.head_dim))
+        return self._qk_scale or (1.0 / math.sqrt(self.original_head_dim))
+
+    def _apply_head_dim_layernorm(self, norm, tensor):
+        """Apply layernorm to the active (non-padded) head_dim portion."""
+        if self.original_head_dim == self.head_dim:
+            return norm(tensor)
+        active = norm(tensor[..., : self.original_head_dim])
+        return torch.cat([active, tensor[..., self.original_head_dim :]], dim=-1)
 
     def scaled_qk(self, Q, K, attention_mask):
         qk_scale = self.qk_scale
@@ -176,9 +188,9 @@ class NeuronAttentionBase(nn.Module):
         """
         # Apply layernorm to Q and K if needed BEFORE the rotation
         if self.q_layernorm is not None:
-            Q = self.q_layernorm(Q)
+            Q = self._apply_head_dim_layernorm(self.q_layernorm, Q)
         if self.k_layernorm is not None:
-            K = self.k_layernorm(K)
+            K = self._apply_head_dim_layernorm(self.k_layernorm, K)
         # Move heads to front for rotary embedding
         Q = Q.permute(0, 2, 1, 3).contiguous()
         K = K.permute(0, 2, 1, 3).contiguous()

@@ -133,6 +133,7 @@ GENERATE_LLM_MODEL_IDS = {
     "qwen2": "Qwen/Qwen2.5-0.5B",
     "gemma3": "unsloth/gemma-3-270m-it",
     "granite": "ibm-granite/granite-3.1-2b-instruct",
+    "phi": "microsoft/Phi-3.5-mini-instruct",
     "qwen3": "Qwen/Qwen3-0.6B",
     "smollm3": "HuggingFaceTB/SmolLM3-3B",
 }
@@ -264,8 +265,14 @@ def _get_neuron_model_for_config(config_name: str, model_config, neuron_model_pa
         tokenizer = AutoTokenizer.from_pretrained(model_id)
         tokenizer.save_pretrained(neuron_model_path)
         del tokenizer
-        # Create the test model on the hub
-        model.push_to_hub(save_directory=neuron_model_path, repository_id=neuron_model_id, private=True)
+        # Create the test model on the hub (another process may have pushed it concurrently)
+        try:
+            model.push_to_hub(save_directory=neuron_model_path, repository_id=neuron_model_id, private=True)
+        except huggingface_hub.errors.HfHubHTTPError:
+            if hub.repo_exists(neuron_model_id):
+                logger.info(f"Push failed but {neuron_model_id} already exists on the hub, skipping")
+            else:
+                raise
         # Make sure it is cached
         synchronize_hub_cache(cache_repo_id=OPTIMUM_CACHE_REPO_ID)
     # Add dynamic parameters to the model configuration

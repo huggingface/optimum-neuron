@@ -21,6 +21,7 @@ from torch import Tensor, nn
 from transformers import PretrainedConfig
 
 from ...config import NxDNeuronConfig
+from ..attention.padding import get_aligned_head_dim
 from .utils import dynamic_update_slice, fill_prefix
 
 
@@ -46,7 +47,10 @@ class KVCacheManager(nn.Module):
         max_batch_size = neuron_config.max_batch_size
         num_kv_heads_per_rank = utils.divide(actual_num_key_value_heads, neuron_config.tp_degree)
         max_len = neuron_config.sequence_length
-        head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
+        head_dim = getattr(config, "head_dim", None)
+        if head_dim is None:
+            head_dim = config.hidden_size // config.num_attention_heads
+        head_dim = get_aligned_head_dim(head_dim)
 
         # KV cache layout : BHSD
         self.kv_shape = (
