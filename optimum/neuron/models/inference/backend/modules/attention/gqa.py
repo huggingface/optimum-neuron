@@ -22,7 +22,8 @@ from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, Row
 from neuronx_distributed.parallel_layers.pad import get_number_of_extra_heads
 from torch import nn
 from torch.distributed import ProcessGroup
-from torch.nn import functional as F
+
+from .padding import maybe_pad_interleaved, maybe_pad_tail, replicate_kv
 
 
 logger = logging.getLogger("Neuron")
@@ -79,66 +80,6 @@ def get_shardable_head_counts(
                 updated_num_key_value_heads = updated_num_attention_heads
 
     return sharding_strategy, updated_num_attention_heads, updated_num_key_value_heads
-
-
-def maybe_pad_interleaved(tensor, pad_dim: int, source_heads: int, target_heads: int, source_group_size: int):
-    if tensor is None:
-        return tensor
-
-    # Why we convert FP8 tensor to bfloat16?
-    # Torch does not support torch.cat, or torch.zeros (for large dimensions) for f8e4m3/f8e5m2
-    # So we cast it to bfloat16, perform padding, and then recast back to f8e4m3/f8e5m2
-    recast_dtype = None
-    if tensor.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]:
-        recast_dtype = tensor.dtype
-        tensor = tensor.to(torch.bfloat16)
-
-    shape = (
-        tensor.shape[:pad_dim] + (source_heads, tensor.shape[pad_dim] // source_heads) + tensor.shape[pad_dim + 1 :]
-    )
-    tensor = tensor.view(shape)
-
-    splits = torch.split(tensor, source_group_size, dim=pad_dim)
-
-    pad_size = list(splits[0].size())
-    pad_size[pad_dim] = (target_heads - source_heads) // (source_heads // source_group_size)
-    pads = [torch.zeros(pad_size, dtype=tensor.dtype)] * len(splits)
-
-    interleaved = [t for pair in zip(splits, pads) for t in pair]
-    tensor = torch.cat(interleaved, dim=pad_dim)
-
-    shape = tensor.shape[:pad_dim] + (tensor.shape[pad_dim] * tensor.shape[pad_dim + 1],) + tensor.shape[pad_dim + 2 :]
-
-    if recast_dtype is not None:
-        tensor = tensor.to(recast_dtype)
-
-    return tensor.view(shape)
-
-
-def maybe_pad_tail(tensor, source_heads: int, target_heads: int, pad_dim: int):
-    if tensor is None:
-        return tensor
-    size_to_pad = int((tensor.shape[pad_dim] // source_heads) * target_heads - tensor.shape[pad_dim])
-
-    dims_after_pad_dim = len(tensor.size()) - pad_dim
-    pad_length = dims_after_pad_dim * 2
-    pad = (0,) * (pad_length - 1) + (size_to_pad,)
-
-    return F.pad(tensor, pad)
-
-
-def replicate_kv(tensor, source_heads: int, repeats: int, head_dim=0):
-    if tensor is None:
-        return tensor
-    shape = (
-        tensor.shape[:head_dim] + (source_heads, tensor.shape[head_dim] // source_heads) + tensor.shape[head_dim + 1 :]
-    )
-    tensor = tensor.view(shape)
-    tensor = torch.repeat_interleave(tensor, repeats=repeats, dim=head_dim)
-    shape = (
-        tensor.shape[:head_dim] + (tensor.shape[head_dim] * tensor.shape[head_dim + 1],) + tensor.shape[head_dim + 2 :]
-    )
-    return tensor.view(shape)
 
 
 class BaseGroupQueryAttention(nn.Module):
