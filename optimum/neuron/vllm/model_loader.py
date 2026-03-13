@@ -61,11 +61,6 @@ class OptimumNeuronModel(nn.Module):
                 "optimum-neuron does not support pipeline parallelism. "
                 "Please set pipeline_parallel_size to 1 in the parallel config."
             )
-        if parallel_config.data_parallel_size > 1:
-            raise ValueError(
-                "optimum-neuron does not support data parallelism. "
-                "Please set data_parallel_size to 1 in the parallel config."
-            )
         tp_degree = parallel_config.tensor_parallel_size
         available_cores = get_available_cores()
         if tp_degree > available_cores:
