@@ -16,6 +16,7 @@
 
 import pytest
 import torch
+import torch_xla
 import torch_xla.core.xla_model as xm
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
@@ -70,7 +71,7 @@ def test_parallel_linears(row_or_column, weights_dtype, inputs_dtype, input_size
     linear = nn.Linear(input_size, output_size, bias=False, dtype=weights_dtype, device=device)
 
     outputs = linear(inputs)
-    xm.mark_step()
+    torch_xla.sync()
 
     # Then we compute the output using the parallel linear.
     tp_rank = get_tensor_model_parallel_rank()
@@ -116,7 +117,7 @@ def test_parallel_linears(row_or_column, weights_dtype, inputs_dtype, input_size
     if row_or_column == "column":
         parallel_outputs = xm.all_gather(parallel_outputs, dim=-1)
 
-    xm.mark_step()
+    torch_xla.sync()
 
     outputs = outputs.to("cpu")
     parallel_outputs = parallel_outputs.to("cpu")
