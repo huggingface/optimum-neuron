@@ -39,6 +39,8 @@ if is_vllm_available():
     from vllm.utils import FlexibleArgumentParser
 
     from ...neuron.vllm.model_loader import VLLM_2_TRANSFORMERS_TASK_MAPPING
+    from ...neuron.vllm.reverse_proxy import RoundRobinProxy
+    from ...neuron.vllm.server_manager import VLLMServerManager
 
 
 logger = logging.get_logger()
@@ -109,6 +111,12 @@ class ServeCommand(BaseOptimumCLICommand):
             help="The port on which to serve the model.",
         )
         parser.add_argument(
+            "--data-parallel-size",
+            type=int,
+            default=1,
+            help="Number of data-parallel replicas. Each replica uses tensor_parallel_size cores.",
+        )
+        parser.add_argument(
             "--allow_non_cached_model",
             "--allow-non-cached-model",
             action="store_true",
@@ -132,6 +140,7 @@ class ServeCommand(BaseOptimumCLICommand):
         batch_size = self.args.batch_size
         sequence_length = self.args.sequence_length
         tensor_parallel_size = self.args.tensor_parallel_size
+        data_parallel_size = self.args.data_parallel_size
         config = AutoConfig.from_pretrained(model_name_or_path)
         torch_dtype = DTYPE_MAPPER.pt(config.dtype)
         try:
@@ -181,7 +190,7 @@ class ServeCommand(BaseOptimumCLICommand):
             )
             # Filter out entries that do not fit on the target host
             available_cores = get_available_cores()
-            filtered_entries = [e for e in cached_entries if e["tp_degree"] <= available_cores]
+            filtered_entries = [e for e in cached_entries if e["tp_degree"] * data_parallel_size <= available_cores]
             if len(filtered_entries) == 0:
                 if self.args.allow_non_cached_model:
                     warning_msg = f"{model_id} is not a neuron model, and no cached configuration is available using"
@@ -244,17 +253,24 @@ class ServeCommand(BaseOptimumCLICommand):
                 warning_msg += f" dtype = {torch_dtype}."
                 logger.warning(warning_msg)
 
-        os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
-        vllm_parser = make_arg_parser(FlexibleArgumentParser())
-        command = [
+        if data_parallel_size > 1:
+            available_cores = get_available_cores()
+            total_cores_needed = tensor_parallel_size * data_parallel_size
+            if total_cores_needed > available_cores:
+                raise ValueError(
+                    f"Data parallelism requires {total_cores_needed} cores "
+                    f"({tensor_parallel_size} TP x {data_parallel_size} DP) but only "
+                    f"{available_cores} cores are available."
+                )
+
+        # Build the vLLM command arguments.
+        vllm_command = [
             "--model",
             self.args.model,
             "--served_model_name",
             model_id,
             "--task",
             self.args.task,
-            "--port",
-            str(self.args.port),
             "--tensor-parallel-size",
             str(tensor_parallel_size),
             "--max-num-seqs",
@@ -265,10 +281,62 @@ class ServeCommand(BaseOptimumCLICommand):
             str(torch_dtype).split(".")[-1],
         ]
         if self.args.allow_non_cached_model:
-            command.append("--model-loader-extra-config=allow_non_cached_model")
+            vllm_command.append("--model-loader-extra-config=allow_non_cached_model")
         if hasattr(self.args, "_unknown_args"):
-            command.extend(self.args._unknown_args)
-        vllm_args = vllm_parser.parse_args(command)
-        validate_parsed_serve_args(vllm_args)
+            vllm_command.extend(self.args._unknown_args)
 
-        asyncio.run(run_server(vllm_args))
+        if data_parallel_size == 1:
+            # Single server: run directly in this process.
+            os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+            vllm_parser = make_arg_parser(FlexibleArgumentParser())
+            full_command = ["--port", str(self.args.port)] + vllm_command
+            vllm_args = vllm_parser.parse_args(full_command)
+            validate_parsed_serve_args(vllm_args)
+            asyncio.run(run_server(vllm_args))
+        else:
+            # Data-parallel: spawn N independent vLLM server processes behind
+            # a round-robin reverse proxy, each with its own NeuronCores.
+            #
+            # Why external LB instead of vLLM's built-in --data-parallel-size:
+            # vLLM's internal DP mode routes all N engine cores through a single
+            # API server process that handles tokenization, detokenization, and
+            # SSE streaming for every connection. Under high concurrency this
+            # single process becomes the bottleneck and throughput does not
+            # scale linearly with the number of DP replicas. The vLLM
+            # --api-server-count option (multiple API server processes sharing
+            # the same engine cores) does not help either, as the bottleneck
+            # is in the ZMQ transport between API servers and engine cores.
+            # Spawning N fully independent servers with a reverse proxy in
+            # front achieves the expected linear throughput scaling.
+            user_port = self.args.port
+            internal_ports = [user_port + 1 + i for i in range(data_parallel_size)]
+
+            manager = VLLMServerManager(
+                server_count=data_parallel_size,
+                base_port=user_port,
+                tp_size=tensor_parallel_size,
+                vllm_args=vllm_command,
+            )
+            proxy = RoundRobinProxy(upstream_ports=internal_ports, listen_port=user_port)
+
+            async def run_data_parallel():
+                manager.start()
+                try:
+                    await proxy.wait_for_backends(timeout=600)
+                    logger.info(
+                        "All %d vLLM servers ready, proxy listening on port %d",
+                        data_parallel_size,
+                        user_port,
+                    )
+                    proxy_task = asyncio.create_task(proxy.run())
+                    monitor_task = asyncio.create_task(asyncio.to_thread(manager.monitor))
+                    done, pending = await asyncio.wait(
+                        [proxy_task, monitor_task],
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    for task in pending:
+                        task.cancel()
+                finally:
+                    manager.shutdown()
+
+            asyncio.run(run_data_parallel())

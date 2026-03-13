@@ -67,6 +67,24 @@ class OptimumNeuronWorker(WorkerBase):
 
     def init_device(self) -> None:
         # Initialize distributed environment.
+        dp_size = self.vllm_config.parallel_config.data_parallel_size
+        if dp_size > 1:
+            # With data parallelism, vLLM's init_distributed_environment adjusts
+            # world_size to tp * pp * dp, expecting that many worker processes.
+            # Since Neuron handles TP internally (uni executor, 1 worker per DP rank),
+            # we pre-initialize torch.distributed with the correct topology:
+            # dp_size participants, one per DP rank.
+            parallel_config = self.vllm_config.parallel_config
+            dp_rank = parallel_config.data_parallel_rank
+            ip = parallel_config.data_parallel_master_ip
+            port = parallel_config.get_next_dp_init_port()
+            init_method = f"tcp://{ip}:{port}"
+            torch.distributed.init_process_group(
+                backend="gloo",
+                init_method=init_method,
+                world_size=dp_size,
+                rank=dp_rank,
+            )
         init_distributed_environment(
             world_size=1,
             rank=self.rank,
@@ -99,6 +117,11 @@ class OptimumNeuronWorker(WorkerBase):
 
     def compile_or_warm_up_model(self) -> None:
         # Not required since the compilation happens implicitly when loading the model.
+        pass
+
+    def execute_dummy_batch(self) -> None:
+        # No-op for Neuron. In DP mode, vLLM calls this on idle replicas to keep
+        # them synchronized. Neuron models don't need dummy execution for sync.
         pass
 
     def get_supported_tasks(self) -> tuple[SupportedTask, ...]:
