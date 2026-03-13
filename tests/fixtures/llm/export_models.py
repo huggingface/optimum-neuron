@@ -265,8 +265,14 @@ def _get_neuron_model_for_config(config_name: str, model_config, neuron_model_pa
         tokenizer = AutoTokenizer.from_pretrained(model_id)
         tokenizer.save_pretrained(neuron_model_path)
         del tokenizer
-        # Create the test model on the hub
-        model.push_to_hub(save_directory=neuron_model_path, repository_id=neuron_model_id, private=True)
+        # Create the test model on the hub (another process may have pushed it concurrently)
+        try:
+            model.push_to_hub(save_directory=neuron_model_path, repository_id=neuron_model_id, private=True)
+        except huggingface_hub.errors.HfHubHTTPError:
+            if hub.repo_exists(neuron_model_id):
+                logger.info(f"Push failed but {neuron_model_id} already exists on the hub, skipping")
+            else:
+                raise
         # Make sure it is cached
         synchronize_hub_cache(cache_repo_id=OPTIMUM_CACHE_REPO_ID)
     # Add dynamic parameters to the model configuration
