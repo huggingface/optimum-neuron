@@ -260,7 +260,7 @@ def get_neuron_device_memory() -> NeuronDeviceMemory:
             continue
 
         device_name = device_dir.name
-        devices[device_name] = {}
+        parsed_cores: Dict[str, CoreDeviceMemory] = {}
 
         # Iterate through all cores in this device (neuron_core0, neuron_core1, etc.)
         for core_dir in sorted(device_dir.glob("neuron_core*")):
@@ -270,7 +270,11 @@ def get_neuron_device_memory() -> NeuronDeviceMemory:
             core_name = core_dir.name
             core_mem = read_core_device_memory(core_dir)
             if core_mem.categories:  # Only add if we got some data
-                devices[device_name][core_name] = core_mem
+                parsed_cores[core_name] = core_mem
+
+        # Keep only devices with at least one parsed core.
+        if parsed_cores:
+            devices[device_name] = parsed_cores
 
     return NeuronDeviceMemory(devices)
 
