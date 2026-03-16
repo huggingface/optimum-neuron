@@ -77,7 +77,7 @@ jobs:
           hf_token: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE }}
 
   do-the-job:
-    name: Run INF2 vLLM tests
+    name: Run INF2 vLLM tests (new runners)
     needs: sanity
     runs-on:
       group: aws-inf2-8xlarge
