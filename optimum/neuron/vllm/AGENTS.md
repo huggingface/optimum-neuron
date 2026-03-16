@@ -27,3 +27,15 @@ If the model isn’t pre-compiled, vLLM searches the hub cache for a compatible 
 
 ## CLI
 - Launch server via `optimum-cli neuron serve` (see [optimum/commands/neuron/serve.py](../../commands/neuron/serve.py)).
+
+## Data-Parallel Serving
+When `--data-parallel-size N` is passed (N > 1), `optimum-cli neuron serve` spawns N independent vLLM servers behind an aiohttp round-robin reverse proxy.
+
+Key files:
+- [optimum/neuron/vllm/server_manager.py](server_manager.py) — spawns and manages vLLM server subprocesses with Neuron core pinning.
+- [optimum/neuron/vllm/reverse_proxy.py](reverse_proxy.py) — round-robin proxy with aggregated `/health`.
+
+### Process Lifecycle (important)
+vLLM servers are spawned **without** `start_new_session=True` — they inherit the parent's process group. On shutdown, `optimum-cli` sends SIGTERM to each server via `proc.terminate()`, and vLLM handles its own EngineCore child cleanup gracefully.
+
+**Do NOT use `start_new_session=True` on vLLM server subprocesses.** vLLM already cleans up its own EngineCore workers on SIGTERM. Isolating servers in separate process groups makes them unreachable by the parent's signal handlers and test fixture teardown, causing Neuron core leaks that poison subsequent tests.
