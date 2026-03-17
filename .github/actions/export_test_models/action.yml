@@ -1,0 +1,29 @@
+name: Export test models
+description: Install Neuronx runtime, setup venv, and export LLM test models to HF Hub
+inputs:
+  hf_token:
+    description: 'Hugging Face token for model export and Hub access'
+    required: true
+  vllm:
+    description: 'Install vLLM dependencies before exporting (true/false)'
+    required: false
+    default: 'false'
+runs:
+    using: "composite"
+    steps:
+      - name: Install Neuronx runtime
+        uses: ./.github/actions/install_neuronx_runtime
+      - name: Setup virtual environment
+        uses: ./.github/actions/setup_venv
+      - name: Install vLLM dependencies
+        if: inputs.vllm == 'true'
+        shell: bash
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          uv pip install .[vllm,vllm-tests]
+      - name: Export test models
+        shell: bash
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ inputs.hf_token }}
+          python tests/fixtures/llm/export_models.py

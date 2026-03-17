@@ -76,9 +76,23 @@ jobs:
         with:
           hf_token: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE }}
 
-  do-the-job:
-    name: Run INF2 vLLM tests
+  vllm-export-models:
+    name: Export vLLM test models
     needs: sanity
+    runs-on:
+      group: aws-inf2-8xlarge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Export test models
+        uses: ./.github/actions/export_test_models
+        with:
+          hf_token: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
+          vllm: 'true'
+
+  vllm-engine-service-tests:
+    name: Run vLLM engine and service tests
+    needs: vllm-export-models
     runs-on:
       group: aws-inf2-8xlarge
     steps:
@@ -92,11 +106,6 @@ jobs:
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           uv pip install .[vllm,vllm-tests]
-      - name: Export test models
-        run: |
-          source aws_neuron_venv_pytorch/bin/activate
-          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
-          python tests/fixtures/llm/export_models.py
       - name: Run vLLM engine embedding tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
@@ -113,6 +122,23 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/vllm/service
+
+  vllm-docker-tests:
+    name: Run vLLM docker tests
+    needs: vllm-export-models
+    runs-on:
+      group: aws-inf2-8xlarge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Neuronx runtime
+        uses: ./.github/actions/install_neuronx_runtime
+      - name: Setup virtual environment
+        uses: ./.github/actions/setup_venv
+      - name: Install vLLM and test prerequisites
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          uv pip install .[vllm,vllm-tests]
       - name: Build docker image
         run: |
           sudo apt-get install -y gawk
