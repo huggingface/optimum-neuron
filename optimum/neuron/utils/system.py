@@ -89,6 +89,25 @@ def get_neuron_devices_count() -> int:
     return device_count
 
 
+def get_neuron_device_paths() -> list[str]:
+    """Return sorted list of /dev/neuronX paths matching the Neuron device major number."""
+    neuron_major = get_neuron_major()
+    if neuron_major == -1:
+        return []
+    paths = []
+    root, _, files = next(os.walk("/dev"))
+    for f in sorted(files):
+        if neuron_major > 0:
+            try:
+                if os.major(os.stat(f"{root}/{f}").st_rdev) == neuron_major:
+                    paths.append(f"{root}/{f}")
+            except FileNotFoundError:
+                pass
+        elif NEURON_DEV_PATTERN.match(f):
+            paths.append(f"{root}/{f}")
+    return paths
+
+
 def get_available_cores() -> int:
     """A helper to get the number of available cores.
 
