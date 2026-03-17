@@ -30,12 +30,12 @@ from transformers import AutoConfig, AutoModelForCausalLM, PretrainedConfig
 from ....cache.entries.single_model import SingleModelCacheEntry
 from ....cache.hub_cache import hub_neuronx_cache
 from ....utils.instance import align_compilation_target, current_instance_type
-from ....utils.neuron_device_memory import get_neuron_device_memory
 from ....utils.system import get_available_cores
 from ..modeling_utils import NeuronPreTrainedModel
 from .config import NxDNeuronConfig
 from .graph_builder import NxDGraphBuilder
 from .modules.checkpoint import load_state_dict
+from .neuron_device_memory import get_neuron_device_memory
 
 
 logger = logging.getLogger("Neuron")
