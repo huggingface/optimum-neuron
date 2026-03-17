@@ -92,6 +92,11 @@ jobs:
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           uv pip install .[vllm,vllm-tests]
+      - name: Run device detection diagnostic
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
+          python tests/vllm/docker/test_neuron_device_detection.py
       - name: Export test models
         run: |
           source aws_neuron_venv_pytorch/bin/activate
