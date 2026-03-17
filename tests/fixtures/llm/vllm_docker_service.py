@@ -10,7 +10,9 @@ import time
 import huggingface_hub
 import pytest
 
+from optimum.neuron.models.inference.backend.neuron_device_memory import get_neuron_device_indices
 from optimum.neuron.utils.import_utils import is_package_available
+from optimum.neuron.utils.system import cores_per_device
 from optimum.neuron.version import __version__
 
 
@@ -20,6 +22,26 @@ if is_package_available("docker"):
     import docker
 
 from .vllm_service import LauncherHandle
+
+
+def _get_docker_neuron_config():
+    """Determine docker device mapping for the runner's allocated Neuron device.
+
+    On Kubernetes, /dev/neuron0 is remapped from a different physical device.
+    The minor number reveals the true physical index. In DinD, devices keep
+    their real names, so we must map the correct physical device.
+    """
+    indices = get_neuron_device_indices()
+    if not indices:
+        return ["/dev/neuron0"], {}
+    physical_idx = min(indices)
+    cpd = cores_per_device()
+    first_core = physical_idx * cpd
+    visible_cores = f"{first_core}-{first_core + cpd - 1}"
+    return (
+        [f"/dev/neuron{physical_idx}"],
+        {"NEURON_RT_VISIBLE_CORES": visible_cores},
+    )
 
 
 OPTIMUM_CACHE_REPO_ID = "optimum-internal-testing/neuron-testing-cache"
@@ -182,13 +204,16 @@ def vllm_docker_launcher(event_loop):
             container_model_name_or_path = model_name_or_path
 
         add_param("model", container_model_name_or_path)
+        neuron_devices, neuron_env = _get_docker_neuron_config()
+        env.update(neuron_env)
+        logger.info("Docker Neuron device mapping: devices=%s, env=%s", neuron_devices, neuron_env)
         container = client.containers.run(
             test_image,
             name=container_name,
             environment=env,
             auto_remove=False,
             detach=True,
-            devices=["/dev/neuron0"],
+            devices=neuron_devices,
             ports={"8080/tcp": port},
             shm_size="1G",
             command=command,
