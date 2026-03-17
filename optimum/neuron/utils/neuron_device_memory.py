@@ -24,6 +24,8 @@ Based on: https://awsdocs-neuron.readthedocs-hosted.com/en/latest/tools/neuron-s
 """
 
 import logging
+import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
@@ -33,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 SYSFS_NEURON_BASE = Path("/sys/devices/virtual/neuron_device")
+VISIBLE_NEURON_DEVICE_PATTERN = re.compile(r"^neuron\d+$")
 
 # Device memory categories as per the documentation
 DEVICE_MEM_CATEGORIES = [
@@ -48,6 +51,46 @@ DEVICE_MEM_CATEGORIES = [
     "tensors",
     "uncategorized",
 ]
+
+
+def _get_visible_neuron_device_names() -> set[str]:
+    """Return visible sysfs Neuron device names mapped from /dev major:minor IDs."""
+    try:
+        visible_device_names: set[str] = set()
+        visible_device_ids: set[tuple[int, int]] = set()
+
+        for device in Path("/dev").iterdir():
+            if not VISIBLE_NEURON_DEVICE_PATTERN.match(device.name):
+                continue
+            if not device.is_char_device():
+                continue
+
+            visible_device_names.add(device.name)
+            device_stat = device.stat()
+            visible_device_ids.add((os.major(device_stat.st_rdev), os.minor(device_stat.st_rdev)))
+
+        if not visible_device_ids:
+            return set()
+
+        # Map visible /dev nodes to sysfs neuronN entries using kernel major:minor IDs.
+        sysfs_match_names: set[str] = set()
+        for device_dir in sorted(SYSFS_NEURON_BASE.glob("neuron*")):
+            if not device_dir.is_dir():
+                continue
+
+            try:
+                device_major_minor = read_sysfs_value(device_dir / "dev")
+                major_str, minor_str = device_major_minor.split(":", maxsplit=1)
+                if (int(major_str), int(minor_str)) in visible_device_ids:
+                    sysfs_match_names.add(device_dir.name)
+            except (FileNotFoundError, PermissionError, ValueError):
+                continue
+
+        # Fallback to /dev names only when sysfs device IDs are not readable.
+        return sysfs_match_names or visible_device_names
+    except (FileNotFoundError, PermissionError, OSError):
+        logger.debug("Unable to enumerate visible Neuron devices under /dev", exc_info=True)
+        return set()
 
 
 def read_sysfs_value(file_path: Path) -> str:
@@ -253,6 +296,7 @@ def get_neuron_device_memory() -> NeuronDeviceMemory:
         )
 
     devices: Dict[str, Dict[str, CoreDeviceMemory]] = {}
+    visible_devices = _get_visible_neuron_device_names()
 
     # Iterate through all neuron devices (neuron0, neuron1, etc.)
     for device_dir in sorted(SYSFS_NEURON_BASE.glob("neuron*")):
@@ -260,6 +304,9 @@ def get_neuron_device_memory() -> NeuronDeviceMemory:
             continue
 
         device_name = device_dir.name
+        if visible_devices and device_name not in visible_devices:
+            continue
+
         parsed_cores: Dict[str, CoreDeviceMemory] = {}
 
         # Iterate through all cores in this device (neuron_core0, neuron_core1, etc.)
