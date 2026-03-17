@@ -24,12 +24,38 @@ Based on: https://awsdocs-neuron.readthedocs-hosted.com/en/latest/tools/neuron-s
 """
 
 import logging
+import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
 
+from optimum.neuron.utils.system import get_neuron_major
+
 
 logger = logging.getLogger(__name__)
+
+
+def get_neuron_device_indices() -> set[int]:
+    """Return the set of physical Neuron device indices visible to this process.
+
+    Each /dev/neuronX has a minor number that identifies the physical device,
+    even when Kubernetes remaps the device name (e.g., /dev/neuron0 with minor=2
+    is actually physical device neuron2).
+    """
+    neuron_major = get_neuron_major()
+    if neuron_major == -1:
+        return set()
+    indices = set()
+    root, _, files = next(os.walk("/dev"))
+    for f in files:
+        try:
+            stat = os.stat(f"{root}/{f}")
+            if os.major(stat.st_rdev) == neuron_major:
+                indices.add(os.minor(stat.st_rdev))
+        except FileNotFoundError:
+            pass
+    return indices
 
 
 SYSFS_NEURON_BASE = Path("/sys/devices/virtual/neuron_device")
@@ -254,13 +280,23 @@ def get_neuron_device_memory() -> NeuronDeviceMemory:
 
     devices: Dict[str, Dict[str, CoreDeviceMemory]] = {}
 
+    # Filter sysfs devices to only those visible in /dev (handles Kubernetes remapping
+    # where sysfs shows all host devices but /dev only has the allocated one).
+    visible_indices = get_neuron_device_indices()
+
     # Iterate through all neuron devices (neuron0, neuron1, etc.)
     for device_dir in sorted(SYSFS_NEURON_BASE.glob("neuron*")):
         if not device_dir.is_dir():
             continue
 
+        # Skip devices not allocated to this process
+        if visible_indices:
+            match = re.match(r"neuron(\d+)", device_dir.name)
+            if match and int(match.group(1)) not in visible_indices:
+                continue
+
         device_name = device_dir.name
-        devices[device_name] = {}
+        parsed_cores: Dict[str, CoreDeviceMemory] = {}
 
         # Iterate through all cores in this device (neuron_core0, neuron_core1, etc.)
         for core_dir in sorted(device_dir.glob("neuron_core*")):
@@ -270,7 +306,11 @@ def get_neuron_device_memory() -> NeuronDeviceMemory:
             core_name = core_dir.name
             core_mem = read_core_device_memory(core_dir)
             if core_mem.categories:  # Only add if we got some data
-                devices[device_name][core_name] = core_mem
+                parsed_cores[core_name] = core_mem
+
+        # Keep only devices with at least one parsed core
+        if parsed_cores:
+            devices[device_name] = parsed_cores
 
     return NeuronDeviceMemory(devices)
 
