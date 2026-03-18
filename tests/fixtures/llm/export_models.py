@@ -334,6 +334,8 @@ def any_generate_model(request):
         yield model_config
         if cache_repo_id is not None:
             os.environ["CUSTOM_CACHE_REPO"] = cache_repo_id
+        else:
+            os.environ.pop("CUSTOM_CACHE_REPO", None)
 
 
 @pytest.fixture(scope="session")
@@ -355,6 +357,8 @@ def neuron_llm_config(request):
         yield neuron_model_config
         if cache_repo_id is not None:
             os.environ["CUSTOM_CACHE_REPO"] = cache_repo_id
+        else:
+            os.environ.pop("CUSTOM_CACHE_REPO", None)
 
 
 @pytest.fixture(scope="session")
@@ -509,6 +513,8 @@ def any_vlm_generate_model(request):
         yield model_config
         if cache_repo_id is not None:
             os.environ["CUSTOM_CACHE_REPO"] = cache_repo_id
+        else:
+            os.environ.pop("CUSTOM_CACHE_REPO", None)
 
 
 @pytest.fixture(scope="session")
@@ -527,6 +533,8 @@ def neuron_vlm_config(request):
         yield neuron_model_config
         if cache_repo_id is not None:
             os.environ["CUSTOM_CACHE_REPO"] = cache_repo_id
+        else:
+            os.environ.pop("CUSTOM_CACHE_REPO", None)
 
 
 if __name__ == "__main__":
