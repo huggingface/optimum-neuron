@@ -20,6 +20,7 @@ from pathlib import Path
 import datasets
 import pytest
 import torch
+import torch_xla
 import torch_xla.core.xla_model as xm
 import torch_xla.runtime as xr
 from neuronx_distributed.parallel_layers.parallel_state import (
@@ -407,7 +408,7 @@ def test_peft_training(train_dataset, tmpdir, world_size, tp_size, pp_size, set_
 
         # Verify LoRA parameters were updated
         final_lora_params = {name: param.to("cpu") for name, param in model.named_parameters() if "lora" in name}
-        xm.mark_step()
+        torch_xla.sync()
         lora_params_changed = False
         for name in initial_lora_params:
             if not torch.equal(initial_lora_params[name], final_lora_params[name]):
@@ -417,7 +418,7 @@ def test_peft_training(train_dataset, tmpdir, world_size, tp_size, pp_size, set_
 
         # Verify base model parameters were NOT updated (frozen)
         base_params = {name: param.to("cpu") for name, param in model.named_parameters() if "lora" not in name}
-        xm.mark_step()
+        torch_xla.sync()
         base_params_changed = False
         for name, param in base_params.items():
             if not torch.equal(orig_params[name], param):
@@ -659,7 +660,7 @@ def test_no_parallelism_bert_training(tmpdir, set_cache_for_ci):
     # Verify parameters were updated
     params_changed = False
     final_params = {name: param.to("cpu") for name, param in model.named_parameters()}
-    xm.mark_step()
+    torch_xla.sync()
     for name, param in final_params.items():
         if not torch.equal(initial_params[name], param):
             params_changed = True

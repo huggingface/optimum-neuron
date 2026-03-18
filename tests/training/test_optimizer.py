@@ -16,6 +16,7 @@
 
 import pytest
 import torch
+import torch_xla
 import torch_xla.core.xla_model as xm
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_pipeline_model_parallel_size,
@@ -40,7 +41,7 @@ MODEL_NAME_WITH_4_KV_HEADS = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-ran
 
 def move_params_to_cpu(parameters):
     parameters = list(parameters)
-    xm.mark_step()
+    torch_xla.sync()
     # `move_all_tensor_to_cpu` only selects `torch.Tensor`, so we need to move the parameters' data.
     cpu_params = move_all_tensor_to_cpu([p.data for p in parameters])
     return cpu_params
@@ -106,7 +107,7 @@ def test_optimizer_step(gradient_accumulation_steps, max_grad_norm, set_cache_fo
             if pp_size > 1:
                 orig_parameters = current_parameters
                 loss = model.run_train(**inputs)
-                xm.mark_step()
+                torch_xla.sync()
 
                 # Checking that at least some of the parameters have a gradient.
                 grads_on_cpu = move_grads_to_cpu(model.local_parameters())
@@ -143,7 +144,7 @@ def test_optimizer_step(gradient_accumulation_steps, max_grad_norm, set_cache_fo
                 orig_parameters = current_parameters
                 outputs = model(**inputs)
                 loss = outputs["loss"]
-                xm.mark_step()
+                torch_xla.sync()
                 loss.backward()
 
                 # Checking that at least some of the parameters have a gradient.

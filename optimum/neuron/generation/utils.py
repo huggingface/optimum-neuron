@@ -22,6 +22,7 @@ from typing import Any, Callable
 
 import torch
 import torch.distributed as dist
+import torch_xla
 import torch_xla.core.xla_model as xm
 from neuronx_distributed.parallel_layers import parallel_state
 from transformers import GenerationMixin
@@ -135,7 +136,7 @@ def _get_fwd_for_general_sampling(
     """
     Wraps the passed forward function and extends it such that before each forward call
     the `decoder_input_ids` are padded and all tensors are moved to `main_device` (e.g. XLA).
-    Then the original forward passed is called followed by a `xm.mark_step`. Subsequently,
+    Then the original forward passed is called followed by a `torch_xla.sync()`. Subsequently,
     an "unpadding" of the logits is performed. This way, all functions that process the logits
     can be called without making any changes.
     Args:
@@ -204,7 +205,7 @@ def _get_fwd_for_general_sampling(
                 dim=-1,
                 groups=parallel_state.get_tensor_model_parallel_group(as_list=True),
             )
-        xm.mark_step()
+        torch_xla.sync()
 
         # Move to CPU
         _move_dict_args_to_device(outputs, to_device)
@@ -1164,7 +1165,7 @@ class NeuronGenerationMixin(GenerationMixin):
                 )
 
             if not is_traced_inference:
-                xm.mark_step()
+                torch_xla.sync()
 
             # stop when each sentence is finished, or if we exceed the maximum length
             stop_criterion_1 = unfinished_sequences.max() == 0
@@ -1470,7 +1471,7 @@ class NeuronGenerationMixin(GenerationMixin):
                 next_token_scores = next_token_logits - logit_max - logsumexp
                 # (batch_size * num_beams, vocab_size)
 
-                xm.mark_step()
+                torch_xla.sync()
 
                 # We don't want to change every single logit processor, so
                 # we perform this processing on CPU.

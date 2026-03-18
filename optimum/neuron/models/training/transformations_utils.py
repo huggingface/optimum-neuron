@@ -101,7 +101,7 @@ class ModelWeightTransformationSpec:
         return self._peft_type
 
     @peft_type.setter
-    def peft_type(self, value: str):
+    def peft_type(self, value: str | None):
         self._peft_type = value
 
     @abstractmethod
@@ -533,6 +533,9 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                 f"{module_fully_qualified_name}.{name}.lora_A.{param_name}" for name in self.linear_names
             ]
 
+            if not all(name in state_dict for name in lora_A_weight_names):
+                continue
+
             logger.warning("Taking the mean of the LoRA A weights since there is only one LoRA A weight after fusing.")
             lora_A_weight = torch.mean(
                 torch.stack([state_dict.pop(name) for name in lora_A_weight_names], dim=0),
@@ -650,8 +653,9 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                         break
 
                 if weight_name is None or to_duplicate_name is None:
-                    raise ValueError(
-                        f"Could not find LoRA weights for {module_fully_qualified_name} with param name {param_name}."
+                    logger.warning(
+                        f"Could not find the LoRA weights for the fused linear {module_fully_qualified_name}, skipping "
+                        "unfusing for this layer."
                     )
 
                 # When saved, the name of the adapter is removed in the weight qualified name since weights for each
@@ -700,9 +704,7 @@ class FusedLinearsSpec(ModelWeightTransformationSpec):
                     if to_concat_and_duplicate_name is not None and to_unfuse_name is not None:
                         break
                 if to_concat_and_duplicate_name is None or to_unfuse_name is None:
-                    raise ValueError(
-                        f"Could not find LoRA weights for {module_fully_qualified_name} with param name {param_name}."
-                    )
+                    continue
 
                 weight_name_without_adapter_name = remove_adapter_name(to_concat_and_duplicate_name)
                 linear_sharded_weights = sharded_state_dicts[weight_name_without_adapter_name]
@@ -1099,6 +1101,9 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
             lora_B_v_name = f"{module_fully_qualified_name}.{self.value_projection_name}.lora_B.{param_name}"
 
             lora_A_weight_names = [lora_A_q_name, lora_A_k_name, lora_A_v_name]
+
+            if not all(name in state_dict for name in lora_A_weight_names):
+                continue
 
             logger.warning("Taking the mean of the LoRA A weights since there is only one LoRA A weight after fusing.")
             lora_A_weight = torch.mean(
