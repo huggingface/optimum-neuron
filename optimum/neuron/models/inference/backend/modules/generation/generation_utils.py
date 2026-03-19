@@ -69,10 +69,6 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         # Initialize default generation config
         self.generation_config = GenerationConfig.from_model_config(config)
 
-    def can_generate(self):
-        # Still required in transformers <= 4.50
-        return True
-
     def generate(
         self,
         input_ids: torch.Tensor,
