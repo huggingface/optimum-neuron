@@ -105,6 +105,10 @@ class VLLMServerManager:
                 str(port),
                 "--host",
                 "127.0.0.1",
+                "--data-parallel-size",
+                str(self.server_count),
+                "--data-parallel-rank",
+                str(rank),
             ] + self.vllm_args
 
             logger.info("Starting vLLM server rank=%d port=%d cores=%s", rank, port, core_range)
