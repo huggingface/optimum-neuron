@@ -128,6 +128,7 @@ class ServeCommand(BaseOptimumCLICommand):
             help="The port on which to serve the model.",
         )
         parser.add_argument(
+            "--data_parallel_size",
             "--data-parallel-size",
             type=int,
             default=1,
@@ -304,6 +305,19 @@ class ServeCommand(BaseOptimumCLICommand):
 
         if data_parallel_size == 1:
             # Single server: run directly in this process.
+            # Restrict visible cores to only those needed for TP to avoid
+            # claiming the entire device when more cores are available.
+            physical_cores = VLLMServerManager._resolve_physical_cores()
+            if physical_cores is not None:
+                cores = physical_cores[:tensor_parallel_size]
+            else:
+                cores = list(range(tensor_parallel_size))
+            if len(cores) == 1:
+                os.environ["NEURON_RT_VISIBLE_CORES"] = str(cores[0])
+            elif cores == list(range(cores[0], cores[-1] + 1)):
+                os.environ["NEURON_RT_VISIBLE_CORES"] = f"{cores[0]}-{cores[-1]}"
+            else:
+                os.environ["NEURON_RT_VISIBLE_CORES"] = ",".join(str(c) for c in cores)
             os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
             vllm_parser = make_arg_parser(FlexibleArgumentParser())
             full_command = ["--port", str(self.args.port)] + vllm_command

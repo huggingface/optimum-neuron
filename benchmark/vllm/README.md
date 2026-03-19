@@ -1,38 +1,42 @@
 # optimum-neuron vLLM benchmark
 
-## Local environment setup
+## Setup
 
-These configurations are tested and run on with the Hugging Face Deep Learning AMI from the AWS Marketplace.
-
-Copy the configurations down using
+This step can be omitted if you are using the [Hugging Face Neuron DLAMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2).
 
 ```shell
-$ git clone https://github.com/huggingface/optimum-neuron.git
+pip install .[neuronx,vllm]
 ```
 
-## Choose a deployment scenario and start the servers
+## Serve a model
 
-The `data-parallel` directory contains instructions to deploy model configurations that use data parallelism.
+Each model directory contains one or more `serve-dpX-tpY.env` files specifying
+data-parallel size and tensor-parallel size.
 
-The `single-instance` directory contains instructions to deploy model configurations that use a single server instance.
+If you are using a gated model, first export your credentials token.
+
+```shell
+export HF_TOKEN=$(cat ~/.cache/huggingface/token)
+```
+
+Start a server:
+
+```shell
+./serve.sh llama-3.1-8b/serve-dp1-tp8.env    # single replica
+./serve.sh llama-3.1-8b/serve-dp3-tp8.env    # 3 DP replicas
+```
+
+Configurations with `DATA_PARALLEL_SIZE > 1` automatically launch multiple
+replicas with a round-robin load balancer.
 
 ## Run the performance benchmark
 
-### Install `guidellm`
-
 ```shell
-$ pip install guidellm==0.1.0
+pip install guidellm==0.1.0
+./performance.sh "<MODEL_ID>" 128
 ```
 
-### Launch benchmark run
-
-The benchmark script takes the `model_id` and number of concurrent users as parameters.
-The `model_id` must match the one corresponding to the selected model configuration.
-
-```shell
-$ cd optimum-neuron/benchmark/vllm/
-$ ./performance.sh "meta-llama/Meta-Llama-3.1-8B-Instruct" 128
-```
+The model ID can be omitted — it will be auto-detected from the running server.
 
 Note that the evaluated model **must** be an `Instruct` model.
 
@@ -42,20 +46,12 @@ summary will be displayed on the console.
 To obtain a summary from the raw benchmark output files, use the following command:
 
 ```shell
-$ python generate_csv.py --dir <path_to_result_files>
+python generate_csv.py --dir <path_to_result_files>
 ```
 
 ## Run the accuracy benchmark
 
-### Install lm_eval
-
 ```shell
-$ pip install lm_eval[api]
-```
-
-### Run the benchmark
-
-```shell
-$ cd optimum-neuron/benchmark/vllm/
-$ ./accuracy.sh meta-llama/Meta-Llama-3.1-8B-Instruct
+pip install lm_eval[api]
+./accuracy.sh <MODEL_ID>
 ```

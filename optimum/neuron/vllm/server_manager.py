@@ -90,6 +90,12 @@ class VLLMServerManager:
             env = os.environ.copy()
             env["NEURON_RT_VISIBLE_CORES"] = core_range
             env["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+            # Each DP rank needs its own compile workdir and CWD to avoid races
+            # on temp files (HLOs, NEFFs) written by neuronx-distributed.
+            env["BASE_COMPILE_WORK_DIR"] = f"/tmp/nxd_model_dp{rank}/"
+            # CWD must be separate from compile workdir (which gets rmtree'd).
+            rank_cwd = f"/tmp/nxd_cwd_dp{rank}/"
+            os.makedirs(rank_cwd, exist_ok=True)
 
             cmd = [
                 sys.executable,
@@ -99,10 +105,14 @@ class VLLMServerManager:
                 str(port),
                 "--host",
                 "127.0.0.1",
+                "--data-parallel-size",
+                str(self.server_count),
+                "--data-parallel-rank",
+                str(rank),
             ] + self.vllm_args
 
             logger.info("Starting vLLM server rank=%d port=%d cores=%s", rank, port, core_range)
-            proc = subprocess.Popen(cmd, env=env)
+            proc = subprocess.Popen(cmd, env=env, cwd=rank_cwd)
             self._processes.append(proc)
 
     def monitor(self) -> int | None:
