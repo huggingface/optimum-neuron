@@ -128,6 +128,7 @@ class ServeCommand(BaseOptimumCLICommand):
             help="The port on which to serve the model.",
         )
         parser.add_argument(
+            "--data_parallel_size",
             "--data-parallel-size",
             type=int,
             default=1,
