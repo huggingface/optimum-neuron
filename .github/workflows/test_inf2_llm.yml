@@ -107,8 +107,8 @@ jobs:
           pytest -sv tests/decoder/test_manual_softmax.py
           pytest -sv tests/decoder/test_flash_attention_large_d.py
 
-  llm-model-tests:
-    name: Run LLM model tests
+  llm-model-tests-1:
+    name: Run LLM export and generation tests
     needs: llm-export-models
     runs-on:
       group: aws-inf2-8xlarge
@@ -140,6 +140,19 @@ jobs:
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/decoder/test_decoder_generation.py
           pytest -sv tests/decoder/test_chunked_prefill.py
+
+  llm-model-tests-2:
+    name: Run LLM pipeline and cache tests
+    needs: llm-export-models
+    runs-on:
+      group: aws-inf2-8xlarge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Neuronx runtime
+        uses: ./.github/actions/install_neuronx_runtime
+      - name: Setup virtual environment
+        uses: ./.github/actions/setup_venv
       - name: Run LLM embedding tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate

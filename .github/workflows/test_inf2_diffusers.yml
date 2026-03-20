@@ -48,8 +48,8 @@ jobs:
         with:
           hf_token: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE }}
 
-  do-the-job:
-    name: Run INF2 tests
+  diffusers-model-tests:
+    name: Run diffusers model tests
     needs: sanity
     runs-on:
       group: aws-inf2-8xlarge
@@ -80,6 +80,27 @@ jobs:
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest tests/inference/diffusers/test_flux.py --forked -q
+
+  diffusers-cache-cli-tests:
+    name: Run diffusers cache and CLI tests
+    needs: sanity
+    runs-on:
+      group: aws-inf2-8xlarge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Neuronx runtime
+        uses: ./.github/actions/install_neuronx_runtime
+      - name: Install cv2 dependencies
+        run: |
+          sudo apt-get install ffmpeg libsm6 libxext6  -y
+          sudo apt-get install -y --no-install-recommends libarchive13
+      - name: Setup virtual environment
+        uses: ./.github/actions/setup_venv
+      - name: Install diffusers dependencies
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          uv pip install ".[diffusers,diffusers-tests]"
       - name: Run cache tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
