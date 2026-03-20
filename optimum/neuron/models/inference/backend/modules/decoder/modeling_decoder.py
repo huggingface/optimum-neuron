@@ -29,8 +29,7 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from ....modeling_utils import NeuronModelForCausalLM, NeuronModelForEmbedding
 from ...config import NxDNeuronConfig
-from ...graph_builder import NxDGraphBuilder
-from ...pretrained_model import NxDPreTrainedModel
+from ...pretrained_model import NxDPreTrainedModel, NxDTracedModel
 from ...utils.random import set_random_seed
 from ..attention.gqa import get_shardable_head_counts
 from ..generation.generation_utils import NxDGenerationMixin
@@ -126,6 +125,14 @@ class NxDDecoderModelForCausalLM(nn.Module):
     def _is_for_speculation(self, input_ids: torch.Tensor):
         return input_ids.shape[-1] == self.speculation_length
 
+    def compute_input_embeddings(self, input_ids):
+        """Compute token embeddings from input IDs.
+
+        Subclasses (e.g. VLM decoders) can call this then modify the resulting
+        hidden states before passing them to :meth:`_forward_from_embeddings`.
+        """
+        return self.embed_tokens(input_ids)
+
     def forward(
         self,
         input_ids,
@@ -133,13 +140,30 @@ class NxDDecoderModelForCausalLM(nn.Module):
         seq_ids,
         sampling_params,
     ):
-        """Forward pass that can return either logits or hidden states.
+        """Forward pass that returns logits or sampled tokens.
 
         Args:
             input_ids (torch.LongTensor): Input token IDs.
             position_ids (torch.LongTensor): Position IDs.
             seq_ids (torch.LongTensor): Sequence IDs. Used in continuous batching
             sampling_params (torch.FloatTensor): Sampling parameters.
+        """
+        hidden_states = self.compute_input_embeddings(input_ids)
+        return self._forward_from_embeddings(hidden_states, input_ids, position_ids, seq_ids, sampling_params)
+
+    def _forward_from_embeddings(
+        self,
+        hidden_states,
+        input_ids,
+        position_ids,
+        seq_ids,
+        sampling_params,
+    ):
+        """Run decoder layers, norm, KV-cache update, logit projection and sampling.
+
+        This is the bulk of the forward pass, starting from pre-computed embeddings.
+        Subclasses should override :meth:`forward` to modify ``hidden_states``
+        (e.g. inject image features) before delegating here.
         """
         is_for_context_encoding = self._is_context_encoding(input_ids)
         is_chunked_prefill = self._is_chunked_prefill(input_ids)
@@ -219,10 +243,6 @@ class NxDDecoderModelForCausalLM(nn.Module):
 
         batch_size, seq_length = input_ids.shape[:2]
         position_ids = position_ids.view(-1, seq_length).long()
-
-        # embed positions
-        inputs_embeds = self.embed_tokens(input_ids)
-        hidden_states = inputs_embeds
 
         # decoder layers
         new_key_values = []
@@ -309,34 +329,39 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     """
 
     _model_cls = None
+    _context_wrapper_cls = NxDDecoderWrapperForCausalLM
+    _chunked_prefill_wrapper_cls = NxDDecoderWrapperForCausalLM
+    _token_generation_wrapper_cls = NxDDecoderWrapperForCausalLM
+    _speculation_wrapper_cls = NxDDecoderWrapperForCausalLM
+
+    def _get_text_traced_model(self) -> torch.jit.ScriptModule:
+        return self._traced_models[0].traced_model
 
     def __init__(
         self,
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
-        traced_model: torch.jit.ScriptModule,
-        graph_builders: list[NxDGraphBuilder],
+        traced_models: list[NxDTracedModel],
     ):
-        super().__init__(
-            config=config, neuron_config=neuron_config, traced_model=traced_model, graph_builders=graph_builders
-        )
+        super().__init__(config=config, neuron_config=neuron_config, traced_models=traced_models)
+        traced_model = self._get_text_traced_model()
         if neuron_config.prefill_chunk_size > 0:
             chunk_neuron_config = NxDModelForCausalLM._create_chunked_prefill_config(neuron_config)
-            self.chunked_prefill_model = NxDDecoderWrapperForCausalLM(
+            self.chunked_prefill_model = self._chunked_prefill_wrapper_cls(
                 config=config, neuron_config=chunk_neuron_config, model=traced_model, tag=CHUNKED_PREFILL_MODEL_TAG
             )
         else:
             ctx_neuron_config = NxDModelForCausalLM._create_context_encoding_config(neuron_config)
-            self.context_encoding_model = NxDDecoderWrapperForCausalLM(
+            self.context_encoding_model = self._context_wrapper_cls(
                 config=config, neuron_config=ctx_neuron_config, model=traced_model, tag=CONTEXT_ENCODING_MODEL_TAG
             )
         tkg_neuron_config = NxDModelForCausalLM._create_token_generation_config(neuron_config)
-        self.token_generation_model = NxDDecoderWrapperForCausalLM(
+        self.token_generation_model = self._token_generation_wrapper_cls(
             config=config, neuron_config=tkg_neuron_config, model=traced_model, tag=TOKEN_GENERATION_MODEL_TAG
         )
         if neuron_config.speculation_length > 0:
             spec_neuron_config = NxDModelForCausalLM._create_speculation_config(neuron_config)
-            self.speculation_model = NxDDecoderWrapperForCausalLM(
+            self.speculation_model = self._speculation_wrapper_cls(
                 config=config,
                 neuron_config=spec_neuron_config,
                 model=traced_model,
@@ -598,12 +623,10 @@ class NxDModelForEmbedding(NxDPreTrainedModel, NeuronModelForEmbedding):
         self,
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
-        traced_model: torch.jit.ScriptModule,
-        graph_builders: list[NxDGraphBuilder],
+        traced_models: list[NxDTracedModel],
     ):
-        super().__init__(
-            config=config, neuron_config=neuron_config, traced_model=traced_model, graph_builders=graph_builders
-        )
+        super().__init__(config=config, neuron_config=neuron_config, traced_models=traced_models)
+        traced_model = traced_models[0].traced_model
         self.encoding_model = NxDDecoderWrapperForEmbedding(
             config=config,
             neuron_config=neuron_config,

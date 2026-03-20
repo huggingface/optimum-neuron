@@ -798,8 +798,10 @@ def main():
     try:
         # Try first the export based on custom modeling classes
         config = AutoConfig.from_pretrained(args.model)
-        if task == "text-generation":
-            # In case a multi-modal model is being exported, extract the text model config
+        if task == "text-generation" and not hasattr(config, "vision_config"):
+            # For pure text models, extract the text model config from any wrapper config.
+            # VLMs (which have a vision_config) keep their full config so that the vision
+            # encoder parameters are preserved during export.
             config = config.get_text_config()
     except Exception:
         config = None

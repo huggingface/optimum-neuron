@@ -37,6 +37,17 @@ from ...utils.system import get_available_cores
 logger = logging.getLogger(__name__)
 
 
+def _get_full_config(config):
+    """Utility function to extract the full config from a wrapper config.
+
+    VLMs (which have a vision_config) keep their full config so that model
+    type dispatch and vision parameters are preserved.
+    """
+    if not hasattr(config, "vision_config"):
+        config = config.get_text_config()
+    return config
+
+
 class NeuronPreTrainedModel(NeuronModel, ABC):
     task: str | None = None
 
@@ -97,17 +108,18 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
             checkpoint_id = None
             checkpoint_revision = None
         else:
-            checkpoint_id = model_name_or_path
+            checkpoint_id = str(model_name_or_path)
             # Get the exact checkpoint revision (SHA1)
             api = HfApi(token=token)
-            model_info = api.repo_info(model_name_or_path, revision=revision)
+            model_info = api.repo_info(checkpoint_id, revision=revision)
             checkpoint_revision = model_info.sha
         if config is None:
             config = AutoConfig.from_pretrained(
                 model_name_or_path,
                 revision=checkpoint_revision,
                 use_auth_token=token,
-            ).get_text_config()
+            )
+            config = _get_full_config(config)
 
         if instance_type is None:
             instance_type = get_default_compilation_target()
@@ -187,7 +199,8 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
                 model_id,
                 revision=revision,
                 use_auth_token=token,
-            ).get_text_config()
+            )
+            config = _get_full_config(config)
         if inspect.isabstract(cls):
             # Instantiation through an abstract class: find the correct model class
             cls = cls._get_neuron_model_class(config)
@@ -228,8 +241,8 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
     @abstractmethod
     def _get_neuron_config(
         cls,
-        checkpoint_id: str,
-        checkpoint_revision: str,
+        checkpoint_id: str | None,
+        checkpoint_revision: str | None,
         instance_type: str,
         batch_size: int,
         sequence_length: int,
@@ -385,6 +398,17 @@ TEXT_GENERATION_EXAMPLE = r"""
 class NeuronModelForCausalLM(NeuronPreTrainedModel):
     task = "text-generation"
 
+    @classmethod
+    def _get_neuron_model_class(cls, config: PretrainedConfig):
+        if cls.task is None:
+            raise SystemError(f"{cls} has no associated task. Please specify it in the class declaration.")
+        # For VLM configs (e.g. Llama4ForConditionalGeneration has model_type "llama4")
+        # extract the text sub-config model_type (e.g. "llama4_text") to find the
+        # registered text-only decoder class.  For regular text configs get_text_config()
+        # returns self, so model_type is unchanged.
+        model_type = config.get_text_config().model_type
+        return get_neuron_model_class(model_type, task=cls.task, mode="inference")
+
     @add_start_docstrings(
         NEURON_CAUSALLM_MODEL_GENERATE_DOCSTRING
         + TEXT_GENERATION_EXAMPLE.format(
@@ -404,3 +428,18 @@ class NeuronModelForCausalLM(NeuronPreTrainedModel):
 
 class NeuronModelForEmbedding(NeuronPreTrainedModel):
     task = "feature-extraction"
+
+
+class NeuronModelForImageTextToText(NeuronPreTrainedModel):
+    task = "image-text-to-text"
+
+    def generate(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        pixel_values: torch.Tensor | None = None,
+        generation_config: "GenerationConfig | None" = None,
+        stopping_criteria: "StoppingCriteriaList | None" = None,
+        **kwargs,
+    ) -> torch.LongTensor:
+        raise NotImplementedError
