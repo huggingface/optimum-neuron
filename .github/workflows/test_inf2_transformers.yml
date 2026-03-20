@@ -54,8 +54,8 @@ jobs:
         with:
           hf_token: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE }}
 
-  do-the-job:
-    name: Run INF2 tests
+  transformers-modeling-tests:
+    name: Run transformers modeling tests
     needs: sanity
     runs-on:
       group: aws-inf2-8xlarge
@@ -86,6 +86,24 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -m "not slow" tests/inference/transformers/test_modeling.py
+
+  transformers-pipeline-tests:
+    name: Run transformers pipeline tests
+    needs: sanity
+    runs-on:
+      group: aws-inf2-8xlarge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Neuronx runtime
+        uses: ./.github/actions/install_neuronx_runtime
+      - name: Setup virtual environment
+        uses: ./.github/actions/setup_venv
+      - name: Install datasets dependencies
+        run: |
+          sudo apt-get install ffmpeg -y
+          source aws_neuron_venv_pytorch/bin/activate
+          uv pip install datasets[audio]
       - name: Run pipelines tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
