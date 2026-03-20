@@ -16,7 +16,9 @@ import copy
 import logging
 import os
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from functools import partial
+from glob import glob
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -41,14 +43,62 @@ from .neuron_device_memory import get_neuron_device_memory
 logger = logging.getLogger("Neuron")
 
 
+@dataclass
+class NxDTracedModel:
+    """Bundle a traced module with the graph builders used to produce it."""
+
+    traced_model: torch.jit.ScriptModule
+    graph_builders: dict[str, NxDGraphBuilder]
+
+
 def normalize_path(path):
     """Normalize path separators and ensure path ends with a trailing slash"""
     normalized = os.path.normpath(path)
     return os.path.join(normalized, "")
 
 
-def get_shards_path(dest_path):
-    return os.path.join(dest_path, "weights")
+def get_shards_path(dest_path: str | Path, model_index: int | None = None):
+    base_path = os.path.join(str(dest_path), "weights")
+    if model_index is None:
+        return base_path
+    return os.path.join(base_path, f"model_{model_index}")
+
+
+def get_compiled_model_file_name(index: int) -> str:
+    """Return the compiled model artifact name for a given bundle index."""
+    return f"model_{index}.pt"
+
+
+def get_compiled_model_path(dest_path: str | Path, index: int) -> str:
+    """Build the absolute compiled model artifact path."""
+    return os.path.join(str(dest_path), get_compiled_model_file_name(index=index))
+
+
+def list_compiled_model_paths(model_dir: str | Path) -> list[str]:
+    """Return compiled model artifact paths in stable load order.
+
+    Order is indexed artifacts only: model_0.pt, model_1.pt, ...
+    """
+    indexed_paths = sorted(
+        glob(os.path.join(str(model_dir), "model_*.pt")),
+        key=lambda path: int(Path(path).stem.split("_")[-1]),
+    )
+    # This is to check we have a contiguous set of indexed artifacts starting from 0, with no missing indices, to avoid
+    # silent loading errors due to misnamed or missing files.
+    indices = [int(Path(path).stem.split("_")[-1]) for path in indexed_paths]
+    expected_indices = list(range(len(indexed_paths)))
+    if indices != expected_indices:
+        raise ValueError(
+            f"Invalid compiled model artifact set under {model_dir}: expected contiguous "
+            f"indices {expected_indices} but found {indices}."
+        )
+
+    return indexed_paths
+
+
+def get_compiled_model_allow_patterns() -> list[str]:
+    """Return hub download patterns for indexed compiled artifacts."""
+    return ["model_*.pt"]
 
 
 def get_builder(
@@ -105,22 +155,24 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
     _STATE_DICT_MODEL_PREFIX = "model."
     _NEW_STATE_DICT_MODEL_PREFIX = ""
     _FUSED_PREFIX = ""
-    COMPILED_MODEL_FILE_NAME = "model.pt"
     CHECKPOINT_DIR = "checkpoint"
 
     def __init__(
         self,
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
-        traced_model: torch.jit.ScriptModule,
-        graph_builders: dict[str, NxDGraphBuilder],
+        traced_models: list[NxDTracedModel],
     ):
         self.config = copy.deepcopy(config)
         self.neuron_config = copy.deepcopy(neuron_config)
         # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
         self.config.torch_dtype = self.neuron_config.torch_dtype
-        self._traced_model = traced_model
-        self.graph_builders = graph_builders  # Required for loading weights
+        if not traced_models:
+            raise ValueError("At least one traced model bundle is required")
+        self._traced_models = traced_models
+
+    def _iter_traced_model_bundles(self) -> list[NxDTracedModel]:
+        return list(self._traced_models)
 
     # NxDPretrainedModel abstract API
     @abstractmethod
@@ -149,69 +201,88 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         return builder.trace(initialize_model_weights=False)
 
     def save(self, dest_path, weight_path: str | None = None):
-        if self._traced_model is None:
+        traced_model_bundles = self._iter_traced_model_bundles()
+        if not traced_model_bundles:
             raise ValueError("Model has not been compiled or loaded")
         dest_path = normalize_path(dest_path)
         self.config.save_pretrained(dest_path)
         self.neuron_config.save_pretrained(dest_path)
-        torch.jit.save(self._traced_model, dest_path + self.COMPILED_MODEL_FILE_NAME)
+        for index, traced_model_bundle in enumerate(traced_model_bundles):
+            torch.jit.save(traced_model_bundle.traced_model, get_compiled_model_path(dest_path, index=index))
         if weight_path is not None:
             self.shard_checkpoint(
                 src_path=weight_path,
                 dest_path=os.path.join(dest_path, self.CHECKPOINT_DIR),
             )
 
-    def shard_checkpoint(self, src_path, dest_path, debug: bool = False):
-        shards_path = get_shards_path(dest_path)
-        checkpoint_loader = partial(self.checkpoint_loader_fn, src_path, self.config, self.neuron_config)
-        sharder = get_builder(
-            self.neuron_config,
-            self.graph_builders,
-            debug=debug,
-            checkpoint_loader=checkpoint_loader,
-            compiler_args=self.get_compiler_args(self.neuron_config),
-        )
-        sharder.shard_checkpoint(serialize_path=shards_path)
+    def _checkpoint_loader_for_bundle(self, model_index: int, checkpoint_path: str):
+        return partial(self.checkpoint_loader_fn, checkpoint_path, self.config, self.neuron_config)
 
-        if hlo_utils.NXD_LAYOUT_TRANSFORMATION_OPTIONS in os.environ:
-            sharder.transform_weight_layout_with_overriden_option(sharded_checkpoint_dir=shards_path)
+    def shard_checkpoint(self, src_path, dest_path, debug: bool = False):
+        traced_model_bundles = self._iter_traced_model_bundles()
+
+        for index, traced_model_bundle in enumerate(traced_model_bundles):
+            model_shards_path = get_shards_path(dest_path, model_index=index)
+            sharder = get_builder(
+                self.neuron_config,
+                traced_model_bundle.graph_builders,
+                debug=debug,
+                checkpoint_loader=self._checkpoint_loader_for_bundle(index, src_path),
+                compiler_args=self.get_compiler_args(self.neuron_config),
+            )
+            sharder.shard_checkpoint(serialize_path=model_shards_path)
+
+            if hlo_utils.NXD_LAYOUT_TRANSFORMATION_OPTIONS in os.environ:
+                sharder.transform_weight_layout_with_overriden_option(sharded_checkpoint_dir=model_shards_path)
 
     def _load_weights_from_path(self, weights_path):
         weights_path = normalize_path(weights_path)
 
         """Loads the model weights to the Neuron device."""
-        if self._traced_model is None:
+        if not self._traced_models:
             raise ValueError("Model is not loaded")
 
         start_rank_id = self.neuron_config.start_rank_id
         local_ranks_size = self.neuron_config.local_ranks_size
 
         logging.info(f"loading models for ranks {start_rank_id}...{start_rank_id + local_ranks_size - 1}")
-        weights = []
-        shards_path = get_shards_path(weights_path)
-
-        def get_shard_name(rank):
-            return os.path.join(shards_path, f"tp{rank}_sharded_checkpoint.safetensors")
-
-        if os.path.exists(get_shard_name(start_rank_id)):
-            # If sharded checkpoints exist, load them
-            logger.info(f"Loading sharded checkpoint from {shards_path}")
-            for rank in range(start_rank_id, start_rank_id + local_ranks_size):
-                ckpt = load_file(get_shard_name(rank))
-                weights.append(ckpt)
-        else:
-            logger.info("There are no saved sharded checkpoints.")
-            checkpoint_loader = partial(self.checkpoint_loader_fn, weights_path, self.config, self.neuron_config)
-            sharder = get_builder(
-                self.neuron_config,
-                self.graph_builders,
-                debug=False,
-                checkpoint_loader=checkpoint_loader,
-                compiler_args=self.get_compiler_args(self.neuron_config),
-            )
-            weights = sharder.shard_checkpoint()
         start_rank_tensor = torch.tensor([start_rank_id], dtype=torch.int32, device="cpu")
-        self._traced_model.nxd_model.initialize(weights, start_rank_tensor)
+        traced_model_bundles = self._iter_traced_model_bundles()
+
+        for index, traced_model_bundle in enumerate(traced_model_bundles):
+            weights = []
+            model_shards_path = get_shards_path(weights_path, model_index=index)
+
+            candidate_shards_paths = [model_shards_path]
+
+            def get_shard_name(path, rank):
+                return os.path.join(path, f"tp{rank}_sharded_checkpoint.safetensors")
+
+            found_shards_path = None
+            for candidate in candidate_shards_paths:
+                if os.path.exists(get_shard_name(candidate, start_rank_id)):
+                    found_shards_path = candidate
+                    break
+
+            if found_shards_path is not None:
+                logger.info(f"Loading sharded checkpoint from {found_shards_path}")
+                for rank in range(start_rank_id, start_rank_id + local_ranks_size):
+                    ckpt = load_file(get_shard_name(found_shards_path, rank))
+                    weights.append(ckpt)
+            else:
+                logger.info(
+                    f"There are no saved sharded checkpoints for traced model index {index}; sharding source weights."
+                )
+                sharder = get_builder(
+                    self.neuron_config,
+                    traced_model_bundle.graph_builders,
+                    debug=False,
+                    checkpoint_loader=self._checkpoint_loader_for_bundle(index, weights_path),
+                    compiler_args=self.get_compiler_args(self.neuron_config),
+                )
+                weights = sharder.shard_checkpoint()
+
+            traced_model_bundle.traced_model.nxd_model.initialize(weights, start_rank_tensor)
         logger.info(str(get_neuron_device_memory()))
 
     def load_weights(
@@ -370,8 +441,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         model = cls(
             config=config,
             neuron_config=neuron_config,
-            traced_model=traced_model,
-            graph_builders=graph_builders,
+            traced_models=[NxDTracedModel(traced_model=traced_model, graph_builders=graph_builders)],
         )
         if load_weights:
             model.load_weights(
@@ -421,17 +491,22 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
                     force_download=force_download,
                     local_files_only=local_files_only,
                     token=token,
-                    allow_patterns=[cls.COMPILED_MODEL_FILE_NAME],
+                    allow_patterns=get_compiled_model_allow_patterns(),
                 )
-                traced_model = torch.jit.load(os.path.join(tmpdir, cls.COMPILED_MODEL_FILE_NAME))
+                compiled_paths = list_compiled_model_paths(tmpdir)
         else:
-            traced_model = torch.jit.load(os.path.join(model_id, cls.COMPILED_MODEL_FILE_NAME))
+            compiled_paths = list_compiled_model_paths(model_id)
+        if not compiled_paths:
+            raise FileNotFoundError(f"No compiled model artifacts found under {model_id}")
+        traced_model_list = [torch.jit.load(path) for path in compiled_paths]
         graph_builders = cls.create_graph_builders(config=config, neuron_config=neuron_config)
         model = cls(
             config=config,
             neuron_config=neuron_config,
-            traced_model=traced_model,
-            graph_builders=graph_builders,
+            traced_models=[
+                NxDTracedModel(traced_model=traced_model, graph_builders=graph_builders)
+                for traced_model in traced_model_list
+            ],
         )
         model.load_weights(
             model_id,
