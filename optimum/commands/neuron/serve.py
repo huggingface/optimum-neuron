@@ -131,8 +131,10 @@ class ServeCommand(BaseOptimumCLICommand):
             "--data_parallel_size",
             "--data-parallel-size",
             type=int,
-            default=1,
-            help="Number of data-parallel replicas. Each replica uses tensor_parallel_size cores.",
+            default=None,
+            help="Number of data-parallel replicas. Each replica uses tensor_parallel_size cores."
+            " When omitted together with --tensor-parallel-size, the best DP×TP"
+            " combination is selected automatically from cached configurations.",
         )
         parser.add_argument(
             "--allow_non_cached_model",
@@ -193,6 +195,20 @@ class ServeCommand(BaseOptimumCLICommand):
                     f"The specified tensor parallel size {tensor_parallel_size} is inconsistent"
                     f"with the one used to export the neuron model ({neuron_config.tp_degree})"
                 )
+            # Auto-detect data parallelism when neither DP nor TP was specified
+            if data_parallel_size is None:
+                available_cores = get_available_cores()
+                data_parallel_size = available_cores // tensor_parallel_size
+                if data_parallel_size < 1:
+                    raise ValueError(
+                        f"Model requires {tensor_parallel_size} cores (TP) but only "
+                        f"{available_cores} cores are available."
+                    )
+                if data_parallel_size > 1:
+                    logger.info(
+                        f"Auto-detected data_parallel_size={data_parallel_size} "
+                        f"(TP={tensor_parallel_size}, {available_cores} cores available)"
+                    )
             logger.info(f"Loading Neuron model: {model_name_or_path}")
         else:
             # Model needs to be exported: look for compatible hub cached configs
@@ -208,7 +224,9 @@ class ServeCommand(BaseOptimumCLICommand):
             )
             # Filter out entries that do not fit on the target host
             available_cores = get_available_cores()
-            filtered_entries = [e for e in cached_entries if e["tp_degree"] * data_parallel_size <= available_cores]
+            auto_select_dp = data_parallel_size is None and tensor_parallel_size is None
+            effective_dp = data_parallel_size if data_parallel_size is not None else 1
+            filtered_entries = [e for e in cached_entries if e["tp_degree"] * effective_dp <= available_cores]
             if len(filtered_entries) == 0:
                 if self.args.allow_non_cached_model:
                     warning_msg = f"{model_id} is not a neuron model, and no cached configuration is available using"
@@ -251,25 +269,50 @@ class ServeCommand(BaseOptimumCLICommand):
                     )
                     raise ValueError(error_msg)
             else:
-                # Sort entries by decreasing tensor parallel size, batch size, sequence length
-                filtered_entries = sorted(
-                    filtered_entries,
-                    key=lambda x: (x["tp_degree"], x["batch_size"], x["sequence_length"]),
-                    reverse=True,
-                )
-                # Export the model with the best matching configuration
-                selected_entry = filtered_entries[0]
+                if auto_select_dp:
+                    # Neither TP nor DP was specified: pick the cached entry whose
+                    # TP allows the best host utilization (max DP, then max TP as
+                    # tiebreaker, then max batch_size, then max sequence_length).
+                    filtered_entries = sorted(
+                        filtered_entries,
+                        key=lambda x: (
+                            available_cores // x["tp_degree"],  # max DP
+                            x["tp_degree"],  # then max TP
+                            x["batch_size"],
+                            x["sequence_length"],
+                        ),
+                        reverse=True,
+                    )
+                    selected_entry = filtered_entries[0]
+                    tensor_parallel_size = selected_entry["tp_degree"]
+                    data_parallel_size = available_cores // tensor_parallel_size
+                else:
+                    # Sort entries by decreasing tensor parallel size, batch size, sequence length
+                    filtered_entries = sorted(
+                        filtered_entries,
+                        key=lambda x: (x["tp_degree"], x["batch_size"], x["sequence_length"]),
+                        reverse=True,
+                    )
+                    selected_entry = filtered_entries[0]
+                    tensor_parallel_size = selected_entry["tp_degree"]
+                    if data_parallel_size is None:
+                        data_parallel_size = available_cores // tensor_parallel_size
                 batch_size = selected_entry["batch_size"]
                 sequence_length = selected_entry["sequence_length"]
-                tensor_parallel_size = selected_entry["tp_degree"]
                 torch_dtype = DTYPE_MAPPER.pt(selected_entry["torch_dtype"])
                 warning_msg = f"{model_id} is not a neuron model, but a cached configuration is available using"
                 warning_msg += f" instance type {instance_type},"
                 warning_msg += f" batch size = {batch_size},"
                 warning_msg += f" sequence length = {sequence_length},"
                 warning_msg += f" tp = {tensor_parallel_size},"
+                warning_msg += f" dp = {data_parallel_size},"
                 warning_msg += f" dtype = {torch_dtype}."
                 logger.warning(warning_msg)
+
+        # Default DP to 1 when it wasn't resolved by any of the paths above
+        # (e.g. --allow-non-cached-model with explicit TP).
+        if data_parallel_size is None:
+            data_parallel_size = 1
 
         if data_parallel_size > 1:
             available_cores = get_available_cores()
