@@ -19,7 +19,11 @@ args=(
     --tensor_parallel_size "${TENSOR_PARALLEL_SIZE}"
 )
 
-if [ "${DATA_PARALLEL_SIZE:-1}" -gt 1 ]; then
+if [ -n "${TASK}" ]; then
+    args+=(--task "${TASK}")
+fi
+
+if [ -n "${DATA_PARALLEL_SIZE}" ]; then
     args+=(--data-parallel-size "${DATA_PARALLEL_SIZE}")
 fi
 

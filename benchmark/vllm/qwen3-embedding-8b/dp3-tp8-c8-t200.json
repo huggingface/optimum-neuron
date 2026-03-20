@@ -1,0 +1,18 @@
+{
+  "model": "/home/ubuntu/models/qwen3-embedding-8b-tp8-bs8-sl8192",
+  "concurrent_users": 8,
+  "total_requests": 200,
+  "target_prompt_tokens": 1500,
+  "successful": 200,
+  "failed": 0,
+  "wall_time_s": 423.221,
+  "requests_per_second": 0.47,
+  "tokens_per_second": 710.76,
+  "total_prompt_tokens": 300809,
+  "latency_p50_ms": 11998.4,
+  "latency_p90_ms": 29807.1,
+  "latency_p99_ms": 35580.2,
+  "latency_mean_ms": 16778.0,
+  "latency_min_ms": 5964.9,
+  "latency_max_ms": 35580.7
+}
