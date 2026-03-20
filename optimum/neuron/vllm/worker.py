@@ -14,21 +14,27 @@
 """An optimum-neuron vLLM worker class."""
 
 import logging
+from collections.abc import Callable
+from typing import TypeVar
 
 import torch
+import torch.nn as nn
 from vllm.config import VllmConfig
 from vllm.distributed import ensure_model_parallel_initialized, init_distributed_environment
+from vllm.lora.request import LoRARequest
 from vllm.model_executor import set_random_seed
 from vllm.tasks import SupportedTask
 from vllm.v1.core.sched.output import SchedulerOutput
 from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheSpec
 from vllm.v1.outputs import ModelRunnerOutput
-from vllm.worker.worker_base import WorkerBase
+from vllm.v1.worker.worker_base import WorkerBase
 
 from .runner import OptimumNeuronModelRunner
 
 
 logger = logging.getLogger("Neuron")
+
+_R = TypeVar("_R")
 
 
 class OptimumNeuronWorker(WorkerBase):
@@ -44,20 +50,16 @@ class OptimumNeuronWorker(WorkerBase):
         distributed_init_method: str,
         is_driver_worker: bool = False,
     ) -> None:
-        WorkerBase.__init__(self, vllm_config=vllm_config)
-        self.local_rank = local_rank
-        self.rank = rank
-        self.distributed_init_method = distributed_init_method
-        self.is_driver_worker = is_driver_worker
+        super().__init__(
+            vllm_config=vllm_config,
+            local_rank=local_rank,
+            rank=rank,
+            distributed_init_method=distributed_init_method,
+            is_driver_worker=is_driver_worker,
+        )
 
         assert self.lora_config is None, "LoRA is not supported for optimum-neuron framework."
         assert self.speculative_config is None, "Speculative decoding is not supported for optimum-neuron framework."
-
-        if self.model_config.trust_remote_code:
-            # note: lazy import to avoid importing torch before initializing
-            from vllm.utils import init_cached_hf_modules
-
-            init_cached_hf_modules()
 
         self.model_runner = OptimumNeuronModelRunner.create(vllm_config=vllm_config)
 
@@ -131,3 +133,30 @@ class OptimumNeuronWorker(WorkerBase):
     def execute_model(self, scheduler_output: SchedulerOutput) -> ModelRunnerOutput | None:
         # Main execution method called repeatedly by the vLLM scheduler.
         return self.model_runner.execute_model(scheduler_output)
+
+    def sample_tokens(self, grammar_output) -> ModelRunnerOutput:
+        raise NotImplementedError("Optimum Neuron worker does not support deferred token sampling.")
+
+    def get_cache_block_size_bytes(self) -> int:
+        # Prefix caching is disabled, so there is no meaningful cache block size.
+        return 0
+
+    def get_model(self) -> nn.Module:
+        if self.model_runner.model is None:
+            raise RuntimeError("Model is not loaded. Call load_model() before get_model().")
+        return self.model_runner.model
+
+    def apply_model(self, fn: Callable[[nn.Module], _R]) -> _R:
+        return fn(self.get_model())
+
+    def add_lora(self, lora_request: LoRARequest) -> bool:
+        raise NotImplementedError("LoRA is not supported for optimum-neuron framework.")
+
+    def remove_lora(self, lora_id: int) -> bool:
+        raise NotImplementedError("LoRA is not supported for optimum-neuron framework.")
+
+    def pin_lora(self, lora_id: int) -> bool:
+        raise NotImplementedError("LoRA is not supported for optimum-neuron framework.")
+
+    def list_loras(self) -> set[int]:
+        return set()

@@ -22,7 +22,8 @@ from typing import Any
 import torch
 from vllm.config import DeviceConfig, VllmConfig
 from vllm.sampling_params import SamplingParams
-from vllm.utils import is_pin_memory_available, make_tensor_with_pad
+from vllm.utils.platform_utils import is_pin_memory_available
+from vllm.utils.torch_utils import make_tensor_with_pad
 from vllm.v1.core.sched.output import CachedRequestData, NewRequestData, SchedulerOutput
 from vllm.v1.outputs import ModelRunnerOutput
 from vllm.v1.sample.logits_processor import LogitsProcessors

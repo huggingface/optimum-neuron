@@ -15,7 +15,7 @@ import logging
 import os
 
 from vllm.platforms.interface import UnspecifiedPlatform
-from vllm.utils import FlexibleArgumentParser
+from vllm.utils.argparse_utils import FlexibleArgumentParser
 
 
 logger = logging.getLogger("Neuron")
