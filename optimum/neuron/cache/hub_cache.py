@@ -35,6 +35,7 @@ from ..utils.patching import patch_everywhere
 from ..utils.require_utils import requires_torch_neuronx
 from ..utils.version_utils import get_pinned_version
 from ..version import __version__
+from .canonicalization import patch_cache_key_canonicalization
 from .cleanup import cleanup_local_cache
 from .entries.cache_entry import ModelCacheEntry
 
@@ -329,10 +330,14 @@ def hub_neuronx_cache(
             logger.warning(f"Bypassing Hub cache because of the following error: {e}")
             return create_compile_cache(cache_url)
 
+    def restore_cache_key_canonicalization():
+        return None
+
     try:
         if isinstance(cache_dir, Path):
             cache_dir = cache_dir.as_posix()
         default_cache = create_compile_cache(CacheUrl.get_cache_url(cache_dir=cache_dir))
+        restore_cache_key_canonicalization = patch_cache_key_canonicalization()
         patch_everywhere("create_compile_cache", hf_create_compile_cache, "libneuronxla")
         yield
         # The cache session ended without error
@@ -362,6 +367,7 @@ def hub_neuronx_cache(
                     os.symlink(config_path, alias_config_path)
                     os.umask(oldmask)
     finally:
+        restore_cache_key_canonicalization()
         patch_everywhere("create_compile_cache", create_compile_cache, "libneuronxla")
 
 
