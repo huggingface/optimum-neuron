@@ -202,6 +202,7 @@ def build_function(
     priority_model_idx: Optional[int] = 0,
     logical_nc_config: int = 1,
     dry_run: bool = False,
+    initialize_model_weights: bool = True,
 ):
     """
     Compiles a function to Neuron.
@@ -224,6 +225,7 @@ def build_function(
         dry_run: Whether to stop after trace (before compile). If priority_model_idx is set, then
             dry run mode compiles the priority model in order to produce the weight layout
             optimization model.
+        initialize_model_weights: Whether to initialize model weights during trace.
 
     Returns:
         The Neuron model, or None if dry run mode is enabled.
@@ -238,6 +240,7 @@ def build_function(
         priority_model_idx=priority_model_idx,
         logical_nc_config=logical_nc_config,
         dry_run=dry_run,
+        initialize_model_weights=initialize_model_weights,
     )
 
 
@@ -252,6 +255,7 @@ def build_module(
     priority_model_idx: Optional[int] = 0,
     logical_nc_config: int = 1,
     dry_run: bool = False,
+    initialize_model_weights: bool = True,
 ):
     """
     Compiles a module to Neuron.
@@ -272,6 +276,7 @@ def build_module(
         dry_run: Whether to stop after trace (before compile). If priority_model_idx is set, then
             dry run mode compiles the priority model in order to produce the weight layout
             optimization model.
+        initialize_model_weights: Whether to initialize model weights during trace.
 
     Returns:
         The Neuron model, or None if dry run mode is enabled.
@@ -312,7 +317,7 @@ def build_module(
         priority_model_idx=priority_model_idx,
     )
 
-    neuron_model = model_builder.trace(initialize_model_weights=True, dry_run=dry_run)
+    neuron_model = model_builder.trace(initialize_model_weights=initialize_model_weights, dry_run=dry_run)
     if not dry_run:
         neuron_model.nxd_model.initialize_with_saved_weights(start_rank_tensor=torch.tensor([0]))
     return neuron_model
