@@ -112,14 +112,14 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         self,
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
-        traced_model: torch.jit.ScriptModule,
-        graph_builders: dict[str, NxDGraphBuilder],
+        traced_models: dict[str, torch.jit.ScriptModule],
+        graph_builders: dict[str, dict[str, NxDGraphBuilder]],
     ):
         self.config = copy.deepcopy(config)
         self.neuron_config = copy.deepcopy(neuron_config)
         # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
         self.config.torch_dtype = self.neuron_config.torch_dtype
-        self._traced_model = traced_model
+        self._traced_models = traced_models
         self.graph_builders = graph_builders  # Required for loading weights
 
     # NxDPretrainedModel abstract API
@@ -144,17 +144,50 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         )
 
     @staticmethod
-    def compile(neuron_config, graph_builders: dict[str, NxDGraphBuilder], compiler_args: str, debug: bool = False):
-        builder = get_builder(neuron_config, graph_builders, debug=debug, compiler_args=compiler_args)
-        return builder.trace(initialize_model_weights=False)
+    def compile(
+        neuron_config,
+        graph_builders: dict[str, dict[str, NxDGraphBuilder]],
+        compiler_args: str,
+        debug: bool = False,
+    ) -> dict[str, torch.jit.ScriptModule]:
+        traced_models = {}
+        for bundle_name, bundle_builders in graph_builders.items():
+            logger.info(f"Compiling bundle '{bundle_name}' with graphs: {list(bundle_builders.keys())}")
+            builder = get_builder(neuron_config, bundle_builders, debug=debug, compiler_args=compiler_args)
+            traced_models[bundle_name] = builder.trace(initialize_model_weights=False)
+        return traced_models
+
+    @staticmethod
+    def _get_compiled_model_filename(bundle_name: str) -> str:
+        """Returns the filename for a compiled model bundle.
+
+        Single-bundle models use 'model.pt' for backward compatibility.
+        Multi-bundle models use 'model_{bundle_name}.pt'.
+        """
+        if bundle_name == "model":
+            return "model.pt"
+        return f"model_{bundle_name}.pt"
+
+    @classmethod
+    def _load_compiled_models(cls, model_path: str, bundle_names: list[str]) -> dict[str, torch.jit.ScriptModule]:
+        """Loads compiled model bundles from a directory."""
+        traced_models = {}
+        for name in bundle_names:
+            filename = cls._get_compiled_model_filename(name)
+            filepath = os.path.join(model_path, filename)
+            logger.info(f"Loading compiled bundle '{name}' from {filepath}")
+            traced_models[name] = torch.jit.load(filepath)
+        return traced_models
 
     def save(self, dest_path, weight_path: str | None = None):
-        if self._traced_model is None:
+        if not self._traced_models:
             raise ValueError("Model has not been compiled or loaded")
         dest_path = normalize_path(dest_path)
         self.config.save_pretrained(dest_path)
         self.neuron_config.save_pretrained(dest_path)
-        torch.jit.save(self._traced_model, dest_path + self.COMPILED_MODEL_FILE_NAME)
+        for bundle_name, traced_model in self._traced_models.items():
+            filename = self._get_compiled_model_filename(bundle_name)
+            torch.jit.save(traced_model, os.path.join(dest_path, filename))
         if weight_path is not None:
             self.shard_checkpoint(
                 src_path=weight_path,
@@ -162,57 +195,82 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
             )
 
     def shard_checkpoint(self, src_path, dest_path, debug: bool = False):
-        shards_path = get_shards_path(dest_path)
-        checkpoint_loader = partial(self.checkpoint_loader_fn, src_path, self.config, self.neuron_config)
-        sharder = get_builder(
-            self.neuron_config,
-            self.graph_builders,
-            debug=debug,
-            checkpoint_loader=checkpoint_loader,
-            compiler_args=self.get_compiler_args(self.neuron_config),
-        )
-        sharder.shard_checkpoint(serialize_path=shards_path)
+        for bundle_name, bundle_builders in self.graph_builders.items():
+            shards_path = (
+                get_shards_path(dest_path)
+                if len(self.graph_builders) == 1
+                else get_shards_path(os.path.join(dest_path, bundle_name))
+            )
+            checkpoint_loader = partial(
+                self.get_checkpoint_loader_fn(bundle_name), src_path, self.config, self.neuron_config
+            )
+            sharder = get_builder(
+                self.neuron_config,
+                bundle_builders,
+                debug=debug,
+                checkpoint_loader=checkpoint_loader,
+                compiler_args=self.get_compiler_args(self.neuron_config),
+            )
+            sharder.shard_checkpoint(serialize_path=shards_path)
 
-        if hlo_utils.NXD_LAYOUT_TRANSFORMATION_OPTIONS in os.environ:
-            sharder.transform_weight_layout_with_overriden_option(sharded_checkpoint_dir=shards_path)
+            if hlo_utils.NXD_LAYOUT_TRANSFORMATION_OPTIONS in os.environ:
+                sharder.transform_weight_layout_with_overriden_option(sharded_checkpoint_dir=shards_path)
+
+    def get_checkpoint_loader_fn(self, bundle_name: str):
+        """Returns the checkpoint loader function for a given bundle.
+
+        Override this in subclasses to provide per-bundle checkpoint loading
+        (e.g., vision vs text weights for VLM models).
+        """
+        return self.checkpoint_loader_fn
 
     def _load_weights_from_path(self, weights_path):
+        """Loads the model weights to the Neuron device."""
         weights_path = normalize_path(weights_path)
 
-        """Loads the model weights to the Neuron device."""
-        if self._traced_model is None:
+        if not self._traced_models:
             raise ValueError("Model is not loaded")
 
         start_rank_id = self.neuron_config.start_rank_id
         local_ranks_size = self.neuron_config.local_ranks_size
 
         logging.info(f"loading models for ranks {start_rank_id}...{start_rank_id + local_ranks_size - 1}")
-        weights = []
-        shards_path = get_shards_path(weights_path)
 
-        def get_shard_name(rank):
-            return os.path.join(shards_path, f"tp{rank}_sharded_checkpoint.safetensors")
-
-        if os.path.exists(get_shard_name(start_rank_id)):
-            # If sharded checkpoints exist, load them
-            logger.info(f"Loading sharded checkpoint from {shards_path}")
-            for rank in range(start_rank_id, start_rank_id + local_ranks_size):
-                ckpt = load_file(get_shard_name(rank))
-                weights.append(ckpt)
-        else:
-            logger.info("There are no saved sharded checkpoints.")
-            checkpoint_loader = partial(self.checkpoint_loader_fn, weights_path, self.config, self.neuron_config)
-            sharder = get_builder(
-                self.neuron_config,
-                self.graph_builders,
-                debug=False,
-                checkpoint_loader=checkpoint_loader,
-                compiler_args=self.get_compiler_args(self.neuron_config),
+        for bundle_name, traced_model in self._traced_models.items():
+            bundle_builders = self.graph_builders[bundle_name]
+            # For single-bundle models, shards are in weights_path/weights/.
+            # For multi-bundle models, each bundle has its own subdirectory.
+            shards_path = (
+                get_shards_path(weights_path)
+                if len(self._traced_models) == 1
+                else get_shards_path(os.path.join(weights_path, bundle_name))
             )
-            weights = sharder.shard_checkpoint()
-        start_rank_tensor = torch.tensor([start_rank_id], dtype=torch.int32, device="cpu")
-        self._traced_model.nxd_model.initialize(weights, start_rank_tensor)
-        logger.info(str(get_neuron_device_memory()))
+
+            def get_shard_name(rank):
+                return os.path.join(shards_path, f"tp{rank}_sharded_checkpoint.safetensors")
+
+            weights = []
+            if os.path.exists(get_shard_name(start_rank_id)):
+                logger.info(f"Loading sharded checkpoint for '{bundle_name}' from {shards_path}")
+                for rank in range(start_rank_id, start_rank_id + local_ranks_size):
+                    ckpt = load_file(get_shard_name(rank))
+                    weights.append(ckpt)
+            else:
+                logger.info(f"No saved sharded checkpoints for '{bundle_name}', sharding on the fly.")
+                checkpoint_loader = partial(
+                    self.get_checkpoint_loader_fn(bundle_name), weights_path, self.config, self.neuron_config
+                )
+                sharder = get_builder(
+                    self.neuron_config,
+                    bundle_builders,
+                    debug=False,
+                    checkpoint_loader=checkpoint_loader,
+                    compiler_args=self.get_compiler_args(self.neuron_config),
+                )
+                weights = sharder.shard_checkpoint()
+            start_rank_tensor = torch.tensor([start_rank_id], dtype=torch.int32, device="cpu")
+            traced_model.nxd_model.initialize(weights, start_rank_tensor)
+            logger.info(f"Bundle '{bundle_name}' loaded. {get_neuron_device_memory()}")
 
     def load_weights(
         self,
@@ -362,7 +420,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
             else SingleModelCacheEntry(model_id, task=cls.task, config=config, neuron_config=neuron_config)
         )
         with hub_neuronx_cache(entry=cache_entry):
-            traced_model = NxDPreTrainedModel.compile(
+            traced_models = NxDPreTrainedModel.compile(
                 neuron_config=neuron_config,
                 graph_builders=graph_builders,
                 compiler_args=cls.get_compiler_args(neuron_config),
@@ -370,7 +428,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         model = cls(
             config=config,
             neuron_config=neuron_config,
-            traced_model=traced_model,
+            traced_models=traced_models,
             graph_builders=graph_builders,
         )
         if load_weights:
@@ -410,8 +468,11 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
                 f"The model requires at least {neuron_config.tp_degree} Neuron cores but only "
                 f"{get_available_cores()} are available. Please use a compatible instance type."
             )
+        graph_builders = cls.create_graph_builders(config=config, neuron_config=neuron_config)
+        bundle_names = list(graph_builders.keys())
         if not os.path.exists(model_id):
             # The model_id is a model hub id: download the model from the hub.
+            model_file_patterns = [cls._get_compiled_model_filename(name) for name in bundle_names]
             with TemporaryDirectory() as tmpdir:
                 snapshot_download(
                     repo_id=model_id,
@@ -421,16 +482,15 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
                     force_download=force_download,
                     local_files_only=local_files_only,
                     token=token,
-                    allow_patterns=[cls.COMPILED_MODEL_FILE_NAME],
+                    allow_patterns=model_file_patterns,
                 )
-                traced_model = torch.jit.load(os.path.join(tmpdir, cls.COMPILED_MODEL_FILE_NAME))
+                traced_models = cls._load_compiled_models(tmpdir, bundle_names)
         else:
-            traced_model = torch.jit.load(os.path.join(model_id, cls.COMPILED_MODEL_FILE_NAME))
-        graph_builders = cls.create_graph_builders(config=config, neuron_config=neuron_config)
+            traced_models = cls._load_compiled_models(model_id, bundle_names)
         model = cls(
             config=config,
             neuron_config=neuron_config,
-            traced_model=traced_model,
+            traced_models=traced_models,
             graph_builders=graph_builders,
         )
         model.load_weights(

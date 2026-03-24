@@ -37,6 +37,17 @@ from ...utils.system import get_available_cores
 logger = logging.getLogger(__name__)
 
 
+def get_full_config(config):
+    """Utility function to extract the full config from a wrapper config.
+
+    VLMs (which have a vision_config) keep their full config so that model
+    type dispatch and vision parameters are preserved.
+    """
+    if not hasattr(config, "vision_config"):
+        config = config.get_text_config()
+    return config
+
+
 class NeuronPreTrainedModel(NeuronModel, ABC):
     task: str | None = None
 
@@ -107,7 +118,8 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
                 model_name_or_path,
                 revision=checkpoint_revision,
                 use_auth_token=token,
-            ).get_text_config()
+            )
+            config = get_full_config(config)
 
         if instance_type is None:
             instance_type = get_default_compilation_target()
@@ -187,7 +199,8 @@ class NeuronPreTrainedModel(NeuronModel, ABC):
                 model_id,
                 revision=revision,
                 use_auth_token=token,
-            ).get_text_config()
+            )
+            config = get_full_config(config)
         if inspect.isabstract(cls):
             # Instantiation through an abstract class: find the correct model class
             cls = cls._get_neuron_model_class(config)
