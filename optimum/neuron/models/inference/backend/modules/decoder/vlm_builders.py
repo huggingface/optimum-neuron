@@ -66,7 +66,7 @@ class NxDVisionEncoderBuilder(NxDGraphBuilder):
         return BaseModelInstance(module_cls=module_cls, input_output_aliases={})
 
 
-class NxDVLMContextEncodingBuilder(NxDDecoderBuilderForCausalLM):
+class NxDDecoderBuilderForImageTextToText(NxDDecoderBuilderForCausalLM):
     """Context encoding builder for VLMs.
 
     Extends the standard builder to include image-aware tensors as additional
@@ -91,12 +91,12 @@ class NxDVLMContextEncodingBuilder(NxDDecoderBuilderForCausalLM):
         return [(input_ids, position_ids, seq_ids, sampling_params, image_embeds, image_token_mask)]
 
 
-class NxDVLMTokenGenerationBuilder(NxDDecoderBuilderForCausalLM):
+class NxDTokenGenerationBuilderForImageTextToText(NxDDecoderBuilderForCausalLM):
     """Token generation builder for VLMs.
 
     Extends the standard builder to include dummy image injection tensors so the
     compiled multi-graph model has a uniform signature matching the
-    context encoding graph compiled by ``NxDVLMContextEncodingBuilder``.
+    context encoding graph compiled by ``NxDDecoderBuilderForImageTextToText``.
     The dummy tensors are ignored at runtime.
     """
 
@@ -112,7 +112,7 @@ class NxDVLMTokenGenerationBuilder(NxDDecoderBuilderForCausalLM):
         return [(input_ids, position_ids, seq_ids, sampling_params, dummy_image_embeds, dummy_image_token_mask)]
 
 
-class NxDVLMChunkedPrefillBuilder(NxDVLMContextEncodingBuilder):
+class NxDChunkedPrefillBuilderForImageTextToText(NxDDecoderBuilderForImageTextToText):
     """Chunked prefill builder for VLMs.
 
     Uses the same image-injection signature as context encoding but with ``active_tokens``

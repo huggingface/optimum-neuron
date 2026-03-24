@@ -16,41 +16,31 @@
 
 import logging
 import os
-from functools import partial
-from tempfile import TemporaryDirectory
 
 import torch
-from huggingface_hub import snapshot_download
 from transformers import AutoConfig, PretrainedConfig
 
 from ......cache.entries.single_model import SingleModelCacheEntry
 from ......cache.hub_cache import hub_neuronx_cache
-from ......configuration_utils import NeuronConfig
-from ......utils.instance import align_compilation_target, current_instance_type
-from ......utils.system import get_available_cores
-from ...config import NEURON_CONFIG_FILE, NxDVLMNeuronConfig
-from ...pretrained_model import (
-    NxDPreTrainedModel,
-    NxDTracedModel,
-    get_compiled_model_allow_patterns,
-    list_compiled_model_paths,
-)
+from ......utils.instance import align_compilation_target
+from ...config import NxDVLMNeuronConfig
+from ...pretrained_model import NxDPreTrainedModel
 from ..checkpoint import load_state_dict
 from ..generation.sampling import validate_sampling_params
 from .modeling_decoder import NxDModelForCausalLM
 from .vlm_builders import (
+    NxDChunkedPrefillBuilderForImageTextToText,
+    NxDDecoderBuilderForImageTextToText,
+    NxDTokenGenerationBuilderForImageTextToText,
     NxDVisionEncoderBuilder,
-    NxDVLMChunkedPrefillBuilder,
-    NxDVLMContextEncodingBuilder,
-    NxDVLMTokenGenerationBuilder,
 )
-from .vlm_wrappers import NxDVLMContextDecoderWrapper, NxDVLMTokenGenerationWrapper
+from .vlm_wrappers import NxDDecoderWrapperForImageTextToText, NxDTokenGenerationWrapperForImageTextToText
 
 
 logger = logging.getLogger("Neuron")
 
 
-class NxDVLMModelForCausalLM(NxDModelForCausalLM):
+class NxDModelForImageTextToText(NxDModelForCausalLM):
     """Base class for NxD vision-language model (VLM) inference.
 
     Extends :class:`NxDModelForCausalLM` with:
@@ -77,9 +67,10 @@ class NxDVLMModelForCausalLM(NxDModelForCausalLM):
     """
 
     _vision_encoder_cls = None
-    _context_wrapper_cls = NxDVLMContextDecoderWrapper
-    _chunked_prefill_wrapper_cls = NxDVLMContextDecoderWrapper
-    _token_generation_wrapper_cls = NxDVLMTokenGenerationWrapper
+    _text_bundle_key = "text"
+    _context_wrapper_cls = NxDDecoderWrapperForImageTextToText
+    _chunked_prefill_wrapper_cls = NxDDecoderWrapperForImageTextToText
+    _token_generation_wrapper_cls = NxDTokenGenerationWrapperForImageTextToText
 
     @classmethod
     def _get_vision_encoder_state_dict(cls, full_sd: dict) -> dict:
@@ -104,23 +95,24 @@ class NxDVLMModelForCausalLM(NxDModelForCausalLM):
         self,
         config: PretrainedConfig,
         neuron_config: NxDVLMNeuronConfig,
-        traced_models: list[NxDTracedModel],
+        traced_models: dict[str, torch.jit.ScriptModule],
+        graph_builders: dict[str, dict],
     ):
-        if len(traced_models) < 2:
-            raise ValueError("VLM models require at least two traced bundles: vision and text")
-        super().__init__(config, neuron_config, traced_models)
+        if "vision" not in traced_models or "text" not in traced_models:
+            raise ValueError("VLM models require 'vision' and 'text' bundles in traced_models")
+        super().__init__(config, neuron_config, traced_models, graph_builders)
         self.image_token_id = getattr(config, "image_token_id", None)
 
     def _get_vision_traced_model(self) -> torch.jit.ScriptModule:
-        return self._traced_models[0].traced_model
+        return self._traced_models["vision"]
 
     def _get_text_traced_model(self) -> torch.jit.ScriptModule:
-        return self._traced_models[1].traced_model
+        return self._traced_models["text"]
 
-    def _checkpoint_loader_for_bundle(self, model_index: int, checkpoint_path: str):
-        if model_index == 0:
-            return partial(self._vision_checkpoint_loader_fn, checkpoint_path, self.config, self.neuron_config)
-        return partial(self.checkpoint_loader_fn, checkpoint_path, self.config, self.neuron_config)
+    def get_checkpoint_loader_fn(self, bundle_name: str):
+        if bundle_name == "vision":
+            return self._vision_checkpoint_loader_fn
+        return self.checkpoint_loader_fn
 
     @classmethod
     def create_vision_graph_builders(cls, config, neuron_config):
@@ -152,11 +144,13 @@ class NxDVLMModelForCausalLM(NxDModelForCausalLM):
 
     @classmethod
     def create_graph_builders(cls, config, neuron_config):
+        vision_builders = cls.create_vision_graph_builders(config=config, neuron_config=neuron_config)
+
         tkg_neuron_config = NxDModelForCausalLM._create_token_generation_config(neuron_config)
-        graph_builders = {}
+        text_builders = {}
         if neuron_config.prefill_chunk_size > 0:
             chunk_neuron_config = NxDModelForCausalLM._create_chunked_prefill_config(neuron_config)
-            graph_builders["chunked_prefill"] = NxDVLMChunkedPrefillBuilder(
+            text_builders["chunked_prefill"] = NxDChunkedPrefillBuilderForImageTextToText(
                 config=config,
                 neuron_config=chunk_neuron_config,
                 max_tokens=chunk_neuron_config.sequence_length,
@@ -165,7 +159,7 @@ class NxDVLMModelForCausalLM(NxDModelForCausalLM):
             )
         else:
             ctx_neuron_config = NxDModelForCausalLM._create_context_encoding_config(neuron_config)
-            graph_builders["context_encoding"] = NxDVLMContextEncodingBuilder(
+            text_builders["context_encoding"] = NxDDecoderBuilderForImageTextToText(
                 config=config,
                 neuron_config=ctx_neuron_config,
                 max_tokens=ctx_neuron_config.max_context_length,
@@ -173,7 +167,7 @@ class NxDVLMModelForCausalLM(NxDModelForCausalLM):
                 model_cls=cls._model_cls,
             )
 
-        graph_builders["token_generation"] = NxDVLMTokenGenerationBuilder(
+        text_builders["token_generation"] = NxDTokenGenerationBuilderForImageTextToText(
             config=config,
             neuron_config=tkg_neuron_config,
             max_tokens=tkg_neuron_config.sequence_length,
@@ -181,7 +175,7 @@ class NxDVLMModelForCausalLM(NxDModelForCausalLM):
             model_cls=cls._model_cls,
             priority_model_idx=0,
         )
-        return graph_builders
+        return {"vision": vision_builders, "text": text_builders}
 
     # ------------------------------------------------------------------
     # Forward
@@ -411,17 +405,8 @@ class NxDVLMModelForCausalLM(NxDModelForCausalLM):
         if hasattr(text_config, "head_dim") and text_config.head_dim is None:
             text_config.head_dim = text_config.hidden_size // text_config.num_attention_heads
 
-        # Compile the vision encoder first to avoid XLA/process-state conflicts
-        # during subsequent decoder graph compilation in the same export flow.
-        vision_graph_builders = cls.create_vision_graph_builders(config=config, neuron_config=neuron_config)
-        logger.info("Compiling vision encoder with deferred weights …")
-        traced_vision_encoder = NxDPreTrainedModel.compile(
-            neuron_config=neuron_config,
-            graph_builders=vision_graph_builders,
-            compiler_args=cls.get_compiler_args(neuron_config),
-        )
-
-        # Compile the decoder graph bundle
+        # create_graph_builders returns {"vision": {...}, "text": {...}}
+        # NxDPreTrainedModel.compile() iterates over bundles automatically
         graph_builders = cls.create_graph_builders(config=config, neuron_config=neuron_config)
         cache_entry = (
             None
@@ -429,7 +414,7 @@ class NxDVLMModelForCausalLM(NxDModelForCausalLM):
             else SingleModelCacheEntry(model_id, task=cls.task, config=config, neuron_config=neuron_config)
         )
         with hub_neuronx_cache(entry=cache_entry):
-            traced_text_model = NxDPreTrainedModel.compile(
+            traced_models = NxDPreTrainedModel.compile(
                 neuron_config=neuron_config,
                 graph_builders=graph_builders,
                 compiler_args=cls.get_compiler_args(neuron_config),
@@ -438,13 +423,8 @@ class NxDVLMModelForCausalLM(NxDModelForCausalLM):
         model = cls(
             config=config,
             neuron_config=neuron_config,
-            traced_models=[
-                NxDTracedModel(
-                    traced_model=traced_vision_encoder,
-                    graph_builders=vision_graph_builders,
-                ),
-                NxDTracedModel(traced_model=traced_text_model, graph_builders=graph_builders),
-            ],
+            traced_models=traced_models,
+            graph_builders=graph_builders,
         )
 
         if load_weights:
@@ -456,89 +436,4 @@ class NxDVLMModelForCausalLM(NxDModelForCausalLM):
                 token=token,
             )
 
-        return model
-
-    @classmethod
-    def _from_pretrained(
-        cls,
-        model_id,
-        config: PretrainedConfig,
-        revision=None,
-        token=None,
-        cache_dir=None,
-        force_download=False,
-        local_files_only=False,
-        **kwargs,
-    ):
-        # Use NeuronConfig (base class) so it dispatches to NxDVLMNeuronConfig via the registry
-        if len(kwargs) > 0:
-            logger.warning("Ignoring unsupported kwargs: %s", list(kwargs.keys()))
-
-        neuron_config = NeuronConfig.from_pretrained(model_id)
-        if neuron_config.target != current_instance_type():
-            raise ValueError(
-                f"The model was compiled for {neuron_config.target!r} but the current instance "
-                f"type is {current_instance_type()!r}."
-            )
-        if get_available_cores() < neuron_config.tp_degree:
-            raise ValueError(
-                f"The model requires at least {neuron_config.tp_degree} Neuron cores but only "
-                f"{get_available_cores()} are available."
-            )
-
-        model_dir = model_id
-        if not os.path.exists(model_id):
-            with TemporaryDirectory() as tmpdir:
-                snapshot_download(
-                    repo_id=model_id,
-                    revision=revision,
-                    cache_dir=cache_dir,
-                    local_dir=tmpdir,
-                    force_download=force_download,
-                    local_files_only=local_files_only,
-                    token=token,
-                    allow_patterns=[
-                        *get_compiled_model_allow_patterns(),
-                        NEURON_CONFIG_FILE,
-                    ],
-                )
-                return cls._from_pretrained(
-                    tmpdir,
-                    config,
-                    revision=revision,
-                    token=token,
-                    cache_dir=cache_dir,
-                    force_download=force_download,
-                    local_files_only=local_files_only,
-                )
-
-        compiled_paths = list_compiled_model_paths(model_dir)
-        if len(compiled_paths) < 2:
-            raise FileNotFoundError(
-                f"Expected at least two compiled VLM artifacts (vision + text) under {model_dir}, found {len(compiled_paths)}"
-            )
-        traced_models_loaded = [torch.jit.load(path) for path in compiled_paths]
-        vision_graph_builders = cls.create_vision_graph_builders(config=config, neuron_config=neuron_config)
-        graph_builders = cls.create_graph_builders(config=config, neuron_config=neuron_config)
-
-        model = cls(
-            config=config,
-            neuron_config=neuron_config,
-            traced_models=[
-                NxDTracedModel(traced_model=traced_models_loaded[0], graph_builders=vision_graph_builders),
-                *[
-                    NxDTracedModel(traced_model=traced_text_model, graph_builders=graph_builders)
-                    for traced_text_model in traced_models_loaded[1:]
-                ],
-            ],
-        )
-
-        # Load all bundle weights (vision + text)
-        model.load_weights(
-            model_dir,
-            cache_dir=cache_dir,
-            force_download=force_download,
-            local_files_only=local_files_only,
-            token=token,
-        )
         return model

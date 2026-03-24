@@ -29,6 +29,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, PretrainedConfig
 
 from ....cache.entries.single_model import SingleModelCacheEntry
 from ....cache.hub_cache import hub_neuronx_cache
+from ....configuration_utils import NeuronConfig
 from ....utils.instance import align_compilation_target, current_instance_type
 from ....utils.system import get_available_cores
 from ..modeling_utils import NeuronPreTrainedModel
@@ -455,7 +456,8 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
     ) -> NeuronPreTrainedModel:
         if len(kwargs) > 0:
             logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
-        neuron_config = NxDNeuronConfig.from_pretrained(model_id)
+        # Use registry-based dispatch so subclasses (e.g. NxDVLMNeuronConfig) are deserialized correctly
+        neuron_config = NeuronConfig.from_pretrained(model_id)
         # Check the current instance type is compatible with the one used to compile the model
         if neuron_config.target != current_instance_type():
             raise ValueError(

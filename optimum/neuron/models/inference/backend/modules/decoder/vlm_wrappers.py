@@ -23,7 +23,7 @@ import torch.nn.functional as F
 from .decoder_wrappers import CHUNKED_PREFILL_MODEL_TAG, NxDDecoderWrapperForCausalLM
 
 
-class NxDVLMContextDecoderWrapper(NxDDecoderWrapperForCausalLM):
+class NxDDecoderWrapperForImageTextToText(NxDDecoderWrapperForCausalLM):
     """Context decoder wrapper that passes image injection tensors to VLM graphs."""
 
     def _forward(self, input_ids, position_ids, seq_ids, sampling_params, image_embeds=None, image_token_mask=None):
@@ -134,7 +134,7 @@ class NxDVLMContextDecoderWrapper(NxDDecoderWrapperForCausalLM):
         return outputs[: seq_ids.shape[0]]
 
 
-class NxDVLMTokenGenerationWrapper(NxDDecoderWrapperForCausalLM):
+class NxDTokenGenerationWrapperForImageTextToText(NxDDecoderWrapperForCausalLM):
     """Token generation wrapper that forwards dummy image-injection tensors."""
 
     def __init__(self, config, neuron_config, model, tag):

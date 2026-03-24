@@ -329,6 +329,11 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     """
 
     _model_cls = None
+    _text_bundle_key = "model"
+    _context_wrapper_cls = NxDDecoderWrapperForCausalLM
+    _chunked_prefill_wrapper_cls = NxDDecoderWrapperForCausalLM
+    _token_generation_wrapper_cls = NxDDecoderWrapperForCausalLM
+    _speculation_wrapper_cls = NxDDecoderWrapperForCausalLM
 
     def __init__(
         self,
@@ -340,24 +345,24 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         super().__init__(
             config=config, neuron_config=neuron_config, traced_models=traced_models, graph_builders=graph_builders
         )
-        traced_model = traced_models["model"]
+        traced_model = traced_models[self._text_bundle_key]
         if neuron_config.prefill_chunk_size > 0:
             chunk_neuron_config = NxDModelForCausalLM._create_chunked_prefill_config(neuron_config)
-            self.chunked_prefill_model = NxDDecoderWrapperForCausalLM(
+            self.chunked_prefill_model = self._chunked_prefill_wrapper_cls(
                 config=config, neuron_config=chunk_neuron_config, model=traced_model, tag=CHUNKED_PREFILL_MODEL_TAG
             )
         else:
             ctx_neuron_config = NxDModelForCausalLM._create_context_encoding_config(neuron_config)
-            self.context_encoding_model = NxDDecoderWrapperForCausalLM(
+            self.context_encoding_model = self._context_wrapper_cls(
                 config=config, neuron_config=ctx_neuron_config, model=traced_model, tag=CONTEXT_ENCODING_MODEL_TAG
             )
         tkg_neuron_config = NxDModelForCausalLM._create_token_generation_config(neuron_config)
-        self.token_generation_model = NxDDecoderWrapperForCausalLM(
+        self.token_generation_model = self._token_generation_wrapper_cls(
             config=config, neuron_config=tkg_neuron_config, model=traced_model, tag=TOKEN_GENERATION_MODEL_TAG
         )
         if neuron_config.speculation_length > 0:
             spec_neuron_config = NxDModelForCausalLM._create_speculation_config(neuron_config)
-            self.speculation_model = NxDDecoderWrapperForCausalLM(
+            self.speculation_model = self._speculation_wrapper_cls(
                 config=config,
                 neuron_config=spec_neuron_config,
                 model=traced_model,
