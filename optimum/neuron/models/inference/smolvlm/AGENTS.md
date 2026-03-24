@@ -21,7 +21,7 @@ contiguous sequence starting from 0 (glob `model_*.pt`):
 
 For SmolVLM, there are exactly two compiled artifacts: `model_0.pt` and `model_1.pt`.
 
-Both are managed by `SmolVLMNxDModelForCausalLM` in [modeling_smolvlm.py](modeling_smolvlm.py).
+Both are managed by `SmolVLMNxDModelForImageTextToText` in [modeling_smolvlm.py](modeling_smolvlm.py).
 
 ### Vision stack is custom SigLIP-compatible
 `NeuronIdefics3VisionEncoder` is built from:
@@ -68,14 +68,14 @@ Image features are inserted at `image_token_id` positions and passed into VLM wr
 ## Export/load details that matter
 
 ### Export compiles vision first, then decoder
-`_export()` (defined in `NxDVLMModelForCausalLM`, the shared VLM base class) compiles the
+`_export()` (defined in `NxDModelForImageTextToText`, the shared VLM base class) compiles the
 vision encoder first — saved as `model_0.pt` — before decoder compilation (saved as
 `model_1.pt`) to avoid XLA/process-state conflicts during the same export flow.
 
 ### Vision checkpoint loader avoids from_pretrained allocation path
-`_vision_checkpoint_loader_fn()` (in `NxDVLMModelForCausalLM`) is passed as the
+`_vision_checkpoint_loader_fn()` (in `NxDModelForImageTextToText`) is passed as the
 `checkpoint_loader` callback to ModelBuilder for bundle 0. It calls
-`_get_vision_encoder_state_dict()` (overridden in `SmolVLMNxDModelForCausalLM`) to
+`_get_vision_encoder_state_dict()` (overridden in `SmolVLMNxDModelForImageTextToText`) to
 extract and remap vision weights from the full HF state dict:
 - `model.vision_model.*` -> `vision_model.*`
 - `model.connector.*` -> `connector.*`
@@ -83,7 +83,7 @@ extract and remap vision weights from the full HF state dict:
 This avoids `from_pretrained` allocation interactions under model-builder meta/init contexts.
 
 ### Saved weights re-initialization on load
-`_from_pretrained()` (in `NxDVLMModelForCausalLM`) discovers all compiled artifacts via
+`_from_pretrained()` (in `NxDModelForImageTextToText`) discovers all compiled artifacts via
 `list_compiled_model_paths()`, which finds every `model_*.pt` in the model directory in
 stable index order. `model_0.pt` is loaded as the vision encoder bundle and
 `model_1.pt` as the text decoder bundle. After constructing the model,

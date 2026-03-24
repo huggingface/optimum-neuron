@@ -25,7 +25,7 @@ from transformers.activations import ACT2FN
 from transformers.models.idefics3.modeling_idefics3 import Idefics3Connector
 
 from ..backend.config import NxDVLMNeuronConfig
-from ..backend.modules.decoder.vlm_decoder import NxDVLMModelForCausalLM
+from ..backend.modules.decoder.vlm_decoder import NxDModelForImageTextToText
 from ..llama.modeling_llama import NxDLlamaModel, convert_state_dict_to_fused_qkv
 
 
@@ -262,7 +262,7 @@ class NxDSmolVLMDecoderModel(NxDLlamaModel):
         return self._forward_from_embeddings(hidden_states, input_ids, position_ids, seq_ids, sampling_params)
 
 
-class SmolVLMNxDModelForCausalLM(NxDVLMModelForCausalLM):
+class SmolVLMNxDModelForImageTextToText(NxDModelForImageTextToText):
     """NxD model for SmolVLM (Idefics3) vision-language inference.
 
     Manages indexed compiled traced bundles:

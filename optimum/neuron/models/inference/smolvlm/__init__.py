@@ -13,4 +13,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .modeling_smolvlm import SmolVLMNxDModelForCausalLM  # noqa F401
+from .modeling_smolvlm import SmolVLMNxDModelForImageTextToText  # noqa F401
