@@ -75,29 +75,33 @@ Multi-bundle models use `model_{bundle_name}.pt`.
 │  ┌─────────────────────────┐  ┌─────────────────────┐ │
 │  │ context_encoding        │  │ token_generation    │ │
 │  │                         │  │                     │ │
-│  │ 6 input tensors:        │  │ 4 input tensors:    │ │
+│  │ 6 input tensors:        │  │ 6 input tensors:    │ │
 │  │   input_ids             │  │   input_ids         │ │
 │  │   position_ids          │  │   position_ids      │ │
 │  │   seq_ids               │  │   seq_ids           │ │
 │  │   sampling_params       │  │   sampling_params   │ │
-│  │   image_embeds ◄── NEW  │  │                     │ │
-│  │   image_token_mask ◄──  │  │ (UNCHANGED from     │ │
-│  │                         │  │  text-only CausalLM) │ │
+│  │   image_embeds          │  │   image_embeds (0)  │ │
+│  │   image_token_mask      │  │   image_token_mask  │ │
+│  │                         │  │   (dummy zeros)     │ │
 │  └─────────────────────────┘  └─────────────────────┘ │
 │                                                       │
 │  ┌─────────────────────────┐  ┌─────────────────────┐ │
 │  │ chunked_prefill         │  │ speculation         │ │
 │  │ (replaces ctx_enc)      │  │ (optional)          │ │
 │  │                         │  │                     │ │
-│  │ 6 input tensors         │  │ 4 input tensors     │ │
-│  │ (same as ctx_enc above) │  │ (same as token_gen) │ │
+│  │ 6 input tensors         │  │ 6 input tensors     │ │
+│  │ (same as ctx_enc above) │  │ (dummy zeros)       │ │
 │  └─────────────────────────┘  └─────────────────────┘ │
 └──────────────────────────────────────────────────────┘
 
-ModelBuilder dispatches by input tensor count + shapes:
-  6 tensors → context_encoding / chunked_prefill
-  4 tensors → token_generation / speculation
-No dummy tensors needed. No uniform-signature constraint.
+ModelBuilder requires a uniform forward() signature across all graphs
+in the same bundle (the NxDModel ScriptModule has a single forward()
+declaration). All graphs receive 6 tensors. Token generation and
+speculation pass dummy (zero) image_embeds and image_token_mask —
+they are ignored at runtime because the mask is all-False.
+
+Note: we validated on hardware that ModelBuilder does NOT support
+different tensor counts per graph key within the same bundle.
 ```
 
 ---
@@ -686,43 +690,45 @@ parallel dicts stay in sync because they're produced from the same
 `create_graph_builders()` return value. Per-bundle weight loading is supported
 via overridable `get_checkpoint_loader_fn(bundle_name)`.
 
-### 10b. Remove dummy image tensors from token generation
+### 10b. ~~Remove dummy image tensors from token generation~~ (invalidated)
 
-**Current (branch):** Token generation wrapper creates dummy `image_embeds` and
-`image_token_mask` tensors to match a uniform 6-tensor graph signature.
+Hardware validation confirmed that ModelBuilder does NOT support different
+tensor counts per graph key within the same bundle. The `NxDModel`
+ScriptModule generates a single `forward()` declaration with a fixed
+argument count. The uniform 6-tensor signature with dummy tensors for
+token generation is the correct approach for the current NxD runtime.
 
-**Proposed:** Token generation uses the standard 4-tensor `NxDDecoderBuilderForCausalLM`
-and `NxDDecoderWrapperForCausalLM`. The ModelBuilder router distinguishes context
-encoding (6 tensors) from token generation (4 tensors) by input count and shape.
+### 10c. ~~Self-stashing `compute_input_embeddings()` pattern~~ (invalidated)
 
-### 10c. Use `compute_input_embeddings()` hook instead of modifying the base forward
+This optimization (§3c in the architecture doc) depended on §10b — having
+context encoding traced with 6 args and token generation with 4 args in
+the same bundle. Since ModelBuilder requires uniform signatures, this
+pattern cannot be used. The `compute_input_embeddings()` hook exists in
+the base class but VLM image injection happens in the model-specific
+`forward()` override (e.g. `NxDSmolVLMDecoderModel.forward()`), which
+is the correct approach for the uniform-signature constraint.
 
-**Current (branch):** `vlm_decoder.py` duplicates or heavily patches
-`NxDDecoderModelForCausalLM.forward()` to add image injection.
-
-**Proposed:** Extract a one-line `compute_input_embeddings()` method in the base
-class. VLM subclass overrides `forward()` to stash image args on `self`, calls
-`super().forward()`, and overrides `compute_input_embeddings()` for injection.
-This was validated to work with `torch.jit.trace`.
-
-### 10d. Rename classes to match HF task convention
+### 10d. Rename classes to match HF task convention (implemented)
 
 **Current (branch):** `NxDVLMModelForCausalLM`, `NxDVLMContextDecoderWrapper`, etc.
 
-**Proposed:** Use `ImageTextToText` suffix consistently:
+**Implemented:** `ImageTextToText` suffix used consistently:
 - `NxDModelForImageTextToText`
-- `NxDDecoderModelForImageTextToText`
 - `NxDDecoderBuilderForImageTextToText`
+- `NxDTokenGenerationBuilderForImageTextToText`
+- `NxDChunkedPrefillBuilderForImageTextToText`
 - `NxDDecoderWrapperForImageTextToText`
+- `NxDTokenGenerationWrapperForImageTextToText`
 
-### 10e. Eliminate VLM-specific wrapper subclasses where possible
+### ~~10e. Eliminate VLM-specific wrapper subclasses~~ (invalidated)
 
-**Current (branch):** `NxDVLMContextDecoderWrapper` and `NxDVLMTokenGenerationWrapper`
-are separate classes.
+Depends on §10b. Since all graphs must share a uniform 6-tensor signature,
+both `NxDDecoderWrapperForImageTextToText` (context encoding) and
+`NxDTokenGenerationWrapperForImageTextToText` (token gen with dummies)
+are required. The token gen wrapper cannot be replaced by the standard
+`NxDDecoderWrapperForCausalLM` because it must pass dummy image tensors.
 
-**Proposed:**
-- Token generation: use `NxDDecoderWrapperForCausalLM` as-is (no subclass).
-- Context encoding: one subclass (`NxDDecoderWrapperForImageTextToText`) that
+Context encoding: one subclass (`NxDDecoderWrapperForImageTextToText`) that
   overrides `_forward()` to pass the two extra tensors.
 
 ---
