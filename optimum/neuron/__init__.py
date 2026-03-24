@@ -99,7 +99,11 @@ _import_structure["models.inference.bert"] = [
 _import_structure["models.inference.clip"] = ["NeuronCLIPModel", "NeuronCLIPForImageClassification"]
 _import_structure["models.inference.whisper"] = ["NeuronWhisperForConditionalGeneration"]
 _import_structure["models.inference.yolos"] = ["NeuronYolosForObjectDetection"]
-_import_structure["models.inference.modeling_utils"] = ["NeuronModelForCausalLM", "NeuronModelForEmbedding"]
+_import_structure["models.inference.modeling_utils"] = [
+    "NeuronModelForCausalLM",
+    "NeuronModelForEmbedding",
+    "NeuronModelForImageTextToText",
+]
 
 if TYPE_CHECKING:
     from .accelerate import NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
@@ -151,7 +155,11 @@ if TYPE_CHECKING:
         NeuronBertModel,
     )
     from .models.inference.clip import NeuronCLIPForImageClassification, NeuronCLIPModel
-    from .models.inference.modeling_utils import NeuronModelForCausalLM, NeuronModelForEmbedding
+    from .models.inference.modeling_utils import (
+        NeuronModelForCausalLM,
+        NeuronModelForEmbedding,
+        NeuronModelForImageTextToText,
+    )
     from .models.inference.whisper import NeuronWhisperForConditionalGeneration
     from .models.inference.yolos import NeuronYolosForObjectDetection
     from .pipelines import pipeline

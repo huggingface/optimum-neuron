@@ -116,14 +116,22 @@ class NxDDecoderModelForCausalLM(nn.Module):
         # set seed
         set_random_seed(seed)
 
-    def _is_context_encoding(self, input_ids: torch.Tensor):
-        return input_ids.shape[-1] > 1 and input_ids.shape[-1] != self.speculation_length
+    def _is_context_encoding(self, seq_length: int):
+        return seq_length > 1 and seq_length != self.speculation_length
 
-    def _is_chunked_prefill(self, input_ids: torch.Tensor):
-        return self.chunk_size > 0 and input_ids.shape[-1] == self.chunk_size
+    def _is_chunked_prefill(self, seq_length: int):
+        return self.chunk_size > 0 and seq_length == self.chunk_size
 
-    def _is_for_speculation(self, input_ids: torch.Tensor):
-        return input_ids.shape[-1] == self.speculation_length
+    def _is_for_speculation(self, seq_length: int):
+        return seq_length == self.speculation_length
+
+    def compute_input_embeddings(self, input_ids):
+        """Compute token embeddings from input IDs.
+
+        Subclasses (e.g. VLM decoders) can call this then modify the resulting
+        hidden states before passing them to :meth:`_forward_from_embeddings`.
+        """
+        return self.embed_tokens(input_ids)
 
     def forward(
         self,
@@ -132,7 +140,7 @@ class NxDDecoderModelForCausalLM(nn.Module):
         seq_ids,
         sampling_params,
     ):
-        """Forward pass that can return either logits or hidden states.
+        """Forward pass that returns logits or sampled tokens.
 
         Args:
             input_ids (torch.LongTensor): Input token IDs.
@@ -140,14 +148,31 @@ class NxDDecoderModelForCausalLM(nn.Module):
             seq_ids (torch.LongTensor): Sequence IDs. Used in continuous batching
             sampling_params (torch.FloatTensor): Sampling parameters.
         """
-        is_for_context_encoding = self._is_context_encoding(input_ids)
-        is_chunked_prefill = self._is_chunked_prefill(input_ids)
-        is_for_speculation = self._is_for_speculation(input_ids)
+        hidden_states = self.compute_input_embeddings(input_ids)
+        return self._forward_from_embeddings(hidden_states, position_ids, seq_ids, sampling_params)
+
+    def _forward_from_embeddings(
+        self,
+        hidden_states,
+        position_ids,
+        seq_ids,
+        sampling_params,
+    ):
+        """Run decoder layers, norm, KV-cache update, logit projection and sampling.
+
+        This is the bulk of the forward pass, starting from pre-computed embeddings.
+        Subclasses should override :meth:`forward` to modify ``hidden_states``
+        (e.g. inject image features) before delegating here.
+        """
+        batch_size, seq_length = hidden_states.shape[:2]
+        is_for_context_encoding = self._is_context_encoding(seq_length)
+        is_chunked_prefill = self._is_chunked_prefill(seq_length)
+        is_for_speculation = self._is_for_speculation(seq_length)
 
         cache_size = self.n_positions
 
         # Prepare input tensors
-        device = input_ids.device
+        device = hidden_states.device
         if is_chunked_prefill:
             # Chunked prefill: process a chunk of the prompt using the KV cache scatter path.
             # Mirrors the speculation mask logic: prior mask covers already-written KV positions,
@@ -159,7 +184,7 @@ class NxDDecoderModelForCausalLM(nn.Module):
             # scatter in update_cache) operates on the full cache via _fetch_cache.
             if self.batch_size < self.kv_mgr.kv_shape[0]:
                 past_key_values = [[k[seq_ids], v[seq_ids]] for k, v in past_key_values]
-            chunk_size = input_ids.shape[-1]
+            chunk_size = seq_length
             max_cached_positions = position_ids[:, :1].expand(self.batch_size, self.n_positions) - 1
             all_positions = (
                 torch.arange(self.n_positions, device=device).view(1, -1).expand(self.batch_size, self.n_positions)
@@ -216,12 +241,7 @@ class NxDDecoderModelForCausalLM(nn.Module):
                 # Active mask is implicit for decoding
                 active_mask = None
 
-        batch_size, seq_length = input_ids.shape[:2]
         position_ids = position_ids.view(-1, seq_length).long()
-
-        # embed positions
-        inputs_embeds = self.embed_tokens(input_ids)
-        hidden_states = inputs_embeds
 
         # decoder layers
         new_key_values = []
@@ -308,6 +328,11 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
     """
 
     _model_cls = None
+    _text_bundle_key = "model"
+    _context_wrapper_cls = NxDDecoderWrapperForCausalLM
+    _chunked_prefill_wrapper_cls = NxDDecoderWrapperForCausalLM
+    _token_generation_wrapper_cls = NxDDecoderWrapperForCausalLM
+    _speculation_wrapper_cls = NxDDecoderWrapperForCausalLM
 
     def __init__(
         self,
@@ -319,24 +344,24 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         super().__init__(
             config=config, neuron_config=neuron_config, traced_models=traced_models, graph_builders=graph_builders
         )
-        traced_model = traced_models["model"]
+        traced_model = traced_models[self._text_bundle_key]
         if neuron_config.prefill_chunk_size > 0:
             chunk_neuron_config = NxDModelForCausalLM._create_chunked_prefill_config(neuron_config)
-            self.chunked_prefill_model = NxDDecoderWrapperForCausalLM(
+            self.chunked_prefill_model = self._chunked_prefill_wrapper_cls(
                 config=config, neuron_config=chunk_neuron_config, model=traced_model, tag=CHUNKED_PREFILL_MODEL_TAG
             )
         else:
             ctx_neuron_config = NxDModelForCausalLM._create_context_encoding_config(neuron_config)
-            self.context_encoding_model = NxDDecoderWrapperForCausalLM(
+            self.context_encoding_model = self._context_wrapper_cls(
                 config=config, neuron_config=ctx_neuron_config, model=traced_model, tag=CONTEXT_ENCODING_MODEL_TAG
             )
         tkg_neuron_config = NxDModelForCausalLM._create_token_generation_config(neuron_config)
-        self.token_generation_model = NxDDecoderWrapperForCausalLM(
+        self.token_generation_model = self._token_generation_wrapper_cls(
             config=config, neuron_config=tkg_neuron_config, model=traced_model, tag=TOKEN_GENERATION_MODEL_TAG
         )
         if neuron_config.speculation_length > 0:
             spec_neuron_config = NxDModelForCausalLM._create_speculation_config(neuron_config)
-            self.speculation_model = NxDDecoderWrapperForCausalLM(
+            self.speculation_model = self._speculation_wrapper_cls(
                 config=config,
                 neuron_config=spec_neuron_config,
                 model=traced_model,
