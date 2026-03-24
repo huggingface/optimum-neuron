@@ -29,7 +29,6 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from ....modeling_utils import NeuronModelForCausalLM, NeuronModelForEmbedding
 from ...config import NxDNeuronConfig
-from ...graph_builder import NxDGraphBuilder
 from ...pretrained_model import NxDPreTrainedModel
 from ...utils.random import set_random_seed
 from ..attention.gqa import get_shardable_head_counts
@@ -314,12 +313,13 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
         self,
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
-        traced_model: torch.jit.ScriptModule,
-        graph_builders: list[NxDGraphBuilder],
+        traced_models: dict[str, torch.jit.ScriptModule],
+        graph_builders: dict[str, dict],
     ):
         super().__init__(
-            config=config, neuron_config=neuron_config, traced_model=traced_model, graph_builders=graph_builders
+            config=config, neuron_config=neuron_config, traced_models=traced_models, graph_builders=graph_builders
         )
+        traced_model = traced_models["model"]
         if neuron_config.prefill_chunk_size > 0:
             chunk_neuron_config = NxDModelForCausalLM._create_chunked_prefill_config(neuron_config)
             self.chunked_prefill_model = NxDDecoderWrapperForCausalLM(
@@ -426,7 +426,7 @@ class NxDModelForCausalLM(NxDGenerationMixin, NxDPreTrainedModel, NeuronModelFor
                 model_cls=cls._model_cls,
                 priority_model_idx=0,  # to turn on weight layout optimization
             )
-        return graph_builders
+        return {"model": graph_builders}
 
     def forward(
         self,
@@ -598,12 +598,13 @@ class NxDModelForEmbedding(NxDPreTrainedModel, NeuronModelForEmbedding):
         self,
         config: PretrainedConfig,
         neuron_config: NxDNeuronConfig,
-        traced_model: torch.jit.ScriptModule,
-        graph_builders: list[NxDGraphBuilder],
+        traced_models: dict[str, torch.jit.ScriptModule],
+        graph_builders: dict[str, dict],
     ):
         super().__init__(
-            config=config, neuron_config=neuron_config, traced_model=traced_model, graph_builders=graph_builders
+            config=config, neuron_config=neuron_config, traced_models=traced_models, graph_builders=graph_builders
         )
+        traced_model = traced_models["model"]
         self.encoding_model = NxDDecoderWrapperForEmbedding(
             config=config,
             neuron_config=neuron_config,
@@ -617,12 +618,14 @@ class NxDModelForEmbedding(NxDPreTrainedModel, NeuronModelForEmbedding):
         if cls._model_cls is None:
             raise SystemError(f"No underlying model class defined for {cls}.")
         return {
-            "encoding": NxDDecoderBuilderForEmbedding(
-                config=config,
-                neuron_config=neuron_config,
-                max_tokens=neuron_config.max_context_length,
-                model_cls=cls._model_cls,
-            )
+            "model": {
+                "encoding": NxDDecoderBuilderForEmbedding(
+                    config=config,
+                    neuron_config=neuron_config,
+                    max_tokens=neuron_config.max_context_length,
+                    model_cls=cls._model_cls,
+                )
+            }
         }
 
     def forward(

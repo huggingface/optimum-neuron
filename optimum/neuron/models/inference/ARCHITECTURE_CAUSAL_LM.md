@@ -196,8 +196,12 @@ NxDGraphBuilder (graph_builder.py)  ← ABC
        ▼
 NxDDecoderBuilderForCausalLM (decoder_builders.py:26)
        │
-       │  Created by NxDModelForCausalLM.create_graph_builders()
-       │  One per graph variant. Parameters:
+       │  NxDModelForCausalLM.create_graph_builders() returns:
+       │    {"model": {"context_encoding": ..., "token_generation": ...}}
+       │  The outer dict is the bundle name ("model" = single bundle).
+       │  NxDPreTrainedModel.compile() iterates bundles.
+       │
+       │  One builder per graph variant. Parameters:
        │    .active_tokens   = {max_context_length, 1, chunk_size, spec_length}
        │    .max_tokens      = sequence_length (KV cache size)
        │    .model_cls       = e.g. NxDLlamaModel
@@ -355,15 +359,17 @@ User code:
  │    → resolves to LlamaNxDModelForCausalLM via auto_model registry │
  │    → LlamaNxDModelForCausalLM._export()  [inherited from NxDPTM]  │
  │        1. create_graph_builders()                                 │
- │           builds NxDDecoderBuilderForCausalLM per graph variant   │
+ │           returns {"model": {"context_encoding": ...,             │
+ │                              "token_generation": ...}}            │
  │           each builder holds model_cls = NxDLlamaModel            │
  │        2. NxDPreTrainedModel.compile()                            │
- │           → get_builder() → ModelBuilder.trace()                  │
+ │           iterates bundles → get_builder() → ModelBuilder.trace() │
  │           → traces NxDLlamaModel.forward() with example inputs    │
- │           → produces torch.jit.ScriptModule (model.pt)            │
+ │           → produces {"model": ScriptModule} (saved as model.pt)  │
  │        3. LlamaNxDModelForCausalLM.__init__()                     │
+ │           extracts traced_models["model"]                         │
  │           creates NxDDecoderWrapperForCausalLM per graph variant  │
- │           all wrappers share the same traced_model                │
+ │           all wrappers share the same traced model                │
  │        4. load_weights() shards HF checkpoint → Neuron device     │
  │                                                                   │
  └───────────────────────────────────────────────────────────────────┘

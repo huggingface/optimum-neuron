@@ -48,8 +48,8 @@ VLM models produce two `model.pt` files. The vision encoder has completely
 different weights from the text decoder, so it must be a separate bundle.
 The text decoder graphs share weights and stay in a single bundle.
 
-This requires `NxDPreTrainedModel` to support multiple bundles. The proposed
-change: `create_graph_builders()` returns `dict[str, dict[str, NxDGraphBuilder]]` —
+`NxDPreTrainedModel` supports multiple bundles natively.
+`create_graph_builders()` returns `dict[str, dict[str, NxDGraphBuilder]]` —
 a dict of bundles, each bundle being a dict of graph builders. `compile()`,
 `save()`, and `load_weights()` iterate over bundles automatically. For
 single-bundle models (all existing CausalLM and Embedding models), the outer
@@ -245,9 +245,9 @@ hierarchy. It is a plain `nn.Module` traced independently.
 
 ## 4. Changes Required to the Base Classes
 
-### 4a. Multi-bundle support in `NxDPreTrainedModel`
+### 4a. Multi-bundle support in `NxDPreTrainedModel` (implemented)
 
-`NxDPreTrainedModel` needs to store `_traced_models: dict[str, ScriptModule]`
+`NxDPreTrainedModel` stores `_traced_models: dict[str, ScriptModule]`
 and `graph_builders: dict[str, dict[str, NxDGraphBuilder]]`. The outer dict
 keys are bundle names (`"model"` for single-bundle, `"vision"` / `"text"` for VLM).
 
@@ -261,7 +261,7 @@ keys are bundle names (`"model"` for single-bundle, `"vision"` / `"text"` for VL
 | `shard_checkpoint()`      | Shards per bundle, per-bundle subdirs for multi      |
 | New: `get_checkpoint_loader_fn(bundle_name)` | Overridable per-bundle loader    |
 
-`NxDModelForCausalLM` and `NxDModelForEmbedding` would wrap their builders in
+`NxDModelForCausalLM` and `NxDModelForEmbedding` wrap their builders in
 `{"model": {...}}` and extract `traced_models["model"]` in `__init__`.
 Existing model subclasses are unaffected.
 
@@ -673,13 +673,13 @@ Text decoder config specialization per graph is identical to CausalLM
 The current branch implementation differs from this proposed design in several ways.
 Here are the suggested changes, ordered by impact:
 
-### 10a. Multi-bundle support in `NxDPreTrainedModel`
+### 10a. Multi-bundle support in `NxDPreTrainedModel` (implemented)
 
 **Current (branch):** `NxDPreTrainedModel` stores a list of traced models with a
 custom wrapper class pairing each model with its builders.
 
-**Proposed:** `_traced_models` should be a `dict[str, ScriptModule]` keyed by
-bundle name (`"model"`, `"vision"`, `"text"`). `graph_builders` should be
+**Implemented:** `_traced_models` is a `dict[str, ScriptModule]` keyed by
+bundle name (`"model"`, `"vision"`, `"text"`). `graph_builders` is
 `dict[str, dict[str, NxDGraphBuilder]]`. `compile()`, `save()`, and
 `load_weights()` iterate over bundles automatically. No wrapper class needed —
 parallel dicts stay in sync because they're produced from the same
@@ -736,7 +736,7 @@ optimum/neuron/models/inference/
 ├── ARCHITECTURE_IMAGE_TEXT_TO_TEXT.md             # this document
 ├── backend/
 │   ├── config.py                                 # + NxDVLMNeuronConfig
-│   ├── pretrained_model.py                       # multi-bundle support
+│   ├── pretrained_model.py                       # multi-bundle support (implemented)
 │   └── modules/
 │       └── decoder/
 │           ├── modeling_decoder.py               # + compute_input_embeddings() hook
