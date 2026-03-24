@@ -4,8 +4,10 @@ This guide focuses on NxD inference models, decoder graphs, attention, and porti
 
 ## NxD Decoder Models
 
-For a comprehensive walkthrough of the class hierarchy, graph variants, forward dispatch,
-and generation loop with ASCII diagrams, see [ARCHITECTURE_CAUSAL_LM.md](ARCHITECTURE_CAUSAL_LM.md).
+Architecture documents with class hierarchies, graph variants, forward dispatch,
+and generation loop diagrams:
+- Text generation (CausalLM): [ARCHITECTURE_CAUSAL_LM.md](ARCHITECTURE_CAUSAL_LM.md)
+- Image-text-to-text (VLM): [ARCHITECTURE_IMAGE_TEXT_TO_TEXT.md](ARCHITECTURE_IMAGE_TEXT_TO_TEXT.md)
 
 ### Three-Graph Architecture
 - Context encoding graph: multi-token prompt → KV cache
