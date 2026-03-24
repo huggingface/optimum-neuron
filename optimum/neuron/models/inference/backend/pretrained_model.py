@@ -29,9 +29,10 @@ from transformers import AutoConfig, AutoModelForCausalLM, PretrainedConfig
 
 from ....cache.entries.single_model import SingleModelCacheEntry
 from ....cache.hub_cache import hub_neuronx_cache
+from ....configuration_utils import NeuronConfig
 from ....utils.instance import align_compilation_target, current_instance_type
 from ....utils.system import get_available_cores
-from ..modeling_utils import NeuronPreTrainedModel
+from ..modeling_utils import NeuronPreTrainedModel, get_full_config
 from .config import NxDNeuronConfig
 from .graph_builder import NxDGraphBuilder
 from .modules.checkpoint import load_state_dict
@@ -332,7 +333,8 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
                 model_sd[updated_param_name] = model_sd[param_name]
                 del model_sd[param_name]
         model_sd = cls.convert_hf_to_neuron_state_dict(model_sd, config, neuron_config)
-        if getattr(config, "tie_word_embeddings", False):
+        text_config = config.get_text_config()
+        if getattr(text_config, "tie_word_embeddings", False):
             cls.update_state_dict_for_tied_weights(model_sd)
 
         param_name_list = list(model_sd.keys())
@@ -394,20 +396,24 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
                 f" environment variable is set to {compilation_target}, Please set it to the correct value."
             )
         if config is None:
-            # Get the text config if not provided
-            config = AutoConfig.from_pretrained(
-                model_id,
-                token=token,
-                revision=revision,
-                cache_dir=cache_dir,
-                force_download=force_download,
-                trust_remote_code=trust_remote_code,
-            ).get_text_config()
+            config = get_full_config(
+                AutoConfig.from_pretrained(
+                    model_id,
+                    token=token,
+                    revision=revision,
+                    cache_dir=cache_dir,
+                    force_download=force_download,
+                    trust_remote_code=trust_remote_code,
+                )
+            )
+        # For VLMs text_config is the nested sub-config; for text-only models it is config itself.
+        text_config = getattr(config, "text_config", config)
         # Override torch_dtype in config as it is used by the neuronx_distributed code to cast weights to the correct type
         config.torch_dtype = neuron_config.torch_dtype
+        text_config.torch_dtype = neuron_config.torch_dtype
         # Evaluate head_dim if it is defined but set to null (like in Mixtral for transformers 4.54+)
-        if hasattr(config, "head_dim") and config.head_dim is None:
-            config.head_dim = config.hidden_size // config.num_attention_heads
+        if hasattr(text_config, "head_dim") and text_config.head_dim is None:
+            text_config.head_dim = text_config.hidden_size // text_config.num_attention_heads
         graph_builders = cls.create_graph_builders(
             config=config,
             neuron_config=neuron_config,
@@ -455,7 +461,8 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
     ) -> NeuronPreTrainedModel:
         if len(kwargs) > 0:
             logger.warning("Ignoring the following kwargs as they are not supported by neuron: %s", kwargs.keys())
-        neuron_config = NxDNeuronConfig.from_pretrained(model_id)
+        # Use registry-based dispatch so subclasses (e.g. NxDVLMNeuronConfig) are deserialized correctly
+        neuron_config = NeuronConfig.from_pretrained(model_id)
         # Check the current instance type is compatible with the one used to compile the model
         if neuron_config.target != current_instance_type():
             raise ValueError(

@@ -321,8 +321,8 @@ class NxDGemma3Model(NxDDecoderModelForCausalLM):
         two attention masks (full causal and sliding window) and select the
         appropriate one for each decoder layer based on its attention_type.
         """
-        is_for_context_encoding = self._is_context_encoding(input_ids)
-        if self._is_for_speculation(input_ids):
+        is_for_context_encoding = self._is_context_encoding(input_ids.shape[-1])
+        if self._is_for_speculation(input_ids.shape[-1]):
             raise ValueError("Speculation is not supported for Gemma3 model")
 
         cache_size = self.n_positions

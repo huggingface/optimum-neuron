@@ -53,8 +53,8 @@ class NxDNeuronConfig(NeuronConfig):
 
     def __init__(
         self,
-        checkpoint_id: str = None,
-        checkpoint_revision: str = None,
+        checkpoint_id: str | None = None,
+        checkpoint_revision: str | None = None,
         batch_size: int | None = 1,
         max_batch_size: int | None = None,
         continuous_batching: bool | None = False,
@@ -74,7 +74,7 @@ class NxDNeuronConfig(NeuronConfig):
         prefill_chunk_size: int | None = 0,
         start_rank_id: int | None = 0,
         local_ranks_size: int | None = None,
-        capacity_factor: float = None,
+        capacity_factor: float | None = None,
         glu_mlp: bool = True,
     ) -> None:
         # Required to retrieve a checkpoint from the hub
@@ -162,3 +162,72 @@ class NxDNeuronConfig(NeuronConfig):
     @property
     def logical_nc_config(self) -> int:
         return 2 if self.target == "trn2" else 1
+
+
+@register_neuron_config
+class NxDVLMNeuronConfig(NxDNeuronConfig):
+    """
+    Config class for vision-language model inference in NxD.
+
+    Extends NxDNeuronConfig with vision-specific parameters needed to compile
+    the vision encoder as a separate static graph.
+    """
+
+    def __init__(
+        self,
+        checkpoint_id: str | None = None,
+        checkpoint_revision: str | None = None,
+        batch_size: int | None = 1,
+        max_batch_size: int | None = None,
+        continuous_batching: bool | None = False,
+        speculation_length: int | None = 0,
+        sequence_length: int | None = 128,
+        tp_degree: int | None = 1,
+        ep_degree: int | None = 1,
+        pp_degree: int | None = 1,
+        torch_dtype: str | torch.dtype | None = torch.bfloat16,
+        n_active_tokens: int | None = None,
+        max_context_length: int | None = None,
+        output_logits: bool | None = False,
+        fused_qkv: bool | None = False,
+        target: str | None = None,
+        on_device_sampling: bool | None = False,
+        max_topk: int | None = 256,
+        prefill_chunk_size: int | None = 0,
+        start_rank_id: int | None = 0,
+        local_ranks_size: int | None = None,
+        capacity_factor: float | None = None,
+        glu_mlp: bool = True,
+        max_num_images: int = 1,
+        image_size: int = 512,
+        image_seq_len: int = 64,
+    ) -> None:
+        super().__init__(
+            checkpoint_id=checkpoint_id,
+            checkpoint_revision=checkpoint_revision,
+            batch_size=batch_size,
+            max_batch_size=max_batch_size,
+            continuous_batching=continuous_batching,
+            speculation_length=speculation_length,
+            sequence_length=sequence_length,
+            tp_degree=tp_degree,
+            ep_degree=ep_degree,
+            pp_degree=pp_degree,
+            torch_dtype=torch_dtype,
+            n_active_tokens=n_active_tokens,
+            max_context_length=max_context_length,
+            output_logits=output_logits,
+            fused_qkv=fused_qkv,
+            target=target,
+            on_device_sampling=on_device_sampling,
+            max_topk=max_topk,
+            prefill_chunk_size=prefill_chunk_size,
+            start_rank_id=start_rank_id,
+            local_ranks_size=local_ranks_size,
+            capacity_factor=capacity_factor,
+            glu_mlp=glu_mlp,
+        )
+        # Vision encoder config
+        self.max_num_images = max_num_images
+        self.image_size = image_size
+        self.image_seq_len = image_seq_len

@@ -18,3 +18,4 @@ from .modeling_decoder import (
     NxDModelForCausalLM,
     NxDModelForEmbedding,
 )
+from .vlm_decoder import NxDModelForImageTextToText
