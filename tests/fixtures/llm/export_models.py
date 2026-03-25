@@ -26,12 +26,16 @@ Compiled models are expensive to produce (10-30+ min each on Neuron hardware).  
 avoid recompilation, every exported model is pushed to a private HF Hub repo whose
 name encodes all the variables that would change the compilation output::
 
-    <org>/optimum-neuron-testing-<version>-<sdk_version>-<instance_type>-<code_hash>-<config_name>
+    <org>/optimum-neuron-testing-<version>-<sdk_version>-<instance_type>-<code_hash>-<config_name>-<config_hash>
 
 The ``<code_hash>`` (see ``get_neuron_models_hash()``) is a truncated SHA-256 of the
 git tree hashes of ``pyproject.toml`` and ``optimum/neuron/models/inference/``.  When
 *any* file inside those paths changes (even on an unrelated branch), the hash changes,
 causing a fresh export on next run.
+
+The ``<config_hash>`` (see ``_config_hash()``) is a truncated SHA-256 of the model
+configuration (model_id, task, and export_kwargs).  Changing any export parameter —
+including the source model — produces a different hash and forces a re-export.
 
 Compiled artifacts are also synchronized to a shared cache repo
 (``optimum-internal-testing/neuron-testing-cache``) so that the Neuron compiler cache
@@ -45,6 +49,7 @@ The hub repo name changes (and a re-export is triggered) when **any** of these c
 2. Neuron SDK version (``optimum.neuron.version.__sdk_version__``).
 3. Instance type (e.g. ``inf2.8xlarge`` vs ``trn1.32xlarge``).
 4. Git content of ``pyproject.toml`` or ``optimum/neuron/models/inference/``.
+5. Export configuration: model_id, task, or any export_kwargs (batch_size, etc.).
 
 Old hub repos are **not** auto-deleted.  Prune them manually::
 
@@ -90,6 +95,7 @@ does)::
 
 import copy
 import hashlib
+import json
 import logging
 import os
 import sys
@@ -129,12 +135,12 @@ TEST_HUB_ORG = os.getenv("TEST_HUB_ORG", "optimum-internal-testing")
 OPTIMUM_CACHE_REPO_ID = f"{TEST_HUB_ORG}/neuron-testing-cache"
 
 GENERATE_LLM_MODEL_IDS = {
-    "llama": "unsloth/Llama-3.2-1B-Instruct",
+    "llama": "unsloth/Llama-3.2-1B",
     "qwen2": "Qwen/Qwen2.5-0.5B",
     "gemma3": "unsloth/gemma-3-270m-it",
-    "granite": "ibm-granite/granite-3.1-2b-instruct",
+    "granite": "ibm-granite/granite-3.1-2b-base",
     "qwen3": "Qwen/Qwen3-0.6B",
-    "smollm3": "HuggingFaceTB/SmolLM3-3B",
+    "smollm3": "HuggingFaceTB/SmolLM3-3B-Base",
 }
 
 EMBED_LLM_MODEL_IDS = {
@@ -219,6 +225,17 @@ def get_neuron_models_hash():
     return m.hexdigest()[:10]
 
 
+def _config_hash(model_config: dict) -> str:
+    """Compute a short hash of the export configuration parameters.
+
+    Includes model_id, task, and all export_kwargs so that any parameter
+    change produces a different hub repo name, forcing a re-export.
+    Truncated to 6 chars to stay within HF Hub's 96-char repo name limit.
+    """
+    config_str = json.dumps(model_config, sort_keys=True)
+    return hashlib.sha256(config_str.encode()).hexdigest()[:6]
+
+
 def _get_hub_neuron_model_prefix():
     """Build the HF Hub repo name prefix that encodes all invalidation keys.
 
@@ -228,8 +245,11 @@ def _get_hub_neuron_model_prefix():
 
 
 def _get_hub_neuron_model_id(config_name: str, model_config: dict[str, str]):
-    """Return the full HF Hub repo id for a specific model configuration."""
-    return f"{_get_hub_neuron_model_prefix()}-{config_name}"
+    """Return the full HF Hub repo id for a specific model configuration.
+
+    Appends a hash of model_config so any parameter change forces re-export.
+    """
+    return f"{_get_hub_neuron_model_prefix()}-{config_name}-{_config_hash(model_config)}"
 
 
 def _export_model(model_id, task, export_kwargs, neuron_model_path):

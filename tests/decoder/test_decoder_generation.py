@@ -109,7 +109,6 @@ def test_decoder_generation_greedy_expectations(any_generate_model):
         config_name = any_generate_model["name"]
         generated_text = tokenizer.decode(neuron_outputs[0])
         known_different_generations = {
-            "granite-4x1024": "Deep learning is a subset of machine learning that uses artificial neural networks with",
             "qwen3-4x1024": " What are its applications? What are the benefits of using Deep Learning? What are the",
             "qwen3-1x8192": " What are the key features of Deep Learning? What are the applications of Deep Learning?",
         }
