@@ -16,6 +16,7 @@
 import os
 from typing import Any
 
+import pytest
 import torch
 from PIL import Image
 from transformers import AutoModelForImageTextToText, AutoProcessor
@@ -69,8 +70,22 @@ def test_vlm_generation_greedy_expectations(any_vlm_generate_model: dict[str, An
 
 @is_inferentia_test
 @requires_neuronx
-def test_vlm_generation_with_image(any_vlm_generate_model: dict[str, Any]):
-    """Test VLM greedy generation with a real image matches the HF CPU reference."""
+@pytest.mark.parametrize(
+    "num_images, prompt_text",
+    [
+        (1, "Can you describe this image?"),
+        (16, "Are all these images the same?"),
+    ],
+    ids=["single-image", "multi-image-cross-chunk"],
+)
+def test_vlm_generation_with_image(any_vlm_generate_model: dict[str, Any], num_images, prompt_text):
+    """Test VLM greedy generation with images matches the HF CPU reference.
+
+    The multi-image variant uses 16 images with ``longest_edge=512`` (1 tile each)
+    to produce ~1087 tokens, exceeding the default ``prefill_chunk_size=1024``.
+    This forces image tokens to span two prefill chunks, exercising the
+    cross-chunk feature indexing logic.
+    """
     image_path = os.path.join(os.path.dirname(__file__), "venus_botticelli.png")
     image = Image.open(image_path).convert("RGB")
 
@@ -83,14 +98,16 @@ def test_vlm_generation_with_image(any_vlm_generate_model: dict[str, Any]):
     messages = [
         {
             "role": "user",
-            "content": [
-                {"type": "image"},
-                {"type": "text", "text": "Can you describe this image?"},
-            ],
+            "content": [{"type": "image"}] * num_images + [{"type": "text", "text": prompt_text}],
         }
     ]
     text = processor.apply_chat_template(messages, add_generation_prompt=True)
-    inputs = processor(text=text, images=[image], return_tensors="pt")
+    # For multi-image: set longest_edge=image_size (512) so each image produces
+    # exactly 1 tile, keeping total tiles within the compiled max_num_images=17.
+    # Without this, the Idefics3 processor upscales to longest_edge=2048 and
+    # splits each image into up to 17 tiles.
+    processor_kwargs = {"size": {"longest_edge": 512}} if num_images > 1 else {}
+    inputs = processor(text=text, images=[image] * num_images, return_tensors="pt", **processor_kwargs)
     max_new_tokens = 20
 
     # CPU reference

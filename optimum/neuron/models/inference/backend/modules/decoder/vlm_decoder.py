@@ -96,6 +96,14 @@ class NxDModelForImageTextToText(NxDModelForCausalLM):
             raise ValueError("VLM models require 'vision' and 'text' bundles in traced_models")
         super().__init__(config, neuron_config, traced_models, graph_builders)
         self.image_token_id = getattr(config, "image_token_id", None)
+        self._reset_prefill_state()
+
+    def _reset_prefill_state(self):
+        """Reset pre-computed image injection state to defaults."""
+        self._current_pixel_values = None
+        self._full_image_embeds = None
+        self._full_image_token_mask = None
+        self._prefill_chunk_offset = 0
 
     def _get_vision_traced_model(self) -> torch.jit.ScriptModule:
         return self._traced_models["vision"]
@@ -179,15 +187,23 @@ class NxDModelForImageTextToText(NxDModelForCausalLM):
         """Override generate to capture pixel_values for the context encoding forward pass.
 
         The base ``_sample()`` method does not pass ``pixel_values`` through to ``forward()``.
-        We store them temporarily so ``forward()`` can read them during context encoding.
+        We pre-compute full-sequence image embeddings here so that ``forward()``
+        and ``prefill_chunk()`` can simply slice them per chunk without tracking
+        a running feature offset.
         """
         self._current_pixel_values = pixel_values
+        # Pre-compute full-sequence image injection tensors.
+        image_features = self._encode_images(pixel_values)
+        image_embeds, image_token_mask = self._prepare_image_injection_tensors(input_ids, image_features)
+        self._full_image_embeds = image_embeds
+        self._full_image_token_mask = image_token_mask
+        self._prefill_chunk_offset = 0
         try:
             return super().generate(
                 input_ids, attention_mask=attention_mask, generation_config=generation_config, **kwargs
             )
         finally:
-            self._current_pixel_values = None
+            self._reset_prefill_state()
 
     def forward(
         self,
@@ -208,6 +224,14 @@ class NxDModelForImageTextToText(NxDModelForCausalLM):
         is_speculation = input_ids.shape[-1] == self.neuron_config.speculation_length
 
         if is_context_encoding:
+            # Reuse tensors pre-computed by generate() when available;
+            # otherwise encode and prepare now (direct forward() call).
+            if self._full_image_embeds is not None:
+                image_embeds = self._full_image_embeds
+                image_token_mask = self._full_image_token_mask
+            else:
+                image_features = self._encode_images(pixel_values)
+                image_embeds, image_token_mask = self._prepare_image_injection_tensors(input_ids, image_features)
             if self.neuron_config.prefill_chunk_size > 0:
                 chunk_size = self.neuron_config.prefill_chunk_size
                 outputs = None
@@ -215,19 +239,15 @@ class NxDModelForImageTextToText(NxDModelForCausalLM):
                     chunk_end = min(chunk_start + chunk_size, input_ids.shape[-1])
                     chunk_ids = input_ids[:, chunk_start:chunk_end]
                     chunk_pos = position_ids[:, chunk_start:chunk_end]
-                    chunk_image_embeds, chunk_image_token_mask = self._prepare_image_injection_tensors(
-                        chunk_ids, pixel_values
-                    )
                     outputs = self.chunked_prefill_model(
                         chunk_ids,
                         chunk_pos,
                         seq_ids,
                         sampling_params,
-                        chunk_image_embeds,
-                        chunk_image_token_mask,
+                        image_embeds[:, chunk_start:chunk_end, :],
+                        image_token_mask[:, chunk_start:chunk_end],
                     )
             else:
-                image_embeds, image_token_mask = self._prepare_image_injection_tensors(input_ids, pixel_values)
                 outputs = self.context_encoding_model(
                     input_ids,
                     position_ids,
@@ -245,9 +265,33 @@ class NxDModelForImageTextToText(NxDModelForCausalLM):
         return outputs
 
     def prefill_chunk(self, input_ids, position_ids, seq_ids, sampling_params):
-        """Process one prompt chunk while injecting image features on-device."""
-        pixel_values = getattr(self, "_current_pixel_values", None)
-        image_embeds, image_token_mask = self._prepare_image_injection_tensors(input_ids, pixel_values)
+        """Process one prompt chunk while injecting image features on-device.
+
+        Called once per chunk by ``generation_utils._sample()`` and by the vLLM
+        runner.  Full-sequence image injection tensors are pre-computed by
+        :meth:`generate` and stored on ``self``; this method simply slices them
+        for the current chunk.
+        """
+        offset = self._prefill_chunk_offset
+        chunk_len = input_ids.shape[-1]
+
+        if self._full_image_embeds is not None:
+            image_embeds = self._full_image_embeds[:, offset : offset + chunk_len, :]
+            image_token_mask = self._full_image_token_mask[:, offset : offset + chunk_len]
+        else:
+            text_config = getattr(self.config, "text_config", self.config)
+            image_embeds = torch.zeros(
+                (input_ids.shape[0], chunk_len, text_config.hidden_size),
+                dtype=self.neuron_config.torch_dtype,
+                device=input_ids.device,
+            )
+            image_token_mask = torch.zeros(
+                (input_ids.shape[0], chunk_len),
+                dtype=torch.bool,
+                device=input_ids.device,
+            )
+        self._prefill_chunk_offset = offset + chunk_len
+
         outputs = self.chunked_prefill_model(
             input_ids,
             position_ids,
@@ -259,14 +303,61 @@ class NxDModelForImageTextToText(NxDModelForCausalLM):
         self.kv_cache_populated = True
         return outputs
 
-    def _prepare_image_injection_tensors(
-        self, input_ids: torch.Tensor, pixel_values: torch.Tensor = None
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Build image injection tensors for decoder-side on-device embedding.
+    def _encode_images(self, pixel_values: torch.Tensor | None) -> torch.Tensor | None:
+        """Run the vision encoder once and return image features.
+
+        Args:
+            pixel_values: Raw pixel values ``[B, N, C, H, W]`` or ``[B, C, H, W]``,
+                or *None* when there are no images.
 
         Returns:
-            image_embeds: ``[B, S, H]`` tensor with image features at token positions.
-            image_token_mask: ``[B, S]`` bool mask selecting those positions.
+            Image features tensor ``[N_real_tiles, num_patches, H]`` with padding
+            tiles discarded, or *None* if no images were provided.
+        """
+        if pixel_values is None or self.image_token_id is None:
+            return None
+
+        if pixel_values.dim() == 5:
+            pixel_values_flat = pixel_values.reshape(-1, *pixel_values.shape[2:])
+        else:
+            pixel_values_flat = pixel_values
+        pixel_values_flat = pixel_values_flat.to(self.neuron_config.torch_dtype)
+
+        # Pad to the compiled vision encoder batch size (batch_size * max_num_images).
+        compiled_batch = self.neuron_config.batch_size * self.neuron_config.max_num_images
+        num_real_tiles = pixel_values_flat.shape[0]
+        if num_real_tiles < compiled_batch:
+            padding = torch.zeros(
+                compiled_batch - num_real_tiles,
+                *pixel_values_flat.shape[1:],
+                dtype=pixel_values_flat.dtype,
+            )
+            pixel_values_flat = torch.cat([pixel_values_flat, padding], dim=0)
+        elif num_real_tiles > compiled_batch:
+            logger.warning(
+                f"Got {num_real_tiles} image tiles but vision encoder compiled for {compiled_batch}. Truncating."
+            )
+            pixel_values_flat = pixel_values_flat[:compiled_batch]
+            num_real_tiles = compiled_batch
+
+        image_features = self._get_vision_traced_model()(pixel_values_flat)
+        # Only use features from real tiles (discard padding outputs)
+        return image_features[:num_real_tiles]
+
+    def _prepare_image_injection_tensors(
+        self,
+        input_ids: torch.Tensor,
+        image_features: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Build image injection tensors from pre-computed image features.
+
+        Args:
+            input_ids: Token ids for the full prompt sequence.
+            image_features: Pre-computed vision encoder output from
+                :meth:`_encode_images`, or *None* when there are no images.
+
+        Returns:
+            A tuple ``(image_embeds, image_token_mask)`` for the full sequence.
         """
         text_config = getattr(self.config, "text_config", self.config)
         image_embeds = torch.zeros(
@@ -280,35 +371,7 @@ class NxDModelForImageTextToText(NxDModelForCausalLM):
             device=input_ids.device,
         )
 
-        if pixel_values is not None and self.image_token_id is not None:
-            # pixel_values: [B, N, C, H, W] or [B, C, H, W]
-            if pixel_values.dim() == 5:
-                pixel_values_flat = pixel_values.reshape(-1, *pixel_values.shape[2:])
-            else:
-                pixel_values_flat = pixel_values
-            pixel_values_flat = pixel_values_flat.to(self.neuron_config.torch_dtype)
-
-            # Pad to the compiled vision encoder batch size (batch_size * max_num_images).
-            # The processor may produce fewer tiles than the compiled max.
-            compiled_batch = self.neuron_config.batch_size * self.neuron_config.max_num_images
-            num_real_tiles = pixel_values_flat.shape[0]
-            if num_real_tiles < compiled_batch:
-                padding = torch.zeros(
-                    compiled_batch - num_real_tiles,
-                    *pixel_values_flat.shape[1:],
-                    dtype=pixel_values_flat.dtype,
-                )
-                pixel_values_flat = torch.cat([pixel_values_flat, padding], dim=0)
-            elif num_real_tiles > compiled_batch:
-                logger.warning(
-                    f"Got {num_real_tiles} image tiles but vision encoder compiled for {compiled_batch}. Truncating."
-                )
-                pixel_values_flat = pixel_values_flat[:compiled_batch]
-                num_real_tiles = compiled_batch
-
-            image_features = self._get_vision_traced_model()(pixel_values_flat)
-            # Only use features from real tiles (discard padding outputs)
-            image_features = image_features[:num_real_tiles]
+        if image_features is not None:
             image_embeds, image_token_mask = self._build_image_injection_from_features(
                 input_ids,
                 image_features,
