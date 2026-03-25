@@ -155,14 +155,18 @@ for model_name, model_id in GENERATE_LLM_MODEL_IDS.items():
             },
         }
 
-# TP=1 config for data-parallel tests (DP=2 needs 2 cores, each server uses 1 core)
-GENERATE_LLM_MODEL_CONFIGURATIONS["qwen3-tp1-4x1024"] = {
-    "model_id": GENERATE_LLM_MODEL_IDS["qwen3"],
-    "task": "text-generation",
-    "export_kwargs": {
-        "batch_size": 4,
-        "sequence_length": 1024,
-        "tensor_parallel_size": 1,
+# TP=1 config for data-parallel tests (DP=2 needs 2 cores, each server uses 1 core).
+# Kept separate so that `any_generate_model` (which iterates GENERATE_LLM_MODEL_CONFIGURATIONS)
+# does not pick it up — TP=1 models need dedicated test parametrization.
+DP_LLM_MODEL_CONFIGURATIONS = {
+    "qwen3-tp1-4x1024": {
+        "model_id": GENERATE_LLM_MODEL_IDS["qwen3"],
+        "task": "text-generation",
+        "export_kwargs": {
+            "batch_size": 4,
+            "sequence_length": 1024,
+            "tensor_parallel_size": 1,
+        },
     },
 }
 
@@ -180,7 +184,9 @@ for model_name, model_id in EMBED_LLM_MODEL_IDS.items():
         }
 
 
-LLM_MODEL_CONFIGURATIONS = GENERATE_LLM_MODEL_CONFIGURATIONS | EMBED_LLM_MODEL_CONFIGURATIONS
+LLM_MODEL_CONFIGURATIONS = (
+    GENERATE_LLM_MODEL_CONFIGURATIONS | DP_LLM_MODEL_CONFIGURATIONS | EMBED_LLM_MODEL_CONFIGURATIONS
+)
 
 
 def get_neuron_models_hash():
