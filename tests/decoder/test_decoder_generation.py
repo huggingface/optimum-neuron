@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 import torch
-from prompts import get_long_prompt
+from prompts import get_long_prompt, get_repetitive_prompt
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.generation import StoppingCriteria
 
@@ -253,7 +253,7 @@ def test_decoder_generation_long_sequence(neuron_llm_config: dict[str, Any]):
     neuron_llm_path = neuron_llm_config["neuron_model_path"]
     neuron_model = NeuronModelForCausalLM.from_pretrained(neuron_llm_path)
     tokenizer = AutoTokenizer.from_pretrained(neuron_llm_path)
-    inputs = tokenizer(get_long_prompt(model_id, 5000, 8192), return_tensors="pt")
+    inputs = tokenizer(get_repetitive_prompt(model_id, 5000), return_tensors="pt")
     max_new_tokens = 50
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
     generated_text = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
