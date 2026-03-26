@@ -50,7 +50,7 @@ ENCODER_ARCHITECTURES = [
     "albert",
     "bert",
     "camembert",
-    "convbert",
+    # "convbert",  # segfaults on Neuron SDK 2.28.1
     "distilbert",
     "electra",
     "flaubert",

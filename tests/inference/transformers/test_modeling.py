@@ -17,6 +17,7 @@ import os
 import random
 import shutil
 import tempfile
+import unittest
 import warnings
 
 import requests
@@ -1127,6 +1128,7 @@ class NeuronModelForSemanticSegmentationIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
+@unittest.skip("yolos segfaults on Neuron SDK 2.28.1")
 class NeuronModelForObjectDetectionIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForObjectDetection
     TASK = "object-detection"
@@ -1218,6 +1220,7 @@ class NeuronModelForObjectDetectionIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
+@unittest.skip("wav2vec2 segfaults on Neuron SDK 2.28.1")
 class NeuronModelForCTCIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForCTC
     TASK = "automatic-speech-recognition"
@@ -1304,6 +1307,7 @@ class NeuronModelForCTCIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
+@unittest.skip("wav2vec2 segfaults on Neuron SDK 2.28.1")
 class NeuronModelForAudioClassificationIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForAudioClassification
     TASK = "audio-classification"
@@ -1390,6 +1394,7 @@ class NeuronModelForAudioClassificationIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
+@unittest.skip("wav2vec2 segfaults on Neuron SDK 2.28.1")
 class NeuronModelForAudioFrameClassificationIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForAudioFrameClassification
     TASK = "audio-frame-classification"
@@ -1457,6 +1462,7 @@ class NeuronModelForAudioFrameClassificationIntegrationTest(NeuronModelTestMixin
         self._run_compare_to_transformers(model_arch, True, 2, "_dyn_bs_true")
 
 
+@unittest.skip("wav2vec2 segfaults on Neuron SDK 2.28.1")
 class NeuronModelForXVectorIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForXVector
     TASK = "audio-xvector"
