@@ -309,6 +309,11 @@ class ServeCommand(BaseOptimumCLICommand):
             # claiming the entire device when more cores are available.
             physical_cores = VLLMServerManager._resolve_physical_cores()
             if physical_cores is not None:
+                if len(physical_cores) < tensor_parallel_size:
+                    raise ValueError(
+                        f"NEURON_RT_VISIBLE_CORES exposes {len(physical_cores)} core(s) "
+                        f"but tensor_parallel_size={tensor_parallel_size} requires at least that many."
+                    )
                 cores = physical_cores[:tensor_parallel_size]
             else:
                 cores = list(range(tensor_parallel_size))
