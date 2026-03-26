@@ -100,7 +100,7 @@ def test_decoder_generation_greedy_expectations(any_generate_model):
     neuron_llm_path = any_generate_model["neuron_model_path"]
     neuron_model = NeuronModelForCausalLM.from_pretrained(neuron_llm_path)
     tokenizer = AutoTokenizer.from_pretrained(neuron_llm_path)
-    prompt = "What is Deep Learning?"
+    prompt = "Alice was beginning to get very tired of sitting by"
     inputs = tokenizer(prompt, return_tensors="pt")
     max_new_tokens = 17
     outputs = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens)
@@ -109,8 +109,8 @@ def test_decoder_generation_greedy_expectations(any_generate_model):
         config_name = any_generate_model["name"]
         generated_text = tokenizer.decode(neuron_outputs[0])
         known_different_generations = {
-            "qwen3-4x1024": " What are its applications? What are the benefits of using Deep Learning? What are the",
-            "qwen3-1x8192": " What are the key features of Deep Learning? What are the applications of Deep Learning?",
+            "qwen2-4x1024": " by the fire by herself in the evening，and she wished she had something to do．",
+            "qwen2-1x8192": " by the fire by herself in the evening, reading a good book while the of the fire",
         }
         if config_name in known_different_generations:
             assert generated_text.endswith(known_different_generations[config_name])
