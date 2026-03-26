@@ -24,10 +24,10 @@ RUN wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEU
 # Install neuronx packages
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends \
-    aws-neuronx-dkms=2.24.7.0 \
-    aws-neuronx-collectives=2.28.27.0-bc30ece58 \
-    aws-neuronx-runtime-lib=2.28.23.0-dd5879008 \
-    aws-neuronx-tools=2.26.14.0 \
+    aws-neuronx-dkms=2.26.5.0 \
+    aws-neuronx-collectives=2.30.59.0-f5cdefb39 \
+    aws-neuronx-runtime-lib=2.30.51.0-faafe26f0 \
+    aws-neuronx-tools=2.28.23.0-f1c114a9d \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
