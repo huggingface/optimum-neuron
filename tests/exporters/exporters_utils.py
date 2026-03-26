@@ -34,7 +34,7 @@ EXPORT_MODELS_TINY = {
     "beit": "hf-internal-testing/tiny-random-BeitForImageClassification",
     "bert": "hf-internal-testing/tiny-random-BertModel",
     "camembert": "hf-internal-testing/tiny-random-camembert",
-    "convbert": "hf-internal-testing/tiny-random-ConvBertModel",
+    # "convbert": "hf-internal-testing/tiny-random-ConvBertModel",  # segfaults on Neuron SDK 2.28.1
     "convnext": "hf-internal-testing/tiny-random-convnext",
     "convnextv2": "hf-internal-testing/tiny-random-ConvNextV2Model",
     "cvt": "hf-internal-testing/tiny-random-CvTModel",
@@ -47,8 +47,8 @@ EXPORT_MODELS_TINY = {
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
     # "esm": "hf-internal-testing/tiny-random-EsmModel",  # TODO: put the test back, when https://github.com/aws-neuron/aws-neuron-sdk/issues/1081 is solved.
     "flaubert": "flaubert/flaubert_small_cased",
-    "hubert": "hf-internal-testing/tiny-random-HubertModel",
-    "levit": "hf-internal-testing/tiny-random-LevitModel",
+    # "hubert": "hf-internal-testing/tiny-random-HubertModel",  # segfaults on Neuron SDK 2.28.1
+    # "levit": "hf-internal-testing/tiny-random-LevitModel",  # segfaults on Neuron SDK 2.28.1
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
     "mobilenet_v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
     # "mobilevit": "hf-internal-testing/tiny-random-mobilevit",  # blocked since neuron sdk 2.23: timeout
@@ -63,12 +63,12 @@ EXPORT_MODELS_TINY = {
     # "unispeech": "hf-internal-testing/tiny-random-unispeech",  # blocked since neuron sdk 2.23: neuronx-cc failed with 70
     # "unispeech-sat": "hf-internal-testing/tiny-random-unispeech-sat",  # blocked since neuron sdk 2.23: neuronx-cc failed with 70
     "vit": "hf-internal-testing/tiny-random-vit",
-    "wav2vec2": "hf-internal-testing/tiny-random-Wav2Vec2Model",
+    # "wav2vec2": "hf-internal-testing/tiny-random-Wav2Vec2Model",  # segfaults on Neuron SDK 2.28.1
     # "wav2vec2-conformer": "hf-internal-testing/tiny-random-wav2vec2-conformer",  # blocked
     # "wavlm": "hf-internal-testing/tiny-random-wavlm",  # blocked since neuron sdk 2.23: neuronx-cc failed with 70
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
-    "yolos": "hf-internal-testing/tiny-random-YolosModel",
+    # "yolos": "hf-internal-testing/tiny-random-YolosModel",  # segfaults on Neuron SDK 2.28.1
 }
 
 ENCODER_DECODER_MODELS_TINY = {
