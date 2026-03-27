@@ -8,13 +8,18 @@ from huggingface_hub import get_token, snapshot_download
 pytest.importorskip("vllm")
 
 
-@pytest.fixture
-async def any_local_model_vllm_service(vllm_launcher, any_generate_model):
-    model_name_or_path = any_generate_model["neuron_model_path"]
-    service_name = any_generate_model["name"]
+async def _vllm_model_service(vllm_launcher, model_config):
+    model_name_or_path = model_config["neuron_model_path"]
+    service_name = model_config["name"]
     with vllm_launcher(service_name, model_name_or_path) as vllm_service:
         await vllm_service.health(600)
         yield vllm_service
+
+
+@pytest.fixture
+async def any_local_model_vllm_service(vllm_launcher, any_generate_model):
+    async for service in _vllm_model_service(vllm_launcher, any_generate_model):
+        yield service
 
 
 @pytest.fixture(params=["local_neuron", "hub_neuron", "hub_explicit", "hub_implicit", "local_implicit"])
@@ -86,3 +91,23 @@ async def test_vllm_service_greedy_generation(any_local_model_vllm_service):
     # Greedy bounded without input
     greedy_tokens, _ = await any_local_model_vllm_service.client.greedy(prompt, max_output_tokens=max_output_tokens)
     assert greedy_tokens == max_output_tokens
+
+
+@pytest.fixture
+async def any_vlm_vllm_service(vllm_launcher, any_vlm_generate_model):
+    async for service in _vllm_model_service(vllm_launcher, any_vlm_generate_model):
+        yield service
+
+
+@pytest.mark.asyncio
+async def test_vllm_service_vlm_generation_with_image(any_vlm_vllm_service):
+    image_url = "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
+
+    prompt = "Can you describe this image?"
+    max_output_tokens = 17
+    greedy_tokens, greedy_text = await any_vlm_vllm_service.client.greedy_with_images(
+        prompt, [image_url], max_output_tokens=max_output_tokens
+    )
+    print(f"Greedy output: {greedy_text}")
+    assert greedy_tokens == max_output_tokens
+    assert len(greedy_text.strip()) > 0, "Model produced empty output"
