@@ -183,6 +183,19 @@ class NxDModelForImageTextToText(NxDModelForCausalLM):
     # Forward
     # ------------------------------------------------------------------
 
+    def prepare_vlm_prefill(self, input_ids: torch.Tensor, pixel_values: torch.Tensor | None):
+        """Pre-compute image injection tensors for chunked prefill.
+
+        Could be called externally (e.g.: by the vLLM model wrapper) before processing chunks,
+        and internally by :meth:`generate` before delegating to the base
+        sampling loop.
+        """
+        image_features = self._encode_images(pixel_values)
+        image_embeds, image_token_mask = self._prepare_image_injection_tensors(input_ids, image_features)
+        self._full_image_embeds = image_embeds
+        self._full_image_token_mask = image_token_mask
+        self._prefill_chunk_offset = 0
+
     def generate(self, input_ids, attention_mask=None, pixel_values=None, generation_config=None, **kwargs):
         """Override generate to capture pixel_values for the context encoding forward pass.
 
@@ -192,12 +205,7 @@ class NxDModelForImageTextToText(NxDModelForCausalLM):
         a running feature offset.
         """
         self._current_pixel_values = pixel_values
-        # Pre-compute full-sequence image injection tensors.
-        image_features = self._encode_images(pixel_values)
-        image_embeds, image_token_mask = self._prepare_image_injection_tensors(input_ids, image_features)
-        self._full_image_embeds = image_embeds
-        self._full_image_token_mask = image_token_mask
-        self._prefill_chunk_offset = 0
+        self.prepare_vlm_prefill(input_ids, pixel_values)
         try:
             return super().generate(
                 input_ids, attention_mask=attention_mask, generation_config=generation_config, **kwargs
