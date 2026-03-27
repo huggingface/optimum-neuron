@@ -64,6 +64,36 @@ class TestClient(AsyncOpenAI):
     async def greedy(self, prompt: str, max_output_tokens: int, stop: List[str] | None = None):
         return await self.sample(prompt, max_output_tokens=max_output_tokens, temperature=0, stop=stop)
 
+    async def sample_with_images(
+        self,
+        prompt: str,
+        image_urls: List[str],
+        max_output_tokens: int,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        stop: List[str] | None = None,
+    ):
+        content = [{"type": "image_url", "image_url": {"url": url}} for url in image_urls]
+        content.append({"type": "text", "text": prompt})
+        response = await self.chat.completions.create(
+            model=self.model_name,
+            messages=[{"role": "user", "content": content}],
+            max_completion_tokens=max_output_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            stop=stop,
+        )
+        generated_tokens = response.usage.completion_tokens
+        generated_text = response.choices[0].message.content
+        return generated_tokens, generated_text
+
+    async def greedy_with_images(
+        self, prompt: str, image_urls: List[str], max_output_tokens: int, stop: List[str] | None = None
+    ):
+        return await self.sample_with_images(
+            prompt, image_urls, max_output_tokens=max_output_tokens, temperature=0, stop=stop
+        )
+
 
 class LauncherHandle:
     def __init__(self, service_name: str, model_name: str, port: int):
