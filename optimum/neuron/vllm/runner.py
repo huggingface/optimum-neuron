@@ -28,7 +28,12 @@ from vllm.v1.outputs import ModelRunnerOutput
 from vllm.v1.sample.logits_processor import LogitsProcessors
 from vllm.v1.sample.metadata import SamplingMetadata
 
-from .model_loader import OptimumNeuronModel, OptimumNeuronModelForCausalLM, OptimumNeuronModelForEmbedding
+from .model_loader import (
+    OptimumNeuronModel,
+    OptimumNeuronModelForCausalLM,
+    OptimumNeuronModelForEmbedding,
+    OptimumNeuronModelForImageTextToText,
+)
 from .sampler import NeuronSampler
 
 
@@ -217,6 +222,8 @@ class OptimumNeuronModelRunner(ABC):
     def create(vllm_config: VllmConfig) -> "OptimumNeuronModelRunner":
         task = vllm_config.model_config.task or "generate"
         if task == "generate":
+            if vllm_config.model_config.is_multimodal_model:
+                return OptimumNeuronModelRunnerForImageTextToText(vllm_config)
             return OptimumNeuronModelRunnerForCausalLM(vllm_config)
         elif task == "embed":
             return OptimumNeuronModelRunnerForEmbedding(vllm_config)
@@ -229,6 +236,8 @@ class OptimumNeuronModelRunner(ABC):
 
 
 class OptimumNeuronModelRunnerForCausalLM(OptimumNeuronModelRunner):
+    _model_cls = OptimumNeuronModelForCausalLM
+
     def __init__(
         self,
         vllm_config: VllmConfig,
@@ -239,7 +248,7 @@ class OptimumNeuronModelRunnerForCausalLM(OptimumNeuronModelRunner):
         self.logitsproc = LogitsProcessors()
 
     def load_model(self) -> None:
-        self.model = OptimumNeuronModelForCausalLM.create(
+        self.model = self._model_cls.create(
             self.model_config,
             parallel_config=self.parallel_config,
             scheduler_config=self.scheduler_config,
@@ -591,3 +600,104 @@ class OptimumNeuronModelRunnerForEmbedding(OptimumNeuronModelRunner):
         )
 
         return (input_ids, attention_mask)
+
+
+class OptimumNeuronModelRunnerForImageTextToText(OptimumNeuronModelRunnerForCausalLM):
+    """Runner for vision-language models (VLMs) served through vLLM.
+
+    Extends the CausalLM runner with multimodal input handling: pixel_values
+    are extracted from the scheduler's `mm_features` and passed to the
+    Neuron model during prefill. Decode is identical to CausalLM.
+    """
+
+    _model_cls = OptimumNeuronModelForImageTextToText
+
+    @staticmethod
+    def _extract_pixel_values(new_request_data: NewRequestData) -> torch.Tensor | None:
+        """Extract and merge pixel_values from multimodal features."""
+        if not new_request_data.mm_features:
+            return None
+        pixel_values_list = []
+        for mm_feature in new_request_data.mm_features:
+            if mm_feature.modality == "image" and mm_feature.data is not None:
+                data = mm_feature.data.get_data()
+                if "pixel_values" in data:
+                    pv = data["pixel_values"]
+                    if isinstance(pv, torch.Tensor):
+                        if pv.dim() == 3:
+                            pv = pv.unsqueeze(0)
+                        pixel_values_list.append(pv)
+        if not pixel_values_list:
+            return None
+        # Stack tiles: each image may contribute multiple tiles [N_tiles, C, H, W]
+        pixel_values = torch.cat(pixel_values_list, dim=0)
+        # Add batch dimension → [1, N_total_tiles, C, H, W]
+        return pixel_values.unsqueeze(0)
+
+    def _execute_prefill(
+        self,
+        scheduler_output: SchedulerOutput,
+    ) -> tuple[list[OptimumNeuronCachedRequest], torch.Tensor, torch.Tensor | None]:
+        """Process VLM prompt requests one at a time, passing pixel_values."""
+        chunk_size = self.model.model.neuron_config.prefill_chunk_size
+        requests, input_tokens, input_positions, input_seq_ids, sampling_params_list = self._collect_new_requests(
+            scheduler_output
+        )
+        seq_ids = torch.tensor(input_seq_ids, dtype=torch.long, device=self.device)
+        sampling_params_tensor = self.tensor_for_sampling_params(sampling_params_list)
+        n_seqs = len(requests)
+        per_seq_last_logits: list[torch.Tensor | None] = [None] * n_seqs
+
+        for i, (toks, positions) in enumerate(zip(input_tokens, input_positions)):
+            pixel_values = self._extract_pixel_values(scheduler_output.scheduled_new_reqs[i])
+            seq_len = len(toks)
+
+            if chunk_size > 0:
+                # Pre-compute image embeddings for the full sequence.
+                # Pad input_ids to a multiple of chunk_size so that
+                # _prepare_image_injection_tensors produces tensors whose
+                # second dimension matches what the compiled chunk graph expects.
+                n_chunks = math.ceil(seq_len / chunk_size)
+                padded_len = n_chunks * chunk_size
+                padded_toks = toks + [toks[-1]] * (padded_len - seq_len)
+                full_ids = torch.tensor([padded_toks], dtype=torch.long, device=self.device)
+                self.model.prepare_vlm_prefill(full_ids, pixel_values)
+                for k in range(n_chunks):
+                    chunk_start = k * chunk_size
+                    chunk_end = min(chunk_start + chunk_size, seq_len)
+                    chunk_toks = toks[chunk_start:chunk_end]
+                    chunk_pos = positions[chunk_start:chunk_end]
+                    pad_len = chunk_size - len(chunk_toks)
+                    if pad_len > 0:
+                        chunk_toks = chunk_toks + [chunk_toks[-1]] * pad_len
+                        chunk_pos = chunk_pos + [chunk_pos[-1]] * pad_len
+                    chunk_ids_t = torch.tensor([chunk_toks], dtype=torch.long, device=self.device)
+                    chunk_pos_t = torch.tensor([chunk_pos], dtype=torch.long, device=self.device)
+                    # Only the last chunk's logits are needed for sampling the first token.
+                    logits = self.model.prefill_chunk_vllm(
+                        chunk_ids_t, chunk_pos_t, seq_ids[i : i + 1], sampling_params_tensor[i : i + 1]
+                    )
+                self.model.reset_vlm_prefill()
+            else:
+                # Non-chunked: forward with pixel_values.
+                input_ids = make_tensor_with_pad([toks], pad=0, max_len=seq_len, dtype=torch.long, device=self.device)
+                position_ids = make_tensor_with_pad(
+                    [positions], pad=0, max_len=seq_len, dtype=torch.long, device=self.device
+                )
+                logits = self.model(
+                    input_ids=input_ids,
+                    position_ids=position_ids,
+                    seq_ids=seq_ids[i : i + 1],
+                    sampling_params=sampling_params_tensor[i : i + 1],
+                    pixel_values=pixel_values,
+                )
+            per_seq_last_logits[i] = logits[0].clone()
+
+        last_logits = torch.stack(per_seq_last_logits)
+        if chunk_size == 0 and self.model.model.neuron_config.on_device_sampling:
+            # Non-chunked path with on-device sampling: model returns token IDs directly.
+            # unsqueeze to [batch, 1] to match CPU sampler output shape
+            return requests, last_logits.unsqueeze(-1), None
+        sampling_metadata = create_sampling_metadata(requests, vocab_size=self.model.model.config.vocab_size)
+        sampler_outputs = self.sampler(last_logits, sampling_metadata)
+        return requests, sampler_outputs.sampled_token_ids, last_logits

@@ -22,7 +22,7 @@ from argparse import ArgumentParser
 
 from optimum.commands.base import BaseOptimumCLICommand
 from optimum.utils import logging
-from transformers import AutoConfig
+from transformers import AutoConfig, AutoModelForImageTextToText
 
 from ...neuron.cache.hub_cache import select_hub_cached_entries
 from ...neuron.configuration_utils import NeuronConfig
@@ -196,9 +196,18 @@ class ServeCommand(BaseOptimumCLICommand):
         else:
             # Model needs to be exported: look for compatible hub cached configs
 
+            # VLMs are exported/cached under "image-text-to-text", not "text-generation".
+            # The task string is hashed into the arch_digest, so a wrong task will miss
+            # all cached entries. Detect VLMs from the already-loaded config rather than
+            # TasksManager.infer_task_from_model, which does not support local directories.
+            hf_task = VLLM_2_TRANSFORMERS_TASK_MAPPING[self.args.task]
+            if hf_task == "text-generation":
+                vlm_model_types = AutoModelForImageTextToText._model_mapping._model_mapping
+                if config.model_type in vlm_model_types:
+                    hf_task = "image-text-to-text"
             cached_entries = select_hub_cached_entries(
                 model_name_or_path,
-                task=VLLM_2_TRANSFORMERS_TASK_MAPPING[self.args.task],
+                task=hf_task,
                 instance_type=instance_type,
                 batch_size=batch_size,
                 sequence_length=sequence_length,
