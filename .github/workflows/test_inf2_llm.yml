@@ -142,6 +142,7 @@ jobs:
           export HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
           pytest -sv tests/decoder/test_decoder_generation.py
           pytest -sv tests/decoder/test_chunked_prefill.py
+          pytest -sv tests/decoder/test_vlm_generation.py
 
   llm-model-tests-2:
     name: Run LLM pipeline and cache tests
