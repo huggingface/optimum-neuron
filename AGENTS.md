@@ -13,7 +13,7 @@ directories, but must be read manually when working from the project root:
 - `optimum/neuron/models/inference/AGENTS.md` — any inference model work
 - `optimum/neuron/models/inference/backend/modules/attention/AGENTS.md` — attention or NKI kernel work
 - `optimum/neuron/models/inference/<model>/AGENTS.md` — model-specific work (gemma3, llama, qwen3, etc.)
-- `optimum/neuron/cache/AGENTS.md` — cache subsystem work (cleanup, Hub sync, registry)
+- `optimum/neuron/cache/AGENTS.md` — cache subsystem work (bucket storage, fetch/sync, cleanup)
 - `optimum/neuron/vllm/AGENTS.md` — vLLM integration work
 - `tests/AGENTS.md` — test infrastructure, fixtures, and cache management
 
@@ -101,7 +101,7 @@ Use [NxDI](https://github.com/aws-neuron/neuronx-distributed-inference) for neur
 For the full porting checklist and test guidance, see [optimum/neuron/models/inference/AGENTS.md](optimum/neuron/models/inference/AGENTS.md).
 
 ## Cache Management
-Compiled models are cached locally and synced to the HF Hub. See [optimum/neuron/cache/AGENTS.md](optimum/neuron/cache/AGENTS.md) for the full cache architecture, entry states, cleanup logic, and CLI commands. Test helpers live in [tests/conftest.py](tests/conftest.py). Relevant env vars: `NEURON_CC_FLAGS`, `NEURON_COMPILE_CACHE_URL`, `NEURON_RT_VISIBLE_CORES`.
+Compiled NEFFs are cached locally and synced to HF Storage Buckets (default: `aws-neuron/optimum-neuron-neff-cache`). The `hub_neuronx_cache` context manager handles fetch on enter and sync on exit. Bucket operations run in an isolated subprocess via `uv` to avoid `huggingface_hub` version conflicts. See [optimum/neuron/cache/AGENTS.md](optimum/neuron/cache/AGENTS.md) for the full cache architecture, bucket layout, entry states, cleanup logic, and CLI commands. Relevant env vars: `NEURON_CACHE_BUCKET`, `NEURON_COMPILE_CACHE_URL`, `NEURON_CC_FLAGS`.
 
 ## CI/CD Workflows (Summary)
 
@@ -134,6 +134,15 @@ All test workflows follow the same pattern:
   - INF2 decoder: `pytest tests/decoder/`
   - TRN1 training: `pytest -m "is_trainium_test" tests/training/`
 4. Check model-specific AGENTS.md if you touched a model directory.
+
+## Commit Policy
+
+- **Atomic commits**: one logical change per commit. Split refactoring from new feature additions whenever possible.
+- **Tests passing**: each commit should leave tests green. Exceptions acceptable within a branch but not ideal.
+- **Conventional commits**: use `feat(scope):`, `fix(scope):`, `refactor(scope):`, `test(scope):`, `docs(scope):`, `chore(scope):`, etc.
+- **No file lists in commit body**: don't enumerate changed files — that's redundant with git metadata. Focus on the *why*.
+- **Clean history**: present a consistent, rebased commit queue before pushing.
+- **Rebase via script**: when squashing fixups, write a `GIT_SEQUENCE_EDITOR` shell script that transforms the rebase todo (mark fixups, reorder lines). Save it to a file and let the user run `GIT_SEQUENCE_EDITOR=/path/to/script.sh git rebase -i <base>`. Never run interactive rebases directly. If a fixup touches files from multiple parent commits, split it in a separate pass first.
 
 ## Troubleshooting
 
