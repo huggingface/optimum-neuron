@@ -22,7 +22,7 @@ automatically by the neuron factory classes such as NeuronModelForCausalLM.
 import os
 
 from ..auto_model import register_neuron_model
-from .gemma3.modeling_gemma3 import Gemma3NxDModelForCausalLM
+from .gemma3.modeling_gemma3 import Gemma3NxDModelForCausalLM, Gemma3NxDModelForImageTextToText
 from .granite.modeling_granite import GraniteNxDModelForCausalLM
 from .llama.modeling_llama import LlamaNxDModelForCausalLM
 from .llama4.modeling_llama4 import Llama4NxDModelForCausalLM
@@ -49,6 +49,15 @@ def register_neuron_model_for_inference(model_type: str, task: str):
 class Gemma3NeuronModelForCausalLM(Gemma3NxDModelForCausalLM):
     """
     Gemma3 model with NxD backend for inference on AWS Neuron.
+    """
+
+    pass
+
+
+@register_neuron_model_for_inference("gemma3", "image-text-to-text")
+class Gemma3NeuronModelForImageTextToText(Gemma3NxDModelForImageTextToText):
+    """
+    Gemma3 VLM model with NxD backend for vision-language inference on AWS Neuron.
     """
 
     pass

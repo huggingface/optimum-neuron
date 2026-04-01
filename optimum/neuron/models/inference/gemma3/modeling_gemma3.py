@@ -25,14 +25,17 @@ from neuronx_distributed.parallel_layers.layers import (
 from neuronx_distributed.parallel_layers.mappings import _gather_along_dim
 from torch import nn
 from torch_neuronx.xla_impl.ops import RmsNorm
+from transformers import AutoConfig, PretrainedConfig
 from transformers.models.gemma3.configuration_gemma3 import Gemma3TextConfig
 
-from ..backend.config import NxDNeuronConfig
+from ..backend.config import NxDNeuronConfig, NxDVLMNeuronConfig
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
 from ..backend.modules.attention.utils import RotaryEmbedding
 from ..backend.modules.decoder import NxDDecoderModelForCausalLM, NxDModelForCausalLM
+from ..backend.modules.decoder.vlm_decoder import NxDModelForImageTextToText
 from ..backend.modules.generation.sampling import mask_padded_logits
 from ..llama.modeling_llama import convert_state_dict_to_fused_qkv
+from ..smolvlm.modeling_smolvlm import NeuronSigLIPEncoder
 
 
 logger = logging.getLogger("Neuron")
@@ -308,6 +311,10 @@ class NxDGemma3Model(NxDDecoderModelForCausalLM):
         # Final normalization (use custom Gemma3RMSNorm)
         self.norm = NeuronGemma3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
+    def compute_input_embeddings(self, input_ids):
+        """Compute scaled word embeddings from input IDs."""
+        return self.embed_tokens(input_ids)
+
     def forward(
         self,
         input_ids,
@@ -315,18 +322,30 @@ class NxDGemma3Model(NxDDecoderModelForCausalLM):
         seq_ids,
         sampling_params,
     ):
-        """Forward pass with per-layer sliding window / full attention masks.
+        """Forward pass — delegates to compute_input_embeddings + _forward_from_embeddings."""
+        hidden_states = self.compute_input_embeddings(input_ids)
+        return self._forward_from_embeddings(hidden_states, position_ids, seq_ids, sampling_params)
 
-        This overrides the base NxDDecoderModelForCausalLM.forward() to create
-        two attention masks (full causal and sliding window) and select the
+    def _forward_from_embeddings(
+        self,
+        hidden_states,
+        position_ids,
+        seq_ids,
+        sampling_params,
+    ):
+        """Run Gemma3 decoder layers with dual sliding/full attention masks.
+
+        This overrides the base NxDDecoderModelForCausalLM._forward_from_embeddings()
+        to create two attention masks (full causal and sliding window) and select the
         appropriate one for each decoder layer based on its attention_type.
         """
-        is_for_context_encoding = self._is_context_encoding(input_ids.shape[-1])
-        if self._is_for_speculation(input_ids.shape[-1]):
+        batch_size, seq_length = hidden_states.shape[:2]
+        is_for_context_encoding = self._is_context_encoding(seq_length)
+        if self._is_for_speculation(seq_length):
             raise ValueError("Speculation is not supported for Gemma3 model")
 
         cache_size = self.n_positions
-        device = input_ids.device
+        device = hidden_states.device
 
         if is_for_context_encoding:
             past_key_values = None
@@ -366,11 +385,7 @@ class NxDGemma3Model(NxDDecoderModelForCausalLM):
             "sliding_attention": sliding_attention_mask,
         }
 
-        batch_size, seq_length = input_ids.shape[:2]
         position_ids = position_ids.view(-1, seq_length).long()
-
-        inputs_embeds = self.embed_tokens(input_ids)
-        hidden_states = inputs_embeds
 
         new_key_values = []
         # Gemma3 uses different RoPE bases for sliding (rope_local_base_freq) vs
@@ -551,4 +566,265 @@ class Gemma3NxDModelForCausalLM(NxDModelForCausalLM):
             fused_qkv=True,
             continuous_batching=continuous_batching,
             prefill_chunk_size=prefill_chunk_size,
+        )
+
+
+# ---------------------------------------------------------------------------
+# VLM (image-text-to-text) components
+# ---------------------------------------------------------------------------
+
+
+class NeuronGemma3SigLIPVisionEmbeddings(nn.Module):
+    """SigLIP vision embeddings with standard sequential position IDs.
+
+    Gemma3 uses standard SigLIP (not Idefics3), which assigns position IDs as
+    simple sequential integers ``[0, 1, ..., num_patches - 1]``.  This differs
+    from SmolVLM's ``NeuronSigLIPVisionEmbeddings`` which uses Idefics3-specific
+    fractional-coordinate bucketing — using the wrong scheme would produce
+    incorrect position embeddings.
+    """
+
+    def __init__(self, vision_config):
+        super().__init__()
+        num_channels = getattr(vision_config, "num_channels", 3)
+        embed_dim = vision_config.hidden_size
+        patch_size = vision_config.patch_size
+        image_size = vision_config.image_size
+        num_patches = (image_size // patch_size) ** 2
+
+        self.patch_embedding = nn.Conv2d(
+            in_channels=num_channels,
+            out_channels=embed_dim,
+            kernel_size=patch_size,
+            stride=patch_size,
+            padding="valid",
+        )
+        self.position_embedding = nn.Embedding(num_patches, embed_dim)
+        # Standard sequential position IDs [0, 1, ..., num_patches - 1]
+        self.register_buffer("position_ids", torch.arange(num_patches).unsqueeze(0), persistent=False)
+
+    def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
+        batch_size = pixel_values.shape[0]
+        patch_embeds = self.patch_embedding(pixel_values)
+        hidden_states = patch_embeds.flatten(2).transpose(1, 2)
+        return hidden_states + self.position_embedding(self.position_ids.expand(batch_size, -1))
+
+
+class NeuronGemma3SigLIPVisionTransformer(nn.Module):
+    """SigLIP vision transformer for Gemma3.
+
+    Uses standard sequential position embeddings and reuses ``NeuronSigLIPEncoder``
+    from SmolVLM (encoder layers are architecture-identical between standard SigLIP
+    and Idefics3 SigLIP).
+    """
+
+    def __init__(self, vision_config):
+        super().__init__()
+        embed_dim = vision_config.hidden_size
+        self.embeddings = NeuronGemma3SigLIPVisionEmbeddings(vision_config)
+        self.encoder = NeuronSigLIPEncoder(vision_config)
+        self.post_layernorm = nn.LayerNorm(embed_dim, eps=vision_config.layer_norm_eps)
+
+    def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
+        hidden_states = self.embeddings(pixel_values)
+        hidden_states = self.encoder(hidden_states)
+        return self.post_layernorm(hidden_states)
+
+
+class NeuronGemma3MultiModalProjector(nn.Module):
+    """Gemma3 multi-modal projector: AvgPool2d → RMSNorm → linear projection.
+
+    Downsamples vision features from ``patches_per_image ** 2`` tokens to
+    ``mm_tokens_per_image`` tokens using average pooling, then projects from
+    the vision hidden dimension to the text hidden dimension.
+
+    Attribute names match HF ``Gemma3MultiModalProjector`` for direct state
+    dict loading (``mm_input_projection_weight``, ``mm_soft_emb_norm``).
+    """
+
+    def __init__(self, config: PretrainedConfig):
+        super().__init__()
+        vision_hidden_size = config.vision_config.hidden_size
+        text_hidden_size = config.text_config.hidden_size
+        image_size = config.vision_config.image_size
+        patch_size = config.vision_config.patch_size
+        mm_tokens_per_image = config.mm_tokens_per_image
+
+        self.patches_per_image = image_size // patch_size
+        self.tokens_per_side = int(mm_tokens_per_image**0.5)
+        self.kernel_size = self.patches_per_image // self.tokens_per_side
+
+        self.mm_input_projection_weight = nn.Parameter(torch.zeros(vision_hidden_size, text_hidden_size))
+        self.mm_soft_emb_norm = NeuronGemma3RMSNorm(vision_hidden_size, eps=config.vision_config.layer_norm_eps)
+        self.avg_pool = nn.AvgPool2d(kernel_size=self.kernel_size, stride=self.kernel_size)
+
+    def forward(self, vision_outputs: torch.Tensor) -> torch.Tensor:
+        batch_size, num_patches, hidden_size = vision_outputs.shape
+        # Reshape to 2D spatial grid for pooling
+        x = vision_outputs.transpose(1, 2)
+        x = x.reshape(batch_size, hidden_size, self.patches_per_image, self.patches_per_image)
+        x = x.contiguous()
+        x = self.avg_pool(x)
+        # Flatten back to sequence
+        x = x.flatten(2).transpose(1, 2)
+        x = self.mm_soft_emb_norm(x)
+        x = torch.matmul(x, self.mm_input_projection_weight)
+        return x.type_as(vision_outputs)
+
+
+class NeuronGemma3VisionEncoder(nn.Module):
+    """Gemma3 vision encoder: SigLIP vision transformer + multi-modal projector.
+
+    Compiled as a separate bundle (``model_vision.pt``).  Attribute names
+    (``vision_model``, ``multi_modal_projector``) match the HF key namespace
+    after prefix stripping by ``_get_vision_encoder_state_dict``.
+    """
+
+    def __init__(self, config: PretrainedConfig):
+        super().__init__()
+        self.vision_model = NeuronGemma3SigLIPVisionTransformer(config.vision_config)
+        self.multi_modal_projector = NeuronGemma3MultiModalProjector(config)
+
+    def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
+        hidden = self.vision_model(pixel_values)
+        return self.multi_modal_projector(hidden)
+
+
+class NxDGemma3VLMDecoderModel(NxDGemma3Model):
+    """Text decoder for Gemma3 VLM.
+
+    Receives the full ``Gemma3Config`` and extracts ``text_config`` before
+    delegating to the standard Gemma3 decoder construction.  Overrides
+    :meth:`forward` to accept and inject image embeddings during context
+    encoding, following the same pattern as ``NxDSmolVLMDecoderModel``.
+    """
+
+    def __init__(self, config: PretrainedConfig, neuron_config: NxDVLMNeuronConfig):
+        text_config = getattr(config, "text_config", config)
+        self._full_config = config
+        super().__init__(text_config, neuron_config)
+
+    def forward(
+        self,
+        input_ids,
+        position_ids,
+        seq_ids,
+        sampling_params,
+        image_embeds=None,
+        image_token_mask=None,
+    ):
+        """VLM-aware forward: injects image features into text embeddings."""
+        hidden_states = self.compute_input_embeddings(input_ids)
+
+        # Inject image features at image token positions during context encoding
+        if (
+            self._is_context_encoding(input_ids.shape[-1])
+            and image_embeds is not None
+            and image_token_mask is not None
+        ):
+            mask = image_token_mask.to(torch.bool).unsqueeze(-1)
+            hidden_states = torch.where(mask, image_embeds.to(hidden_states.dtype), hidden_states)
+
+        return self._forward_from_embeddings(hidden_states, position_ids, seq_ids, sampling_params)
+
+
+class Gemma3NxDModelForImageTextToText(NxDModelForImageTextToText):
+    """NxD model for Gemma3 VLM inference.
+
+    Manages two compiled bundles:
+    - ``model_vision.pt``: SigLIP vision encoder + Gemma3MultiModalProjector
+    - ``model_text.pt``: Gemma3 text decoder with VLM image injection
+    """
+
+    _model_cls = NxDGemma3VLMDecoderModel
+    _vision_encoder_cls = NeuronGemma3VisionEncoder
+    _STATE_DICT_MODEL_PREFIX = "language_model.model."
+    _supports_chunked_prefill = False
+    task = "image-text-to-text"
+
+    @classmethod
+    def _get_vision_encoder_state_dict(cls, full_sd: dict) -> dict:
+        """Extract and remap Gemma3 vision encoder weights from full HF state dict."""
+        sd = {}
+        for k, v in full_sd.items():
+            if k.startswith("vision_tower.vision_model."):
+                sd["vision_model." + k[len("vision_tower.vision_model.") :]] = v
+            elif k.startswith("multi_modal_projector."):
+                sd[k] = v
+        return sd
+
+    @staticmethod
+    def convert_hf_to_neuron_state_dict(
+        state_dict: dict, config: PretrainedConfig, neuron_config: NxDVLMNeuronConfig
+    ) -> dict:
+        # Preserve lm_head before blanket language_model.* removal (needed when tie_word_embeddings=False)
+        if "language_model.lm_head.weight" in state_dict:
+            state_dict["lm_head.weight"] = state_dict.pop("language_model.lm_head.weight")
+
+        # Remove vision and projector weights (loaded through vision bundle)
+        keys_to_remove = [
+            k
+            for k in state_dict
+            if k.startswith("vision_tower.")
+            or k.startswith("multi_modal_projector.")
+            or k.startswith("vision_model.")
+            or k.startswith("language_model.")
+        ]
+        for k in keys_to_remove:
+            del state_dict[k]
+
+        text_config = getattr(config, "text_config", config)
+        return Gemma3NxDModelForCausalLM.convert_hf_to_neuron_state_dict(state_dict, text_config, neuron_config)
+
+    @staticmethod
+    def update_state_dict_for_tied_weights(state_dict):
+        if "embed_tokens.embedding.weight" in state_dict:
+            state_dict["lm_head.weight"] = state_dict["embed_tokens.embedding.weight"].clone()
+
+    @classmethod
+    def _get_neuron_config(
+        cls,
+        checkpoint_id: str,
+        checkpoint_revision: str,
+        instance_type: str,
+        batch_size: int,
+        sequence_length: int,
+        tensor_parallel_size: int,
+        dtype: torch.dtype,
+        prefill_chunk_size: int = 0,
+    ) -> NxDVLMNeuronConfig:
+        if prefill_chunk_size > 0:
+            logger.warning(
+                "Gemma3 VLM does not support chunked prefill; ignoring prefill_chunk_size=%d and using 0.",
+                prefill_chunk_size,
+            )
+        continuous_batching = (batch_size > 1) if batch_size else False
+        config = AutoConfig.from_pretrained(checkpoint_id, revision=checkpoint_revision)
+        if not hasattr(config, "vision_config"):
+            raise ValueError(f"{checkpoint_id} does not have a vision_config; is it a VLM checkpoint?")
+
+        image_size = config.vision_config.image_size
+        mm_tokens_per_image = config.mm_tokens_per_image
+
+        # Gemma3 does NOT tile images (unlike SmolVLM/Idefics3).
+        # Each image produces exactly mm_tokens_per_image features.
+        # The 27-layer SigLIP at 896x896 generates very large HLOs;
+        # batch_size = 2 * max_num_images > 1 exceeds the compiler instruction limit.
+        max_num_images = 1
+
+        return NxDVLMNeuronConfig(
+            checkpoint_id=checkpoint_id,
+            checkpoint_revision=checkpoint_revision,
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            tp_degree=tensor_parallel_size,
+            torch_dtype=dtype,
+            target=instance_type,
+            on_device_sampling=True,
+            fused_qkv=True,
+            continuous_batching=continuous_batching,
+            prefill_chunk_size=0,
+            max_num_images=max_num_images,
+            image_size=image_size,
+            image_seq_len=mm_tokens_per_image,
         )
