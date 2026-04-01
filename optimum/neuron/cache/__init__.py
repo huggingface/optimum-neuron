@@ -14,4 +14,4 @@
 # limitations under the License.
 
 # Only expose the hub cache public API
-from .hub_cache import get_hub_cached_entries, get_hub_cached_models, synchronize_hub_cache
+from .hub_cache import get_hub_cached_entries, synchronize_hub_cache
