@@ -33,8 +33,6 @@ from transformers import AutoConfig, AutoModel, GenerationMixin
 from optimum.exporters.neuron import main_export
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 
-from .cache.entries.single_model import SingleModelCacheEntry
-from .cache.hub_cache import create_hub_compile_cache_proxy
 from .modeling_base import NeuronModel
 from .utils import (
     DTYPE_MAPPER,
@@ -42,7 +40,6 @@ from .utils import (
     InputShapesArguments,
     check_if_weights_replacable,
     replace_weights,
-    store_compilation_config,
 )
 from .utils.import_utils import is_neuronx_available
 from .utils.instance import align_compilation_target, get_default_compilation_target
@@ -314,89 +311,34 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
             "instance_type": instance_type,
         }
         # clean shapes
-        commit_hash = kwargs_shapes.pop("_commit_hash", None)
+        kwargs_shapes.pop("_commit_hash", None)
 
-        if not disable_neuron_cache and is_neuronx_available():
-            # Check if the cache exists
-            compilation_config = store_compilation_config(
-                config=config,
-                input_shapes=kwargs_shapes,
-                compiler_kwargs=compiler_kwargs,
-                float_dtype=torch_dtype,
-                dynamic_batch_size=dynamic_batch_size,
-                tensor_parallel_size=tensor_parallel_size,
-                compiler_type=NEURON_COMPILER_TYPE,
-                compiler_version=NEURON_COMPILER_VERSION,
-                inline_weights_to_neff=inline_weights_to_neff,
-                optlevel=optlevel,
-                model_type=getattr(config, "model_type", None),
-                task=task,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-            )
-            cache_entry = SingleModelCacheEntry(model_id=model_id, task=task, config=compilation_config)
-            compile_cache = create_hub_compile_cache_proxy()
-            model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
-            cache_available = compile_cache.download_folder(model_cache_dir, model_cache_dir)
-        else:
-            cache_available = False
-
-        # load cache
-        if cache_available:
-            try:
-                neuron_model = cls.from_pretrained(model_cache_dir)
-                model = TasksManager.get_model_from_task(
-                    task=task,
-                    model_name_or_path=model_id,
-                    subfolder=subfolder,
-                    revision=revision,
-                    cache_dir=cache_dir,
-                    token=token,
-                    framework="pt",
-                    torch_dtype=torch_dtype,
-                    local_files_only=local_files_only,
-                    force_download=force_download,
-                    trust_remote_code=trust_remote_code,
-                    _commit_hash=commit_hash,
-                )
-                if not inline_weights_to_neff:
-                    # replace weights
-                    neuron_model.replace_weights(weights=model)
-                return neuron_model
-            except Exception as e:
-                logger.warning(
-                    f"Found the cached artifacts but failed to re-load them with error: {e}. \n Falling back to recompilation."
-                )
-                cache_available = False
-
-        # compile
-        if not cache_available:
-            # compile
-            save_dir = TemporaryDirectory()
-            save_dir_path = Path(save_dir.name)
-            main_export(
-                model_name_or_path=model_id,
-                output=save_dir_path,
-                compiler_kwargs=compiler_kwargs,
-                torch_dtype=torch_dtype,
-                task=task,
-                dynamic_batch_size=dynamic_batch_size,
-                cache_dir=cache_dir,
-                disable_neuron_cache=disable_neuron_cache,
-                compiler_workdir=compiler_workdir,
-                inline_weights_to_neff=inline_weights_to_neff,
-                optlevel=optlevel,
-                trust_remote_code=trust_remote_code,
-                subfolder=subfolder,
-                revision=revision,
-                force_download=force_download,
-                local_files_only=local_files_only,
-                token=token,
-                do_validation=False,
-                library_name=cls.library_name,
-                **kwargs_shapes,
-            )
-            config = AutoConfig.from_pretrained(save_dir_path)
+        # Compile (NEFF caching is handled by bucket cache in export_models)
+        save_dir = TemporaryDirectory()
+        save_dir_path = Path(save_dir.name)
+        main_export(
+            model_name_or_path=model_id,
+            output=save_dir_path,
+            compiler_kwargs=compiler_kwargs,
+            torch_dtype=torch_dtype,
+            task=task,
+            dynamic_batch_size=dynamic_batch_size,
+            cache_dir=cache_dir,
+            disable_neuron_cache=disable_neuron_cache,
+            compiler_workdir=compiler_workdir,
+            inline_weights_to_neff=inline_weights_to_neff,
+            optlevel=optlevel,
+            trust_remote_code=trust_remote_code,
+            subfolder=subfolder,
+            revision=revision,
+            force_download=force_download,
+            local_files_only=local_files_only,
+            token=token,
+            do_validation=False,
+            library_name=cls.library_name,
+            **kwargs_shapes,
+        )
+        config = AutoConfig.from_pretrained(save_dir_path)
 
         if get_neuron_major() == -1:
             logger.warning(

@@ -44,8 +44,6 @@ from optimum.exporters.neuron import (
 )
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 
-from .cache.entries.multi_model import MultiModelCacheEntry
-from .cache.hub_cache import create_hub_compile_cache_proxy
 from .modeling_traced import NeuronTracedModel
 from .utils import (
     DIFFUSION_MODEL_CONTROLNET_NAME,
@@ -978,57 +976,38 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 )
                 compilation_configs[name] = compilation_config
 
-            # 3. Lookup cached config
-            cache_entry = MultiModelCacheEntry(model_id=model_id, configs=compilation_configs)
-            compile_cache = create_hub_compile_cache_proxy()
-            model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
-            cache_exist = compile_cache.download_folder(model_cache_dir, model_cache_dir)
-        else:
-            cache_exist = False
+        # Compile (NEFF caching is handled by bucket cache in export_models)
+        save_dir = TemporaryDirectory()
+        save_dir_path = Path(save_dir.name)
 
-        if cache_exist:
-            # load cache
-            logger.info(
-                f"Neuron cache found at {model_cache_dir}. If you want to recompile the model, please set `disable_neuron_cache=True`."
-            )
-            neuron_model = cls.from_pretrained(model_cache_dir, data_parallel_mode=data_parallel_mode)
-            # replace weights
-            if not inline_weights_to_neff:
-                neuron_model.replace_weights(weights=pipe)
-            return neuron_model
-        else:
-            # compile
-            save_dir = TemporaryDirectory()
-            save_dir_path = Path(save_dir.name)
-
-            main_export(
-                model_name_or_path=model_id,
-                output=save_dir_path,
-                compiler_kwargs=compiler_kwargs,
-                tensor_parallel_size=tensor_parallel_size,
-                lora_args=lora_args,
-                ip_adapter_args=ip_adapter_args,
-                torch_dtype=torch_dtype,
-                task=task,
-                dynamic_batch_size=dynamic_batch_size,
-                cache_dir=cache_dir,
-                disable_neuron_cache=disable_neuron_cache,
-                compiler_workdir=compiler_workdir,
-                inline_weights_to_neff=inline_weights_to_neff,
-                optlevel=optlevel,
-                trust_remote_code=trust_remote_code,
-                subfolder=subfolder,
-                revision=revision,
-                force_download=force_download,
-                local_files_only=local_files_only,
-                token=token,
-                do_validation=False,
-                submodels={"unet": unet_id},
-                output_hidden_states=output_hidden_states,
-                controlnet_ids=controlnet_ids,
-                library_name=cls.library_name,
-                **input_shapes,
-            )
+        main_export(
+            model_name_or_path=model_id,
+            output=save_dir_path,
+            compiler_kwargs=compiler_kwargs,
+            tensor_parallel_size=tensor_parallel_size,
+            lora_args=lora_args,
+            ip_adapter_args=ip_adapter_args,
+            torch_dtype=torch_dtype,
+            task=task,
+            dynamic_batch_size=dynamic_batch_size,
+            cache_dir=cache_dir,
+            disable_neuron_cache=disable_neuron_cache,
+            compiler_workdir=compiler_workdir,
+            inline_weights_to_neff=inline_weights_to_neff,
+            optlevel=optlevel,
+            trust_remote_code=trust_remote_code,
+            subfolder=subfolder,
+            revision=revision,
+            force_download=force_download,
+            local_files_only=local_files_only,
+            token=token,
+            do_validation=False,
+            submodels={"unet": unet_id},
+            output_hidden_states=output_hidden_states,
+            controlnet_ids=controlnet_ids,
+            library_name=cls.library_name,
+            **input_shapes,
+        )
         if get_neuron_major() == -1:
             logger.warning(
                 "No Neuron device detected! Model loading is skipped as it requires Neuron hardware."
