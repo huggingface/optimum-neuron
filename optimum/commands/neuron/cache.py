@@ -12,21 +12,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Defines the command line related to dealing with the Neuron cache repo."""
+"""Defines the command line related to dealing with the Neuron cache."""
 
 from argparse import ArgumentParser
 
+from ...neuron.cache.bucket_cache import fetch_cache
+from ...neuron.cache.bucket_utils import get_cache_bucket, set_cache_bucket_in_hf_home
 from ...neuron.cache.cleanup import cleanup_local_cache, get_local_cache_status
-from ...neuron.cache.hub_cache import select_hub_cached_entries, synchronize_hub_cache
-from ...neuron.utils.cache_utils import (
-    CACHE_REPO_NAME,
-    HF_HOME_CACHE_REPO_FILE,
-    create_custom_cache_repo,
-    set_custom_cache_repo_name_in_hf_home,
-)
+from ...neuron.cache.hub_cache import select_hub_cached_entries
 from ...neuron.utils.import_utils import is_package_available
 from ...neuron.utils.instance import SUPPORTED_INSTANCE_TYPES
-from ...neuron.utils.require_utils import requires_torch_neuronx
 from ...utils import logging
 from ..base import BaseOptimumCLICommand, CommandInfo
 
@@ -34,53 +29,79 @@ from ..base import BaseOptimumCLICommand, CommandInfo
 logger = logging.get_logger()
 
 
-class CreateCustomCacheRepoCommand(BaseOptimumCLICommand):
+class CreateCacheBucketCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: ArgumentParser):
         parser.add_argument(
             "-n",
             "--name",
             type=str,
-            default=CACHE_REPO_NAME,
-            help="The name of the repo that will be used as a remote cache for the compilation files.",
+            default=None,
+            help="The bucket ID (e.g. 'my-org/my-cache'). Defaults to the configured cache bucket.",
         )
         parser.add_argument(
             "--public",
             action="store_true",
-            help="If set, the created repo will be public. By default the cache repo is private.",
+            help="If set, the created bucket will be public. By default the cache bucket is private.",
         )
 
     def run(self):
-        repo_url = create_custom_cache_repo(repo_id=self.args.name, private=not self.args.public)
+        from ...neuron.cache.bucket_cache import _call_server
+
+        bucket_id = self.args.name or get_cache_bucket()
+        if not bucket_id:
+            logger.error("No bucket ID specified and no default bucket configured.")
+            return
+
+        # Verify bucket connectivity via the server (auto-starts if needed)
+        try:
+            _call_server("ping")
+            logger.info(f"Cache bucket server ready for: {bucket_id}")
+        except Exception as e:
+            logger.error(f"Failed to start bucket server: {e}")
+            return
+
+        set_cache_bucket_in_hf_home(bucket_id)
         public_or_private = "public" if self.args.public else "private"
-        logger.info(f"Neuron cache created on the Hugging Face Hub: {repo_url.repo_id} [{public_or_private}].")
-        logger.info(f"Neuron cache name set locally to {repo_url.repo_id} in {HF_HOME_CACHE_REPO_FILE}.")
+        logger.info(f"Neuron cache bucket set to {bucket_id} [{public_or_private}].")
 
 
-class SetCustomCacheRepoCommand(BaseOptimumCLICommand):
+class SetCacheBucketCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
-        parser.add_argument("name", type=str, help="The name of the repo to use as remote cache.")
+        parser.add_argument("name", type=str, help="The bucket ID to use as remote cache (e.g. 'my-org/my-cache').")
 
     def run(self):
-        set_custom_cache_repo_name_in_hf_home(self.args.name)
-        logger.info(f"Neuron cache name set locally to {self.args.name} in {HF_HOME_CACHE_REPO_FILE}.")
+        set_cache_bucket_in_hf_home(self.args.name)
+        logger.info(f"Neuron cache bucket set locally to {self.args.name}.")
 
 
-class SynchronizeRepoCommand(BaseOptimumCLICommand):
+class FetchCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
-        parser.add_argument("--repo_id", type=str, default=None, help="The name of the repo to use as remote cache.")
         parser.add_argument(
-            "--cache_dir", type=str, default=None, help="The cache directory that contains the compilation files."
+            "model_id",
+            type=str,
+            help="The model_id to pre-warm cache for.",
+        )
+        parser.add_argument(
+            "--task",
+            type=str,
+            default=None,
+            help="The task to fetch cache for (e.g. 'text-generation').",
+        )
+        parser.add_argument(
+            "--cache_dir",
+            type=str,
+            default=None,
+            help="The local cache directory to download to.",
         )
 
-    @requires_torch_neuronx
     def run(self):
-        synchronize_hub_cache(cache_path=self.args.cache_dir, cache_repo_id=self.args.repo_id)
+        fetch_cache(model_id=self.args.model_id, task=self.args.task, cache_dir=self.args.cache_dir)
 
 
-class LookupRepoCommand(BaseOptimumCLICommand):
+class LookupCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
         parser.add_argument(
@@ -92,7 +113,7 @@ class LookupRepoCommand(BaseOptimumCLICommand):
             "--task",
             type=str,
             default=None,
-            help="The optional task to lookup cached versions for models supporting multiple tasks.",
+            help="The task to lookup cache for (e.g. 'text-generation').",
         )
         parser.add_argument(
             "--instance_type",
@@ -121,13 +142,11 @@ class LookupRepoCommand(BaseOptimumCLICommand):
             type=int,
             help="Only look for cached models supporting at least the specified sequence length.",
         )
-        parser.add_argument("--repo_id", type=str, default=None, help="The name of the repo to use as remote cache.")
 
     def _list_entries(self):
         entries = select_hub_cached_entries(
             self.args.model_id,
             task=self.args.task,
-            cache_repo_id=self.args.repo_id,
             instance_type=self.args.instance_type,
             batch_size=self.args.batch_size,
             sequence_length=self.args.sequence_length,
@@ -138,24 +157,31 @@ class LookupRepoCommand(BaseOptimumCLICommand):
         if n_entries == 0:
             print(f"No cached entries found for {self.args.model_id}.")
             return
-        # Prepare output table data
         title = f"Cached entries for {self.args.model_id}"
         columns = ["batch size", "sequence length", "tensor parallel", "dtype", "instance type"]
         rows = []
         for entry in entries:
             rows.append(
                 (
-                    str(entry["batch_size"]),
-                    str(entry["sequence_length"]),
-                    str(entry.get("tp_degree", entry.get("tensor_parallel_size"))),
-                    str(entry.get("torch_dtype", entry.get("dtype"))),
-                    str(entry["target"]),
+                    str(entry.get("batch_size", "?")),
+                    str(entry.get("sequence_length", "?")),
+                    str(entry.get("tp_degree", entry.get("tensor_parallel_size", "?"))),
+                    str(entry.get("torch_dtype", entry.get("dtype", "?"))),
+                    str(entry.get("target", "?")),
                 )
             )
-        # Remove duplicates (might happen if the same arch was compiled several times with different models and sync'ed afterwards)
+
+        def _sort_key(row):
+            def _int_or(val):
+                try:
+                    return (0, int(val))
+                except (ValueError, TypeError):
+                    return (1, val)
+
+            return (_int_or(row[2]), _int_or(row[0]), _int_or(row[1]), row[3])
+
         rows = list(set(rows))
-        # Sort by tensor parallel size, then batch size, sequence length, dtype
-        rows = sorted(rows, key=lambda x: (int(x[2]), int(x[0]), int(x[1]), x[3]))
+        rows = sorted(rows, key=_sort_key)
         if is_package_available("rich", "14.1.0"):
             from rich.console import Console
             from rich.table import Table
@@ -231,23 +257,23 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
     SUBCOMMANDS = (
         CommandInfo(
             name="create",
-            help="Create a model repo on the Hugging Face Hub to store Neuron X compilation files.",
-            subcommand_class=CreateCustomCacheRepoCommand,
+            help="Create a storage bucket on the Hugging Face Hub for Neuron compilation files.",
+            subcommand_class=CreateCacheBucketCommand,
         ),
         CommandInfo(
             name="set",
-            help="Set the name of the Neuron cache repo to use locally.",
-            subcommand_class=SetCustomCacheRepoCommand,
+            help="Set the name of the Neuron cache bucket to use locally.",
+            subcommand_class=SetCacheBucketCommand,
         ),
         CommandInfo(
-            name="synchronize",
-            help="Synchronize the neuronx compiler cache with a hub cache repo.",
-            subcommand_class=SynchronizeRepoCommand,
+            name="fetch",
+            help="Pre-warm the local cache by downloading MODULE dirs for a model from the bucket.",
+            subcommand_class=FetchCommand,
         ),
         CommandInfo(
             name="lookup",
-            help="Lookup the neuronx compiler hub cache for the specified model id. Tip: install rich for a nicer display",
-            subcommand_class=LookupRepoCommand,
+            help="Lookup cached export configurations for the specified model id.",
+            subcommand_class=LookupCommand,
         ),
         CommandInfo(
             name="status",
