@@ -40,6 +40,7 @@ dependencies = [
     "transformers ~= 4.57.1",
     "optimum ~= 2.0.0",
     "huggingface_hub >= 0.35.3",
+    "uv >= 0.11",
 ]
 
 [project.urls]
