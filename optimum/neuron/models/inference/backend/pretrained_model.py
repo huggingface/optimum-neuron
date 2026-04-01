@@ -27,7 +27,6 @@ from neuronx_distributed.trace.model_builder import ModelBuilder
 from safetensors.torch import load_file
 from transformers import AutoConfig, AutoModelForCausalLM, PretrainedConfig
 
-from ....cache.entries.single_model import SingleModelCacheEntry
 from ....cache.hub_cache import hub_neuronx_cache
 from ....configuration_utils import NeuronConfig
 from ....utils.instance import align_compilation_target, current_instance_type
@@ -420,12 +419,8 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         )
         # The model NEFF files will be cached locally, but if the model_id corresponds
         # to a hub model, we also create a cache entry for it.
-        cache_entry = (
-            None
-            if os.path.exists(model_id)
-            else SingleModelCacheEntry(model_id, task=cls.task, config=config, neuron_config=neuron_config)
-        )
-        with hub_neuronx_cache(entry=cache_entry):
+        _cache_model_id = None if os.path.exists(model_id) else model_id
+        with hub_neuronx_cache(model_id=_cache_model_id or "local", task=cls.task):
             traced_models = NxDPreTrainedModel.compile(
                 neuron_config=neuron_config,
                 graph_builders=graph_builders,

@@ -27,9 +27,6 @@ import numpy as np
 import torch
 from transformers import PreTrainedModel
 
-from optimum.neuron.cache.entries.multi_model import MultiModelCacheEntry
-from optimum.neuron.cache.entries.single_model import SingleModelCacheEntry
-from optimum.neuron.cache.traced import cache_traced_neuron_artifacts
 from optimum.neuron.utils import (
     DiffusersPretrainedConfig,
     is_neuronx_available,
@@ -37,7 +34,6 @@ from optimum.neuron.utils import (
 )
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
-from ...neuron.utils.cache_utils import get_model_name_or_path
 from ...neuron.utils.system import get_neuron_major
 from ...neuron.utils.version_utils import get_neuronxcc_version
 from ...utils import (
@@ -346,7 +342,6 @@ def export_models(
 
     failed_models = []
     total_compilation_time = 0
-    compile_configs = {}
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -372,6 +367,9 @@ def export_models(
             compiler_workdir=compiler_workdir,
             inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
+            model_name_or_path=model_name_or_path,
+            task=task,
+            disable_neuron_cache=disable_neuron_cache,
             **compiler_kwargs,
         )
         compilation_time = time.time() - start_time
@@ -411,25 +409,8 @@ def export_models(
             output_hidden_states=getattr(sub_neuron_config, "output_hidden_states", False),
         )
         model_config.save_pretrained(output_path.parent)
-        compile_configs[model_name] = model_config
 
     logger.info(f"[Total compilation Time] {np.round(total_compilation_time, 2)} seconds.")
-
-    # cache neuronx model
-    if not disable_neuron_cache and is_neuronx_available():
-        model_id = get_model_name_or_path(model_config) if model_name_or_path is None else model_name_or_path
-        if len(compile_configs) == 1:
-            # FIXME: this is overly complicated just to pass the config
-            cache_config = list(compile_configs.values())[0]
-            cache_entry = SingleModelCacheEntry(model_id=model_id, task=task, config=cache_config)
-        else:
-            try:
-                cache_entry = MultiModelCacheEntry(model_id=model_id, configs=compile_configs)
-            except NotImplementedError:
-                logger.warning(f"Cache indexing is not supported for {model_id}.")
-                cache_entry = None
-        if cache_entry is not None:
-            cache_traced_neuron_artifacts(neuron_dir=output_dir, cache_entry=cache_entry)
 
     # remove models failed to export
     for i, model_name in failed_models:
@@ -451,6 +432,9 @@ def export(
     auto_cast_type: str = "bf16",
     disable_fast_relayout: bool = False,
     disable_fallback: bool = False,
+    model_name_or_path: str | None = None,
+    task: str | None = None,
+    disable_neuron_cache: bool = False,
 ) -> tuple[list[str], list[str]]:
     if is_neuronx_available():
         return export_neuronx(
@@ -463,6 +447,9 @@ def export(
             instance_type=instance_type,
             auto_cast=auto_cast,
             auto_cast_type=auto_cast_type,
+            model_name_or_path=model_name_or_path,
+            task=task,
+            disable_neuron_cache=disable_neuron_cache,
         )
     else:
         raise RuntimeError(
@@ -480,6 +467,9 @@ def export_neuronx(
     optlevel: str = "2",
     auto_cast: str | None = None,
     auto_cast_type: str = "bf16",
+    model_name_or_path: str | None = None,
+    task: str | None = None,
+    disable_neuron_cache: bool = False,
 ) -> tuple[list[str], list[str]]:
     """
     Exports a PyTorch model to a serialized TorchScript module compiled by neuronx-cc compiler.
@@ -559,18 +549,27 @@ def export_neuronx(
         )
         inline_weights_to_neff = True
 
-    # Start trace
-    trace_neuronx(
-        model=checked_model,
-        config=config,
-        dummy_inputs=dummy_inputs_tuple,
-        compiler_args=compiler_args,
-        output=output,
-        tensor_parallel_size=config.tensor_parallel_size,
-        aliases=aliases,
-        inline_weights_to_neff=inline_weights_to_neff,
-        compiler_workdir=compiler_workdir,
-    )
+    # Start trace (wrapped in cache context for NEFF fetch/sync)
+    def _do_trace():
+        trace_neuronx(
+            model=checked_model,
+            config=config,
+            dummy_inputs=dummy_inputs_tuple,
+            compiler_args=compiler_args,
+            output=output,
+            tensor_parallel_size=config.tensor_parallel_size,
+            aliases=aliases,
+            inline_weights_to_neff=inline_weights_to_neff,
+            compiler_workdir=compiler_workdir,
+        )
+
+    if not disable_neuron_cache and model_name_or_path:
+        from optimum.neuron.cache.hub_cache import hub_neuronx_cache
+
+        with hub_neuronx_cache(model_id=model_name_or_path, task=task):
+            _do_trace()
+    else:
+        _do_trace()
 
     del model_or_path
     return config.inputs, config.outputs

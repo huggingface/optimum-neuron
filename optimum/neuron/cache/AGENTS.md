@@ -4,21 +4,75 @@
 
 | File | Purpose | Neuronx required? |
 |------|---------|:-:|
+| `bucket_utils.py` | Bucket resolution, model ID encoding, config hashing, path translation | No |
+| `bucket_cache.py` | Context manager (`hub_neuronx_cache`), `fetch_cache`, `sync_cache`, `lookup_cache` | No |
+| `bucket_cli.py` | Standalone subprocess for bucket API (runs via `uv run --with "huggingface_hub>=1.0"`) | No |
+| `hub_cache.py` | Public API shim — re-exports `hub_neuronx_cache`, `synchronize_hub_cache`, `select_hub_cached_entries` | No |
 | `cleanup.py` | Local compile cache inspection and cleanup (`get_local_cache_status`, `cleanup_local_cache`) | No |
-| `hub_cache.py` | HF Hub cache proxy, monkey-patching, registry, sync with retry | Yes (runtime) |
-| `entries/cache_entry.py` | `ModelCacheEntry` dataclass — serialization, arch digest, hash | No |
-| `entries/single_model.py`, `entries/multi_model.py` | Concrete entry types | No |
-| `training.py`, `traced.py` | Legacy cache wrappers for training and traced model paths | Yes |
+| `entries/cache_entry.py` | `ModelCacheEntry` dataclass — kept for backwards compat with callers | No |
+| `entries/single_model.py`, `entries/multi_model.py` | Concrete entry types — kept for backwards compat | No |
+| `training.py` | Training cache wrapper | Yes |
+| `traced.py` | Deprecated — traced model caching now handled by bucket context | No |
 | `optimum_neuron_cc_wrapper.py` | Compiler wrapper hooks | Yes |
 
 CLI commands live in `optimum/commands/neuron/cache.py` (not in this directory).
+
+## Architecture: Bucket-Based Cache
+
+NEFFs are stored in HF Storage Buckets (not Git repos). The bucket API requires
+`huggingface_hub >= 1.0`, which conflicts with `transformers < 1.0` constraint.
+This is solved by running bucket operations in an isolated subprocess via
+`uv run --with "huggingface_hub>=1.0"` (see `bucket_cli.py`).
+
+### Bucket Layout
+
+```
+aws-neuron/optimum-neuron-neff-cache/
+  neuronxcc-{compiler_version}/              # full version with hash (e.g. 2.28.4405.0+abc123)
+    MODULE_{hlo_hash}+{flags_hash}/          # flat NEFFs (hf-mount compatible)
+      model.neff
+      model.done
+      model.hlo_module.pb
+      compile_flags.json
+    {encoded_model_id}/                      # per-model area (fetch/lookup/sync)
+      exports/{optimum_neuron_version}/      # export records (advisory, for lookup only)
+        {8-char-hash}.json                   # flat neuron config dict
+      MODULE_{hlo_hash}+{flags_hash}/        # same NEFFs (Xet dedup = zero storage cost)
+        ...
+```
+
+- **Flat area**: matches local cache layout. Used by hf-mount.
+- **Per-model area**: organized by model. Used by `fetch_cache()` and `lookup_cache()`.
+- **Xet dedup**: identical files stored once, referenced from both locations.
+- **model_id encoding**: `/` replaced with `--` (e.g. `meta-llama--Llama-3.1-8B`).
+
+### Data Flow
+
+```
+with hub_neuronx_cache(model_id, export_config):
+    # __enter__: snapshot MODULE dirs, fetch from bucket (if not mounted)
+    ... compilation ...
+    # __exit__: diff MODULE dirs, upload new ones + export record to bucket
+```
+
+The context manager is the primary API. It handles:
+- **Fetch on enter** (non-mount mode): downloads cached NEFFs from per-model area
+- **Sync on exit**: uploads new MODULE dirs to both flat + per-model areas
+- **Export record**: flat neuron config uploaded last (signals export completed)
+
+No monkey-patching of `libneuronxla` — the compiler uses its normal `CompileCacheFs`.
+
+### Bucket Resolution
+
+Priority: `NEURON_CACHE_BUCKET` env var > locally saved (`~/.cache/huggingface/optimum_neuron_cache_bucket`) > default (`aws-neuron/optimum-neuron-neff-cache`).
 
 ## Local Compile Cache
 
 ### Path Resolution
 1. `cache_dir` kwarg (explicit)
-2. `NEURON_COMPILE_CACHE_URL` env var (local path or S3 URL)
-3. Default: `/var/tmp/neuron-compile-cache`
+2. `NEURON_COMPILE_CACHE_URL` env var (what libneuronxla uses)
+3. `NEURON_CC_FLAGS --cache_dir=` flag
+4. Default: `/var/tmp/neuron-compile-cache`
 
 ### Directory Layout
 ```
@@ -45,33 +99,24 @@ CLI commands live in `optimum/commands/neuron/cache.py` (not in this directory).
 
 Failed entries permanently block recompilation of the same graph. This is the primary reason `cleanup_local_cache()` exists.
 
-## libneuronxla Monkey-Patching
+## Export Records
 
-The Hub cache integration works by replacing `libneuronxla.create_compile_cache` at runtime:
+Export records are flat neuron config dicts stored in the bucket under
+`{compiler}/{model_id}/exports/{optimum_neuron_version}/{hash}.json`.
 
-```python
-# hub_cache.py — hub_neuronx_cache() context manager
-patch_everywhere("create_compile_cache", hf_create_compile_cache, "libneuronxla")
-try:
-    yield  # all compilations during this block use CompileCacheHfProxy
-finally:
-    patch_everywhere("create_compile_cache", create_compile_cache, "libneuronxla")
-```
+They are **advisory only** — used by `lookup_cache()` and `select_hub_cached_entries()`
+to show what was previously exported. Not used for NEFF selection (the compiler handles that).
 
-`CompileCacheHfProxy` wraps a local `CompileCacheFs` (or `CompileCacheS3`) and adds Hub lookup/download as a fallback. It delegates all writes to the local cache — Hub upload only happens via explicit `synchronize()`.
+Key fields: `static_batch_size`, `static_sequence_length`, `tensor_parallel_size`,
+`instance_type`, `float_dtype`, `task`, `compiler_version`, `optlevel`.
 
-The patching utility is in `optimum/neuron/utils/patching.py`.
+## hf-mount Support
 
-## Hub Cache Sync
-
-`synchronize_hub_cache()` uploads the local cache to a HF Hub repo:
-1. Calls `cleanup_local_cache()` to remove failed entries and stale locks (avoid syncing poison)
-2. Creates `CompileCacheHfProxy` pointing at the Hub repo
-3. Calls `proxy.synchronize()` which uses `upload_folder()` with `parent_commit` for optimistic concurrency
-4. On HTTP 412 conflict: exponential backoff + jitter, up to 5 retries (constants: `_SYNC_MAX_RETRIES`, `_SYNC_BASE_WAIT_SECS`, `_SYNC_MAX_WAIT_SECS`)
-
-### Registry Structure
-Cache entries are indexed under `0_REGISTRY/{optimum_version}/{arch_digest}/{hash}.json` with symlink aliases at `0_REGISTRY/{optimum_version}/{model_type}/{org}/{model}/{hash}.json`.
+With `hf-mount` and `--upperdir` (requires CAP_SYS_ADMIN):
+- Mount provides lazy-loaded NEFFs from the flat bucket area
+- No fetch needed (mount replaces it)
+- Sync still uploads new NEFFs via API on context exit
+- Mount detection: `os.path.ismount(cache_dir)` or `NEURON_CACHE_MOUNTED=0|1` override
 
 ## CLI Commands
 
@@ -79,33 +124,29 @@ All defined in `optimum/commands/neuron/cache.py`:
 
 | Command | Description |
 |---------|-------------|
-| `cache create` | Create a Hub cache repo |
-| `cache set` | Set active Hub cache repo locally |
-| `cache synchronize` | Upload local cache to Hub (cleans up first) |
-| `cache lookup` | Search Hub cache for compiled models |
+| `cache create` | Create/verify a cache bucket |
+| `cache set` | Set active cache bucket locally |
+| `cache synchronize` | Upload deferred-sync MODULE dirs (scans for `.bucket_meta.json`) |
+| `cache fetch` | Pre-warm local cache from bucket for a model |
+| `cache lookup` | List cached export configs for a model |
 | `cache status` | Show local cache entry counts, sizes, compiler versions |
 | `cache cleanup` | Remove failed/locked/empty entries from local cache |
 
-`cleanup` flags: `--all` (include empty), `--old-versions`, `--wipe`, `--dry-run`, `--cache_dir`.
+## Environment Variables
 
-## libneuronxla APIs
-
-Used from `libneuronxla.neuron_cc_cache`:
-- `CacheUrl.get_cache_url(cache_dir=None)` — resolve cache URL
-- `create_compile_cache(cache_url)` — factory for `CompileCacheFs` or `CompileCacheS3`
-- `cache.get_hlos()` → `(hlos, locked, done, failed)` — categorized HLO paths
-- `cache.clear_locks()` — remove all `.lock` files
-- `cache.clean()` — `shutil.rmtree` the cache
+| Variable | Purpose |
+|----------|---------|
+| `NEURON_CACHE_BUCKET` | Override cache bucket ID |
+| `NEURON_CACHE_MOUNTED` | Override mount detection (`0`/`1`) |
+| `NEURON_COMPILE_CACHE_URL` | Local cache directory (read by libneuronxla) |
+| `NEURON_CC_FLAGS` | Compiler flags (may include `--cache_dir=`) |
 
 ## Testing
 
-CPU-only unit tests (no Neuron hardware):
-- `tests/decoder/test_cache_cleanup.py` — tests for `cleanup.py` (local cache status/cleanup)
-- `tests/decoder/test_cache_sync_retry.py` — tests for Hub sync retry logic
+CPU-only unit tests:
+- `tests/cache/test_bucket_utils.py` — path helpers, config hash, bucket resolution
+- `tests/cache/test_bucket_cache.py` — fetch/sync/lookup against `dacorvo/neuron-compile-cache` test bucket (requires `uv`)
+- `tests/decoder/test_cache_cleanup.py` — local cache status and cleanup
 
 Integration tests (require Neuron hardware + Hub access):
-- `tests/decoder/test_cache.py` — end-to-end Hub cache sync: compile, sync, verify registry entries
-
-CI:
-- `.github/workflows/test_cpu_compilation.yml` — runs CPU-only cache unit tests
-- `.github/workflows/test_inf2_llm.yml` — runs `test_cache.py` on inf2 hardware
+- `tests/decoder/test_cache.py` — end-to-end cache: compile, sync, verify

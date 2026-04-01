@@ -34,7 +34,7 @@ from huggingface_hub import (
 from transformers import AutoConfig
 
 from ...utils import logging
-from .cache_utils import get_hf_hub_cache_repos, has_write_access_to_repo, load_custom_cache_repo_name_from_hf_home
+from ..cache.bucket_utils import get_cache_bucket
 
 
 logger = logging.get_logger()
@@ -346,22 +346,18 @@ class ExampleRunner:
                 "You need to log in the Hugging Face Hub otherwise you will not be able to push anything. "
                 "Please run the following command: huggingface-cli login"
             )
-        saved_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
-        custom_cache_repo = os.environ.get("CUSTOM_CACHE_REPO", None)
-        if saved_custom_cache_repo is None and custom_cache_repo is None:
-            logger.warning(
-                "No custom Neuron cache repo set which means that the official Neuron cache repo will be used. If "
-                "you are not a member of the Optimum Neuron Team, this means that you will not be able to push to the "
-                "Hub. Follow the instructions here to set you custom Neuron cache: "
-                "https://huggingface.co/docs/optimum-neuron/guides/cache_system#how-to-use-a-private-trainium-model-cache"
-            )
+        bucket_id = get_cache_bucket()
+        if not bucket_id:
+            logger.warning("No Neuron cache bucket configured. Set one with: optimum-cli neuron cache set <bucket_id>")
+        else:
+            from ..cache.bucket_utils import DEFAULT_CACHE_BUCKET
 
-        main_repo = get_hf_hub_cache_repos()[0]
-        has_write_access = has_write_access_to_repo(main_repo)
-        if not has_write_access:
-            raise RuntimeError(
-                f"You do not have write access to {main_repo}. Please log in and/or use a custom Neuron cache repo."
-            )
+            if bucket_id == DEFAULT_CACHE_BUCKET:
+                logger.warning(
+                    f"Using the default public cache bucket ({DEFAULT_CACHE_BUCKET}). "
+                    "You may not have write access. Set a custom bucket with: "
+                    "optimum-cli neuron cache set <bucket_id>"
+                )
 
     def download_model_repo_and_override_config(
         self, model_name_or_path: str, config_overrides: Dict[str, Any], output_dir: Union[str, Path]
