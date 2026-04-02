@@ -68,33 +68,20 @@ def test_vlm_generation_greedy_expectations(any_vlm_generate_model: dict[str, An
     assert torch.equal(neuron_outputs, cpu_outputs), "Neuron and CPU outputs differ at the token level"
 
 
-@is_inferentia_test
-@requires_neuronx
-@pytest.mark.parametrize(
-    "num_images, prompt_text",
-    [
-        (1, "Can you describe this image?"),
-        (16, "Are all these images the same?"),
-    ],
-    ids=["single-image", "multi-image-cross-chunk"],
-)
-def test_vlm_generation_with_image(any_vlm_generate_model: dict[str, Any], num_images, prompt_text):
-    """Test VLM greedy generation with images matches the HF CPU reference.
+def _generate_with_image(vlm_config, num_images, prompt_text, processor_kwargs=None):
+    """Helper: run VLM generation with images on both Neuron and CPU.
 
-    The multi-image variant uses 16 images with ``longest_edge=512`` (1 tile each)
-    to produce ~1087 tokens, exceeding the default ``prefill_chunk_size=1024``.
-    This forces image tokens to span two prefill chunks, exercising the
-    cross-chunk feature indexing logic.
+    Returns (neuron_outputs, cpu_outputs, neuron_text, cpu_text, inputs).
     """
     image_path = os.path.join(os.path.dirname(__file__), "venus_botticelli.png")
     image = Image.open(image_path).convert("RGB")
 
-    model_id = any_vlm_generate_model["model_id"]
-    neuron_model_path = any_vlm_generate_model["neuron_model_path"]
+    model_id = vlm_config["model_id"]
+    neuron_model_path = vlm_config["neuron_model_path"]
 
+    neuron_model = NeuronModelForImageTextToText.from_pretrained(neuron_model_path)
     processor = AutoProcessor.from_pretrained(neuron_model_path)
 
-    # SmolVLM / Idefics3 requires the chat template to emit image tokens correctly.
     messages = [
         {
             "role": "user",
@@ -102,12 +89,7 @@ def test_vlm_generation_with_image(any_vlm_generate_model: dict[str, Any], num_i
         }
     ]
     text = processor.apply_chat_template(messages, add_generation_prompt=True)
-    # For multi-image: set longest_edge=image_size (512) so each image produces
-    # exactly 1 tile, keeping total tiles within the compiled max_num_images=17.
-    # Without this, the Idefics3 processor upscales to longest_edge=2048 and
-    # splits each image into up to 17 tiles.
-    processor_kwargs = {"size": {"longest_edge": 512}} if num_images > 1 else {}
-    inputs = processor(text=text, images=[image] * num_images, return_tensors="pt", **processor_kwargs)
+    inputs = processor(text=text, images=[image] * num_images, return_tensors="pt", **(processor_kwargs or {}))
     max_new_tokens = 20
 
     # CPU reference
@@ -116,7 +98,6 @@ def test_vlm_generation_with_image(any_vlm_generate_model: dict[str, Any], num_i
     cpu_text = processor.decode(cpu_outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
 
     # Neuron model
-    neuron_model = NeuronModelForImageTextToText.from_pretrained(neuron_model_path)
     neuron_outputs = neuron_model.generate(
         inputs["input_ids"],
         pixel_values=inputs["pixel_values"],
@@ -125,7 +106,67 @@ def test_vlm_generation_with_image(any_vlm_generate_model: dict[str, Any], num_i
     )
     neuron_text = processor.decode(neuron_outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
 
-    # Check output is non-empty and matches the CPU reference.
+    return neuron_outputs, cpu_outputs, neuron_text, cpu_text, inputs
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_vlm_generation_with_single_image(any_vlm_generate_model: dict[str, Any]):
+    """Test single-image VLM generation matches CPU reference exactly.
+
+    This is the universal VLM correctness test: one image, exact token match.
+    All VLM models must pass this.
+    """
+    neuron_outputs, cpu_outputs, neuron_text, cpu_text, _ = _generate_with_image(
+        any_vlm_generate_model, num_images=1, prompt_text="Can you describe this image?"
+    )
+    assert len(neuron_text.strip()) > 0, "Neuron model produced empty output"
+    assert cpu_text == neuron_text, f"Neuron and CPU outputs differ.\nNeuron: {neuron_text!r}\nCPU:    {cpu_text!r}"
+    assert torch.equal(neuron_outputs, cpu_outputs), "Neuron and CPU outputs differ at the token level"
+
+
+@is_inferentia_test
+@requires_neuronx
+@pytest.mark.parametrize(
+    "neuron_vlm_config, num_images, prompt_text, processor_kwargs",
+    [
+        pytest.param(
+            "gemma3-2x2048",
+            5,
+            "Are these images the same?",
+            None,
+            id="gemma3-5-images",
+        ),
+        pytest.param(
+            "smolvlm-2x2048",
+            16,
+            "Are all these images the same?",
+            {"size": {"longest_edge": 512}},
+            id="smolvlm-16-images-cross-chunk",
+        ),
+    ],
+    indirect=["neuron_vlm_config"],
+)
+def test_vlm_generation_with_multiple_images(
+    neuron_vlm_config: dict[str, Any],
+    num_images: int,
+    prompt_text: str,
+    processor_kwargs: dict | None,
+):
+    """Test multi-image VLM generation matches CPU reference exactly.
+
+    Parameterized per model to exercise model-specific multi-image paths:
+    - Gemma3: 5 images at full resolution (no tiling), TP-sharded vision encoder.
+    - SmolVLM: 16 tiled images (longest_edge=512, 1 tile each) producing ~1087
+      tokens that exceed prefill_chunk_size=1024, exercising cross-chunk feature
+      indexing.
+    """
+    neuron_outputs, cpu_outputs, neuron_text, cpu_text, _ = _generate_with_image(
+        neuron_vlm_config,
+        num_images=num_images,
+        prompt_text=prompt_text,
+        processor_kwargs=processor_kwargs,
+    )
     assert len(neuron_text.strip()) > 0, "Neuron model produced empty output"
     assert cpu_text == neuron_text, f"Neuron and CPU outputs differ.\nNeuron: {neuron_text!r}\nCPU:    {cpu_text!r}"
     assert torch.equal(neuron_outputs, cpu_outputs), "Neuron and CPU outputs differ at the token level"
