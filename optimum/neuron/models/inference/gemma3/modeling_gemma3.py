@@ -26,6 +26,7 @@ from neuronx_distributed.parallel_layers.mappings import _gather_along_dim
 from torch import nn
 from torch_neuronx.xla_impl.ops import RmsNorm
 from transformers import AutoConfig, PretrainedConfig
+from transformers.activations import ACT2FN
 from transformers.models.gemma3.configuration_gemma3 import Gemma3TextConfig
 
 from ..backend.config import NxDNeuronConfig, NxDVLMNeuronConfig
@@ -35,7 +36,6 @@ from ..backend.modules.decoder import NxDDecoderModelForCausalLM, NxDModelForCau
 from ..backend.modules.decoder.vlm_decoder import NxDModelForImageTextToText
 from ..backend.modules.generation.sampling import mask_padded_logits
 from ..llama.modeling_llama import convert_state_dict_to_fused_qkv
-from ..smolvlm.modeling_smolvlm import NeuronSigLIPEncoder
 
 
 logger = logging.getLogger("Neuron")
@@ -610,19 +610,115 @@ class NeuronGemma3SigLIPVisionEmbeddings(nn.Module):
         return hidden_states + self.position_embedding(self.position_ids.expand(batch_size, -1))
 
 
-class NeuronGemma3SigLIPVisionTransformer(nn.Module):
-    """SigLIP vision transformer for Gemma3.
+class NeuronGemma3SigLIPAttention(nn.Module):
+    """TP-sharded multi-headed attention for the SigLIP vision encoder.
 
-    Uses standard sequential position embeddings and reuses ``NeuronSigLIPEncoder``
-    from SmolVLM (encoder layers are architecture-identical between standard SigLIP
-    and Idefics3 SigLIP).
+    Uses ``ColumnParallelLinear`` for Q/K/V projections and ``RowParallelLinear``
+    for the output projection so the vision encoder is distributed across TP
+    ranks, reducing per-rank HLO size.
+    """
+
+    def __init__(self, vision_config):
+        super().__init__()
+        self.embed_dim = vision_config.hidden_size
+        self.num_heads = vision_config.num_attention_heads
+        self.head_dim = self.embed_dim // self.num_heads
+        self.scale = self.head_dim**-0.5
+
+        self.q_proj = ColumnParallelLinear(self.embed_dim, self.embed_dim, bias=True, gather_output=False, pad=True)
+        self.k_proj = ColumnParallelLinear(self.embed_dim, self.embed_dim, bias=True, gather_output=False, pad=True)
+        self.v_proj = ColumnParallelLinear(self.embed_dim, self.embed_dim, bias=True, gather_output=False, pad=True)
+        self.out_proj = RowParallelLinear(self.embed_dim, self.embed_dim, bias=True, input_is_parallel=True, pad=True)
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        batch_size, seq_length, _ = hidden_states.shape
+
+        queries = self.q_proj(hidden_states)
+        keys = self.k_proj(hidden_states)
+        values = self.v_proj(hidden_states)
+
+        # Per-rank output dim = embed_dim // tp_degree; derive per-rank head count
+        per_rank_dim = queries.shape[-1]
+        num_heads_per_rank = per_rank_dim // self.head_dim
+        queries = queries.view(batch_size, seq_length, num_heads_per_rank, self.head_dim).transpose(1, 2)
+        keys = keys.view(batch_size, seq_length, num_heads_per_rank, self.head_dim).transpose(1, 2)
+        values = values.view(batch_size, seq_length, num_heads_per_rank, self.head_dim).transpose(1, 2)
+
+        attn_weights = torch.matmul(queries, keys.transpose(-1, -2)) * self.scale
+        attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(queries.dtype)
+        attn_output = torch.matmul(attn_weights, values)
+
+        attn_output = attn_output.transpose(1, 2).reshape(batch_size, seq_length, per_rank_dim)
+        return self.out_proj(attn_output)
+
+
+class NeuronGemma3SigLIPMLP(nn.Module):
+    """TP-sharded MLP for the SigLIP vision encoder."""
+
+    def __init__(self, vision_config):
+        super().__init__()
+        hidden_size = vision_config.hidden_size
+        intermediate_size = vision_config.intermediate_size
+        self.activation_fn = ACT2FN[vision_config.hidden_act]
+        self.fc1 = ColumnParallelLinear(hidden_size, intermediate_size, bias=True, gather_output=False, pad=True)
+        self.fc2 = RowParallelLinear(intermediate_size, hidden_size, bias=True, input_is_parallel=True, pad=True)
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        hidden_states = self.fc1(hidden_states)
+        hidden_states = self.activation_fn(hidden_states)
+        return self.fc2(hidden_states)
+
+
+class NeuronGemma3SigLIPEncoderLayer(nn.Module):
+    """Single TP-sharded SigLIP vision encoder layer."""
+
+    def __init__(self, vision_config):
+        super().__init__()
+        embed_dim = vision_config.hidden_size
+        self.self_attn = NeuronGemma3SigLIPAttention(vision_config)
+        self.layer_norm1 = nn.LayerNorm(embed_dim, eps=vision_config.layer_norm_eps)
+        self.mlp = NeuronGemma3SigLIPMLP(vision_config)
+        self.layer_norm2 = nn.LayerNorm(embed_dim, eps=vision_config.layer_norm_eps)
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        residual = hidden_states
+        hidden_states = self.layer_norm1(hidden_states)
+        hidden_states = self.self_attn(hidden_states)
+        hidden_states = residual + hidden_states
+
+        residual = hidden_states
+        hidden_states = self.layer_norm2(hidden_states)
+        hidden_states = self.mlp(hidden_states)
+        return residual + hidden_states
+
+
+class NeuronGemma3SigLIPEncoder(nn.Module):
+    """Stack of TP-sharded SigLIP encoder layers."""
+
+    def __init__(self, vision_config):
+        super().__init__()
+        self.layers = nn.ModuleList(
+            [NeuronGemma3SigLIPEncoderLayer(vision_config) for _ in range(vision_config.num_hidden_layers)]
+        )
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        for layer in self.layers:
+            hidden_states = layer(hidden_states)
+        return hidden_states
+
+
+class NeuronGemma3SigLIPVisionTransformer(nn.Module):
+    """SigLIP vision transformer for Gemma3 with TP-sharded encoder layers.
+
+    Uses standard sequential position embeddings and TP-sharded attention/MLP
+    layers to reduce per-rank HLO size, allowing larger vision batch sizes.
     """
 
     def __init__(self, vision_config):
         super().__init__()
         embed_dim = vision_config.hidden_size
         self.embeddings = NeuronGemma3SigLIPVisionEmbeddings(vision_config)
-        self.encoder = NeuronSigLIPEncoder(vision_config)
+        self.encoder = NeuronGemma3SigLIPEncoder(vision_config)
         self.post_layernorm = nn.LayerNorm(embed_dim, eps=vision_config.layer_norm_eps)
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
@@ -808,9 +904,9 @@ class Gemma3NxDModelForImageTextToText(NxDModelForImageTextToText):
 
         # Gemma3 does NOT tile images (unlike SmolVLM/Idefics3).
         # Each image produces exactly mm_tokens_per_image features.
-        # The 27-layer SigLIP at 896x896 generates very large HLOs;
-        # batch_size = 2 * max_num_images > 1 exceeds the compiler instruction limit.
-        max_num_images = 1
+        # The max number of images is arbitrary: it is just set to a value that we believe it should be enough for most
+        # cases.
+        max_num_images = 5
 
         return NxDVLMNeuronConfig(
             checkpoint_id=checkpoint_id,
