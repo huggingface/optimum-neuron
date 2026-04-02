@@ -31,16 +31,16 @@ jobs:
           AWS_REGION: us-east-1
         steps:
           - name: Checkout
-            uses: actions/checkout@v4
+            uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
           - name: Setup Packer
-            uses: hashicorp/setup-packer@main
+            uses: hashicorp/setup-packer@c3d53c525d422944e50ee27b840746d6522b08de  # main
             id: setup-packer
             with:
               version: "1.10.1"
 
           - name: configure aws credentials
-            uses: aws-actions/configure-aws-credentials@v4
+            uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4
             with:
               aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_BUILD_AMI }}
               aws-secret-access-key: ${{ secrets.AWS_ACCESS_KEY_SECRET_BUILD_AMI }}
@@ -71,7 +71,7 @@ jobs:
 
           - name: Slack Notification on Failure
             id: slack
-            uses: slackapi/slack-github-action@v1.25.0
+            uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001  # v1.25.0
             if: ${{ failure() && github.event_name == 'schedule' }}
             with:
               channel-id: 'C06GAEQJLNN' #copied from slack channel
