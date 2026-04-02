@@ -267,7 +267,7 @@ class OptimumNeuronModelRunnerForCausalLM(OptimumNeuronModelRunner):
         if self.model.model.neuron_config.on_device_sampling:
             max_topk = self.model.model.neuron_config.max_topk
         else:
-            max_topk = self.model.model.config.vocab_size
+            max_topk = self.model.model.config.get_text_config().vocab_size
 
         sampling_params_list: list[list[Any]] = []
         for params in sampling_params:
@@ -372,7 +372,9 @@ class OptimumNeuronModelRunnerForCausalLM(OptimumNeuronModelRunner):
                 seq_ids=seq_ids,
                 sampling_params=sampling_params_tensor,
             )
-            sampling_metadata = create_sampling_metadata(requests, vocab_size=self.model.model.config.vocab_size)
+            sampling_metadata = create_sampling_metadata(
+                requests, vocab_size=self.model.model.config.get_text_config().vocab_size
+            )
             sampler_outputs = self.sampler(logits, sampling_metadata)
             return sampler_outputs.sampled_token_ids, logits
 
@@ -483,7 +485,9 @@ class OptimumNeuronModelRunnerForCausalLM(OptimumNeuronModelRunner):
             per_seq_last_logits[i] = logits[0].clone()
 
         last_logits = torch.stack(per_seq_last_logits)
-        sampling_metadata = create_sampling_metadata(requests, vocab_size=self.model.model.config.vocab_size)
+        sampling_metadata = create_sampling_metadata(
+            requests, vocab_size=self.model.model.config.get_text_config().vocab_size
+        )
         sampler_outputs = self.sampler(last_logits, sampling_metadata)
         return requests, sampler_outputs.sampled_token_ids, last_logits
 
@@ -698,6 +702,8 @@ class OptimumNeuronModelRunnerForImageTextToText(OptimumNeuronModelRunnerForCaus
             # Non-chunked path with on-device sampling: model returns token IDs directly.
             # unsqueeze to [batch, 1] to match CPU sampler output shape
             return requests, last_logits.unsqueeze(-1), None
-        sampling_metadata = create_sampling_metadata(requests, vocab_size=self.model.model.config.vocab_size)
+        sampling_metadata = create_sampling_metadata(
+            requests, vocab_size=self.model.model.config.get_text_config().vocab_size
+        )
         sampler_outputs = self.sampler(last_logits, sampling_metadata)
         return requests, sampler_outputs.sampled_token_ids, last_logits

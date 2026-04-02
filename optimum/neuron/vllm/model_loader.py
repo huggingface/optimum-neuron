@@ -234,7 +234,7 @@ class OptimumNeuronModelForImageTextToText(OptimumNeuronModel):
 
     def __init__(self, model: NeuronModelForImageTextToText) -> None:
         super().__init__(model)
-        self.logits_processor = LogitsProcessor(self.model.config.vocab_size, logits_as_input=True)
+        self.logits_processor = LogitsProcessor(self.model.config.get_text_config().vocab_size, logits_as_input=True)
 
     def forward(
         self,
