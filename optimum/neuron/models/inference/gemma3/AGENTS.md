@@ -110,6 +110,55 @@ Reference: [NxDI Gemma3 implementation](https://github.com/aws-neuron/neuronx-di
 
 Optimum Neuron prioritizes **stability and HF ecosystem compatibility**.
 
+## VLM (image-text-to-text) support
+
+Gemma3 supports vision-language inference via `Gemma3NxDModelForImageTextToText`, registered as `("gemma3", "image-text-to-text")`.
+
+### Architecture
+
+Two compiled bundles:
+- **`model_vision.pt`**: `NeuronGemma3VisionEncoder` — SigLIP vision transformer + multi-modal projector
+- **`model_text.pt`**: `NxDGemma3VLMDecoderModel` — Gemma3 text decoder with image embedding injection
+
+Class hierarchy:
+- `Gemma3NxDModelForImageTextToText` → `NxDModelForImageTextToText` (base VLM class)
+- `NxDGemma3VLMDecoderModel` → `NxDGemma3Model` (inherits mixed sliding/full attention)
+- `NeuronGemma3VisionEncoder` → contains `NeuronGemma3SigLIPVisionTransformer` + `NeuronGemma3MultiModalProjector`
+
+### TP-sharded vision encoder
+
+The SigLIP vision encoder (27 layers at 896×896) exceeds Neuron compiler instruction limits when `batch_size * max_num_images > 2` without tensor parallelism. The vision encoder uses `ColumnParallelLinear`/`RowParallelLinear` in attention Q/K/V/out and MLP fc1/fc2 to distribute across TP ranks.
+
+Key classes:
+- `NeuronGemma3SigLIPAttention` — TP-sharded multi-head attention
+- `NeuronGemma3SigLIPMLP` — TP-sharded MLP
+- `NeuronGemma3SigLIPEncoderLayer` / `NeuronGemma3SigLIPEncoder` — layer stack
+
+### Multi-modal projector
+
+`NeuronGemma3MultiModalProjector` downsamples vision features using `AvgPool2d` then projects via RMSNorm + linear from vision hidden dim to text hidden dim. Attribute names (`mm_input_projection_weight`, `mm_soft_emb_norm`) match HF for direct state dict loading.
+
+### Position embeddings
+
+Gemma3 uses standard sequential position IDs `[0, 1, ..., num_patches - 1]` (via `NeuronGemma3SigLIPVisionEmbeddings`), NOT Idefics3-style fractional-coordinate bucketing used by SmolVLM.
+
+### Image injection
+
+During context encoding, `NxDGemma3VLMDecoderModel.forward()` computes text embeddings, then replaces embeddings at `image_token_id` positions with vision features using `torch.where`.
+
+### VLM state dict conversion
+
+`Gemma3NxDModelForImageTextToText`:
+- `_STATE_DICT_MODEL_PREFIX = "language_model.model."` — strips HF nesting for text weights
+- `_get_vision_encoder_state_dict()`: remaps `vision_tower.vision_model.*` → `vision_model.*`, keeps `multi_modal_projector.*` as-is
+- `convert_hf_to_neuron_state_dict()`: preserves `language_model.lm_head.weight` → `lm_head.weight`, removes remaining vision/projector/language_model keys, delegates to CausalLM converter
+
+### Constraints
+
+- **Chunked prefill not supported** (`_supports_chunked_prefill = False`): the mixed sliding/full attention masks are not compatible with chunked prefill. `prefill_chunk_size` is forced to 0.
+- **No image tiling**: unlike SmolVLM/Idefics3, Gemma3 processes each image at full resolution. Each image produces exactly `mm_tokens_per_image` features.
+- **`max_num_images`**: set to 5 in `_get_neuron_config()`. This determines the vision batch size (`batch_size * max_num_images`).
+
 ## Key files
 - [optimum/neuron/models/inference/gemma3/modeling_gemma3.py](modeling_gemma3.py)
 - [optimum/neuron/models/inference/backend/modules/attention/attention_base.py](../backend/modules/attention/attention_base.py)
