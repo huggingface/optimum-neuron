@@ -143,6 +143,7 @@ EMBED_LLM_MODEL_IDS = {
 
 VLM_MODEL_IDS = {
     "smolvlm": "HuggingFaceTB/SmolVLM-256M-Instruct",
+    "gemma3": "unsloth/gemma-3-4b-it",
 }
 
 
