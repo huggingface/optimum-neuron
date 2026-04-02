@@ -23,6 +23,7 @@ from optimum.neuron import NeuronModelForCausalLM, NeuronModelForImageTextToText
 
 VLM_MODELS = {
     "smolvlm": "HuggingFaceTB/SmolVLM-256M-Instruct",
+    "gemma3": "tengomucho/tiny-random-gemma-3-vlm",
 }
 
 DECODER_MODELS = {
