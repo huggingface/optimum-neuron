@@ -1,0 +1,14 @@
+model_id,Date,DP,TP,BS,SL,Users,Input type,Requests per Second,Request Latency (s),Time-to-first-token (ms),Inter Token Latency (ms),Output Token Throughput (t/s)
+Qwen/Qwen3-30B-A3B-Instruct-2507,2026-03-18,1,8,4,4096,8,synchronous,0.05,19.41,14005.22,22.39,12.44
+Qwen/Qwen3-30B-A3B-Instruct-2507,2026-03-18,1,8,4,4096,8,throughput,0.04,92.42,52445.42,174.83,8.07
+Qwen/Qwen3-30B-A3B-Instruct-2507,2026-03-18,2,8,4,4096,16,synchronous,0.05,19.60,14294.85,22.23,12.17
+Qwen/Qwen3-30B-A3B-Instruct-2507,2026-03-18,2,8,4,4096,16,throughput,0.07,88.11,46050.78,158.04,17.03
+Qwen/Qwen3-30B-A3B-Instruct-2507,2026-03-18,3,8,4,4096,24,synchronous,0.05,19.75,14580.66,22.37,11.70
+Qwen/Qwen3-30B-A3B-Instruct-2507,2026-03-18,3,8,4,4096,24,throughput,0.11,88.02,48297.94,161.75,26.02
+Qwen/Qwen3-30B-A3B-Instruct-2507,2026-03-18,1,8,32,4096,32,synchronous,0.03,28.61,1537.19,112.67,8.43
+Qwen/Qwen3-30B-A3B-Instruct-2507,2026-03-18,1,8,32,4096,32,throughput,0.33,58.79,17138.71,167.62,82.47
+Qwen/Qwen3-30B-A3B-Instruct-2507,2026-03-18,2,8,32,4096,64,synchronous,0.03,28.92,1993.53,113.16,8.26
+Qwen/Qwen3-30B-A3B-Instruct-2507,2026-03-18,2,8,32,4096,64,throughput,0.45,42.15,9396.22,138.27,106.92
+Qwen/Qwen3-30B-A3B-Instruct-2507,2026-03-18,3,8,32,4096,96,synchronous,0.03,29.79,2415.76,113.37,8.14
+Qwen/Qwen3-30B-A3B-Instruct-2507,2026-03-18,3,8,32,4096,96,throughput,0.51,38.06,6916.63,127.59,124.20
+Qwen/Qwen3-30B-A3B-Instruct-2507,2026-03-18,1,8,64,4096,64,synchronous,0.01,106.77,13670.51,370.93,2.36
