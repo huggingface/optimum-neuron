@@ -24,7 +24,7 @@ from optimum.neuron.utils.testing_utils import requires_neuronx
 @requires_neuronx
 def test_seq2seq_model_from_hub():
     model = NeuronModelForSeq2SeqLM.from_pretrained(
-        "Jingya/tiny-random-t5-neuronx", revision="43ea08d54b0a972e74b5bd22bc8112de021ece0c"
+        "Jingya/tiny-random-t5-neuronx", revision="315a8384157e3356a81d93953ed5ff17f4310221"
     )
     return model
 
