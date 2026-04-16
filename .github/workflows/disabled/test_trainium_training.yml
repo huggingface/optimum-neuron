@@ -1,24 +1,24 @@
 name: Optimum Neuron - Test training on Trainium
 
-on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'pyproject.toml'
-      - 'optimum/neuron/models/training/**.py'
-      - 'tests/training/**.py'
-      - '.github/workflows/test_trainium_training.yml'
-      - 'optimum/neuron/utils/**.py'
-  pull_request:
-    branches: [ main ]
-    paths:
-      - 'pyproject.toml'
-      - 'optimum/neuron/models/training/**.py'
-      - 'tests/training/**.py'
-      - '.github/workflows/test_trainium_training.yml'
-      - 'optimum/neuron/utils/**.py'
-  schedule:
-    - cron: "0 4 * * 1-5"  # 5 AM UTC + 1 time, Monday-Friday
+# on:
+#   push:
+#     branches: [ main ]
+#     paths:
+#       - 'pyproject.toml'
+#       - 'optimum/neuron/models/training/**.py'
+#       - 'tests/training/**.py'
+#       - '.github/workflows/test_trainium_training.yml'
+#       - 'optimum/neuron/utils/**.py'
+#   pull_request:
+#     branches: [ main ]
+#     paths:
+#       - 'pyproject.toml'
+#       - 'optimum/neuron/models/training/**.py'
+#       - 'tests/training/**.py'
+#       - '.github/workflows/test_trainium_training.yml'
+#       - 'optimum/neuron/utils/**.py'
+#   schedule:
+#     - cron: "0 4 * * 1-5"  # 5 AM UTC + 1 time, Monday-Friday
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name || github.run_id }}
