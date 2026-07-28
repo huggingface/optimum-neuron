@@ -1005,6 +1005,27 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
             q_name = f"{module_fully_qualified_name}.{self.query_projection_name}.{param_name}"
             k_name = f"{module_fully_qualified_name}.{self.key_projection_name}.{param_name}"
             v_name = f"{module_fully_qualified_name}.{self.value_projection_name}.{param_name}"
+            output_projection_name = f"{module_fully_qualified_name}.{self.output_projection_name}.{param_name}"
+            full_weight_names = [q_name, k_name, v_name, output_projection_name]
+
+            # This function is called once per checkpoint shard file, for every module, so most of the time none of
+            # these weights are available yet.
+            if not any(name in state_dict or name in upstanding_sharded_params for name in full_weight_names):
+                continue
+
+            # Move the weights to the upstanding_sharded_params dict, so that if they are not found in the
+            # state_dict, they will be added next time the function is called.
+            for full_k in full_weight_names:
+                if full_k in state_dict:
+                    upstanding_sharded_params[full_k] = state_dict.pop(full_k)
+
+            if any(name not in upstanding_sharded_params for name in full_weight_names):
+                # This means state_dict is not fully loaded for this module, move on
+                continue
+
+            for full_k in full_weight_names:
+                state_dict[full_k] = upstanding_sharded_params.pop(full_k)
+
             if self.fuse_qkv:
                 new_name = f"{module_fully_qualified_name}.{self.gqa_qkv_projection_name}.{param_name}_qkv"
 
@@ -1055,7 +1076,6 @@ class GQAQKVColumnParallelLinearSpec(ModelWeightTransformationSpec):
                     )
                 )
 
-            output_projection_name = f"{module_fully_qualified_name}.{self.output_projection_name}.{param_name}"
             state_dict[output_projection_name] = (
                 GQAQKVColumnParallelLinearSpec.create_query_or_output_projection_local_weight_from_regular_weight(
                     state_dict[output_projection_name],
