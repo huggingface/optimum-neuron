@@ -11,11 +11,25 @@ RUN apt-get update -y \
     wget \
     libexpat1 \
     libpython3-dev \
+    libarchive13 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
 # Install uv at a specific version on a given path
 RUN curl -LsSf https://astral.sh/uv/0.9.27/install.sh | XDG_BIN_HOME=/usr/local/bin sh
+
+# optimum-neuron requires Python >= 3.11 (SDK 2.31's compiler ships no cp310 wheels),
+# but Ubuntu 22.04 only provides Python 3.10. Provision a standalone interpreter via uv.
+# Use 3.12, not 3.11: neuronx-cc pins numpy<2 for python_full_version < '3.12', which
+# conflicts with vllm's numpy>=2 requirement.
+RUN uv venv --python 3.12 /opt/venv
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="/opt/venv/bin:${PATH}"
+# torch_xla's compiled extension dynamically links against libpython, which uv's
+# standalone interpreter ships but doesn't register with the dynamic linker.
+RUN dirname "$(find /root/.local/share/uv/python -name 'libpython3.12.so.1.0')" \
+    > /etc/ld.so.conf.d/uv-python.conf \
+    && ldconfig
 
 # Setup neuronx repository
 RUN echo "deb https://apt.repos.neuron.amazonaws.com jammy main" > /etc/apt/sources.list.d/neuron.list
@@ -24,10 +38,10 @@ RUN wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEU
 # Install neuronx packages
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends \
-    aws-neuronx-dkms=2.24.7.0 \
-    aws-neuronx-collectives=2.28.27.0-bc30ece58 \
-    aws-neuronx-runtime-lib=2.28.23.0-dd5879008 \
-    aws-neuronx-tools=2.26.14.0 \
+    aws-neuronx-dkms=2.29.0.0 \
+    aws-neuronx-collectives=2.33.10.0-068180c7a \
+    aws-neuronx-runtime-lib=2.33.10.0-3dcef56f0 \
+    aws-neuronx-tools=2.31.13.0-a9e473f33 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -38,7 +52,7 @@ RUN mkdir optimum-neuron
 COPY optimum optimum-neuron/optimum
 COPY pyproject.toml optimum-neuron/pyproject.toml
 RUN ls optimum-neuron
-RUN cd optimum-neuron && uv pip install --system .[neuronx,vllm]
+RUN cd optimum-neuron && uv pip install .[neuronx,vllm]
 
 # HF base env
 ENV HUGGINGFACE_HUB_CACHE=/tmp \
