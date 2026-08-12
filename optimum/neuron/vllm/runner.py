@@ -22,7 +22,8 @@ from typing import Any
 import torch
 from vllm.config import DeviceConfig, VllmConfig
 from vllm.sampling_params import SamplingParams
-from vllm.utils import is_pin_memory_available, make_tensor_with_pad
+from vllm.utils.platform_utils import is_pin_memory_available
+from vllm.utils.torch_utils import make_tensor_with_pad
 from vllm.v1.core.sched.output import CachedRequestData, NewRequestData, SchedulerOutput
 from vllm.v1.outputs import ModelRunnerOutput
 from vllm.v1.sample.logits_processor import LogitsProcessors
@@ -220,15 +221,15 @@ class OptimumNeuronModelRunner(ABC):
 
     @staticmethod
     def create(vllm_config: VllmConfig) -> "OptimumNeuronModelRunner":
-        task = vllm_config.model_config.task or "generate"
-        if task == "generate":
+        runner_type = vllm_config.model_config.runner_type or "generate"
+        if runner_type == "generate":
             if vllm_config.model_config.is_multimodal_model:
                 return OptimumNeuronModelRunnerForImageTextToText(vllm_config)
             return OptimumNeuronModelRunnerForCausalLM(vllm_config)
-        elif task == "embed":
+        elif runner_type == "pooling":
             return OptimumNeuronModelRunnerForEmbedding(vllm_config)
         else:
-            raise ValueError(f"Task {task} is not supported for Neuron.")
+            raise ValueError(f"Runner type {runner_type} is not supported for Neuron.")
 
     @abstractmethod
     def get_supported_tasks(self) -> tuple[str, ...]:

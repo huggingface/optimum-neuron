@@ -15,7 +15,7 @@ import logging
 import os
 
 from vllm.platforms.interface import UnspecifiedPlatform
-from vllm.utils import FlexibleArgumentParser
+from vllm.utils.argparse_utils import FlexibleArgumentParser
 
 
 logger = logging.getLogger("Neuron")
@@ -64,6 +64,10 @@ class OptimumNeuronPlatform(UnspecifiedPlatform):
 
         if parallel_config.world_size > 1:
             parallel_config.distributed_executor_backend = "uni"
+
+        # Async scheduling requires a worker that implements the execute_model /
+        # sample_tokens split; OptimumNeuronWorker does both in execute_model.
+        vllm_config.scheduler_config.async_scheduling = False
 
         if vllm_config.cache_config:
             # Disable prefix-caching as it's not supported on optimum-neuron
