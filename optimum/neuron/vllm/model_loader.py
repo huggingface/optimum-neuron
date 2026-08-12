@@ -105,10 +105,11 @@ class OptimumNeuronModel(nn.Module):
         else:
             # Model needs to be exported: look for compatible hub cached configs
             batch_size = scheduler_config.max_num_seqs
-            sequence_length = scheduler_config.max_model_len
+            sequence_length = model_config.max_model_len
             torch_dtype = None if model_config.dtype is None else model_config.dtype
 
-            task = model_config.task or "generate"
+            runner_type = model_config.runner_type or "generate"
+            task = "embed" if runner_type == "pooling" else runner_type
             hf_task = VLLM_2_TRANSFORMERS_TASK_MAPPING[task]
             if hf_task == "text-generation" and model_config.is_multimodal_model:
                 hf_task = "image-text-to-text"

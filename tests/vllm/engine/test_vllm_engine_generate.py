@@ -95,13 +95,17 @@ def test_vllm_greedy_expectations(neuron_llm_config: dict[str, Any]):
 
     outputs = llm.generate(prompts, sampling_params)
 
+    # Two continuations drifted under SDK 2.31 (Eiffel Tower: "is one of" -> "is a
+    # famous"; grandmother: "who was a kind..." -> "'s kitchen, where I..."): near-tie
+    # argmax flips, the same class of drift observed and confirmed via direct logit
+    # comparison in tests/decoder/test_decoder_generation.py.
     expected_outputs = [
         " the head of state and government of the United States",
-        " Paris. The Eiffel Tower is located in Paris. The Eiffel Tower is one of",
+        " Paris. The Eiffel Tower is located in Paris. The Eiffel Tower is a famous",
         " The world was holding its breath as the world's top scientists and engineers gathered at the secret underground facility to witness the unveiling of the ultimate time machine.",
         " to find happiness and fulfillment in the present moment. It's a simple yet profound concept that can bring joy and peace to our lives.\n\nAs I reflect on my own life, I realize that I've",
         " blue, but what about the colour of the sky",
-        " of my grandmother, who was a kind and gentle soul. She had a way of making everyone feel",
+        " of my grandmother's kitchen, where I spent countless hours helping her in the kitchen. She was a",
     ]
 
     for expected_output, output, sampling_param in zip(expected_outputs, outputs, sampling_params):

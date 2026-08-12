@@ -38,7 +38,7 @@ if is_vllm_available():
 
     from vllm.entrypoints.openai.api_server import run_server
     from vllm.entrypoints.openai.cli_args import make_arg_parser, validate_parsed_serve_args
-    from vllm.utils import FlexibleArgumentParser
+    from vllm.utils.argparse_utils import FlexibleArgumentParser
 
     from ...neuron.vllm.model_loader import VLLM_2_TRANSFORMERS_TASK_MAPPING
     from ...neuron.vllm.reverse_proxy import RoundRobinProxy
@@ -290,13 +290,16 @@ class ServeCommand(BaseOptimumCLICommand):
                 )
 
         # Build the vLLM command arguments.
+        # vLLM's --task flag was replaced by --runner (+ --convert, left at its
+        # "auto" default): "generate" maps directly, "embed" is a pooling runner.
+        vllm_runner = "pooling" if self.args.task == "embed" else self.args.task
         vllm_command = [
             "--model",
             self.args.model,
             "--served_model_name",
             model_id,
-            "--task",
-            self.args.task,
+            "--runner",
+            vllm_runner,
             "--tensor-parallel-size",
             str(tensor_parallel_size),
             "--max-num-seqs",
