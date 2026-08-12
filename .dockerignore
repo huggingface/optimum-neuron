@@ -1,0 +1,14 @@
+.git
+.github
+.venv
+aws_neuron_venv_pytorch
+__pycache__
+*.pyc
+.ruff_cache
+.mypy_cache
+.pytest_cache
+build
+*.egg-info
+docs
+notebooks
+benchmark
