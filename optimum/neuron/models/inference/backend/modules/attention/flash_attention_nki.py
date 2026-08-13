@@ -156,8 +156,14 @@ def _flash_attention_core_large_d(
     o_previous_scaled = nl.ndarray((par_dim(B_P_SIZE), d), dtype=o_buffer.dtype)
     o_previous_scaled[...] = nl.multiply(o_buffer[:, :], alpha)
 
-    # Compute exp(QK - max) and partial sums
-    p_local = nl.ndarray((par_dim(B_P_SIZE), LARGE_TILE_SZ), dtype=kernel_dtype)
+    # Compute exp(QK - max) and partial sums.
+    # The softmax numerator is kept in acc_type (fp32) all the way through the
+    # transpose and into the PV matmul below. Rounding it to kernel_dtype quantizes
+    # every attention weight to 8 mantissa bits, and that error accumulates over the
+    # attended positions: at 5k tokens it is enough to change a sampled token versus
+    # the CPU fp32 reference. Prefill is ~1.6x slower this way, still well ahead of
+    # the compiler-native path.
+    p_local = nl.ndarray((par_dim(B_P_SIZE), LARGE_TILE_SZ), dtype=acc_type)
     REDUCTION_TILE = min(2048, LARGE_TILE_SZ // 2)
     p_partial_sum = nl.ndarray((par_dim(B_P_SIZE), LARGE_TILE_SZ // REDUCTION_TILE), dtype=acc_type)
 
@@ -170,13 +176,13 @@ def _flash_attention_core_large_d(
             scale=1.0,
             reduce_op=nl.add,
             reduce_res=p_partial_sum[:, k_r_i],
-            dtype=kernel_dtype,
+            dtype=acc_type,
         )
 
     ps = nl.sum(p_partial_sum, axis=1, dtype=acc_type)
 
     # Transpose p_local for PV matmul
-    p_local_transposed = nl.ndarray((par_dim(B_P_SIZE), LARGE_TILE_SZ), dtype=kernel_dtype)
+    p_local_transposed = nl.ndarray((par_dim(B_P_SIZE), LARGE_TILE_SZ), dtype=acc_type)
     _transpose_p_local(
         p_local_transposed=p_local_transposed,
         p_local=p_local,

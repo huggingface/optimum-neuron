@@ -266,23 +266,11 @@ def test_decoder_generation_long_sequence(neuron_llm_config: dict[str, Any]):
     neuron_generated_text = tokenizer.decode(
         neuron_outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
     )
-    if generated_text != neuron_generated_text:
-        config_name = neuron_llm_config["name"]
-        known_different_generations = {
-            "gemma3-1x8192": "\n```\n\nThis comprehensive repository analysis provides a detailed overview of the codebase, "
-            "identifying all verifiable bugs, security vulnerabilities, and critical issues across all "
-            "technologies. The analysis is structured into phases, with each phase focusing on specific "
-            "aspects of the codebase. The analysis",
-        }
-        if config_name in known_different_generations:
-            assert neuron_generated_text == known_different_generations[config_name]
-            pytest.xfail(f"Known different generation for {config_name}")
-        else:
-            assert generated_text == neuron_generated_text, (
-                f"Long sequence generation produced different tokens than HF model.\n"
-                f"  Expected: {generated_text!r}\n"
-                f"  Got     : {neuron_generated_text!r}"
-            )
+    assert generated_text == neuron_generated_text, (
+        f"Long sequence generation produced different tokens than HF model.\n"
+        f"  Expected: {generated_text!r}\n"
+        f"  Got     : {neuron_generated_text!r}"
+    )
 
 
 @is_inferentia_test
