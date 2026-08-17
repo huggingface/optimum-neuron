@@ -32,6 +32,7 @@ import unittest
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
+import pytest
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import DEFAULT_DUMMY_SHAPES
 from optimum.utils.testing_utils import require_sentence_transformers
@@ -63,6 +64,12 @@ from .exporters_utils import (
 
 SEED = 42
 
+# Conv-based models whose tracing segfaults/aborts inside torch_neuronx HLO
+# generation with Neuron SDK 2.31 (torch-neuronx 2.9 / torch-xla 2.9). The crash
+# is in the compiler's tracer, not in optimum-neuron code, so it cannot be caught
+# and xfails the whole process; skip them before export until the SDK is fixed.
+SDK_231_TRACE_CRASH_MODEL_TYPES = {"convbert", "hubert", "wav2vec2", "yolos"}
+
 
 class NeuronExportTestCase(unittest.TestCase):
     """
@@ -79,6 +86,11 @@ class NeuronExportTestCase(unittest.TestCase):
         dynamic_batch_size: bool = False,
         inline_weights_to_neff: bool = True,
     ):
+        if model_type in SDK_231_TRACE_CRASH_MODEL_TYPES:
+            pytest.skip(
+                f"{model_type} export crashes the Neuron SDK 2.31 tracer (see SDK_231_TRACE_CRASH_MODEL_TYPES)"
+            )
+
         library_name = TasksManager.infer_library_from_model(model_name)
         if library_name == "sentence_transformers":
             model_class = TasksManager.get_model_class_for_task(task, framework="pt", library=library_name)
