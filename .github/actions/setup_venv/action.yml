@@ -10,7 +10,7 @@ runs:
       - name: Prepare venv and install Optimum Neuron python package
         shell: bash
         run: |
-          uv venv --python 3.11 aws_neuron_venv_pytorch
+          uv venv --python 3.12 aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           uv pip install .[neuronx,tests]
           # Enable high performance with Xet for all workflows that use this action
