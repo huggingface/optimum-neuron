@@ -55,6 +55,17 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           uv pip install ".[diffusers]"
           uv pip install "git+https://github.com/huggingface/doc-builder.git@bcff59fca682130d2e7271ca8589911b7ac0b8bf"
+          # Pin the doc-builder kit to the same commit as the Python package. The installed
+          # wheel does not include kit/, so doc-builder would otherwise clone the kit from main
+          # (get_cached_repo), which has migrated to Svelte 5 and breaks the build. Placing the
+          # kit at <venv>/lib/python3.11/kit makes locate_kit_folder() find it directly.
+          DOC_BUILDER_SHA=bcff59fca682130d2e7271ca8589911b7ac0b8bf
+          KIT_DEST="$(python -c 'import doc_builder, pathlib; print(pathlib.Path(doc_builder.__file__).parent.parent.parent / "kit")')"
+          git clone --depth 1 https://github.com/huggingface/doc-builder.git /tmp/doc-builder-kit
+          git -C /tmp/doc-builder-kit fetch --depth 1 origin "$DOC_BUILDER_SHA"
+          git -C /tmp/doc-builder-kit checkout "$DOC_BUILDER_SHA"
+          mkdir -p "$(dirname "$KIT_DEST")"
+          cp -r /tmp/doc-builder-kit/kit "$KIT_DEST"
       - name: Convert notebooks
         shell: bash
         run: |
