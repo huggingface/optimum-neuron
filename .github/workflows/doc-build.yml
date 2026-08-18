@@ -54,7 +54,7 @@ jobs:
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           uv pip install ".[diffusers]"
-          uv pip install "git+https://github.com/huggingface/doc-builder.git"
+          uv pip install "git+https://github.com/huggingface/doc-builder.git@bcff59fca682130d2e7271ca8589911b7ac0b8bf"
       - name: Convert notebooks
         shell: bash
         run: |
