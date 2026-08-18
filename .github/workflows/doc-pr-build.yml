@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'
           cache-dependency-path: "kit/package-lock.json"
       - name: Install Neuronx runtime
         uses: ./.github/actions/install_neuronx_runtime
