@@ -101,7 +101,7 @@ async def test_vllm_docker_service_sampling_parameters(neuron_llm_config, vllm_d
         sample_tokens, sample_text = await vllm_docker_service_from_local_neuron_model.client.sample(
             prompt,
             max_output_tokens=max_output_tokens,
-            temperature=0.8,
+            temperature=1.0,
             top_p=0.9,
         )
         assert sample_tokens == max_output_tokens
