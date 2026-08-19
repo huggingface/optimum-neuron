@@ -16,6 +16,7 @@ import copy
 import logging
 import os
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -102,6 +103,26 @@ def get_builder(
     return builder
 
 
+@contextmanager
+def _scratch_compile_cwd():
+    """Run neuronx-cc from a throwaway working directory.
+
+    The NxD weight-layout-optimization step compiles NKI kernels via
+    ``torch_neuronx.xla_impl.trace.hlo_compile``, which invokes the compiler
+    with ``subprocess.run(command)`` and no ``cwd=`` (trace.py). The compiler
+    backend (``walrus_driver``) then materializes content-addressed
+    ``neuronxcc.private_nkl.*`` kernel directories in the process CWD. Run the
+    compile from a temp dir so those droppings are discarded.
+    """
+    prev = os.getcwd()
+    with TemporaryDirectory() as tmp:
+        os.chdir(tmp)
+        try:
+            yield
+        finally:
+            os.chdir(prev)
+
+
 class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
     _STATE_DICT_MODEL_PREFIX = "model."
     _NEW_STATE_DICT_MODEL_PREFIX = ""
@@ -155,7 +176,8 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         for bundle_name, bundle_builders in graph_builders.items():
             logger.info(f"Compiling bundle '{bundle_name}' with graphs: {list(bundle_builders.keys())}")
             builder = get_builder(neuron_config, bundle_builders, debug=debug, compiler_args=compiler_args)
-            traced_models[bundle_name] = builder.trace(initialize_model_weights=False)
+            with _scratch_compile_cwd():
+                traced_models[bundle_name] = builder.trace(initialize_model_weights=False)
         return traced_models
 
     @staticmethod
