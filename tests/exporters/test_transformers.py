@@ -32,7 +32,6 @@ import unittest
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
-import pytest
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import DEFAULT_DUMMY_SHAPES
 from optimum.utils.testing_utils import require_sentence_transformers
@@ -50,7 +49,7 @@ from optimum.exporters.neuron import (
 from optimum.exporters.neuron.__main__ import get_submodels_and_neuron_configs
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.neuron.utils import InputShapesArguments
-from optimum.neuron.utils.testing_utils import requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx, skip_if_sdk_231_trace_crash
 
 from .exporters_utils import (
     ENCODER_DECODER_MODELS_TINY,
@@ -63,12 +62,6 @@ from .exporters_utils import (
 
 
 SEED = 42
-
-# Conv-based models whose tracing segfaults/aborts inside torch_neuronx HLO
-# generation with Neuron SDK 2.31 (torch-neuronx 2.9 / torch-xla 2.9). The crash
-# is in the compiler's tracer, not in optimum-neuron code, so it cannot be caught
-# and xfails the whole process; skip them before export until the SDK is fixed.
-SDK_231_TRACE_CRASH_MODEL_TYPES = {"convbert", "hubert", "wav2vec2", "yolos"}
 
 
 class NeuronExportTestCase(unittest.TestCase):
@@ -86,10 +79,7 @@ class NeuronExportTestCase(unittest.TestCase):
         dynamic_batch_size: bool = False,
         inline_weights_to_neff: bool = True,
     ):
-        if model_type in SDK_231_TRACE_CRASH_MODEL_TYPES:
-            pytest.skip(
-                f"{model_type} export crashes the Neuron SDK 2.31 tracer (see SDK_231_TRACE_CRASH_MODEL_TYPES)"
-            )
+        skip_if_sdk_231_trace_crash(model_type)
 
         library_name = TasksManager.infer_library_from_model(model_name)
         if library_name == "sentence_transformers":
