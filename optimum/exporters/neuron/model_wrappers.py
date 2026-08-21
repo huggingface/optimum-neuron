@@ -463,10 +463,15 @@ class T5DecoderWrapper(torch.nn.Module):
         return new_past_sa, new_past_ca
 
     def reorder_cache(self, past_key_values, beam_idx):
-        for i in range(len(past_key_values)):
-            gather_index = beam_idx.view([beam_idx.shape[0], 1, 1, 1]).expand_as(past_key_values[i])
-            past_key_values[i] = torch.gather(past_key_values[i], dim=0, index=gather_index)
-        return past_key_values
+        # Do not assign into `past_key_values`: it is the module `ParameterList` holding the KV
+        # cache, and overwriting its entries during the trace unregisters the parameters. The
+        # tracer would then be unable to restore them, and would leak XLA placeholder tensors into
+        # the input/output aliases, which cannot be sent back to the parent process.
+        reordered = []
+        for past_key_value in past_key_values:
+            gather_index = beam_idx.view([beam_idx.shape[0], 1, 1, 1]).expand_as(past_key_value)
+            reordered.append(torch.gather(past_key_value, dim=0, index=gather_index))
+        return reordered
 
     def forward(
         self,
