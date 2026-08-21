@@ -45,6 +45,7 @@ from ...utils import (
     is_sentence_transformers_available,
     logging,
 )
+from .neuron_trace_patches import patch_model_for_neuron_tracing
 
 
 if TYPE_CHECKING:
@@ -536,6 +537,12 @@ def export_neuronx(
 
     dummy_inputs = prepare_dummy_inputs(config, input_shapes, return_dict=True)
     dummy_inputs_tuple = tuple(dummy_inputs.values())
+
+    # Some architectures apply an op that has no XLA lowering to a weight rather than
+    # to an activation, which kills the tracing process outright (SIGABRT / SIGSEGV).
+    # See `neuron_trace_patches` and https://github.com/aws-neuron/aws-neuron-sdk/issues/1265.
+    if isinstance(model_or_path, PreTrainedModel):
+        patch_model_for_neuron_tracing(model_or_path)
 
     # Prepare the model / function(tp) to trace
     if getattr(config, "is_encoder_decoder", False):
