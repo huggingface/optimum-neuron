@@ -746,6 +746,50 @@ def trace_neuronx(
         # TODO: To remove when migrating from `parallel_model_trace` to ModelBuilderV2. `parallel_model_trace` doesn't support custom target.
         if "--target" in compiler_args:
             compiler_args = re.sub(r"--target\s+\S+", "", compiler_args).strip()
+
+        # ---- TEMP DIAGNOSTIC: find which traced artifact cannot be pickled ----
+        import io
+        import multiprocessing.reduction as _mpr
+
+        import torch_neuronx.xla_impl.trace as _tnx_trace
+
+        _orig_inner_trace = _tnx_trace._trace
+
+        def _diag_inner_trace(*args, **kwargs):
+            res = _orig_inner_trace(*args, **kwargs)
+            try:
+                aliases = args[3] if len(args) > 3 else kwargs.get("input_output_aliases")
+                items = [
+                    ("neff_filename", res[0]),
+                    ("metaneff", res[1]),
+                    ("flattener", res[2]),
+                    ("packer", res[3]),
+                    ("example_inputs", args[1]),
+                    ("input_output_alias", aliases),
+                    ("weights", res[4]),
+                ]
+                for name, obj in items:
+                    try:
+                        _mpr.ForkingPickler(io.BytesIO(), -1).dump(obj)
+                        print(f"DIAG pickle OK   {name}", flush=True)
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"DIAG pickle FAIL {name}: {type(exc).__name__}: {exc}", flush=True)
+                print(f"DIAG weights len={len(res[4]) if res[4] is not None else None}", flush=True)
+                print(
+                    f"DIAG alias key devices={[getattr(k, 'device', None) for k in (aliases or {})]}",
+                    flush=True,
+                )
+                print(
+                    f"DIAG example_inputs devices={[getattr(t, 'device', None) for t in args[1]]}",
+                    flush=True,
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"DIAG introspection error: {exc}", flush=True)
+            return res
+
+        _tnx_trace._trace = _diag_inner_trace
+        # ---- END TEMP DIAGNOSTIC ----
+
         with torch.no_grad():
             neuron_model = neuronx_distributed.trace.parallel_model_trace(
                 model,
