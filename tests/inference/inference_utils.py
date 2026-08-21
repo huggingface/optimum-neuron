@@ -22,6 +22,8 @@ import huggingface_hub
 import torch
 from transformers import set_seed
 
+from optimum.neuron.utils.testing_utils import skip_if_sdk_231_trace_crash
+
 
 SEED = 42
 
@@ -121,6 +123,7 @@ class NeuronModelTestMixin(unittest.TestCase):
         We don't use unittest setUpClass, in order to still be able to run individual tests.
         """
         model_arch = model_args["model_arch"]
+        skip_if_sdk_231_trace_crash(model_arch)
         model_arch_and_params = model_args["test_name"]
         dynamic_batch_size = model_args.get("dynamic_batch_size", False)
 
