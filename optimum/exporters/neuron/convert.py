@@ -364,20 +364,6 @@ def export_models(
             )
             inline_weights_to_neff = True
 
-        # `parallel_model_trace` ships the traced artifacts back to the parent process through a
-        # multiprocessing queue. When the weights are not inlined, those artifacts include the XLA
-        # placeholder tensors standing for the model parameters, which cannot be pickled since the
-        # Neuron SDK 2.31 release ("RuntimeError: _share_filename_: only available on CPU").
-        if (
-            not inline_weights_to_neff
-            and sub_neuron_config.tensor_parallel_size > 1
-            and not isinstance(submodel, BaseModelInstance)
-        ):
-            logger.warning(
-                "The weights/neff separation is not supported when tracing a tensor parallel model with `parallel_model_trace`. `inline_weights_to_neff` will be set to True."
-            )
-            inline_weights_to_neff = True
-
         start_time = time.time()
         neuron_inputs, neuron_outputs = export(
             model_or_path=submodel,
