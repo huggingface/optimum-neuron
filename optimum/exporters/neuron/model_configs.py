@@ -117,7 +117,7 @@ def _install_trace_pickle_diagnostic():
                     print(f"DIAG pickle FAIL {name}: {type(exc).__name__}: {exc}", flush=True)
             print(f"DIAG weights={res[4]!r:.200}", flush=True)
             print(
-                f"DIAG alias keys={set((type(k).__name__, str(getattr(k, 'device', None))) for k in (aliases or {}))}",
+                f"DIAG alias keys={ {(type(k).__name__, str(getattr(k, 'device', None))) for k in (aliases or {})} }",
                 flush=True,
             )
         except Exception as exc:  # noqa: BLE001
