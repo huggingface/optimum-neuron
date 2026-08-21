@@ -2,7 +2,7 @@ name: Optimum neuron / Test INF2 Transformers inference & pipelines
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, ci-test-sdk231-conv-skips ]
     paths:
       - 'pyproject.toml'
       - 'optimum/commands/export/neuronx.py'
