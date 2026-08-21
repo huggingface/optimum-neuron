@@ -82,6 +82,54 @@ if is_diffusers_available():
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
+
+# ---- TEMP DIAGNOSTIC: runs inside the spawned trace worker ----
+def _install_trace_pickle_diagnostic():
+    import io
+    import multiprocessing.reduction as _mpr
+
+    import torch_neuronx.xla_impl.trace as _tnx_trace
+
+    if getattr(_tnx_trace._trace, "_diag", False):
+        return
+    _orig_inner_trace = _tnx_trace._trace
+
+    def _diag_inner_trace(*args, **kwargs):
+        res = _orig_inner_trace(*args, **kwargs)
+        try:
+            aliases = args[3] if len(args) > 3 else kwargs.get("input_output_aliases")
+            model = args[0]
+            print(f"DIAG model={type(model).__name__}", flush=True)
+            for name, obj in [
+                ("neff_filename", res[0]),
+                ("metaneff", res[1]),
+                ("flattener", res[2]),
+                ("packer", res[3]),
+                ("example_inputs", args[1]),
+                ("input_output_alias", aliases),
+                ("weights", res[4]),
+                ("WHOLE_TUPLE", (res[0], res[1], res[2], res[3], args[1], aliases, res[4], 0, 0)),
+            ]:
+                try:
+                    _mpr.ForkingPickler(io.BytesIO(), -1).dump(obj)
+                    print(f"DIAG pickle OK   {name}", flush=True)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"DIAG pickle FAIL {name}: {type(exc).__name__}: {exc}", flush=True)
+            print(f"DIAG weights={res[4]!r:.200}", flush=True)
+            print(
+                f"DIAG alias keys={set((type(k).__name__, str(getattr(k, 'device', None))) for k in (aliases or {}))}",
+                flush=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"DIAG introspection error: {exc}", flush=True)
+        return res
+
+    _diag_inner_trace._diag = True
+    _tnx_trace._trace = _diag_inner_trace
+
+
+# ---- END TEMP DIAGNOSTIC ----
+
 COMMON_TEXT_TASKS = [
     "feature-extraction",
     "fill-mask",
@@ -1127,45 +1175,7 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
         self, model_name_or_path, sequence_length, batch_size, num_beams, device, tensor_parallel_size
     ):
         """Unlike `torch_neuronx.trace`, `parallel_model_trace` requires a function returning a model object and a dictionary of states."""
-        # ---- TEMP DIAGNOSTIC: runs inside the spawned trace worker ----
-        import io
-        import multiprocessing.reduction as _mpr
-
-        import torch_neuronx.xla_impl.trace as _tnx_trace
-
-        if not getattr(_tnx_trace._trace, "_diag", False):
-            _orig_inner_trace = _tnx_trace._trace
-
-            def _diag_inner_trace(*args, **kwargs):
-                res = _orig_inner_trace(*args, **kwargs)
-                try:
-                    aliases = args[3] if len(args) > 3 else kwargs.get("input_output_aliases")
-                    for name, obj in [
-                        ("neff_filename", res[0]),
-                        ("metaneff", res[1]),
-                        ("flattener", res[2]),
-                        ("packer", res[3]),
-                        ("example_inputs", args[1]),
-                        ("input_output_alias", aliases),
-                        ("weights", res[4]),
-                    ]:
-                        try:
-                            _mpr.ForkingPickler(io.BytesIO(), -1).dump(obj)
-                            print(f"DIAG pickle OK   {name}", flush=True)
-                        except Exception as exc:  # noqa: BLE001
-                            print(f"DIAG pickle FAIL {name}: {type(exc).__name__}: {exc}", flush=True)
-                    print(f"DIAG weights={res[4]!r:.200}", flush=True)
-                    print(
-                        f"DIAG alias keys={[(type(k).__name__, getattr(k, 'device', None)) for k in (aliases or {})]}",
-                        flush=True,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    print(f"DIAG introspection error: {exc}", flush=True)
-                return res
-
-            _diag_inner_trace._diag = True
-            _tnx_trace._trace = _diag_inner_trace
-        # ---- END TEMP DIAGNOSTIC ----
+        _install_trace_pickle_diagnostic()
         model = TasksManager.get_model_from_task(
             model_name_or_path=model_name_or_path,
             task=self.task,
@@ -1317,6 +1327,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
         tensor_parallel_size,
     ):
         """Unlike `torch_neuronx.trace`, `parallel_model_trace` requires a function returning a model object and a dictionary of states."""
+        _install_trace_pickle_diagnostic()
         model = TasksManager.get_model_from_task(
             model_name_or_path=model_name_or_path,
             task=self.task,
