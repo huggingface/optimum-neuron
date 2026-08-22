@@ -2,7 +2,7 @@ name: Optimum neuron / Test INF2 vLLM
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, ci-test-vllm-docker ]
     paths:
       - 'pyproject.toml'
       - 'optimum/commands/neuron/serve.py'
