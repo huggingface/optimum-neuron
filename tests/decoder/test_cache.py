@@ -17,6 +17,7 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 from tempfile import TemporaryDirectory
 from time import time
 
@@ -57,17 +58,17 @@ def cache_repos():
                 os.environ[var] = previous_env[var]
 
 
-def export_decoder_model(model_id, auto_class):
-    batch_size = 2
-    sequence_length = 512
-    tensor_parallel_size = 2
-
-    neuron_config = auto_class.get_neuron_config(
+def get_export_neuron_config(model_id, auto_class):
+    return auto_class.get_neuron_config(
         model_id,
-        batch_size=batch_size,
-        sequence_length=sequence_length,
-        tensor_parallel_size=tensor_parallel_size,
+        batch_size=2,
+        sequence_length=512,
+        tensor_parallel_size=2,
     )
+
+
+def export_decoder_model(model_id, auto_class):
+    neuron_config = get_export_neuron_config(model_id, auto_class)
     return auto_class.export(
         model_id,
         neuron_config=neuron_config,
@@ -88,11 +89,36 @@ def get_local_cached_files(cache_path, extension="*"):
     return [link for link in links if os.path.isfile(link)]
 
 
-def check_decoder_cache_entry(model, cache_path):
+def check_decoder_cache_entry(neuron_config, cache_path):
     local_files = get_local_cached_files(cache_path, "json")
-    model_id = model.neuron_config.checkpoint_id
+    model_id = neuron_config.checkpoint_id
     model_configurations = [path for path in local_files if model_id in path]
     assert len(model_configurations) > 0
+
+
+def run_export_and_generation_in_subprocess(model_id):
+    """Runs export_decoder_model + check_decoder_generation in a fresh subprocess.
+
+    torch_neuronx keeps a process-global HLO instance counter
+    (torch_neuronx.experimental.profiler.v2_x.custom_op_name.class_count) that gets baked
+    into the op_name metadata of the HLO, which is itself hashed to compute the Hub cache
+    lookup key. Exporting the same model twice within one process bumps that counter, so
+    the second export's hash never matches the first and the Hub cache lookup always
+    misses. Running each export in its own subprocess keeps the counter fresh so identical
+    models produce identical hashes, matching the deterministic caching behavior this test
+    is meant to verify.
+    """
+    result = subprocess.run(
+        [sys.executable, __file__, "--export", model_id],
+        capture_output=True,
+        text=True,
+        env=os.environ,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Export subprocess failed (exit code {result.returncode}):\n"
+            f"{result.stdout[-2000:]}\n{result.stderr[-2000:]}"
+        )
 
 
 def assert_local_and_hub_cache_sync(cache_path, cache_repo_id):
@@ -114,17 +140,17 @@ def local_cache_size(cache_path):
 def test_decoder_cache(cache_repos):
     cache_path, cache_repo_id = cache_repos
     model_id = "llamafactory/tiny-random-Llama-3"
+    neuron_config = get_export_neuron_config(model_id, NeuronModelForCausalLM)
     # Export the model a first time to populate the local cache
-    model = export_decoder_model(model_id, NeuronModelForCausalLM)
-    check_decoder_generation(model)
-    check_decoder_cache_entry(model, cache_path)
+    run_export_and_generation_in_subprocess(model_id)
+    check_decoder_cache_entry(neuron_config, cache_path)
     # Synchronize the hub cache with the local cache
     synchronize_hub_cache(cache_repo_id=cache_repo_id)
     assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
     # Verify we are able to fetch the cached entry for the model
     model_entries = get_hub_cached_entries(model_id, cache_repo_id=cache_repo_id)
     assert len(model_entries) == 1
-    assert model_entries[0] == model.neuron_config.to_dict()
+    assert model_entries[0] == neuron_config.to_dict()
     # Also verify that the model appears in the list of cached models
     cached_models = get_hub_cached_models()
     assert ("llama", "llamafactory", "tiny-random-Llama-3") in cached_models
@@ -135,11 +161,21 @@ def test_decoder_cache(cache_repos):
         for d in dirs:
             shutil.rmtree(os.path.join(root, d))
     assert local_cache_size(cache_path) == 0
-    # Export the model again: the compilation artifacts should be fetched from the Hub
-    model = export_decoder_model(model_id, NeuronModelForCausalLM)
-    check_decoder_generation(model)
+    # Export the model again, in a fresh process: the compilation artifacts should be
+    # fetched from the Hub
+    run_export_and_generation_in_subprocess(model_id)
     # Verify the local cache directory has not been populated
     assert len(get_local_cached_files(cache_path, "neff")) == 0
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--export", required=True, help="Model id to export and run a generation check on.")
+    args = parser.parse_args()
+    model = export_decoder_model(args.export, NeuronModelForCausalLM)
+    check_decoder_generation(model)
 
 
 @is_inferentia_test

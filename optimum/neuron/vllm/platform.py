@@ -15,10 +15,23 @@ import logging
 import os
 
 from vllm.platforms.interface import UnspecifiedPlatform
-from vllm.utils import FlexibleArgumentParser
+from vllm.utils.argparse_utils import FlexibleArgumentParser
 
 
 logger = logging.getLogger("Neuron")
+
+
+def _verify_with_parallel_config_noop(parallel_config) -> None:
+    """Skip vLLM's ModelConfig parallel-config verification for Neuron models.
+
+    The original method checks that tensor_parallel_size divides the number of
+    attention heads, which is not necessarily required for Neuron models since we
+    use padding (e.g., Llama 4 Scout 17B with TP=32). Defined at module level so
+    the patched ModelConfig remains picklable when vLLM spawns the EngineCore
+    process (a closure would fail with "Can't pickle local object"). Assigned as an
+    instance attribute, it is called with a single ``parallel_config`` argument.
+    """
+    pass
 
 
 class OptimumNeuronPlatform(UnspecifiedPlatform):
@@ -65,6 +78,10 @@ class OptimumNeuronPlatform(UnspecifiedPlatform):
         if parallel_config.world_size > 1:
             parallel_config.distributed_executor_backend = "uni"
 
+        # Async scheduling requires a worker that implements the execute_model /
+        # sample_tokens split; OptimumNeuronWorker does both in execute_model.
+        vllm_config.scheduler_config.async_scheduling = False
+
         if vllm_config.cache_config:
             # Disable prefix-caching as it's not supported on optimum-neuron
             vllm_config.cache_config.enable_prefix_caching = False
@@ -94,18 +111,15 @@ class OptimumNeuronPlatform(UnspecifiedPlatform):
                     "Please set `use_mla` to False in the model configuration."
                 )
 
-            # Patch ModelConfig to avoid hard-coded check in vLLM
-            def verify_with_parallel_config(parallel_config) -> None:
-                # The original method checks that the tensor_parallel_size divides
-                # the number of attention heads, which is not necessarily required for
-                # Neuron models, since we use padding (e.g., Llama 4 Scout 17B with TP=32).
-                # We override the method to skip this check.
-                logger.info(
-                    "Disabling ModelConfig verification with parallel config for Optimum Neuron platform (instance)."
-                )
-                pass
-
-            vllm_config.model_config.verify_with_parallel_config = verify_with_parallel_config
+            # Patch ModelConfig to avoid hard-coded check in vLLM. Assign the
+            # module-level function (not a closure) so the config stays picklable
+            # when vLLM spawns the EngineCore process. vLLM calls it as
+            # `model_config.verify_with_parallel_config(parallel_config)`, so the
+            # instance attribute is invoked with a single argument.
+            logger.info(
+                "Disabling ModelConfig verification with parallel config for Optimum Neuron platform (instance)."
+            )
+            vllm_config.model_config.verify_with_parallel_config = _verify_with_parallel_config_noop
 
     @classmethod
     def device_id_to_physical_device_id(cls, device_id: int) -> int:

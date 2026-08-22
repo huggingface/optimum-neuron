@@ -137,3 +137,6 @@ neuronxcc*/
 
 # Ignore claude settings
 .claude/
+
+# Neuron compiler artifact generated under SDK 2.31
+tests/PostSPMDPassesExecutionDuration.txt

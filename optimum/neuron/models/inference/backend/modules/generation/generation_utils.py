@@ -168,13 +168,16 @@ class NxDGenerationMixin(GenerationMixin, ABC):
             else:
                 next_token_logits = outputs[:, -1, :].clone()
                 next_token_scores = logits_processor(input_ids, next_token_logits)
-                next_token_scores, next_token_indices = fused_logits_warper(next_token_scores)
                 if do_sample:
+                    next_token_scores, next_token_indices = fused_logits_warper(next_token_scores)
                     probs = torch.nn.functional.softmax(next_token_scores, dim=-1)
                     next_tokens = torch.multinomial(probs, num_samples=1)
+                    next_tokens = torch.gather(next_token_indices, 1, next_tokens).squeeze(1)
                 else:
-                    next_tokens = torch.argmax(next_token_scores, dim=-1, keepdim=True)
-                next_tokens = torch.gather(next_token_indices, 1, next_tokens).squeeze(1)
+                    # Greedy: select from the full logits, so that ties are broken towards the
+                    # lowest token id, like transformers does. Going through the fused warper
+                    # would instead break them according to its top-k sort order.
+                    next_tokens = torch.argmax(next_token_scores, dim=-1)
 
             if has_eos_stopping_criteria:
                 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)

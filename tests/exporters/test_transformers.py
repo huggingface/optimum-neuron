@@ -49,7 +49,7 @@ from optimum.exporters.neuron import (
 from optimum.exporters.neuron.__main__ import get_submodels_and_neuron_configs
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.neuron.utils import InputShapesArguments
-from optimum.neuron.utils.testing_utils import requires_neuronx
+from optimum.neuron.utils.testing_utils import requires_neuronx, skip_if_sdk_231_trace_crash
 
 from .exporters_utils import (
     ENCODER_DECODER_MODELS_TINY,
@@ -79,6 +79,8 @@ class NeuronExportTestCase(unittest.TestCase):
         dynamic_batch_size: bool = False,
         inline_weights_to_neff: bool = True,
     ):
+        skip_if_sdk_231_trace_crash(model_type)
+
         library_name = TasksManager.infer_library_from_model(model_name)
         if library_name == "sentence_transformers":
             model_class = TasksManager.get_model_class_for_task(task, framework="pt", library=library_name)

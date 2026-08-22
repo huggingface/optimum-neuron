@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+import os
 
 
 logger = logging.getLogger("Neuron")
@@ -23,5 +24,13 @@ def register():
     Register the Optimum Neuron platform plugin for vLLM.
     This function is called to ensure that the plugin is registered when the package is imported.
     """
+    # vLLM's V1 engine forks an EngineCore process by default
+    # (VLLM_WORKER_MULTIPROC_METHOD=fork). Forking after the Neuron runtime and
+    # torch have initialized their native thread pools leaves the child with a
+    # dead neuron::ThreadPool, so weight loading deadlocks in
+    # neuron::parallel_load (or aborts with "Invalid thread pool!"). Force spawn
+    # so the EngineCore starts from a clean interpreter. setdefault respects an
+    # explicit user override. This mirrors what `optimum-cli neuron serve` does.
+    os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
     logger.info("Optimum Neuron platform plugin registered for vLLM.")
     return "optimum.neuron.vllm.platform.OptimumNeuronPlatform"
