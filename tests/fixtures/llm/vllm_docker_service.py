@@ -221,37 +221,38 @@ def vllm_docker_launcher(event_loop):
 
         logger.info(f"Starting {container_name} container")
         model_name = served_model_name if served_model_name is not None else container_model_name_or_path
-        yield ContainerLauncherHandle(
-            service_name,
-            model_name,
-            client,
-            container.name,
-            port,
-        )
-
         try:
-            container.stop(timeout=60)
-            container.wait(timeout=60)
-        except Exception as e:
-            logger.exception(f"Ignoring exception while stopping container: {e}.")
-            pass
+            yield ContainerLauncherHandle(
+                service_name,
+                model_name,
+                client,
+                container.name,
+                port,
+            )
         finally:
-            logger.info("Removing container %s", container_name)
             try:
-                container.remove(force=True)
+                container.stop(timeout=60)
+                container.wait(timeout=60)
             except Exception as e:
-                logger.error("Error while removing container %s, skipping", container_name)
-                logger.exception(e)
-
-            # Cleanup the build image
-            if image:
-                logger.info("Cleaning image %s", image.id)
+                logger.exception(f"Ignoring exception while stopping container: {e}.")
+                pass
+            finally:
+                logger.info("Removing container %s", container_name)
                 try:
-                    image.remove(force=True)
-                except NotFound:
-                    pass
+                    container.remove(force=True)
                 except Exception as e:
-                    logger.error("Error while removing image %s, skipping", image.id)
+                    logger.error("Error while removing container %s, skipping", container_name)
                     logger.exception(e)
+
+                # Cleanup the build image
+                if image:
+                    logger.info("Cleaning image %s", image.id)
+                    try:
+                        image.remove(force=True)
+                    except NotFound:
+                        pass
+                    except Exception as e:
+                        logger.error("Error while removing image %s, skipping", image.id)
+                        logger.exception(e)
 
     return docker_launcher
