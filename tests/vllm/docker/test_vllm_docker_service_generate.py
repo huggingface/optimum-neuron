@@ -97,16 +97,22 @@ async def test_vllm_docker_service_sampling_parameters(neuron_llm_config, vllm_d
 
         assert greedy_tokens == max_output_tokens
 
-        # Sampling
-        sample_tokens, sample_text = await vllm_docker_service_from_local_neuron_model.client.sample(
-            prompt,
-            max_output_tokens=max_output_tokens,
-            temperature=1.0,
-            top_p=0.9,
-        )
-        assert sample_tokens == max_output_tokens
+        # Sampling. The distribution of such a small model on that prompt is peaked, so a single
+        # draw can legitimately reproduce the greedy answer: sample again a few times before
+        # concluding that the sampling parameters are ignored.
+        sampling_attempts = 5
+        for _ in range(sampling_attempts):
+            sample_tokens, sample_text = await vllm_docker_service_from_local_neuron_model.client.sample(
+                prompt,
+                max_output_tokens=max_output_tokens,
+                temperature=1.0,
+                top_p=0.9,
+            )
+            assert sample_tokens == max_output_tokens
+            if sample_text != greedy_text:
+                break
         # The response must be different
-        assert sample_text != greedy_text
+        assert sample_text != greedy_text, f"Sampling reproduced the greedy answer in {sampling_attempts} attempts."
 
         # Greedy with stop sequence (using one of the words returned from the previous test)
         stop_sequence = greedy_text.split(" ")[-5]
