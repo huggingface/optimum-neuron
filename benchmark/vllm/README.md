@@ -4,6 +4,13 @@
 
 These configurations are tested and run on with the Hugging Face Deep Learning AMI from the AWS Marketplace.
 
+Serving locally requires Python >= 3.11 (the vLLM integration no longer supports Python 3.10).
+If you are not using the DLAMI, install the vLLM extra in a virtual environment:
+
+```shell
+$ pip install .[neuronx,vllm]
+```
+
 Copy the configurations down using
 
 ```shell
@@ -19,6 +26,8 @@ The `single-instance` directory contains instructions to deploy model configurat
 ## Run the performance benchmark
 
 ### Install `guidellm`
+
+The benchmark scripts are written for `guidellm` 0.1.x:
 
 ```shell
 $ pip install guidellm==0.1.0
