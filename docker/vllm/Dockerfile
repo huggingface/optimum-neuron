@@ -1,4 +1,4 @@
-FROM ubuntu:22.04 AS base
+FROM ubuntu:24.04 AS base
 
 # Install system prerequisites
 RUN apt-get update -y \
@@ -18,8 +18,7 @@ RUN apt-get update -y \
 # Install uv at a specific version on a given path
 RUN curl -LsSf https://astral.sh/uv/0.9.27/install.sh | XDG_BIN_HOME=/usr/local/bin sh
 
-# optimum-neuron requires Python >= 3.11 (SDK 2.31's compiler ships no cp310 wheels),
-# but Ubuntu 22.04 only provides Python 3.10. Provision a standalone interpreter via uv.
+# Provision a standalone Python 3.12 interpreter via uv.
 # Use 3.12, not 3.11: neuronx-cc pins numpy<2 for python_full_version < '3.12', which
 # conflicts with vllm's numpy>=2 requirement.
 RUN uv venv --python 3.12 /opt/venv
@@ -32,7 +31,7 @@ RUN dirname "$(find /root/.local/share/uv/python -name 'libpython3.12.so.1.0')" 
     && ldconfig
 
 # Setup neuronx repository
-RUN echo "deb https://apt.repos.neuron.amazonaws.com jammy main" > /etc/apt/sources.list.d/neuron.list
+RUN echo "deb https://apt.repos.neuron.amazonaws.com noble main" > /etc/apt/sources.list.d/neuron.list
 RUN wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | apt-key add -
 
 # Install neuronx packages
