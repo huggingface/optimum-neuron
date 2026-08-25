@@ -58,41 +58,10 @@ ENV HUGGINGFACE_HUB_CACHE=/tmp \
     HF_XET_HIGH_PERFORMANCE=1 \
     HF_HUB_USER_AGENT_ORIGIN=aws:sagemaker:neuron:inference:vllm-optimum-neuron
 
-# Create the entrypoint script
-# We use a 'heredoc' pattern to keep the Dockerfile self-contained
-# All content within the 'EOF' marker is written to the entrypoint.sh file
-######## Start of entry-point script ########
-RUN cat <<'EOF' > entrypoint.sh
-#!/bin/bash
-
-# Save parameters, they will be passed over to the optimum-cli serve command
-export ARGS_CLI="${@}"
-
-# Define the prefix for environment variables to look for
-PREFIX="SM_ON_"
-ARG_PREFIX="--"
-
-# Initialize an array for storing the arguments
-# port 8080 required by sagemaker, https://docs.aws.amazon.com/sagemaker/latest/dg/your-algorithms-inference-code.html#your-algorithms-inference-code-container-response
-ARGS=(--port 8080)
-
-# Loop through all environment variables
-while IFS='=' read -r key value; do
-    # Remove the prefix from the key, convert to lowercase
-    arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]')
-
-    # Add the argument name and value to the ARGS array
-    ARGS+=("${ARG_PREFIX}${arg_name}")
-    if [ -n "$value" ]; then
-        ARGS+=("$value")
-    fi
-done < <(env | grep "^${PREFIX}")
-
-# Pass the collected arguments to the optimum-cli serve command
-exec optimum-cli neuron serve "${ARGS[@]}" ${ARGS_CLI}
-EOF
-######## End of entry-point script ########
-
+# Copy the entrypoint script (a COPY, not a heredoc, so it works on the legacy
+# docker builder as well as BuildKit — heredoc-in-RUN yields an empty file on
+# the legacy builder, causing "exec format error" at container start).
+COPY docker/vllm/entrypoint.sh entrypoint.sh
 RUN chmod +x entrypoint.sh
 
 ENTRYPOINT ["./entrypoint.sh"]
