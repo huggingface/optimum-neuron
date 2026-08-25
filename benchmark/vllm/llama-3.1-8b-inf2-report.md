@@ -53,8 +53,9 @@ In the expected range for this model. Details:
 - Image size: 8.36 GB; build time ~2–3 min on this instance.
 - Smoke test: container started with `SM_ON_MODEL=meta-llama/Llama-3.1-8B-Instruct`,
   `SM_ON_TENSOR_PARALLEL_SIZE=2`, `SM_ON_BATCH_SIZE=4`, `SM_ON_SEQUENCE_LENGTH=4096`
-  and `/dev/neuron0` + `/dev/neuron1` passed through; `/v1/models` listed the
-  model and a greedy completion request returned sane text.
+  and `/dev/neuron0` passed through (TP=2 uses one device's two NeuronCores);
+  `/v1/models` listed the model and a greedy completion request returned sane
+  text.
 
 ## Operational findings
 
@@ -67,12 +68,13 @@ current stack:
    compiler"). Upgrade the host packages to the versions pinned in
    `docker/vllm/Dockerfile` (runtime-lib/collectives 2.33.10, tools 2.31.13)
    before serving.
-2. **Docker build requires BuildKit.** The `RUN cat <<'EOF' > entrypoint.sh`
-   heredoc in `docker/vllm/Dockerfile` silently produces an *empty*
-   `entrypoint.sh` with the legacy builder (the container then dies with
-   `exec format error`). Install the buildx plugin (`apt install
-   docker-buildx`) — with BuildKit the image builds correctly. The Makefile
-   also needs `gawk` installed to resolve the image tag version.
+2. **Docker build: heredoc entrypoint broke on the legacy builder (fixed).**
+   The `RUN cat <<'EOF' > entrypoint.sh` heredoc in `docker/vllm/Dockerfile`
+   silently produced an *empty* `entrypoint.sh` with the legacy builder (no
+   buildx), so the container died with `exec format error`. Fixed by checking
+   the script into `docker/vllm/entrypoint.sh` and `COPY`ing it (works on both
+   the legacy builder and BuildKit). The Makefile also needs `gawk` installed
+   to resolve the image tag version.
 3. **First serve recompiles.** The Hub compilation cache is keyed by compiler
    version, so cached entries from older stacks do not hit; the first serve of
    this configuration compiled for ~2.5 minutes (8B, TP=2) before the server
@@ -105,10 +107,11 @@ Relative to the previous vLLM 0.11-based release:
 - Numerics fixes: KV-cache reorder, gemma3 fp32 softmax, greedy tie-break.
 
 When re-running the trn2 and data-parallel configurations, expect: host
-runtime upgrades (finding 1), image rebuild with buildx (finding 2), and a
-one-time recompilation per configuration (finding 3). Async scheduling being
-disabled may shift throughput numbers relative to previous runs — treat
-cross-stack comparisons as qualitative.
+runtime upgrades (finding 1), an image rebuild (the entrypoint fix in finding
+2 is required for legacy-builder hosts), and a one-time recompilation per
+configuration (finding 3). Async scheduling being disabled may shift
+throughput numbers relative to previous runs — treat cross-stack comparisons
+as qualitative.
 
 ## Runbook
 
@@ -133,8 +136,8 @@ python generate_csv.py --dir .
 ./accuracy.sh meta-llama/Llama-3.1-8B-Instruct 4 gsm8k
 
 # 4. Docker smoke test (stop the bare-metal server first)
-make optimum-neuron-vllm   # requires gawk + docker-buildx on the host
-docker run -d --name vllm-smoke --device /dev/neuron0 --device /dev/neuron1 \
+make optimum-neuron-vllm   # requires gawk on the host to resolve the image tag
+docker run -d --name vllm-smoke --device /dev/neuron0 \
   -e HF_TOKEN=$HF_TOKEN \
   -e SM_ON_MODEL=meta-llama/Llama-3.1-8B-Instruct \
   -e SM_ON_TENSOR_PARALLEL_SIZE=2 -e SM_ON_BATCH_SIZE=4 -e SM_ON_SEQUENCE_LENGTH=4096 \
@@ -148,7 +151,7 @@ docker run -d --name vllm-smoke --device /dev/neuron0 --device /dev/neuron1 \
   on a trn2 instance with enough NeuronCores for the config's TP; each config
   recompiles once on first serve.
 - **data-parallel** (`llama3.1-8b` dp3/dp4, `llama3-70B-trn2`, `qwen3-30B-A3B`):
-  rebuild `optimum-neuron-vllm:latest` with buildx, then
+  rebuild `optimum-neuron-vllm:latest`, then
   `docker compose -f <config>/docker-compose*.yaml --env-file <config>/.env up`
   on an instance with the required devices; benchmark with `../performance.sh`.
 - **chunked-prefill**: re-run on inf2.48xlarge at TP=8 / BS=32 following
