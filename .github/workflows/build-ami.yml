@@ -27,6 +27,9 @@ jobs:
           run:
             working-directory: infrastructure/ami
         runs-on: ubuntu-latest
+        permissions:
+          contents: read
+          id-token: write # Required to mint the OIDC token the AWS role is assumed with.
         env:
           AWS_REGION: us-east-1
         steps:
@@ -42,8 +45,7 @@ jobs:
           - name: configure aws credentials
             uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6.2.0
             with:
-              aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_BUILD_AMI }}
-              aws-secret-access-key: ${{ secrets.AWS_ACCESS_KEY_SECRET_BUILD_AMI }}
+              role-to-assume: arn:aws:iam::907797767998:role/optimum-neuron-build-ami
               aws-region: ${{ env.AWS_REGION }}
 
           - name: Packer format
