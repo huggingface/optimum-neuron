@@ -59,19 +59,26 @@ jobs:
             continue-on-error: true
 
 
+          - name: Validate OPTIMUM_VERSION
+            id: validate-version
+            env:
+              RAW_VERSION: ${{ github.event.inputs.tag || github.head_ref || github.ref_name }}
+            run: |
+              if ! echo "$RAW_VERSION" | grep -Eq '^[a-zA-Z0-9._/-]+$'; then
+                echo "Invalid version format: $RAW_VERSION"
+                exit 1
+              fi
+              echo "OPTIMUM_VERSION=$RAW_VERSION" >> $GITHUB_ENV
+
           - name: Packer Validate
             id: validate
             # If the workflow is triggered manually or scheduled, uses the tag, otherwise uses the name of branch that triggered workflow for building the AMI
-            env:
-              OPTIMUM_VERSION: ${{ github.event.inputs.tag || github.head_ref || github.ref_name }}
             run: packer validate -var "optimum_version=$OPTIMUM_VERSION" -var "region=${{ env.AWS_REGION }}" hcl2-files
             continue-on-error: true
 
           - name: Packer Build
             id: build
             # If the workflow is triggered manually or scheduled, uses the tag, otherwise uses the name of branch that triggered workflow for building the AMI
-            env:
-              OPTIMUM_VERSION: ${{ github.event.inputs.tag || github.head_ref || github.ref_name }}
             run:  |
               packer build -var "optimum_version=$OPTIMUM_VERSION" -var "region=${{ env.AWS_REGION }}" hcl2-files
 
