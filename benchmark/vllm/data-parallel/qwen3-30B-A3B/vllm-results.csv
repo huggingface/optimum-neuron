@@ -1,0 +1,3 @@
+model_id,Date,Input type,Requests per Second,Request Latency (s),Time-to-first-token (ms),Inter Token Latency (ms),Output Token Throughput (t/s)
+Qwen_Qwen3-30B-A3B-Instruct-2507,2026-08-27-18-03-05,synchronous,0.14393719891664233,6.947222793803496,1372.0615471110625,23.529472864646028,34.10464924919031
+Qwen_Qwen3-30B-A3B-Instruct-2507,2026-08-27-18-03-05,throughput,0.9594763398025892,44.38717305287719,30815.677784383297,54.68075542376309,233.93232509811878
