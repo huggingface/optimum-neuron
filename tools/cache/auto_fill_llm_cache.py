@@ -18,6 +18,7 @@ import argparse
 import json
 import logging
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -84,7 +85,7 @@ def compile_and_cache_model(
     sequence_length: int,
     tensor_parallel_size: int,
     task: str | None = None,
-):
+) -> bool:
     start = time.time()
     with tempfile.TemporaryDirectory() as temp_dir:
         if task is None:
@@ -104,7 +105,7 @@ def compile_and_cache_model(
             subprocess.run(compile_command, check=True)
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to compile model: {e}")
-            return
+            return False
 
         # Synchronize compiled model to Hugging Face Hub
         cache_sync_command = ["optimum-cli", "neuron", "cache", "synchronize"]
@@ -113,6 +114,7 @@ def compile_and_cache_model(
 
     # Log time taken
     logger.info(f"Compiled and cached model {model_id} w{time.time() - start:.2f} seconds")
+    return True
 
 
 if __name__ == "__main__":
@@ -145,24 +147,31 @@ if __name__ == "__main__":
         else:
             with open(args.config_file, "r") as f:
                 config = json.load(f)
+        failures = []
         for model_id, configs in config.items():
             for model_config in configs:
-                compile_and_cache_model(
+                if not compile_and_cache_model(
                     model_id=model_id,
                     instance_type=model_config.get("instance_type", SUPPORTED_INSTANCE_TYPES[0]),
                     batch_size=model_config["batch_size"],
                     sequence_length=model_config.get("sequence_length", None),
                     tensor_parallel_size=model_config.get("tensor_parallel_size", model_config.get("num_cores", None)),
                     task=model_config.get("task", None),
-                )
+                ):
+                    failures.append(f"{model_id} {model_config}")
+        if failures:
+            logger.error(f"{len(failures)} configuration(s) failed to compile:")
+            for failure in failures:
+                logger.error(f"  {failure}")
+            sys.exit(1)
     elif args.model_id is None:
         raise ValueError("You must provide --model_id to compile a model without a config file.")
-    else:
-        compile_and_cache_model(
-            model_id=args.model_id,
-            instance_type=args.instance_type,
-            batch_size=args.batch_size,
-            sequence_length=args.sequence_length,
-            tensor_parallel_size=args.tensor_parallel_size,
-            task=args.task,
-        )
+    elif not compile_and_cache_model(
+        model_id=args.model_id,
+        instance_type=args.instance_type,
+        batch_size=args.batch_size,
+        sequence_length=args.sequence_length,
+        tensor_parallel_size=args.tensor_parallel_size,
+        task=args.task,
+    ):
+        sys.exit(1)
