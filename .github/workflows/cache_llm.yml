@@ -51,13 +51,9 @@ jobs:
           trn1/granite,
           trn1/phi4,
           trn1/smollm3,
-          # trn2 exports disabled: they cross-compile for trn2 on the inf2
-          # runner and the job dies mid-compilation (no log produced) since
-          # 2026-03-17 with no code change. Re-enable once the runner can
-          # sustain trn2 cross-compilation.
-          # trn2/llama3,
-          # trn2/llama4,
-          # trn2/qwen3-moe,
+          trn2/llama3,
+          trn2/llama4,
+          trn2/qwen3-moe,
         ]
     steps:
       - name: Checkout
