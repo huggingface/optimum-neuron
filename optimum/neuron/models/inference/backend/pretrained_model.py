@@ -25,6 +25,7 @@ import neuronx_distributed.trace.hlo_utils as hlo_utils
 import torch
 from huggingface_hub import HfApi, snapshot_download
 from neuronx_distributed.trace.model_builder import ModelBuilder
+from neuronx_distributed.utils import HloMetadataLevel
 from safetensors.torch import load_file
 from transformers import AutoConfig, AutoModelForCausalLM, PretrainedConfig
 
@@ -56,7 +57,7 @@ def get_shards_path(dest_path):
 def get_builder(
     neuron_config: NxDNeuronConfig,
     graph_builders: dict[str, NxDGraphBuilder],
-    debug: bool = False,
+    debug: HloMetadataLevel = HloMetadataLevel.NONE,
     checkpoint_loader=None,
     compiler_args: str = None,
 ):
@@ -70,7 +71,7 @@ def get_builder(
     Args:
         neuron_config (NxDNeuronConfig): The Neuron configuration.
         graph_builders (list[NxDGraphBuilder]): The model graphs to be added to the builder.
-        debug (bool): Whether to enable debug mode.
+        debug (HloMetadataLevel): The level of HLO debug metadata to generate.
         checkpoint_loader (callable): A function to load the model's state dictionary and weights.
         compiler_args (str): Compiler arguments to be passed to the builder.
     Returns:
@@ -170,7 +171,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
         neuron_config,
         graph_builders: dict[str, dict[str, NxDGraphBuilder]],
         compiler_args: str,
-        debug: bool = False,
+        debug: HloMetadataLevel = HloMetadataLevel.NONE,
     ) -> dict[str, torch.jit.ScriptModule]:
         traced_models = {}
         for bundle_name, bundle_builders in graph_builders.items():
@@ -217,7 +218,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
                 dest_path=os.path.join(dest_path, self.CHECKPOINT_DIR),
             )
 
-    def shard_checkpoint(self, src_path, dest_path, debug: bool = False):
+    def shard_checkpoint(self, src_path, dest_path, debug: HloMetadataLevel = HloMetadataLevel.NONE):
         for bundle_name, bundle_builders in self.graph_builders.items():
             shards_path = (
                 get_shards_path(dest_path)
@@ -286,7 +287,7 @@ class NxDPreTrainedModel(NeuronPreTrainedModel, ABC):
                 sharder = get_builder(
                     self.neuron_config,
                     bundle_builders,
-                    debug=False,
+                    debug=HloMetadataLevel.NONE,
                     checkpoint_loader=checkpoint_loader,
                     compiler_args=self.get_compiler_args(self.neuron_config),
                 )
