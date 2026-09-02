@@ -1,4 +1,5 @@
 # ruff: noqa: E402 ignore imports not at top-level
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -8,8 +9,15 @@ import pytest
 pytest.importorskip("vllm")
 
 from vllm import LLM, RequestOutput, SamplingParams
+from vllm.config import VllmConfig, set_current_vllm_config
+from vllm.config.load import LoadConfig
+from vllm.config.model import ModelConfig
+from vllm.config.parallel import ParallelConfig
+from vllm.config.scheduler import SchedulerConfig
 from vllm.platforms import current_platform
 
+from optimum.neuron import NeuronModelForCausalLM
+from optimum.neuron.vllm.model_loader import OptimumNeuronModelForCausalLM
 from optimum.neuron.vllm.platform import OptimumNeuronPlatform
 
 
@@ -65,6 +73,55 @@ def test_vllm_from_hub_model(any_generate_model: dict[str, Any]):
         tensor_parallel_size=export_kwargs["tensor_parallel_size"],
     )
     _test_vllm_generation(llm)
+
+
+def _get_compiled_module_hashes(cache_path) -> set[str]:
+    return {p.name for p in Path(cache_path).glob("*/MODULE_*") if p.is_dir()}
+
+
+def test_vllm_export_matches_direct_export_cache_hash(tmp_path, monkeypatch):
+    """The same model/shape/config must produce the same local compile-cache hash
+    whether exported via `NeuronModelForCausalLM.export()` directly or via vLLM's
+    on-the-fly `OptimumNeuronModelForCausalLM.create()` path. This is the guarantee
+    that `optimum-cli export neuron` + `optimum-cli neuron cache synchronize` promises
+    any later consumer (e.g. vLLM in Docker) a real compile-cache hit.
+    """
+    model_id = "llamafactory/tiny-random-Llama-3"
+    batch_size, sequence_length, tensor_parallel_size = 2, 512, 2
+
+    monkeypatch.setenv("NEURON_COMPILE_CACHE_URL", str(tmp_path / "direct"))
+    neuron_config = NeuronModelForCausalLM.get_neuron_config(
+        model_id,
+        batch_size=batch_size,
+        sequence_length=sequence_length,
+        tensor_parallel_size=tensor_parallel_size,
+    )
+    NeuronModelForCausalLM.export(model_id, neuron_config=neuron_config, load_weights=True)
+    direct_hashes = _get_compiled_module_hashes(tmp_path / "direct")
+
+    monkeypatch.setenv("NEURON_COMPILE_CACHE_URL", str(tmp_path / "vllm"))
+    model_config = ModelConfig(model=model_id, max_model_len=sequence_length, dtype="bfloat16")
+    parallel_config = ParallelConfig(tensor_parallel_size=tensor_parallel_size)
+    scheduler_config = SchedulerConfig(
+        max_num_seqs=batch_size, max_model_len=sequence_length, is_encoder_decoder=False
+    )
+    load_config = LoadConfig(model_loader_extra_config="allow_non_cached_model")
+    vllm_config = VllmConfig(
+        model_config=model_config,
+        parallel_config=parallel_config,
+        scheduler_config=scheduler_config,
+        load_config=load_config,
+    )
+    with set_current_vllm_config(vllm_config):
+        OptimumNeuronModelForCausalLM.create(
+            model_config=model_config,
+            parallel_config=parallel_config,
+            scheduler_config=scheduler_config,
+            load_config=load_config,
+        )
+    vllm_hashes = _get_compiled_module_hashes(tmp_path / "vllm")
+
+    assert direct_hashes and direct_hashes == vllm_hashes
 
 
 @pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
