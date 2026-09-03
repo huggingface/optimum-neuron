@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Run sanity check
         uses: ./.github/actions/sanity-check
         with:
@@ -83,7 +83,7 @@ jobs:
       group: aws-inf2-8xlarge
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Export test models
         uses: ./.github/actions/export_test_models
         with:
@@ -96,7 +96,7 @@ jobs:
       group: aws-inf2-8xlarge
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Install Neuronx runtime
         uses: ./.github/actions/install_neuronx_runtime
       - name: Setup virtual environment
@@ -116,7 +116,7 @@ jobs:
       group: aws-inf2-8xlarge
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Install Neuronx runtime
         uses: ./.github/actions/install_neuronx_runtime
       - name: Setup virtual environment
@@ -151,7 +151,7 @@ jobs:
       group: aws-inf2-8xlarge
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Install Neuronx runtime
         uses: ./.github/actions/install_neuronx_runtime
       - name: Setup virtual environment
