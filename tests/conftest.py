@@ -35,7 +35,6 @@ from optimum.neuron.utils.cache_utils import (
     set_neuron_cache_path,
 )
 from optimum.neuron.utils.misc import is_precompilation
-from optimum.neuron.utils.testing_utils import skip_if_sdk_231_trace_crash
 
 
 # Not critical, only usable on the sandboxed CI instance.
@@ -91,9 +90,6 @@ INFERENTIA_MODEL_NAMES = {
 
 @pytest.fixture(scope="module", params=ENCODER_ARCHITECTURES)
 def inf_encoder_model(request):
-    # Parametrized on the architecture rather than the model id, so that the architectures
-    # crashing the Neuron SDK 2.31 tracer can be skipped.
-    skip_if_sdk_231_trace_crash(request.param)
     return INFERENTIA_MODEL_NAMES[request.param]
 
 
