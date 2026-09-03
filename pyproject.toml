@@ -99,7 +99,7 @@ sentence-transformers = [
     "sentence-transformers==5.3.0",
 ]
 vllm = [
-    "vllm == 0.16.0",
+    "vllm == 0.26.0",
 ]
 vllm-tests = [
     "docker",
