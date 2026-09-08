@@ -160,7 +160,6 @@ jobs:
           uv pip install .[vllm,vllm-tests]
       - name: Build docker image
         run: |
-          sudo apt-get install -y gawk
           make optimum-neuron-vllm
       - name: Run vLLM docker tests
         run: |

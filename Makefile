@@ -22,7 +22,7 @@ clean:
 
 rwildcard=$(wildcard $1) $(foreach d,$1,$(call rwildcard,$(addsuffix /$(notdir $d),$(wildcard $(dir $d)*))))
 
-VERSION := $(shell gawk 'match($$0, /__version__ = "(.*)"/, a) {print a[1]}' optimum/neuron/version.py)
+VERSION := $(shell awk -F'"' '/^__version__ = / {print $$2}' optimum/neuron/version.py)
 
 version:
 	@echo ${VERSION}
