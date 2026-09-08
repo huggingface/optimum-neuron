@@ -20,7 +20,6 @@ jobs:
       -
         name: Extract version
         run: |
-          sudo apt-get install -y gawk
           export ON_VERSION=$(make version)
           echo "ON_VERSION=${ON_VERSION}">> $GITHUB_ENV
       -
