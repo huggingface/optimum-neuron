@@ -132,7 +132,7 @@ def replace_weights(
     module_paths = [module_path for module_path in module_paths if module_path != ""]
 
     for module_path in module_paths:
-        if len(re.findall("\w\d+", module_path)) > 0:
+        if len(re.findall(r"\w\d+", module_path)) > 0:
             continue
         else:
             model_weights._c.setattr(

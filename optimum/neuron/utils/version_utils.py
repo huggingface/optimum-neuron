@@ -40,7 +40,7 @@ def get_pinned_version(package_name: str) -> str:
         raise SystemError("An error occured while parsing package metadata")
     candidates = [r for r in requires if r.startswith(package_name)]
     if len(candidates) == 1 and f"{package_name}==" in candidates[0]:
-        match = re.search(f"{package_name}==([0-9\.]+)", candidates[0])
+        match = re.search(rf"{package_name}==([0-9\.]+)", candidates[0])
         if match is not None:
             return match.group(1)
     raise ValueError(f"No pinned version found for package {package_name}")
