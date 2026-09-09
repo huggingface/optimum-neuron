@@ -23,7 +23,7 @@ from vllm.utils.torch_utils import set_random_seed
 from vllm.v1.core.sched.output import SchedulerOutput
 from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheSpec
 from vllm.v1.outputs import ModelRunnerOutput
-from vllm.v1.worker.worker_base import WorkerBase
+from vllm.v1.worker.worker_base import CompilationTimes, WorkerBase
 
 from .runner import OptimumNeuronModelRunner
 
@@ -109,19 +109,13 @@ class OptimumNeuronWorker(WorkerBase):
         # Return empty dict since we disabled prefix caching.
         return {}
 
-    def initialize_cache(self, num_gpu_blocks: int, num_cpu_blocks: int) -> None:
-        # Nothing to do here as the KV cache is instantiated and managed internally
-        # by the optimum-neuron model.
-        assert num_cpu_blocks == 0
-        assert num_gpu_blocks == 1
-
     def initialize_from_config(self, kv_cache_config: KVCacheConfig) -> None:
         # We don't need to do anything since we disabled prefix caching.
         pass
 
-    def compile_or_warm_up_model(self) -> None:
+    def compile_or_warm_up_model(self) -> CompilationTimes:
         # Not required since the compilation happens implicitly when loading the model.
-        pass
+        return CompilationTimes(language_model=0.0, encoder=0.0)
 
     def execute_dummy_batch(self) -> None:
         # No-op for Neuron. In DP mode, vLLM calls this on idle replicas to keep
