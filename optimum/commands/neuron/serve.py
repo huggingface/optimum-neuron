@@ -36,8 +36,8 @@ from ...neuron.utils.system import get_available_cores
 if is_vllm_available():
     import asyncio
 
-    from vllm.entrypoints.openai.api_server import run_server
-    from vllm.entrypoints.openai.cli_args import make_arg_parser, validate_parsed_serve_args
+    from vllm.entrypoints.launchers.api_server.entry import run_server
+    from vllm.entrypoints.launchers.cli_args import make_arg_parser, validate_parsed_serve_args
     from vllm.utils.argparse_utils import FlexibleArgumentParser
 
     from ...neuron.vllm.model_loader import VLLM_2_TRANSFORMERS_TASK_MAPPING

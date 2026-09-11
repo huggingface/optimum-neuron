@@ -94,7 +94,7 @@ class VLLMServerManager:
             cmd = [
                 sys.executable,
                 "-m",
-                "vllm.entrypoints.openai.api_server",
+                "vllm.entrypoints.launchers.api_server.entry",
                 "--port",
                 str(port),
                 "--host",
