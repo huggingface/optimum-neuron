@@ -24,6 +24,7 @@ from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
 
 from ..backend.config import NxDNeuronConfig
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
+from ..backend.modules.attention.rope import get_rope_parameters
 from ..backend.modules.attention.utils import RotaryEmbedding
 from ..backend.modules.decoder import NxDDecoderModelForCausalLM, NxDModelForCausalLM
 from ..backend.modules.moe import initialize_moe_module
@@ -121,7 +122,7 @@ class NeuronQwen3MoEAttention(NeuronAttentionBase):
         self.rotary_emb = RotaryEmbedding(
             self.head_dim,
             max_position_embeddings=config.max_position_embeddings,
-            base=config.rope_theta,
+            base=get_rope_parameters(config)["rope_theta"],
         )
 
         # Qwen3Moe specific: set q_layernorm and k_layernorm
