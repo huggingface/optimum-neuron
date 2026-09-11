@@ -320,6 +320,14 @@ def get_submodels_and_neuron_configs(
         getattr(model.config, "is_encoder_decoder", False) if isinstance(model.config, PretrainedConfig) else False
     )
 
+    if output_attentions:
+        # Only the eager attention returns the attention weights: the other implementations silently
+        # drop them, and they would then be missing from the traced outputs. The encoder and decoder
+        # stacks keep their own configuration, so they have to be switched as well.
+        for module in (model, getattr(model, "encoder", None), getattr(model, "decoder", None)):
+            if hasattr(module, "set_attn_implementation"):
+                module.set_attn_implementation("eager")
+
     if library_name == "diffusers":
         # TODO: Enable optional outputs for Stable Diffusion
         if output_attentions:
