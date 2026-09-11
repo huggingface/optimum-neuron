@@ -606,7 +606,13 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
 
     @contextmanager
     def neuron_padding_manager(self, inputs: dict[str, "torch.Tensor"]):
-        inputs = tuple(self._pad_to_compiled_shape(inputs).values())
+        if "token_type_ids" in self.input_static_shapes and "token_type_ids" not in inputs:
+            # transformers v5 tokenizers no longer return the token type ids, but the model was
+            # traced with them: they default to zeros.
+            inputs["token_type_ids"] = torch.zeros_like(inputs["input_ids"])
+        inputs = self._pad_to_compiled_shape(inputs)
+        # The traced model takes its inputs positionally, in the order they were traced.
+        inputs = tuple(inputs[name] for name in self.input_static_shapes if name in inputs)
         yield inputs
 
     @staticmethod
