@@ -450,9 +450,11 @@ class NeuronDefaultConfig(NeuronExportConfig, ABC):
 
                 if isinstance(outputs, dict):
                     if eligible_outputs is not None:
-                        outputs = {name: outputs[name] for name in outputs.keys() & eligible_outputs}
+                        # The tracer cannot infer the type of a dict output, so the selected outputs
+                        # are returned as a tuple, in the order the neuron configuration expects.
+                        outputs = tuple(outputs[name] for name in eligible_outputs)
 
-                if isinstance(outputs, tuple) and eligible_outputs is not None:
+                elif isinstance(outputs, tuple) and eligible_outputs is not None:
                     if not all(isinstance(x, int) for x in eligible_outputs):
                         raise ValueError(
                             "To extract outputs from a tuple, `eligible_outputs` must be a list of integers only."
