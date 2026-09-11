@@ -15,4 +15,12 @@
 # This file is used by the NeuronConfig create method to register the model configurations
 
 from .inference.backend.config import NxDNeuronConfig  # noqa F401
-from .training.config import TrainingNeuronConfig  # noqa F401
+
+
+try:
+    from .training.config import TrainingNeuronConfig  # noqa F401
+except ImportError:
+    # The training models do not support transformers v5 yet, and importing them here would
+    # break loading any inference neuron configuration. Training configurations simply
+    # cannot be deserialized until they do.
+    pass
