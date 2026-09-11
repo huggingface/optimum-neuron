@@ -101,7 +101,9 @@ class OptimumNeuronWorker(WorkerBase):
         # Set random seed.
         set_random_seed(self.model_config.seed)
 
-    def load_model(self):
+    def load_model(self, *, load_dummy_weights: bool = False):
+        # Neuron models are always loaded from their compiled artifacts, so dummy weights
+        # are not supported: the kwarg only exists to match the vLLM WorkerBase signature.
         with set_current_vllm_config(self.vllm_config):
             self.model_runner.load_model()
 
