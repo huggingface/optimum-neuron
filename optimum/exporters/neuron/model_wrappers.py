@@ -17,7 +17,7 @@
 from typing import TYPE_CHECKING
 
 import torch
-from transformers.cache_utils import EncoderDecoderCache
+from transformers.cache_utils import DynamicCache, EncoderDecoderCache
 from transformers.models.t5.modeling_t5 import T5LayerCrossAttention
 
 from ...neuron.utils import is_neuronx_available
@@ -450,16 +450,13 @@ class T5DecoderWrapper(torch.nn.Module):
     def update_past(self, past_key_values):
         new_past_sa = []
         new_past_ca = []
-        for past_layer in past_key_values:
-            new_past_layer = list(past_layer)
-            for i in range(len(new_past_layer[:2])):
-                new_past_layer[i] = past_layer[i][:, :, 1:]
-            new_past_sa += [
-                new_past_layer[:2],
-            ]
-            new_past_ca += [
-                new_past_layer[2:],
-            ]
+        # Drop the oldest entry of the self attention cache to keep its length constant. The cross
+        # attention cache only depends on the encoder outputs, so it is passed along unchanged.
+        for self_layer, cross_layer in zip(
+            past_key_values.self_attention_cache.layers, past_key_values.cross_attention_cache.layers
+        ):
+            new_past_sa += [[self_layer.keys[:, :, 1:], self_layer.values[:, :, 1:]]]
+            new_past_ca += [[cross_layer.keys, cross_layer.values]]
         return new_past_sa, new_past_ca
 
     def reorder_cache(self, past_key_values, beam_idx):
@@ -493,16 +490,17 @@ class T5DecoderWrapper(torch.nn.Module):
             past_key_values_ca = self.past_key_values_ca
 
         # The cache is stored in a flatten form. We order the cache per layer before passing it to the decoder.
-        # Each layer has 4 tensors, so we group by 4.
-        past_key_values = [
-            [*past_key_values_sa[i * 2 : i * 2 + 2], *past_key_values_ca[i * 2 : i * 2 + 2]]
-            for i in range(0, int(len(past_key_values_ca) / 2))
-        ]
+        # Each layer holds a key and a value tensor, for both self and cross attention.
+        num_layers = len(past_key_values_ca) // 2
+        past_key_values = EncoderDecoderCache(
+            DynamicCache([tuple(past_key_values_sa[i * 2 : i * 2 + 2]) for i in range(num_layers)]),
+            DynamicCache([tuple(past_key_values_ca[i * 2 : i * 2 + 2]) for i in range(num_layers)]),
+        )
 
         decoder_output = self.model.decoder(
             input_ids=input_ids,
             attention_mask=decoder_attention_mask,
-            past_key_values=EncoderDecoderCache.from_legacy_cache(past_key_values),
+            past_key_values=past_key_values,
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_attention_mask,
             use_cache=True,
