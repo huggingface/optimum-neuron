@@ -24,7 +24,7 @@ import torch
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, ParallelEmbedding
 from torch import nn
-from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
+from transformers.generation import GenerateDecoderOnlyOutput, GenerateEncoderDecoderOutput
 from transformers.models.mixtral.modeling_mixtral import MixtralConfig
 
 from ..backend.config import NxDNeuronConfig
@@ -35,7 +35,7 @@ from ..backend.modules.moe import initialize_moe_module
 from ..backend.modules.rms_norm import NeuronRMSNorm
 
 
-SampleOutput = SampleEncoderDecoderOutput | SampleDecoderOnlyOutput
+SampleOutput = GenerateEncoderDecoderOutput | GenerateDecoderOnlyOutput
 
 
 def convert_mixtral_to_neuron_state_dict(neuron_state_dict, config, neuron_config):

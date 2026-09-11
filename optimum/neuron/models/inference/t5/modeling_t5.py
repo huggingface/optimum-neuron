@@ -18,7 +18,6 @@
 import torch
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import (
-    BaseParallelLinear,
     ColumnParallelLinear,
     ParallelEmbedding,
     RowParallelLinear,
@@ -37,48 +36,11 @@ from transformers.models.t5.modeling_t5 import (
     T5LayerNorm,
     T5LayerSelfAttention,
 )
-from transformers.pytorch_utils import find_pruneable_heads_and_indices
 
 
 """
 T5 NxD custom modeling, copied from: https://awsdocs-neuron.readthedocs-hosted.com/en/latest/src/examples/pytorch/neuronx_distributed/t5-inference/t5-inference-tutorial.html.
 """
-
-
-def prune_linear_layer(layer: BaseParallelLinear, index: torch.LongTensor, dim: int = 0) -> BaseParallelLinear:
-    """
-    Prune a linear layer to keep only entries in index.
-
-    Used to remove heads.
-
-    Args:
-        layer (`BaseParallelLinear`): The layer to prune.
-        index (`torch.LongTensor`): The indices to keep in the layer.
-        dim (`int`, *optional*, defaults to 0): The dimension on which to keep the indices.
-
-    Returns:
-        `BaseParallelLinear`: The pruned layer as a new layer with `requires_grad=True`.
-    """
-    index = index.to(layer.weight.device)
-    W = layer.weight.index_select(dim, index).clone().detach()
-    if layer.bias is not None:
-        if dim == 1:
-            b = layer.bias.clone().detach()
-        else:
-            b = layer.bias[index].clone().detach()
-    new_size = list(layer.weight.size())
-    new_size[dim] = len(index)
-    new_layer = ColumnParallelLinear(new_size[1], new_size[0], bias=layer.bias is not None, gather_output=False).to(
-        layer.weight.device
-    )
-    new_layer.weight.requires_grad = False
-    new_layer.weight.copy_(W.contiguous())
-    new_layer.weight.requires_grad = True
-    if layer.bias is not None:
-        new_layer.bias.requires_grad = False
-        new_layer.bias.copy_(b.contiguous())
-        new_layer.bias.requires_grad = True
-    return new_layer
 
 
 class NeuronT5Attention(T5Attention):
@@ -103,22 +65,6 @@ class NeuronT5Attention(T5Attention):
         if self.has_relative_attention_bias:
             self.relative_attention_bias = ParallelEmbedding(self.relative_attention_num_buckets, self.n_heads)
         self.n_heads = self.num_attention_heads_per_partition
-
-    def prune_heads(self, heads):
-        if len(heads) == 0:
-            return
-        heads, index = find_pruneable_heads_and_indices(
-            heads, self.num_attention_heads_per_partition, self.key_value_proj_dim, self.pruned_heads
-        )
-        # Prune linear layers
-        self.q = prune_linear_layer(self.q, index)
-        self.k = prune_linear_layer(self.k, index)
-        self.v = prune_linear_layer(self.v, index)
-        self.o = prune_linear_layer(self.o, index, dim=1)
-        # Update hyper params
-        self.num_attention_heads_per_partition = self.num_attention_heads_per_partition - len(heads)
-        self.hidden_size_per_partition = self.key_value_proj_dim * self.num_attention_heads_per_partition
-        self.pruned_heads = self.pruned_heads.union(heads)
 
     def compute_bias(self, query_length, key_length, device=None, cache_position=None):
         """Compute binned relative position bias"""

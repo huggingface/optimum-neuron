@@ -22,7 +22,7 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Literal
 
 import torch
-from huggingface_hub import HfApi, HfFolder, hf_hub_download
+from huggingface_hub import HfApi, get_token, hf_hub_download
 from optimum.exporters.tasks import TasksManager
 from optimum.modeling_base import OptimizedModel
 from optimum.utils import logging
@@ -195,7 +195,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
                 neuron_files = list(model_path.glob("*.neuron"))
             else:
                 if isinstance(token, bool):
-                    token = HfFolder().get_token()
+                    token = get_token()
                 else:
                     token = token
                 repo_files = map(Path, HfApi().list_repo_files(model_id, revision=revision, token=token))
