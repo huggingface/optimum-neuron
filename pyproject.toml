@@ -38,7 +38,7 @@ classifiers = [
 ]
 dependencies = [
     "transformers ~= 4.57.1",
-    "optimum ~= 2.0.0",
+    "optimum ~= 2.3.0",
     "huggingface_hub >= 0.35.3",
 ]
 
