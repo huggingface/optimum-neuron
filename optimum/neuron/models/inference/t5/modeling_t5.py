@@ -66,14 +66,11 @@ class NeuronT5Attention(T5Attention):
             self.relative_attention_bias = ParallelEmbedding(self.relative_attention_num_buckets, self.n_heads)
         self.n_heads = self.num_attention_heads_per_partition
 
-    def compute_bias(self, query_length, key_length, device=None, cache_position=None):
+    def compute_bias(self, query_length, key_length, device=None, past_seen_tokens=0):
         """Compute binned relative position bias"""
         if device is None:
             device = self.relative_attention_bias.weight.device
-        if cache_position is None:
-            context_position = torch.arange(query_length, dtype=torch.long, device=device)[:, None]
-        else:
-            context_position = cache_position[:, None].to(device)
+        context_position = torch.arange(query_length, dtype=torch.long, device=device)[:, None] + past_seen_tokens
         memory_position = torch.arange(key_length, dtype=torch.long, device=device)[None, :]
         relative_position = memory_position - context_position  # shape (query_length, key_length)
         relative_position_bucket = self._relative_position_bucket(
@@ -107,14 +104,20 @@ class NeuronT5Attention(T5Attention):
         use_cache=False,
         output_attentions=False,
         cache_position=None,
+        **kwargs,
     ):
         """
         Self-attention (if key_value_states is None) or attention over source sentence (provided by key_value_states).
+
+        `kwargs` catches the arguments transformers passes down to every attention layer and that
+        this implementation does not use.
         """
         # Input is (batch_size, seq_length, dim)
         # Mask is (batch_size, 1, 1, key_length) (non-causal encoder) or (batch_size, 1, seq_length, key_length) (causal decoder)
         self.is_decoder = True
         batch_size, seq_length = hidden_states.shape[:2]
+
+        past_seen_tokens = past_key_values.get_seq_length(self.layer_idx) if past_key_values is not None else 0
 
         # if key_value_states are provided this layer is used as a cross-attention layer for the decoder
         is_cross_attention = key_value_states is not None
@@ -149,10 +152,7 @@ class NeuronT5Attention(T5Attention):
 
             if past_key_values is not None:
                 # save all key/value_states to cache to be re-used for fast auto-regressive generation
-                cache_position = cache_position if not is_cross_attention else None
-                key_states, value_states = curr_past_key_values.update(
-                    key_states, value_states, self.layer_idx, {"cache_position": cache_position}
-                )
+                key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
                 # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
@@ -162,8 +162,6 @@ class NeuronT5Attention(T5Attention):
 
         if position_bias is None:
             key_length = key_states.shape[-2]
-            # cache position is 0-indexed so we add 1 to get the real length of queries (aka with past)
-            real_seq_length = query_length if query_length is not None else cache_position[-1] + 1
             if not self.has_relative_attention_bias:
                 position_bias = torch.zeros(
                     (1, self.num_attention_heads_per_partition, seq_length, key_length),
@@ -174,9 +172,8 @@ class NeuronT5Attention(T5Attention):
                     position_bias.requires_grad = True
             else:
                 position_bias = self.compute_bias(
-                    real_seq_length, key_length, device=scores.device, cache_position=cache_position
+                    seq_length, key_length, device=scores.device, past_seen_tokens=past_seen_tokens
                 )
-                position_bias = position_bias[:, :, -seq_length:, :]
 
             if mask is not None:
                 causal_mask = mask[:, :, :, : key_states.shape[-2]]
@@ -199,11 +196,7 @@ class NeuronT5Attention(T5Attention):
         attn_output = attn_output.view(batch_size, -1, self.hidden_size_per_partition)
         attn_output = self.o(attn_output)
 
-        outputs = (attn_output, position_bias)
-
-        if output_attentions:
-            outputs = outputs + (attn_weights,)
-        return outputs
+        return attn_output, position_bias, attn_weights
 
 
 class NeuronT5LayerSelfAttention(T5LayerSelfAttention):
