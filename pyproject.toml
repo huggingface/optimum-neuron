@@ -117,6 +117,16 @@ optimum_neuron = "optimum.neuron.vllm.plugin:register"
 [tool.setuptools.dynamic]
 version = {attr = "optimum.neuron.version.__version__"}
 
+[tool.setuptools]
+# The startup hook installing the transformers.utils.fx shim, and the module it installs.
+# Both are top level on purpose: they run before any optimum module is importable in the
+# processes neuronx_distributed spawns.
+py-modules = ["_optimum_neuron_fx_shim"]
+
+[tool.setuptools.cmdclass]
+# Places optimum-neuron-fx-shim.pth at the root of the wheel, i.e. in site-packages.
+build_py = "_build_pth.build_py"
+
 [tool.setuptools.packages.find]
 include = ["optimum*"]
 

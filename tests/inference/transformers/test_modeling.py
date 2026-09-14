@@ -607,7 +607,6 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
         self._run_compare_to_transformers(model_arch, True, 2, "_dyn_bs_true")
 
 
-
 class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForSequenceClassification
     TASK = "text-classification"
