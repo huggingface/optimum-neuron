@@ -751,26 +751,30 @@ class NeuronGenerationMixin(GenerationMixin):
             )
 
         # 7. determine generation mode
+        # transformers leaves the generation parameters unset rather than at their default
+        # value, and resolves them when generating.
+        num_beams = generation_config.num_beams if generation_config.num_beams is not None else 1
+        num_beam_groups = generation_config.num_beam_groups if generation_config.num_beam_groups is not None else 1
+        do_sample = bool(generation_config.do_sample)
+
         is_constraint_gen_mode = (
             generation_config.constraints is not None or generation_config.force_words_ids is not None
         )
 
-        if generation_config.num_beams > 1:
+        if num_beams > 1:
             raise ValueError("Beam search is not supported on Neuron: export and generate with `num_beams=1` instead.")
 
         is_contrastive_search_gen_mode = (
-            (generation_config.num_beams == 1)
+            not do_sample
             and generation_config.top_k is not None
             and generation_config.top_k > 1
-            and generation_config.do_sample is False
             and generation_config.penalty_alpha is not None
             and generation_config.penalty_alpha > 0
         )
 
         is_greedy_gen_mode = (
-            (generation_config.num_beams == 1)
-            and (generation_config.num_beam_groups == 1)
-            and generation_config.do_sample is False
+            (num_beam_groups == 1)
+            and not do_sample
             and not is_constraint_gen_mode
             and not is_contrastive_search_gen_mode
         )
