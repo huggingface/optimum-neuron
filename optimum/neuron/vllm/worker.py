@@ -21,7 +21,7 @@ from vllm.distributed import ensure_model_parallel_initialized, init_distributed
 from vllm.tasks import SupportedTask
 from vllm.utils.torch_utils import set_random_seed
 from vllm.v1.core.sched.output import SchedulerOutput
-from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheSpec
+from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheLayout, KVCacheSpec
 from vllm.v1.outputs import ModelRunnerOutput
 from vllm.v1.worker.worker_base import CompilationTimes, WorkerBase
 
@@ -110,6 +110,12 @@ class OptimumNeuronWorker(WorkerBase):
     def get_kv_cache_spec(self) -> dict[str, KVCacheSpec]:
         # Return empty dict since we disabled prefix caching.
         return {}
+
+    def get_supported_kv_cache_layouts(self) -> list[str]:
+        # The compiled neuron model owns its KV cache, so vLLM never lays one out and the
+        # answer is arbitrary: it only has to be a layout the engine can resolve. The base
+        # implementation would go looking for a vLLM attention backend, which there is none of.
+        return [KVCacheLayout.LBHNC.name]
 
     def initialize_from_config(self, kv_cache_config: KVCacheConfig) -> None:
         # We don't need to do anything since we disabled prefix caching.
