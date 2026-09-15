@@ -40,6 +40,9 @@ dependencies = [
     "transformers ~= 5.17.0",
     "optimum ~= 2.3.0",
     "huggingface_hub >= 1.0.0",
+    # optimum.exporters.tasks imports requests without declaring it, and
+    # huggingface_hub v1 no longer pulls it in. Drop it when optimum does.
+    "requests",
 ]
 
 [project.urls]
