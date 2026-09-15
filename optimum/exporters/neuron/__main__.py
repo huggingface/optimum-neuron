@@ -26,11 +26,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import torch
+from huggingface_hub.utils import httpx
 from optimum.exporters.error_utils import AtolError, OutputMatchError, ShapeError
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import is_diffusers_available, logging
 from optimum.utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
-from requests.exceptions import ConnectionError as RequestsConnectionError
 from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
 
 from ...neuron.models.auto_model import get_neuron_model_class, has_neuron_model_class
@@ -109,10 +109,10 @@ def infer_task(model_name_or_path: str) -> str:
             "The task could not be automatically inferred. Please provide the argument --task with the task "
             f"from {', '.join(TasksManager.get_all_tasks())}. Detailed error: {e}"
         )
-    except RequestsConnectionError as e:
-        raise RequestsConnectionError(
+    except httpx.TransportError as e:
+        raise ConnectionError(
             f"The task could not be automatically inferred as this is available only for models hosted on the Hugging Face Hub. Please provide the argument --task with the relevant task from {', '.join(TasksManager.get_all_tasks())}. Detailed error: {e}"
-        )
+        ) from e
 
 
 # This function is not applicable for diffusers / sentence transformers models
