@@ -23,6 +23,7 @@ from typing import Any
 
 import torch
 import torch_xla.core.xla_model as xm
+from transformers.integrations.integration_utils import default_logdir
 from transformers.trainer_pt_utils import AcceleratorConfig
 from transformers.trainer_utils import (
     IntervalStrategy,
@@ -30,7 +31,7 @@ from transformers.trainer_utils import (
     SchedulerType,
     get_last_checkpoint,
 )
-from transformers.training_args import OptimizerNames, _convert_str_dict, default_logdir, trainer_log_levels
+from transformers.training_args import OptimizerNames, _convert_str_dict, trainer_log_levels
 
 from ...utils import logging
 from ..accelerate import NeuronAcceleratorState, NeuronPartialState

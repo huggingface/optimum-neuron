@@ -22,7 +22,7 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Literal
 
 import torch
-from huggingface_hub import HfApi, HfFolder, hf_hub_download
+from huggingface_hub import HfApi, get_token, hf_hub_download
 from optimum.exporters.tasks import TasksManager
 from optimum.modeling_base import OptimizedModel
 from optimum.utils import logging
@@ -195,7 +195,7 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
                 neuron_files = list(model_path.glob("*.neuron"))
             else:
                 if isinstance(token, bool):
-                    token = HfFolder().get_token()
+                    token = get_token()
                 else:
                     token = token
                 repo_files = map(Path, HfApi().list_repo_files(model_id, revision=revision, token=token))
@@ -606,7 +606,13 @@ class NeuronTracedModel(OptimizedModel, NeuronModel):
 
     @contextmanager
     def neuron_padding_manager(self, inputs: dict[str, "torch.Tensor"]):
-        inputs = tuple(self._pad_to_compiled_shape(inputs).values())
+        if "token_type_ids" in self.input_static_shapes and "token_type_ids" not in inputs:
+            # transformers v5 tokenizers no longer return the token type ids, but the model was
+            # traced with them: they default to zeros.
+            inputs["token_type_ids"] = torch.zeros_like(inputs["input_ids"])
+        inputs = self._pad_to_compiled_shape(inputs)
+        # The traced model takes its inputs positionally, in the order they were traced.
+        inputs = tuple(inputs[name] for name in self.input_static_shapes if name in inputs)
         yield inputs
 
     @staticmethod

@@ -37,9 +37,12 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "transformers ~= 4.57.1",
-    "optimum ~= 2.0.0",
-    "huggingface_hub >= 0.35.3",
+    "transformers ~= 5.17.0",
+    "optimum ~= 2.3.0",
+    "huggingface_hub >= 1.0.0",
+    # optimum.exporters.tasks imports requests without declaring it, and
+    # huggingface_hub v1 no longer pulls it in. Drop it when optimum does.
+    "requests",
 ]
 
 [project.urls]
@@ -73,7 +76,7 @@ quality = [
 ]
 training = [
     "trl == 0.24.0",
-    "peft == 0.17.0",
+    "peft == 0.18.1",
     "evaluate == 0.4.3",
     "accelerate == 1.8.1",
 ]
@@ -89,17 +92,17 @@ neuronx = [
     "numpy>=1.22.2, <=2.4.6",
 ]
 diffusers = [
-    "diffusers==0.35.*",
-    "peft==0.17.0",
+    "diffusers==0.37.*",
+    "peft==0.18.1",
 ]
 diffusers-tests = [
-    "compel==2.1.1",
+    "compel==2.4.0",
 ]
 sentence-transformers = [
     "sentence-transformers==5.3.0",
 ]
 vllm = [
-    "vllm == 0.16.0",
+    "vllm == 0.29.0",
 ]
 vllm-tests = [
     "docker",
@@ -117,6 +120,16 @@ optimum_neuron = "optimum.neuron.vllm.plugin:register"
 [tool.setuptools.dynamic]
 version = {attr = "optimum.neuron.version.__version__"}
 
+[tool.setuptools]
+# The startup hook installing the transformers.utils.fx shim, and the module it installs.
+# Both are top level on purpose: they run before any optimum module is importable in the
+# processes neuronx_distributed spawns.
+py-modules = ["_optimum_neuron_fx_shim"]
+
+[tool.setuptools.cmdclass]
+# Places optimum-neuron-fx-shim.pth at the root of the wheel, i.e. in site-packages.
+build_py = "_build_pth.build_py"
+
 [tool.setuptools.packages.find]
 include = ["optimum*"]
 
@@ -125,6 +138,17 @@ include = ["optimum*"]
 
 [tool.uv]
 index-strategy = "unsafe-best-match"
+# vLLM 0.29.0 declares torch==2.13.0 (and torchcodec>=0.14, which follows the torch
+# version), but torch-neuronx requires torch 2.9.x. The pins are resolver metadata only:
+# vLLM imports and runs fine on torch 2.9.1 and its matching torchcodec.
+# The local version is part of the pin: overrides ignore [tool.uv.sources], so an override
+# spelled "torch==2.9.1" resolves to the CUDA build published on PyPI instead of the CPU one.
+override-dependencies = [
+    "torch==2.9.1+cpu",
+    "torchvision==0.24.1+cpu",
+    "torchaudio==2.9.1+cpu",
+    "torchcodec==0.8.1",
+]
 
 [[tool.uv.index]]
 name = "neuron"
@@ -133,7 +157,8 @@ url = "https://pip.repos.neuron.amazonaws.com/"
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
-explicit = true
+# Not explicit: the overrides above bypass [tool.uv.sources], so the CPU builds they pin
+# have to be reachable from a non-explicit index.
 
 [tool.uv.sources]
 torch = [

@@ -19,6 +19,7 @@ from transformers.models.mixtral.modeling_mixtral import (
 )
 
 from optimum.neuron.models.inference.backend.config import NxDNeuronConfig
+from optimum.neuron.models.inference.backend.modules.attention.rope import get_rope_parameters
 from optimum.neuron.models.inference.backend.modules.rms_norm import NeuronRMSNorm
 from optimum.neuron.models.inference.llama.modeling_llama import Llama3RotaryEmbedding as NeuronLlama3RotaryEmbedding
 from optimum.neuron.models.inference.llama.modeling_llama import NeuronLlamaDecoderLayer, NeuronLlamaMLP
@@ -143,17 +144,18 @@ def test_llama_rotary_embedding():
 
     # Create a neuron equivalent of the cpu module
     head_dim = config.hidden_size // config.num_attention_heads
+    rope_parameters = get_rope_parameters(config)
     neuron_module = build_module(
         NeuronLlama3RotaryEmbedding,
         example_inputs,
         module_init_kwargs={
             "dim": head_dim,
             "max_position_embeddings": config.max_position_embeddings,
-            "base": config.rope_theta,
-            "factor": config.rope_scaling["factor"],
-            "low_freq_factor": config.rope_scaling["low_freq_factor"],
-            "high_freq_factor": config.rope_scaling["high_freq_factor"],
-            "original_max_position_embeddings": config.rope_scaling["original_max_position_embeddings"],
+            "base": rope_parameters["rope_theta"],
+            "factor": rope_parameters["factor"],
+            "low_freq_factor": rope_parameters["low_freq_factor"],
+            "high_freq_factor": rope_parameters["high_freq_factor"],
+            "original_max_position_embeddings": rope_parameters["original_max_position_embeddings"],
         },
     )
 

@@ -33,7 +33,10 @@ PACKAGE_PYTHON_FILES = $(call rwildcard, optimum/*.py)
 PACKAGE_FILES = $(PACKAGE_PYTHON_FILES)  \
 				pyproject.toml \
 				README.md \
-				MANIFEST.in
+				MANIFEST.in \
+				_build_pth.py \
+				_optimum_neuron_fx_shim.py \
+				optimum-neuron-fx-shim.pth
 
 # Package build recipe
 $(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)

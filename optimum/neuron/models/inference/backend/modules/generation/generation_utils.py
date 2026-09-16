@@ -24,7 +24,7 @@ from transformers.generation.logits_process import (
     TopPLogitsWarper,
 )
 from transformers.generation.stopping_criteria import StoppingCriteriaList
-from transformers.generation.utils import GenerationMixin, SampleDecoderOnlyOutput
+from transformers.generation.utils import GenerateDecoderOnlyOutput, GenerationMixin
 
 from ......generation.logits_process import FusedLogitsWarper
 from .sampling import (
@@ -105,7 +105,7 @@ class NxDGenerationMixin(GenerationMixin, ABC):
         attention_mask: torch.LongTensor,
         seq_ids: torch.Tensor = None,
         **kwargs,
-    ) -> SampleDecoderOnlyOutput | torch.LongTensor:
+    ) -> GenerateDecoderOnlyOutput | torch.LongTensor:
         explicit_kwargs = {k: v for k, v in kwargs.items() if v is not None}
         if explicit_kwargs:
             logger.warning(f"The following kwargs are not supported for neuron model: {list(explicit_kwargs.keys())}")
