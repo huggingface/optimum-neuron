@@ -9,8 +9,6 @@ import torch.nn.functional as F
 # Do not collect tests from this file if vllm is not installed
 pytest.importorskip("vllm")
 
-from vllm import LLM
-
 
 def get_detailed_instruct(task_description: str, query: str) -> str:
     return f"Instruct: {task_description}\nQuery:{query}"
@@ -30,7 +28,7 @@ def compute_similarity(embeddings):
     ],
     indirect=True,
 )
-def test_vllm_compute_similarity(neuron_llm_config: dict[str, Any]):
+def test_vllm_compute_similarity(neuron_llm_config: dict[str, Any], vllm_llm):
     neuron_model_path = neuron_llm_config["neuron_model_path"]
 
     # Each query must come with a one-sentence instruction that describes the task
@@ -49,7 +47,7 @@ def test_vllm_compute_similarity(neuron_llm_config: dict[str, Any]):
 
     # Get embeddings on Neuron from vLLM
     batch_size = neuron_llm_config["export_kwargs"]["batch_size"]
-    llm = LLM(model=neuron_model_path, runner="pooling", max_num_seqs=batch_size)
+    llm = vllm_llm(model=neuron_model_path, runner="pooling", max_num_seqs=batch_size)
     outputs = llm.embed(input_texts)
     embeddings_list = [output.outputs.embedding for output in outputs]
     embeddings = torch.tensor(embeddings_list, dtype=torch.bfloat16)

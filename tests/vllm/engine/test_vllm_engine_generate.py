@@ -8,7 +8,7 @@ import pytest
 # Do not collect tests from this file if vllm is not installed
 pytest.importorskip("vllm")
 
-from vllm import LLM, RequestOutput, SamplingParams
+from vllm import RequestOutput, SamplingParams
 from vllm.config import VllmConfig, set_current_vllm_config
 from vllm.config.load import LoadConfig
 from vllm.config.model import ModelConfig
@@ -54,19 +54,19 @@ def _test_vllm_generation(llm):
 
 
 @pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
-def test_vllm_from_neuron_model(neuron_llm_config: dict[str, Any]):
+def test_vllm_from_neuron_model(neuron_llm_config: dict[str, Any], vllm_llm):
     """Test vLLm generation on a single model exported locally."""
     neuron_llm_path = neuron_llm_config["neuron_model_path"]
     batch_size = neuron_llm_config["export_kwargs"]["batch_size"]
-    llm = LLM(model=neuron_llm_path, max_num_seqs=batch_size)
+    llm = vllm_llm(model=neuron_llm_path, max_num_seqs=batch_size)
     _test_vllm_generation(llm)
 
 
-def test_vllm_from_hub_model(any_generate_model: dict[str, Any]):
+def test_vllm_from_hub_model(any_generate_model: dict[str, Any], vllm_llm):
     """Test vLLm generation on all cached test models from the hub."""
     model_id = any_generate_model["model_id"]
     export_kwargs = any_generate_model["export_kwargs"]
-    llm = LLM(
+    llm = vllm_llm(
         model=model_id,
         max_num_seqs=export_kwargs["batch_size"],
         max_model_len=export_kwargs["sequence_length"],
@@ -125,11 +125,11 @@ def test_vllm_export_matches_direct_export_cache_hash(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("neuron_llm_config", ["llama-4x1024"], indirect=True)
-def test_vllm_greedy_expectations(neuron_llm_config: dict[str, Any]):
+def test_vllm_greedy_expectations(neuron_llm_config: dict[str, Any], vllm_llm):
     """Test vLLm greedy sampling on a single model exported locally."""
     neuron_llm_path = neuron_llm_config["neuron_model_path"]
     batch_size = neuron_llm_config["export_kwargs"]["batch_size"]
-    llm = LLM(model=neuron_llm_path, max_num_seqs=batch_size)
+    llm = vllm_llm(model=neuron_llm_path, max_num_seqs=batch_size)
     # Send more prompts than the compiled batch size (4) and request
     # varying generation lengths to test continuous batching.
     prompts = [
