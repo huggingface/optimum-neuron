@@ -27,7 +27,7 @@ from ..backend.modules.attention.attention_base import NeuronAttentionBase
 from ..backend.modules.attention.rope import get_rope_parameters
 from ..backend.modules.attention.utils import RotaryEmbedding
 from ..backend.modules.decoder import NxDDecoderModelForCausalLM, NxDModelForCausalLM
-from ..backend.modules.moe import initialize_moe_module
+from ..backend.modules.moe import convert_expert_weights, initialize_moe_module
 from ..backend.modules.rms_norm import NeuronRMSNorm
 from ..llama.modeling_llama import NeuronLlamaMLP
 from ..mixtral.modeling_mixtral import NeuronMixtralDecoderLayer
@@ -63,18 +63,16 @@ def convert_qwen3_moe_hf_to_neuron_state_dict(neuron_state_dict, config, neuron_
                 neuron_state_dict.pop(f"layers.{l}.mlp.gate.weight").detach().clone()
             )
 
-            # transformers stores the expert weights fused as (num_experts, out_features,
-            # in_features), with the gate and up projections stacked along the output dimension,
-            # while the neuron MoE model expects (num_experts, in_features, out_features).
-            gate_up_proj = neuron_state_dict.pop(f"layers.{l}.mlp.experts.gate_up_proj")
-            neuron_state_dict[f"layers.{l}.mlp.expert_mlps.mlp_op.gate_up_proj.weight"] = (
-                gate_up_proj.transpose(1, 2).contiguous().detach().clone()
+            gate_up_proj, down_proj = convert_expert_weights(
+                neuron_state_dict,
+                f"layers.{l}.mlp.experts",
+                config.num_experts,
+                "gate_proj",
+                "up_proj",
+                "down_proj",
             )
-
-            down_proj = neuron_state_dict.pop(f"layers.{l}.mlp.experts.down_proj")
-            neuron_state_dict[f"layers.{l}.mlp.expert_mlps.mlp_op.down_proj.weight"] = (
-                down_proj.transpose(1, 2).contiguous().detach().clone()
-            )
+            neuron_state_dict[f"layers.{l}.mlp.expert_mlps.mlp_op.gate_up_proj.weight"] = gate_up_proj
+            neuron_state_dict[f"layers.{l}.mlp.expert_mlps.mlp_op.down_proj.weight"] = down_proj
 
         gc.collect()
 

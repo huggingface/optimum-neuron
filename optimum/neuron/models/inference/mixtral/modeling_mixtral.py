@@ -32,7 +32,7 @@ from ..backend.modules.attention.attention_base import NeuronAttentionBase
 from ..backend.modules.attention.rope import get_rope_parameters
 from ..backend.modules.attention.utils import RotaryEmbedding
 from ..backend.modules.decoder import NxDDecoderModelForCausalLM, NxDModelForCausalLM
-from ..backend.modules.moe import initialize_moe_module
+from ..backend.modules.moe import convert_expert_weights, initialize_moe_module
 from ..backend.modules.rms_norm import NeuronRMSNorm
 
 
@@ -46,23 +46,21 @@ def convert_mixtral_to_neuron_state_dict(neuron_state_dict, config, neuron_confi
     assert neuron_config.glu_mlp is True, "Only GLU MLP is supported for Mixtral Top-K model"
 
     for l in range(config.num_hidden_layers):  # noqa: E741
+        # transformers v5 renamed the sparse MoE block from block_sparse_moe to mlp
+        moe_prefix = f"layers.{l}.block_sparse_moe"
+        if f"{moe_prefix}.gate.weight" not in neuron_state_dict:
+            moe_prefix = f"layers.{l}.mlp"
+
         # Copy router weights
         neuron_state_dict[f"layers.{l}.mlp.router.linear_router.weight"] = (
-            neuron_state_dict.pop(f"layers.{l}.mlp.gate.weight").detach().clone()
+            neuron_state_dict.pop(f"{moe_prefix}.gate.weight").detach().clone()
         )
 
-        # transformers stores the expert weights fused as (num_experts, out_features, in_features),
-        # with the gate and up projections stacked along the output dimension, while the neuron MoE
-        # model expects (num_experts, in_features, out_features).
-        gate_up_proj = neuron_state_dict.pop(f"layers.{l}.mlp.experts.gate_up_proj")
-        neuron_state_dict[f"layers.{l}.mlp.expert_mlps.mlp_op.gate_up_proj.weight"] = (
-            gate_up_proj.transpose(1, 2).contiguous().detach().clone()
+        gate_up_proj, down_proj = convert_expert_weights(
+            neuron_state_dict, f"{moe_prefix}.experts", config.num_local_experts, "w1", "w3", "w2"
         )
-
-        down_proj = neuron_state_dict.pop(f"layers.{l}.mlp.experts.down_proj")
-        neuron_state_dict[f"layers.{l}.mlp.expert_mlps.mlp_op.down_proj.weight"] = (
-            down_proj.transpose(1, 2).contiguous().detach().clone()
-        )
+        neuron_state_dict[f"layers.{l}.mlp.expert_mlps.mlp_op.gate_up_proj.weight"] = gate_up_proj
+        neuron_state_dict[f"layers.{l}.mlp.expert_mlps.mlp_op.down_proj.weight"] = down_proj
 
         gc.collect()
 
