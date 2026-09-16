@@ -141,10 +141,12 @@ index-strategy = "unsafe-best-match"
 # vLLM 0.29.0 declares torch==2.13.0 (and torchcodec>=0.14, which follows the torch
 # version), but torch-neuronx requires torch 2.9.x. The pins are resolver metadata only:
 # vLLM imports and runs fine on torch 2.9.1 and its matching torchcodec.
+# The local version is part of the pin: overrides ignore [tool.uv.sources], so an override
+# spelled "torch==2.9.1" resolves to the CUDA build published on PyPI instead of the CPU one.
 override-dependencies = [
-    "torch==2.9.1",
-    "torchvision==0.24.1",
-    "torchaudio==2.9.1",
+    "torch==2.9.1+cpu",
+    "torchvision==0.24.1+cpu",
+    "torchaudio==2.9.1+cpu",
     "torchcodec==0.8.1",
 ]
 
@@ -155,7 +157,8 @@ url = "https://pip.repos.neuron.amazonaws.com/"
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
-explicit = true
+# Not explicit: the overrides above bypass [tool.uv.sources], so the CPU builds they pin
+# have to be reachable from a non-explicit index.
 
 [tool.uv.sources]
 torch = [
