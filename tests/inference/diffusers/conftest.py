@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import gc
 from tempfile import TemporaryDirectory
 
 import pytest
@@ -43,6 +44,24 @@ DEFAULT_STATIC_INPUTS_SHAPES = {"batch_size": 1, "height": 64, "width": 64}
 DEFAULT_COMPILER_ARGS = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 
 
+def release_neuron_models():
+    """
+    Unload the Neuron models of the pipelines that are no longer referenced.
+
+    The pipelines are kept alive by reference cycles, so they are only released by the garbage
+    collector. The Neuron runtime aborts the process when a model is unloaded after the cores it
+    was loaded on have been reinitialized by another pipeline, which is what happens when a
+    collection is triggered in the middle of the next load.
+    """
+    gc.collect()
+
+
+@pytest.fixture(autouse=True)
+def release_neuron_models_after_test():
+    yield
+    release_neuron_models()
+
+
 # [Stable Diffusion]
 @pytest.fixture(scope="module")
 def neuron_stable_diffusion_num_img_per_prompt_1_non_dyn_path():
@@ -59,6 +78,7 @@ def neuron_stable_diffusion_num_img_per_prompt_1_non_dyn_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
 
 
@@ -77,6 +97,7 @@ def neuron_stable_diffusion_num_img_per_prompt_4_non_dyn_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
 
 
@@ -94,6 +115,7 @@ def neuron_stable_diffusion_dyn_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
 
 
@@ -111,6 +133,7 @@ def neuron_stable_diffusion_ip2p_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
 
 
@@ -128,6 +151,7 @@ def neuron_lcm_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
 
 
@@ -151,6 +175,7 @@ def neuron_stable_diffusion_with_fused_lora_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
 
 
@@ -171,6 +196,7 @@ def neuron_stable_diffusion_with_hidden_states_output_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
 
 
@@ -188,6 +214,7 @@ def neuron_stable_diffusion_single_controlnet_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
 
 
@@ -205,6 +232,7 @@ def neuron_stable_diffusion_multiple_controlnets_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
 
 
@@ -224,6 +252,7 @@ def neuron_sdxl_num_img_per_prompt_1_non_dyn_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
 
 
@@ -242,6 +271,7 @@ def neuron_sdxl_num_img_per_prompt_4_non_dyn_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
 
 
@@ -259,6 +289,7 @@ def neuron_sdxl_dyn_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
 
 
@@ -279,6 +310,7 @@ def neuron_sdxl_with_hidden_states_output_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
 
 
@@ -301,6 +333,7 @@ def neuron_pixart_alpha_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
 
 
@@ -330,6 +363,7 @@ def neuron_flux_tp2_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
 
 
@@ -358,4 +392,5 @@ def neuron_flux_kontext_tp2_path():
     model_path = model_dir.name
     neuron_pipeline.save_pretrained(model_path)
     del neuron_pipeline
+    release_neuron_models()
     yield model_path
