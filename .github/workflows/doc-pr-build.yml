@@ -75,7 +75,7 @@ jobs:
           doc-builder build optimum.neuron docs/source/ \
             --repo_name optimum-neuron \
             --build_dir neuron-doc-build/ \
-            --version pr_${{ env.PR_NUMBER }} \
+            --version pr_${PR_NUMBER} \
             --version_tag_suffix "" \
             --html \
             --clean \
@@ -85,8 +85,8 @@ jobs:
         run: |
           cd  neuron-doc-build/
           mv optimum.neuron optimum-neuron
-          echo ${{ env.COMMIT_SHA }} > ./commit_sha
-          echo ${{ env.PR_NUMBER }} > ./pr_number
+          echo ${COMMIT_SHA} > ./commit_sha
+          echo ${PR_NUMBER} > ./pr_number
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
