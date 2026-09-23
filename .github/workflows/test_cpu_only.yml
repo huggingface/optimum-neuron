@@ -65,6 +65,8 @@ jobs:
           hf_token: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE }}
 
   test-cpu:
+    permissions:
+      contents: read
     name: Run CPU Only Tests
     needs: sanity
     runs-on: ubuntu-24.04
