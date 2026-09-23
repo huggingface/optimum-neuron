@@ -10,22 +10,20 @@ This platform supports two modes of operation:
 
 Notes
 - only a relevant subset of all possible configurations for a given model are cached,
-- you can use the `optimum-cli` to get all [cached configurations](https://huggingface.co/docs/optimum-neuron/guides/cache_system#neuron-model-cache-lookup-inferentia-only) for each model.
+- you can use the `optimum-cli` to get all [cached configurations](https://huggingface.co/docs/optimum-neuron/guides/cache_system#cache-lookup) for each model.
 - to deploy models that are not cached on the Hugging Face hub, you need to [export](https://huggingface.co/docs/optimum-neuron/main/en/guides/export_model)
  them beforehand.
 
 ## Setup
 
 The easiest way to use the `optimum-neuron` vLLM platform is to launch an Amazon ec2 instance using
- the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2).  If you decide NOT to make your life easier by using [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2), you can install this functionality into your Neuron environment with ```pip install optimum-neuron[neuronx,vllm]```.
-
-Note: Trn2 instances are not supported by the `optimum-neuron` platform yet.
+ the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2).  If you decide NOT to make your life easier by using [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2), you can install this functionality into your Neuron environment with ```pip install optimum-neuron[neuronx,vllm] --extra-index-url https://pip.repos.neuron.amazonaws.com```.
 
 - After launching the instance, follow the instructions in [Connect to your instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AccessingInstancesLinux.html) to connect to the instance
 - Once inside your instance, activate the pre-installed `optimum-neuron` virtual environment by running
 
 ```console
-source /opt/aws_neuronx_venv_pytorch_2_7/bin/activate
+source /opt/aws_neuronx_venv_pytorch_2_9/bin/activate
 ```
 
 ## Generating content programmatically
@@ -70,7 +68,7 @@ When deploying a standard hub model, you can customize the way it will be export
 
 ```console
 optimum-cli neuron serve \
-    --model="unsloth/Llama-3.1-1B-Instruct" \
+    --model="unsloth/Llama-3.2-1B-Instruct" \
     --batch_size=4 \
     --sequence_length=4096 \
     --tensor_parallel_size=2 \
