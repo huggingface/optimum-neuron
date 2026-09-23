@@ -43,7 +43,9 @@ MODEL_NAMES = {
     "donut-swin": "hf-internal-testing/tiny-random-DonutSwinModel",
     "dpt": "hf-internal-testing/tiny-random-DPTModel",
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
-    "flaubert": "flaubert/flaubert_small_cased",
+    # Not flaubert/flaubert_small_cased: it sets pre_norm, and that path of the transformers
+    # modeling code does not run at all (it subscripts an EncoderDecoderCache).
+    "flaubert": "hf-internal-testing/tiny-random-flaubert",
     "hubert": "hf-internal-testing/tiny-random-HubertModel",
     "gpt2": "hf-internal-testing/tiny-random-gpt2",
     "levit": "hf-internal-testing/tiny-random-LevitModel",

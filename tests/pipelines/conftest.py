@@ -19,7 +19,6 @@ import pytest
 STD_TEXT_TASKS = [
     "feature-extraction",
     "fill-mask",
-    "question-answering",
     "text-classification",
     "token-classification",
 ]

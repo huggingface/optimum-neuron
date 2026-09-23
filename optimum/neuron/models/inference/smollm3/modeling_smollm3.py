@@ -25,6 +25,7 @@ from transformers.models.smollm3.configuration_smollm3 import SmolLM3Config
 
 from ..backend.config import NxDNeuronConfig  # noqa: E402
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
+from ..backend.modules.attention.rope import get_rope_parameters
 from ..backend.modules.attention.utils import RotaryEmbedding
 from ..backend.modules.decoder import NxDDecoderModelForCausalLM
 from ..backend.modules.rms_norm import NeuronRMSNorm
@@ -53,7 +54,8 @@ class NeuronSmolLM3Attention(NeuronAttentionBase):
     ):
         if config.use_sliding_window:
             raise ValueError("SmolLM3 for Neuron does not support sliding window attention.")
-        if getattr(config, "rope_scaling", None) is not None:
+        rope_parameters = get_rope_parameters(config)
+        if rope_parameters.get("rope_type", "default") != "default":
             raise ValueError("SmolLM3 for Neuron does not support rope scaling.")
         super().__init__(
             config, neuron_config, qkv_proj_bias=qkv_proj_bias, o_proj_bias=o_proj_bias, qk_scale=qk_scale
@@ -64,7 +66,7 @@ class NeuronSmolLM3Attention(NeuronAttentionBase):
             self.rotary_emb = RotaryEmbedding(
                 head_dim,
                 max_position_embeddings=config.max_position_embeddings,
-                base=config.rope_theta,
+                base=rope_parameters["rope_theta"],
             )
         else:
             self.rotary_emb = None

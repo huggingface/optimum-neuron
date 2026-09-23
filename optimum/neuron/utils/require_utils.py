@@ -17,9 +17,8 @@
 import functools
 from typing import Any, Callable
 
-from transformers.utils import is_safetensors_available
-
 from .import_utils import (
+    is_package_available,
     is_peft_available,
     is_torch_neuronx_available,
     is_vllm_available,
@@ -27,7 +26,7 @@ from .import_utils import (
 
 
 _AVAILABILITIES: dict[str, Callable] = {
-    "safetensors": is_safetensors_available,
+    "safetensors": functools.partial(is_package_available, "safetensors"),
     "torch_neuronx": is_torch_neuronx_available,
     "peft": is_peft_available,
     "vllm": is_vllm_available,

@@ -638,9 +638,8 @@ several no-ops due to Neuron's internal management:
 | `init_device()`              | Initialize distributed env (gloo), set seed    |
 | `load_model()`               | Delegate to `model_runner.load_model()`        |
 | `get_kv_cache_spec()`        | Return `{}` (Neuron manages KV cache)          |
-| `initialize_cache()`         | No-op (assert 1 GPU block, 0 CPU blocks)       |
 | `initialize_from_config()`   | No-op                                          |
-| `compile_or_warm_up_model()` | No-op (compilation happens during load)         |
+| `compile_or_warm_up_model()` | Zeroed `CompilationTimes` (compiled at load)   |
 | `execute_dummy_batch()`      | No-op (not needed for Neuron DP sync)           |
 | `execute_model()`            | Delegate to `model_runner.execute_model()`     |
 

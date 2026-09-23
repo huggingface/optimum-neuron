@@ -48,7 +48,7 @@ class NxDDecoderWrapperForCausalLM(NxDModelWrapper):
         if not self.neuron_config.torch_dtype:
             self.neuron_config.torch_dtype = torch.float32
 
-        if config.pad_token_id is None:
+        if getattr(config, "pad_token_id", None) is None:
             config.pad_token_id = 0
 
     def _forward_with_pad(self, input_ids, position_ids, seq_ids, sampling_params):
@@ -197,7 +197,7 @@ class NxDDecoderWrapperForEmbedding(NxDModelWrapper):
         if not self.neuron_config.torch_dtype:
             self.neuron_config.torch_dtype = torch.float32
 
-        if config.pad_token_id is None:
+        if getattr(config, "pad_token_id", None) is None:
             config.pad_token_id = 0
 
     def _forward_with_pad(self, input_ids, position_ids):

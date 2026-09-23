@@ -31,6 +31,7 @@ import torch
 import torch_xla.core.xla_model as xm
 import torch_xla.runtime as xr
 import transformers
+from huggingface_hub.constants import HF_HUB_OFFLINE
 from neuronx_distributed.kernels.flash_attn import nki_flash_attn_func
 from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
 from neuronx_distributed.parallel_layers.layers import (
@@ -53,36 +54,28 @@ from safetensors import safe_open
 from torch import nn
 from torch_xla.utils.checkpoint import checkpoint
 from transformers import PretrainedConfig
+from transformers.initialization import no_init_weights
 from transformers.modeling_utils import (
     SpecificPreTrainedModelType,
     _add_variant,
-    get_parameter_dtype,
     get_state_dict_dtype,
     load_state_dict,
-    no_init_weights,
 )
 from transformers.pytorch_utils import id_tensor_storage
 from transformers.quantizers import AutoHfQuantizer
 from transformers.safetensors_conversion import auto_conversion
 from transformers.utils import (
     CONFIG_NAME,
-    FLAX_WEIGHTS_NAME,
     SAFE_WEIGHTS_INDEX_NAME,
     SAFE_WEIGHTS_NAME,
-    TF2_WEIGHTS_NAME,
-    TF_WEIGHTS_NAME,
     WEIGHTS_INDEX_NAME,
     WEIGHTS_NAME,
     ContextManagers,
     cached_file,
-    download_url,
     extract_commit_hash,
     find_adapter_config_file,
     has_file,
-    is_offline_mode,
     is_peft_available,
-    is_remote_url,
-    is_safetensors_available,
     logging,
 )
 from transformers.utils.hub import get_checkpoint_shard_files
@@ -824,8 +817,6 @@ class NeuronModelMixin:
                 )
             token = use_auth_token
 
-        if use_safetensors is None and not is_safetensors_available():
-            use_safetensors = False
         if trust_remote_code is True:
             logger.warning(
                 "The argument `trust_remote_code` is to be used with Auto classes. It has no effect here and is"
@@ -883,7 +874,7 @@ class NeuronModelMixin:
         if from_pipeline is not None:
             user_agent["using_pipeline"] = from_pipeline
 
-        if is_offline_mode() and not local_files_only:
+        if HF_HUB_OFFLINE and not local_files_only:
             logger.info("Offline mode: forcing local_files_only=True")
             local_files_only = True
 
@@ -976,23 +967,6 @@ class NeuronModelMixin:
                     )
                     is_sharded = True
                 # At this stage we don't have a weight file so we will raise an error.
-                elif not use_safetensors and (
-                    os.path.isfile(os.path.join(pretrained_model_name_or_path, subfolder, TF_WEIGHTS_NAME + ".index"))
-                    or os.path.isfile(os.path.join(pretrained_model_name_or_path, subfolder, TF2_WEIGHTS_NAME))
-                ):
-                    raise EnvironmentError(
-                        f"Error no file named {_add_variant(WEIGHTS_NAME, variant)} found in directory"
-                        f" {pretrained_model_name_or_path} but there is a file for TensorFlow weights. These weights "
-                        "cannot be loaded in optimum-neuron."
-                    )
-                elif not use_safetensors and os.path.isfile(
-                    os.path.join(pretrained_model_name_or_path, subfolder, FLAX_WEIGHTS_NAME)
-                ):
-                    raise EnvironmentError(
-                        f"Error no file named {_add_variant(WEIGHTS_NAME, variant)} found in directory"
-                        f" {pretrained_model_name_or_path} but there is a file for Flax weights. These weights cannot"
-                        " be loaded in optimum-neuron."
-                    )
                 elif use_safetensors:
                     raise EnvironmentError(
                         f"Error no file named {_add_variant(SAFE_WEIGHTS_NAME, variant)} found in directory"
@@ -1000,21 +974,13 @@ class NeuronModelMixin:
                     )
                 else:
                     raise EnvironmentError(
-                        f"Error no file named {_add_variant(WEIGHTS_NAME, variant)}, {_add_variant(SAFE_WEIGHTS_NAME, variant)},"
-                        f" {TF2_WEIGHTS_NAME}, {TF_WEIGHTS_NAME + '.index'} or {FLAX_WEIGHTS_NAME} found in directory"
+                        f"Error no file named {_add_variant(WEIGHTS_NAME, variant)} or"
+                        f" {_add_variant(SAFE_WEIGHTS_NAME, variant)} found in directory"
                         f" {pretrained_model_name_or_path}."
                     )
             elif os.path.isfile(os.path.join(subfolder, pretrained_model_name_or_path)):
                 archive_file = pretrained_model_name_or_path
                 is_local = True
-            elif os.path.isfile(os.path.join(subfolder, pretrained_model_name_or_path + ".index")):
-                raise ValueError(
-                    f"We found a TensorFlow checkpoint at {pretrained_model_name_or_path + '.index'}, this checkpoint "
-                    "cannot be loaded in optimum-neuron."
-                )
-            elif is_remote_url(pretrained_model_name_or_path):
-                filename = pretrained_model_name_or_path
-                resolved_archive_file = download_url(pretrained_model_name_or_path)
             else:
                 # set correct filename
                 if use_safetensors is not False:
@@ -1079,7 +1045,7 @@ class NeuronModelMixin:
                         )
                         if resolved_archive_file is not None:
                             is_sharded = True
-                    if not local_files_only and not is_offline_mode():
+                    if not local_files_only and not HF_HUB_OFFLINE:
                         if resolved_archive_file is not None:
                             if filename in [WEIGHTS_NAME, WEIGHTS_INDEX_NAME]:
                                 # If the PyTorch file was found, check if there is a safetensors file on the repository
@@ -1112,8 +1078,6 @@ class NeuronModelMixin:
                                         name="Thread-auto_conversion",
                                     ).start()
                         else:
-                            # Otherwise, no PyTorch file was found, maybe there is a TF or Flax model file.
-                            # We try those to give a helpful error message.
                             has_file_kwargs = {
                                 "revision": revision,
                                 "proxies": proxies,
@@ -1121,19 +1085,7 @@ class NeuronModelMixin:
                                 "cache_dir": cache_dir,
                                 "local_files_only": local_files_only,
                             }
-                            if has_file(pretrained_model_name_or_path, TF2_WEIGHTS_NAME, **has_file_kwargs):
-                                raise EnvironmentError(
-                                    f"{pretrained_model_name_or_path} does not appear to have a file named"
-                                    f" {_add_variant(WEIGHTS_NAME, variant)} but there is a file for TensorFlow weights."
-                                    " These weights cannot be loaded in optimum-neuron."
-                                )
-                            elif has_file(pretrained_model_name_or_path, FLAX_WEIGHTS_NAME, **has_file_kwargs):
-                                raise EnvironmentError(
-                                    f"{pretrained_model_name_or_path} does not appear to have a file named"
-                                    f" {_add_variant(WEIGHTS_NAME, variant)} but there is a file for Flax weights. "
-                                    " These weights cannot be loaded in optimum-neuron."
-                                )
-                            elif variant is not None and has_file(
+                            if variant is not None and has_file(
                                 pretrained_model_name_or_path, WEIGHTS_NAME, **has_file_kwargs
                             ):
                                 raise EnvironmentError(
@@ -1144,8 +1096,8 @@ class NeuronModelMixin:
                             else:
                                 raise EnvironmentError(
                                     f"{pretrained_model_name_or_path} does not appear to have a file named"
-                                    f" {_add_variant(WEIGHTS_NAME, variant)}, {_add_variant(SAFE_WEIGHTS_NAME, variant)},"
-                                    f" {TF2_WEIGHTS_NAME}, {TF_WEIGHTS_NAME} or {FLAX_WEIGHTS_NAME}."
+                                    f" {_add_variant(WEIGHTS_NAME, variant)} or"
+                                    f" {_add_variant(SAFE_WEIGHTS_NAME, variant)}."
                                 )
 
                 except EnvironmentError:
@@ -1158,8 +1110,7 @@ class NeuronModelMixin:
                         f"Can't load the model for '{pretrained_model_name_or_path}'. If you were trying to load it"
                         " from 'https://huggingface.co/models', make sure you don't have a local directory with the"
                         f" same name. Otherwise, make sure '{pretrained_model_name_or_path}' is the correct path to a"
-                        f" directory containing a file named {_add_variant(WEIGHTS_NAME, variant)},"
-                        f" {TF2_WEIGHTS_NAME}, {TF_WEIGHTS_NAME} or {FLAX_WEIGHTS_NAME}."
+                        f" directory containing a file named {_add_variant(WEIGHTS_NAME, variant)}."
                     ) from e
 
             if is_local:
@@ -1189,11 +1140,7 @@ class NeuronModelMixin:
                 _commit_hash=commit_hash,
             )
 
-        if (
-            is_safetensors_available()
-            and isinstance(resolved_archive_file, str)
-            and resolved_archive_file.endswith(".safetensors")
-        ):
+        if isinstance(resolved_archive_file, str) and resolved_archive_file.endswith(".safetensors"):
             with safe_open(resolved_archive_file, framework="pt") as f:
                 metadata = f.metadata()
 
@@ -1464,7 +1411,7 @@ class NeuronModelMixin:
 
         # save the string version of dtype to the config, e.g. convert torch.float32 => "float32"
         # we currently don't use this setting automatically, but may start to use with v5
-        dtype = get_parameter_dtype(model_to_save)
+        dtype = model_to_save.dtype
         model_to_save.config.dtype = str(dtype).split(".")[1]
 
         # Attach architecture to the config

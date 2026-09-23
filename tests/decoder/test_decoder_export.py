@@ -28,7 +28,7 @@ VLM_MODELS = {
 
 DECODER_MODELS = {
     "llama": "llamafactory/tiny-random-Llama-3",
-    "llama4_text": "tiny-random/llama-4",
+    "llama4_text": "llamafactory/tiny-random-Llama-4",
     "qwen2": "yujiepan/qwen2.5-128k-tiny-random",
     "qwen3-moe": "optimum-internal-testing/tiny-random-qwen3_moe",
     "gemma3": "unsloth/gemma-3-270m-it",
