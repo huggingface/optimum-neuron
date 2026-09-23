@@ -44,12 +44,14 @@ There are other ways to configure AWS credentials. You can read more about it [h
 
 ### Build AMI
 
+All the commands below must be run from the `infrastructure/ami` directory, as the provisioner scripts are referenced relative to it. The default `source_ami` is a `us-east-1` image: pass the matching `source_ami` if you build in another region.
+
 #### Format Packer blocks
 You can format your HCL2 files locally. This command will update your files in place.
 
 Format a single file:
 ```bash
-packer fmt build.pkr.hcl
+packer fmt hcl2-files/build.pkr.hcl
 ```
 
 Format all files in a directory:
@@ -61,7 +63,7 @@ packer fmt ./hcl2-files
 You can validate the syntax and configuration of your files locally. This command will return a zero exit status on success, and a non-zero exit status on failure.
 
 ```bash
-packer validate -var 'region=us-west-2' -var 'optimum_version=v0.0.17' ./hcl2-files
+packer validate -var 'region=us-east-1' -var 'optimum_version=main' ./hcl2-files
 ```
 
 #### Run Packer build
@@ -69,7 +71,7 @@ You can run Packer locally. This command will build the AMI and upload it to AWS
 
 You need to set variables with no default values using `-var` flag. For example:
 ```bash
-packer build -var 'region=us-west-2' -var 'optimum_version=v0.0.17' ./hcl2-files
+packer build -var 'region=us-east-1' -var 'optimum_version=main' ./hcl2-files
 ```
 
 To trigger a github action workflow manually, you can use GitHub CLI:
