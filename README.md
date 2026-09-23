@@ -26,28 +26,28 @@ limitations under the License.
 ## Install
 To install the latest release of this package:
 
-* For AWS Trainium (trn1) or AWS inferentia2 (inf2)
+* For AWS Trainium (trn1, trn2) or AWS Inferentia2 (inf2)
 
 ```bash
-pip install --upgrade-strategy eager optimum-neuron[neuronx]
+pip install --upgrade-strategy eager optimum-neuron[neuronx] --extra-index-url https://pip.repos.neuron.amazonaws.com
 ```
 
 * To install additional components for training
 
 ```bash
-pip install --upgrade-strategy eager optimum-neuron[training]
+pip install --upgrade-strategy eager optimum-neuron[neuronx,training] --extra-index-url https://pip.repos.neuron.amazonaws.com
 ```
 
 * To install additional components for inference with vllm
 
 ```bash
-pip install --upgrade-strategy eager optimum-neuron[vllm]
+pip install --upgrade-strategy eager optimum-neuron[neuronx,vllm] --extra-index-url https://pip.repos.neuron.amazonaws.com
 ```
 
 Optimum Neuron is a fast-moving project, and you may want to install it from source:
 
 ```bash
-pip install git+https://github.com/huggingface/optimum-neuron.git
+pip install "optimum-neuron[neuronx] @ git+https://github.com/huggingface/optimum-neuron.git" --extra-index-url https://pip.repos.neuron.amazonaws.com
 ```
 
 *Make sure that you have installed the Neuron driver and tools before installing `optimum-neuron`, [more extensive guide here](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/setup/torch-neuronx.html#setup-torch-neuronx).*
