@@ -89,6 +89,38 @@ curl 127.0.0.1:8080/v1/completions \
     -d '{"prompt":"One of my fondest memory is", "temperature": 0.8, "max_tokens":128}'
 ```
 
+### Serving an embedding model
+
+Embedding models are served using the `embed` task:
+
+```console
+optimum-cli neuron serve --model="Qwen/Qwen3-Embedding-0.6B" --task=embed
+```
+
+The embeddings are then available through the `/v1/embeddings` endpoint:
+
+```console
+curl 127.0.0.1:8080/v1/embeddings \
+    -H 'Content-Type: application/json' \
+    -X POST \
+    -d '{"input": "The capital of France is Paris."}'
+```
+
+### Serving several replicas with data parallelism
+
+To use all the NeuronCores of an instance with a model that only needs a few of them, you can serve several replicas of the model:
+
+```console
+optimum-cli neuron serve \
+    --model="unsloth/Llama-3.2-1B-Instruct" \
+    --tensor_parallel_size=2 \
+    --data-parallel-size=4
+```
+
+Each replica is an independent vLLM server using its own set of `tensor_parallel_size` NeuronCores,
+ and the requests sent to the serving port are distributed across replicas in a round-robin fashion.
+The instance must have at least `tensor_parallel_size` x `data_parallel_size` NeuronCores available.
+
 ## Custom deployment for advanced users
 
 You can also launch an Open AI compatible inference server directly using vLLM entry points:
