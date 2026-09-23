@@ -87,10 +87,10 @@ jobs:
             uses: slackapi/slack-github-action@45a88b9581bfab2566dc881e2cd66d334e621e2c  # v3.0.3
             if: ${{ failure() && github.event_name == 'schedule' }}
             with:
-              channel-id: 'C06GAEQJLNN' #copied from slack channel
+              method: chat.postMessage
+              token: ${{ secrets.SLACK_CIFEEDBACK_BOT_TOKEN }}
               payload: |
                 {
+                  "channel": "C06GAEQJLNN",
                   "text": "GitHub Action HuggingFace Neuron AMI Build result: ${{job.status}}"
                 }
-            env:
-              SLACK_BOT_TOKEN: ${{ secrets.SLACK_CIFEEDBACK_BOT_TOKEN }}
