@@ -92,7 +92,7 @@ jobs:
           doc-builder build optimum.neuron docs/source/ \
             --repo_name optimum-neuron \
             --build_dir neuron-doc-build/ \
-            --version ${{ env.VERSION }} \
+            --version ${VERSION} \
             --version_tag_suffix "" \
             --html \
             --clean \
