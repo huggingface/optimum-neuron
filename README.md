@@ -115,7 +115,7 @@ def main():
 
     # Setup supervised fine-tuning
     sft_config = NeuronSFTConfig(
-        max_seq_length=2048,
+        max_length=2048,
         packing=True,  # Pack multiple samples for efficiency
         **training_args.to_dict(),
     )
@@ -124,7 +124,7 @@ def main():
     trainer = NeuronSFTTrainer(
         model=model,
         args=sft_config,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         train_dataset=dataset,
         formatting_func=format_dolly_dataset,
     )
