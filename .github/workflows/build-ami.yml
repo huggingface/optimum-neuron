@@ -37,7 +37,7 @@ jobs:
             uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
           - name: Setup Packer
-            uses: hashicorp/setup-packer@3286471d6cc6756d056a0b199fea5e0becdbc189  # main
+            uses: hashicorp/setup-packer@3286471d6cc6756d056a0b199fea5e0becdbc189 # v3.3.0
             id: setup-packer
             with:
               version: "1.10.1"
