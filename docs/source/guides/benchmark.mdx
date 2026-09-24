@@ -40,7 +40,7 @@ First, I ran the following commands to install the necessary dependencies, and p
 
 `!pip install hftransfer guidellm==0.1.0`
 `!git clone https://github.com/huggingface/optimum-neuron.git`
-`!docker pull ghcr.io/huggingface/text-generation-inference:latest-neuron`
+`!docker pull ghcr.io/huggingface/optimum-neuron-vllm:latest`
 
 Depending on the model, optionally configure your HF_TOKEN like so:
 
@@ -70,11 +70,11 @@ Now I compile the model I have selected, `meta-llama-3.1-8b-instruct` with the f
 --device=/dev/neuron10 \
 --device=/dev/neuron11 \
 -ti \
---entrypoint "optimum-cli" ghcr.io/huggingface/text-generation-inference:latest-neuron \
+--entrypoint "optimum-cli" ghcr.io/huggingface/optimum-neuron-vllm:latest \
 export neuron --model "meta-llama/Meta-Llama-3.1-8B-Instruct" \
 --sequence_length 16512 \
 --batch_size 8 \
---num_cores 8 \
+--tensor_parallel_size 8 \
 /data/exportedmodel/
 ```
 
@@ -142,7 +142,7 @@ services:
  volumes:
  - $PWD:/data
  environment:
- - PORT=8081
+ - SM_ON_PORT=8081
  - SM_ON_MODEL=${MODEL_ID}
  - SM_ON_TENSOR_PARALLEL_SIZE=8
  - SM_ON_BATCH_SIZE=${MAX_BATCH_SIZE}
@@ -161,7 +161,7 @@ services:
  volumes:
  - $PWD:/data
  environment:
- - PORT=8082
+ - SM_ON_PORT=8082
  - SM_ON_MODEL=${MODEL_ID}
  - SM_ON_TENSOR_PARALLEL_SIZE=8
  - SM_ON_BATCH_SIZE=${MAX_BATCH_SIZE}
@@ -180,7 +180,7 @@ services:
  volumes:
  - $PWD:/data
  environment:
- - PORT=8083
+ - SM_ON_PORT=8083
  - SM_ON_MODEL=${MODEL_ID}
  - SM_ON_TENSOR_PARALLEL_SIZE=8
  - SM_ON_BATCH_SIZE=${MAX_BATCH_SIZE}
@@ -315,10 +315,10 @@ Lastly, the large input and output tokens required for my workload directly effe
 
 ## Conclusion
 
-In this blog post, I took you through how to compile and load an Optimum Neuron model, how to serve it with the HuggingFace Text Generation Inference container, and how to benchmark your settings to optimize for your workload.
+In this blog post, I took you through how to compile and load an Optimum Neuron model, how to serve it with the Optimum Neuron vLLM container, and how to benchmark your settings to optimize for your workload.
 
 ## References
 
 https://huggingface.co/docs/optimum-neuron/en/guides/cache_system
-https://github.com/huggingface/optimum-neuron/tree/main/benchmark/vllm/performance
+https://github.com/huggingface/optimum-neuron/tree/main/benchmark/vllm
 https://github.com/vllm-project/guidellm
