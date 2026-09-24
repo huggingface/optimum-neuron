@@ -13,4 +13,10 @@ source "amazon-ebs" "ubuntu" {
   }
   ami_users   = var.ami_users
   ami_regions = var.ami_regions
+  # Snapshotting the root volume takes more than the 30 minutes Packer waits by
+  # default, so the build failed while the image was still being registered.
+  aws_polling {
+    delay_seconds = 30
+    max_attempts  = 120
+  }
 }
