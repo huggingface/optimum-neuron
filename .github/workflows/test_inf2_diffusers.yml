@@ -36,8 +36,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name || github.run_id }}
   cancel-in-progress: true
 
+permissions: {}
+
 jobs:
   sanity:
+    permissions:
+      contents: read
     name: Sanity
     runs-on: ubuntu-24.04
     steps:
@@ -49,6 +53,8 @@ jobs:
           hf_token: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE }}
 
   diffusers-model-tests:
+    permissions:
+      contents: read
     name: Run diffusers model tests
     needs: sanity
     runs-on:
@@ -82,6 +88,8 @@ jobs:
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest tests/inference/diffusers/test_flux.py --forked -q
 
   diffusers-cache-cli-tests:
+    permissions:
+      contents: read
     name: Run diffusers cache and CLI tests
     needs: sanity
     runs-on:

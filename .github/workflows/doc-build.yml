@@ -15,8 +15,12 @@ on:
       - '.github/workflows/doc-build.yml'
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   build_documentation:
+    permissions:
+      contents: read
     runs-on: ubuntu-24.04
     env:
       COMMIT_SHA: ${{ github.event.pull_request.head.sha }}

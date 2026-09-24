@@ -45,6 +45,8 @@ jobs:
           hf_token: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE }}
 
   do-the-job:
+    permissions:
+      contents: read
     name: Run INF2 tests
     needs: sanity
     runs-on:
