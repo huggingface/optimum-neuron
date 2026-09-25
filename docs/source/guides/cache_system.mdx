@@ -52,11 +52,12 @@ That's it! The cache works automatically for supported model classes.
 |-------------|---------------|----------|-------|
 | `NeuronTrainer` | ✅ Full | Training | Auto download + upload during training |
 | `NeuronModelForCausalLM` | ✅ Full | Inference | Auto download for inference |
-| Other `NeuronModelForXXX` | ❌ None | Inference | Use different export mechanism, no cache integration |
+| Other `NeuronModelForXXX` | ✅ Full | Inference | Traced artifacts, cached as a single entry |
+| Diffusion pipelines | ✅ Full | Inference | Traced artifacts, cached as a multi-model entry |
 
-<Tip warning={true}>
+<Tip>
 
-**Important Limitation**: Models like `NeuronModelForSequenceClassification`, `NeuronModelForQuestionAnswering`, etc. use a different compilation path that doesn't integrate with the cache system. Only `NeuronModelForCausalLM` and training workflows support caching.
+Caching can be turned off for a single export with the `--disable_neuron_cache` option of `optimum-cli export neuron`, or by passing `disable_neuron_cache=True` when exporting a model with `from_pretrained`.
 
 </Tip>
 
@@ -129,6 +130,12 @@ optimum-cli neuron cache lookup MODEL_ID
 
 # Sync local cache with Hub
 optimum-cli neuron cache synchronize
+
+# Show the local cache status (entry counts, disk usage, compiler versions)
+optimum-cli neuron cache status
+
+# Remove failed compilations and stale locks from the local cache
+optimum-cli neuron cache cleanup
 ```
 
 ## Advanced Usage
@@ -144,8 +151,9 @@ If you do not use the `NeuronTrainer` class, you can still leverage the cache sy
 **Note**: For most use cases, `NeuronTrainer` handles caching automatically and is the recommended approach.
 
 ```python
-from optimum.neuron.cache import hub_neuronx_cache, synchronize_hub_cache
-from optimum.neuron.cache.entries import SingleModelCacheEntry
+from optimum.neuron.cache import synchronize_hub_cache
+from optimum.neuron.cache.hub_cache import hub_neuronx_cache
+from optimum.neuron.cache.entries.single_model import SingleModelCacheEntry
 from optimum.neuron.cache.training import patch_neuron_cc_wrapper
 
 # Create cache entry

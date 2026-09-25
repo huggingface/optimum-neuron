@@ -285,16 +285,15 @@ use_fused_qkv = trn_config.fuse_qkv and (num_heads == num_key_value_heads) and n
 
 #### Base Model
 ```python
-class YourPreTrainedModel(PreTrainedModel, NeuronModelMixin):
+class YourPreTrainedModel(PreTrainedModel):
     config_class = YourModelConfig
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
     _no_split_modules = ["YourModelDecoderLayer"]
     _skip_keys_device_placement = "past_key_values"
-    _supports_flash_attn_2 = True
-    _supports_cache_class = True
-    _supports_quantized_cache = True
-    _supports_static_cache = True
+    _supports_flash_attn = True
+    _supports_sdpa = False
+    _supports_flex_attn = False
 
 
 class YourModel(NeuronModelMixin, YourPreTrainedModel):
@@ -323,7 +322,7 @@ class YourModelForCausalLM(NeuronModelMixin, YourPreTrainedModel):
     # Pipeline parallelism support
     SUPPORTS_PIPELINE_PARALLELISM = True
     PIPELINE_TRANSFORMER_LAYER_CLS = YourModelDecoderLayer
-    PIPELINE_INPUT_NAMES = ["input_ids", "attention_mask"]
+    PIPELINE_INPUT_NAMES = ["input_ids", "attention_mask", "labels"]
     
     def __init__(self, config, trn_config):
         super().__init__(config)
@@ -384,7 +383,7 @@ Here `"your_model"` is the corresponding to the `model_type` attribute of your m
 - List all input names in `PIPELINE_INPUT_NAMES`
 
 ### 4. Flash Attention Support
-- Set `_supports_flash_attn_2 = True` if your model supports it
+- Set `_supports_flash_attn = True` if your model supports it
 - Implement both eager and flash attention paths
 - Use appropriate attention function dispatching
 

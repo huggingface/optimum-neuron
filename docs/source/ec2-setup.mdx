@@ -248,14 +248,14 @@ Manual installation is useful in several scenarios:
 
 If you choose manual installation, you will need to ensure the Neuron drivers and tools are properly installed first.
 
-Before installing `optimum-neuron` make sure that you have installed the Neuron driver and tools, check out [more detailed guide here](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/setup/torch-neuronx.html#setup-torch-neuronx).
+Before installing `optimum-neuron` make sure that you have installed the Neuron driver and tools, check out [more detailed guide here](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/setup/pytorch/index.html).
 
 ### Installation with uv
 
 If you are using [uv](https://docs.astral.sh/uv/), you can install `optimum-neuron` with the following command:
 
 ```bash
-uv pip install optimum-neuron[neuronx]
+uv pip install optimum-neuron[neuronx] --extra-index-url https://pip.repos.neuron.amazonaws.com --index-strategy unsafe-best-match
 ```
 ### Installation with pip
 

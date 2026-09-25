@@ -37,7 +37,7 @@ jobs:
             uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
           - name: Setup Packer
-            uses: hashicorp/setup-packer@3286471d6cc6756d056a0b199fea5e0becdbc189  # main
+            uses: hashicorp/setup-packer@3286471d6cc6756d056a0b199fea5e0becdbc189 # v3.3.0
             id: setup-packer
             with:
               version: "1.10.1"
@@ -87,10 +87,10 @@ jobs:
             uses: slackapi/slack-github-action@45a88b9581bfab2566dc881e2cd66d334e621e2c  # v3.0.3
             if: ${{ failure() && github.event_name == 'schedule' }}
             with:
-              channel-id: 'C06GAEQJLNN' #copied from slack channel
+              method: chat.postMessage
+              token: ${{ secrets.SLACK_CIFEEDBACK_BOT_TOKEN }}
               payload: |
                 {
+                  "channel": "C06GAEQJLNN",
                   "text": "GitHub Action HuggingFace Neuron AMI Build result: ${{job.status}}"
                 }
-            env:
-              SLACK_BOT_TOKEN: ${{ secrets.SLACK_CIFEEDBACK_BOT_TOKEN }}
