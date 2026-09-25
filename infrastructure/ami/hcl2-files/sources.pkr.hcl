@@ -11,8 +11,11 @@ source "amazon-ebs" "ubuntu" {
     volume_type           = "gp2"
     delete_on_termination = true
   }
-  ami_users   = var.ami_users
-  ami_regions = var.ami_regions
+  ami_users          = var.ami_users
+  ami_regions        = var.ami_regions
+  encrypt_boot       = true
+  kms_key_id         = var.kms_key_id
+  region_kms_key_ids = var.region_kms_key_ids
   # Snapshotting the root volume takes more than the 30 minutes Packer waits by
   # default, so the build failed while the image was still being registered.
   aws_polling {

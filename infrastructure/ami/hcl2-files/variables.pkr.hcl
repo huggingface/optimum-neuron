@@ -52,3 +52,20 @@ variable "ami_regions" {
   description = "AWS regions to share AMI with"
   type        = list(string)
 }
+
+variable "kms_key_id" {
+  default     = ""
+  description = "Customer managed KMS key encrypting the AMI in the build region"
+  type        = string
+  /*
+  The build account encrypts every volume by default, and AWS refuses to share a
+  snapshot encrypted with the AWS managed key, so the AMI has to be re-encrypted
+  with a customer managed key that the accounts in ami_users are allowed to use.
+  */
+}
+
+variable "region_kms_key_ids" {
+  default     = { "eu-west-1" = "" }
+  description = "Customer managed KMS keys encrypting the AMI copies, per region"
+  type        = map(string)
+}
