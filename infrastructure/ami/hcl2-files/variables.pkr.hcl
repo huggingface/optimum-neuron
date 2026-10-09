@@ -10,7 +10,7 @@ variable "instance_type" {
 }
 
 variable "source_ami" {
-  default     = "ami-0ec4ab14b1c5a10f2"
+  default     = "ami-0ee0ad1451e00b784"
   description = "Base Image"
   type        = string
   /*
@@ -18,7 +18,7 @@ variable "source_ami" {
   aws ec2 describe-images \
       --region us-east-1 \
       --owners amazon \
-      --filters 'Name=name,Values=Deep Learning AMI Neuron ???????????????????????' 'Name=state,Values=available' \
+      --filters 'Name=name,Values=Deep Learning AMI Neuron PyTorch 2.9 (Ubuntu 24.04)*' 'Name=state,Values=available' \
       --query 'reverse(sort_by(Images, &CreationDate))[:1].ImageId' \
       --output text
   */
@@ -51,4 +51,21 @@ variable "ami_regions" {
   default     = ["eu-west-1"]
   description = "AWS regions to share AMI with"
   type        = list(string)
+}
+
+variable "kms_key_id" {
+  default     = ""
+  description = "Customer managed KMS key encrypting the AMI in the build region"
+  type        = string
+  /*
+  The build account encrypts every volume by default, and AWS refuses to share a
+  snapshot encrypted with the AWS managed key, so the AMI has to be re-encrypted
+  with a customer managed key that the accounts in ami_users are allowed to use.
+  */
+}
+
+variable "region_kms_key_ids" {
+  default     = { "eu-west-1" = "" }
+  description = "Customer managed KMS keys encrypting the AMI copies, per region"
+  type        = map(string)
 }

@@ -13,7 +13,7 @@
 | [Create your own chatbot with llama-2-13B on AWS Inferentia](./ec2/text-generation/llama2-13b-chatbot.ipynb) | text-generation | Llama 2 |
 | [Fine-tune llama-2-7B on AWS Trainium](./ec2/text-generation/llama2-7b-fine-tuning.ipynb) | fine-tuning | Llama 2 |
 
-## Inference Providers
+## Inference Endpoints
 
 | Notebook | Task | Model Architectures |
 | --- | --- | --- |

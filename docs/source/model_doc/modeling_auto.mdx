@@ -37,6 +37,10 @@ The following Neuron model classes are available for natural language processing
 
 [[autodoc]] modeling_sentence_transformers.NeuronSentenceTransformers
 
+### NeuronModelForEmbedding
+
+[[autodoc]] models.inference.modeling_utils.NeuronModelForEmbedding
+
 ### NeuronModelForMaskedLM
 
 [[autodoc]] modeling.NeuronModelForMaskedLM
@@ -80,6 +84,11 @@ The following Neuron model classes are available for computer vision tasks.
 
 ### NeuronModelForObjectDetection
 [[autodoc]] modeling.NeuronModelForObjectDetection
+
+### NeuronModelForImageTextToText
+
+[[autodoc]] models.inference.modeling_utils.NeuronModelForImageTextToText
+    - forward
 
 ## Audio
 
@@ -126,9 +135,34 @@ The following Neuron model classes are available for stable diffusion tasks.
 [[autodoc]] modeling_diffusion.NeuronStableDiffusionControlNetPipeline
     - __call__
 
+### NeuronStableDiffusionInstructPix2PixPipeline
+
+[[autodoc]] modeling_diffusion.NeuronStableDiffusionInstructPix2PixPipeline
+    - __call__
+
 ### NeuronPixArtAlphaPipeline
 
 [[autodoc]] modeling_diffusion.NeuronPixArtAlphaPipeline
+    - __call__
+
+### NeuronPixArtSigmaPipeline
+
+[[autodoc]] modeling_diffusion.NeuronPixArtSigmaPipeline
+    - __call__
+
+### NeuronFluxPipeline
+
+[[autodoc]] modeling_diffusion.NeuronFluxPipeline
+    - __call__
+
+### NeuronFluxKontextPipeline
+
+[[autodoc]] modeling_diffusion.NeuronFluxKontextPipeline
+    - __call__
+
+### NeuronFluxInpaintPipeline
+
+[[autodoc]] modeling_diffusion.NeuronFluxInpaintPipeline
     - __call__
 
 ### NeuronStableDiffusionXLPipeline

@@ -103,18 +103,15 @@ trainer.train()
 
 <Tip>
 
-Since the example scripts use the `NeuronTrainer`, you can enable ZeRO-1 when using them by adding the `--zero_1` flag to your command line.
+Since the example scripts use the `NeuronTrainer`, ZeRO-1 is enabled by default when using them (`--zero_1`). You can disable it by passing `--zero_1 false` to your command line.
 
 For example:
 
 ```bash
 torchrun --nproc_per_node=2 examples/training/qwen3/finetune_qwen3.py \
-    --model_name_or_path Qwen/Qwen2.5-0.5B \
-    --dataset_name wikitext \
-    --dataset_config_name wikitext-2-raw-v1 \
+    --model_id Qwen/Qwen3-0.6B \
     --do_train \
     --per_device_train_batch_size 1 \
-    --block_size 1024 \
     --bf16 \
     --zero_1 \
     --tensor_parallel_size 2 \
@@ -139,7 +136,7 @@ trn_config = TrainingNeuronConfig()
 accelerator = NeuronAccelerator(
     trn_config=trn_config,
     zero_1=True,  # Enable ZeRO-1
-    mixed_precision="bf16",
+    mixed_precision_config="FULL_BF16",
 )
 
 model = ...  # Your model instance
@@ -193,12 +190,9 @@ For example:
 
 ```bash
 torchrun --nproc_per_node=8 examples/training/qwen3/finetune_qwen3.py \
-    --model_name_or_path Qwen/Qwen2.5-0.5B \
-    --dataset_name wikitext \
-    --dataset_config_name wikitext-2-raw-v1 \
+    --model_id Qwen/Qwen3-0.6B \
     --do_train \
     --per_device_train_batch_size 1 \
-    --block_size 1024 \
     --bf16 \
     --tensor_parallel_size 8 \
     --output_dir my_training/
@@ -224,7 +218,7 @@ trn_config = TrainingNeuronConfig(
 
 accelerator = NeuronAccelerator(
     trn_config=trn_config,
-    mixed_precision="bf16",
+    mixed_precision_config="FULL_BF16",
 )
 
 model = ...  # Your model instance
@@ -300,7 +294,7 @@ trn_config = TrainingNeuronConfig(
 accelerator = NeuronAccelerator(
     trn_config=trn_config,
     zero_1=True,  # Can combine with ZeRO-1
-    mixed_precision="bf16",
+    mixed_precision_config="FULL_BF16",
 )
 
 # Load model with custom implementation
@@ -383,19 +377,19 @@ The Optimum CLI provides a way of doing that very easily via the `optimum neuron
 ```bash
 optimum-cli neuron consolidate --help
 
-usage: optimum-cli neuron consolidate [-h] [-f {pytorch,safetensors}] checkpoint_dir output_dir
+usage: optimum-cli neuron consolidate [-h] [-f {pytorch,safetensors}] checkpoint_dir [output_dir]
 
 positional arguments:
   checkpoint_dir        The path to the directory containing the checkpoints.
   output_dir            The path to the output directory containing the consolidated checkpoint.
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
   -f {pytorch,safetensors}, --format {pytorch,safetensors}
                         The format used to save the consolidated checkpoint.
 ```
 
-All you need to do is specify the sharded checkpoints directory and the output directory that will contain the consolidated checkpoints, and the command takes care of the rest.
+All you need to do is specify the sharded checkpoints directory and the output directory that will contain the consolidated checkpoints (it defaults to the checkpoints directory), and the command takes care of the rest.
 It is also possible to specify the output format of the consolidated checkpoints. By default it will export them to the `safetensors` format, which is the recommended format to use.
 
 Example:

@@ -60,13 +60,13 @@ If a LLM is listed, e.g. a model with a `text-generation` or `image-text-to-text
 | BERT                      | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | Beit                      | feature-extraction, image-classification                                                                                                      |
 | CamemBERT                 | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| CLIP                      | feature-extraction, image-classification                                                                                                      |
+| CLIP                      | feature-extraction, image-classification, zero-shot-image-classification                                                                      |
 | ConvBERT                  | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | ConvNext                  | feature-extraction, image-classification                                                                                                      |
 | ConvNextV2                | feature-extraction, image-classification                                                                                                      |
 | CvT                       | feature-extraction, image-classification                                                                                                      |
-| DeBERTa (INF2 only)       | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| DeBERTa-v2 (INF2 only)    | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| DeBERTa (INF2 only)       | feature-extraction, fill-mask, question-answering, text-classification, token-classification                                                  |
+| DeBERTa-v2 (INF2 only)    | feature-extraction, fill-mask, question-answering, text-classification, token-classification                                                  |
 | Deit                      | feature-extraction, image-classification                                                                                                      |
 | DistilBERT                | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | DonutSwin                 | feature-extraction                                                                                                                            |
@@ -83,7 +83,7 @@ If a LLM is listed, e.g. a model with a `text-generation` or `image-text-to-text
 | Mixtral                   | text-generation                                                                                                                               |
 | MobileBERT                | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | MobileNetV2               | feature-extraction, image-classification, semantic-segmentation                                                                               |
-| MobileViT                 | feature-extraction, image-classification, semantic-segmentation                                                                               |
+| MobileViT                 | feature-extraction, image-classification, semantic-segmentation, image-segmentation                                                           |
 | ModernBERT                | feature-extraction, fill-mask, text-classification, token-classification                                                                      |
 | MPNet                     | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | Phi3                      | text-generation                                                                                 |
@@ -121,17 +121,19 @@ If a LLM is listed, e.g. a model with a `text-generation` or `image-text-to-text
 | PixArt-Σ                      | text-to-image                                                                                                                          |
 | Flux                          | text-to-image, inpaint                                                                                                                 |
 | Flux Kontext                  | text-to-image, image-to-image                                                                                                          |
+| ControlNet                    | text-to-image                                                                                                                          |
+| InstructPix2Pix               | text-to-image                                                                                                                          |
 
 ### Sentence Transformers
 
 | Architecture                  | Task                                                                                                                                   |
 |-------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
 | Transformer                   | feature-extraction, sentence-similarity                                                                                                |
-| CLIP                          | feature-extraction, zero-shot-image-classification                                                                                     |
+| CLIP                          | feature-extraction, sentence-similarity                                                                                                |
 
 
 <Tip>
 
- To learn how to export a model for inference, you can check this [guide](https://huggingface.co/docs/optimum-neuron/guides/export_model#selecting-a-task).
+ To learn how to export a model for inference, you can check this [guide](https://huggingface.co/docs/optimum-neuron/guides/export_model).
 
 </Tip>

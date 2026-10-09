@@ -172,20 +172,20 @@ sft_config = NeuronSFTConfig(
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 dataset = preprocess_dataset_with_eos(tokenizer.eos_token)
 
- def formatting_function(examples):
-     return tokenizer.apply_chat_template(examples["messages"], tokenize=False, add_generation_prompt=False)
+def formatting_function(examples):
+    return tokenizer.apply_chat_template(examples["messages"], tokenize=False, add_generation_prompt=False)
 
- # The NeuronSFTTrainer will use `formatting_function` to format the dataset and `lora_config` to apply LoRA on the
- # model.
- trainer = NeuronSFTTrainer(
-     args=sft_config,
-     model=model,
-     peft_config=lora_config,
-     processing_class=tokenizer,
-     train_dataset=dataset,
-     formatting_func=formatting_function,
- )
- trainer.train()
+# The NeuronSFTTrainer will use `formatting_function` to format the dataset and `lora_config` to apply LoRA on the
+# model.
+trainer = NeuronSFTTrainer(
+    args=sft_config,
+    model=model,
+    peft_config=lora_config,
+    processing_class=tokenizer,
+    train_dataset=dataset,
+    formatting_func=formatting_function,
+)
+trainer.train()
 ```
 
 📝 **Complete script available:** All steps above are combined in a ready-to-use script [finetune_qwen3.py](https://github.com/huggingface/optimum-neuron/blob/main/examples/training/qwen3/finetune_qwen3.py).

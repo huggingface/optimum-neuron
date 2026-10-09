@@ -1,10 +1,10 @@
 #!/bin/bash
 printf "=============================================================================\n"
 printf "       __|  __|_  )\n"
-printf "       _|  (     /   HuggingFace Deep Learning Neuron AMI (Ubuntu 20.04)\n"
+printf "       _|  (     /   HuggingFace Deep Learning Neuron AMI (Ubuntu 24.04)\n"
 printf "      ___|\___|___|\n"
 printf "=============================================================================\n"
-printf "Welcome to the HuggingFace Deep Learning Neuron AMI (Ubuntu 20.04)\n"
+printf "Welcome to the HuggingFace Deep Learning Neuron AMI (Ubuntu 24.04)\n"
 printf "* Examples:     /home/ubuntu/huggingface-neuron-samples \n"
 printf "* Notebooks:    /home/ubuntu/huggingface-neuron-notebooks \n"
 printf "* Documentation: https://huggingface.co/docs/optimum-neuron/ \n"
