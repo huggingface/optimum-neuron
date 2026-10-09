@@ -14,8 +14,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
+permissions: {}
+
 jobs:
   build_documentation:
+    permissions:
+      contents: read
     runs-on: ubuntu-24.04
     env:
       COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
