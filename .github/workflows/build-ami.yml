@@ -73,14 +73,14 @@ jobs:
           - name: Packer Validate
             id: validate
             # If the workflow is triggered manually or scheduled, uses the tag, otherwise uses the name of branch that triggered workflow for building the AMI
-            run: packer validate -var "optimum_version=$OPTIMUM_VERSION" -var "region=${{ env.AWS_REGION }}" hcl2-files
+            run: packer validate -var "optimum_version=$OPTIMUM_VERSION" -var "region=${AWS_REGION}" hcl2-files
             continue-on-error: true
 
           - name: Packer Build
             id: build
             # If the workflow is triggered manually or scheduled, uses the tag, otherwise uses the name of branch that triggered workflow for building the AMI
             run:  |
-              packer build -var "optimum_version=$OPTIMUM_VERSION" -var "region=${{ env.AWS_REGION }}" hcl2-files
+              packer build -var "optimum_version=$OPTIMUM_VERSION" -var "region=${AWS_REGION}" hcl2-files
 
           - name: Slack Notification on Failure
             id: slack
