@@ -1,0 +1,1 @@
+import importlib.util; importlib.util.find_spec('_optimum_neuron_fx_shim') and __import__('_optimum_neuron_fx_shim').install_transformers_fx_shim()

@@ -24,9 +24,10 @@ from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
 
 from ..backend.config import NxDNeuronConfig
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
+from ..backend.modules.attention.rope import get_rope_parameters
 from ..backend.modules.attention.utils import RotaryEmbedding
 from ..backend.modules.decoder import NxDDecoderModelForCausalLM, NxDModelForCausalLM
-from ..backend.modules.moe import initialize_moe_module
+from ..backend.modules.moe import convert_expert_weights, initialize_moe_module
 from ..backend.modules.rms_norm import NeuronRMSNorm
 from ..llama.modeling_llama import NeuronLlamaMLP
 from ..mixtral.modeling_mixtral import NeuronMixtralDecoderLayer
@@ -59,54 +60,18 @@ def convert_qwen3_moe_hf_to_neuron_state_dict(neuron_state_dict, config, neuron_
 
             # Copy the router weights
             neuron_state_dict[f"layers.{l}.mlp.router.linear_router.weight"] = (
-                neuron_state_dict[f"layers.{l}.mlp.gate.weight"].detach().clone()
+                neuron_state_dict.pop(f"layers.{l}.mlp.gate.weight").detach().clone()
             )
-            del neuron_state_dict[f"layers.{l}.mlp.gate.weight"]
 
-            intermediate_size, hidden_size = neuron_state_dict[f"layers.{l}.mlp.experts.0.gate_proj.weight"].shape
-            device = neuron_state_dict[f"layers.{l}.mlp.experts.0.gate_proj.weight"].device
-            dtype = neuron_state_dict[f"layers.{l}.mlp.experts.0.gate_proj.weight"].dtype
-
-            # copy the MLP parameters
-            gate_up_proj = torch.empty(
+            gate_up_proj, down_proj = convert_expert_weights(
+                neuron_state_dict,
+                f"layers.{l}.mlp.experts",
                 config.num_experts,
-                hidden_size,
-                2 * intermediate_size,
-                dtype=dtype,
-                device=device,
+                "gate_proj",
+                "up_proj",
+                "down_proj",
             )
-            for e in range(config.num_experts):
-                # Copy gate_proj and up_proj after concatenation
-                gate_proj_weights = (
-                    neuron_state_dict[f"layers.{l}.mlp.experts.{e}.gate_proj.weight"].T.detach().clone()
-                )
-                up_proj_weights = neuron_state_dict[f"layers.{l}.mlp.experts.{e}.up_proj.weight"].T.detach().clone()
-
-                gate_up_proj_slice = torch.narrow(gate_up_proj, 0, e, 1)
-                gate_proj_slice = torch.narrow(gate_up_proj_slice, 2, 0, intermediate_size)
-                gate_proj_slice.copy_(gate_proj_weights)
-                up_proj_slice = torch.narrow(gate_up_proj_slice, 2, intermediate_size, intermediate_size)
-                up_proj_slice.copy_(up_proj_weights)
-
-                del neuron_state_dict[f"layers.{l}.mlp.experts.{e}.gate_proj.weight"]
-                del neuron_state_dict[f"layers.{l}.mlp.experts.{e}.up_proj.weight"]
             neuron_state_dict[f"layers.{l}.mlp.expert_mlps.mlp_op.gate_up_proj.weight"] = gate_up_proj
-
-            down_proj = torch.empty(
-                config.num_experts,
-                intermediate_size,
-                hidden_size,
-                dtype=dtype,
-                device=device,
-            )
-            for e in range(config.num_experts):
-                # Copy down_proj
-                down_proj_weights = (
-                    neuron_state_dict[f"layers.{l}.mlp.experts.{e}.down_proj.weight"].T.detach().clone()
-                )
-                down_proj_slice = torch.narrow(down_proj, 0, e, 1)
-                down_proj_slice.copy_(down_proj_weights)
-                del neuron_state_dict[f"layers.{l}.mlp.experts.{e}.down_proj.weight"]
             neuron_state_dict[f"layers.{l}.mlp.expert_mlps.mlp_op.down_proj.weight"] = down_proj
 
         gc.collect()
@@ -121,7 +86,7 @@ class NeuronQwen3MoEAttention(NeuronAttentionBase):
         self.rotary_emb = RotaryEmbedding(
             self.head_dim,
             max_position_embeddings=config.max_position_embeddings,
-            base=config.rope_theta,
+            base=get_rope_parameters(config)["rope_theta"],
         )
 
         # Qwen3Moe specific: set q_layernorm and k_layernorm

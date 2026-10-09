@@ -45,6 +45,7 @@ from torch_neuronx.xla_impl.ops import nki_jit  # noqa: E402
 from ...config import NxDNeuronConfig
 from .flash_attention_nki import flash_fwd_large_d
 from .gqa import GroupQueryAttention_O, GroupQueryAttention_QKV  # noqa: E402
+from .rope import get_rope_parameters  # noqa: E402
 
 
 logger = logging.getLogger("Neuron")
@@ -102,7 +103,7 @@ class NeuronAttentionBase(nn.Module):
         if self.head_dim is None:
             self.head_dim = self.hidden_size // self.num_attention_heads
         self.max_position_embeddings = config.max_position_embeddings
-        self.rope_theta = config.rope_theta
+        self.rope_theta = get_rope_parameters(config).get("rope_theta")
         self.torch_dtype = neuron_config.torch_dtype
         self.rms_norm_eps = config.rms_norm_eps
         self._qk_scale = qk_scale

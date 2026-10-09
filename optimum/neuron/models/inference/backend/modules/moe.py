@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # Adapted from https://github.com/aws-neuron/neuronx-distributed-inference/blob/9993358ce052fd7a1bb4a7497a6318aac36ed95c/src/neuronx_distributed_inference/modules/moe.py
+import torch
 from neuronx_distributed.modules.moe.expert_mlps import ExpertMLPs
 from neuronx_distributed.modules.moe.model import MoE
 from neuronx_distributed.modules.moe.routing import RouterTopK
@@ -52,3 +53,43 @@ def initialize_moe_module(
     # Set MoE module in eval mode
     moe.eval()
     return moe
+
+
+def convert_expert_weights(
+    state_dict: dict,
+    prefix: str,
+    num_experts: int,
+    gate_name: str,
+    up_name: str,
+    down_name: str,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Extracts the expert weights of a MoE layer and converts them to the neuron layout.
+
+    transformers v5 stores the expert weights fused as (num_experts, out_features, in_features),
+    with the gate and up projections stacked along the output dimension, but checkpoints saved
+    with earlier versions contain one tensor per expert and per projection.
+
+    Args:
+        state_dict: the checkpoint state dict, from which the expert weights are removed.
+        prefix: the prefix of the expert weights, e.g. "layers.0.mlp.experts".
+        num_experts: the number of experts in the layer.
+        gate_name: the name of the gate projection in non-fused checkpoints.
+        up_name: the name of the up projection in non-fused checkpoints.
+        down_name: the name of the down projection in non-fused checkpoints.
+
+    Returns:
+        The gate_up and down projections as (num_experts, in_features, out_features) tensors.
+    """
+    if f"{prefix}.gate_up_proj" in state_dict:
+        gate_up_proj = state_dict.pop(f"{prefix}.gate_up_proj")
+        down_proj = state_dict.pop(f"{prefix}.down_proj")
+    else:
+        gate_up_proj = torch.cat(
+            [
+                torch.stack([state_dict.pop(f"{prefix}.{e}.{name}.weight") for e in range(num_experts)])
+                for name in (gate_name, up_name)
+            ],
+            dim=1,
+        )
+        down_proj = torch.stack([state_dict.pop(f"{prefix}.{e}.{down_name}.weight") for e in range(num_experts)])
+    return gate_up_proj.transpose(1, 2).contiguous(), down_proj.transpose(1, 2).contiguous()

@@ -50,7 +50,7 @@ from transformers.models.auto.modeling_auto import MODEL_MAPPING_NAMES
 from transformers.optimization import get_scheduler
 from transformers.processing_utils import ProcessorMixin
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
-from transformers.tokenization_utils import PreTrainedTokenizerBase
+from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.trainer import (
     OPTIMIZER_NAME,
     SCHEDULER_NAME,

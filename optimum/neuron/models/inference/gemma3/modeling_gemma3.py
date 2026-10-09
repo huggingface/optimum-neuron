@@ -31,6 +31,7 @@ from transformers.models.gemma3.configuration_gemma3 import Gemma3TextConfig
 
 from ..backend.config import NxDNeuronConfig, NxDVLMNeuronConfig
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
+from ..backend.modules.attention.rope import get_rope_parameters
 from ..backend.modules.attention.utils import RotaryEmbedding
 from ..backend.modules.decoder import NxDDecoderModelForCausalLM, NxDModelForCausalLM
 from ..backend.modules.decoder.vlm_decoder import NxDModelForImageTextToText
@@ -111,8 +112,8 @@ class NeuronGemma3Attention(NeuronAttentionBase):
     Key features:
     - Q-K normalization after projection (similar to Qwen3)
     - MQA configuration (num_kv_heads=1 in Gemma3-270M/1B models)
-    - Layer-specific RoPE: sliding_attention layers use rope_local_base_freq,
-      full_attention layers use rope_theta
+    - Layer-specific RoPE: sliding_attention and full_attention layers each use
+      their own rope parameters
     - Custom NKI flash attention kernel for head_dim=256 (d-tiling approach)
     - Sliding window attention support in the flash attention
     """
@@ -121,11 +122,11 @@ class NeuronGemma3Attention(NeuronAttentionBase):
         # Initialize base attention without Q-K norm (we'll add them manually)
         super().__init__(config, neuron_config)
 
-        # Select RoPE theta based on layer type:
-        # - sliding_attention layers use rope_local_base_freq (e.g. 10000)
-        # - full_attention layers use rope_theta (e.g. 1000000)
-        is_sliding = config.layer_types[layer_idx] == "sliding_attention"
-        rope_theta = config.rope_local_base_freq if is_sliding else config.rope_theta
+        # Select RoPE theta based on layer type: Gemma3 nests one set of rope parameters per
+        # layer type, sliding_attention (e.g. 10000) and full_attention (e.g. 1000000).
+        layer_type = config.layer_types[layer_idx]
+        is_sliding = layer_type == "sliding_attention"
+        rope_theta = get_rope_parameters(config, layer_type)["rope_theta"]
 
         # Set sliding window size for the flash attention kernel
         self.sliding_window_size = config.sliding_window if is_sliding else 0
@@ -388,8 +389,8 @@ class NxDGemma3Model(NxDDecoderModelForCausalLM):
         position_ids = position_ids.view(-1, seq_length).long()
 
         new_key_values = []
-        # Gemma3 uses different RoPE bases for sliding (rope_local_base_freq) vs
-        # full (rope_theta) attention layers, so we must maintain separate cos/sin
+        # Gemma3 uses different RoPE bases for sliding vs full attention layers,
+        # so we must maintain separate cos/sin
         # caches per attention type to avoid reusing the wrong embeddings.
         rope_cache = {
             "sliding_attention": (None, None),

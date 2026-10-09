@@ -31,7 +31,6 @@ from transformers import (
     PreTrainedModel,
     PreTrainedTokenizer,
     PreTrainedTokenizerFast,
-    QuestionAnsweringPipeline,
     SequenceFeatureExtractor,
     TextClassificationPipeline,
     TextGenerationPipeline,
@@ -39,7 +38,6 @@ from transformers import (
 )
 from transformers import pipeline as transformers_pipeline
 from transformers.feature_extraction_utils import PreTrainedFeatureExtractor
-from transformers.onnx.utils import get_preprocessor
 
 from optimum.neuron.modeling_base import NeuronModel
 from optimum.neuron.pipelines.transformers.sentence_transformers import (
@@ -54,7 +52,6 @@ from ...modeling import (
     NeuronModelForFeatureExtraction,
     NeuronModelForImageClassification,
     NeuronModelForMaskedLM,
-    NeuronModelForQuestionAnswering,
     NeuronModelForSemanticSegmentation,
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
@@ -64,6 +61,46 @@ from ...models.inference.modeling_utils import NeuronModelForCausalLM
 
 
 logger = logging.getLogger(__name__)
+
+
+def get_preprocessor(model_name: str) -> Any | None:
+    """Get a preprocessor (tokenizer, feature extractor or processor) available for `model_name`.
+
+    Vendored from `transformers.onnx.utils`, removed in transformers v5.
+
+    Args:
+        model_name (`str`): Name of the model for which a preprocessor are loaded.
+
+    Returns:
+        If a processor is found, it is returned. Otherwise, if a tokenizer or a feature extractor exists, it is
+        returned. If both a tokenizer and a feature extractor exist, an error is raised. The function returns
+        `None` if no preprocessor is found.
+    """
+    from transformers import AutoFeatureExtractor, AutoProcessor, AutoTokenizer
+
+    try:
+        return AutoProcessor.from_pretrained(model_name)
+    except (ValueError, OSError, KeyError):
+        tokenizer, feature_extractor = None, None
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+        except (OSError, KeyError):
+            pass
+        try:
+            feature_extractor = AutoFeatureExtractor.from_pretrained(model_name)
+        except (OSError, KeyError):
+            pass
+
+        if tokenizer is not None and feature_extractor is not None:
+            raise ValueError(
+                f"Couldn't auto-detect preprocessor for {model_name}. Found both a tokenizer and a feature extractor."
+            )
+        elif tokenizer is None and feature_extractor is None:
+            return None
+        elif tokenizer is not None:
+            return tokenizer
+        else:
+            return feature_extractor
 
 
 NEURONX_SUPPORTED_TASKS = {
@@ -77,12 +114,6 @@ NEURONX_SUPPORTED_TASKS = {
         "impl": FillMaskPipeline,
         "class": (NeuronModelForMaskedLM,),
         "default": "bert-base-cased",
-        "type": "text",
-    },
-    "question-answering": {
-        "impl": QuestionAnsweringPipeline,
-        "class": (NeuronModelForQuestionAnswering,),
-        "default": "distilbert-base-cased-distilled-squad",
         "type": "text",
     },
     "text-classification": {

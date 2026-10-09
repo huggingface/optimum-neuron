@@ -15,19 +15,41 @@ from transformers import PretrainedConfig
 from ...config import NxDNeuronConfig
 
 
+def get_rope_parameters(config: PretrainedConfig, layer_type: str | None = None) -> dict:
+    """Return the RoPE parameters of a transformers config.
+
+    In transformers v5, `config.rope_theta` and `config.rope_scaling` were merged into a single
+    `config.rope_parameters` dict, holding `rope_theta`, `rope_type` and the scaling factors.
+    Models using several attention types (such as Gemma3) nest one such dict per layer type.
+
+    Args:
+        config (`PretrainedConfig`): The model configuration.
+        layer_type (`str`, *optional*): The attention type to look up for models nesting their
+            RoPE parameters per layer type, e.g. `full_attention` or `sliding_attention`.
+
+    Returns:
+        `dict`: The RoPE parameters, empty if the configuration does not define any.
+    """
+    rope_parameters = getattr(config, "rope_parameters", None)
+    if rope_parameters is None:
+        return {}
+    if layer_type is not None and layer_type in rope_parameters:
+        return rope_parameters[layer_type]
+    return rope_parameters
+
+
 def apply_scaling(freqs: torch.Tensor, config: PretrainedConfig):
-    rope_scaling = getattr(config, "rope_scaling", None)
-    assert rope_scaling is not None, "rope_scaling must be defined in the config to apply scaling"
-    original_max_position_embeddings = rope_scaling.get("original_max_position_embeddings", None)
+    rope_parameters = get_rope_parameters(config)
+    original_max_position_embeddings = rope_parameters.get("original_max_position_embeddings", None)
     assert original_max_position_embeddings is not None, (
-        "original_max_position_embeddings must be defined in rope_scaling to apply scaling"
+        "original_max_position_embeddings must be defined in rope_parameters to apply scaling"
     )
-    low_freq_factor = rope_scaling.get("low_freq_factor", None)
-    assert low_freq_factor is not None, "low_freq_factor must be defined in rope_scaling to apply scaling"
-    high_freq_factor = rope_scaling.get("high_freq_factor", None)
-    assert high_freq_factor is not None, "high_freq_factor must be defined in rope_scaling to apply scaling"
-    factor = rope_scaling.get("factor", None)
-    assert factor is not None, "factor must be defined in rope_scaling to apply scaling"
+    low_freq_factor = rope_parameters.get("low_freq_factor", None)
+    assert low_freq_factor is not None, "low_freq_factor must be defined in rope_parameters to apply scaling"
+    high_freq_factor = rope_parameters.get("high_freq_factor", None)
+    assert high_freq_factor is not None, "high_freq_factor must be defined in rope_parameters to apply scaling"
+    factor = rope_parameters.get("factor", None)
+    assert factor is not None, "factor must be defined in rope_parameters to apply scaling"
     low_freq_wavelen = original_max_position_embeddings / low_freq_factor
     high_freq_wavelen = original_max_position_embeddings / high_freq_factor
     new_freqs = []
@@ -49,9 +71,11 @@ def apply_scaling(freqs: torch.Tensor, config: PretrainedConfig):
 def precompute_freqs_cis(config: PretrainedConfig, neuron_config: NxDNeuronConfig):
     head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
     end = neuron_config.max_context_length * 2
-    freqs = 1.0 / (config.rope_theta ** (torch.arange(0, head_dim, 2)[: (head_dim // 2)].float() / head_dim))
+    rope_parameters = get_rope_parameters(config)
+    rope_theta = rope_parameters["rope_theta"]
+    freqs = 1.0 / (rope_theta ** (torch.arange(0, head_dim, 2)[: (head_dim // 2)].float() / head_dim))
     t = torch.arange(end, device=freqs.device, dtype=torch.float32)
-    if getattr(config, "rope_scaling", None) is not None:
+    if rope_parameters.get("rope_type", "default") != "default":
         freqs = apply_scaling(freqs, config)
     freqs = torch.outer(t, freqs)
     return freqs

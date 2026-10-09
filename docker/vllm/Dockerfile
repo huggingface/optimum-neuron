@@ -50,6 +50,11 @@ ENV PATH="/opt/bin/:/opt/aws/neuron/bin:${PATH}"
 RUN mkdir optimum-neuron
 COPY optimum optimum-neuron/optimum
 COPY pyproject.toml optimum-neuron/pyproject.toml
+# The startup hook installing the transformers.utils.fx shim, and the build hook placing it
+# in site-packages: the build fails without them.
+COPY _build_pth.py optimum-neuron/_build_pth.py
+COPY _optimum_neuron_fx_shim.py optimum-neuron/_optimum_neuron_fx_shim.py
+COPY optimum-neuron-fx-shim.pth optimum-neuron/optimum-neuron-fx-shim.pth
 RUN ls optimum-neuron
 RUN cd optimum-neuron && uv pip install .[neuronx,vllm]
 

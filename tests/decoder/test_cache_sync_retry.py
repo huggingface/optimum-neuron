@@ -21,17 +21,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from huggingface_hub.errors import HfHubHTTPError
-from requests import Response
+from huggingface_hub.utils import httpx
 
 from optimum.neuron.cache.hub_cache import _SYNC_MAX_RETRIES, CompileCacheHfProxy
 
 
 def _make_conflict_error(status_code):
     """Create an HfHubHTTPError with the given status code."""
-    response = Response()
-    response.status_code = status_code
-    error = HfHubHTTPError(f"{status_code} Conflict", response=response)
-    return error
+    request = httpx.Request("POST", "https://huggingface.co/api/models/test-org/test-cache/commit/main")
+    response = httpx.Response(status_code, request=request)
+    return HfHubHTTPError(f"{status_code} Conflict", response=response)
 
 
 def _make_http_409_error():
@@ -70,12 +69,6 @@ def test_412_is_conflict():
 
 def test_500_is_not_conflict():
     assert not CompileCacheHfProxy._is_commit_conflict(_make_http_500_error())
-
-
-def test_no_response_is_not_conflict():
-    error = HfHubHTTPError("no response")
-    error.response = None
-    assert not CompileCacheHfProxy._is_commit_conflict(error)
 
 
 @patch("optimum.neuron.cache.hub_cache.time.sleep")

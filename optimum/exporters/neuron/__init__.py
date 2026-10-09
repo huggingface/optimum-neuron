@@ -16,6 +16,13 @@ from typing import TYPE_CHECKING
 
 from transformers.utils import _LazyModule
 
+from ...neuron.utils.transformers_fx_shim import install_transformers_fx_shim
+
+
+# The export CLI runs `python3 -m optimum.exporters.neuron` in a fresh process, whose import
+# root is this package: the shim must be installed here too, before anything imports
+# neuronx_distributed.
+install_transformers_fx_shim()
 
 _import_structure = {
     "__main__": [

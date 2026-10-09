@@ -61,12 +61,14 @@ class NeuronSigLIPVisionEmbeddings(nn.Module):
         )
         self.position_embedding = nn.Embedding(num_patches, embed_dim)
 
-        # Pre-compute position IDs matching HF's fractional bucketing scheme.
+        # Pre-compute position IDs matching HF's fractional bucketing scheme. The fractional
+        # coordinates are clamped, not scaled: scaling them by (1 - 1e-6) moves every one just
+        # below its bucket boundary, which shifts all but the first position by one.
         boundaries = torch.arange(1 / num_patches_per_side, 1.0, 1 / num_patches_per_side)
         h_indices = torch.arange(num_patches_per_side, dtype=torch.float32)
         w_indices = torch.arange(num_patches_per_side, dtype=torch.float32)
-        fractional_h = h_indices / num_patches_per_side * (1 - 1e-6)
-        fractional_w = w_indices / num_patches_per_side * (1 - 1e-6)
+        fractional_h = torch.clamp(h_indices / num_patches_per_side, max=1.0 - 1e-6)
+        fractional_w = torch.clamp(w_indices / num_patches_per_side, max=1.0 - 1e-6)
         bucket_h = torch.bucketize(fractional_h, boundaries, right=True)
         bucket_w = torch.bucketize(fractional_w, boundaries, right=True)
         position_ids = (bucket_h[:, None] * num_patches_per_side + bucket_w).flatten()

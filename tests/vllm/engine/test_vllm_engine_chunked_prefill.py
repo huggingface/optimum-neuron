@@ -73,10 +73,15 @@ def chunked_prefill_data(neuron_llm_config: dict[str, Any]):
 
     batch_size = neuron_llm_config["export_kwargs"]["batch_size"]
     llm = LLM(model=neuron_llm_config["neuron_model_path"], max_num_seqs=batch_size)
-    short = _generate(llm, [short_prompt])[0]
-    long_ = _generate(llm, [long_prompt])[0]
-    batch = _generate(llm, batch_prompts)
-    del llm
+    try:
+        short = _generate(llm, [short_prompt])[0]
+        long_ = _generate(llm, [long_prompt])[0]
+        batch = _generate(llm, batch_prompts)
+    finally:
+        # Stop the spawned engine core: dropping the last reference only schedules
+        # that for the garbage collector, and an engine still running at interpreter
+        # exit makes pytest hang (see the vllm_llm fixture in conftest.py).
+        llm.llm_engine.engine_core.shutdown()
 
     return {
         "short": short,

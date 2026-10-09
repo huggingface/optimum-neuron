@@ -50,7 +50,7 @@ class NxDDecoderBuilderForCausalLM(NxDGraphBuilder):
         if not self.neuron_config.torch_dtype:
             self.neuron_config.torch_dtype = torch.float32
 
-        if config.pad_token_id is None:
+        if getattr(config, "pad_token_id", None) is None:
             config.pad_token_id = 0
 
         self.model_cls = model_cls

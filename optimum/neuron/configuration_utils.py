@@ -25,8 +25,6 @@ import torch
 from transformers.utils import (
     PushToHubMixin,
     cached_file,
-    download_url,
-    is_remote_url,
     logging,
 )
 
@@ -167,9 +165,6 @@ class NeuronConfig(PushToHubMixin):
             # Special case when config_path is a local file
             resolved_config_file = config_path
             is_local = True
-        elif is_remote_url(config_path):
-            configuration_file = config_path
-            resolved_config_file = download_url(config_path)
         else:
             configuration_file = config_file_name
             try:

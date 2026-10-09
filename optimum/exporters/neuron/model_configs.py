@@ -17,7 +17,6 @@
 import copy
 import os
 from functools import partial
-from typing import Any
 
 import neuronx_distributed
 import torch
@@ -344,9 +343,10 @@ class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
 
         return common_outputs
 
-    @property
-    def values_override(self) -> dict[str, Any] | None:
-        return {"return_dict": False}
+    def patch_model_and_prepare_aliases(self, model, input_names: list[str] = None, **kwargs):
+        # transformers v5 always returns a ModelOutput: the `return_dict=False` path that used to
+        # return a tuple no longer works for the CLIP text models, so the outputs are selected here.
+        return super().patch_model_and_prepare_aliases(model, input_names, eligible_outputs=self.outputs, **kwargs)
 
 
 @register_in_tasks_manager("clip-text-model", *["feature-extraction"], library_name="diffusers")

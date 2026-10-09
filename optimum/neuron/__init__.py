@@ -19,6 +19,12 @@ from typing import TYPE_CHECKING
 
 from transformers.utils import _LazyModule
 
+from .utils.transformers_fx_shim import install_transformers_fx_shim
+
+
+# Must run before anything imports neuronx_distributed.
+install_transformers_fx_shim()
+
 from .utils.instance import align_compilation_target
 from .utils.system import get_neuron_major
 

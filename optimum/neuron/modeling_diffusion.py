@@ -33,7 +33,7 @@ from huggingface_hub import snapshot_download
 from optimum.exporters.tasks import TasksManager
 from optimum.utils import is_diffusers_available, logging
 from torch.nn import ModuleList
-from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig, T5Tokenizer
+from transformers import CLIPImageProcessor, CLIPTokenizer, PretrainedConfig, T5Tokenizer
 from transformers.modeling_outputs import ModelOutput
 
 from optimum.exporters.neuron import (
@@ -95,7 +95,7 @@ if is_diffusers_available():
     from diffusers.configuration_utils import FrozenDict
     from diffusers.image_processor import PixArtImageProcessor, VaeImageProcessor
     from diffusers.models.autoencoders.vae import DecoderOutput, DiagonalGaussianDistribution
-    from diffusers.models.controlnet import ControlNetOutput
+    from diffusers.models.controlnets.controlnet import ControlNetOutput
     from diffusers.models.embeddings import FluxPosEmbed, ImageProjection, IPAdapterFullImageProjection
     from diffusers.models.modeling_outputs import AutoencoderKLOutput
     from diffusers.pipelines.controlnet import MultiControlNetModel
@@ -157,7 +157,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         safety_checker: torch.jit._script.ScriptModule | None = None,
         tokenizer: CLIPTokenizer | T5Tokenizer | None = None,
         tokenizer_2: CLIPTokenizer | T5Tokenizer | None = None,
-        feature_extractor: CLIPFeatureExtractor | None = None,
+        feature_extractor: CLIPImageProcessor | None = None,
         controlnet: "torch.jit._script.ScriptModule | list[torch.jit._script.ScriptModule]| NeuronControlNetModel | NeuronMultiControlNetModel | None" = None,
         # stable diffusion xl specific arguments
         requires_aesthetics_score: bool = False,
@@ -203,7 +203,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             tokenizer_2 (`CLIPTokenizer | T5Tokenizer | None`, defaults to `None`):
                 Second tokenizer of class
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
-            feature_extractor (`CLIPFeatureExtractor | None`, defaults to `None`):
+            feature_extractor (`CLIPImageProcessor | None`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
             controlnet (`torch.jit._script.ScriptModule | list[torch.jit._script.ScriptModule | None | "NeuronControlNetModel" | "NeuronMultiControlNetModel"`, defaults to `None`):
                 The Neuron TorchScript module(s) associated to the ControlNet(s).

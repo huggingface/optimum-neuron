@@ -31,6 +31,7 @@ from transformers.models.llama.modeling_llama import LlamaConfig, LlamaRotaryEmb
 
 from ..backend.config import NxDNeuronConfig  # noqa: E402
 from ..backend.modules.attention.attention_base import NeuronAttentionBase
+from ..backend.modules.attention.rope import get_rope_parameters
 from ..backend.modules.attention.utils import (
     RotaryEmbedding,
 )
@@ -130,29 +131,29 @@ class NeuronLlamaAttention(NeuronAttentionBase):
             config, neuron_config, qkv_proj_bias=qkv_proj_bias, o_proj_bias=o_proj_bias, qk_scale=qk_scale
         )
         head_dim = config.hidden_size // config.num_attention_heads
-        if not hasattr(config, "rope_scaling") or config.rope_scaling is None:
+        rope_parameters = get_rope_parameters(config)
+        rope_type = rope_parameters.get("rope_type", "default")
+        if rope_type == "default":
             self.rotary_emb = RotaryEmbedding(
                 head_dim,
                 max_position_embeddings=config.max_position_embeddings,
-                base=config.rope_theta,
+                base=rope_parameters["rope_theta"],
+            )
+        elif rope_type == "llama3":
+            self.rotary_emb = Llama3RotaryEmbedding(
+                dim=head_dim,
+                max_position_embeddings=config.max_position_embeddings,
+                base=rope_parameters["rope_theta"],
+                factor=rope_parameters["factor"],
+                low_freq_factor=rope_parameters["low_freq_factor"],
+                high_freq_factor=rope_parameters["high_freq_factor"],
+                original_max_position_embeddings=rope_parameters["original_max_position_embeddings"],
             )
         else:
-            rope_type = config.rope_scaling.get("rope_type", config.rope_scaling.get("type", None))
-            if rope_type == "llama3":
-                self.rotary_emb = Llama3RotaryEmbedding(
-                    dim=head_dim,
-                    max_position_embeddings=config.max_position_embeddings,
-                    base=config.rope_theta,
-                    factor=config.rope_scaling["factor"],
-                    low_freq_factor=config.rope_scaling["low_freq_factor"],
-                    high_freq_factor=config.rope_scaling["high_freq_factor"],
-                    original_max_position_embeddings=config.rope_scaling["original_max_position_embeddings"],
-                )
-            else:
-                # LlamaRotaryEmbedding automatically chooses the correct scaling type from config.
-                # Warning: The HF implementation may have precision issues when run on Neuron.
-                # We include it here for compatibility with other scaling types.
-                self.rotary_emb = LlamaRotaryEmbedding(config)
+            # LlamaRotaryEmbedding automatically chooses the correct scaling type from config.
+            # Warning: The HF implementation may have precision issues when run on Neuron.
+            # We include it here for compatibility with other scaling types.
+            self.rotary_emb = LlamaRotaryEmbedding(config)
 
 
 # TODO: Modularize RotaryEmbedding. See how HF transformers does it in 4.43.

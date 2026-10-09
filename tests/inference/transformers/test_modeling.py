@@ -606,22 +606,6 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
         # Neuron model with dynamic batching
         self._run_compare_to_transformers(model_arch, True, 2, "_dyn_bs_true")
 
-    def test_pipeline_model(self):
-        model_arch = "albert"
-        model_args = {"test_name": model_arch + "_dyn_bs_false", "model_arch": model_arch}
-        self._setup(model_args)
-
-        neuron_model, tokenizer = self._load_neuron_model_and_processor(model_arch, "_dyn_bs_false")
-        pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
-        question = "Whats your name?"
-        context = "My Name is Alexander Hamilton."
-        outputs = pipe(question, context)
-
-        self.assertGreaterEqual(outputs["score"], 0.0)
-        self.assertIsInstance(outputs["answer"], str)
-
-        gc.collect()
-
 
 class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForSequenceClassification

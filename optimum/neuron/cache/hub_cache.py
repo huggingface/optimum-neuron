@@ -205,7 +205,7 @@ class CompileCacheHfProxy(CompileCache):
     @staticmethod
     def _is_commit_conflict(error: HfHubHTTPError) -> bool:
         """Check if the error is a concurrent commit conflict (HTTP 409 or 412)."""
-        return error.response is not None and error.response.status_code in (409, 412)
+        return error.response.status_code in (409, 412)
 
     def _upload_folder_with_retry(self) -> None:
         """Upload local cache folder to Hub with optimistic concurrency control.

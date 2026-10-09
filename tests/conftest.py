@@ -73,7 +73,9 @@ INFERENTIA_MODEL_NAMES = {
     "deberta-v2": "hf-internal-testing/tiny-random-DebertaV2Model",
     "distilbert": "hf-internal-testing/tiny-random-DistilBertModel",
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
-    "flaubert": "flaubert/flaubert_small_cased",
+    # Not flaubert/flaubert_small_cased: it sets pre_norm, and that path of the transformers
+    # modeling code does not run at all (it subscripts an EncoderDecoderCache).
+    "flaubert": "hf-internal-testing/tiny-random-flaubert",
     "gpt2": "hf-internal-testing/tiny-random-gpt2",
     "llama": "dacorvo/tiny-random-llama",
     "mixtral": "dacorvo/Mixtral-tiny",

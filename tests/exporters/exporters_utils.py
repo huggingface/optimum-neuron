@@ -46,7 +46,9 @@ EXPORT_MODELS_TINY = {
     "dpt": "hf-internal-testing/tiny-random-DPTModel",
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
     # "esm": "hf-internal-testing/tiny-random-EsmModel",  # TODO: put the test back, when https://github.com/aws-neuron/aws-neuron-sdk/issues/1081 is solved.
-    "flaubert": "flaubert/flaubert_small_cased",
+    # Not flaubert/flaubert_small_cased: it sets pre_norm, and that path of the transformers
+    # modeling code does not run at all (it subscripts an EncoderDecoderCache).
+    "flaubert": "hf-internal-testing/tiny-random-flaubert",
     "hubert": "hf-internal-testing/tiny-random-HubertModel",
     "levit": "hf-internal-testing/tiny-random-LevitModel",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",

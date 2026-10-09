@@ -21,9 +21,9 @@ from vllm.distributed import ensure_model_parallel_initialized, init_distributed
 from vllm.tasks import SupportedTask
 from vllm.utils.torch_utils import set_random_seed
 from vllm.v1.core.sched.output import SchedulerOutput
-from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheSpec
+from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheLayout, KVCacheSpec
 from vllm.v1.outputs import ModelRunnerOutput
-from vllm.v1.worker.worker_base import WorkerBase
+from vllm.v1.worker.worker_base import CompilationTimes, WorkerBase
 
 from .runner import OptimumNeuronModelRunner
 
@@ -101,7 +101,9 @@ class OptimumNeuronWorker(WorkerBase):
         # Set random seed.
         set_random_seed(self.model_config.seed)
 
-    def load_model(self):
+    def load_model(self, *, load_dummy_weights: bool = False):
+        # Neuron models are always loaded from their compiled artifacts, so dummy weights
+        # are not supported: the kwarg only exists to match the vLLM WorkerBase signature.
         with set_current_vllm_config(self.vllm_config):
             self.model_runner.load_model()
 
@@ -109,19 +111,19 @@ class OptimumNeuronWorker(WorkerBase):
         # Return empty dict since we disabled prefix caching.
         return {}
 
-    def initialize_cache(self, num_gpu_blocks: int, num_cpu_blocks: int) -> None:
-        # Nothing to do here as the KV cache is instantiated and managed internally
-        # by the optimum-neuron model.
-        assert num_cpu_blocks == 0
-        assert num_gpu_blocks == 1
+    def get_supported_kv_cache_layouts(self) -> list[str]:
+        # The compiled neuron model owns its KV cache, so vLLM never lays one out and the
+        # answer is arbitrary: it only has to be a layout the engine can resolve. The base
+        # implementation would go looking for a vLLM attention backend, which there is none of.
+        return [KVCacheLayout.LBHNC.name]
 
     def initialize_from_config(self, kv_cache_config: KVCacheConfig) -> None:
         # We don't need to do anything since we disabled prefix caching.
         pass
 
-    def compile_or_warm_up_model(self) -> None:
+    def compile_or_warm_up_model(self) -> CompilationTimes:
         # Not required since the compilation happens implicitly when loading the model.
-        pass
+        return CompilationTimes(language_model=0.0, encoder=0.0)
 
     def execute_dummy_batch(self) -> None:
         # No-op for Neuron. In DP mode, vLLM calls this on idle replicas to keep

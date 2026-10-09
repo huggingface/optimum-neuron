@@ -141,3 +141,10 @@ class OptimumNeuronPlatform(UnspecifiedPlatform):
     @classmethod
     def use_all_gather(cls) -> bool:
         return True
+
+    @classmethod
+    def manual_seed_all(cls, seed: int) -> None:
+        # Neuron RNG state is owned by the compiled graph, so there is no
+        # per-device seeding to do beyond the torch seeding already performed
+        # by the caller.
+        pass
