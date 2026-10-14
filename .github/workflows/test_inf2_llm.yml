@@ -64,39 +64,47 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name || github.run_id }}
   cancel-in-progress: true
 
+permissions: {}
+
 jobs:
   sanity:
+    permissions:
+      contents: read
     name: Sanity
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Run sanity check
         uses: ./.github/actions/sanity-check
         with:
           hf_token: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE }}
 
   llm-export-models:
+    permissions:
+      contents: read
     name: Export LLM test models
     needs: sanity
     runs-on:
       group: aws-inf2-8xlarge
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Export test models
         uses: ./.github/actions/export_test_models
         with:
           hf_token: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
 
   llm-module-tests:
+    permissions:
+      contents: read
     name: Run LLM module tests
     needs: sanity
     runs-on:
       group: aws-inf2-8xlarge
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Neuronx runtime
         uses: ./.github/actions/install_neuronx_runtime
       - name: Setup virtual environment
@@ -110,13 +118,15 @@ jobs:
           pytest -sv tests/decoder/test_flash_attention_large_d.py
 
   llm-model-tests-1:
+    permissions:
+      contents: read
     name: Run LLM export and generation tests
     needs: llm-export-models
     runs-on:
       group: aws-inf2-8xlarge
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Neuronx runtime
         uses: ./.github/actions/install_neuronx_runtime
       - name: Setup virtual environment
@@ -145,13 +155,15 @@ jobs:
           pytest -sv tests/decoder/test_vlm_generation.py
 
   llm-model-tests-2:
+    permissions:
+      contents: read
     name: Run LLM pipeline and cache tests
     needs: llm-export-models
     runs-on:
       group: aws-inf2-8xlarge
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Neuronx runtime
         uses: ./.github/actions/install_neuronx_runtime
       - name: Setup virtual environment
