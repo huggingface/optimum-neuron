@@ -42,8 +42,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name || github.run_id }}
   cancel-in-progress: true
 
+permissions: {}
+
 jobs:
   sanity:
+    permissions:
+      contents: read
     name: Sanity
     runs-on: ubuntu-24.04
     steps:
@@ -55,6 +59,8 @@ jobs:
           hf_token: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE }}
 
   transformers-modeling-tests:
+    permissions:
+      contents: read
     name: Run transformers modeling tests
     needs: sanity
     runs-on:
@@ -88,6 +94,8 @@ jobs:
           pytest -m "not slow" tests/inference/transformers/test_modeling.py
 
   transformers-pipeline-tests:
+    permissions:
+      contents: read
     name: Run transformers pipeline tests
     needs: sanity
     runs-on:

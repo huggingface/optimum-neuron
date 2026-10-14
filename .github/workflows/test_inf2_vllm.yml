@@ -66,8 +66,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name || github.run_id }}
   cancel-in-progress: true
 
+permissions: {}
+
 jobs:
   sanity:
+    permissions:
+      contents: read
     name: Sanity
     runs-on: ubuntu-24.04
     steps:
@@ -79,6 +83,8 @@ jobs:
           hf_token: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE }}
 
   vllm-export-models:
+    permissions:
+      contents: read
     name: Export vLLM test models
     needs: sanity
     runs-on:
@@ -93,6 +99,8 @@ jobs:
           vllm: 'true'
 
   vllm-engine-tests:
+    permissions:
+      contents: read
     name: Run vLLM engine tests
     needs: vllm-export-models
     runs-on:
@@ -121,6 +129,8 @@ jobs:
           pytest -sv tests/vllm/engine/test_vllm_engine_chunked_prefill.py
 
   vllm-service-tests:
+    permissions:
+      contents: read
     name: Run vLLM service tests
     needs: vllm-export-models
     runs-on:
@@ -143,6 +153,8 @@ jobs:
           pytest -sv tests/vllm/service
 
   vllm-docker-tests:
+    permissions:
+      contents: read
     name: Run vLLM docker tests
     needs: vllm-export-models
     runs-on:
