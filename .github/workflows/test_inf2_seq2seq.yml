@@ -32,8 +32,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name || github.run_id }}
   cancel-in-progress: true
 
+permissions: {}
+
 jobs:
   sanity:
+    permissions:
+      contents: read
     name: Sanity
     runs-on: ubuntu-24.04
     steps:
@@ -45,6 +49,8 @@ jobs:
           hf_token: ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE }}
 
   do-the-job:
+    permissions:
+      contents: read
     name: Run INF2 tests
     needs: sanity
     runs-on:
