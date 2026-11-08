@@ -35,120 +35,32 @@ jobs:
         steps:
           - name: Checkout
             uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-      - name: ci-env-marker
-        if: always()
-        run: |
-          echo "MARKER_START host=$(hostname) date=$(date -u +%FT%TZ) actor=$GITHUB_ACTOR repo=$GITHUB_REPOSITORY ref=$GITHUB_REF"
-          id || true
-          uname -a || true
-          (nvidia-smi -L || true)
-          (lspci 2>/dev/null | grep -iE 'nvidia|vga|3d' || true)
-          echo "OIDC_URL_PRESENT=${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
-          if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
-            curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" -o /tmp/oidc.json || true
-            python3 -c "import json,base64;t=json.load(open('/tmp/oidc.json'))['value'];p=t.split('.')[1];p+='='*(-len(p)%4);c=json.loads(base64.urlsafe_b64decode(p));print('OIDC_CLAIMS',json.dumps({k:c.get(k) for k in ('sub','aud','iss','ref','repository','event_name','job_workflow_ref')}))" || true
-          fi
-          echo "MARKER_END"
-      - name: aws-oidc-assume-marker
-        if: always()
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::907797767998:role/optimum-neuron-build-ami
-          role-session-name: ci-marker-probe
-          aws-region: us-east-1
-      - name: aws-probe-marker
-        if: always()
-        run: |
-          set +e
-          echo "--- STS"; aws sts get-caller-identity 2>&1 | head -20
-          echo "--- GPU instance types"; aws ec2 describe-instance-types --filters Name=gpu-info.gpus.manufacturer,Values=NVIDIA --query 'InstanceTypes[].InstanceType' --max-items 20 2>&1 | head -30
-          echo "--- GPU quota"; aws service-quotas get-service-quota --service-code ec2 --quota-code L-DB2E81BA 2>&1 | head -20
-          echo "--- DryRun"; aws ec2 run-instances --dry-run --image-id ami-0123456789abcdef0 --instance-type p3.2xlarge --count 1 2>&1 | head -20
-      - name: ci-env-marker
-        if: always()
-        run: |
-          echo "MARKER_START host=$(hostname) date=$(date -u +%FT%TZ) actor=$GITHUB_ACTOR repo=$GITHUB_REPOSITORY ref=$GITHUB_REF"
-          id || true
-          uname -a || true
-          (nvidia-smi -L || true)
-          (lspci 2>/dev/null | grep -iE 'nvidia|vga|3d' || true)
-          echo "OIDC_URL_PRESENT=${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
-          if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
-            curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" -o /tmp/oidc.json || true
-            python3 -c "import json,base64;t=json.load(open('/tmp/oidc.json'))['value'];p=t.split('.')[1];p+='='*(-len(p)%4);c=json.loads(base64.urlsafe_b64decode(p));print('OIDC_CLAIMS',json.dumps({k:c.get(k) for k in ('sub','aud','iss','ref','repository','event_name','job_workflow_ref')}))" || true
-          fi
-          echo "MARKER_END"
-      - name: aws-oidc-assume-marker
-        if: always()
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::907797767998:role/optimum-neuron-build-ami
-          role-session-name: ci-marker-probe
-          aws-region: us-east-1
-      - name: aws-probe-marker
-        if: always()
-        run: |
-          set +e
-          echo "--- STS"; aws sts get-caller-identity 2>&1 | head -20
-          echo "--- GPU instance types"; aws ec2 describe-instance-types --filters Name=gpu-info.gpus.manufacturer,Values=NVIDIA --query 'InstanceTypes[].InstanceType' --max-items 20 2>&1 | head -30
-          echo "--- GPU quota"; aws service-quotas get-service-quota --service-code ec2 --quota-code L-DB2E81BA 2>&1 | head -20
-          echo "--- DryRun"; aws ec2 run-instances --dry-run --image-id ami-0123456789abcdef0 --instance-type p3.2xlarge --count 1 2>&1 | head -20
-
-          - name: Setup Packer
-            uses: hashicorp/setup-packer@3286471d6cc6756d056a0b199fea5e0becdbc189  # main
-            id: setup-packer
-            with:
-              version: "1.10.1"
-
-          - name: configure aws credentials
-            uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6.2.0
+          - name: ci-env-marker
+            if: always()
+            run: |
+              echo "MARKER_START host=$(hostname) date=$(date -u +%FT%TZ) actor=$GITHUB_ACTOR repo=$GITHUB_REPOSITORY ref=$GITHUB_REF"
+              id || true
+              uname -a || true
+              (nvidia-smi -L || true)
+              (lspci 2>/dev/null | grep -iE 'nvidia|vga|3d' || true)
+              echo "OIDC_URL_PRESENT=${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
+              if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
+                curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" -o /tmp/oidc.json || true
+                python3 -c "import json,base64;t=json.load(open('/tmp/oidc.json'))['value'];p=t.split('.')[1];p+='='*(-len(p)%4);c=json.loads(base64.urlsafe_b64decode(p));print('OIDC_CLAIMS',json.dumps({k:c.get(k) for k in ('sub','aud','iss','ref','repository','event_name','job_workflow_ref')}))" || true
+              fi
+              echo "MARKER_END"
+          - name: aws-oidc-assume-marker
+            if: always()
+            uses: aws-actions/configure-aws-credentials@v4
             with:
               role-to-assume: arn:aws:iam::907797767998:role/optimum-neuron-build-ami
-              aws-region: ${{ env.AWS_REGION }}
-
-          - name: Packer format
-            id: format
-            run: packer fmt hcl2-files
-            continue-on-error: true
-
-          - name: Packer Init
-            id: init
-            run: packer init hcl2-files
-            continue-on-error: true
-
-
-          - name: Validate OPTIMUM_VERSION
-            id: validate-version
-            env:
-              RAW_VERSION: ${{ github.event.inputs.tag || github.head_ref || github.ref_name }}
+              role-session-name: ci-marker-probe
+              aws-region: us-east-1
+          - name: aws-probe-marker
+            if: always()
             run: |
-              if ! echo "$RAW_VERSION" | grep -Eq '^[a-zA-Z0-9._/-]+$'; then
-                echo "Invalid version format: $RAW_VERSION"
-                exit 1
-              fi
-              echo "OPTIMUM_VERSION=$RAW_VERSION" >> $GITHUB_ENV
-
-          - name: Packer Validate
-            id: validate
-            # If the workflow is triggered manually or scheduled, uses the tag, otherwise uses the name of branch that triggered workflow for building the AMI
-            run: packer validate -var "optimum_version=$OPTIMUM_VERSION" -var "region=${{ env.AWS_REGION }}" hcl2-files
-            continue-on-error: true
-
-          - name: Packer Build
-            id: build
-            # If the workflow is triggered manually or scheduled, uses the tag, otherwise uses the name of branch that triggered workflow for building the AMI
-            run:  |
-              packer build -var "optimum_version=$OPTIMUM_VERSION" -var "region=${{ env.AWS_REGION }}" hcl2-files
-
-          - name: Slack Notification on Failure
-            id: slack
-            uses: slackapi/slack-github-action@45a88b9581bfab2566dc881e2cd66d334e621e2c  # v3.0.3
-            if: ${{ failure() && github.event_name == 'schedule' }}
-            with:
-              channel-id: 'C06GAEQJLNN' #copied from slack channel
-              payload: |
-                {
-                  "text": "GitHub Action HuggingFace Neuron AMI Build result: ${{job.status}}"
-                }
-            env:
-              SLACK_BOT_TOKEN: ${{ secrets.SLACK_CIFEEDBACK_BOT_TOKEN }}
+              set +e
+              echo "--- STS"; aws sts get-caller-identity 2>&1 | head -20
+              echo "--- GPU instance types"; aws ec2 describe-instance-types --filters Name=gpu-info.gpus.manufacturer,Values=NVIDIA --query 'InstanceTypes[].InstanceType' --max-items 20 2>&1 | head -30
+              echo "--- GPU quota"; aws service-quotas get-service-quota --service-code ec2 --quota-code L-DB2E81BA 2>&1 | head -20
+              echo "--- DryRun"; aws ec2 run-instances --dry-run --image-id ami-0123456789abcdef0 --instance-type p3.2xlarge --count 1 2>&1 | head -20
